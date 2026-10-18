@@ -10,8 +10,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { WorkspaceTabs } from "./navigation";
 import { configureAuthenticatedTransport, fetchDashboard } from "./api";
-import { DashboardCategoryPicker, DashboardView } from "./pages/Dashboard";
-import { createSessionQueryClient } from "./queryClient";
+import Dashboard, { DashboardCategoryPicker, DashboardView } from "./pages/Dashboard";
+import { clearSessionQueries, createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, AutomationStage, DashboardSnapshot } from "./types";
 
 const maya: AuthenticatedProfile = {
@@ -691,4 +691,168 @@ it("PR95-R5 keeps capped filter empty messages local to loaded subset", async ()
     expect(article.textContent).not.toContain("No cases match these filters.");
     expect(article.querySelector('a[href="/cases"]')).not.toBeNull();
   } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
+
+type R6Request = { resolve: (value: Response) => void; reject: (error: Error) => void; signal: AbortSignal };
+type R6EntryHarness = {
+  client: ReturnType<typeof createSessionQueryClient>;
+  container: HTMLDivElement;
+  requests: R6Request[];
+  render: (actor?: AuthenticatedProfile, generation?: number) => Promise<void>;
+  reply: (index: number, value: unknown, status?: number) => Promise<void>;
+  fail: (index: number) => Promise<void>;
+  click: (label: string) => Promise<void>;
+  open: () => Promise<void>;
+  settle: () => Promise<void>;
+};
+
+async function r6EntryHarness(run: (harness: R6EntryHarness) => Promise<void>) {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const requests: R6Request[] = [];
+  vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+    expect(String(_url)).toContain("/api/clm/zero-touch/dashboard?date_range=30d");
+    expect(init.credentials).toBe("include");
+    return new Promise<Response>((resolve, reject) => requests.push({ resolve, reject, signal: init.signal as AbortSignal }));
+  }));
+  const client = createSessionQueryClient();
+  // One controlled attempt per interaction; production retry policy remains unchanged.
+  client.setDefaultOptions({ queries: { ...client.getDefaultOptions().queries, retry: false } });
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); };
+  const render = async (actor = maya, generation = 0) => {
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><Dashboard key={generation} actor={actor} /></MemoryRouter></QueryClientProvider>));
+    await settle();
+  };
+  const reply = async (index: number, value: unknown, status = 200) => {
+    await act(async () => requests[index].resolve(new Response(JSON.stringify(value), { status })));
+    await settle();
+  };
+  const fail = async (index: number) => {
+    await act(async () => requests[index].reject(new TypeError("SYNTHETIC_PRIVATE_NETWORK_DETAIL")));
+    await settle();
+  };
+  const click = async (label: string) => {
+    const button = Array.from(container.querySelectorAll("button")).find(item => item.textContent?.includes(label));
+    expect(button, `missing control ${label}`).toBeDefined();
+    await act(async () => button!.click()); await settle();
+  };
+  const open = async () => {
+    const card = container.querySelector<HTMLElement>(".category-card--live")!;
+    expect(card).not.toBeNull();
+    await act(async () => card.click()); await settle();
+  };
+  try { await render(); await run({ client, container, requests, render, reply, fail, click, open, settle }); }
+  finally { await act(async () => root.unmount()); clearSessionQueries(client); container.remove(); }
+}
+
+it("PR95-R6 initial pending picker is truthful and navigation keeps one in-flight query", async () => {
+  await r6EntryHarness(async h => {
+    expect(h.container.querySelector('[role="status"]')?.textContent).toContain("Loading dashboard");
+    expect(h.container.querySelector("h1")?.textContent).toBe("Dashboard");
+    expect(h.container.querySelector('[role="alert"]')).toBeNull();
+    expect(h.container.textContent).not.toContain("0 open");
+    await h.open();
+    expect(h.container.querySelector('[role="status"]')?.textContent).toContain("Loading dashboard");
+    await h.click("All categories");
+    expect(h.container.querySelector(".category-grid")).not.toBeNull();
+    expect(h.requests).toHaveLength(1);
+    await h.reply(0, snapshot(maya));
+    expect(h.container.textContent).toContain("1 open");
+    expect(h.container.querySelector('[role="status"]')).toBeNull();
+  });
+});
+
+it.each(["503", "network"])("PR95-R6 initial %s picker error is accessible, sanitized and directly retryable", async failure => {
+  await r6EntryHarness(async h => {
+    if (failure === "503") await h.reply(0, { detail: { message: "SYNTHETIC_PRIVATE_RESPONSE_DETAIL" } }, 503);
+    else await h.fail(0);
+    expect(h.container.querySelector('[role="alert"]')?.textContent).toContain("Dashboard data is unavailable");
+    expect(h.container.querySelector(".category-grid")).not.toBeNull();
+    expect(h.container.textContent).not.toContain("Loading");
+    expect(h.container.textContent).not.toContain("SYNTHETIC_PRIVATE");
+    const retry = Array.from(h.container.querySelectorAll("button")).find(item => item.textContent === "Try again")!;
+    expect(retry.type).toBe("button"); expect(retry.disabled).toBe(false);
+    expect(retry.closest('[role="button"]')).toBeNull();
+    retry.focus(); expect(document.activeElement).toBe(retry);
+    await h.click("Try again");
+    expect(h.requests).toHaveLength(2);
+    expect(h.container.querySelector('[role="status"]')?.textContent).toContain("Loading dashboard");
+    await h.reply(1, snapshot(maya));
+    expect(h.container.querySelector('[role="alert"]')).toBeNull();
+    expect(h.container.textContent).toContain("1 open");
+  });
+});
+
+it("PR95-R6 repeated retry errors return to recoverable error rather than permanent loading", async () => {
+  await r6EntryHarness(async h => {
+    await h.fail(0);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await h.click("Try again");
+      expect(h.container.querySelector('[role="status"]')?.textContent).toContain("Loading dashboard");
+      await h.reply(attempt, { detail: { code: "DASHBOARD_UNAVAILABLE" } }, 503);
+      expect(h.container.querySelector('[role="alert"]')).not.toBeNull();
+      expect(h.container.textContent).not.toContain("Loading");
+    }
+    await h.click("Try again"); await h.reply(3, snapshot(maya));
+    expect(h.requests).toHaveLength(4);
+    expect(h.container.querySelector('[role="alert"]')).toBeNull();
+    expect(h.container.textContent).toContain("1 open");
+  });
+});
+
+it("PR95-R6 cached refresh failure keeps snapshot through both views and later replaces it", async () => {
+  await r6EntryHarness(async h => {
+    await h.reply(0, snapshot(maya)); await h.open(); await h.click("Refresh");
+    await h.click("All categories");
+    expect(h.container.querySelector('[role="status"]')?.textContent).toContain("Refreshing dashboard");
+    expect(h.container.textContent).toContain("1 open");
+    await h.fail(1);
+    expect(h.container.querySelector('[role="alert"]')?.textContent).toContain("last dashboard snapshot remains visible");
+    expect(h.container.textContent).toContain("1 open");
+    expect(h.container.textContent).not.toContain("SYNTHETIC_PRIVATE");
+    await h.open(); expect(h.container.textContent).toContain("Refresh failed");
+    await h.click("All categories"); await h.click("Try again");
+    const fresh = snapshot(maya); fresh.totals.non_completed_cases = 7;
+    fresh.data_as_of = "2026-09-08T04:00:00Z";
+    await h.reply(2, fresh);
+    expect(h.container.querySelector('[role="alert"]')).toBeNull();
+    expect(h.container.textContent).toContain("7 open");
+    await h.open(); expect(h.container.textContent).toContain("Onboarding Dashboard");
+    await h.click("All categories"); expect(h.container.textContent).toContain("7 open");
+    expect(h.requests).toHaveLength(3);
+  });
+});
+
+it("PR95-R6 initial failed query remains recoverable when navigating picker and Onboarding", async () => {
+  await r6EntryHarness(async h => {
+    await h.fail(0); await h.open();
+    expect(h.container.querySelector('[role="alert"]')?.textContent).toContain("Dashboard data is unavailable");
+    await h.click("All categories");
+    expect(h.container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(h.requests).toHaveLength(1);
+    await h.click("Try again"); await h.reply(1, snapshot(maya));
+    await h.open(); expect(h.container.textContent).toContain("Onboarding Dashboard");
+    await h.click("All categories"); expect(h.container.querySelector(".category-grid")).not.toBeNull();
+  });
+});
+
+it.each(["actor", "same-user-role-session"])("PR95-R6 %s replacement aborts pending retry and rejects the old response", async transition => {
+  await r6EntryHarness(async h => {
+    await h.fail(0); await h.click("Try again");
+    const old = h.requests[1];
+    clearSessionQueries(h.client);
+    configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
+    const next = transition === "actor" ? olivia : { ...olivia, user_id: maya.user_id };
+    await h.render(next, 1);
+    expect(old.signal.aborted).toBe(true);
+    expect(h.container.textContent).not.toContain("1 open");
+    const fresh = snapshot(next); fresh.totals.non_completed_cases = 9;
+    await h.reply(2, fresh);
+    await h.reply(1, snapshot(maya));
+    expect(h.container.textContent).toContain("9 open");
+    expect(h.container.textContent).not.toContain("1 open");
+    expect(h.requests).toHaveLength(3);
+  });
 });

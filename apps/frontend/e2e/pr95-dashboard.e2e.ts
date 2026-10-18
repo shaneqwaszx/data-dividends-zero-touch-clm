@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { classifyBrowserRequest, createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", async ({ page }) => {
   const violations: string[] = [];
@@ -16,11 +16,77 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
     frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!,
     backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false,
   });
-  await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
+  // R6 faults are bounded to the guarded owned frontend Dashboard GET; success
+  // still uses the actual authenticated local backend, never a synthetic snapshot.
+  let dashboardMode: "503" | "network" | "pending" | "pass" = "503";
+  let dashboardRequests = 0;
+  let releaseRetry = () => {};
+  let retryGate = Promise.resolve();
+  await page.route("**/*", async route => {
+    const url = new URL(route.request().url());
+    const decision = classifyBrowserRequest(url.href, policy, route.request().resourceType());
+    if (decision.classification === "OWNED_LOOPBACK"
+      && url.origin === process.env.PLAYWRIGHT_BASE_URL
+      && url.pathname === "/api/clm/zero-touch/dashboard") {
+      dashboardRequests++;
+      if (dashboardMode === "503") return route.fulfill({ status: 503, contentType: "application/json",
+        body: JSON.stringify({ detail: { code: "DASHBOARD_UNAVAILABLE", message: "SYNTHETIC_PRIVATE_RESPONSE_DETAIL" } }) });
+      if (dashboardMode === "network") return route.abort("failed");
+      if (dashboardMode === "pending") await retryGate;
+    }
+    return handleBrowserRoute(route, policy, violations);
+  });
   await page.goto("/");
   await page.getByLabel("User ID").fill("maya-lim");
   await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  // Initial 503 and network failures recover directly from the category picker.
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  const error = page.getByRole("alert").filter({ hasText: "Dashboard data is unavailable" });
+  const retry = page.getByRole("button", { name: "Try again", exact: true });
+  const dashboardLoading = page.getByRole("status").filter({ hasText: /^(Loading|Refreshing) dashboard/ });
+  await expect(error).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+  await expect(page.locator(".category-card--live")).not.toContainText("Loading");
+  await expect(page.locator("body")).not.toContainText("SYNTHETIC_PRIVATE_RESPONSE_DETAIL");
+  await expect(page.locator(".category-card--live button")).toHaveCount(0);
+  dashboardMode = "network";
+  const beforeNetwork = dashboardRequests;
+  await retry.focus(); await page.keyboard.press("Enter");
+  await expect.poll(() => dashboardRequests).toBeGreaterThan(beforeNetwork);
+  await expect(error).toBeVisible();
+  await expect(dashboardLoading).toHaveCount(0);
+  dashboardMode = "pending";
+  retryGate = new Promise<void>(resolve => { releaseRetry = resolve; });
+  try {
+    await retry.focus(); await page.keyboard.press("Space");
+    await expect(dashboardLoading).toHaveText("Loading dashboard…");
+    const pendingRequests = dashboardRequests;
+    const card = page.locator(".category-card--live");
+    await card.focus(); await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "Onboarding Dashboard" })).toBeVisible();
+    await page.getByRole("button", { name: "All categories" }).click();
+    await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+    expect(dashboardRequests).toBe(pendingRequests);
+    const recovered = page.waitForResponse(response => new URL(response.url()).pathname === "/api/clm/zero-touch/dashboard" && response.status() === 200);
+    dashboardMode = "pass"; releaseRetry();
+    const genuine = await (await recovered).json();
+    await expect(error).toHaveCount(0);
+    await expect(card).toContainText(`${genuine.totals.non_completed_cases} open`);
+    await card.click();
+    dashboardMode = "503";
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveText("Refresh failed; the last dashboard snapshot remains visible.");
+    await page.getByRole("button", { name: "All categories" }).click();
+    await expect(card).toContainText(`${genuine.totals.non_completed_cases} open`);
+    await expect(page.getByRole("alert")).toHaveText("Refresh failed; the last dashboard snapshot remains visible.");
+    dashboardMode = "pass";
+    const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === "/api/clm/zero-touch/dashboard" && response.status() === 200);
+    await retry.focus(); await page.keyboard.press("Enter");
+    expect((await refreshed).status()).toBe(200);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  } finally { dashboardMode = "pass"; releaseRetry(); }
+
   // Establish one genuine synthetic Mock completion through the normal UI.
   const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
     "../../backend/tests/fixtures/uat/clean-company-profile.pdf");

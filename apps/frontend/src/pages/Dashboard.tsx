@@ -165,9 +165,11 @@ const PLACEHOLDER_CATEGORIES = [
 export function DashboardCategoryPicker({
   dashboard,
   onSelectOnboarding,
+  unavailable = false,
 }: {
   dashboard: DashboardSnapshot | undefined;
   onSelectOnboarding: () => void;
+  unavailable?: boolean;
 }) {
   const totals = dashboard?.totals;
   const blocked = dashboard?.status_breakdown
@@ -193,7 +195,7 @@ export function DashboardCategoryPicker({
           <h2>Onboarding</h2>
           <p className="text-muted">Registry extract, automatic checks, blockers and time per pipeline step</p>
           <div className="category-card-foot">
-            {totals ? <><span>{totals.non_completed_cases} open</span><span>{blocked ?? 0} blocked</span><span>{totals.completed_cases} completed</span></> : <span>Loading…</span>}
+            {totals ? <><span>{totals.non_completed_cases} open</span><span>{blocked ?? 0} blocked</span><span>{totals.completed_cases} completed</span></> : <span>{unavailable ? "Unavailable" : "Loading…"}</span>}
             <span className="category-card-cta">View dashboard →</span>
           </div>
         </article>
@@ -802,11 +804,22 @@ export default function Dashboard({
   const query = useQuery(dashboardQueryOptions(actor.user_id, teamFilter, dashScope, dateRange));
   const dashboard = query.data;
 
-  if (view === "picker") return <DashboardCategoryPicker dashboard={dashboard} onSelectOnboarding={() => setView("onboarding")} />;
+  const feedback = <>
+    {(query.isPending || query.isFetching) && <p className="refreshing-indicator" role="status">{dashboard ? "Refreshing dashboard…" : "Loading dashboard…"}</p>}
+    {query.isError && <>
+      <div className="ds-banner ds-banner-warn" role="alert">{dashboard ? "Refresh failed; the last dashboard snapshot remains visible." : "Dashboard data is unavailable. Please try again."}</div>
+      <button className="btn btn-secondary" type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
+    </>}
+  </>;
 
-  if (query.isPending) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><p className="text-muted">Loading dashboard…</p></section>;
-  if (query.isError && !dashboard) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><div className="ds-banner ds-banner-warn" role="alert">{query.error instanceof Error ? query.error.message : "Dashboard data is unavailable."}</div><button className="btn btn-secondary" type="button" onClick={() => void query.refetch()}>Try again</button></section>;
-  if (!dashboard) return null;
+  if (view === "picker") return <>{feedback}<DashboardCategoryPicker dashboard={dashboard} unavailable={query.isError && !dashboard} onSelectOnboarding={() => setView("onboarding")} /></>;
 
-  return <>{query.isFetching && <p className="refreshing-indicator">Refreshing…</p>}{query.isError && <div className="ds-banner ds-banner-warn" role="alert">Refresh failed; the last dashboard snapshot remains visible.</div>}<DashboardView actor={actor} dashboard={dashboard} dashScope={dashScope} onScopeChange={setDashScope} dateRange={dateRange} onDateRangeChange={setDateRange} teamFilter={teamFilter} onTeamFilterChange={setTeamFilter} onRefresh={() => void query.refetch()} onBack={() => setView("picker")} /></>;
+  if (!dashboard) return <section className="ds-root ds-page">
+    <button className="btn btn-ghost dashboard-back" type="button" onClick={() => setView("picker")}>← All categories</button>
+    <h1>Onboarding Dashboard</h1>
+    <DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />
+    {feedback}
+  </section>;
+
+  return <>{feedback}<DashboardView actor={actor} dashboard={dashboard} dashScope={dashScope} onScopeChange={setDashScope} dateRange={dateRange} onDateRangeChange={setDateRange} teamFilter={teamFilter} onTeamFilterChange={setTeamFilter} onRefresh={() => void query.refetch()} onBack={() => setView("picker")} /></>;
 }
