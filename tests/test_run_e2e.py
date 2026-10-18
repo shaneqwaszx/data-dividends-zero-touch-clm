@@ -1010,7 +1010,7 @@ console.log(JSON.stringify({
         self.assertIn(f"timeout-minutes: {job_minutes}", e2e)
         self.assertIn(f"python scripts/run_e2e.py --timeout-seconds {lifecycle_seconds}", e2e)
         selectors = RUN_E2E._list_test_selectors(RUN_E2E.DEFAULT_FRONTEND_PORT)
-        self.assertEqual(len(selectors), 109)
+        self.assertEqual(len(selectors), 110)
         self.assertIn("shard: [1, 2]", e2e)
         self.assertIn("fail-fast: false", e2e)
         self.assertIn("--shard ${{ matrix.shard }}/2", e2e)
