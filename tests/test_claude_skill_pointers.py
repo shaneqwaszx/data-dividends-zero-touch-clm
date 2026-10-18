@@ -1,4 +1,8 @@
-"""Claude Code pointers must mirror canonical skills; shared settings must not exclude instructions."""
+"""Claude Code pointers must mirror canonical skills.
+
+Shared settings must not exclude instruction files and must ask before the listed branch
+and worktree mutations in both the Bash and PowerShell tools.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +22,28 @@ POINTERS = {
     "integration-safe-development": True,
 }
 MANUAL_ONLY_LINE = "disable-model-invocation: true"
+BRANCH_AND_WORKTREE_ASK = (
+    "git branch *",
+    "git checkout*",
+    "git switch*",
+    "git merge*",
+    "git rebase*",
+    "git reset*",
+    "git pull*",
+    "git cherry-pick*",
+    "git revert*",
+    "git am*",
+    "git update-ref*",
+    "git symbolic-ref*",
+    "git filter-branch*",
+    "git worktree add*",
+    "git worktree move*",
+    "git worktree remove*",
+    "git worktree prune*",
+    "git worktree lock*",
+    "git worktree unlock*",
+    "git worktree repair*",
+)
 MAX_POINTER_LINES = 30
 
 
@@ -90,6 +116,33 @@ class SharedClaudeSettingsTests(unittest.TestCase):
         # **/tmp/**/AGENTS.md would also drop the live AGENTS.md of a checkout under tmp/.
         settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
         self.assertNotIn("claudeMdExcludes", settings)
+
+    def test_branch_and_worktree_mutations_ask_in_both_shells(self) -> None:
+        ask = _permissions()["ask"]
+        for tool in ("Bash", "PowerShell"):
+            with self.subTest(tool=tool):
+                missing = set(BRANCH_AND_WORKTREE_ASK) - _shell_patterns(ask, tool)
+                self.assertEqual(missing, set())
+
+    def test_deny_and_ask_rules_have_shell_parity(self) -> None:
+        permissions = _permissions()
+        for kind in ("deny", "ask"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    _shell_patterns(permissions[kind], "Bash"),
+                    _shell_patterns(permissions[kind], "PowerShell"),
+                )
+
+
+def _permissions() -> dict[str, list[str]]:
+    settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    permissions: dict[str, list[str]] = settings["permissions"]
+    return permissions
+
+
+def _shell_patterns(rules: list[str], tool: str) -> set[str]:
+    prefix = f"{tool}("
+    return {rule[len(prefix) : -1] for rule in rules if rule.startswith(prefix)}
 
 
 if __name__ == "__main__":

@@ -90,10 +90,17 @@ authorization and does not constrain other clients.
   publication authority.
 - Permissions: `.claude/settings.json` denies `.env` file access and destructive or
   owner-only Git/GitHub actions (force-push, hard reset, clean, stash, broad staging,
-  PR merge), asks before commit, push, branch/worktree mutation, `private/` access and
-  PR/workflow changes, and allows only named repository checks. Rules cover both the
-  Bash and PowerShell tools. They match command text, so other spellings (`git -C`,
-  `sh -c`, scripts that open files themselves) are not covered. They are best-effort
+  PR merge), asks before commit, push, `private/` access and PR/workflow changes, and
+  allows only named repository checks. For branch and worktree mutation it asks before
+  every `git branch` command, including bare listing and read-only flags such as
+  `--show-current` (use `git rev-parse` for read-only branch lookups), `git worktree`
+  add, move, remove, prune, lock, unlock and repair, `git update-ref`,
+  `git symbolic-ref`, `git filter-branch`, and the commands that move a branch or
+  discard work (`checkout`, `switch`, `restore`, `merge`, `rebase`, `reset`, `pull`,
+  `cherry-pick`, `revert`, `am`). Rules cover both the Bash and
+  PowerShell tools. They match command text, so other spellings (`git -C`, `sh -c`,
+  a `git fetch` refspec that writes a local branch, scripts that open files themselves)
+  are not covered. They are best-effort
   guardrails, not a security boundary: Claude Code's sandbox does not run on native
   Windows, and a PreToolUse enforcement hook is deferred. They do not replace
   `AGENTS.md`, independent review, or owner-only merge.
