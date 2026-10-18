@@ -107,6 +107,7 @@ def test_memory_projection_deduplicates_open_types_in_enum_order_and_keeps_count
         team_id=TeamId.TEAM_A,
         priority=8,
         goldtier_result=None,
+        created_by_actor_id=None,
     )
     exceptions = [
         SimpleNamespace(

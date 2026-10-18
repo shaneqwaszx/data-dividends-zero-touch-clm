@@ -173,6 +173,7 @@ def test_memory_page_scopes_before_content_and_correlates_open_attention() -> No
         team_id=TeamId.TEAM_A,
         priority=9,
         goldtier_result=None,
+        created_by_actor_id=None,
     )
     case_b = SimpleNamespace(case_id=CASE_B, team_id=TeamId.TEAM_B)
     automation_a = SimpleNamespace(

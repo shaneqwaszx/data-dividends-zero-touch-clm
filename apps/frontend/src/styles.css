@@ -602,7 +602,6 @@ select {
   background: #174f3b;
 }
 
-.dashboard-snapshot,
 .workspace-placeholder {
   width: min(100%, 1120px);
   margin: 0 auto 2rem;
@@ -625,48 +624,10 @@ select {
   min-width: 0;
 }
 
-.dashboard-snapshot {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.4fr);
-  gap: 2rem;
-  align-items: center;
-}
-
-.dashboard-snapshot p:not(.section-label),
 .workspace-placeholder p:not(.section-label) {
   margin-bottom: 0;
   color: #687871;
   line-height: 1.55;
-}
-
-.dashboard-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.65rem;
-}
-
-.dashboard-metrics div {
-  min-width: 0;
-  padding: 1rem 0.75rem;
-  border-left: 3px solid #d48b20;
-  background: #f5f7f1;
-}
-
-.dashboard-metrics strong,
-.dashboard-metrics span {
-  display: block;
-}
-
-.dashboard-metrics strong {
-  color: #174f3b;
-  font-size: 1.6rem;
-}
-
-.dashboard-metrics span {
-  margin-top: 0.25rem;
-  color: #687871;
-  font-size: 0.75rem;
-  font-weight: 750;
 }
 
 .workspace-placeholder {
@@ -2197,13 +2158,8 @@ dd {
     width: 100%;
   }
 
-  .dashboard-snapshot,
   .launch-card {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .dashboard-metrics {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -2231,7 +2187,6 @@ dd {
   .ownership-card,
   .clm-card,
   .reviewer-workbench__grid,
-  .dashboard-snapshot,
   .panel-grid,
   .case-access-forms,
   .comparison-grid,
@@ -2278,10 +2233,6 @@ dd {
   .mock-submission-result {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .dashboard-metrics {
-    grid-template-columns: repeat(2, 1fr);
   }
 
   .workspace-layout {
@@ -2341,10 +2292,6 @@ dd {
   .evidence-disclosure {
     padding: 1rem;
     border-radius: 0.85rem;
-  }
-
-  .dashboard-metrics {
-    grid-template-columns: 1fr;
   }
 
   .environment-banner {

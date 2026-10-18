@@ -42,7 +42,7 @@ def measure_level(label, groups, level, content, perf):
 
     with (
         patch.object(LocalPdfTextIdpProvider, "process", observed),
-        perf.application("memory", None) as (client, bundle, target, registry),
+        perf.application("memory", None) as (client, _bundle, target, registry),
         ThreadPoolExecutor(max_workers=level) as pool,
     ):
 

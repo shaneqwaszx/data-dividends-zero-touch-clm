@@ -234,3 +234,25 @@ Recovery requires current automation identity and automation/CLM/case-event vers
 creator reauthorization and unfrozen target state inside the case lock. Refresh failure
 retains the actionable checkpoint; successful continuation recomputes dependent evidence
 without insertion or Search/target replay. No GET projection writes this checkpoint.
+
+
+## PR95 scoped Dashboard read lifecycle (unmerged candidate)
+
+The existing automation repository owns a context-managed, one-shot captured read.
+Dashboard first resolves server-authorized case IDs. MongoCaseStore fully materializes
+one finite `_id` query and closes its cursor without full-envelope decoding. The service
+receives only an opaque automation handle, takes its single final observation, and
+selects the unchanged Singapore date cohort. Only those captured cohort IDs may then be
+decoded through the unchanged strict case codec; foreign subsets and selected duplicates
+or identity inconsistencies fail closed. Invalid relevant evidence remains unavailable;
+malformed excluded full-envelope fields do not control another cohort's availability.
+Driver/transport failure remains unavailable, with no memory fallback.
+
+Memory captures independent model copies under its existing lock; selected records retain
+canonical binding and ordering. Both modes consume the batch on success or failure and
+clear retained references on context exit. There is no post-clock fetch, global cache,
+provider operation, write, schema/index change or migration. Missing/deleted records at
+capture are omitted; a later deletion does not rewrite the already captured request-local
+snapshot, and the next request observes absence. This is the existing live-read POC
+consistency limitation, not a transactional snapshot or new access grant. Other repository
+consumers retain their established list/get behavior; startup strictness is unchanged.

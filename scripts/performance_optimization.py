@@ -129,7 +129,7 @@ class Resources:
                 self.host_cpu.append(cpu)
                 self.first_sample.set()
                 self.stop.wait(0.01)
-        except Exception:
+        except Exception:  # noqa: BLE001 - contain failed OS sampling, never invent evidence
             # A missing/failed sampler must never become accepted resource evidence.
             # Startup fails closed without projecting private OS exception details.
             return
@@ -305,7 +305,7 @@ def workload(name: str, db: Any) -> Iterator[Callable[[], dict[str, Any]]]:
         "portfolio_mongo",
     }:
         mode = "mongo" if name in {"mongo_onboarding", "portfolio_mongo"} else "memory"
-        with application(mode, db) as (client, bundle, target, acra):
+        with application(mode, db) as (client, _bundle, target, acra):
             current = None
             if name in {"mock_target_success", "case_detail"}:
                 current = normal_started_case(client, garden=False)
@@ -417,7 +417,10 @@ def workload(name: str, db: Any) -> Iterator[Callable[[], dict[str, Any]]]:
         from decimal import Decimal
         from uuid import uuid4
 
-        from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipScenario
+        from app.connectors.mock_ownership import (
+            MockOwnershipProvider,
+            MockOwnershipScenario,
+        )
         from app.connectors.ownership import OwnershipProviderRequest
         from app.services.ownership_analysis import (
             aggregate_ownership_paths,
@@ -443,7 +446,7 @@ def workload(name: str, db: Any) -> Iterator[Callable[[], dict[str, Any]]]:
             )
             totals = aggregate_ownership_paths(paths)
             candidates = build_ownership_candidates(
-                graph, paths, totals, threshold_percent=Decimal("25")
+                graph, paths, totals, threshold_percent=Decimal(25)
             )
             assert not paths.issues and candidates
             return {

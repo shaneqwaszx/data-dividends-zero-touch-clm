@@ -360,6 +360,7 @@ export interface CaseActivityFilters {
   outcome?: EventOutcome;
   from?: string;
   to?: string;
+  createdBy?: string;
   limit?: number;
   offset?: number;
 }
@@ -375,6 +376,7 @@ function caseActivityQuery(filters: CaseActivityFilters, explicitPaging: boolean
   if (filters.outcome) query.set("outcome", filters.outcome);
   if (filters.from) query.set("from", filters.from);
   if (filters.to) query.set("to", filters.to);
+  if (filters.createdBy) query.set("created_by", filters.createdBy);
   if (filters.limit !== undefined && (explicitPaging || filters.limit !== 50)) {
     query.set("limit", String(filters.limit));
   }
@@ -422,11 +424,15 @@ export async function fetchZeroTouchCases(
   return parseResponse<ZeroTouchCaseListItem[]>(response);
 }
 
-export async function fetchDashboard(teamFilter?: string, signal?: AbortSignal): Promise<DashboardSnapshot> {
-  const query = teamFilter && teamFilter !== "all"
-    ? `?team_filter=${encodeURIComponent(teamFilter)}`
-    : "";
-  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard${query}`, { signal });
+export type DashboardDateRange = "7d" | "30d" | "90d" | "all";
+
+export async function fetchDashboard(teamFilter?: string, scope?: "team" | "mine", dateRange?: DashboardDateRange, signal?: AbortSignal): Promise<DashboardSnapshot> {
+  const query = new URLSearchParams();
+  if (teamFilter && teamFilter !== "all") query.set("team_filter", teamFilter);
+  if (scope && scope !== "team") query.set("scope", scope);
+  if (dateRange) query.set("date_range", dateRange);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard${suffix}`, { signal });
   return parseResponse<DashboardSnapshot>(response);
 }
 

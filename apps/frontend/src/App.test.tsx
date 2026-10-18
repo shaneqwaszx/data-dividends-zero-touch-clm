@@ -24,7 +24,6 @@ import App, {
   AccountPlaceholder,
   CaseIdentityStrip,
   CasePortfolio,
-  DashboardSnapshot,
   ReviewQueue,
   StartProgressPanel,
   evidenceRevision,
@@ -516,7 +515,6 @@ afterEach(() => {
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders the purpose-based workspace structure", () => {
     const tabs = renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><WorkspaceTabs actor={actor} /></MemoryRouter>);
-    const dashboard = renderToStaticMarkup(<DashboardSnapshot summary={null} />);
     const account = renderToStaticMarkup(<AccountPlaceholder />);
     expect(tabs).toContain("New onboarding");
     expect(tabs).toContain("Cases");
@@ -524,8 +522,6 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(tabs).toContain(">Audit<");
     expect(tabs).not.toContain("Audit trail");
     expect(tabs).toContain("Policy");
-    expect(dashboard).toContain("Current stage");
-    expect(dashboard).toContain("Case health");
     expect(account).toContain("Authentication pending");
   });
 
@@ -534,7 +530,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(markup).toContain("Autoboard");
     expect(markup).toContain('aria-current="page"');
     expect(markup).toContain('href="/dashboard"');
-    expect(markup).toContain("Loading dashboard");
+    expect(markup).toContain("Choose a part of the client lifecycle");
     expect(markup).toContain("Loading backend connector profile");
     expect(markup).not.toContain("Load synthetic ownership");
     expect(markup).not.toContain("Submit to Mock GoldTier");
