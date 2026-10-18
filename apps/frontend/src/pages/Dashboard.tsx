@@ -6,7 +6,7 @@ import DirectorTeamFilter from "./DirectorTeamFilter";
 import type { DashboardDateRange } from "../api";
 import { activityQueryOptions, dashboardQueryOptions } from "../caseQueries";
 import { paths } from "../navigation";
-import { formatDateNoSeconds, formatTimestamp } from "../shared";
+import { formatDateNoSeconds, formatDuration as formatRecordedDuration, formatTimestamp } from "../shared";
 import type {
   AuthenticatedProfile,
   AutomationStage,
@@ -52,18 +52,7 @@ function statusTagClass(status: AutomationStatus): string {
 }
 
 function formatDuration(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined) return "—";
-  const hours = ms / 3_600_000;
-  if (hours < 1) return `${Math.max(1, Math.round(ms / 60_000))}m`;
-  if (hours < 48) return `${hours.toFixed(1)}h`;
-  return `${(hours / 24).toFixed(1)}d`;
-}
-
-function formatAge(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined) return "—";
-  const days = ms / 86_400_000;
-  if (days < 1) return `${Math.max(1, Math.round(ms / 3_600_000))}h`;
-  return `${Math.round(days)}d`;
+  return ms === null || ms === undefined ? "—" : formatRecordedDuration(ms);
 }
 
 function formatPercent(value: number): string {
@@ -381,7 +370,7 @@ function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"]
                 <tr key={row.user_id}>
                   <td>{row.display_name}</td>
                   <td>{row.open_cases}</td>
-                  <td>{formatAge(row.oldest_open_age_ms)}</td>
+                  <td>{formatDuration(row.oldest_open_age_ms)}</td>
                   <td>{row.completed_cases}</td>
                   <td>{row.blockers_resolved}</td>
                   <td>{formatDuration(row.mean_fix_time_ms)}</td>
@@ -473,7 +462,7 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
                   <td><strong>{item.legal_name ?? item.requested_uen}</strong><span className="cell-note">{item.requested_uen}{item.delay_note ? ` · ${item.delay_note}` : ""}</span></td>
                   {actor.role === "DIRECTOR" && <td>{item.team_display_name ?? "Unassigned"}</td>}
                   <td>{item.created_by_display_name ?? "—"}</td>
-                  <td>{formatAge(item.case_elapsed_ms)}</td>
+                  <td>{formatDuration(item.case_elapsed_ms)}</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
                   <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>
                 </tr>
@@ -581,7 +570,7 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
                 <tr key={item.case_id} className="clickable">
                   <td><strong>{item.legal_name ?? item.requested_uen}</strong><span className="cell-note">{item.requested_uen}</span></td>
                   <td>{STAGE_LABELS[item.current_stage]}</td>
-                  <td>{formatAge(item.case_elapsed_ms)}</td>
+                  <td>{formatDuration(item.case_elapsed_ms)}</td>
                   <td>{item.progress_percent}%</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
                   <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>

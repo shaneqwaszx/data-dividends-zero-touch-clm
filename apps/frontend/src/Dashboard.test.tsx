@@ -360,3 +360,45 @@ it.each(["team", "mine"] as const)("keeps %s case ages, sorting and filters fixe
     container.remove();
   }
 });
+
+
+it.each([
+  [0, "< 1s"], [12, "< 1s"], [1_001, "1s"], [60_999, "1m"],
+  [119_999, "1m 59s"], [3_601_000, "1h"], [86_401_000, "1d"],
+])("renders returned dashboard duration %sms without rounding or minimums", (milliseconds, expected) => {
+  const value = snapshot(maya);
+  value.scoped_cases = value.scoped_cases.map(item => ({ ...item, case_elapsed_ms: milliseconds }));
+  value.workload_by_person[0].oldest_open_age_ms = milliseconds;
+  value.workload_by_person[0].mean_fix_time_ms = milliseconds;
+  value.timing.mean_total_duration_ms = milliseconds;
+  value.stage_timing[0].clean_mean_ms = milliseconds;
+  value.stage_timing[0].combined_mean_ms = milliseconds;
+  for (const scope of ["team", "mine"] as const) {
+    const client = createSessionQueryClient();
+    const markup = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+      actor={maya} dashboard={value} dashScope={scope} onScopeChange={() => undefined}
+      dateRange="all" onDateRangeChange={() => undefined} teamFilter="all"
+      onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+    /></MemoryRouter></QueryClientProvider>);
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const article = (heading: string) => Array.from(container.querySelectorAll("article")).find(item =>
+      item.querySelector("h2")?.textContent === heading)!;
+    const cases = article(scope === "team" ? "All cases" : "Your cases");
+    expect(cases.querySelector("tbody tr")!.textContent).toContain(expected);
+    const kpi = (label: string) => Array.from(container.querySelectorAll("article.dashboard-kpi")).find(item =>
+      item.querySelector("span")?.textContent === label)!.querySelector("strong")!.textContent;
+    expect(kpi(scope === "team" ? "Mean recorded run time" : "Recorded run time")).toBe(expected);
+    if (scope === "team") {
+      const cells = article("Workload by person").querySelectorAll("tbody tr td");
+      expect(cells[2].textContent).toBe(expected);
+      expect(cells[5].textContent).toBe(expected);
+      const stageCells = container.querySelector(".stage-timing-table tbody tr")!.querySelectorAll("td");
+      expect(stageCells[2].textContent).toBe(expected);
+      expect(stageCells[4].textContent).toBe(expected);
+    } else {
+      expect(kpi("Time to resolve a blocker")).toBe(expected);
+    }
+    client.clear();
+  }
+});

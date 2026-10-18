@@ -54,3 +54,9 @@ resolution/mean arithmetic, and F7 a canonically valid retained completed fixtur
 No schema/decoder relaxation is permitted. Regression evidence covers read
 interleavings, SG/UTC boundaries, millisecond precision and physical restart parity.
 Fresh acceptance uses PR95_DASHBOARD_FINAL_ACCEPTANCE.md; earlier FAILs stay immutable.
+
+Round 4 requires F8 truthful dashboard duration formatting. Reuse the existing shared
+formatter for returned ages, stage/run and resolver durations; preserve nullable
+absence and all layout/labels/controls. Zero/sub-second values must not become 1h/1m.
+Seven real-render regressions fail first. Fresh review uses
+PR95_DASHBOARD_LOCAL_ACCEPTANCE.md; four earlier FAIL reports remain immutable.
