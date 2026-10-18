@@ -476,3 +476,219 @@ it.each(["team", "mine"] as const)("PR95-R2 exposes native sort buttons and sema
     container.remove();
   }
 });
+
+
+it("PR95-R4 every pipeline stage exposes a stable native disclosure and detail region", async () => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const client = createSessionQueryClient();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+      actor={maya} dashboard={snapshot(maya)} dashScope="team" onScopeChange={() => undefined}
+      dateRange="all" onDateRangeChange={() => undefined} teamFilter="all"
+      onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+    /></MemoryRouter></QueryClientProvider>));
+    const article = Array.from(container.querySelectorAll("article")).find(item => item.querySelector("h2")?.textContent === "Time per pipeline step")!;
+    const buttons = Array.from(article.querySelectorAll<HTMLButtonElement>('tbody button[aria-controls]'));
+    expect(buttons).toHaveLength(STAGES.length);
+    const ids = new Set<string>();
+    for (const button of buttons) {
+      expect(button.type).toBe("button");
+      const id = button.getAttribute("aria-controls")!;
+      expect(ids.has(id)).toBe(false); ids.add(id);
+      const detail = document.getElementById(id)!;
+      expect(detail).not.toBeNull();
+      expect(detail.getAttribute("aria-labelledby")).toBe(button.id);
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(detail.closest("tr")!.hidden).toBe(true);
+      button.focus(); expect(document.activeElement).toBe(button);
+      await act(async () => button.click());
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(detail.closest("tr")!.hidden).toBe(false);
+      expect(detail.textContent).toContain("No recorded durations for this step.");
+      const sort = article.querySelector<HTMLButtonElement>("thead button")!;
+      await act(async () => sort.click());
+      expect(document.getElementById(id)).toBe(detail);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => button.click());
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+    }
+  } finally {
+    await act(async () => root.unmount()); client.clear(); container.remove();
+  }
+});
+
+it("PR95-R4 recent activity traverses more than100 events using bounded server pages", async () => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const requests: URL[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const request = new URL(String(url), "http://localhost"); requests.push(request);
+    const offset = Number(request.searchParams.get("offset") ?? 0);
+    const limit = Number(request.searchParams.get("limit") ?? 50);
+    return new Response(JSON.stringify({ offset, limit, has_more: offset + limit < 105,
+      items: Array.from({ length: Math.max(0, Math.min(limit, 105 - offset)) }, (_, index) => ({
+        case_id: "00000000-0000-4000-8000-000000000001", sequence: 105 - offset - index,
+        message: `R4 event ${offset + index + 1}`, timestamp: "2026-09-08T01:00:00Z",
+        current_client_scope_label: "DBS",
+      })),
+    }));
+  }));
+  const client = createSessionQueryClient();
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); };
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+      actor={maya} dashboard={snapshot(maya)} dashScope="mine" onScopeChange={() => undefined}
+      dateRange="all" onDateRangeChange={() => undefined} teamFilter="all"
+      onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+    /></MemoryRouter></QueryClientProvider>));
+    await settle();
+    const article = Array.from(container.querySelectorAll("article")).find(item => item.querySelector("h2")?.textContent?.startsWith("Recent activity"))!;
+    const button = (prefix: string) => Array.from(article.querySelectorAll("button")).find(item => item.textContent?.includes(prefix))!;
+    expect(requests[0].searchParams.get("limit")).toBe("10");
+    expect(requests[0].searchParams.get("created_by")).toBe(maya.user_id);
+    const seen: string[] = [];
+    for (let page = 0; page <= 10; page++) {
+      const rows = Array.from(article.querySelectorAll(".activity-row"));
+      seen.push(...rows.map(item => item.querySelector("div")!.textContent!));
+      expect(rows[0].textContent).toContain(`R4 event ${page * 10 + 1}`);
+      expect(article.textContent).not.toContain("of 100");
+      if (page < 10) { await act(async () => button("Next").click()); await settle(); }
+    }
+    expect(seen).toHaveLength(105); expect(new Set(seen).size).toBe(105);
+    expect(button("Next").disabled).toBe(true);
+    await act(async () => button("Prev").click()); await settle();
+    expect(article.querySelector(".activity-row")!.textContent).toContain("R4 event 91");
+    await act(async () => button("Refresh activity").click()); await settle();
+    expect(article.querySelector(".activity-row")!.textContent).toContain("R4 event 1");
+    expect(article.querySelector('a')!.getAttribute("href")).toBe("/audit");
+    expect(requests.every(item => Number(item.searchParams.get("limit")) <= 100)).toBe(true);
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
+
+it("PR95-R4 activity handles empty/errors, resets scope and rejects late old-team responses", async () => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  let mode = "valid";
+  let late!: (response: Response) => void;
+  const requests: Array<{ url: URL; signal: AbortSignal }> = [];
+  const response = (offset: number, message: string, hasMore = true) => new Response(JSON.stringify({
+    offset, limit: 10, has_more: hasMore, items: [{ case_id: "00000000-0000-4000-8000-000000000001", sequence: offset + 1,
+      message, timestamp: "2026-09-08T01:00:00Z", current_client_scope_label: "DBS" }],
+  }));
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+    const request = new URL(String(url), "http://localhost");
+    if (request.pathname.endsWith("/teams/options")) return new Response("[]");
+    requests.push({ url: request, signal: init.signal as AbortSignal });
+    const offset = Number(request.searchParams.get("offset"));
+    if (mode === "late" && offset > 0) return new Promise<Response>(resolve => { late = resolve; });
+    if (mode === "error") return new Response(JSON.stringify({ detail: "unavailable" }), { status: 503 });
+    if (mode === "empty") return new Response(JSON.stringify({ items: [], offset, limit: 10, has_more: false }));
+    return response(offset, `scope ${request.searchParams.get("team_filter")} offset ${offset}`);
+  }));
+  const client = createSessionQueryClient(); client.setDefaultOptions({ queries: { retry: false } });
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); };
+  const render = async (actor = olivia, teamFilter = "TEAM_A") => {
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+      actor={actor} dashboard={snapshot(actor)} dashScope="mine" onScopeChange={() => undefined}
+      dateRange="all" onDateRangeChange={() => undefined} teamFilter={teamFilter}
+      onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+    /></MemoryRouter></QueryClientProvider>)); await settle();
+  };
+  const article = () => Array.from(container.querySelectorAll("article")).find(item => item.querySelector("h2")?.textContent?.startsWith("Recent activity"))!;
+  const click = async (text: string) => { await act(async () => Array.from(article().querySelectorAll("button")).find(item => item.textContent?.includes(text))!.click()); await settle(); };
+  try {
+    await render();
+    mode = "late"; await click("Next");
+    const aborted = requests.at(-1)!.signal;
+    await render(olivia, "TEAM_B");
+    expect(aborted.aborted).toBe(true);
+    await act(async () => late(response(10, "STALE TEAM A"))); await settle();
+    expect(article().textContent).toContain("scope TEAM_B offset 0");
+    expect(article().textContent).not.toContain("STALE TEAM A");
+    mode = "error"; await click("Next");
+    expect(article().querySelector('[role="alert"]')!.textContent).toContain("Activity is unavailable");
+    expect(article().textContent).not.toContain("No recorded activity");
+    expect(article().querySelectorAll(".activity-row")).toHaveLength(0);
+    mode = "empty"; await click("Retry activity page");
+    expect(article().textContent).toContain("No recorded activity on this page.");
+    expect(Array.from(article().querySelectorAll("button")).find(item => item.textContent?.includes("Next"))!.disabled).toBe(true);
+    mode = "valid"; await render({ ...maya, user_id: "ethan-tan", role: "RELATIONSHIP_MANAGER" }, "all");
+    expect(Number(requests.at(-1)!.url.searchParams.get("offset") ?? 0)).toBe(0);
+    expect(requests.at(-1)!.url.searchParams.get("created_by")).toBe("ethan-tan");
+    expect(article().textContent).not.toContain("scope TEAM_B");
+    await click("Next");
+    const globalRefresh = Array.from(container.querySelectorAll("button")).find(item => item.textContent === "Refresh")!;
+    await act(async () => globalRefresh.click()); await settle();
+    expect(article().textContent).toContain("offset 0");
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
+
+it.each([0, 1, 200, 201, 250])("PR95-R5 truthfully describes loaded case subset for %s cohort cases", count => {
+  for (const scope of ["team", "mine"] as const) {
+    const value = snapshot(maya, count);
+    const example = snapshot(maya).scoped_cases[0];
+    value.scoped_cases = Array.from({ length: Math.min(count, 200) }, (_, index) => ({
+      ...example, case_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    }));
+    value.view = scope;
+    value.totals.total_cases = count;
+    const client = createSessionQueryClient();
+    const markup = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+      actor={maya} dashboard={value} dashScope={scope} onScopeChange={() => undefined}
+      dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
+      onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+    /></MemoryRouter></QueryClientProvider>);
+    const container = document.createElement("div"); container.innerHTML = markup;
+    const articles = Array.from(container.querySelectorAll("article")).filter(article =>
+      ["All cases", "Your cases", "Blocked cases"].includes(article.querySelector("h2")?.textContent ?? ""));
+    expect(articles).toHaveLength(scope === "mine" ? 2 : 1);
+    for (const article of articles) {
+      if (count > 200) {
+        expect(article.textContent).toContain(`Loaded subset: 200 of ${count}`);
+        expect(article.textContent).toContain("filters apply only to the loaded subset");
+        const link = article.querySelector('a[href="/cases"]');
+        expect(link?.textContent).toBe("View or search Cases");
+        expect(article.textContent).not.toContain("None of your cases are currently blocked.");
+        expect(article.textContent).toContain(scope === "mine" ? "creator-only" : "authorized cohort");
+      } else expect(article.textContent).not.toContain("Loaded subset:");
+    }
+    expect(markup).not.toContain("1–0 of 0");
+    if (count === 0) {
+      for (const pager of container.querySelectorAll(".pagination:not([aria-label])")) {
+        expect(pager.textContent).toContain("0 of 0");
+        expect(Array.from(pager.querySelectorAll("button")).filter(button => !button.disabled && button.textContent !== "1")).toHaveLength(0);
+      }
+    }
+    expect(container.querySelector('select.dashboard-date-range')?.getAttribute("aria-label")).toBe("Dashboard date range");
+    client.clear();
+  }
+});
+
+it("PR95-R5 keeps capped filter empty messages local to loaded subset", async () => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const value = snapshot(maya);
+  value.totals.total_cases = 201;
+  value.scoped_cases = Array.from({ length: 200 }, (_, index) => ({ ...value.scoped_cases[0], case_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}` }));
+  const client = createSessionQueryClient(); const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+      actor={maya} dashboard={value} dashScope="team" onScopeChange={() => undefined}
+      dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined}
+      onRefresh={() => undefined} onBack={() => undefined}
+    /></MemoryRouter></QueryClientProvider>));
+    const article = Array.from(container.querySelectorAll("article")).find(item => item.querySelector("h2")?.textContent === "All cases")!;
+    const completed = Array.from(article.querySelectorAll("button")).find(item => item.textContent === "Completed")!;
+    await act(async () => completed.click());
+    expect(article.textContent).toContain("No loaded cases match these filters.");
+    expect(article.textContent).not.toContain("No cases match these filters.");
+    expect(article.querySelector('a[href="/cases"]')).not.toBeNull();
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});

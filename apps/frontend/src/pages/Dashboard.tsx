@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
@@ -144,7 +144,7 @@ function Pagination({ page, setPage, pageCount, total, pageSize }: {
 }) {
   return (
     <div className="pagination">
-      <span className="text-muted">{page * pageSize + 1}–{Math.min(total, (page + 1) * pageSize)} of {total}</span>
+      <span className="text-muted">{total === 0 ? "0 of 0" : `${page * pageSize + 1}–${Math.min(total, (page + 1) * pageSize)} of ${total}`}</span>
       <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>‹ Prev</button>
       {Array.from({ length: pageCount }, (_, index) => (
         <button key={index} type="button" aria-current={index === page} onClick={() => setPage(index)}>{index + 1}</button>
@@ -215,6 +215,7 @@ function CategoryCard({ n, label, note }: { n: string; label: string; note: stri
 }
 
 function StageTimingTable({ stageTiming }: { stageTiming: DashboardStageTiming[] }) {
+  const detailPrefix = useId();
   const [open, setOpen] = useState<AutomationStage | null>(null);
   const indexed = useMemo(() => stageTiming.map((row, index) => ({ ...row, index })), [stageTiming]);
   const accessors = {
@@ -246,17 +247,17 @@ function StageTimingTable({ stageTiming }: { stageTiming: DashboardStageTiming[]
           <tbody>
             {sorted.map((row) => (
               <Fragment key={row.stage}>
-                <tr className="clickable step-row" onClick={() => setOpen(open === row.stage ? null : row.stage)}>
+                <tr className="step-row">
                   <td><span className="step-index">{row.index + 1}</span></td>
-                  <td><span className={`step-chevron${open === row.stage ? " open" : ""}`}>›</span>{STAGE_LABELS[row.stage]}</td>
+                  <td><button type="button" className="sort-control" id={`${detailPrefix}-${row.stage}-toggle`} aria-expanded={open === row.stage} aria-controls={`${detailPrefix}-${row.stage}-detail`} onClick={() => setOpen(open === row.stage ? null : row.stage)}><span aria-hidden="true" className={`step-chevron${open === row.stage ? " open" : ""}`}>›</span>{STAGE_LABELS[row.stage]}</button></td>
                   <td>{formatDuration(row.clean_mean_ms)}</td>
                   <td>{formatDuration(row.with_blocker_mean_ms)}</td>
                   <td><strong>{formatDuration(row.combined_mean_ms)}</strong></td>
                   <td>{row.blocked_count > 0 ? <span className="tag tag-warn">{row.blocked_count}</span> : <span className="text-muted">—</span>}</td>
                 </tr>
-                {open === row.stage && (
-                  <tr className="step-detail">
-                    <td colSpan={6}>
+
+                  <tr className="step-detail" hidden={open !== row.stage}>
+                    <td colSpan={6}><div id={`${detailPrefix}-${row.stage}-detail`} role="region" aria-labelledby={`${detailPrefix}-${row.stage}-toggle`}>
                       {row.top_cases.length === 0 && <p className="text-muted" style={{ margin: 0 }}>No recorded durations for this step.</p>}
                       {row.top_cases.map((item, index) => (
                         <div className="step-detail-row" key={item.case_id}>
@@ -264,9 +265,9 @@ function StageTimingTable({ stageTiming }: { stageTiming: DashboardStageTiming[]
                           <span>{item.had_blocker && <span className="tag tag-warn" style={{ marginRight: 8 }}>blocked</span>}{formatDuration(item.duration_ms)}</span>
                         </div>
                       ))}
-                    </td>
+                    </div></td>
                   </tr>
-                )}
+
               </Fragment>
             ))}
           </tbody>
@@ -391,7 +392,18 @@ function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"]
   );
 }
 
-function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: AuthenticatedProfile }) {
+function CaseSubsetNotice({ loaded, total, mine, id }: { loaded: number; total: number; mine: boolean; id: string }) {
+  if (loaded >= total) return null;
+  return <p id={id} className="text-muted">
+    Loaded subset: {loaded} of {total} {mine ? "creator-only cases" : "cases in the authorized cohort"}.
+    {" "}Person, status, age and progress filters apply only to the loaded subset; pagination counts loaded matches.
+    {" "}<Link to={paths.cases}>View or search Cases</Link>. Cases uses its own authorized scope and filters.
+  </p>;
+}
+
+function AllCasesTable({ cases, actor, cohortTotal }: { cases: DashboardCaseItem[]; actor: AuthenticatedProfile; cohortTotal: number }) {
+  const subsetId = useId();
+  const capped = cases.length < cohortTotal;
   const [personFilter, setPersonFilter] = useState("all");
   const [ageFilter, setAgeFilter] = useState<AgeFilter>("any");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -427,8 +439,9 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
   const { pageRows, page, setPage, pageCount, total: rowCount, pageSize } = usePagination(sorted);
 
   return (
-    <article className="card">
+    <article className="card" aria-describedby={capped ? subsetId : undefined}>
       <h2>All cases</h2>
+      <CaseSubsetNotice id={subsetId} loaded={cases.length} total={cohortTotal} mine={false} />
       <div className="ds-toolbar">
         <SegToggle value={statusFilter} onChange={(value) => { setStatusFilter(value); setPage(0); }} options={STATUS_FILTERS as unknown as Array<{ value: StatusFilter; label: string }>} />
         <label className="filter-label">Person
@@ -444,7 +457,7 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
         </label>
         {hasFilters && <button type="button" className="btn btn-ghost" onClick={() => { setPersonFilter("all"); setAgeFilter("any"); setStatusFilter("all"); setPage(0); }}>Clear filters</button>}
       </div>
-      {sorted.length === 0 && <p className="empty-copy">No cases match these filters.</p>}
+      {sorted.length === 0 && <p className="empty-copy">{capped ? "No loaded cases match these filters." : "No cases match these filters."}</p>}
       {sorted.length > 0 && (
         <div className="table-scroll">
           <table className="table">
@@ -502,7 +515,9 @@ const PROGRESS_FILTERS = [
 ] as const;
 type ProgressFilter = (typeof PROGRESS_FILTERS)[number]["value"];
 
-function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
+function YourCasesTable({ cases, cohortTotal }: { cases: DashboardCaseItem[]; cohortTotal: number }) {
+  const subsetId = useId();
+  const capped = cases.length < cohortTotal;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [ageFilter, setAgeFilter] = useState<AgeFilter>("any");
   const [progressFilter, setProgressFilter] = useState<ProgressFilter>("any");
@@ -537,8 +552,9 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
   const { pageRows, page, setPage, pageCount, total: rowCount, pageSize } = usePagination(sorted);
 
   return (
-    <article className="card">
+    <article className="card" aria-describedby={capped ? subsetId : undefined}>
       <h2>Your cases</h2>
+      <CaseSubsetNotice id={subsetId} loaded={cases.length} total={cohortTotal} mine={true} />
       <div className="ds-toolbar">
         <SegToggle value={statusFilter} onChange={(value) => { setStatusFilter(value); setPage(0); }} options={STATUS_FILTERS as unknown as Array<{ value: StatusFilter; label: string }>} />
         <label className="filter-label">Case age / duration
@@ -553,7 +569,7 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
         </label>
         {hasFilters && <button type="button" className="btn btn-ghost" onClick={() => { setStatusFilter("all"); setAgeFilter("any"); setProgressFilter("any"); setPage(0); }}>Clear filters</button>}
       </div>
-      {pageRows.length === 0 && <p className="empty-copy">No cases match these filters.</p>}
+      {pageRows.length === 0 && <p className="empty-copy">{capped ? "No loaded cases match these filters." : "No cases match these filters."}</p>}
       {pageRows.length > 0 && (
         <div className="table-scroll">
           <table className="table">
@@ -587,13 +603,16 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
   );
 }
 
-function BlockedCases({ cases }: { cases: DashboardCaseItem[] }) {
+function BlockedCases({ cases, cohortTotal }: { cases: DashboardCaseItem[]; cohortTotal: number }) {
+  const subsetId = useId();
+  const capped = cases.length < cohortTotal;
   const blocked = cases.filter((item) => BLOCKED_STATUSES.includes(item.status));
   const { pageRows, page, setPage, pageCount, total, pageSize } = usePagination(blocked);
   return (
-    <article className="card">
+    <article className="card" aria-describedby={capped ? subsetId : undefined}>
       <h2>Blocked cases</h2>
-      {blocked.length === 0 && <p className="empty-copy">None of your cases are currently blocked.</p>}
+      <CaseSubsetNotice id={subsetId} loaded={cases.length} total={cohortTotal} mine={true} />
+      {blocked.length === 0 && <p className="empty-copy">{capped ? "No blocked cases in the loaded subset." : "None of your cases are currently blocked."}</p>}
       <div className="blocked-case-list">
         {pageRows.map((item) => (
           <div className="blocked-case-row" key={item.case_id}>
@@ -636,37 +655,63 @@ function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; act
 
       <div className="section-divider"><span className="h2a">Workload</span><span className="section-divider-rule" /></div>
       <WorkloadTable rows={dashboard.workload_by_person} />
-      <AllCasesTable cases={dashboard.scoped_cases} actor={actor} />
+      <AllCasesTable cases={dashboard.scoped_cases} actor={actor} cohortTotal={totals.total_cases} />
     </>
   );
 }
 
 function RecentActivity({ actor, teamFilter }: { actor: AuthenticatedProfile; teamFilter: string }) {
-  const query = useQuery(activityQueryOptions(actor.user_id, { createdBy: actor.user_id, teamFilter, limit: 100 }));
+  const limit = 10;
+  const [offset, setOffset] = useState(0);
+  const [refreshFromFirst, setRefreshFromFirst] = useState(false);
+  const query = useQuery({
+    ...activityQueryOptions(actor.user_id, { createdBy: actor.user_id, teamFilter, offset, limit }, actor),
+    refetchOnMount: "always",
+  });
+  const refetch = query.refetch;
+  useEffect(() => {
+    if (refreshFromFirst && offset === 0) {
+      setRefreshFromFirst(false);
+      void refetch({ cancelRefetch: false });
+    }
+  }, [offset, refreshFromFirst, refetch]);
   const items = query.data?.items ?? [];
-  const { pageRows, page, setPage, pageCount, total, pageSize } = usePagination(items);
+  const capReached = Boolean(query.data?.has_more && offset + limit > 10_000);
   return (
     <article className="card">
       <div className="row-between">
         <h2>Recent activity on your cases · all dates</h2>
         <Link className="btn btn-ghost" to={paths.audit}>Audit →</Link>
       </div>
-      {query.isPending && <p className="text-muted">Loading…</p>}
-      {!query.isPending && items.length === 0 && <p className="empty-copy">No recorded activity on your cases yet.</p>}
+      {query.isPending && <p className="text-muted">Loading activity…</p>}
+      {query.isFetching && query.data && <p className="text-muted">Refreshing activity…</p>}
+      {query.isError && <p role="alert">Activity is unavailable. {query.data ? "The last result for this page remains visible." : "Try again."}</p>}
+      {query.isSuccess && items.length === 0 && <p className="empty-copy">No recorded activity on this page.</p>}
       <div className="activity-list">
-        {pageRows.map((item) => (
+        {items.map((item) => (
           <div className="activity-row" key={`${item.case_id}-${item.sequence}`}>
             <div>{item.message}</div>
             <p className="cell-note">{item.current_client_scope_label ?? "—"} · {formatTimestamp(item.timestamp)}</p>
           </div>
         ))}
       </div>
-      <Pagination page={page} setPage={setPage} pageCount={pageCount} total={total} pageSize={pageSize} />
+      <div className="pagination" aria-label="Recent activity pages">
+        {query.data && <span className="text-muted">{items.length ? `${offset + 1}–${offset + items.length} events` : "0 events on this page"}</span>}
+        <button type="button" disabled={offset === 0 || query.isFetching} onClick={() => setOffset(offset - limit)}>‹ Prev</button>
+        <button type="button" disabled={query.isFetching || query.isError || !query.data?.has_more || capReached} onClick={() => setOffset(offset + limit)}>Next ›</button>
+        <button type="button" disabled={query.isFetching} onClick={() => {
+          if (offset === 0) void refetch();
+          else { setRefreshFromFirst(true); setOffset(0); }
+        }}>Refresh activity</button>
+        {query.isError && <button type="button" disabled={query.isFetching} onClick={() => void refetch()}>Retry activity page</button>}
+      </div>
+      {capReached && <p className="text-muted">More history is available. Open Audit to narrow the filters.</p>}
+      <p className="cell-note">Pages are a live view; new events or deletion can move page boundaries.</p>
     </article>
   );
 }
 
-function MyWorkDashboard({ dashboard, actor, teamFilter }: { dashboard: DashboardSnapshot; actor: AuthenticatedProfile; teamFilter: string }) {
+function MyWorkDashboard({ dashboard, actor, teamFilter, activityRefresh }: { dashboard: DashboardSnapshot; actor: AuthenticatedProfile; teamFilter: string; activityRefresh: number }) {
   const totals = dashboard.totals;
   const mine = dashboard.workload_by_person.find((row) => row.user_id === actor.user_id);
 
@@ -681,10 +726,10 @@ function MyWorkDashboard({ dashboard, actor, teamFilter }: { dashboard: Dashboar
 
       {totals.total_cases === 0 && <div className="ds-banner">You have not created any onboarding cases in this scope yet.</div>}
 
-      <YourCasesTable cases={dashboard.scoped_cases} />
+      <YourCasesTable cases={dashboard.scoped_cases} cohortTotal={totals.total_cases} />
       <div className="dashboard-grid dashboard-grid--distributions">
-        <BlockedCases cases={dashboard.scoped_cases} />
-        <RecentActivity actor={actor} teamFilter={actor.role === "DIRECTOR" ? teamFilter : "all"} />
+        <BlockedCases cases={dashboard.scoped_cases} cohortTotal={totals.total_cases} />
+        <RecentActivity key={`${actor.user_id}:${actor.role}:${actor.team_id}:${teamFilter}:${activityRefresh}`} actor={actor} teamFilter={actor.role === "DIRECTOR" ? teamFilter : "all"} />
       </div>
     </>
   );
@@ -720,6 +765,7 @@ export function DashboardView({
   onRefresh: () => void;
   onBack: () => void;
 }) {
+  const [activityRefresh, setActivityRefresh] = useState(0);
   return (
     <section className="ds-root ds-page dashboard-page">
       <header className="ds-page-header dashboard-header">
@@ -728,18 +774,18 @@ export function DashboardView({
           <div className="dashboard-filters">
             <SegToggle value={dashScope} onChange={onScopeChange} options={[{ value: "team", label: "Manager" }, { value: "mine", label: "My work" }]} />
             <DirectorTeamFilter actor={actor} value={teamFilter} onChange={onTeamFilterChange} />
-            <select className="input dashboard-date-range" value={dateRange} onChange={(event) => onDateRangeChange(event.target.value as DashboardDateRange)}>
+            <select aria-label="Dashboard date range" className="input dashboard-date-range" value={dateRange} onChange={(event) => onDateRangeChange(event.target.value as DashboardDateRange)}>
               {DATE_RANGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
           <div className="dashboard-as-of">
             <span>Data as of</span><strong>{formatDateNoSeconds(dashboard.data_as_of)}</strong>
-            <button className="btn btn-ghost" type="button" onClick={onRefresh}>Refresh</button>
+            <button className="btn btn-ghost" type="button" onClick={() => { setActivityRefresh(value => value + 1); onRefresh(); }}>Refresh</button>
           </div>
         </div>
       </header>
 
-      {dashScope === "team" ? <TeamDashboard dashboard={dashboard} actor={actor} /> : <MyWorkDashboard dashboard={dashboard} actor={actor} teamFilter={teamFilter} />}
+      {dashScope === "team" ? <TeamDashboard dashboard={dashboard} actor={actor} /> : <MyWorkDashboard activityRefresh={activityRefresh} dashboard={dashboard} actor={actor} teamFilter={teamFilter} />}
     </section>
   );
 }

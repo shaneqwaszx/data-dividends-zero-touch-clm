@@ -78,6 +78,27 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
     }
   };
   await exerciseSorts("Time per pipeline step");
+  const pipeline = page.locator("article").filter({ has: page.getByRole("heading", { name: "Time per pipeline step", exact: true }) });
+  const disclosures = await pipeline.locator('tbody button[aria-controls]').evaluateAll(buttons => buttons.map(button => button.id));
+  expect(disclosures).toHaveLength(6);
+  const disclosureIds = new Set<string>();
+  for (const controlId of disclosures) {
+    const control = pipeline.locator(`[id="${controlId}"]`);
+    const id = (await control.getAttribute("aria-controls"))!;
+    expect(disclosureIds.has(id)).toBe(false); disclosureIds.add(id);
+    const region = pipeline.locator(`[id="${id}"]`);
+    await expect(region).toHaveAttribute("role", "region");
+    await expect(control).toHaveAttribute("aria-expanded", "false");
+    await control.focus(); await page.keyboard.press("Shift+Tab"); await page.keyboard.press("Tab");
+    await expect(control).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(control).toHaveAttribute("aria-expanded", "true"); await expect(region).toBeVisible();
+    await pipeline.getByRole("button", { name: "Step", exact: true }).click();
+    await expect(control).toHaveAttribute("aria-expanded", "true"); await expect(region).toBeVisible();
+    await control.focus(); await page.keyboard.press("Space");
+    await expect(control).toHaveAttribute("aria-expanded", "false"); await expect(region).toBeHidden();
+  }
+
   await exerciseSorts("Workload by person");
   await exerciseSorts("All cases");
   await expect(allCases.getByRole("columnheader", { name: "Case age / duration" })).toBeVisible();
@@ -120,5 +141,88 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+  expect(violations).toEqual([]);
+});
+
+
+test("PR95 R4 recent activity pages past100 real authorized events", async ({ page }) => {
+  const violations: string[] = [];
+  const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!,
+    backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
+  await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
+  await page.goto("/");
+  await page.getByLabel("User ID").fill("maya-lim");
+  await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  const login = page.waitForResponse(response => new URL(response.url()).pathname === "/api/auth/login");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const session = await (await login).json();
+  const headers = { "X-CSRF-Token": session.csrf_token, Origin: process.env.PLAYWRIGHT_BASE_URL! };
+  const priorMine = await (await page.request.get("/api/clm/zero-touch/dashboard?scope=mine&date_range=30d")).json();
+  const priorTeam = await (await page.request.get("/api/clm/zero-touch/dashboard?date_range=30d")).json();
+  const expectedMineTotal = priorMine.totals.total_cases + 205;
+  const expectedTeamTotal = priorTeam.totals.total_cases + 205;
+  // Genuine local test-mode case creation; no provider start or mocked API replies.
+  for (let batch = 0; batch < 21; batch++) {
+    const responses = await Promise.all(Array.from({ length: Math.min(10, 205 - batch * 10) }, (_, item) =>
+      page.request.post("/api/clm/zero-touch/cases", { headers, data: {
+        uen: `2088${String(batch * 10 + item).padStart(5, "0")}A`,
+        country_of_incorporation: "SG", legal_name: "Synthetic R4 activity fixture",
+      } })));
+    expect(responses.every(response => response.status() === 201)).toBe(true);
+  }
+  const first = await (await page.request.get("/api/clm/zero-touch/activity?created_by=maya-lim&limit=100")).json();
+  expect(first.items).toHaveLength(100); expect(first.has_more).toBe(true);
+  const expected: string[] = first.items.map((item: { case_id: string; sequence: number }) => `${item.case_id}-${item.sequence}`);
+  let finalPage = false;
+  // Bounded fixture oracle; product UI itself holds only one10-event page.
+  for (let offset = 100; offset < 1000; offset += 100) {
+    const tail = await (await page.request.get(`/api/clm/zero-touch/activity?created_by=maya-lim&limit=100&offset=${offset}`)).json();
+    expected.push(...tail.items.map((item: { case_id: string; sequence: number }) => `${item.case_id}-${item.sequence}`));
+    if (!tail.has_more) { finalPage = true; break; }
+  }
+  expect(finalPage).toBe(true);
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await page.locator(".category-card--live").click();
+  await page.getByRole("button", { name: "My work", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Dashboard date range", exact: true })).toHaveValue("30d");
+  const yourCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "Your cases", exact: true }) });
+  await expect(yourCases).toContainText(`Loaded subset: 200 of ${expectedMineTotal} creator-only cases`);
+  await expect(yourCases).toContainText("filters apply only to the loaded subset");
+  await expect(yourCases.getByRole("link", { name: "View or search Cases" })).toHaveAttribute("href", "/cases");
+  const blockedCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "Blocked cases", exact: true }) });
+  await expect(blockedCases).toContainText(`Loaded subset: 200 of ${expectedMineTotal}`);
+  const activity = page.locator("article").filter({ has: page.getByRole("heading", { name: "Recent activity on your cases · all dates", exact: true }) });
+  const seen: string[] = [];
+  for (let offset = 0; offset < expected.length; offset += 10) {
+    await expect(activity.locator(".activity-row")).toHaveCount(Math.min(10, expected.length - offset));
+    expect(await activity.locator(".pagination").innerText()).not.toContain("of 100");
+    const response = await page.request.get(`/api/clm/zero-touch/activity?created_by=maya-lim&limit=10&offset=${offset}`);
+    const current = await response.json();
+    expect(await activity.locator(".activity-row > div").allTextContents()).toEqual(current.items.map((item: { message: string }) => item.message));
+    seen.push(...current.items.map((item: { case_id: string; sequence: number }) => `${item.case_id}-${item.sequence}`));
+    if (offset + 10 < expected.length) {
+      const next = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/zero-touch/activity")
+        && new URL(response.url()).searchParams.get("offset") === String(offset + 10));
+      await activity.getByRole("button", { name: "Next ›", exact: true }).click();
+      expect((await next).status()).toBe(200);
+    }
+  }
+  expect(seen).toEqual(expected); expect(new Set(seen).size).toBe(seen.length);
+  await expect(activity.getByRole("button", { name: "Next ›", exact: true })).toBeDisabled();
+  await activity.getByRole("button", { name: "‹ Prev", exact: true }).click();
+  await expect(activity.locator(".activity-row")).toHaveCount(10);
+  const reset = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/zero-touch/activity")
+    && !new URL(response.url()).searchParams.has("offset"));
+  await activity.getByRole("button", { name: "Refresh activity", exact: true }).click();
+  expect((await reset).status()).toBe(200);
+  await expect(activity.getByRole("button", { name: "‹ Prev", exact: true })).toBeDisabled();
+  await expect(activity.getByRole("link", { name: "Audit →" })).toHaveAttribute("href", "/audit");
+  await page.getByRole("button", { name: "Manager", exact: true }).click();
+  const allCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "All cases", exact: true }) });
+  // Direct fixture API writes bypass app mutation invalidation; refresh the fixed snapshot.
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(allCases).toContainText(`Loaded subset: 200 of ${expectedTeamTotal} cases in the authorized cohort`);
+  await allCases.getByRole("link", { name: "View or search Cases" }).click();
+  await expect(page).toHaveURL(/\/cases$/);
   expect(violations).toEqual([]);
 });

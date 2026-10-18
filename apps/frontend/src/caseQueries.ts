@@ -33,6 +33,8 @@ function dashboardTeamScope(teamFilter?: string): string {
   return teamFilter ?? absent;
 }
 
+type ActivityActorScope = Pick<AuthenticatedProfile, "role" | "team_id">;
+
 export const caseQueryKeys = {
   auth: (userId: string) => ["auth", userId] as const,
   dashboards: (userId: string) => ["auth", userId, "dashboard"] as const,
@@ -87,7 +89,7 @@ export const caseQueryKeys = {
   intelligence: (userId: string, caseId: string) =>
     ["auth", userId, "cases", "intelligence", caseId] as const,
   activities: (userId: string) => ["auth", userId, "activity"] as const,
-  activity: (userId: string, filters: CaseActivityFilters) => [
+  activity: (userId: string, filters: CaseActivityFilters, actorScope?: ActivityActorScope) => [
     ...caseQueryKeys.activities(userId),
     {
       caseId: filters.caseId ?? absent,
@@ -98,6 +100,8 @@ export const caseQueryKeys = {
       from: filters.from ?? absent,
       to: filters.to ?? absent,
       createdBy: filters.createdBy ?? absent,
+      actorRole: actorScope?.role ?? absent,
+      actorTeam: actorScope?.team_id ?? absent,
       offset: filters.offset ?? 0,
       limit: filters.limit ?? 50,
     },
@@ -186,9 +190,9 @@ export function intelligenceQueryOptions(userId: string, caseId: string) {
   };
 }
 
-export function activityQueryOptions(userId: string, filters: CaseActivityFilters) {
+export function activityQueryOptions(userId: string, filters: CaseActivityFilters, actorScope?: ActivityActorScope) {
   return {
-    queryKey: caseQueryKeys.activity(userId, filters),
+    queryKey: caseQueryKeys.activity(userId, filters, actorScope),
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchCaseActivity(filters, signal),
   };
 }
