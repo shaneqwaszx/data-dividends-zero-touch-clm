@@ -9,6 +9,7 @@ from uuid import UUID
 from app.domain.access import SYNTHETIC_PROFILE_BY_ID, AuthenticatedActor, Role, TeamId
 from app.domain.case_management import (
     CasePortfolioRecord,
+    CaseTimingDataInvalidError,
     case_created_date_bounds,
     project_case_timing,
 )
@@ -75,120 +76,131 @@ class DashboardService:
         date_range: Literal["7d", "30d", "90d", "all"] = "all",
     ) -> DashboardSnapshot:
         authorized_records = self._case_query.list_cases(actor, team_filter=team_filter)
-        automation_records = self._automation.list_records()
-        data_as_of = self._clock()
-        range_days = DASHBOARD_DATE_RANGE_DAYS[date_range]
-        # Match the portfolio's inclusive Singapore created-calendar-day contract.
-        today = data_as_of.astimezone(timezone(timedelta(hours=8))).date()
-        created_from = today - timedelta(days=range_days - 1) if range_days else None
-        history_records = [
-            item for item in authorized_records
-            if scope == "team" or item.created_by_actor_id == actor.profile.user_id
-        ]
-        # Preserve the legacy view's UTC trend before the new created-date filter.
-        historical_trend = _trend(history_records, data_as_of.date())
-        from_at, to_at = case_created_date_bounds(
-            created_from, today if range_days else None,
-        )
-        cohort_records = [
-            item for item in authorized_records
-            if (from_at is None or item.created_at >= from_at)
-            and (to_at is None or item.created_at < to_at)
-        ]
-        # Validate every selected authorized case before any display-list cap.
-        for item in cohort_records:
-            _case_elapsed_ms(item, data_as_of)
-        # Mine limits creator counts/lists, not the actor's authorized resolver work.
-        records = [
-            item for item in cohort_records
-            if scope == "team" or item.created_by_actor_id == actor.profile.user_id
-        ]
-        total = len(records)
-        completed = sum(item.status == AutomationStatus.COMPLETED for item in records)
-        prioritised = sum(item.priority is not None for item in records)
-        status_counts = Counter(item.status for item in records)
-        priority_counts = Counter(item.priority for item in records)
-        recent = sorted(
-            records,
-            key=lambda item: (item.updated_at, str(item.case_id)),
-            reverse=True,
-        )[:DASHBOARD_RECENT_LIMIT]
-        top_active = [item for item in records if item.status != AutomationStatus.COMPLETED][
-            :DASHBOARD_TOP_ACTIVE_LIMIT
-        ]
-        scoped_ids = {item.case_id for item in records}
-        cohort_ids = {item.case_id for item in cohort_records}
-        cohort_automations = {
-            record.case_id: record
-            for record in automation_records
-            if record.case_id in cohort_ids
-        }
-        automations = {
-            case_id: record for case_id, record in cohort_automations.items()
-            if case_id in scoped_ids
-        }
+        with self._automation.capture_for_cases(frozenset(
+            item.case_id for item in authorized_records
+        )) as batch:
+            data_as_of = self._clock()
+            range_days = DASHBOARD_DATE_RANGE_DAYS[date_range]
+            # Match the portfolio's inclusive Singapore created-calendar-day contract.
+            today = data_as_of.astimezone(timezone(timedelta(hours=8))).date()
+            created_from = today - timedelta(days=range_days - 1) if range_days else None
+            history_records = [
+                item for item in authorized_records
+                if scope == "team" or item.created_by_actor_id == actor.profile.user_id
+            ]
+            # Preserve the legacy view's UTC trend before the new created-date filter.
+            historical_trend = _trend(history_records, data_as_of.date())
+            from_at, to_at = case_created_date_bounds(
+                created_from, today if range_days else None,
+            )
+            cohort_records = [
+                item for item in authorized_records
+                if (from_at is None or item.created_at >= from_at)
+                and (to_at is None or item.created_at < to_at)
+            ]
+            automation_records = batch.read_selected(frozenset(
+                item.case_id for item in cohort_records
+            ))
+            # Validate every selected authorized case before any display-list cap.
+            for item in cohort_records:
+                _case_elapsed_ms(item, data_as_of)
+            for automation in automation_records:
+                if any(type(value) is not int or value < 0
+                       for value in automation.metrics.stage_durations_ms.values()):
+                    raise CaseTimingDataInvalidError("recorded stage duration is invalid")
+            # Mine limits creator counts/lists, not the actor's authorized resolver work.
+            records = [
+                item for item in cohort_records
+                if scope == "team" or item.created_by_actor_id == actor.profile.user_id
+            ]
+            total = len(records)
+            completed = sum(item.status == AutomationStatus.COMPLETED for item in records)
+            prioritised = sum(item.priority is not None for item in records)
+            status_counts = Counter(item.status for item in records)
+            priority_counts = Counter(item.priority for item in records)
+            recent = sorted(
+                records,
+                key=lambda item: (item.updated_at, str(item.case_id)),
+                reverse=True,
+            )[:DASHBOARD_RECENT_LIMIT]
+            top_active = [item for item in records if item.status != AutomationStatus.COMPLETED][
+                :DASHBOARD_TOP_ACTIVE_LIMIT
+            ]
+            scoped_ids = {item.case_id for item in records}
+            cohort_ids = {item.case_id for item in cohort_records}
+            cohort_automations = {
+                record.case_id: record
+                for record in automation_records
+                if record.case_id in cohort_ids
+            }
+            automations = {
+                case_id: record for case_id, record in cohort_automations.items()
+                if case_id in scoped_ids
+            }
 
-        # One chronology guard covers resolver workload and completed delay notes,
-        # including successful resolutions whose resolver was not recorded.
-        for automation in cohort_automations.values():
-            for exception in automation.exceptions:
-                if (
-                    exception.status == BusinessExceptionStatus.RESOLVED
-                    and exception.resolved_at is not None
-                ):
-                    project_case_timing(
-                        created_at=exception.created_at,
-                        updated_at=exception.resolved_at,
-                        started_at=None,
-                        completed_at=exception.resolved_at,
-                        recorded_total_duration_ms=None,
-                        observed_at=data_as_of,
+            # One chronology guard covers resolver workload and completed delay notes,
+            # including successful resolutions whose resolver was not recorded.
+            for automation in cohort_automations.values():
+                for exception in automation.exceptions:
+                    if (
+                        exception.status == BusinessExceptionStatus.RESOLVED
+                        and exception.resolved_at is not None
+                    ):
+                        project_case_timing(
+                            created_at=exception.created_at,
+                            updated_at=exception.resolved_at,
+                            started_at=None,
+                            completed_at=exception.resolved_at,
+                            recorded_total_duration_ms=None,
+                            observed_at=data_as_of,
+                        )
+
+            return DashboardSnapshot(
+                scope=self._dashboard_scope(actor, team_filter),
+                view=scope,
+                historical_trend=historical_trend,
+                data_as_of=data_as_of,
+                totals=DashboardTotals(
+                    total_cases=total,
+                    completed_cases=completed,
+                    non_completed_cases=total - completed,
+                    completion_rate=(completed / total if total else 0.0),
+                    prioritised_cases=prioritised,
+                    unprioritised_cases=total - prioritised,
+                ),
+                zero_touch_rate=_zero_touch_rate(records),
+                timing=_timing_summary(records),
+                status_breakdown=tuple(
+                    DashboardStatusCount(status=status, count=status_counts[status])
+                    for status in AutomationStatus
+                ),
+                priority_breakdown=tuple(
+                    DashboardPriorityCount(priority=priority, count=priority_counts[priority])
+                    for priority in (*range(10, 0, -1), None)
+                ),
+                team_breakdown=(
+                    self._team_breakdown(actor, records, team_filter) if scope == "team" else ()
+                ),
+                stage_timing=_stage_timing(records, automations),
+                exception_breakdown=_exception_breakdown(automations),
+                weekly_onboarded=_weekly_onboarded(records, data_as_of.date()),
+                workload_by_person=tuple(
+                    row for row in self._workload_by_person(
+                        cohort_records, cohort_automations, data_as_of,
                     )
-
-        return DashboardSnapshot(
-            scope=self._dashboard_scope(actor, team_filter),
-            view=scope,
-            historical_trend=historical_trend,
-            data_as_of=data_as_of,
-            totals=DashboardTotals(
-                total_cases=total,
-                completed_cases=completed,
-                non_completed_cases=total - completed,
-                completion_rate=(completed / total if total else 0.0),
-                prioritised_cases=prioritised,
-                unprioritised_cases=total - prioritised,
-            ),
-            zero_touch_rate=_zero_touch_rate(records),
-            timing=_timing_summary(records),
-            status_breakdown=tuple(
-                DashboardStatusCount(status=status, count=status_counts[status])
-                for status in AutomationStatus
-            ),
-            priority_breakdown=tuple(
-                DashboardPriorityCount(priority=priority, count=priority_counts[priority])
-                for priority in (*range(10, 0, -1), None)
-            ),
-            team_breakdown=(
-                self._team_breakdown(actor, records, team_filter) if scope == "team" else ()
-            ),
-            stage_timing=_stage_timing(records, automations),
-            exception_breakdown=_exception_breakdown(automations),
-            weekly_onboarded=_weekly_onboarded(records, data_as_of.date()),
-            workload_by_person=tuple(
-                row for row in self._workload_by_person(
-                    cohort_records, cohort_automations, data_as_of,
-                )
-                if scope == "team" or row.user_id == actor.profile.user_id
-            ),
-            recent_cases=tuple(self._case_item(item, automations, data_as_of) for item in recent),
-            top_active_cases=tuple(
-                self._case_item(item, automations, data_as_of) for item in top_active
-            ),
-            scoped_cases=tuple(
-                self._case_item(item, automations, data_as_of)
-                for item in records[:DASHBOARD_SCOPED_CASES_LIMIT]
-            ),
-        )
+                    if scope == "team" or row.user_id == actor.profile.user_id
+                ),
+                recent_cases=tuple(
+                    self._case_item(item, automations, data_as_of) for item in recent
+                ),
+                top_active_cases=tuple(
+                    self._case_item(item, automations, data_as_of) for item in top_active
+                ),
+                scoped_cases=tuple(
+                    self._case_item(item, automations, data_as_of)
+                    for item in records[:DASHBOARD_SCOPED_CASES_LIMIT]
+                ),
+            )
 
     def _dashboard_scope(
         self, actor: AuthenticatedActor, team_filter: str | None

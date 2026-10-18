@@ -6,7 +6,8 @@ The store retains no read snapshots; copies on write boundaries remain defensive
 from __future__ import annotations
 
 import hmac
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import RLock
@@ -35,7 +36,7 @@ from app.domain.zero_touch import (
 )
 from app.persistence.errors import PersistenceConflictError
 from app.persistence.models import DurableCaseSnapshot
-from app.persistence.mongo_case_store import MongoCaseStore
+from app.persistence.mongo_case_store import CapturedCaseBatch, MongoCaseStore
 from app.services.clm_repository import ClmRepositoryConflictError
 from app.services.onboarding_intelligence_repository import (
     OnboardingIntelligenceRepositoryConflictError,
@@ -56,7 +57,9 @@ from app.services.target_execution_repository import (
     TargetExecutionRepositoryConflictError,
 )
 from app.services.zero_touch_repository import (
+    AutomationReadBatch,
     ZeroTouchRepositoryConflictError,
+    ZeroTouchRepositoryReadError,
     order_zero_touch_automation_records,
 )
 
@@ -472,6 +475,29 @@ class MongoClmOrchestrationRepository:
         del case_id
 
 
+class _MongoAutomationReadBatch:
+    def __init__(self, snapshots: CapturedCaseBatch) -> None:
+        self._snapshots: CapturedCaseBatch | None = snapshots
+
+    def close(self) -> None:
+        if self._snapshots is not None:
+            self._snapshots.close()
+            self._snapshots = None
+
+    def read_selected(self, case_ids: frozenset[UUID]) -> list[ZeroTouchAutomationRecord]:
+        if self._snapshots is None:
+            raise ZeroTouchRepositoryReadError("automation batch is closed")
+        try:
+            return order_zero_touch_automation_records(
+                snapshot.automation for snapshot in self._snapshots.read_selected(case_ids)
+                if snapshot.automation is not None
+            )
+        except ValueError:
+            raise ZeroTouchRepositoryReadError("invalid automation batch selection") from None
+        finally:
+            self.close()
+
+
 class MongoZeroTouchAutomationRepository:
     def __init__(self, store: MongoCaseStore) -> None:
         self._store = store
@@ -516,6 +542,15 @@ class MongoZeroTouchAutomationRepository:
             if snapshot.automation is not None
         )
         return order_zero_touch_automation_records(records)
+
+    @contextmanager
+    def capture_for_cases(self, case_ids: frozenset[UUID]) -> Iterator[AutomationReadBatch]:
+        with self._store.capture_for_cases(case_ids) as snapshots:
+            batch = _MongoAutomationReadBatch(snapshots)
+            try:
+                yield batch
+            finally:
+                batch.close()
 
     def delete_for_case(self, case_id: UUID) -> None:
         del case_id

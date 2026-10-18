@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -71,6 +72,17 @@ class StaticAutomationRepository:
     def list_records(self) -> list[ZeroTouchAutomationRecord]:
         self.read_count += 1
         return [record.model_copy(deep=True) for record in self.records]
+
+    @contextmanager
+    def capture_for_cases(self, case_ids):
+        # The existing read hook still models the source-capture interleaving.
+        captured = [record for record in self.list_records() if record.case_id in case_ids]
+        class Batch:
+            def read_selected(self, selected):
+                assert selected <= case_ids
+                return [record.model_copy(deep=True) for record in captured
+                        if record.case_id in selected]
+        yield Batch()
 
 
 def _actor(user_id: str) -> AuthenticatedActor:

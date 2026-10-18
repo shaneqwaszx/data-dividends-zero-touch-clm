@@ -535,3 +535,235 @@ def test_pr95_r2_activity_validates_creator_before_filter_in_physical_mongo(sche
             cleanup_ephemeral_mongo_database(client, database)
         finally:
             client.close()
+
+
+
+def _pr95_r5_dashboard(store, clock):
+    from test_phase13_dashboard import _teams
+
+    from app.persistence.repositories import (
+        MongoCasePortfolioRepository,
+        MongoOnboardingCaseRepository,
+        MongoZeroTouchAutomationRepository,
+    )
+    from app.services.administration import TeamDirectoryService
+    from app.services.authorization import CaseAccessPolicy
+    from app.services.case_query import CaseQueryService
+    from app.services.dashboard import DashboardService
+
+    teams = _teams()
+    automation = MongoZeroTouchAutomationRepository(store)
+    return DashboardService(CaseQueryService(
+        cases=object(), case_repository=MongoOnboardingCaseRepository(store),
+        automation_repository=automation, access_policy=CaseAccessPolicy(), teams=teams,
+        portfolio_repository=MongoCasePortfolioRepository(store),
+    ), TeamDirectoryService(teams), automation, clock=clock)
+
+
+@pytest.mark.parametrize("invalid_scope", ["other_team", "excluded_date", "selected"])
+def test_pr95_r5_physical_scoped_corruption_and_safe_http(monkeypatch, invalid_scope):
+    from test_phase13_dashboard import NOW, _actor
+    from test_pr95_r5_scoped_dashboard import fixture
+
+    from app.persistence.mongo_case_store import MongoCaseStore
+    from app.services.dashboard import DashboardService
+
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p13")
+    client = MongoClient(MONGO_URI)
+    counters = _install_counting_connectors(monkeypatch)
+    try:
+        store = MongoCaseStore(client, database=database, collection="clm_case_snapshots")
+        store.initialize()
+        current = fixture()
+        bad = fixture(
+            team=TeamId.TEAM_B if invalid_scope == "other_team" else TeamId.TEAM_A,
+            days=45 if invalid_scope == "excluded_date" else 1,
+        )
+        for value in (current, bad):
+            store.create(store._decode(value[2]))
+        collection = client[database]["clm_case_snapshots"]
+        collection.update_one({"_id": str(bad[0].case_id)}, {"$set": {
+            "automation.unprojected_unknown": "synthetic-invalid",
+        }})
+        before = list(collection.find({}))
+        service = _pr95_r5_dashboard(store, lambda: NOW)
+        original = service.get_dashboard
+        monkeypatch.setattr(DashboardService, "get_dashboard", lambda self, actor, **kwargs:
+                            original(actor, **kwargs))
+        with RawTestClient(create_app(Settings(_env_file=None, app_env="test")),
+                           raise_server_exceptions=False) as api:
+            _login(api, "maya-lim")
+            response = api.get("/api/clm/zero-touch/dashboard?date_range=7d")
+            if invalid_scope == "selected":
+                assert response.status_code == 503
+                assert response.json() == {"detail": {
+                    "code": "DASHBOARD_UNAVAILABLE",
+                    "message": "Dashboard data is temporarily unavailable.",
+                }}
+            else:
+                assert response.status_code == 200
+                assert response.json()["totals"]["total_cases"] == 1
+                assert response.json()["scoped_cases"][0]["case_id"] == str(current[0].case_id)
+        assert list(collection.find({})) == before
+        assert all(value == 0 for value in counters.values())
+        if invalid_scope != "selected":
+            from app.persistence.errors import PersistenceDataInvalidError
+            with pytest.raises(PersistenceDataInvalidError):
+                service.get_dashboard(_actor("olivia-koh"), date_range="all")
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(client, database)
+        finally:
+            client.close()
+
+
+@pytest.mark.parametrize("duration, days, expected", [(-1, 1, 503), (-1, 45, 200), (0, 1, 200)])
+def test_pr95_r5_physical_stage_duration_error_containment(monkeypatch, duration, days, expected):
+    from test_phase13_dashboard import NOW
+    from test_pr95_r5_scoped_dashboard import fixture
+
+    from app.persistence.mongo_case_store import MongoCaseStore
+    from app.services.dashboard import DashboardService
+
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p13")
+    client = MongoClient(MONGO_URI)
+    try:
+        store = MongoCaseStore(client, database=database, collection="clm_case_snapshots")
+        store.initialize()
+        value = fixture(days=days, duration=duration)
+        store.create(store._decode(value[2]))  # Canonical codec deliberately remains unchanged.
+        service = _pr95_r5_dashboard(store, lambda: NOW)
+        original = service.get_dashboard
+        monkeypatch.setattr(DashboardService, "get_dashboard", lambda self, actor, **kwargs:
+                            original(actor, **kwargs))
+        before = list(client[database]["clm_case_snapshots"].find({}))
+        with RawTestClient(create_app(Settings(_env_file=None, app_env="test")),
+                           raise_server_exceptions=False) as api:
+            _login(api, "maya-lim")
+            response = api.get("/api/clm/zero-touch/dashboard?date_range=7d")
+            assert response.status_code == expected
+            if expected == 503:
+                assert response.json() == {"detail": {
+                    "code": "DASHBOARD_UNAVAILABLE",
+                    "message": "Dashboard data is temporarily unavailable.",
+                }}
+            elif days == 1:
+                assert response.json()["stage_timing"][0]["combined_mean_ms"] == 0
+            else:
+                assert response.json()["totals"]["total_cases"] == 0
+        assert list(client[database]["clm_case_snapshots"].find({})) == before
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(client, database)
+        finally:
+            client.close()
+
+
+def test_pr95_r5_physical_finite_batch_parity_midnight_and_deletion():
+    from contextlib import contextmanager
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from test_phase13_dashboard import NOW, _actor, _service_for
+    from test_pr95_r5_scoped_dashboard import fixture
+
+    from app.persistence.mongo_case_store import MongoCaseStore
+    from app.persistence.repositories import MongoZeroTouchAutomationRepository
+
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p13")
+    client = MongoClient(MONGO_URI)
+    try:
+        store = MongoCaseStore(client, database=database, collection="clm_case_snapshots")
+        store.initialize()
+        values = [fixture(creator="ethan-tan") for _ in range(201)]
+        values.extend((fixture(team=TeamId.TEAM_B), fixture(team=None), fixture(days=45)))
+        for value in values:
+            store.create(store._decode(value[2]))
+        collection = client[database]["clm_case_snapshots"]
+        queries = []
+        class TrackedCollection:
+            def __getattr__(self, name):
+                return getattr(collection, name)
+            def find(self, query, *args, **kwargs):
+                if "_id" in query and "$in" in query["_id"]:
+                    queries.append(query)
+                return collection.find(query, *args, **kwargs)
+        store._collection = TrackedCollection()
+        service = _pr95_r5_dashboard(store, lambda: NOW)
+        memory, _ = _service_for([(value[0], value[1]) for value in values])
+        for actor_id, team_filter in (("maya-lim", None), ("ethan-tan", None),
+                                      ("sophia-ng", None), ("olivia-koh", "all"),
+                                      ("olivia-koh", "TEAM_A"), ("olivia-koh", "unassigned")):
+            for scope in ("team", "mine"):
+                before_queries = len(queries)
+                actual = service.get_dashboard(
+                    _actor(actor_id), team_filter=team_filter, scope=scope,
+                )
+                assert len(queries) == before_queries + 1
+                authorized = memory._case_query.list_cases(
+                    _actor(actor_id), team_filter=team_filter,
+                )
+                assert queries[-1] == {"_id": {"$in": sorted(
+                    str(item.case_id) for item in authorized
+                )}}
+                assert actual == memory.get_dashboard(
+                    _actor(actor_id), team_filter=team_filter, scope=scope,
+                )
+        large = service.get_dashboard(_actor("ethan-tan"), scope="mine")
+        assert large.totals.total_cases == 201 and len(large.scoped_cases) == 200
+        repo = MongoZeroTouchAutomationRepository(store)
+        before_empty = len(queries)
+        with repo.capture_for_cases(frozenset()) as empty:
+            assert empty.read_selected(frozenset()) == []
+        assert len(queries) == before_empty
+        ids = frozenset({values[0][0].case_id})
+        with repo.capture_for_cases(ids) as guarded:
+            with pytest.raises(ValueError):
+                guarded.read_selected(frozenset({values[1][0].case_id}))
+            with pytest.raises(ValueError):
+                guarded.read_selected(ids)
+        with pytest.raises(ValueError):
+            guarded.read_selected(ids)
+        captured_ids = frozenset({values[0][0].case_id, uuid4()})
+        with repo.capture_for_cases(captured_ids) as batch:
+            client[database]["clm_case_snapshots"].delete_one({"_id": str(values[0][0].case_id)})
+            assert [v.case_id for v in batch.read_selected(captured_ids)] == [values[0][0].case_id]
+        with repo.capture_for_cases(captured_ids) as batch:
+            assert batch.read_selected(captured_ids) == []
+        collection = client[database]["clm_case_snapshots"]
+        collection.delete_many({})  # This generated test database only; establish midnight fixture.
+        crossing = fixture(days=7)
+        created = datetime(2026, 9, 1, 16, tzinfo=UTC)
+        crossing[2]["onboarding"]["created_at"] = created.isoformat()
+        crossing[2]["automation"]["created_at"] = created.isoformat()
+        crossing[2]["automation"]["started_at"] = created.isoformat()
+        crossing[2]["created_at"] = created.isoformat()
+        store.create(store._decode(crossing[2]))
+        observations = []
+        now = [datetime(2026, 9, 8, 15, 59, 59, 999000, tzinfo=UTC)]
+        original_capture = store.capture_for_cases
+        captured = []
+        @contextmanager
+        def capture(ids):
+            with original_capture(ids) as batch:
+                assert now[0].hour == 15
+                captured.append(True)
+                now[0] = datetime(2026, 9, 8, 16, tzinfo=UTC)
+                yield batch
+        store.capture_for_cases = capture
+        def clock():
+            assert len(captured) == 1
+            observations.append(True)
+            return now[0]
+        midnight = _pr95_r5_dashboard(store, clock)
+        result = midnight.get_dashboard(_actor("maya-lim"), date_range="7d")
+        assert result.totals.total_cases == 0 and len(observations) == 1
+        assert result.data_as_of == datetime(2026, 9, 8, 16, tzinfo=UTC)
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(client, database)
+        finally:
+            client.close()

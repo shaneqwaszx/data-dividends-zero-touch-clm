@@ -504,8 +504,15 @@ multi-instance locks, regulatory retention, or production audit guarantees.
 PR95's unmerged Dashboard v2 candidate extends the same DashboardService and portfolio
 owners. The current metric/cohort/API compatibility contract is in
 `contracts/CASE_ACCESS_AND_PRIORITY_PROFILE.md#dashboard-contract`. It consumes retained
-automation records only after selecting authorized case IDs; creator load and recorded
-resolver activity are separate projections. Mongo validates creator identity in its
+automation through an opaque request-local batch: authorized IDs precede raw capture,
+then one final observation selects the date cohort before strict selected-envelope
+decoding. Mongo fully captures one authorized-ID query before yielding; excluded-date
+raw envelopes remain inside the existing store and are never fully decoded. Memory
+captures defensive copies under its existing lock. The one-shot handle closes on every
+exit, cannot expand its captured ID set, and performs no post-observation database read.
+Missing pre-capture records remain absent; later deletion does not alter that request's
+captured snapshot or authorize any write. Existing startup validation, schemas and CAS
+are unchanged. Creator load and recorded resolver activity remain separate projections. Mongo validates creator identity in its
 bounded projections and intersects activity creator predicates with authorized scope.
 Frontend query identity adds view/date range and activity creator. Existing auth,
 QueryClient, cancellation, deletion and target owners remain unchanged. No new owner,

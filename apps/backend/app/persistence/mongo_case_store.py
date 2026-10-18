@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import builtins
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -73,6 +73,56 @@ from app.persistence.models import (
     reject_classification_legacy_fields,
     reject_session2_legacy_fields,
 )
+
+
+class CapturedCaseBatch:
+    """Opaque one-shot store read; raw envelopes never leave this boundary."""
+
+    def __init__(
+        self, authorized: frozenset[UUID], raw_records: list[dict[str, Any]],
+        decode: Callable[[dict[str, Any]], DurableCaseSnapshot],
+    ) -> None:
+        self._authorized = authorized
+        self._raw_records = raw_records
+        self._decode: Callable[[dict[str, Any]], DurableCaseSnapshot] | None = decode
+
+    def close(self) -> None:
+        self._authorized = frozenset()
+        self._raw_records.clear()
+        self._decode = None
+
+    def read_selected(self, case_ids: frozenset[UUID]) -> list[DurableCaseSnapshot]:
+        decode = self._decode
+        if decode is None:
+            raise ValueError("case batch is closed")
+        try:
+            if (type(case_ids) is not frozenset
+                    or any(type(value) is not UUID for value in case_ids)
+                    or not case_ids <= self._authorized):
+                raise ValueError("invalid case batch selection")
+            selected = {str(value): value for value in case_ids}
+            authorized = {str(value) for value in self._authorized}
+            seen: set[UUID] = set()
+            snapshots = []
+            for raw in self._raw_records:
+                # Mongo's canonical _id alone routes the captured raw batch. Never
+                # inspect excluded nested/schema data before final cohort selection.
+                key = raw.get("_id")
+                if type(key) is not str or key not in authorized:
+                    raise PersistenceDataInvalidError
+                if key not in selected:
+                    continue
+                case_id = selected[key]
+                if case_id in seen:
+                    raise PersistenceDataInvalidError
+                snapshot = decode(raw)
+                if snapshot.case_id != case_id:
+                    raise PersistenceDataInvalidError
+                seen.add(case_id)
+                snapshots.append(snapshot)
+            return snapshots
+        finally:
+            self.close()
 
 
 class MongoCaseStore:
@@ -160,6 +210,30 @@ class MongoCaseStore:
         except PyMongoError:
             raise PersistenceUnavailableError from None
         return [self._decode(item) for item in raw_records]
+
+    @contextmanager
+    def capture_for_cases(self, case_ids: frozenset[UUID]) -> Iterator[CapturedCaseBatch]:
+        """Materialize one authorized-ID raw read before yielding, without decoding."""
+        if type(case_ids) is not frozenset or any(type(value) is not UUID for value in case_ids):
+            raise ValueError("invalid case batch selection")
+        raw_records: builtins.list[dict[str, Any]] = []
+        cursor = None
+        try:
+            try:
+                if case_ids:
+                    cursor = self._collection.find({"_id": {"$in": sorted(map(str, case_ids))}})
+                    raw_records = builtins.list(cursor)
+            finally:
+                if cursor is not None:
+                    cursor.close()
+        except PyMongoError:
+            raw_records.clear()
+            raise PersistenceUnavailableError from None
+        batch = CapturedCaseBatch(case_ids, raw_records, self._decode)
+        try:
+            yield batch
+        finally:
+            batch.close()
 
     def list_portfolio(
         self,

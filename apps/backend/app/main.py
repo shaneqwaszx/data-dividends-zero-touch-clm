@@ -175,6 +175,7 @@ from app.services.zero_touch_errors import (
     ZeroTouchRequestError,
 )
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
+from app.services.zero_touch_repository import ZeroTouchRepositoryReadError
 
 _E2E_REQUEST_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -2214,6 +2215,7 @@ def create_app(
             )
         except (
             CaseTimingDataInvalidError,
+            ZeroTouchRepositoryReadError,
             PersistenceDataInvalidError,
             PersistenceSchemaUnsupportedError,
             PersistenceUnavailableError,
