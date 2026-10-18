@@ -53,6 +53,19 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   await expect(page.locator('.weekly-chart-seg[title^="Australia:"]')).toHaveCount(0);
   expect(dashboardRanges.length).toBeGreaterThan(0);
   expect(dashboardRanges.every(value => value === "30d")).toBe(true);
+  // Browser-clock skew must not change the same server duration or its age filters.
+  const allCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "All cases", exact: true }) });
+  const ageFilter = allCases.locator(".filter-label").filter({ hasText: "Age" }).locator("select");
+  await ageFilter.selectOption("lt7");
+  await expect(allCases.locator("tbody tr").first()).toBeVisible();
+  const observedCount = await allCases.locator("tbody tr").count();
+  const observedRow = await allCases.locator("tbody").innerText();
+  await page.clock.setFixedTime(new Date(Date.now() + 40 * 86_400_000));
+  await ageFilter.selectOption("gt30");
+  await expect(allCases.getByText("No cases match these filters.")).toBeVisible();
+  await ageFilter.selectOption("lt7");
+  await expect(allCases.locator("tbody tr")).toHaveCount(observedCount);
+  await expect(allCases.locator("tbody")).toHaveText(observedRow, { useInnerText: true });
   const mine = page.waitForResponse(r => r.url().includes("/zero-touch/dashboard?")
     && new URL(r.url()).searchParams.get("scope") === "mine");
   await page.getByRole("button", { name: "My work", exact: true }).click();

@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -52,6 +56,7 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
     created_at: "2026-09-07T01:00:00Z",
     updated_at: "2026-09-08T01:00:00Z",
     completed_at: null,
+    case_elapsed_ms: 93_600_000,
     delay_note: null,
     created_by_display_name: "Maya Lim",
   };
@@ -68,6 +73,7 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
     progress_percent: 100,
     final_outcome: "MOCK_GOLDTIER_SUBMITTED",
     completed_at: "2026-09-08T02:00:00Z",
+    case_elapsed_ms: 90_000_000,
     delay_note: "Zero-touch",
     created_by_display_name: "Sophia Ng",
   };
@@ -145,6 +151,7 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
 afterEach(() => {
   configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("historical RBAC dashboard", () => {
@@ -304,4 +311,52 @@ it("qualifies recorded timing samples and availability without Live claims", () 
   /></MemoryRouter>);
   expect(manager).toContain("Waiting and blocker-resolution time are not included");
   expect(manager).not.toContain("including the time to fix it");
+});
+
+
+it.each(["team", "mine"] as const)("keeps %s case ages, sorting and filters fixed under client skew", async (scope) => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [] }))));
+  const value = snapshot(maya);
+  const active = { ...value.scoped_cases[0], legal_name: "ACTIVE TIMING CLIENT",
+    created_at: "2026-09-06T03:00:00Z", case_elapsed_ms: 172_800_000 };
+  const completed = { ...active, case_id: "00000000-0000-4000-8000-000000000099",
+    legal_name: "COMPLETED TIMING CLIENT", created_at: "2026-07-31T03:00:00Z",
+    completed_at: "2026-08-01T03:00:00Z", status: "COMPLETED" as const,
+    current_stage: "COMPLETE" as const, case_elapsed_ms: 86_400_000 };
+  value.scoped_cases = [completed, active];
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse(value.data_as_of));
+  const client = createSessionQueryClient();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const render = () => root.render(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+    actor={maya} dashboard={value} dashScope={scope} onScopeChange={() => undefined}
+    dateRange="all" onDateRangeChange={() => undefined} teamFilter="all"
+    onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+  /></MemoryRouter></QueryClientProvider>);
+  try {
+    await act(async () => render());
+    const article = Array.from(container.querySelectorAll("article")).find(item =>
+      item.querySelector("h2")?.textContent === (scope === "team" ? "All cases" : "Your cases"))!;
+    const rows = () => Array.from(article.querySelectorAll("tbody tr"));
+    expect(rows()[0].textContent).toContain("ACTIVE TIMING CLIENT");
+    expect(rows()[0].textContent).toContain("2d");
+    expect(rows()[1].textContent).toContain("1d");
+    const age = Array.from(article.querySelectorAll("label")).find(item =>
+      item.textContent?.trim().startsWith("Age"))!.querySelector("select")!;
+    await act(async () => { age.value = "lt7"; age.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(rows()).toHaveLength(2);
+    const observed = article.innerHTML;
+    now.mockReturnValue(Date.parse(value.data_as_of) + 40 * 86_400_000);
+    await act(async () => render());
+    expect(article.innerHTML).toBe(observed);
+    await act(async () => { age.value = "gt30"; age.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(rows()).toHaveLength(0);
+    expect(article.textContent).toContain("No cases match these filters.");
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    container.remove();
+  }
 });

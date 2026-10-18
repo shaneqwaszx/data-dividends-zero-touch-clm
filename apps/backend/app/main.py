@@ -2212,6 +2212,19 @@ def create_app(
             return dashboard.get_dashboard(
                 actor, team_filter=team_filter, scope=scope, date_range=date_range
             )
+        except (
+            CaseTimingDataInvalidError,
+            PersistenceDataInvalidError,
+            PersistenceSchemaUnsupportedError,
+            PersistenceUnavailableError,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "DASHBOARD_UNAVAILABLE",
+                    "message": "Dashboard data is temporarily unavailable.",
+                },
+            ) from None
         except CaseTeamFilterForbiddenError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

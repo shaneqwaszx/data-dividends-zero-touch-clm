@@ -71,6 +71,7 @@ class DashboardCaseItem(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    case_elapsed_ms: int = Field(ge=0)
     delay_note: str | None = None
     created_by_display_name: str | None = None
 

@@ -149,3 +149,9 @@ team, case, action, stage, outcome and date filters before paging. It is a creat
 filter, not event-actor attribution. No schema version, migration or write changes.
 The endpoint is provider-free and read-only; no out-of-scope totals or identities are
 returned. Case/scoped automation aggregation remains linear in retained POC inventory.
+
+Dashboard case items add `case_elapsed_ms` from the canonical case timing projection.
+All case lists and creator oldest-open values share the response `data_as_of` instant.
+The browser renders, sorts and filters these returned durations without using its clock;
+completed cases use completion minus creation. Invalid chronology or persistence reads
+return a sanitized `503 DASHBOARD_UNAVAILABLE`, without retained facts or private errors.

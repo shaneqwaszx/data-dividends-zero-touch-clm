@@ -385,6 +385,21 @@ def test_pr95_physical_workload_and_legacy_trend_match_memory_after_restart() ->
         assert rows["maya-lim"].blockers_resolved == 1
         assert rows["maya-lim"].mean_fix_time_ms == 7_200_000
         assert rows["ethan-tan"].open_cases == 1
+        assert result.scoped_cases[0].case_elapsed_ms == 45 * 86_400_000
+        completed, completion = _record(
+            TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+            created_days_ago=2, updated_hours_ago=1, created_by_actor_id="ethan-tan",
+        )
+        store.create(DurableCaseSnapshot(
+            case_id=completed.case_id, revision=0, onboarding=completed, automation=completion,
+            created_at=completed.created_at, updated_at=completed.updated_at,
+        ))
+        memory, _ = _service_for([(case, automation), (completed, completion)])
+        for view in ("team", "mine"):
+            observed = service.get_dashboard(_actor("ethan-tan"), scope=view)
+            assert observed == memory.get_dashboard(_actor("ethan-tan"), scope=view)
+            assert next(item for item in observed.scoped_cases
+                        if item.case_id == completed.case_id).case_elapsed_ms == 169_200_000
     finally:
         try:
             cleanup_ephemeral_mongo_database(client, database)

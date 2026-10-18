@@ -814,3 +814,52 @@ def test_recorded_timings_keep_processing_and_started_clock_semantics() -> None:
     document = next(row for row in result.stage_timing if row.stage == AutomationStage.DOCUMENT)
     assert document.with_blocker_mean_ms == 12
     assert result.scoped_cases[0].delay_note.endswith("2.0h fix")
+
+
+
+def test_dashboard_ages_share_one_server_observation_and_completed_duration() -> None:
+    fixtures = [
+        _record(TeamId.TEAM_A, None, status, created_days_ago=2,
+                updated_hours_ago=1, created_by_actor_id="maya-lim")
+        for status in (AutomationStatus.RUNNING, AutomationStatus.COMPLETED)
+    ]
+    service, _ = _service_for(fixtures)
+    calls = []
+
+    def clock():
+        calls.append(NOW)
+        return NOW + timedelta(days=len(calls) - 1)
+
+    service._clock = clock
+    result = service.get_dashboard(_actor("maya-lim"))
+    elapsed = {item.status: item.case_elapsed_ms for item in result.scoped_cases}
+    assert elapsed[AutomationStatus.RUNNING] == 172_800_000
+    assert elapsed[AutomationStatus.COMPLETED] == 169_200_000
+    assert result.workload_by_person[0].oldest_open_age_ms == 172_800_000
+    assert result.data_as_of == NOW
+    assert len(calls) == 1
+    later = service.get_dashboard(_actor("maya-lim"))
+    assert next(item for item in later.scoped_cases
+                if item.status == AutomationStatus.COMPLETED).case_elapsed_ms == 169_200_000
+
+
+def test_dashboard_rejects_future_timing_with_sanitized_api_response(monkeypatch) -> None:
+    from phase13_test_credentials import TEST_PASSWORD
+
+    original = CaseQueryService.list_cases
+
+    def invalid_timing(self, *args, **kwargs):
+        return [item.model_copy(update={"updated_at": NOW + timedelta(microseconds=1)})
+                for item in original(self, *args, **kwargs)]
+
+    app = create_app(ordinary_test_settings(), e2e_portfolio_seed_count=3, clock=lambda: NOW)
+    client = RawTestClient(app)
+    assert client.post("/api/auth/login", json={
+        "user_id": "maya-lim", "password": TEST_PASSWORD,
+    }).status_code == 200
+    monkeypatch.setattr(CaseQueryService, "list_cases", invalid_timing)
+    response = client.get("/api/clm/zero-touch/dashboard")
+    assert response.status_code == 503
+    assert response.json() == {"detail": {
+        "code": "DASHBOARD_UNAVAILABLE", "message": "Dashboard data is temporarily unavailable.",
+    }}

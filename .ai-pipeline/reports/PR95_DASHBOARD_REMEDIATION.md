@@ -46,3 +46,15 @@ The coordinator owns Git mutations. Local commits are explicitly authorized; no
 push, PR creation/replacement, shared-history rewrite, PR96 change or merge is allowed.
 Next authorized action: fresh independent re-gate on the frozen corrected content,
 then clean committed pre-PR verification and owner handoff.
+
+Round 2 F4 remediation: canonical backend `project_case_timing` now supplies additive
+case_elapsed_ms for each dashboard case and oldest-open workload value, sharing the
+single data_as_of observation. Both manager/mine table display, sort and age predicates
+consume that duration. Completed durations remain fixed. Dashboard timing/persistence
+read failures use sanitized503 without raw facts/errors. Two backend tests and both
+interactive table regressions failed first; source corrections preserve the existing
+view/filter layout and all scope decisions. Physical restart parity now includes
+active and completed case durations. No schema/write or connector change is involved.
+Round 2 full backend before this fix:2780passed/162skipped (156physical+6Tesseract),
+3expected malformed-input warnings,1061.01s. It is baseline evidence only. The immutable
+round2 report records FAIL for F4; a fresh corrected-content gate remains required.

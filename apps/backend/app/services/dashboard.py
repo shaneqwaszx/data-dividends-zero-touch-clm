@@ -7,7 +7,11 @@ from typing import Literal
 from uuid import UUID
 
 from app.domain.access import SYNTHETIC_PROFILE_BY_ID, AuthenticatedActor, Role, TeamId
-from app.domain.case_management import CasePortfolioRecord, case_created_date_bounds
+from app.domain.case_management import (
+    CasePortfolioRecord,
+    case_created_date_bounds,
+    project_case_timing,
+)
 from app.domain.dashboard import (
     DashboardCaseItem,
     DashboardExceptionCount,
@@ -150,13 +154,17 @@ class DashboardService:
             exception_breakdown=_exception_breakdown(automations),
             weekly_onboarded=_weekly_onboarded(records, data_as_of.date()),
             workload_by_person=tuple(
-                row for row in self._workload_by_person(cohort_records, cohort_automations)
+                row for row in self._workload_by_person(
+                    cohort_records, cohort_automations, data_as_of,
+                )
                 if scope == "team" or row.user_id == actor.profile.user_id
             ),
-            recent_cases=tuple(self._case_item(item, automations) for item in recent),
-            top_active_cases=tuple(self._case_item(item, automations) for item in top_active),
+            recent_cases=tuple(self._case_item(item, automations, data_as_of) for item in recent),
+            top_active_cases=tuple(
+                self._case_item(item, automations, data_as_of) for item in top_active
+            ),
             scoped_cases=tuple(
-                self._case_item(item, automations)
+                self._case_item(item, automations, data_as_of)
                 for item in records[:DASHBOARD_SCOPED_CASES_LIMIT]
             ),
         )
@@ -232,6 +240,7 @@ class DashboardService:
         self,
         record: CasePortfolioRecord,
         automations: dict[UUID, ZeroTouchAutomationRecord],
+        observed_at: datetime,
     ) -> DashboardCaseItem:
         team = self._teams.get(record.team_id)
         return DashboardCaseItem(
@@ -248,6 +257,7 @@ class DashboardService:
             created_at=record.created_at,
             updated_at=record.updated_at,
             completed_at=record.completed_at,
+            case_elapsed_ms=_case_elapsed_ms(record, observed_at),
             delay_note=_delay_note(record, automations.get(record.case_id)),
             created_by_display_name=_creator_display_name(record.created_by_actor_id),
         )
@@ -256,6 +266,7 @@ class DashboardService:
         self,
         records: list[CasePortfolioRecord],
         automations: dict[UUID, ZeroTouchAutomationRecord],
+        observed_at: datetime,
     ) -> tuple[DashboardWorkloadRow, ...]:
         by_person: dict[str, list[CasePortfolioRecord]] = {}
         for item in records:
@@ -286,13 +297,12 @@ class DashboardService:
                 )
                 fixes.setdefault(user_id, []).append(duration)
                 by_person.setdefault(user_id, [])
-        now = self._clock()
         rows: list[DashboardWorkloadRow] = []
         for user_id, items in by_person.items():
             open_items = [item for item in items if item.status != AutomationStatus.COMPLETED]
             completed_items = [item for item in items if item.status == AutomationStatus.COMPLETED]
             oldest_open_age_ms = (
-                max(int((now - item.created_at).total_seconds() * 1000) for item in open_items)
+                max(_case_elapsed_ms(item, observed_at) for item in open_items)
                 if open_items else None
             )
             fix_durations_ms = fixes.get(user_id, [])
@@ -309,6 +319,17 @@ class DashboardService:
                 )
             )
         return tuple(sorted(rows, key=lambda row: (-row.open_cases, row.user_id)))
+
+
+def _case_elapsed_ms(record: CasePortfolioRecord, observed_at: datetime) -> int:
+    return project_case_timing(
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+        recorded_total_duration_ms=record.recorded_total_duration_ms,
+        observed_at=observed_at,
+    ).case_elapsed_ms
 
 
 def _zero_touch_rate(records: list[CasePortfolioRecord]) -> float:

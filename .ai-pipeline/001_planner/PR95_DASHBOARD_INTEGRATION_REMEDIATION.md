@@ -42,3 +42,9 @@ reviewer receives frozen content and may write only its assigned gate report.
 
 Implementation/tested/reviewed identities and final commands/results belong to
 PR95_DASHBOARD_IMPLEMENTATION.md and PR95_DASHBOARD_QUALITY_GATE.md reports.
+
+Round 2 independently found F4: browser-clock dashboard ages violate the accepted
+case timing profile. Remediation reuses the canonical backend projection and one
+observation for lists/workload, adds safe unavailable errors and clock/filter/sort/
+completed-duration/physical parity regressions. Preserve both FAIL reports; fresh
+acceptance writes PR95_DASHBOARD_ACCEPTANCE_QUALITY_GATE.md on the corrected freeze.

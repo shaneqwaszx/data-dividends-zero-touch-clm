@@ -1619,6 +1619,7 @@ export interface DashboardCaseItem {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  case_elapsed_ms: number;
   delay_note: string | null;
   created_by_display_name: string | null;
 }

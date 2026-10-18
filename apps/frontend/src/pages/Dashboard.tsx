@@ -66,10 +66,6 @@ function formatAge(ms: number | null | undefined): string {
   return `${Math.round(days)}d`;
 }
 
-function ageMs(createdAt: string, now: number): number {
-  return now - new Date(createdAt).getTime();
-}
-
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
@@ -404,15 +400,7 @@ function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"]
   );
 }
 
-function caseAgeMs(item: DashboardCaseItem, now: number): number {
-  if (item.status === "COMPLETED" && item.completed_at) {
-    return new Date(item.completed_at).getTime() - new Date(item.created_at).getTime();
-  }
-  return ageMs(item.created_at, now);
-}
-
 function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: AuthenticatedProfile }) {
-  const now = Date.now();
   const [personFilter, setPersonFilter] = useState("all");
   const [ageFilter, setAgeFilter] = useState<AgeFilter>("any");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -429,19 +417,19 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
     if (statusFilter === "blocked" && !BLOCKED_STATUSES.includes(item.status)) return false;
     if (statusFilter === "completed" && item.status !== "COMPLETED") return false;
     if (ageFilter !== "any") {
-      const days = ageMs(item.created_at, now) / 86_400_000;
+      const days = item.case_elapsed_ms / 86_400_000;
       if (ageFilter === "lt7" && days >= 7) return false;
       if (ageFilter === "7to30" && (days < 7 || days > 30)) return false;
       if (ageFilter === "gt30" && days <= 30) return false;
     }
     return true;
-  }), [cases, personFilter, statusFilter, ageFilter, now]);
+  }), [cases, personFilter, statusFilter, ageFilter]);
 
   const accessors = {
     case: (item: DashboardCaseItem) => item.legal_name ?? item.requested_uen,
     team: (item: DashboardCaseItem) => item.team_display_name ?? "",
     person: (item: DashboardCaseItem) => item.created_by_display_name ?? "",
-    age: (item: DashboardCaseItem) => caseAgeMs(item, now),
+    age: (item: DashboardCaseItem) => item.case_elapsed_ms,
     status: (item: DashboardCaseItem) => item.status,
   };
   const { sorted, sortKey, sortDir, onSort } = useSortableTable(filtered, accessors, "age", "desc");
@@ -485,7 +473,7 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
                   <td><strong>{item.legal_name ?? item.requested_uen}</strong><span className="cell-note">{item.requested_uen}{item.delay_note ? ` · ${item.delay_note}` : ""}</span></td>
                   {actor.role === "DIRECTOR" && <td>{item.team_display_name ?? "Unassigned"}</td>}
                   <td>{item.created_by_display_name ?? "—"}</td>
-                  <td>{formatAge(caseAgeMs(item, now))}</td>
+                  <td>{formatAge(item.case_elapsed_ms)}</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
                   <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>
                 </tr>
@@ -527,7 +515,6 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [ageFilter, setAgeFilter] = useState<AgeFilter>("any");
   const [progressFilter, setProgressFilter] = useState<ProgressFilter>("any");
-  const now = Date.now();
   const hasFilters = statusFilter !== "all" || ageFilter !== "any" || progressFilter !== "any";
 
   const filtered = useMemo(() => {
@@ -536,7 +523,7 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
       if (statusFilter === "blocked" && !BLOCKED_STATUSES.includes(item.status)) return false;
       if (statusFilter === "completed" && item.status !== "COMPLETED") return false;
       if (ageFilter !== "any") {
-        const days = ageMs(item.created_at, now) / 86_400_000;
+        const days = item.case_elapsed_ms / 86_400_000;
         if (ageFilter === "lt7" && days >= 7) return false;
         if (ageFilter === "7to30" && (days < 7 || days > 30)) return false;
         if (ageFilter === "gt30" && days <= 30) return false;
@@ -546,12 +533,12 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
       if (progressFilter === "done" && item.progress_percent < 100) return false;
       return true;
     });
-  }, [cases, statusFilter, ageFilter, progressFilter, now]);
+  }, [cases, statusFilter, ageFilter, progressFilter]);
 
   const caseAccessors = {
     case: (item: DashboardCaseItem) => item.legal_name ?? item.requested_uen,
     stage: (item: DashboardCaseItem) => STAGE_LABELS[item.current_stage],
-    age: (item: DashboardCaseItem) => ageMs(item.created_at, now),
+    age: (item: DashboardCaseItem) => item.case_elapsed_ms,
     progress: (item: DashboardCaseItem) => item.progress_percent,
     status: (item: DashboardCaseItem) => item.status,
   };
@@ -594,7 +581,7 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
                 <tr key={item.case_id} className="clickable">
                   <td><strong>{item.legal_name ?? item.requested_uen}</strong><span className="cell-note">{item.requested_uen}</span></td>
                   <td>{STAGE_LABELS[item.current_stage]}</td>
-                  <td>{formatAge(ageMs(item.created_at, now))}</td>
+                  <td>{formatAge(item.case_elapsed_ms)}</td>
                   <td>{item.progress_percent}%</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
                   <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>
