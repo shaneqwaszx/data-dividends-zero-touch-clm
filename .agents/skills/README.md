@@ -30,3 +30,10 @@ three canonical workflows above.
 
 Skill directories may contain `references/`, `scripts/`, `assets/`, or
 `agents/openai.yaml`. Read supporting material only when the selected skill directs it.
+
+Claude Code does not read `.agents/`. `.claude/skills/<name>/SKILL.md` exposes only the
+four canonical workflows named in `AGENTS.md` as discovery pointers. Each pointer copies
+its canonical `name` and `description`, reads the canonical skill from the current
+checkout, and must add no instructions or authority. `tests/test_claude_skill_pointers.py`
+checks the pointer set, exact frontmatter and canonical references; review of the pointer
+body remains required. These pointers are not additional or overlapping workflows.
