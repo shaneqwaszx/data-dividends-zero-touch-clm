@@ -67,6 +67,47 @@ contains two developer-tool entries only:
 `enabled_tools` is a Codex client exposure restriction. It is not server-side
 authorization and does not constrain other clients.
 
+### Claude Code
+
+`AGENTS.md` and `.agents/skills/` remain canonical for Claude Code as for Codex.
+
+- Instructions: Claude Code reads the root `AGENTS.md` at session start and a nested
+  `AGENTS.md` when it reads a file in that subtree, provided no `CLAUDE.md`,
+  `.claude/CLAUDE.md` or `CLAUDE.local.md` exists at or above the working directory. Do
+  not add those files; any of them stops `AGENTS.md` loading. Start a session in the
+  repository or task worktree, because a session moved there later does not load the
+  root file until it restarts. Do not add `claudeMdExcludes` to shared settings: its
+  patterns match absolute paths, so a pattern meant for snapshots such as
+  `**/tmp/**/AGENTS.md` also drops the live `AGENTS.md` of any checkout whose path
+  contains that directory. As a result, a stale `AGENTS.md` copy inside an untracked
+  `output/` or ignored `tmp/` snapshot loads when Claude reads a file there; it is
+  historical context, not current authority.
+- Skills: Claude Code does not read `.agents/`. `.claude/skills/` contains discovery
+  pointers for the four canonical workflows only; each reads its canonical skill from
+  the current checkout and adds no authority. `fyp-quality-gate` and
+  `integration-safe-development` set `disable-model-invocation: true`, so they load only
+  on explicit invocation. That is invocation control, not Quality Gate independence or
+  publication authority.
+- Permissions: `.claude/settings.json` denies `.env` file access and destructive or
+  owner-only Git/GitHub actions (force-push, hard reset, clean, stash, broad staging,
+  PR merge), asks before commit, push, `private/` access and PR/workflow changes, and
+  allows only named repository checks. For branch and worktree mutation it asks before
+  every `git branch` command, including bare listing and read-only flags such as
+  `--show-current` (use `git rev-parse` for read-only branch lookups), `git worktree`
+  add, move, remove, prune, lock, unlock and repair, `git update-ref`,
+  `git symbolic-ref`, `git filter-branch`, and the commands that move a branch or
+  discard work (`checkout`, `switch`, `restore`, `merge`, `rebase`, `reset`, `pull`,
+  `cherry-pick`, `revert`, `am`). Rules cover both the Bash and
+  PowerShell tools. They match command text, so other spellings (`git -C`, `sh -c`,
+  a `git fetch` refspec that writes a local branch, scripts that open files themselves)
+  are not covered. They are best-effort
+  guardrails, not a security boundary: Claude Code's sandbox does not run on native
+  Windows, and a PreToolUse enforcement hook is deferred. They do not replace
+  `AGENTS.md`, independent review, or owner-only merge.
+- Local state: `.claude/settings.local.json`, `.claude/worktrees/` and
+  `.playwright-mcp/` are ignored so they cannot fail `scripts/pre_pr_check.py`. No
+  Claude MCP configuration is tracked; the Camunda entries above stay Codex-only.
+
 ## Repository configuration boundary
 
 Official Codex documentation supports project-local `.codex/config.toml` for trusted
