@@ -219,7 +219,11 @@ function DocumentCard({
       )}
       {(essential || historical) && document.error && <div className="ds-banner ds-banner-warn"><strong>{document.error.code}</strong><span>{document.error.message}</span></div>}
 
-      <div className="document-fields">
+      {/* The main case view reads as one table: headings once, one aligned row per field. */}
+      {presentation === "main" && <div className="document-fields__head" aria-hidden="true">
+        <span>Field</span><span>Suggestion</span><span>Canonical</span><span>Source agreement</span><span>Verification state</span><span>Final value</span>
+      </div>}
+      <div className={presentation === "main" ? "document-fields document-fields--table" : "document-fields"}>
         {document.fields.map((field) => {
           const label = fieldLabel(field.field_key);
           const headingId = `${document.document_id}-${field.field_key}${presentation === "full" ? "" : `-${presentation}`}`;

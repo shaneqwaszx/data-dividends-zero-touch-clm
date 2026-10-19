@@ -135,18 +135,28 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
 
   return (
     <section className="evidence-section-block" aria-labelledby="ownership-path-heading">
-      <p className="card-kicker">Local deterministic analysis · provisional, not a legal determination</p>
-      <h4 id="ownership-path-heading">Ownership path explorer</h4>
-      <div className="kv-row"><span className="kv-label">Analysis state</span><span className="kv-value">{record.state}</span></div>
-      <div className="kv-row"><span className="kv-label">Threshold</span><span className="kv-value">{record.threshold_comparator} {formatOwnershipPercent(record.threshold_percent)}</span></div>
-      <p className="control-help">Source: {record.provider_name ?? "not available"} · {record.provider_environment ?? "not available"}</p>
+      <div className="ownership-analysis__header">
+        <div>
+          <p className="card-kicker">Local deterministic analysis · provisional, not a legal determination</p>
+          <h4 id="ownership-path-heading">Ownership path explorer</h4>
+        </div>
+        <span className={`ownership-analysis__state${record.state === "ANALYZED" ? " is-complete" : " is-review"}`}>{record.state.replaceAll("_", " ")}</span>
+      </div>
+      <dl className="ownership-analysis__stats">
+        <div><dt>Analysis state</dt><dd>{record.state === "ANALYZED" ? "Calculable" : "Needs review"}</dd></div>
+        <div><dt>Threshold</dt><dd>{record.threshold_comparator === "GREATER_THAN_OR_EQUAL_TO" ? "≥" : record.threshold_comparator} {formatOwnershipPercent(record.threshold_percent)}</dd></div>
+        <div><dt>People assessed</dt><dd>{record.candidates.length}</dd></div>
+        <div><dt>Provisional UBOs</dt><dd>{record.candidates.filter(item => item.party.party_type === "NATURAL_PERSON" && item.classification === "PROVISIONAL_UBO_CANDIDATE" && item.threshold_result === "MET").length}</dd></div>
+        <div><dt>Parties</dt><dd>{record.parties.length}</dd></div>
+        <div><dt>Relationships</dt><dd>{record.relationships.length}</dd></div>
+      </dl>
+      <p className="control-help ownership-analysis__source">Source: {record.provider_name ?? "not available"} · {record.provider_environment ?? "not available"}</p>
       {clientSupplied && <p className="control-help">Client-supplied ownership evidence · LOCAL · USER_SUPPLIED_DECLARATION · MANUAL_DECLARATION_POC · not ACRA-derived. This declaration is retained for local analysis, not independently verified ownership.</p>}
       {registryEmpty && !primaryBlockerVisible && <div className="ds-banner ds-banner-warn" role="note">
         <strong>Ownership information required</strong>
         <span>Ownership is unavailable from current registry evidence. Use Add structured ownership details or Upload ownership evidence to provide reviewed client evidence for UBO analysis.</span>
       </div>}
       <p className="s2-ownership-summary">{record.candidates.length} retained natural-person candidate{record.candidates.length === 1 ? "" : "s"} · {record.parties.length} parties · {record.relationships.length} direct relationships. {record.state === "ANALYZED" ? "Calculable provisional view." : "Incomplete or disputed evidence requires review."}</p>
-      <p className="control-help">{record.candidates.slice(0, 3).map((item) => `${item.party.display_name}: ${formatOwnershipPercent(item.aggregated_ownership_percent)} effective (${item.classification})`).join("; ") || "No calculable candidate retained."}</p>
       {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
       <UboSummary record={record} />
       <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); if (candidate?.party.party_id !== partyId) setInspectionOpen(false); }} />

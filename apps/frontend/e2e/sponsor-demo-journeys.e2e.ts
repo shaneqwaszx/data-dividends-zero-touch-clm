@@ -264,10 +264,10 @@ function blockerJourney(company: typeof blocked[number]) {
       await openStage(page, "Document verification");
       console.log("SPONSOR_DEMO_STAGE", company.code, "document-controls-opened");
       const currentDocument = (await documents(page, cid))[0];
-      console.log("SPONSOR_DEMO_REVIEW_CONTROLS", company.code, currentDocument.state, currentDocument.semantic_completion, await page.locator('select[data-review-field]').count(), await page.locator('select[data-reconciliation-field]').count());
+      console.log("SPONSOR_DEMO_REVIEW_CONTROLS", company.code, currentDocument.state, currentDocument.semantic_completion, await page.locator('input[data-review-field][value="REJECTED"]').count(), await page.locator('input[data-reconciliation-field][value="KEEP_REGISTRY_VALUE"]').count());
       console.log("SPONSOR_DEMO_REVIEW_AUTH", company.code, (await summary(page, cid)).evidence_decision_authorized,
-        await page.locator('select[data-review-field]').evaluateAll(items => items.map(item => ({ field: item.getAttribute('data-review-field'), disabled: (item as HTMLSelectElement).disabled }))));
-      if (await page.locator('select[data-review-field]').count()) await expect(page.locator('select[data-review-field]').first()).toBeEnabled();
+        await page.locator('input[data-review-field][value="REJECTED"]').evaluateAll(items => items.map(item => ({ field: item.getAttribute('data-review-field'), disabled: (item as HTMLSelectElement).disabled }))));
+      if (await page.locator('input[data-review-field][value="REJECTED"]').count()) await expect(page.locator('input[data-review-field][value="REJECTED"]').first()).toBeEnabled();
       if (currentDocument.state === "REVIEW_REQUIRED" && !currentDocument.semantic_completion
         && currentDocument.fields.some((f: any) => f.review_status === "PENDING")) { const reviewed = await reviewPendingFields(page); checkpoints.push({ stage: reviewed.current_stage, blockers: reviewed.active_exceptions.map((e: any) => e.blocker_code), version: reviewed.version }); }
       const resolved = await reviewSourceChoices(page); checkpoints.push({ stage: resolved.current_stage, blockers: resolved.active_exceptions.map((e: any) => e.blocker_code), version: resolved.version });

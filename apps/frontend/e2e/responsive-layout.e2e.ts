@@ -301,7 +301,7 @@ async function expectAuthoritativeReviewReady(page: Page, caseId: string) {
   ))).toBe(true);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept legal name suggestion" })).toHaveCount(0);
-  await expect(page.locator('select[data-review-field="legal_name"]')).toBeVisible();
+  await expect(page.locator('input[data-review-field="legal_name"][value="REJECTED"]')).toBeVisible();
   await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
   await expectDocumentContained(page);
@@ -470,7 +470,7 @@ test("responsive review case exposes only supported authoritative review control
     await expect(unavailable.locator(".document-card")).toContainText("Missing extracted evidence");
     await expect(unavailable.locator(".document-card")).toContainText("Extraction quality: UNAVAILABLE");
     await expect(unavailable.getByLabel("Replace current document", { exact: true })).toBeEnabled();
-    expect(await unavailable.locator('select[data-review-field] option[value="ACCEPTED"]').count()).toBe(0);
+    expect(await unavailable.locator('input[data-review-field][value="ACCEPTED"]:not([disabled])').count()).toBe(0);
   }
   const reviewCaseId = await openNewCase(page, lowConfidenceFixture);
   await waitForCaseStatus(page, reviewCaseId, ["WAITING_FOR_REVIEW"]);
@@ -518,7 +518,7 @@ test("responsive review case exposes only supported authoritative review control
   }
   expect(mutations).toEqual([]);
   await evidenceAction.click();
-  await expect(page.locator("select[data-review-field]").first()).toBeFocused();
+  await expect(page.locator("input[data-review-field]:checked").first()).toBeFocused();
   expect(mutations).toEqual([]);
   await expect(page.getByRole("button", { name: /replay|retry target/i })).toHaveCount(0);
 });
@@ -780,7 +780,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   await page.screenshot({ path: path.join(comparison, `${label}-case-sections.png`), fullPage: true });
   expect(await page.locator(".stage-disclosure > h2").evaluateAll(items => items.map(item => item.querySelector("button > span")?.textContent ?? item.textContent))).toEqual([
     "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
-    "Submission readiness", "GoldTier submission package", "Historical / resolved issues", "Final review & send",
+    "Submission readiness", "GoldTier submission package", "Final review & send", "Historical / resolved issues",
   ]);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
@@ -802,14 +802,14 @@ test("Search and Registry disclosure keeps Main visible with independent native 
       await expect(section.locator(":scope > div").first()).toBeVisible();
       if (name === "Document verification") {
         await expect(section.locator("#case-blocker-review")).toBeVisible();
-        await expect(section.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true })).toBeVisible();
+        await expect(section.getByRole("button", { name: "Use document suggestion for all", exact: true })).toBeVisible();
         await expect(section.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeVisible();
         await expect(section.locator("#case-evidence-documents input[type=file]")).toBeEnabled();
         await expect(section.locator("#case-evidence-reconciliation")).toBeVisible();
-        const choice = section.locator("select[data-review-field]").first();
+        const choice = section.locator('input[data-review-field][value="REJECTED"]').first();
         await expect(choice).toBeVisible();
-        if (width === 1440) await choice.selectOption("REJECTED");
-        await expect(choice).toHaveValue("REJECTED");
+        if (width === 1440) await choice.check();
+        await expect(choice).toBeChecked();
         await expect(section.getByText("Supporting document evidence", { exact: true })).toBeHidden();
         await expect(section.getByRole("heading", { name: "Document processing provenance", exact: true })).toBeHidden();
       }
@@ -852,7 +852,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         await expect(technical.locator("details")).toHaveCount(0);
         await expect(technical.locator("button, input, select, textarea")).toHaveCount(0);
         await expect(more.locator("button, input, select, textarea")).toHaveCount(0);
-        await expect(section.locator("select[data-review-field]").first()).toHaveValue("REJECTED");
+        await expect(section.locator('input[data-review-field][value="REJECTED"]').first()).toBeChecked();
       }
       if (["Ownership & UBO", "Submission readiness", "GoldTier submission package"].includes(name)) {
         await expect(technical.locator("details, button, input, select, textarea")).toHaveCount(0);

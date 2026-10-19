@@ -1,4 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
+import { expectSelectedHolder } from "./ownership-selection";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -331,7 +332,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(caseLink).toBeVisible();
   await caseLink.click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
-  await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
+  await expect(page.locator(".intervention-card").first()).toBeVisible();
   const identityInterventionDetails = page.locator(".intervention-card .evidence-details")
     .filter({ hasText: "INITIAL_IDENTITY_INCOMPLETE" });
   await expect(identityInterventionDetails).toHaveCount(1);
@@ -569,7 +570,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit documents" }).click();
   await expect(page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
+  await expect(page.locator("#case-blocker-review input[data-review-field]:checked, #case-blocker-review input[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
   await page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit ownership" }).click();
   await expect(page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
@@ -1141,10 +1142,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(candidate).toBeVisible();
   await candidate.click();
   await expect(candidate).toHaveAttribute("aria-pressed", "true");
-  const selectedHolder = page.getByRole("complementary", { name: "Selected holder", exact: true });
-  await expect(selectedHolder.getByRole("heading", { name: expectedCandidate.party.display_name, exact: true })).toBeVisible();
-  await expect(selectedHolder).toContainText(expectedCandidate.classification);
-  await expect(selectedHolder).toContainText(expectedCandidate.threshold_result);
+  await expectSelectedHolder(page, expectedCandidate);
   if (expectedCandidate.paths.length > 1 || expectedCandidate.paths.some((item: any) => !item.is_direct)) {
     await page.getByText("Technical retained path inspection", { exact: true }).click();
     const retainedPath = page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true });
@@ -1286,7 +1284,7 @@ test("review-ready actions render after authoritative current document evidence 
   expect(pendingField?.confidence).toBe(0.9);
   expect(currentDocument?.fields.every((field) => field.original_extracted_value !== null)).toBe(true);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
-  await expect(page.locator("select[data-review-field]").first()).toBeVisible();
+  await expect(page.locator("input[data-review-field]").first()).toBeVisible();
 });
 
 test("current document review progresses authoritatively and keeps superseded history read-only", async ({ page }) => {
@@ -1329,7 +1327,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await openStage(page, "GoldTier submission package");
   await openStageSupport(page, "GoldTier submission package", "Technical");
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
-  await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
+  await expect(page.locator("#case-blocker-review input[data-review-field]:checked, #case-blocker-review input[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
   await expect(page.getByText("3 final / 4 fields")).toBeVisible();
   await expect(page.getByText(/1 field remains for review/)).toBeVisible();
@@ -1360,7 +1358,7 @@ test("current document review progresses authoritatively and keeps superseded hi
     return current?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
   };
 
-  await page.locator('select[data-review-field="legal_name"]').selectOption("ACCEPTED");
+  await page.locator('input[data-review-field="legal_name"][value="ACCEPTED"]').check();
   expect(reviewRequests).toHaveLength(0);
   const firstMutationResponse = page.waitForResponse((response) =>
     response.request().method() === "POST" && response.url().endsWith("/review-decisions"));

@@ -4038,6 +4038,8 @@ dd {
 @media (max-width: 640px) { .blocker-review__footer button { width: 100%; } }
 .ds-root .blocker-review-confirm { color: #fff; background: var(--color-accent-700); border-color: var(--color-accent-700); min-height: 44px; }
 .ds-root .blocker-review-confirm:hover:not(:disabled) { color: #fff; background: var(--color-accent-800); border-color: var(--color-accent-800); }
+/* The shared .btn-primary hover tint is near-white; keep a disabled confirm readable. */
+.ds-root .blocker-review-confirm:hover:disabled { color: #fff; background: var(--color-accent-700); border-color: var(--color-accent-700); }
 .ds-root .blocker-review-confirm:focus-visible { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
 .document-upload-control { position: relative; }
 .document-upload-control:focus-within { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }

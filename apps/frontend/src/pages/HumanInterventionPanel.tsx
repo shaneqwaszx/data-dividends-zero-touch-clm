@@ -62,12 +62,6 @@ export default function HumanInterventionPanel({
 
   return (
     <section className="intervention-stack" aria-label="Case interventions and history">
-      {interventions.length > 0 && <div className="state-composition__header">
-        <div>
-          <p className="card-kicker">Backend-authorized intervention</p>
-          <h3>Action required</h3>
-        </div>
-      </div>}
       {groups.map(([intervention, ...related]) => (
         <InterventionCard
           key={intervention.intervention_id}
@@ -117,6 +111,8 @@ function InterventionCard({
 }) {
   const [rationale, setRationale] = useState("");
   const evidenceRecords = [{ intervention, exception }, ...relatedEvidence];
+  const requirementKey = (item: HumanInterventionProjection) => JSON.stringify([item.required_evidence_or_input, item.expected_next_step, item.resolution_condition]);
+  const sharedRequirements = evidenceRecords.every(record => requirementKey(record.intervention) === requirementKey(intervention));
   return (
     <article id={`case-intervention-${intervention.intervention_id}`} className="card intervention-card" aria-labelledby={`intervention-${intervention.intervention_id}`}>
       <div className="intervention-card__heading">
@@ -124,9 +120,9 @@ function InterventionCard({
           <p className="card-kicker">{intervention.owning_stage_label}</p>
           <h3 id={`intervention-${intervention.intervention_id}`}>{intervention.title}</h3>
         </div>
+        {relatedEvidence.length > 0 && <span className="intervention-card__count">{evidenceRecords.length} related blockers</span>}
       </div>
-      <p>{intervention.explanation}</p>
-      {relatedEvidence.length > 0 && <p className="control-help">{evidenceRecords.length} related blockers</p>}
+      <p className="intervention-card__explanation">{intervention.explanation}</p>
 
       {intervention.candidate_summaries.length > 0 && (
         <div className="table-scroll" tabIndex={0} aria-label="Safe GoldTier candidate summary">
@@ -147,9 +143,18 @@ function InterventionCard({
         </div>
       )}
 
-      {evidenceRecords.map(record => relatedEvidence.length > 0 ? (
-        <article className="intervention-evidence-record" data-intervention-id={record.intervention.intervention_id}
+      {relatedEvidence.length > 0 && sharedRequirements ? <>
+        {/* Identical requirements are shown once; every record stays listed by the field it affects. */}
+        <InterventionRequirements intervention={intervention} />
+        <div className="intervention-card__affects">
+          <span className="intervention-card__affects-label">Affects</span>
+          {evidenceRecords.map(record => <article className="intervention-evidence-record" data-intervention-id={record.intervention.intervention_id}
+            key={record.intervention.intervention_id}>{recordLabel(record)}</article>)}
+        </div>
+      </> : evidenceRecords.map(record => relatedEvidence.length > 0 ? (
+        <article className="intervention-evidence-record" data-layout="full" data-intervention-id={record.intervention.intervention_id}
           key={record.intervention.intervention_id}>
+          <h4 className="intervention-evidence-record__title">{recordLabel(record)}</h4>
           <InterventionRequirements intervention={record.intervention} />
         </article>
       ) : <InterventionRequirements key={record.intervention.intervention_id} intervention={record.intervention} />)}
@@ -207,6 +212,14 @@ function InterventionCard({
       ) : null}
     </article>
   );
+}
+
+/** Name a record by the field(s) its exception evidence covers, else by its blocker code. */
+function recordLabel({ intervention, exception }: { intervention: HumanInterventionProjection; exception: ZeroTouchException | undefined }) {
+  const fields = [...new Set((exception?.evidence ?? []).map(entry => entry.field_key).filter((key): key is string => Boolean(key)))];
+  const text = fields.length ? fields.join(", ") : intervention.blocker_code;
+  const readable = text.replaceAll("_", " ").toLowerCase();
+  return readable.charAt(0).toUpperCase() + readable.slice(1);
 }
 
 function InterventionEvidenceDetails({ intervention, exception }: {

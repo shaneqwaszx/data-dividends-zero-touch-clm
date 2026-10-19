@@ -63,8 +63,8 @@ async function runPerformanceGroup(page: Page, group: number) {
           const stage = page.locator('.ds-stage[data-node-id="DOCUMENT_IDP"]');
           await stage.locator("summary").click();
           await stage.getByRole("button", { name: "Open case stage details" }).click();
-          await expect(page.locator("select[data-review-field]").first()).toBeFocused();
-          await expect.poll(() => page.locator("select[data-review-field]").first().evaluate(element => {
+          await expect(page.locator("input[data-review-field]:checked").first()).toBeFocused();
+          await expect.poll(() => page.locator("input[data-review-field]:checked").first().evaluate(element => {
             const r = element.getBoundingClientRect();
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
             return hit === element || (hit !== null && element.contains(hit));
@@ -78,14 +78,14 @@ async function runPerformanceGroup(page: Page, group: number) {
       for (const field of fields) {
         const start = Date.now();
         if (batch) {
-          const control = page.locator(`select[data-review-field="${field}"]`);
+          const control = page.locator(`input[data-review-field="${field}"][value="REJECTED"]`);
           await control.focus();
           await expect.poll(() => control.evaluate(element => {
             const r = element.getBoundingClientRect();
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
             return hit === element || (hit !== null && element.contains(hit));
           })).toBe(true);
-          await control.selectOption("REJECTED");
+          await control.check();
           await expect(control).toBeFocused(); await expect(control).toBeEnabled();
         } else {
           const button = page.getByRole("button", { name: `Reject ${field.replaceAll("_", " ")} suggestion`, exact: true });

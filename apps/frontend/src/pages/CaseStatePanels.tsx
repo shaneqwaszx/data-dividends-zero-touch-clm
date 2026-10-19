@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type CSSProperties } from "react";
+import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 
 import { formatDuration, formatTimestamp, registryReuseDescription } from "../shared";
 import type {
@@ -55,7 +55,25 @@ function pipelineRailState(status: ProcessingNodeStatus): "done" | "now" | "atte
   return "";
 }
 
-export function PipelineRail({ summary, onStageActivate }: { summary: ZeroTouchCaseSummary; onStageActivate?: (node: ProcessingNode) => void }) {
+export interface StageStatus { tone: "attention" | "current" | "done" | "pending"; label: string }
+
+/** Summarise the backend status of the pipeline nodes behind one case section. */
+export function stageStatusFor(summary: ZeroTouchCaseSummary, nodeIds: string[]): StageStatus | undefined {
+  const nodes = (summary.processing_pipeline ?? []).filter(node => nodeIds.includes(node.node_id));
+  if (!nodes.length) return undefined;
+  const attention = nodes.find(node => pipelineRailState(node.status) === "attention");
+  if (attention) return { tone: "attention", label: PROGRESS_STATUS_LABELS[attention.status] };
+  const current = nodes.find(node => node.status === "IN_PROGRESS");
+  if (current) return { tone: "current", label: PROGRESS_STATUS_LABELS[current.status] };
+  if (nodes.every(node => pipelineRailState(node.status) === "done")) return { tone: "done", label: PROGRESS_STATUS_LABELS[nodes[0].status] };
+  return { tone: "pending", label: PROGRESS_STATUS_LABELS[nodes.find(node => pipelineRailState(node.status) !== "done")!.status] };
+}
+
+export function PipelineRail({ summary, onStageActivate, renderAttention }: {
+  summary: ZeroTouchCaseSummary; onStageActivate?: (node: ProcessingNode) => void;
+  /** Optional per-step content, rendered after the step status. */
+  renderAttention?: (node: ProcessingNode) => ReactNode;
+}) {
   const pipeline = summary.processing_pipeline ?? [];
   return (
     <div className="ds-stage-rail" aria-label="Backend workflow stages">
@@ -73,12 +91,13 @@ export function PipelineRail({ summary, onStageActivate }: { summary: ZeroTouchC
             </div>
             <div className="ds-stage-copy">
               <details>
-                <summary>{node.label} · View details</summary>
+                <summary>{node.label}</summary>
                 <ProcessingStageFacts node={node} />
                 {onStageActivate && <button type="button" className="btn btn-ghost" onClick={() => onStageActivate(node)}>Open case stage details</button>}
               </details>
               {node.node_id === "ADVISORY" && <p className="control-help">Bounded POC advisory</p>}
               <div className="text-muted">{PROGRESS_STATUS_LABELS[node.status]}</div>
+              {renderAttention?.(node)}
             </div>
           </div>
         );
@@ -400,9 +419,10 @@ export function OnboardingProgressPanel({
           <p className="card-kicker">Live backend state</p>
           <h2 id="onboarding-progress-heading">Onboarding progress</h2>
         </div>
-        <span className="processing-pipeline__status" data-status={current?.status ?? "NOT_REACHED"}>
-          {current ? PROGRESS_STATUS_LABELS[current.status] : "Not reached"}
-        </span>
+        <p className="onboarding-progress__percent" aria-hidden="true">
+          <strong>{percentage}%</strong>
+          <span>{completed} of {pipeline.length} stages done</span>
+        </p>
       </div>
       <div
         className="onboarding-progress__bar"
@@ -417,9 +437,12 @@ export function OnboardingProgressPanel({
       >
         <span style={{ "--onboarding-progress": `${percentage}%` } as CSSProperties} />
       </div>
-      <p className="onboarding-progress__current"><strong>Current:</strong> {currentText}</p>
-      <p><strong>Progress:</strong> {percentage}% · <strong>Active issues:</strong> {activeIssues}</p>
-      <p><strong>Next action:</strong> {nextAction}</p>
+      {/* Visible labels drop the colon; the hidden text keeps "Label: value" for assistive tech. */}
+      <dl className="onboarding-progress__facts">
+        <div className="onboarding-progress__current"><dt>Current<span className="sr-only">: </span></dt><dd>{currentText}</dd></div>
+        <div className={activeIssues ? "is-attention" : undefined}><dt>Active issues<span className="sr-only">: </span></dt><dd>{activeIssues}</dd></div>
+        <div><dt>Next action<span className="sr-only">: </span></dt><dd>{nextAction}</dd></div>
+      </dl>
       {pipeline.length > 0 ? (
         <ol className="onboarding-progress__stages" aria-label="Onboarding stages">
           {pipeline.map((node) => {
@@ -594,13 +617,6 @@ export function OperationalTiming({ summary }: { summary: ZeroTouchCaseSummary }
       </p>
     </section>
   );
-}
-
-function observationText(observation: ReconciliationObservation): string {
-  const confidence = observation.confidence === null
-    ? "confidence —"
-    : `${Math.round(observation.confidence * 100)}% confidence`;
-  return `${observation.normalized_value ?? "—"} · ${observation.validity} · ${confidence}`;
 }
 
 type RegistryProviderMode = SimulationProfile["registry_provider_mode"];
@@ -960,72 +976,93 @@ export function ConfirmDetailsPanel({
       <p>Decision: {field.discrepancy_id ? discrepancies.get(field.discrepancy_id)?.decision?.action ?? discrepancies.get(field.discrepancy_id)?.status ?? "Not required" : "Not required"}</p>
     </section>)}
   </section>;
+  const outcomes = (["MATCH", "REGISTRY_ONLY", "CONFLICT", "MISSING_IN_SOURCE", "UNVERIFIABLE", "INVALID"] as const)
+    .map((outcome) => ({ outcome, count: reconciliation.fields.filter((field) => field.outcome === outcome).length }))
+    .filter((item) => item.count > 0);
+  const openDiscrepancies = reconciliation.fields
+    .map((field) => (field.discrepancy_id ? discrepancies.get(field.discrepancy_id) : undefined))
+    .filter((item): item is ReconciliationDiscrepancy => item?.status === "OPEN");
+  const replacementNeeded = openDiscrepancies.filter((item) => item.allowed_actions.length === 0).length;
+  const decisionElsewhere = !onResolve && openDiscrepancies.some((item) => item.allowed_actions.length > 0);
   return (
     <section className="state-composition confirm-details" aria-labelledby="confirm-details-heading">
       <div className="state-composition__header">
         <div>
           <p className="card-kicker">Source-neutral reconciliation</p>
           <h2 id="confirm-details-heading">Confirm details</h2>
-          <p className="text-muted">Registry and document observations remain separate. No source wins automatically.</p>
+          <p className="text-muted">Registry and document values side by side. No source wins automatically.</p>
         </div>
-        <span className="tag tag-accent-2">{reconciliation.status.replaceAll("_", " ")}</span>
+        <div className="confirm-details__meta">
+          <div className="reconciliation-summary" aria-label="Reconciliation outcomes">
+            {outcomes.map(({ outcome, count }) => (
+              <span className={`confirm-outcome outcome-${outcome.toLowerCase()}`} key={outcome}>
+                <strong>{count}</strong> {outcome.replaceAll("_", " ").toLowerCase()}
+              </span>
+            ))}
+          </div>
+          <span className="tag tag-accent-2">{reconciliation.status.replaceAll("_", " ")}</span>
+        </div>
       </div>
-      <div className="reconciliation-summary" aria-label="Reconciliation outcomes">
-        {(["MATCH", "REGISTRY_ONLY", "CONFLICT", "MISSING_IN_SOURCE", "UNVERIFIABLE", "INVALID"] as const).map((outcome) => (
-          <span className={`tag outcome-${outcome.toLowerCase()}`} key={outcome}>
-            {reconciliation.fields.filter((field) => field.outcome === outcome).length} {outcome.replaceAll("_", " ").toLowerCase()}
-          </span>
-        ))}
-      </div>
-      <div className="confirm-grid">
+      <div className="confirm-table" role="table" aria-label="Registry and document comparison">
+        <div className="confirm-table__row confirm-table__head" role="row">
+          <span role="columnheader">Field</span><span role="columnheader">Registry</span>
+          <span role="columnheader">Document</span><span role="columnheader">Result</span>
+        </div>
         {reconciliation.fields.map((field) => {
           const discrepancy = field.discrepancy_id ? discrepancies.get(field.discrepancy_id) : undefined;
           const registry = field.observations.filter((item) => item.source_kind === "REGISTRY");
           const documents = field.observations.filter((item) => item.source_kind === "DOCUMENT_IDP");
+          const actions = discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length > 0 && onResolve;
           return (
-            <article className={`comparison-card outcome-${field.outcome.toLowerCase()}`} key={field.field_name}>
-              <header>
-                <h3>{field.field_name.replaceAll("_", " ")}</h3>
-                <span className="tag tag-neutral">{field.outcome.replaceAll("_", " ")}</span>
-              </header>
-              <div className="comparison-sources">
-                <div><span>Registry observation</span><strong>{registry.length ? registry.map(observationText).join(" · ") : "Not observed"}</strong></div>
-                <div><span>Document observation</span><strong>{documents.length ? documents.map(observationText).join(" · ") : "Not observed"}</strong></div>
-              </div>
-              {presentation === "full" && <details>
-                <summary>Provenance and decision state</summary>
-                {field.observations.map((observation) => (
-                  <p key={observation.observation_id}>
-                    {observation.source_kind} · {observation.source_system ?? "—"} {observation.environment ?? "—"} · {observation.evidence_reference ?? "safe reference unavailable"}
-                  </p>
-                ))}
-                <p>Decision: {discrepancy?.decision?.action.replaceAll("_", " ") ?? discrepancy?.status ?? "Not required"}</p>
-              </details>}
-              {discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length > 0 && onResolve && (
-                <div className="comparison-actions">
+            <div className={`confirm-table__row outcome-${field.outcome.toLowerCase()}`} role="row" key={field.field_name}>
+              <span role="cell" className="confirm-table__field">{field.field_name.replaceAll("_", " ")}</span>
+              <span role="cell" data-label="Registry"><ObservationValue observations={registry} /></span>
+              <span role="cell" data-label="Document"><ObservationValue observations={documents} showConfidence /></span>
+              <span role="cell" data-label="Result">
+                <span className={`confirm-outcome outcome-${field.outcome.toLowerCase()}`}>{field.outcome.replaceAll("_", " ").toLowerCase()}</span>
+                {discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length === 0 && <small className="confirm-table__note">Needs replacement evidence</small>}
+              </span>
+              {(actions || presentation === "full") && <div className="confirm-table__extra">
+                {actions && <div className="comparison-actions">
                   {discrepancy.allowed_actions.map((action) => (
                     <button className="btn btn-primary" type="button" disabled={isBusy} key={action} onClick={() => onResolve(discrepancy, action)}>
                       {action === "KEEP_REGISTRY_VALUE" ? "Keep registry value" : "Use document value"}
                     </button>
                   ))}
-                </div>
-              )}
-              {discrepancy?.status === "OPEN"
-                && discrepancy.allowed_actions.length > 0
-                && !onResolve && (
-                <p className="control-help">
-                  Use the backend-authorized Action required panel to record this decision.
-                </p>
-              )}
-              {discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length === 0 && (
-                <p className="control-help">Replacement evidence is required; no value-selection action is allowed.</p>
-              )}
-            </article>
+                </div>}
+                {presentation === "full" && <details>
+                  <summary>Provenance and decision state</summary>
+                  {field.observations.map((observation) => (
+                    <p key={observation.observation_id}>
+                      {observation.source_kind} · {observation.source_system ?? "—"} {observation.environment ?? "—"} · {observation.evidence_reference ?? "safe reference unavailable"}
+                    </p>
+                  ))}
+                  <p>Decision: {discrepancy?.decision?.action.replaceAll("_", " ") ?? discrepancy?.status ?? "Not required"}</p>
+                </details>}
+              </div>}
+            </div>
           );
         })}
       </div>
+      {(replacementNeeded > 0 || decisionElsewhere) && <div className="confirm-details__notes">
+        {replacementNeeded > 0 && <p className="control-help">Replacement evidence is required for {replacementNeeded} field{replacementNeeded === 1 ? "" : "s"}; no value-selection action is allowed.</p>}
+        {decisionElsewhere && <p className="control-help">Use the backend-authorized Action required panel to record this decision.</p>}
+      </div>}
     </section>
   );
+}
+
+/** One source's value for a field; validity is shown only when it is not VALID. */
+function ObservationValue({ observations, showConfidence = false }: { observations: ReconciliationObservation[]; showConfidence?: boolean }) {
+  if (!observations.length) return <span className="confirm-value is-empty">Not observed</span>;
+  return <>{observations.map((observation) => {
+    const valid = observation.validity === "VALID";
+    return <span className={`confirm-value${valid ? "" : " is-empty"}`} key={observation.observation_id}>
+      {observation.normalized_value ?? (valid ? "—" : observation.validity.toLowerCase())}
+      {observation.normalized_value != null && !valid && <small> · {observation.validity.toLowerCase()}</small>}
+      {showConfidence && valid && observation.confidence !== null && <small> · {Math.round(observation.confidence * 100)}% confidence</small>}
+    </span>;
+  })}</>;
 }
 
 export function CompletedOverview({

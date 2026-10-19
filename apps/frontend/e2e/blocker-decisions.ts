@@ -21,17 +21,21 @@ export async function reviewPendingFields(page: Page, corrections: Record<string
   page.on("request", listener);
   const family = page.getByLabel("Decision group", { exact: true });
   if (await family.count()) await family.selectOption("document");
-  const controls = page.locator("select[data-review-field]");
-  await expect(controls.first()).toBeVisible();
-  const count = await controls.count();
+  // One registry radio exists per pending field; each field defaults to it.
+  const fields = page.locator('input[data-review-field][value="REJECTED"]');
+  await expect(fields.first()).toBeVisible();
+  const count = await fields.count();
   expect(count).toBeGreaterThan(0);
   for (let index = 0; index < count; index++) {
-    const control = controls.nth(index);
-    const key = (await control.getAttribute("data-review-field"))!;
-    await control.focus();
-    await control.selectOption(key in corrections ? "CORRECTED" : "ACCEPTED");
-    await expect(control).toBeFocused();
-    if (key in corrections) await page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true }).fill(corrections[key]);
+    const key = (await fields.nth(index).getAttribute("data-review-field"))!;
+    const documentId = (await fields.nth(index).getAttribute("data-document-id"))!;
+    if (key in corrections) {
+      await page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true }).fill(corrections[key]);
+      continue;
+    }
+    const accept = page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="ACCEPTED"]`);
+    await accept.check();
+    await expect(accept).toBeChecked();
   }
   page.off("request", listener);
   expect(mutations).toEqual([]);
@@ -46,14 +50,13 @@ export async function reviewSourceChoices(page: Page, action = "KEEP_REGISTRY_VA
   page.on("request", listener);
   const family = page.getByLabel("Decision group", { exact: true });
   if (await family.count()) await family.selectOption("source");
-  const controls = page.locator("select[data-reconciliation-field]");
+  const controls = page.locator(`input[data-reconciliation-field][value="${action}"]`);
   await expect(controls.first()).toBeVisible();
   const count = await controls.count();
   expect(count).toBeGreaterThan(0);
   for (let index = 0; index < count; index++) {
-    await controls.nth(index).focus();
-    await controls.nth(index).selectOption(action);
-    await expect(controls.nth(index)).toBeFocused();
+    await controls.nth(index).check();
+    await expect(controls.nth(index)).toBeChecked();
   }
   page.off("request", listener);
   expect(mutations).toEqual([]);
