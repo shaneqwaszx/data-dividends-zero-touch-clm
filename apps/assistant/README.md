@@ -107,7 +107,7 @@ RM clicks "Not helpful" ─► gap for the Director to handle
 | `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from feedback |
 | `ingest.py` | Loads the guidance files (an app-approved edit is not overwritten by its file) |
 | `evaluation.py` | Recall and "correctly found nothing" on a labelled question set |
-| `../knowledge_answers.py` | Tags hits, keeps only approved entries the user may see, lists their allowed lines in the KNOWLEDGE prompt part, works out cited sources and follow-up suggestions |
+| `../knowledge_answers.py` | Tags hits, keeps only approved entries the user may see, checks every knowledge text the RM can see (lines, titles, follow-up questions), lists the allowed lines in the KNOWLEDGE prompt part, works out cited sources |
 | `../knowledge_api.py` | Feedback and review endpoints |
 
 **Rules.** Versions are never overwritten. The author of an entry can never approve it. Approving a
@@ -188,18 +188,27 @@ left out, the answer's notice says how many, and the reply's `checks.removed` is
 1. **The catalog** (`allowed_guidance`): fixed statements filled only from the backend's case
    facts (offered actions, readiness items with their section, rule explanations, the
    standing disclaimers).
-2. **Knowledge lines**: each sentence of a retrieved, approved entry the user may see,
-   exactly as approved and followed by its tag (`... [G1]`), but only if it passes these
-   checks against this case's facts:
+2. **Knowledge lines** (proposed in ADR-012; needs the owner's explicit acceptance): each
+   sentence of a retrieved, approved entry the user may see, exactly as approved and
+   followed by its tag (`... [G1]`), but only if it passes these checks against this case's
+   facts. At most 20 lines per entry and 48 lines (8 KiB) per answer are offered.
 
-| Check | The sentence is not offered when |
+The same checks apply to the other knowledge text the RM can see: an entry title on a source
+chip or in the no-model answer is replaced by a neutral label ("Guidance G1", "Past case
+P1") if it fails, and a follow-up question that fails is not suggested.
+
+For knowledge, two-person approval is the real control. The checks are a best-effort filter:
+they catch the listed phrasings and shapes only, not deliberate evasion (ADR-012 lists what
+they miss).
+
+| Check | The text is not offered when |
 |---|---|
-| Factual claims | a UEN, postal code, unit number, score or long number is not in the case facts; "N of M steps" does not match the case |
-| Labels and places | a quoted button or label, a contact, or a "(section: ...)" is not in the case facts; the sentence carries a citation tag of its own |
-| Action permissions | it tells the RM to take an action this case does not offer them (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve/authorize, submit or resend to GoldTier). Saying an action is not available is fine |
-| Authority | it claims something only people or other systems can decide: legal UBO verification, KYC/regulatory approval, official verification, or one source always overriding the other |
-| Disclosures | it calls a mock/sandbox system live or production, or presents a document value that differs from ACRA as confirmed |
-| Characters | it contains a tab, a non-breaking or zero-width space or another character that is not printable |
+| Factual claims | a UEN (including the T/S/R format), NRIC/FIN, postal code, unit number, decimal or number of three or more digits is not in the case facts; "N of M steps" does not match the case. Short numbers and percentages are not checked |
+| Labels and places | a quoted button or label, a listed contact phrase ("support team", "your manager" …), an e-mail or web address, or a "(section: ...)" is not in the case facts; the text carries a citation tag of its own. People's names are not recognised |
+| Action permissions | it uses one of the listed phrasings for an action this case does not offer the RM (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve/authorize the case, submit or resend to GoldTier). Saying an action is not available is fine |
+| Authority | it uses one of the listed phrasings for something only people or other systems can decide: legal UBO verification, KYC/regulatory approval, official verification, or one source always overriding the other |
+| Disclosures | it calls a mock/sandbox system live or production in one of the listed ways, or presents a document value that differs from ACRA as confirmed |
+| Characters | it contains anything other than printable ASCII and typographic quotes, dashes, ellipsis or bullet (a tab, a non-breaking or invisible space, a look-alike letter from another script) |
 
 Free model prose, paraphrases and earlier chat turns never become allowed lines. When an
 answer uses registry data from a registry that is not live, a notice says so (for example

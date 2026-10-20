@@ -14,26 +14,33 @@ Document/company values, history, free model prose and paraphrases never extend 
 lines. The deterministic case-data answer handles unsupported responses. This is bounded
 statement selection, not general semantic verification.
 
-The sentence checks are an additional safeguard on knowledge sentences, never a replacement
-for the catalog. A knowledge sentence is not offered when (fail closed):
+For knowledge, two-person approval of every version is the robust control. The sentence
+checks are a secondary, best-effort filter on approved knowledge text (sentences, and the
+titles and follow-up questions shown with it, see ``checked_texts``), never a replacement for
+the catalog. They catch plain phrasings only; ADR-012 lists what they miss. A knowledge
+sentence is not offered when (fail closed):
 
-- it contains a character that is not printable (a tab, a non-breaking or zero-width space);
-- grounding: a UEN, postal code, unit number, score or other specific value is not in the case
-  facts; "N of M steps" does not match the case; a quoted button, screen or label, a person or
-  team to contact, or a "(section: ...)" is not in the case facts; it carries a citation tag
-  of its own;
-- policy: it tells the RM to take an action this RM is not offered on this case, or claims
-  something only people or other systems can decide (legal UBO verification, KYC/regulatory
+- it contains a character outside printable ASCII and the typographic quotes, dashes,
+  ellipsis and bullet (this refuses tabs, non-breaking and invisible spaces, and look-alike
+  letters from other scripts);
+- grounding: a UEN or NRIC/FIN, postal code, unit number, decimal or number of three or more
+  digits is not in the case facts; "N of M steps" does not match the case; a quoted button,
+  screen or label, one of the listed contact phrases, an e-mail address or web address, or a
+  "(section: ...)" is not in the case facts; it carries a citation tag of its own;
+- policy: it uses one of the listed action phrasings for an action this RM is not offered on
+  this case, or one of the listed authority phrasings (legal UBO verification, KYC/regulatory
   approval, one source automatically winning). Only a negation that directly governs the
   action or claim cancels it (see ``_negated``);
-- disclosures: it calls a mock, local or sandbox system live, or presents a document value
-  that differs from ACRA as confirmed.
+- disclosures: it calls a mock, local or sandbox system live in one of the listed ways, or
+  presents a document value that differs from ACRA as confirmed.
+
+Short numbers and percentages, people's names, and wording outside the listed phrasings are
+not recognised.
 """
 
 import bisect
 import json
 import re
-import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -117,8 +124,13 @@ _CONTACTS = (
 _SECTION_REF = re.compile(r"\(section: ?([^)]{1,80})\)", re.IGNORECASE)
 _CITATION = re.compile(r"\[[GP]\d+\]")
 _SPACES = re.compile(" {2,}")
-# Non-breaking hyphens read as hyphens ("Re‑send"); NFKC folds the other look-alikes.
-_HYPHENS = str.maketrans({"‐": "-", "‑": "-"})
+# Printable ASCII plus typographic quotes, dashes, ellipsis and bullet. Anything else
+# (tabs, non-breaking or invisible spaces, letters from other scripts that look like Latin
+# ones) is refused rather than normalised.
+_UNSUPPORTED_CHARACTER = re.compile("[^\x20-\x7e\u2018\u2019\u201c\u201d\u2013\u2014\u2026\u2022]")
+# E-mail and web addresses. An e-mail match starts only at the start of a word, so a long
+# word without an @ is scanned once.
+_ADDRESS = re.compile(r"(?<![\w.+-])[\w.+-]++@[\w-]+(?:\.[\w-]+)+|\bhttps?://\S+|\bwww\.\S+")
 
 # Actions the app can offer, and the wording used for them. The labels are the ones the case
 # page shows (backend api_models._INTERVENTION_ACTIONS and the review panel in
@@ -273,9 +285,13 @@ def allowed_actions(facts: dict[str, Any]) -> set[str]:
 
 
 # Specific values that could be wrong for this case: UENs, postal codes, unit numbers,
-# decimals, and any number of three or more digits. Short counts ("2 documents") are not
-# checked here.
-_VALUE = re.compile(r"#\d+(?:-\d+)+|\b\d+\.\d+\b|\b\d{3,}[A-Za-z]?\b")
+# decimals, any number of three or more digits, and the NRIC/FIN and T/S/R-format UEN shapes
+# that redaction.py recognises (matched on lower-case text). Short counts and percentages
+# ("2 documents", "25%") are not checked here.
+_VALUE = re.compile(
+    r"#\d+(?:-\d+)+|\b\d+\.\d+\b|\b\d{3,}[A-Za-z]?\b"
+    r"|\b[stfgm]\d{7}[a-z]\b|\b[tsr]\d{2}[a-z]{2}\d{4}[a-z]\b"
+)
 _STEPS = re.compile(r"\b(\d+) ?(?:of|out of|/) ?(\d+) ?(?:onboarding )?steps?\b")
 _LIVE = re.compile(
     r"\b(?:live|production|real) (?:acra|registry|goldtier|system|environment|integration"
@@ -317,15 +333,18 @@ class Context:
 def _check(sentence: str, ctx: Context) -> str | None:
     """The reason this sentence must not be offered, or None when it passes."""
 
-    if not sentence.isprintable():
-        return "unprintable_text"
-    text = _SPACES.sub(" ", unicodedata.normalize("NFKC", sentence).translate(_HYPHENS))
-    lowered = text.lower().replace("’", "'")
+    if _UNSUPPORTED_CHARACTER.search(sentence):
+        return "unsupported_character"
+    text = _SPACES.sub(" ", sentence)
+    lowered = text.lower().replace("\u2019", "'")
     # 1. Grounding
     if _CITATION.search(text):
         return "invented_source"
     for phrase in _CONTACTS:
         if phrase in lowered and phrase not in ctx.known:
+            return "invented_contact"
+    for address in _ADDRESS.findall(lowered):
+        if address.rstrip(".,;:!?)") not in ctx.known:
             return "invented_contact"
     for double, single in _QUOTED.findall(text):
         label = (double or single).strip().lower()
@@ -368,6 +387,14 @@ def sentence_problem(sentence: str, facts: dict[str, Any]) -> str | None:
     return _check(sentence, Context(facts))
 
 
+# Knowledge shown in one answer is bounded, so a stream of selected lines (each update
+# re-sends the answer so far) stays small even for pathological approved entries.
+MAX_LINES_PER_ENTRY = 20
+MAX_KNOWLEDGE_LINES = 48
+MAX_KNOWLEDGE_BYTES = 8 * 1024
+# A title or follow-up question longer than this is not shown.
+MAX_KNOWLEDGE_LABEL = 200
+
 _SENTENCE = re.compile(r"(?<=[.!?]) ")
 _LIST_MARKER = re.compile(r"(?:[-*•]|\d{1,3}[.)]) ")
 
@@ -376,23 +403,53 @@ def knowledge_lines(facts: dict[str, Any], knowledge: Iterable[tuple[str, str]])
     """The lines approved knowledge adds: "<sentence> [tag]" for each sentence that passes.
 
     ``knowledge`` is (tag, body) for each retrieved entry that is approved and visible to this
-    user (see knowledge_answers.approved_knowledge). Each body line loses a leading list
-    marker and is split into sentences; runs of spaces become one space. Everything else is
-    kept exactly as approved.
+    user, in ranking order (see knowledge_answers.approved_knowledge). Each body line loses a
+    leading list marker and is split into sentences; runs of spaces become one space.
+    Everything else is kept exactly as approved. At most MAX_LINES_PER_ENTRY lines per entry
+    and MAX_KNOWLEDGE_LINES lines of MAX_KNOWLEDGE_BYTES (UTF-8) in all are offered; lines
+    past the limits are not.
     """
 
     ctx = Context(facts)
-    lines: list[str] = []
+    lines: dict[str, None] = {}
+    size = 0
     for tag, body in knowledge:
+        own = 0
         for raw in body.splitlines():
             text = _SPACES.sub(" ", raw.strip())
             marker = _LIST_MARKER.match(text)
             if marker:
                 text = text[marker.end() :]
             for sentence in _SENTENCE.split(text):
-                if sentence.strip(" -*•.") and _check(sentence, ctx) is None:
-                    lines.append(f"{sentence} [{tag}]")
-    return list(dict.fromkeys(lines))
+                if own >= MAX_LINES_PER_ENTRY or len(lines) >= MAX_KNOWLEDGE_LINES:
+                    break
+                line = f"{sentence} [{tag}]"
+                cost = len(line.encode("utf-8")) + 1
+                if (
+                    line in lines
+                    or size + cost > MAX_KNOWLEDGE_BYTES
+                    or not sentence.strip(" -*•.")
+                    or _check(sentence, ctx) is not None
+                ):
+                    continue
+                lines[line] = None
+                size += cost
+                own += 1
+    return list(lines)
+
+
+def checked_texts(facts: dict[str, Any], texts: Iterable[str]) -> list[str]:
+    """The texts that pass the sentence checks on this case, in order.
+
+    For the other knowledge text the RM can see: entry titles (source chips and the no-model
+    answer) and follow-up questions (suggested questions). A text longer than
+    MAX_KNOWLEDGE_LABEL characters never passes.
+    """
+
+    ctx = Context(facts)
+    return [
+        text for text in texts if len(text) <= MAX_KNOWLEDGE_LABEL and _check(text, ctx) is None
+    ]
 
 
 # --- what the RM sees -----------------------------------------------------------------

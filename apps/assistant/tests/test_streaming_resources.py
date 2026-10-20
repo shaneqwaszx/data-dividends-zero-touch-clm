@@ -343,6 +343,60 @@ def test_guard_stays_linear_on_64_kib_of_any_shape(shape: str, chunk: int) -> No
     assert (final, guard.validation().left_out) == (whole.text, whole.left_out)
 
 
+def _tiny_sentence_bodies() -> list[tuple[str, str]]:
+    """QG_PR99_c2c391c K4: six approved 4,000-character entries of tiny distinct sentences."""
+
+    import itertools
+    import string
+
+    words = ("".join(p).capitalize() for p in itertools.product(string.ascii_lowercase, repeat=3))
+    bodies = []
+    for tag in ("G1", "G2", "G3", "P1", "P2", "P3"):
+        body = ""
+        while len(body) < 3990:
+            body += next(words) + ". "
+        bodies.append((tag, body[:4000].rsplit(" ", 1)[0]))
+    return bodies
+
+
+@pytest.mark.parametrize("shape", ["tiny sentences", "long sentences"])
+def test_knowledge_offered_in_one_answer_and_its_stream_are_bounded(shape: str) -> None:
+    from ai_assistant.guardrails import (
+        MAX_KNOWLEDGE_BYTES,
+        MAX_KNOWLEDGE_LINES,
+        MAX_LINES_PER_ENTRY,
+        allowed_guidance,
+        knowledge_lines,
+    )
+    from tests.test_grounding import FACTS
+
+    bodies = (
+        _tiny_sentence_bodies()
+        if shape == "tiny sentences"
+        else [
+            (tag, "Open the case page " + "and read it " * 330 + ".")
+            for tag, _ in _tiny_sentence_bodies()
+        ]
+    )
+    lines = knowledge_lines(FACTS, bodies)
+    assert 0 < len(lines) <= MAX_KNOWLEDGE_LINES  # 4,788 lines were offered at c2c391c
+    assert sum(len(line.encode()) + 1 for line in lines) <= MAX_KNOWLEDGE_BYTES
+    for tag, _ in bodies:
+        assert len([line for line in lines if line.endswith(f" [{tag}]")]) <= MAX_LINES_PER_ENTRY
+    # A model that emits every allowed line in 1-byte pieces: about 126 MB of text events
+    # at c2c391c, now bounded by (allowed lines) x (allowed text).
+    text = "\n".join([*allowed_guidance(FACTS), *lines]) + "\n"
+    guard = StreamingGuard(FACTS, knowledge_lines=lines)
+    events = sent = 0
+    for character in text:
+        shown = guard.feed(character)
+        if shown is not None:
+            events += 1
+            sent += len(json.dumps({"type": "text", "text": shown}, ensure_ascii=False))
+    assert guard.finish() == text.strip()
+    assert sent < 512 * 1024, f"{events} text events, {sent} bytes"
+
+
 def test_streamed_and_whole_answer_checks_agree() -> None:
     from ai_assistant.guardrails import allowed_guidance, validate_answer
 

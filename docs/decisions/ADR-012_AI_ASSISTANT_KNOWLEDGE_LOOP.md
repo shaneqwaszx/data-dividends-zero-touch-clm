@@ -2,9 +2,11 @@
 
 ## Status
 
-Proposed. Sections A and B are proposed for owner acceptance with PR #99. Section C
-implements the owner's G6 direction (quoted in C) and is proposed pending an independent
-architecture review; it must not be described as architecturally approved until then.
+Proposed. Sections A and B are proposed for owner acceptance with PR #99. Section C keeps
+the owner's G6 direction (quoted in C). Its extension of the allow-list with approved
+knowledge lines **REQUIRES EXPLICIT OWNER ACCEPTANCE**: the G6 direction does not by itself
+authorise it, and it must not be described as accepted or architecturally approved until the
+owner records that acceptance in the decision log.
 
 ## Date
 
@@ -58,6 +60,16 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
 - The assistant keeps reusing the CLM capabilities `POLICY_APPROVE` (review) and
   `POLICY_MUTATE` (propose guidance) as a POC mapping. This is `PROJECT_DEFINED_PROVISIONAL`
   and recorded for owner confirmation; it is not sponsor-approved reviewer authority.
+- Existence check: the closest existing maker-checker owner is `PolicyManagementService` /
+  `PolicyCatalogue` (D-064: HR proposes, a Director decides, one lock and repository CAS).
+  It owns bounded runtime rule values that cases freeze, not versioned free text with
+  retrieval, RM feedback and index tasks, and it lives in the CLM backend, which the
+  assistant only reads. It is therefore not reused; this means a second four-eyes
+  implementation exists, for a different aggregate.
+- Python footprint: `chromadb==1.5.9` adds 62 transitive runtime packages (18 to 80 in the
+  assistant environment), among them onnxruntime, grpcio, kubernetes, the OpenTelemetry SDK
+  and exporters, huggingface-hub, tokenizers and numpy. They are not locked (no lock or
+  constraints file). This is accepted risk pending the owner's decision on a pinning policy.
 
 ### B. `@assistant-ui/react` 0.15.23 in the frontend panel
 
@@ -67,8 +79,9 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   `actor.user_id`. No cloud runtime, `assistant-cloud` client or remote adapter may be
   imported or configured.
 - Version pinned exactly; upgrades are a reviewed dependency change. It adds 93 runtime npm
-  packages (MIT/BSD-3-Clause/0BSD, no install scripts) and about 321 kB (95 kB gzip) to the
-  bundle, several of them pre-1.0.
+  packages (MIT/BSD-3-Clause/0BSD, no install scripts, 13 of them pre-1.0). Against current
+  main `36d8f0e` the production bundle grows by about 331 kB (689 to 1,020 kB; gzip 188 to
+  286 kB, +98 kB).
 
 ### C. Output policy: the exact-line catalog stays mandatory; approved knowledge adds lines
 
@@ -83,19 +96,38 @@ replacement. Do not silently remove mandatory checks."
   backend projection. Free model prose, paraphrases, history and document values never extend
   the allowed lines. If no allowed line remains, the deterministic case-data answer is shown
   with "The model response could not be verified".
-- Extension, knowledge lines: for each entry that retrieval returned for this user and case
-  and that is approved and visible to them (checked again before use), each sentence of the
-  approved body becomes the line `<sentence> [Gn]` or `[Pn]`, exactly as approved (a leading
-  list marker is dropped and runs of spaces become one), and only if the sentence passes the
-  sentence checks against this case's facts. The prompt lists these lines with the catalog
-  and tells the model to copy lines exactly; source chips still come from the tags.
-- Sentence checks, an additional safeguard on knowledge sentences only (never on model text),
-  fail closed: non-printable characters (tabs, non-breaking or zero-width spaces); values,
-  step counts, quoted labels, contacts and section names that are not in this case's facts;
-  citation tags inside the body; actions this RM is not offered and authority claims, unless
-  a fixed negation directly governs them (the cycle-2 rule, without the coordination
-  exemption the third gate bypassed); Live claims; document values presented as confirmed.
-  Text in a knowledge entry never vouches for its own values or labels.
+- Extension, knowledge lines (**requires explicit owner acceptance**, see Status): for
+  each entry that retrieval returned for this user and case and that is approved and visible
+  to them (checked again before use), each sentence of the approved body becomes the line
+  `<sentence> [Gn]` or `[Pn]`, exactly as approved (a leading list marker is dropped and
+  runs of spaces become one), and only if the sentence passes the sentence checks against
+  this case's facts. The prompt lists these lines with the catalog and tells the model to
+  copy lines exactly; source chips still come from the tags.
+- Every other piece of knowledge text the RM can see passes the same checks: an entry title
+  (source chips, the no-model answer, the prompt) is shown only if it passes, otherwise a
+  neutral label ("Guidance G1", "Past case P1") is shown; a follow-up question (suggested
+  questions) is dropped unless it passes. Titles and follow-ups longer than 200 characters
+  never pass.
+- Controls for knowledge content: **two-person approval of every version is the primary,
+  robust control** (two different identities, a decision bound to the content hash,
+  team-scoped). The sentence checks are a **secondary, best-effort filter** with documented
+  limits. They run on knowledge text only, never on model text, and fail closed: characters
+  outside printable ASCII and typographic quotes, dashes, ellipsis and bullet (tabs,
+  non-breaking and invisible spaces, look-alike letters from other scripts); numbers of
+  three or more digits, decimals, UENs including the T/S/R format, NRIC/FIN, postal and unit
+  numbers, step counts, quoted labels, listed contact phrases, e-mail and web addresses and
+  `(section: ...)` names that are not in this case's facts; citation tags inside the body;
+  the listed action phrasings for actions this RM is not offered and the listed authority
+  phrasings, unless a fixed negation directly governs them (the cycle-2 rule, without the
+  coordination exemption the third gate bypassed); the listed Live phrasings; document values
+  presented as confirmed. Text in a knowledge entry never vouches for its own values or
+  labels.
+- Bound per answer: at most 20 lines per entry and 48 knowledge lines of at most 8 KiB in
+  all are offered; lines past the limits are not. Each streamed update re-sends the answer
+  so far, so one stream sends at most one update per allowed line, each no larger than the
+  allowed text. The fourth gate's pathological entries (4,788 lines) produced about 126 MB
+  of updates before the bound; with it, the same 1-byte stream sends about 100 kB (the test
+  allows 512 kB).
 - Streaming is main's line-based acceptance: only new text is split into lines, each
   complete line is looked up once and dropped from the buffer, an unfinished line is never
   shown, and model text is bounded at 64 KiB. After a stream failure only lines completed
@@ -105,7 +137,9 @@ replacement. Do not silently remove mandatory checks."
   feed took 1 ms. The sentence checks run once per retrieved knowledge sentence per request;
   each match costs bounded work (a governing negation is searched within 80 characters, and
   phrase breaks and negation words are found once per clause). The slowest 64 KiB probe body
-  took 0.18 s. Knowledge bodies from the API are limited to 4,000 characters.
+  took 0.18 s. Bodies proposed or edited through the API are limited to 4,000 characters;
+  drafts from RM feedback can be longer (a 4,000-character question and a 1,000-character
+  note), which the per-answer bound above covers.
 - Residual risks:
   - Answer flexibility is reduced to selecting catalog and knowledge lines, so answers are
     less fluent and less specific than free prose; a question the lines do not cover gets
@@ -113,19 +147,29 @@ replacement. Do not silently remove mandatory checks."
   - Knowledge granularity: bodies are split at line breaks and after `.`, `!` or `?`
     followed by a space. An abbreviation such as "e.g." splits a sentence, a line can be
     shown without the sentence before it, and an entry whose sentences all fail adds nothing.
-  - The sentence checks remain a deny-list over reviewed text. Phrasings they do not
-    recognise would be offered if a reviewer approved them: context that reverses a negated
-    action ("Previously you couldn't approve the case, but now you can.") and authority
-    wording outside the patterns ("KYC is approved."). 17 of the third gate's 81 sentences
-    are of this kind (`KNOWLEDGE_FILTER_LIMITS` in the tests); none of them is shown from
-    model output. Maker-checker review of every knowledge version is the control.
-  - Some genuine negations are over-dropped, including the R4 disclaimer, which stays
-    available as a catalog line.
+  - The sentence checks remain a deny-list over reviewed text and catch plain phrasings
+    only, not deliberate evasion. Unsafe sentences they do not recognise are offered if two
+    people approve them; none of them is ever shown from model output. Known misses, all
+    pinned in `KNOWLEDGE_FILTER_LIMITS` in the tests (46 sentences):
+    - 17 of the third gate's 81 sentences: context that reverses a negated action
+      ("Previously you couldn't approve the case, but now you can.") and authority wording
+      outside the patterns ("KYC is approved.");
+    - 29 of the fourth gate's 44 further sentences: unlisted action wording (11, "Approve
+      it now.", "Sign off the case."), unlisted authority wording (9, "KYC passed.", "The
+      client is approved."), unlisted Live wording (3, "ACRA is connected live."), short
+      numbers and percentages (3, "The ownership threshold is 10%."), people's names (2,
+      "Ask Priya in operations.") and an unquoted stage name (1). The other 15 (look-alike
+      letters, invisible characters, a T-format UEN, an NRIC, an e-mail and a web address)
+      are now caught.
+  - Some genuine text is over-dropped: negations such as the R4 disclaimer (which stays
+    available as a catalog line), and the shipped title "Mock, Local, Sandbox and Live data"
+    ("live data"), whose chip shows the neutral label instead.
   - The illustrative marker of an entry is carried by its source chip (and, for the seed, by
     the entry's own first sentence), not by every line.
   - Guidance sentences that quote values or labels absent from the case (for example the
     0.85 policy default) are withheld.
-- Until an independent architecture review accepts this section, the PR stays Draft.
+- Until the owner explicitly accepts the knowledge-line extension (recorded in the decision
+  log) and an independent architecture review agrees, the PR stays Draft.
 
 ## Alternatives considered
 
@@ -135,11 +179,18 @@ replacement. Do not silently remove mandatory checks."
   reviewed feedback loop the PR exists to add.
 - Keep the plain React panel: viable; the library was chosen for chat primitives and
   streaming rendering, at the dependency cost recorded in B.
+- Reuse `PolicyManagementService` / `PolicyCatalogue` (D-064) for knowledge review: not a
+  fit (see the existence check in A).
 - Replace the catalog with sentence-level checks of model prose (the PR #99 author head and
   the first two remediation cycles): three independent gates found bypasses of that
   deny-list, and the owner's G6 direction keeps the catalog mandatory.
 - The catalog alone, without knowledge lines: the strictest, but it cannot carry cited
   knowledge.
+- Source chips only (no knowledge lines in answers): retrieved entries are listed as
+  sources next to a catalog-only answer, so the catalog stays untouched while the answer
+  still cites. Not chosen because the RM would only see that guidance exists, not what it
+  says, which is what the knowledge loop is for. It remains the fallback if the owner does
+  not accept the knowledge-line extension; the chips would still need the title check.
 
 ## Consequences
 
@@ -179,9 +230,12 @@ output gate.
 Assistant pytest, ruff, format and mypy. The PR89 catalog tests restored from main; knowledge
 lines shown verbatim with their tag, paraphrased, partial or re-tagged lines dropped,
 unretrieved, unapproved and other-team entries never allowed, and an approved sentence that
-fails a check withheld; all three gates' negation sentences as model output (never shown,
-whole or streamed) and as approved knowledge (withheld, apart from the listed limits); 64 KiB
-stream shapes including whitespace runs and long tokens with a per-feed bound. Cross-team,
+fails a check withheld; an approved title and follow-up that are advice never reaching the
+RM through chips, suggestions or the no-model answer (chat and stream); all four gates'
+unsafe sentences as model output (never shown, whole or streamed) and as approved knowledge
+(withheld, apart from the listed limits); identifiers, addresses and characters; the
+per-answer knowledge bound with the fourth gate's pathological entries; 64 KiB stream shapes
+including whitespace runs and long tokens with a per-feed bound. Cross-team,
 edit-then-approve, two-person retirement, concurrent decision/edit, officer redaction and
 forged-turn regressions; restart/persistence and v2-to-v3 migration tests. Frontend Vitest,
 typecheck and build; real-embedding retrieval evaluation with a local model (not yet run);

@@ -30,21 +30,16 @@ from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
-from .guardrails import (
-    LEFT_OUT_REASON,
-    StreamingGuard,
-    Validation,
-    knowledge_lines,
-    validate_answer,
-)
+from .guardrails import LEFT_OUT_REASON, StreamingGuard, Validation, validate_answer
 from .knowledge.retrieval import Retriever, case_context, settings_from
 from .knowledge.service import KnowledgeBase
 from .knowledge_answers import (
+    ShownKnowledge,
     TaggedHit,
     approved_knowledge,
-    follow_up_questions,
     guidance_summary,
     knowledge_message,
+    shown_knowledge,
     sources_for,
     tag_hits,
 )
@@ -143,11 +138,14 @@ class Prepared:
     suggestions: list[str]
     tagged: list[TaggedHit] = field(default_factory=list)
     knowledge: KnowledgeUse | None = None
-    # Approved knowledge sentences the model may select (guardrails.knowledge_lines).
-    knowledge_lines: list[str] = field(default_factory=list)
+    # The checked knowledge text the RM may see: lines the model may select, titles and
+    # follow-up questions (knowledge_answers.shown_knowledge).
+    shown: ShownKnowledge = field(default_factory=ShownKnowledge)
 
     def sources(self, answer: str) -> list[KnowledgeSource]:
-        return [KnowledgeSource(**source) for source in sources_for(self.tagged, answer)]
+        return [
+            KnowledgeSource(**source) for source in sources_for(self.tagged, answer, self.shown)
+        ]
 
 
 def _model_reply(
@@ -253,31 +251,31 @@ def create_app(
         if retriever is not None:
             try:
                 retrieval = retriever.retrieve(question, case_context(facts), role=role, team=team)
-                tagged = tag_hits(retrieval)
+                tagged = approved_knowledge(tag_hits(retrieval), role=role, team=team)
                 use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
             except Exception:  # knowledge is optional: never let it break an answer
                 log.exception("knowledge retrieval failed")
-        lines = knowledge_lines(facts, approved_knowledge(tagged, role=role, team=team))
+        shown = shown_knowledge(tagged, facts)
         fallback = fallback_answer(question, facts)
-        summary = guidance_summary(tagged, lines)
+        summary = guidance_summary(tagged, shown)
         if summary:
             fallback += "\n\n" + summary
         base = suggested_questions(facts)
         # Questions people with the same problem asked next come right after the top three.
         suggestions = base[:3]
-        for suggestion in [*follow_up_questions(tagged), *base[3:]]:
+        for suggestion in [*shown.follow_ups, *base[3:]]:
             if suggestion not in suggestions:
                 suggestions.append(suggestion)
         return Prepared(
             facts=facts,
             messages=build_messages(
-                facts, history_of(body), question, knowledge=knowledge_message(tagged, lines)
+                facts, history_of(body), question, knowledge=knowledge_message(tagged, shown)
             ),
             fallback=fallback,
             suggestions=suggestions[:6],
             tagged=tagged,
             knowledge=use,
-            knowledge_lines=lines,
+            shown=shown,
         )
 
     def answer_with_model(prep: Prepared) -> ChatResponse:
@@ -286,7 +284,7 @@ def create_app(
             try:
                 reply = model.complete(prep.messages)
                 validation = validate_answer(
-                    reply.text, prep.facts, knowledge_lines=prep.knowledge_lines
+                    reply.text, prep.facts, knowledge_lines=prep.shown.lines
                 )
                 if not validation.text:
                     notice = POLICY_NOTICE
@@ -334,7 +332,7 @@ def create_app(
 
         notice = FALLBACK_NOTICE
         if model is not None:
-            guard = StreamingGuard(prep.facts, knowledge_lines=prep.knowledge_lines)
+            guard = StreamingGuard(prep.facts, knowledge_lines=prep.shown.lines)
             cut_short = False
             try:
                 async with aclosing(model.stream(prep.messages)) as source:

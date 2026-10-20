@@ -58,7 +58,19 @@ def test_values_that_are_in_the_case_facts_are_kept(sentence: str) -> None:
         ('Click "Approve now".', "invented_label"),
         ("Upload it (section: Upload centre).", "unknown_section"),
         ("As the other entry says [G2].", "invented_source"),
-        ("Keep\tthe registry value.", "unprintable_text"),
+        # QG_PR99_c2c391c K2: letter-prefixed identifiers, e-mail and web addresses.
+        ("The UEN is T08LL1234A.", "unsupported_value"),
+        ("The director's NRIC is S1234567D.", "unsupported_value"),
+        ("The FIN is G1234567X.", "unsupported_value"),
+        ("Email kyc-help@example.com for help.", "invented_contact"),
+        ("Upload it at https://files.example.com/upload.", "invented_contact"),
+        ("See www.example.com for the form.", "invented_contact"),
+        # Characters outside the conservative set: tab, look-alike and invisible letters.
+        ("Keep\tthe registry value.", "unsupported_character"),
+        ("\u0410pprove the case now.", "unsupported_character"),
+        ("Approve\u2800the case now.", "unsupported_character"),
+        ("App\u034frove the case now.", "unsupported_character"),
+        ("Re\u2011send it now.", "unsupported_character"),
     ],
 )
 def test_values_that_are_not_in_the_case_facts_are_left_out(sentence: str, reason: str) -> None:
@@ -67,6 +79,14 @@ def test_values_that_are_not_in_the_case_facts_are_left_out(sentence: str, reaso
 
 def test_a_real_case_page_section_is_allowed() -> None:
     assert _reasons("Upload ownership evidence (section: Ownership & UBO).") == ()
+
+
+def test_identifiers_and_addresses_from_the_case_and_typographic_marks_are_allowed() -> None:
+    facts = {"contact": "ops@example.com", "id": "T08LL1234A", "nric": "S1234567D"}
+    assert _reasons("The UEN is T08LL1234A and the NRIC is S1234567D.", facts) == ()
+    assert _reasons("Email ops@example.com.", facts) == ()
+    assert _reasons("The document\u2019s address differs \u2013 check it\u2026") == ()
+    assert _reasons("A very long word " + "a" * 5000 + " stays a word.") == ()
 
 
 # 2. Policy: action permissions ----------------------------------------------------------

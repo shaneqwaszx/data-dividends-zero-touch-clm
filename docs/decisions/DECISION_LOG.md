@@ -304,8 +304,11 @@ loopback-only embeddings, and an `@assistant-ui/react` panel over the existing c
 [ADR-012](ADR-012_AI_ASSISTANT_KNOWLEDGE_LOOP.md) records the design. Status: proposed,
 not accepted. Owner direction (G6): the PR89 exact-line output catalog keeps its
 deterministic guarantees and stays mandatory; sentence-level checks are an additional
-safeguard. Approved knowledge is added only as verbatim, tagged sentences that pass
-those checks (ADR-012 section C, pending an independent architecture review). Reusing
-POLICY_APPROVE and POLICY_MUTATE for knowledge review is PROJECT_DEFINED_PROVISIONAL;
-review authority stays UNKNOWN_BLOCKED (Q-014). No CLM backend write, schema, provider
-status or Live claim follows.
+safeguard. ADR-012 section C proposes adding approved knowledge only as verbatim, tagged
+sentences that pass those checks, with entry titles and follow-up questions under the
+same checks; that extension requires explicit owner acceptance. For knowledge content,
+two-person approval is the primary control and the checks are a best-effort filter
+with documented limits. The unlocked chromadb Python footprint (62 transitive packages)
+is accepted risk pending the owner. Reusing POLICY_APPROVE and POLICY_MUTATE for
+knowledge review is PROJECT_DEFINED_PROVISIONAL; review authority stays UNKNOWN_BLOCKED
+(Q-014). No CLM backend write, schema, provider status or Live claim follows.

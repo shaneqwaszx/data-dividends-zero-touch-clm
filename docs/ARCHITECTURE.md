@@ -966,10 +966,12 @@ reviewed content hash. Review queues and approved resolutions are team-scoped. C
 telemetry is off and embeddings are loopback-only. The panel uses `@assistant-ui/react`
 presentation primitives over the existing client. See ADR-012 (proposed) and D-073. By the
 owner's G6 direction the PR89 exact-line catalog stays the mandatory output gate: model text
-is shown only as whole allowed lines. Approved, retrieved knowledge the user may see adds
-lines only as verbatim, tagged sentences that pass sentence-level checks against the case
-facts (an additional safeguard). The 2026-10-06 read-only description above stays current
-main until ADR-012 is accepted.
+is shown only as whole allowed lines. ADR-012 proposes that approved, retrieved knowledge
+the user may see adds lines only as verbatim, tagged sentences that pass sentence-level
+checks against the case facts, with titles and follow-up questions under the same checks;
+that extension requires explicit owner acceptance. Two-person approval is the primary
+control for knowledge content and the checks are a best-effort filter. The 2026-10-06
+read-only description above stays current main until ADR-012 is accepted.
 
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 

@@ -1,16 +1,18 @@
 """Bring retrieved knowledge into an answer: tags, the prompt message, sources, follow-ups.
 
 Entries are tagged G1, G2 ... (official guidance) and P1, P2 ... (past resolutions). Only
-approved entries this user may see become knowledge lines (guardrails.knowledge_lines): each
-sentence that passes the checks, exactly as approved, followed by its tag. The model may
-select those lines; the reply lists the sources so the panel can show them.
+approved entries this user may see are used, and every piece of their text the RM can see
+passes the same sentence checks against the case (guardrails): the knowledge lines the model
+may select (each sentence exactly as approved, followed by its tag), the titles on source
+chips and in the no-model answer, and the follow-up questions offered as suggestions. A title
+that fails is replaced by a neutral label; a follow-up that fails is dropped.
 """
 
 import re
-from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from .guardrails import checked_texts, knowledge_lines
 from .knowledge.models import EntryKind, EntryStatus
 from .knowledge.retrieval import Hit, Retrieval
 
@@ -33,19 +35,57 @@ def tag_hits(retrieval: Retrieval | None) -> list[TaggedHit]:
 
 def approved_knowledge(
     tagged: list[TaggedHit], *, role: str | None, team: str | None
-) -> list[tuple[str, str]]:
-    """(tag, body) of each retrieved entry that is approved and visible to this user.
+) -> list[TaggedHit]:
+    """The retrieved entries that are approved and visible to this user.
 
     Retrieval already applies both filters; they are checked again here because these
-    bodies become displayable lines.
+    entries become text the RM sees.
     """
 
     return [
-        (item.tag, item.hit.entry.body)
+        item
         for item in tagged
         if item.hit.entry.status == EntryStatus.APPROVED
         and item.hit.entry.visibility.allows(role, team)
     ]
+
+
+@dataclass(frozen=True)
+class ShownKnowledge:
+    """The knowledge text the RM may see on this case; all of it passed the sentence checks."""
+
+    # The lines the model may select (guardrails.knowledge_lines).
+    lines: list[str] = field(default_factory=list)
+    # Entry titles that passed, by tag.
+    titles: dict[str, str] = field(default_factory=dict)
+    # Follow-up questions that passed, offered as suggestions.
+    follow_ups: list[str] = field(default_factory=list)
+
+    def title(self, item: TaggedHit) -> str:
+        """The entry's title, or a neutral label ("Guidance G1") when it did not pass."""
+
+        if item.tag in self.titles:
+            return self.titles[item.tag]
+        kind = "Guidance" if item.hit.entry.kind == EntryKind.GUIDANCE else "Past case"
+        return f"{kind} {item.tag}"
+
+
+def shown_knowledge(tagged: list[TaggedHit], facts: dict[str, Any]) -> ShownKnowledge:
+    """Check everything ``tagged`` (approved_knowledge) could show the RM on this case."""
+
+    questions: list[str] = []
+    for item in tagged:
+        for question in item.hit.entry.follow_ups:
+            if question not in questions:
+                questions.append(question)
+    passing = set(checked_texts(facts, [*(item.hit.entry.title for item in tagged), *questions]))
+    return ShownKnowledge(
+        lines=knowledge_lines(facts, [(item.tag, item.hit.entry.body) for item in tagged]),
+        titles={
+            item.tag: item.hit.entry.title for item in tagged if item.hit.entry.title in passing
+        },
+        follow_ups=[question for question in questions if question in passing],
+    )
 
 
 def _label(item: TaggedHit) -> str:
@@ -64,11 +104,11 @@ def _label(item: TaggedHit) -> str:
     return detail
 
 
-def _own_lines(tag: str, lines: Sequence[str]) -> list[str]:
-    return [line for line in lines if line.endswith(f" [{tag}]")]
+def _own_lines(tag: str, shown: ShownKnowledge) -> list[str]:
+    return [line for line in shown.lines if line.endswith(f" [{tag}]")]
 
 
-def knowledge_message(tagged: list[TaggedHit], lines: Sequence[str]) -> str | None:
+def knowledge_message(tagged: list[TaggedHit], shown: ShownKnowledge) -> str | None:
     """The prompt message listing each entry's allowed lines, or None when there are none."""
 
     parts = [
@@ -78,9 +118,9 @@ def knowledge_message(tagged: list[TaggedHit], lines: Sequence[str]) -> str | No
         "including its tag."
     ]
     for item in tagged:
-        own = _own_lines(item.tag, lines)
+        own = _own_lines(item.tag, shown)
         if own:
-            parts.append(f"[{item.tag}] {item.hit.entry.title} ({_label(item)})\n" + "\n".join(own))
+            parts.append(f"[{item.tag}] {shown.title(item)} ({_label(item)})\n" + "\n".join(own))
     return "\n\n".join(parts) if len(parts) > 1 else None
 
 
@@ -88,7 +128,9 @@ def cited_tags(text: str) -> set[str]:
     return {f"{letter}{number}" for letter, number in _TAG.findall(text)}
 
 
-def sources_for(tagged: list[TaggedHit], answer: str) -> list[dict[str, Any]]:
+def sources_for(
+    tagged: list[TaggedHit], answer: str, shown: ShownKnowledge
+) -> list[dict[str, Any]]:
     cited = cited_tags(answer)
     return [
         {
@@ -96,7 +138,7 @@ def sources_for(tagged: list[TaggedHit], answer: str) -> list[dict[str, Any]]:
             "kind": item.hit.entry.kind.value,
             "entry_id": item.hit.entry.entry_id,
             "version": item.hit.entry.version,
-            "title": item.hit.entry.title,
+            "title": shown.title(item),
             "approved_at": item.hit.entry.approved_at,
             "source_ref": item.hit.entry.source_ref,
             "illustrative": item.hit.entry.illustrative,
@@ -107,23 +149,16 @@ def sources_for(tagged: list[TaggedHit], answer: str) -> list[dict[str, Any]]:
     ]
 
 
-def follow_up_questions(tagged: list[TaggedHit]) -> list[str]:
-    questions: list[str] = []
-    for item in tagged:
-        for question in item.hit.entry.follow_ups:
-            if question not in questions:
-                questions.append(question)
-    return questions
-
-
-def guidance_summary(tagged: list[TaggedHit], lines: Sequence[str]) -> str | None:
-    """For no-AI answers: the first two allowed lines of the first guidance entry with any."""
+def guidance_summary(tagged: list[TaggedHit], shown: ShownKnowledge) -> str | None:
+    """For no-AI answers: the first two allowed lines of the first guidance entry with any,
+    after its title if the title passed the checks."""
 
     for item in tagged:
         if item.hit.entry.kind == EntryKind.GUIDANCE:
-            own = [line.removesuffix(f" [{item.tag}]") for line in _own_lines(item.tag, lines)]
+            own = [line.removesuffix(f" [{item.tag}]") for line in _own_lines(item.tag, shown)]
             if own:
-                return f"From the guidance [{item.tag}] {item.hit.entry.title}: " + " ".join(
+                title = shown.titles.get(item.tag)
+                return f"From the guidance [{item.tag}]{f' {title}' if title else ''}: " + " ".join(
                     own[:2]
                 )
     return None
