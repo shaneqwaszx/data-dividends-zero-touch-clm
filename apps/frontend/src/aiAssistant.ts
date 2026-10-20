@@ -21,6 +21,20 @@ export interface AiAssistantTurn {
   content: string;
 }
 
+/** A retrieved knowledge entry the answer could use; `cited` = the answer names its tag. */
+export interface AiAssistantSource {
+  tag: string;
+  kind: "guidance" | "resolution";
+  entry_id: string;
+  version: number;
+  title: string;
+  approved_at: string | null;
+  source_ref: string | null;
+  illustrative: boolean;
+  fallback: boolean;
+  cited: boolean;
+}
+
 export interface AiAssistantAnswer {
   answer: string;
   answered_by: "model" | "case_data";
@@ -29,6 +43,9 @@ export interface AiAssistantAnswer {
   suggested_questions: string[];
   /** Model answers only: why sentences were left out (reason codes) and disclosures added. */
   checks?: { removed: string[]; disclosures: string[] } | null;
+  /** Retrieved guidance [G] and past cases [P]. */
+  sources?: AiAssistantSource[];
+  knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
 }
 
 export class AiAssistantError extends Error {
@@ -134,3 +151,95 @@ export async function askAiAssistantStreaming(
   }
   throw new AiAssistantError("The AI assistant stopped before finishing its answer.");
 }
+
+// --- Knowledge loop: RM feedback and Director review --------------------------------------
+// Permissions are decided by the backend on every call; these only carry the request.
+
+export interface AiAssistantFeedbackResult {
+  feedback_id: number;
+  draft_entry_id: string | null;
+  message: string;
+}
+
+export function sendAiAssistantFeedback(
+  caseId: string,
+  feedback: { helpful: boolean; note: string; turns: AiAssistantTurn[] },
+  signal?: AbortSignal,
+): Promise<AiAssistantFeedbackResult> {
+  return request<AiAssistantFeedbackResult>(`/cases/${encodeURIComponent(caseId)}/feedback`, feedback, signal);
+}
+
+export interface KnowledgeAccess {
+  user_id: string | null;
+  can_review: boolean;
+  can_edit_guidance: boolean;
+}
+
+export interface KnowledgeEntry {
+  entry_id: string;
+  key: string;
+  version: number;
+  kind: "guidance" | "resolution";
+  status: "draft" | "pending_review" | "approved" | "rejected" | "retired";
+  title: string;
+  body: string;
+  blocker_codes: string[];
+  fields: string[];
+  stages: string[];
+  follow_ups: string[];
+  visibility: { roles: string[]; teams: string[] };
+  replaces: string | null;
+  author: string;
+  approver: string | null;
+  approved_at: string | null;
+  created_at: string | null;
+  source_ref: string | null;
+  illustrative: boolean;
+}
+
+export interface KnowledgeGap {
+  id: number;
+  note: string;
+  blocker_codes: string[];
+  fields: string[];
+  stages: string[];
+  created_at: string;
+}
+
+export interface KnowledgeReviewQueue {
+  pending: KnowledgeEntry[];
+  gaps: KnowledgeGap[];
+}
+
+export interface KnowledgeStats {
+  entries: Record<string, number>;
+  feedback: {
+    total: number;
+    helpful: number;
+    not_helpful: number;
+    helpful_rate: number | null;
+    open_gaps: number;
+  };
+}
+
+export type KnowledgeEdit = Partial<
+  Pick<KnowledgeEntry, "title" | "body" | "follow_ups" | "replaces"> & { visibility: KnowledgeEntry["visibility"] }
+>;
+
+const entryPath = (entryId: string, version: number) =>
+  `/knowledge/entries/${encodeURIComponent(entryId)}/versions/${version}`;
+
+export const fetchKnowledgeAccess = (signal?: AbortSignal) =>
+  request<KnowledgeAccess>("/knowledge/me", undefined, signal);
+export const fetchKnowledgeReviews = (signal?: AbortSignal) =>
+  request<KnowledgeReviewQueue>("/knowledge/reviews", undefined, signal);
+export const fetchKnowledgeStats = (signal?: AbortSignal) =>
+  request<KnowledgeStats>("/knowledge/stats", undefined, signal);
+export const fetchApprovedResolutions = (signal?: AbortSignal) =>
+  request<KnowledgeEntry[]>("/knowledge/entries?kind=resolution", undefined, signal);
+export const editKnowledgeEntry = (entryId: string, version: number, edit: KnowledgeEdit) =>
+  request<KnowledgeEntry>(`${entryPath(entryId, version)}/edit`, edit);
+export const decideKnowledgeEntry = (entryId: string, version: number, approve: boolean, notes: string) =>
+  request<KnowledgeEntry>(`${entryPath(entryId, version)}/decision`, { approve, notes });
+export const closeKnowledgeGap = (feedbackId: number) =>
+  request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, {});

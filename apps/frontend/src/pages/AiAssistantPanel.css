@@ -344,3 +344,191 @@
   outline: none;
   box-shadow: 0 0 0 3px rgb(160 111 36 / 12%);
 }
+
+/* --- assistant-ui thread: fills the panel between header and disclaimer --------------- */
+.ai-assistant-thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- sources used by an answer -------------------------------------------------------- */
+.ai-assistant-sources {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-assistant-source {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-assistant-source-tag {
+  grid-row: span 2;
+  align-self: center;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--color-accent-100, #f4e9d8);
+  color: var(--color-accent-700, #6b4a12);
+  font-weight: 600;
+}
+
+.ai-assistant-source-title {
+  color: var(--color-text, #201f1d);
+  font-weight: 500;
+}
+
+.ai-assistant-source-kind {
+  color: var(--color-text-muted, #5f5a52);
+}
+
+/* --- Solved it / Not helpful ---------------------------------------------------------- */
+.ai-assistant-feedback {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-assistant-feedback-button {
+  padding: 2px 10px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--color-text-muted, #5f5a52);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ai-assistant-feedback-button:hover,
+.ai-assistant-feedback-button:focus-visible {
+  border-color: var(--color-accent-300, #d9b46e);
+  color: var(--color-accent-700, #6b4a12);
+}
+
+.ai-assistant-feedback-form {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.ai-assistant-feedback-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-muted, #5f5a52);
+}
+
+.ai-assistant-feedback-form textarea {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.ai-assistant-feedback-done {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-accent-700, #6b4a12);
+}
+
+/* --- Knowledge review (Directors) ------------------------------------------------------ */
+.knowledge-review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 35%);
+}
+
+.knowledge-review {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 18px 22px 22px;
+  border-radius: 14px;
+  background: var(--color-bg, #f3f2f2);
+  color: var(--color-text, #201f1d);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 25%);
+}
+
+.knowledge-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.knowledge-review-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.knowledge-review h3 {
+  margin: 18px 0 8px;
+  font-size: 15px;
+}
+
+.knowledge-review-intro,
+.knowledge-review-stats,
+.knowledge-review-meta {
+  margin: 6px 0;
+  color: var(--color-text-muted, #5f5a52);
+  font-size: 13px;
+}
+
+.knowledge-review-notice {
+  margin: 8px 0;
+  color: var(--color-accent-700, #6b4a12);
+}
+
+.knowledge-review-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.knowledge-review-entry label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.knowledge-review-entry input,
+.knowledge-review-entry textarea,
+.knowledge-review-entry select {
+  font: inherit;
+  font-weight: 400;
+  padding: 6px 8px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 8px;
+}
+
+.knowledge-review-actions {
+  display: flex;
+  gap: 8px;
+}
