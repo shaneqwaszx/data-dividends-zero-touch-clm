@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import io
 import json
@@ -1091,6 +1092,33 @@ console.log(JSON.stringify({
             with self.subTest(arguments=arguments), self.assertRaises(ValueError):
                 RUN_E2E.run(backend_port=8765, frontend_port=4173,
                             timeout_seconds=60, sandbox_demo="success", **arguments)
+
+
+class E2EBackendKeepAliveTests(unittest.TestCase):
+    """The backend must not idle-close sockets the guarded Vite proxy agent may reuse."""
+
+    def test_backend_keep_alive_outlives_the_longest_lifecycle(self) -> None:
+        path = ROOT / "scripts" / "e2e_backend_server.py"
+        spec = importlib.util.spec_from_file_location("e2e_backend_server_under_test", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        longest_lifecycle = 900 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS
+        self.assertGreater(module.UPSTREAM_KEEP_ALIVE_SECONDS, longest_lifecycle)
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaises(SystemExit):
+            RUN_E2E.main(["--timeout-seconds", "901"])
+        self.assertIn("--timeout-seconds must be between 30 and 900", stderr.getvalue())
+
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        runs = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and ast.unparse(node.func) == "uvicorn.run"
+        ]
+        self.assertEqual(len(runs), 1)
+        keep_alive = {keyword.arg: ast.unparse(keyword.value) for keyword in runs[0].keywords}
+        self.assertEqual(keep_alive.get("timeout_keep_alive"), "UPSTREAM_KEEP_ALIVE_SECONDS")
 
 
 if __name__ == "__main__":

@@ -53,7 +53,10 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   dashboardMode = "network";
   const beforeNetwork = dashboardRequests;
   await retry.focus(); await page.keyboard.press("Enter");
-  await expect.poll(() => dashboardRequests).toBeGreaterThan(beforeNetwork);
+  // The refetch and its automatic query retry (retry: 1) must both fail in network mode.
+  // Otherwise the banner check can pass against the stale pre-refetch render, and the
+  // retry is later parked on the pending gate below, hiding "Try again" (R1 hang).
+  await expect.poll(() => dashboardRequests).toBeGreaterThanOrEqual(beforeNetwork + 2);
   await expect(error).toBeVisible();
   await expect(dashboardLoading).toHaveCount(0);
   dashboardMode = "pending";
