@@ -34,13 +34,22 @@ require this ADR before the change can be accepted. Review authority remains
   (`revises` names the version it came from); the earlier version is kept unchanged and
   taken out of review. Nobody who wrote a version in that chain may decide it, and every
   API decision or edit carries the content hash of the version the reviewer was shown.
-  An entry may only replace an entry of the same kind.
+  Every change runs in one SQLite write transaction taken before its checks (BEGIN
+  IMMEDIATE) and moves a version on only while it is still pending, so concurrent decisions
+  or edits have exactly one winner and the others get a clean 409. An entry may only
+  replace an entry of the same kind. Retiring an approved entry, official guidance
+  included, takes two reviewers: one asks, a different one confirms.
 - Team scope: drafts from "Solved it" carry the author's team as visibility; Directors see,
-  edit and decide only their own team's drafts and gaps; an edit can narrow team visibility
-  but never widen it. HR guidance keeps the visibility HR sets.
+  edit and decide only their own team's drafts and gaps, and their stats count only their
+  team's entries and feedback; an edit can narrow team and role visibility but never widen
+  it. HR guidance keeps the visibility HR sets.
 - Drafts contain only the RM's own words (questions and note) and case context, redacted of
-  the company, addresses, identifiers and every party named in the case summary. Browser-
-  supplied "assistant" turns are not copied.
+  the company, addresses and identifiers, and of the parties the case summary names in the
+  shapes the redactor knows: objects with a `party_type`, entries of person lists such as
+  `officers` and `shareholders` (registry officers carry no `party_type`), and person-name
+  fields. Matching ignores letter case and whitespace between words. Names the case data does
+  not contain, or spells differently, are not recognised. Browser-supplied "assistant" turns
+  are not copied.
 - ChromaDB product telemetry is disabled (`Settings(anonymized_telemetry=False)`) on every
   client. The embedding endpoint must be a literal loopback URL (the warm-up rule,
   `llm.is_local_model_url`); embedding requests ignore proxy environment variables and do
@@ -73,10 +82,19 @@ require this ADR before the change can be accepted. Review authority remains
   actions come only from the backend's offered actions, never from document text; Live and
   authority claims are removed; the 64 KiB model-text limit, cancellation and required
   terminal event are kept; checking is incremental (each sentence once).
-- Residual risks: a deny-list cannot enumerate every unsafe phrasing. The audit found a
-  negation bypass, now corrected, which shows the class of risk; paraphrases outside the
-  action and authority patterns may still pass; grounding treats values in retrieved
-  knowledge as known.
+- Negation handling is fail-closed: an action the RM is not offered, or an authority claim,
+  is removed unless a fixed negating construction directly governs it (a negated modal or
+  "never" before the action; "no", "not", a negated "is" or a negated denial verb before
+  the claim) with no other negation earlier in that phrase. Two independent gates found
+  negation bypasses (6 sentences on `ad4661c`, 15 more on `79621fe`); all of them are
+  regression tests now. Some genuine negations are over-dropped.
+- Checking cost is linear in the answer's length, also on long whitespace runs: every
+  sentence's whitespace runs are collapsed before the checks, and the streaming guard looks
+  at each piece of model text once.
+- Residual risks: a deny-list cannot enumerate every unsafe phrasing. Paraphrases outside
+  the action and authority patterns (for example an action described without its verb) may
+  still pass; grounding treats values in retrieved knowledge as known. A third negation
+  repair is not planned: further bypasses are an argument for the allow-list below.
 - Recommended compatibility strategy: keep sentence-level checks for free-form explanation,
   and add an allow-list for operational instructions, so that any sentence that tells the RM
   to act must name an action the backend offers (the PR89 catalog principle applied to action
@@ -111,20 +129,27 @@ embedding model (Ollama); without it, index tasks wait and keyword search still 
 
 ## Security and persistence implications
 
-SQLite schema v3 adds `entries.revises` (nullable); v1 and v2 stores are migrated in place
-on open. No credentials are stored. Redaction is a first pass: names that appear nowhere in
+SQLite schema v3 adds `entries.revises` (nullable) and a `retire_requests` table; v1 and v2
+stores are migrated in place on open. A reviewer who edited a pending version in place under
+schema v2 has only an 'edit' review row on it; that row counts as editing, so they stay barred
+from deciding it after the migration. No credentials are stored. Redaction is a first pass: names that appear nowhere in
 the case data are not recognised, so Director review remains required before approval.
 
 ## Migration and retirement implications
 
-Opening an older store migrates it (v1 -> v2 -> v3). Rolling back to the PR #99 head would
-not read the `revises` column but would ignore it; edited versions would then look like
-ordinary pending versions. The exact-line catalog is retired only if section C is accepted.
+Opening an older store migrates it (v1 -> v2 -> v3). Rolling back to the PR #99 author head
+(`ad4661c`) after a v3 store has been written is not supported: that code rewrites the
+schema version to 2 and can still read and decide, but cannot add a version (it inserts 20
+values into a 21-column table), and it would ignore edit chains and retirement requests. To
+roll back, restore a copy of `apps/assistant/data/` taken before the upgrade, or recreate the
+(development-only) store. The exact-line catalog is retired only if section C is accepted.
 
 ## Verification
 
-Assistant pytest, ruff, format and mypy; the adversarial negation, cross-team,
-edit-then-approve, redaction and forged-turn regressions; restart/persistence test; frontend
+Assistant pytest, ruff, format and mypy; the adversarial negation (both gates' sentences),
+whitespace-run cost, cross-team, edit-then-approve, single-person retirement, concurrent
+decision/edit, officer redaction and forged-turn regressions; restart/persistence and
+v2-to-v3 migration tests; frontend
 Vitest, typecheck and build; real-embedding retrieval evaluation with a local model (not
 yet run); architecture and project-state checks; a fresh independent quality gate.
 

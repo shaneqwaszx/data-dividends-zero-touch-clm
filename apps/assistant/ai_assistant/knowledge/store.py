@@ -103,7 +103,18 @@ CREATE TABLE IF NOT EXISTS index_tasks (
     last_error TEXT,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS retire_requests (
+    entry_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    requested_by TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (entry_id, version)
+);
 """
+
+# How long a write waits for another writer to finish before reporting a stale request.
+_BUSY_TIMEOUT_SECONDS = 10.0
 
 
 class KnowledgeError(Exception):
@@ -114,8 +125,13 @@ class MakerCheckerError(KnowledgeError):
     """Someone who wrote or edited an entry tried to approve or reject it."""
 
 
+class SecondReviewerError(MakerCheckerError):
+    """The same person tried to both ask for and confirm a retirement."""
+
+
 class ContentChangedError(KnowledgeError):
-    """The version was decided against content other than what it now says."""
+    """The version was decided against content other than what it now says, or another
+    request changed it first."""
 
 
 class KnowledgeRuleError(KnowledgeError):
@@ -309,6 +325,56 @@ class KnowledgeStore:
         finally:
             db.close()
 
+    @contextmanager
+    def _write(self) -> Iterator[sqlite3.Connection]:
+        """One change, holding SQLite's write lock from its first read (BEGIN IMMEDIATE).
+
+        A check (status, content hash, maker-checker) and the change it allows therefore
+        cannot interleave with another writer: a second, concurrent decision or edit sees the
+        first one's result and is refused. A writer that cannot get the lock in time, or a
+        constraint broken by a concurrent change, is reported as a stale request (409), never
+        as a crash.
+        """
+
+        db = sqlite3.connect(self._path, isolation_level=None, timeout=_BUSY_TIMEOUT_SECONDS)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys = ON")
+        try:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError:
+                raise ContentChangedError("the knowledge store is busy") from None
+            try:
+                yield db
+            except sqlite3.IntegrityError:
+                db.execute("ROLLBACK")
+                raise ContentChangedError("a concurrent change came first") from None
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+            db.execute("COMMIT")
+        finally:
+            db.close()
+
+    @staticmethod
+    def _set_status(
+        db: sqlite3.Connection,
+        entry: Entry,
+        status: str,
+        *,
+        extra: str = "",
+        args: tuple[Any, ...] = (),
+    ) -> None:
+        """Move a pending version on, but only if it is still pending (compare-and-swap)."""
+
+        changed = db.execute(
+            f"UPDATE entries SET status = ?{extra} "
+            "WHERE entry_id = ? AND version = ? AND status = 'pending_review'",
+            (status, *args, entry.entry_id, entry.version),
+        ).rowcount
+        if changed != 1:
+            raise ContentChangedError("the version was already decided or edited")
+
     # --- reading --------------------------------------------------------------------
 
     def get(self, entry_id: str, version: int | None = None) -> Entry | None:
@@ -406,7 +472,7 @@ class KnowledgeStore:
             raise KnowledgeError("a new version starts as a draft or pending review")
         if not entry.author:
             raise KnowledgeError("every entry needs an author")
-        with self._connect() as db:
+        with self._write() as db:
             self._check_replaces(db, entry)
             latest = db.execute(
                 "SELECT MAX(version) FROM entries WHERE entry_id = ?", (entry.entry_id,)
@@ -425,7 +491,7 @@ class KnowledgeStore:
     def submit(self, entry_id: str, version: int) -> Entry:
         """Move a draft to pending review."""
 
-        with self._connect() as db:
+        with self._write() as db:
             entry = self._require(db, entry_id, version)
             if entry.status != EntryStatus.DRAFT:
                 raise KnowledgeError("only a draft can be submitted for review")
@@ -453,7 +519,7 @@ class KnowledgeStore:
         """
 
         now = self._clock()
-        with self._connect() as db:
+        with self._write() as db:
             entry = self._require(db, entry_id, version)
             if entry.status != EntryStatus.PENDING_REVIEW:
                 raise KnowledgeError("only a version pending review can be decided")
@@ -469,10 +535,7 @@ class KnowledgeStore:
                 (entry_id, version, reviewer, decision, notes, now),
             )
             if not approve:
-                db.execute(
-                    "UPDATE entries SET status = 'rejected' WHERE entry_id = ? AND version = ?",
-                    (entry_id, version),
-                )
+                self._set_status(db, entry, "rejected")
                 return entry.with_changes(status=EntryStatus.REJECTED)
             # Retire what this version supersedes: the entry's own current version and, if
             # set, the current version of the entry it replaces.
@@ -482,10 +545,8 @@ class KnowledgeStore:
                 ).fetchone()
                 if old is not None:
                     self._retire(db, _row_to_entry(old), by=reviewer, notes="replaced", now=now)
-            db.execute(
-                "UPDATE entries SET status = 'approved', approver = ?, approved_at = ? "
-                "WHERE entry_id = ? AND version = ?",
-                (reviewer, now, entry_id, version),
+            self._set_status(
+                db, entry, "approved", extra=", approver = ?, approved_at = ?", args=(reviewer, now)
             )
             approved = entry.with_changes(
                 status=EntryStatus.APPROVED, approver=reviewer, approved_at=now
@@ -504,10 +565,14 @@ class KnowledgeStore:
         return approved
 
     def retire(self, entry_id: str, *, by: str, notes: str) -> Entry | None:
-        """Take an entry's current version out of search (revoked, or its rule was removed)."""
+        """Take an entry's current version out of search at once.
+
+        For repository maintenance only (a guidance file was removed): people retire through
+        ``request_retirement``, which needs two of them.
+        """
 
         now = self._clock()
-        with self._connect() as db:
+        with self._write() as db:
             row = db.execute(
                 "SELECT * FROM entries WHERE entry_id = ? AND status = 'approved'", (entry_id,)
             ).fetchone()
@@ -517,6 +582,56 @@ class KnowledgeStore:
             self._retire(db, entry, by=by, notes=notes, now=now)
         return entry.with_changes(status=EntryStatus.RETIRED)
 
+    def request_retirement(self, entry_id: str, *, by: str, notes: str) -> tuple[Entry, bool]:
+        """Retire an approved entry with two people: one asks, a different one confirms.
+
+        Returns the current version and whether it is now retired. The first call records the
+        request; a call by the same person again is refused; a call by someone else retires
+        it, naming both in the history. A request for a version that has since been replaced
+        no longer counts.
+        """
+
+        if not by:
+            raise KnowledgeError("a retirement needs a reviewer")
+        now = self._clock()
+        with self._write() as db:
+            row = db.execute(
+                "SELECT * FROM entries WHERE entry_id = ? AND status = 'approved'", (entry_id,)
+            ).fetchone()
+            if row is None:
+                raise KnowledgeError("no approved version to retire")
+            entry = _row_to_entry(row)
+            request = db.execute(
+                "SELECT * FROM retire_requests WHERE entry_id = ? AND version = ?",
+                (entry_id, entry.version),
+            ).fetchone()
+            if request is None:
+                db.execute("DELETE FROM retire_requests WHERE entry_id = ?", (entry_id,))
+                db.execute(
+                    "INSERT INTO retire_requests (entry_id, version, requested_by, notes, "
+                    "created_at) VALUES (?, ?, ?, ?, ?)",
+                    (entry_id, entry.version, by, notes, now),
+                )
+                return entry, False
+            if request["requested_by"] == by:
+                raise SecondReviewerError("a different reviewer must confirm the retirement")
+            self._retire(
+                db,
+                entry,
+                by=by,
+                notes=f"{notes} (asked by {request['requested_by']}: {request['notes']})",
+                now=now,
+            )
+            db.execute("DELETE FROM retire_requests WHERE entry_id = ?", (entry_id,))
+        return entry.with_changes(status=EntryStatus.RETIRED), True
+
+    def retirement_request(self, entry_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM retire_requests WHERE entry_id = ?", (entry_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
     # --- vector-index tasks ---------------------------------------------------------
 
     def index_tasks(self) -> list[dict[str, Any]]:
@@ -525,11 +640,11 @@ class KnowledgeStore:
         return [dict(row) for row in rows]
 
     def finish_task(self, key: str) -> None:
-        with self._connect() as db:
+        with self._write() as db:
             db.execute("DELETE FROM index_tasks WHERE key = ?", (key,))
 
     def fail_task(self, key: str, error: str) -> None:
-        with self._connect() as db:
+        with self._write() as db:
             db.execute(
                 "UPDATE index_tasks SET attempts = attempts + 1, last_error = ?, updated_at = ? "
                 "WHERE key = ?",
@@ -540,7 +655,7 @@ class KnowledgeStore:
         """Ask for every current approved version to be (re)indexed."""
 
         now = self._clock()
-        with self._connect() as db:
+        with self._write() as db:
             rows = db.execute("SELECT * FROM entries WHERE status = 'approved'").fetchall()
             for row in rows:
                 self._task(db, _row_to_entry(row), "upsert", now)
@@ -561,7 +676,7 @@ class KnowledgeStore:
         The edit is a new pending version written by the editor; the version it revises is
         kept unchanged (retired from review, with an 'edit' row in its history). The editor,
         like the original author, can then not decide it: a different reviewer must.
-        Team visibility can only be narrowed by an edit, never widened.
+        Team and role visibility can only be narrowed by an edit, never widened.
         """
 
         if not editor:
@@ -580,17 +695,18 @@ class KnowledgeStore:
         if unknown:
             raise KnowledgeError(f"cannot change {sorted(unknown)}")
         now = self._clock()
-        with self._connect() as db:
+        with self._write() as db:
             entry = self._require(db, entry_id, version)
             if entry.status != EntryStatus.PENDING_REVIEW:
                 raise KnowledgeError("only a version pending review can be edited")
             if expected_hash is not None and expected_hash != entry.content_hash():
                 raise ContentChangedError("the version no longer says what was reviewed")
             new_visibility = changes.get("visibility")
-            if isinstance(new_visibility, Visibility) and not _narrows(
-                entry.visibility.teams, new_visibility.teams
+            if isinstance(new_visibility, Visibility) and not (
+                _narrows(entry.visibility.teams, new_visibility.teams)
+                and _narrows(entry.visibility.roles, new_visibility.roles)
             ):
-                raise KnowledgeRuleError("an edit can only narrow which teams see an entry")
+                raise KnowledgeRuleError("an edit can only narrow who sees an entry")
             latest = db.execute(
                 "SELECT MAX(version) FROM entries WHERE entry_id = ?", (entry_id,)
             ).fetchone()[0]
@@ -605,11 +721,9 @@ class KnowledgeStore:
                 revises=entry.version,
             )
             self._check_replaces(db, revised)
+            # Take the revised version out of review first, and only if nobody did already.
+            self._set_status(db, entry, "retired")
             self._insert(db, revised)
-            db.execute(
-                "UPDATE entries SET status = 'retired' WHERE entry_id = ? AND version = ?",
-                (entry_id, version),
-            )
             db.execute(
                 "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
                 "VALUES (?, ?, ?, 'edit', ?, ?)",
@@ -639,7 +753,7 @@ class KnowledgeStore:
         stages: tuple[str, ...],
         entry_id: str | None,
     ) -> int:
-        with self._connect() as db:
+        with self._write() as db:
             cursor = db.execute(
                 "INSERT INTO feedback (case_id, user_id, role, team, helpful, note, "
                 "blocker_codes, fields, stages, entry_id, status, created_at) "
@@ -678,7 +792,7 @@ class KnowledgeStore:
         return out
 
     def close_feedback(self, feedback_id: int, *, by: str) -> None:
-        with self._connect() as db:
+        with self._write() as db:
             updated = db.execute(
                 "UPDATE feedback SET status = 'closed', closed_by = ?, closed_at = ? "
                 "WHERE id = ? AND status != 'closed'",
@@ -761,12 +875,19 @@ class KnowledgeStore:
             raise KnowledgeRuleError("an entry can only replace an entry of the same kind")
 
     def _chain_authors(self, db: sqlite3.Connection, entry: Entry) -> set[str]:
-        """Everyone who wrote ``entry`` or a version it was revised from."""
+        """Everyone who wrote or edited ``entry`` or a version it was revised from.
+
+        Editors come from the 'edit' rows of every version in the chain. That also covers a
+        store from before schema v3, where a reviewer's edit changed the pending version in
+        place and left only an 'edit' row on it: that editor stays barred after migration.
+        """
 
         authors = {entry.author}
+        chain = [entry.version]
         revises, seen = entry.revises, {entry.version}
         while revises is not None and revises not in seen:
             seen.add(revises)
+            chain.append(revises)
             row = db.execute(
                 "SELECT author, revises FROM entries WHERE entry_id = ? AND version = ?",
                 (entry.entry_id, revises),
@@ -775,7 +896,13 @@ class KnowledgeStore:
                 break
             authors.add(row["author"])
             revises = row["revises"]
-        return authors
+        marks = ", ".join("?" for _ in chain)
+        editors = db.execute(
+            f"SELECT reviewer FROM reviews WHERE entry_id = ? AND decision = 'edit' "
+            f"AND version IN ({marks})",
+            (entry.entry_id, *chain),
+        ).fetchall()
+        return authors | {row["reviewer"] for row in editors}
 
     def _require(self, db: sqlite3.Connection, entry_id: str, version: int) -> Entry:
         row = db.execute(

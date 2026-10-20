@@ -297,7 +297,8 @@ authority is introduced.
 
 PR #99 proposes a reviewed knowledge loop inside the separate AI Assistant service:
 SQLite plus a rebuildable ChromaDB index, append-only versions, maker-checker over each
-edit chain, decisions bound to the reviewed content hash, team-scoped review and
+edit chain, decisions bound to the reviewed content hash, two-person retirement,
+team-scoped review and
 resolutions, redacted drafts without browser-supplied assistant text, telemetry off and
 loopback-only embeddings, and an `@assistant-ui/react` panel over the existing client.
 [ADR-012](ADR-012_AI_ASSISTANT_KNOWLEDGE_LOOP.md) records the design. Status: proposed,

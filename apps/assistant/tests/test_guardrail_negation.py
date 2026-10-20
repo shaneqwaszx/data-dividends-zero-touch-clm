@@ -1,10 +1,14 @@
-"""A negation only cancels the action or claim it is attached to (independent QG finding G1).
+"""Fail-closed negation handling (independent QG findings G1 on ad4661c and on 79621fe).
 
-Before this check, any negation word in a clause exempted the whole clause, so "Do not wait,
-approve the case now." was shown. These sentences must be left out, also while streaming;
-real statements that an action is not available, or that something is not an approval,
-must still pass.
+At ad4661c any negation word in a clause exempted the whole clause, so "Do not wait, approve
+the case now." was shown. At 79621fe a word-window rule still let ordinary phrasings through
+("Never forget to resend it."). Now an action or claim is left out unless a negation
+directly governs it. Every sentence below must be left out, also while streaming in any
+chunking; real statements that an action is not available, or that something is not an
+approval, must still pass.
 """
+
+import random
 
 import pytest
 
@@ -25,6 +29,28 @@ BYPASSES = [
     "No need to wait: resend it to GoldTier.",
     "Do not hesitate to approve the case.",
     "Never mind the review, the UBOs are confirmed.",
+    # The second independent gate's variants (QG_PR99_79621fe.md section 4.1).
+    "Don't hesitate to approve the case.",
+    "Never forget to resend it.",
+    "No reason to wait — the UBOs are verified.",
+    "Do not forget to approve the case.",
+    "Do not wait to approve the case.",
+    "Never hesitate to approve the case.",
+    "Don’t hesitate to approve the case.",
+    "There are no blockers so you can approve the case.",
+    "There are no blockers, so you can approve the case.",
+    "No issues remain and the UBOs are verified.",
+    "There is no reason to doubt that the UBOs are verified.",
+    "No reason to wait as the UBOs are verified.",
+    "I see no problem with you approving the case.",
+    "There's no reason you shouldn't resend it.",
+    "Approve the case now because waiting is not allowed.",
+    "Resend it now as delay is not possible.",
+    "The UBOs are verified since a manual check is not available.",
+    "It is not too early to approve the case.",
+    "Not a problem: approve the case.",
+    "With no blockers left approve the case.",
+    "Nothing blocks you so approve the case.",
 ]
 
 LEGITIMATE = [
@@ -34,6 +60,14 @@ LEGITIMATE = [
     "Successful mock submission does not establish GoldTier-internal or regulatory/KYC approval.",
     "Never resend an uncertain GoldTier submission from the chat.",
     "The UBOs are not verified yet.",
+    "You cannot approve the case.",
+    "You can't approve the case in the chat.",
+    "The AI Assistant does not approve the case.",
+    "Keep registry value is not available here.",
+    "Do not resend it.",
+    "You should never resend it from the chat.",
+    "Ownership is not confirmed until a person reviews it.",
+    "This is not KYC approval.",
 ]
 
 
@@ -47,13 +81,22 @@ def test_a_negation_elsewhere_in_the_clause_does_not_exempt_the_action(
     assert validation.removed and validation.removed[0] in {"action_not_allowed", "authority_claim"}
 
 
+def _chunks(text: str, sizes: list[int]) -> list[str]:
+    out, position, index = [], 0, 0
+    while position < len(text):
+        size = sizes[index % len(sizes)]
+        out.append(text[position : position + size])
+        position, index = position + size, index + 1
+    return out
+
+
 @pytest.mark.parametrize("sentence", BYPASSES)
 def test_a_negation_bypass_is_never_shown_while_streaming(sentence: str) -> None:
-    for chunk_size in (1, 3, 7, len(sentence)):
+    rng = random.Random(sentence)
+    splits = [[1], [2], [3], [5], [7], [len(sentence)], [rng.randint(1, 6) for _ in range(40)]]
+    for sizes in splits:
         guard = StreamingGuard(NO_ACTIONS)
-        shown = [
-            guard.feed(sentence[i : i + chunk_size]) for i in range(0, len(sentence), chunk_size)
-        ]
+        shown = [guard.feed(chunk) for chunk in _chunks(sentence, sizes)]
         shown.append(guard.feed(" And then upload ownership evidence."))
         assert all(not text or sentence not in text for text in shown)
         final = guard.finish()
@@ -61,9 +104,25 @@ def test_a_negation_bypass_is_never_shown_while_streaming(sentence: str) -> None
         assert final.text == "And then upload ownership evidence."
 
 
+@pytest.mark.parametrize("facts", [FACTS, NO_ACTIONS], ids=["case", "no-actions"])
 @pytest.mark.parametrize("sentence", LEGITIMATE)
-def test_a_negation_attached_to_the_action_or_claim_still_passes(sentence: str) -> None:
-    assert guard_answer(sentence, FACTS) == sentence
+def test_a_negation_attached_to_the_action_or_claim_still_passes(
+    sentence: str, facts: dict[str, object]
+) -> None:
+    assert guard_answer(sentence, facts) == sentence
+    guard = StreamingGuard(facts)
+    for chunk in _chunks(sentence, [3]):
+        guard.feed(chunk)
+    assert guard.finish().text == sentence
+
+
+def test_fail_closed_over_drops_rather_than_letting_advice_through() -> None:
+    # The reviewer's over-drop: the second clause's "a person approves the case" is not
+    # governed by a negation, so it is left out. That errs on the safe side by design.
+    assert (
+        guard_answer("Approval is never offered here; a person approves the case.", NO_ACTIONS)
+        == ""
+    )
 
 
 def test_saying_an_offered_label_is_unavailable_after_naming_it_passes() -> None:

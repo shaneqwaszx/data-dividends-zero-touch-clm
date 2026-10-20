@@ -4,15 +4,18 @@ Past resolutions are shared across clients, so a draft must not carry who the cl
 Two passes:
 
 1. Exact values known from the case: the company's legal name, UEN and addresses (from ACRA
-   and from documents), the signed-in user's name, and every party the CLM case summary
-   lists (ownership parties, officers, shareholders: natural persons become [PERSON], other
-   entities [COMPANY], their identifiers [ID]).
+   and from documents), the signed-in user's name, and the parties the CLM case summary
+   lists, found by shape (see ``case_parties``): objects with a ``party_type`` (ownership
+   parties), entries of person lists such as ``officers`` and ``shareholders`` (the CLM's
+   registry officers carry no ``party_type``), and person-name fields. Natural persons
+   become [PERSON], other entities [COMPANY], their identifiers [ID]. A known value matches
+   regardless of letter case and of how much whitespace separates its words.
 2. Patterns for what the case data may not list: Singapore UEN and NRIC/FIN formats,
    postal codes, unit numbers, email addresses and phone numbers.
 
 Names that appear nowhere in the case data (for example a person the RM mentions from
-memory) are not recognised. The Director still checks every draft before approving it; this
-is a first pass, not a guarantee.
+memory), or are spelled differently, are not recognised. The Director still checks every
+draft before approving it; this is a first pass, not a guarantee.
 """
 
 import re
@@ -47,36 +50,76 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 _NAME_KEYS = ("name", "display_name", "legal_name", "full_name")
-_ID_KEYS = ("party_id", "registration_identifier", "registration_number", "id_number")
+_ID_KEYS = (
+    "party_id",
+    "officer_id",
+    "registration_identifier",
+    "registration_number",
+    "id_number",
+)
 _PERSON_TYPES = frozenset({"NATURAL_PERSON", "INDIVIDUAL", "PERSON"})
+# Lists whose entries are people unless their own party_type says otherwise. Registry
+# officers (CLM ``BrowserRegistryOfficer``: officer_id, name, role) have no party_type.
+_PERSON_LISTS = frozenset(
+    {
+        "officers",
+        "shareholders",
+        "directors",
+        "partners",
+        "members",
+        "owners",
+        "beneficial_owners",
+        "persons",
+        "people",
+        "signatories",
+        "authorised_representatives",
+        "authorized_representatives",
+    }
+)
+# Fields that name a person wherever they appear.
+_PERSON_NAME_KEYS = ("person_name", "officer_name", "holder_name", "individual_name", "owner_name")
 _MAX_PARTY_DEPTH = 12
 
 
 def case_parties(summary: Any) -> list[tuple[str, str]]:
     """(value, placeholder) for every party named in the CLM case summary.
 
-    Any object with a ``party_type`` is a party (registry ownership parties, officers,
-    ownership-analysis parties): a natural person's name becomes [PERSON], any other
-    entity's name [COMPANY], and their identifiers [ID]. Values are collected, never
-    interpreted, so new party lists in the summary are covered without code changes.
+    Found by shape, not by a fixed path: an object with a ``party_type`` (registry ownership
+    parties, ownership-analysis parties), an entry of a person list such as ``officers`` or
+    ``shareholders``, and any person-name field. A natural person's name becomes [PERSON],
+    another entity's name [COMPANY], and identifiers [ID].
     """
 
     found: list[tuple[str, str]] = []
+
+    def collect(item: dict[str, Any], placeholder: str) -> None:
+        for key in _NAME_KEYS:
+            if isinstance(item.get(key), str):
+                found.append((item[key], placeholder))
+        for key in _ID_KEYS:
+            if isinstance(item.get(key), str):
+                found.append((item[key], "[ID]"))
+
+    def placeholder_for(item: dict[str, Any], default: str) -> str:
+        party_type = item.get("party_type")
+        if not isinstance(party_type, str):
+            return default
+        return "[PERSON]" if party_type.upper() in _PERSON_TYPES else "[COMPANY]"
 
     def walk(value: Any, depth: int) -> None:
         if depth > _MAX_PARTY_DEPTH:
             return
         if isinstance(value, dict):
-            party_type = value.get("party_type")
-            if isinstance(party_type, str):
-                placeholder = "[PERSON]" if party_type.upper() in _PERSON_TYPES else "[COMPANY]"
-                for key in _NAME_KEYS:
-                    if isinstance(value.get(key), str):
-                        found.append((value[key], placeholder))
-                for key in _ID_KEYS:
-                    if isinstance(value.get(key), str):
-                        found.append((value[key], "[ID]"))
-            for item in value.values():
+            if isinstance(value.get("party_type"), str):
+                collect(value, placeholder_for(value, "[COMPANY]"))
+            for key in _PERSON_NAME_KEYS:
+                if isinstance(value.get(key), str):
+                    found.append((value[key], "[PERSON]"))
+            for key, item in value.items():
+                if str(key).lower() in _PERSON_LISTS and isinstance(item, list):
+                    for person in item:
+                        if isinstance(person, dict):
+                            collect(person, placeholder_for(person, "[PERSON]"))
                 walk(item, depth + 1)
         elif isinstance(value, list):
             for item in value:
@@ -132,14 +175,22 @@ def _known_values(
     return sorted(values, key=lambda pair: -len(pair[0]))
 
 
+def _flexible(value: str) -> re.Pattern[str]:
+    """``value`` with any amount of whitespace between its words, in any letter case."""
+
+    return re.compile(r"\s+".join(re.escape(word) for word in value.split()), re.IGNORECASE)
+
+
 class Redactor:
     def __init__(self, facts: dict[str, Any], *, parties: Sequence[tuple[str, str]] = ()) -> None:
-        self._known = _known_values(facts, parties)
+        self._known = [
+            (_flexible(value), placeholder) for value, placeholder in _known_values(facts, parties)
+        ]
 
     def redact(self, text: str) -> str:
         out = text
-        for value, placeholder in self._known:
-            out = re.sub(re.escape(value), placeholder, out, flags=re.IGNORECASE)
+        for pattern, placeholder in self._known:
+            out = pattern.sub(placeholder, out)
         for pattern, placeholder in _PATTERNS:
             out = pattern.sub(placeholder, out)
         return out

@@ -30,6 +30,84 @@ def test_people_on_the_case_are_redacted_even_when_case_facts_omit_them() -> Non
     assert "[PERSON]" in redacted and "[COMPANY]" in redacted
 
 
+def _with_officer(summary: dict[str, Any]) -> dict[str, Any]:
+    """The CLM BrowserRegistryOfficer shape (officer_id, name, role; no party_type)."""
+
+    summary = copy.deepcopy(summary)
+    acquisition = summary["case"].setdefault("registry_acquisition", {})
+    acquisition.setdefault("officers", []).append(
+        {
+            "officer_id": "OFFICER_A1",
+            "name": "ALEX SYNTHETIC",
+            "role": "DIRECTOR",
+            "appointment_date": None,
+            "cessation_date": None,
+            "country": "SG",
+        }
+    )
+    return summary
+
+
+def test_registry_officers_without_a_party_type_are_redacted() -> None:
+    """Second independent gate (G4 on 79621fe): officer names survived redaction."""
+
+    parties = dict(case_parties(_with_officer(SUMMARY)))
+    assert parties["ALEX SYNTHETIC"] == "[PERSON]"
+    assert parties["OFFICER_A1"] == "[ID]"
+    redactor = Redactor(FACTS, parties=case_parties(_with_officer(SUMMARY)))
+    for variant in (
+        "Asked ALEX SYNTHETIC.",
+        "Asked alex synthetic.",
+        "Asked Alex  Synthetic.",
+        "Asked Alex\tSynthetic.",
+        "Asked Alex\n Synthetic.",
+    ):
+        redacted = redactor.redact(variant)
+        assert "alex" not in redacted.lower(), variant
+        assert "[PERSON]" in redacted
+
+
+def test_known_names_match_whatever_the_spacing_or_case() -> None:
+    redactor = Redactor(FACTS, parties=case_parties(SUMMARY))
+    redacted = redactor.redact("Called lim  CHOON   huat and Lim\tChoon Huat.")
+    assert "choon" not in redacted.lower()
+    assert redacted.count("[PERSON]") == 2
+
+
+def test_person_name_fields_anywhere_are_redacted() -> None:
+    summary = {"case": {"notes": [{"holder_name": "Jordan Example", "role": "SECRETARY"}]}}
+    assert ("Jordan Example", "[PERSON]") in case_parties(summary)
+
+
+def test_solved_it_redacts_an_officer_from_the_draft_and_the_feedback_note(
+    kb,  # noqa: F811
+    monkeypatch,
+) -> None:
+    import httpx
+
+    import tests.test_knowledge_review as review
+
+    summary = _with_officer(SUMMARY)
+    real_handler = review.handler
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/api/clm/zero-touch/cases/{CASE_ID}":
+            return httpx.Response(200, json=summary)
+        return real_handler(request)
+
+    monkeypatch.setattr(review, "handler", handler)
+    turns = [{"role": "user", "content": "Is ALEX SYNTHETIC a director here?"}]
+    reply = client(kb, "rm-session").post(
+        f"/assistant/cases/{CASE_ID}/feedback",
+        json={"helpful": True, "note": "Asked Alex  Synthetic for the register.", "turns": turns},
+    )
+    assert reply.status_code == 200
+    draft = kb.store.get(reply.json()["draft_entry_id"])
+    text = (draft.title + draft.body + " ".join(draft.follow_ups)).lower()
+    assert "alex" not in text and "[person]" in text
+    assert all("alex" not in row["note"].lower() for row in kb.store.feedback())
+
+
 def test_a_party_named_in_the_case_facts_keeps_its_more_specific_placeholder() -> None:
     summary: dict[str, Any] = copy.deepcopy(SUMMARY)
     summary.setdefault("extra_parties", []).append(

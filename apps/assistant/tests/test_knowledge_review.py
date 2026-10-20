@@ -339,14 +339,16 @@ def test_rm_cannot_propose_guidance(kb: KnowledgeBase) -> None:
     assert reply.status_code == 403
 
 
-def test_director_can_retire_and_see_stats(kb: KnowledgeBase) -> None:
+def test_directors_can_retire_with_two_people_and_see_stats(kb: KnowledgeBase) -> None:
+    # Retiring takes two reviewers since the second independent gate (G2 on 79621fe): the
+    # first request leaves the entry current, a different Director's request retires it.
     director = client(kb, "director-session")
-    assert (
-        director.post(
-            "/assistant/knowledge/entries/guidance.environments/retire", json={"notes": "outdated"}
-        ).status_code
-        == 200
-    )
+    retire = "/assistant/knowledge/entries/guidance.environments/retire"
+    first = director.post(retire, json={"notes": "outdated"})
+    assert first.status_code == 200 and first.json()["retirement"] == "requested"
+    assert kb.store.current("guidance.environments") is not None
+    second = client(kb, "director-2-session").post(retire, json={"notes": "agreed, outdated"})
+    assert second.status_code == 200 and second.json()["retirement"] == "done"
     assert kb.store.current("guidance.environments") is None
     solved(kb)
     stats = director.get("/assistant/knowledge/stats").json()

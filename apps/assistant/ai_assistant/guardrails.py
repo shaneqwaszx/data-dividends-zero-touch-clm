@@ -33,14 +33,18 @@ from typing import Any
 
 from .llm import LlmUnavailableError
 
-_SNAKE = re.compile(r"\s*\(?`?\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b`?\)?")
+_SNAKE = re.compile(r"\s?\(?`?\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b`?\)?")
 # A label in double quotes, or in single quotes that are not apostrophes ("ACRA's", "it's").
 _QUOTED = re.compile(
     r"[\"“”]([^\"“”\n]{2,60})[\"“”]|(?<![A-Za-z])['‘]([^'’\n]{2,60})['’](?![A-Za-z])"
 )
-_OR_SIMILAR = re.compile(r"\s*\((?:or similar|if available[^)]*)\)", re.IGNORECASE)
+_OR_SIMILAR = re.compile(r"\s?\((?:or similar|if available[^)]{0,200})\)", re.IGNORECASE)
 # Generic example lists the model adds from its own knowledge, e.g. "(e.g., business licence)".
-_EXAMPLES = re.compile(r"\s*\((?:e\.g\.|eg\.|for example|such as|like)[^)]*\)", re.IGNORECASE)
+_EXAMPLES = re.compile(r"\s?\((?:e\.g\.|eg\.|for example|such as|like)[^)]{0,200}\)", re.IGNORECASE)
+# Every check runs on a sentence whose whitespace runs are one space long, so no pattern
+# with a leading \s* or \s+ can backtrack across a long run (a 64 KiB run of spaces once
+# took minutes to check).
+_WHITESPACE_RUN = re.compile(r"\s{2,}")
 _CONTACTS = (
     "support team",
     "help desk",
@@ -134,44 +138,64 @@ _NEGATION = re.compile(
     r"\b(?:cannot|can't|can not|not|no|never|neither|nor|isn't|aren't|doesn't|unavailable)\b"
 )
 # Parts of one sentence that can say opposite things ("you cannot X, but you can Y").
-_CLAUSE = re.compile(r",?\s+but\s+|;\s*|,\s*however,?\s*|\s+whereas\s+|,\s*while\s+")
+_CLAUSE = re.compile(r",?\sbut\s|;\s?|,\s?however,?\s?|\swhereas\s|,\s?while\s")
 
-# A negation only cancels the action or claim it is attached to. It must come shortly before
-# the phrase, in the same part of the clause ("You cannot approve the case"), or say right
-# after it that the action is not available ("Keep registry value is not available here").
-# "Do not wait, approve the case" and "No need to wait: approve the case" still tell the RM
-# to approve: the negation belongs to a different phrase.
-_NEGATION_WINDOW_WORDS = 6
+# Fail closed: an action the RM is not offered, or an authority claim, is left out unless a
+# negation directly governs it. Only these fixed constructions count, written immediately
+# before the phrase (allowing a few listed filler words):
+#   action: a negated modal or "never"           "You cannot approve the case", "Do not resend"
+#   claim:  no / not / never / without, a negated "is", or a negated denial verb
+#           "This is not KYC approval", "does not establish ... KYC approval"
+# and only when nothing earlier in the same phrase is negated too ("There's no reason you
+# shouldn't resend it" affirms). The single other exemption is the action phrase itself as
+# the subject of "is not available/allowed/possible/offered". Anything else ("Do not wait to
+# approve the case", "Never forget to resend it", "No issues remain and the UBOs are
+# verified") is left out. Some genuine negations are over-dropped; that is the safe side.
 _PHRASE_BREAK = re.compile(r"[,:;()–—]|\s-\s")
-# Wording that contains a negation word but affirms ("no doubt", "do not hesitate to").
-_AFFIRMING_NEGATION = re.compile(
-    r"\b(?:no|without|beyond) (?:doubt|question)\b|\bnot in (?:doubt|question)\b"
-    r"|\bno need to\b|\bno reason not to\b|\b(?:do not|don't) hesitate to\b"
-    r"|\bnothing (?:stops|prevents) you\b|\bthere is nothing to stop\b"
+_ACTION_GOVERNOR = re.compile(
+    r"\b(?:cannot|can not|can't|could not|couldn't|do not|don't|does not|doesn't|did not"
+    r"|didn't|will not|won't|would not|wouldn't|should not|shouldn't|must not|mustn't"
+    r"|may not|might not|shall not|never)\s(?:(?:be|directly|yet|ever|then)\s)?$"
 )
-_UNAVAILABLE_AFTER = re.compile(
-    r"^[^.]{0,40}?\b(?:is|are|was|were)(?: not|n't) (?:available|offered|allowed|possible)\b"
-    r"|^[^.]{0,40}?\b(?:unavailable|cannot be (?:used|chosen|done))\b"
+_CLAIM_GOVERNOR = re.compile(
+    r"(?:\b(?:no|not|never|without|is not|are not|was not|were not|isn't|aren't|wasn't"
+    r"|weren't)|\b(?:does not|doesn't|do not|don't|did not|didn't|will not|won't|cannot"
+    r"|can't) (?:mean|establish|imply|constitute|guarantee|give|grant|confirm|prove))"
+    r"\s(?:(?:a|an|the|any|full|final|yet|be|directly)\s)*$"
+)
+# "GoldTier-internal or regulatory/KYC approval": the listed words share the claim's noun.
+_COORDINATED = re.compile(r"(?:[\w/'-]+,? (?:or|and) )+$")
+_ANY_NEGATION = re.compile(
+    r"\b(?:no|not|never|none|nothing|nobody|neither|nor|without|cannot)\b|\b\w+n't\b"
+)
+_SUBJECT_UNAVAILABLE = re.compile(
+    r"^\s(?:is|are)(?: not|n't) (?:available|allowed|possible|offered)\b"
 )
 
 
-def _negated(clause: str, start: int, end: int) -> bool:
-    """True when a negation in ``clause`` applies to the phrase at ``start:end``."""
+def _negated(clause: str, start: int, end: int, *, claim: bool) -> bool:
+    """True when a negation directly governs the action or claim at ``start:end``."""
 
     before = _PHRASE_BREAK.split(clause[:start])[-1]
-    before = _AFFIRMING_NEGATION.sub(" ", before)
-    words = before.split()[-_NEGATION_WINDOW_WORDS:]
-    # "no reason not to resend" or "never not approve" cancel out: an odd count negates.
-    if len(_NEGATION.findall(" ".join(words))) % 2 == 1:
-        return True
-    after = _PHRASE_BREAK.split(clause[end:])[0]
-    return bool(_UNAVAILABLE_AFTER.search(after))
+    if not claim and before.strip() in ("", "the", "a", "an"):
+        return bool(_SUBJECT_UNAVAILABLE.match(clause[end:]))
+    if claim:
+        coordinated = _COORDINATED.search(before)
+        if coordinated:
+            before = before[: coordinated.start()]
+    governor = (_CLAIM_GOVERNOR if claim else _ACTION_GOVERNOR).search(before)
+    if governor is None:
+        return False
+    # A second negation earlier in the phrase turns the whole thing back into advice.
+    return not _ANY_NEGATION.search(before[: governor.start()])
 
 
-def _asserted(pattern: re.Pattern[str], clause: str) -> bool:
-    """True when ``pattern`` occurs in ``clause`` without a negation attached to it."""
+def _asserted(pattern: re.Pattern[str], clause: str, *, claim: bool = False) -> bool:
+    """True when ``pattern`` occurs in ``clause`` without a negation governing it."""
 
-    return any(not _negated(clause, m.start(), m.end()) for m in pattern.finditer(clause))
+    return any(
+        not _negated(clause, m.start(), m.end(), claim=claim) for m in pattern.finditer(clause)
+    )
 
 
 def allowed_actions(facts: dict[str, Any]) -> set[str]:
@@ -249,7 +273,8 @@ class Context:
 def _check(sentence: str, ctx: Context) -> str | None:
     """The reason this sentence must be left out, or None when it passes."""
 
-    lowered = sentence.lower()
+    sentence = _WHITESPACE_RUN.sub(" ", sentence)
+    lowered = sentence.lower().replace("’", "'")
     # 1. Grounding
     for tag in _CITATION.findall(sentence):
         if tag not in ctx.knowledge_tags:
@@ -268,21 +293,21 @@ def _check(sentence: str, ctx: Context) -> str | None:
         if (int(done), int(total)) != ctx.steps:
             return "wrong_step_count"
     clauses = _CLAUSE.split(lowered)
-    # 2. Policy. A negation elsewhere in the clause does not cancel an action or claim; only
-    # one attached to the phrase does (see _negated).
+    # 2. Policy. Fail closed: only a negation that directly governs the action or claim
+    # cancels it (see _negated).
     for clause in clauses:
         for label, pattern in _ACTION_PHRASES:
             if label not in ctx.allowed and _asserted(pattern, clause):
                 return "action_not_allowed"
     for clause in clauses:
-        if _asserted(_AUTHORITY, clause):
+        if _asserted(_AUTHORITY, clause, claim=True):
             return "authority_claim"
     # 3. Disclosures
     if _LIVE.search(lowered) and "status" not in lowered:
         return "live_claim"
     for clause in clauses:
         if (
-            _asserted(_CONFIRMED, clause)
+            _asserted(_CONFIRMED, clause, claim=True)
             and not re.search(r"\b(?:acra|registry)\b", clause)
             and any(value in clause for value in ctx.unconfirmed_document_values)
         ):
@@ -291,7 +316,7 @@ def _check(sentence: str, ctx: Context) -> str | None:
 
 
 def _tidy(sentence: str) -> str | None:
-    cleaned = _EXAMPLES.sub("", _OR_SIMILAR.sub("", sentence))
+    cleaned = _EXAMPLES.sub("", _OR_SIMILAR.sub("", _WHITESPACE_RUN.sub(" ", sentence)))
     cleaned = _SNAKE.sub("", cleaned)
     cleaned = re.sub(r"\(\s*\)", "", cleaned)
     cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
@@ -344,7 +369,7 @@ def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-_SECTION_REF = re.compile(r"\s*\(section:\s*([^)\n]{1,80})\)", re.IGNORECASE)
+_SECTION_REF = re.compile(r"\s?\(section:\s?([^)\n]{1,80})\)", re.IGNORECASE)
 
 
 def _fix_section_names(answer: str, facts: dict[str, Any]) -> str:
@@ -362,17 +387,17 @@ def _fix_section_names(answer: str, facts: dict[str, Any]) -> str:
         real = sections.get(name.lower())
         return f" (section: {real})" if real else ""
 
-    return _SECTION_REF.sub(repair, answer)
+    return _SECTION_REF.sub(repair, _WHITESPACE_RUN.sub(" ", answer))
 
 
-_LIST_PREFIX = re.compile(r"^(\s*(?:[-*•]|\d+[.)])\s+)")
-# The start of a line that may still become a list marker when more text arrives.
-_MAYBE_LIST_PREFIX = re.compile(r"^\s*(?:[-*•]|\d+[.)]?)?\s*$")
-_NUMBERED = re.compile(r"^(\s*)\d+([.)])\s+")
+# Possessive quantifiers (*+, ++) keep these anchored line patterns linear on long
+# whitespace runs.
+_LIST_PREFIX = re.compile(r"^(\s*+(?:[-*•]|\d++[.)])\s++)")
+_NUMBERED = re.compile(r"^(\s*+)\d++([.)])\s++")
 # Only a new heading ("Next steps:") starts a new list; an explanation under a step,
 # indented or not, keeps the count going (1, 2 rather than 1, 1).
-_HEADING = re.compile(r"^\s*(?:#|\**[^\s].{0,60}:\**\s*$)")
-_TRAILING_HEADING = re.compile(r"^\s*\**[A-Za-z ]{2,30}:\**\s*$")
+_HEADING = re.compile(r"^\s*+(?:#|\**+[^\s].{0,60}:\**+\s*+$)")
+_TRAILING_HEADING = re.compile(r"^\s*+\**+[A-Za-z ]{2,30}:\**+\s*+$")
 
 
 class _Answer:
@@ -406,7 +431,7 @@ class _Answer:
         self._current = ""
 
     def sentence(self, sentence: str, *, first: bool) -> None:
-        sentence = _fix_section_names(sentence, self._facts)
+        sentence = _fix_section_names(_WHITESPACE_RUN.sub(" ", sentence), self._facts)
         if not first:
             sentence = sentence.lstrip()
         reason = _check(sentence, self._ctx)
@@ -498,10 +523,12 @@ class StreamingGuard:
     """Checks a streamed answer one finished sentence (or line) at a time.
 
     Only finished sentences are checked and shown, so a sentence that the guardrails would
-    drop is never displayed, not even briefly. Checking is incremental: a finished sentence
-    is checked once and never parsed again, so the cost grows with the answer's length, not
-    with its square. Each update is the whole checked answer so far (not just the new part),
-    because removing a sentence can renumber the list below it.
+    drop is never displayed, not even briefly. Every piece of model text is looked at once:
+    held text is only appended to, a line's list marker is recognised in a single pass, and a
+    finished sentence is checked once and never parsed again, so the cost grows with the
+    answer's length (also for long runs of whitespace), not with its square. The result is
+    the same as ``validate_answer`` on the whole text. Each update is the whole checked answer
+    so far (not just the new part), because removing a sentence can renumber the list below.
     """
 
     def __init__(
@@ -513,17 +540,18 @@ class StreamingGuard:
     ) -> None:
         self._answer = _Answer(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
         self._total_bytes = 0
-        self._line = ""  # unchecked text of the current line (all of it until it starts)
+        self._pending: list[str] = []  # unchecked text of the current line
+        self._prev = ""  # the last character of that text
         self._started = False  # the current line's list marker is known
+        self._phase = "lead"  # how far the list-marker scan of the current line has got
         self._first = True  # the next sentence is the first of its line
-        self._scanned = 0  # how much of self._line was already searched for a sentence end
         self._shown = ""
 
     @property
     def _raw(self) -> str:
         """Model text held but not yet checked (bounded by MAX_MODEL_TEXT_BYTES)."""
 
-        return self._line
+        return "".join(self._pending)
 
     def feed(self, text: str) -> str | None:
         """Add new model text; return the checked answer so far if it changed."""
@@ -538,11 +566,9 @@ class StreamingGuard:
         before = self._answer.changes
         parts = text.replace("\r", "").split("\n")
         for index, part in enumerate(parts):
-            self._line += part
+            self._take(part)
             if index < len(parts) - 1:
                 self._end_line()
-            else:
-                self._advance()
         if self._answer.changes == before:
             return None
         shown = self._answer.text()
@@ -551,52 +577,95 @@ class StreamingGuard:
         self._shown = shown
         return shown
 
-    def _start(self, *, line_ended: bool = False) -> bool:
-        if self._started:
-            return True
-        if not line_ended and _MAYBE_LIST_PREFIX.match(self._line):
-            return False
-        match = _LIST_PREFIX.match(self._line)
-        prefix = match.group(1) if match else ""
-        self._answer.start_line(prefix)
-        self._line = self._line[len(prefix) :]
-        self._started = True
-        self._first = True
-        self._scanned = 0
-        return True
+    def _marker_end(self, text: str) -> tuple[int, bool] | None:
+        """Scan new text of a line that has not started yet.
 
-    def _advance(self) -> None:
-        """Check every sentence of the current line that has ended."""
+        Returns where the line's start is decided and whether it has a list marker (then
+        the marker is everything before that point), or None while it could still be one.
+        The rule is ``_LIST_PREFIX``: whitespace, ``-``/``*``/``•`` or digits then ``.``/``)``,
+        then at least one whitespace character.
+        """
 
-        if not self._start():
+        for index, char in enumerate(text):
+            phase = self._phase
+            if phase == "lead":
+                if char.isspace():
+                    continue
+                if char in "-*•":
+                    self._phase = "need_gap"
+                elif char.isdecimal():
+                    self._phase = "digits"
+                else:
+                    return index, False
+            elif phase == "digits":
+                if char.isdecimal():
+                    continue
+                if char in ".)":
+                    self._phase = "need_gap"
+                else:
+                    return index, False
+            elif phase == "need_gap":
+                if not char.isspace():
+                    return index, False
+                self._phase = "gap"
+            elif not char.isspace():  # "gap": the first character after the marker
+                return index, True
+        return None
+
+    def _take(self, text: str) -> None:
+        if not text:
             return
+        if not self._started:
+            decided = self._marker_end(text)
+            if decided is None:
+                self._pending.append(text)
+                return
+            index, has_marker = decided
+            held = "".join(self._pending)
+            self._pending = []
+            self._started = True
+            self._first = True
+            self._prev = ""
+            if has_marker:
+                self._answer.start_line(held + text[:index])
+                text = text[index:]
+            else:
+                self._answer.start_line("")
+                text = held + text
+        self._split(text)
+
+    def _split(self, text: str) -> None:
+        """Check each sentence that ends in ``text`` (., ! or ? followed by whitespace)."""
+
+        if self._prev in (".", "!", "?") and text[:1].isspace():
+            self._sentence("".join(self._pending))
         position = 0
-        # A sentence ends at ., ! or ? followed by whitespace; only new text can hold one.
-        for match in _SENTENCE.finditer(self._line, max(0, self._scanned - 1)):
-            self._answer.sentence(self._line[position : match.start()], first=self._first)
-            self._first = False
+        for match in _SENTENCE.finditer(text):
+            self._sentence("".join(self._pending) + text[position : match.start()])
             position = match.end()
-        self._line = self._line[position:]
-        self._scanned = len(self._line)
+        if position < len(text):
+            self._pending.append(text[position:])
+        self._prev = text[-1]
+
+    def _sentence(self, sentence: str) -> None:
+        self._pending = []
+        self._answer.sentence(sentence, first=self._first)
+        self._first = False
 
     def _end_line(self) -> None:
-        if not self._started:
-            if not self._line.strip():
-                self._answer.blank_line()
-                self._reset_line()
-                return
-            self._start(line_ended=True)
-        self._advance()
-        if self._line.strip() or self._first:
-            self._answer.sentence(self._line, first=self._first)
-        self._answer.end_line()
-        self._reset_line()
-
-    def _reset_line(self) -> None:
-        self._line = ""
+        if self._started:
+            rest = "".join(self._pending)
+            if rest.strip() or self._first:
+                self._sentence(rest)
+            self._answer.end_line()
+        else:
+            # The whole line is held (whitespace or an unfinished marker): check it as a line.
+            _add_line(self._answer, "".join(self._pending))
+        self._pending = []
+        self._prev = ""
         self._started = False
+        self._phase = "lead"
         self._first = True
-        self._scanned = 0
 
     def partial(self) -> Validation:
         """What was already checked and shown, for when the stream fails part-way.
@@ -609,7 +678,7 @@ class StreamingGuard:
     def finish(self) -> Validation:
         """The final check, including a last sentence without a full stop."""
 
-        if self._started or self._line.strip():
+        if self._started or self._pending:
             self._end_line()
         validation = self._answer.validation()
         self._shown = validation.text

@@ -316,6 +316,44 @@ def test_guard_cost_grows_linearly_with_a_long_streamed_answer() -> None:
     assert elapsed < 5.0, f"streaming guard took {elapsed:.2f}s for 64 KiB"
 
 
+WHITESPACE_SHAPES = {
+    "spaces then text": " " * (63 * 1024) + "x",
+    "tabs then text": "\t" * (63 * 1024) + "x",
+    "mixed then text": " \t" * (63 * 512) + "Open the case page.",
+    "marker then spaces": "1." + " " * (63 * 1024) + "Open the case page.",
+    "sentence with a long gap": "Open the" + " " * (63 * 1024) + "case page. Then check.",
+    "gaps between sentences": ("Open it." + " " * 500 + "\n") * 120,
+}
+
+
+@pytest.mark.parametrize("shape", sorted(WHITESPACE_SHAPES))
+@pytest.mark.parametrize("chunk", [1, 7, 64 * 1024])
+def test_guard_stays_linear_on_long_whitespace_runs(shape: str, chunk: int) -> None:
+    """QG G5 on 79621fe: a 63 KiB whitespace run took ~2 minutes in one feed call.
+
+    Whole stream and every single feed must stay within a small budget; the result must
+    equal checking the whole text at once.
+    """
+
+    from ai_assistant.guardrails import validate_answer
+
+    text = WHITESPACE_SHAPES[shape]
+    guard = StreamingGuard({})
+    worst = 0.0
+    started = time.perf_counter()
+    for start in range(0, len(text), chunk):
+        call = time.perf_counter()
+        guard.feed(text[start : start + chunk])
+        worst = max(worst, time.perf_counter() - call)
+    final = guard.finish()
+    total = time.perf_counter() - started
+    assert total < 5.0, f"{shape}: {total:.2f}s in total"
+    assert worst < 0.5, f"{shape}: one feed call took {worst:.2f}s"
+    whole_started = time.perf_counter()
+    assert final.text == validate_answer(text, {}).text
+    assert time.perf_counter() - whole_started < 2.0
+
+
 def test_streamed_and_whole_answer_checks_agree() -> None:
     from ai_assistant.guardrails import validate_answer
 

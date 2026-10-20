@@ -55,9 +55,17 @@ class KnowledgeBase:
         return decided
 
     def retire(self, entry_id: str, *, by: str, notes: str) -> Entry | None:
+        """Repository maintenance only; people retire through ``request_retirement``."""
+
         retired = self.store.retire(entry_id, by=by, notes=notes)
         self.sync()
         return retired
+
+    def request_retirement(self, entry_id: str, *, by: str, notes: str) -> tuple[Entry, bool]:
+        entry, retired = self.store.request_retirement(entry_id, by=by, notes=notes)
+        if retired:
+            self.sync()
+        return entry, retired
 
     # --- keeping the index in step --------------------------------------------------
 

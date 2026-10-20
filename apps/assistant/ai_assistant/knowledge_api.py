@@ -11,8 +11,12 @@ the reviewer was shown (both enforced by the store).
 
 Team scope: a Director sees, edits and decides only drafts and gaps from their own team, and
 approved past resolutions are visible only to the team they came from. Guidance proposed by
-HR keeps the visibility HR set. An edit can narrow team visibility, never widen it. Anything
-outside the caller's team is answered as "not found".
+HR keeps the visibility HR set. An edit can narrow team and role visibility, never widen it.
+Anything outside the caller's team is answered as "not found"; stats count only the caller's
+team's entries and feedback.
+
+Retiring an approved entry (official guidance included) takes two reviewers: the first POST
+to /retire records the request, a different reviewer's POST confirms it.
 """
 
 from collections.abc import Callable
@@ -29,7 +33,12 @@ from .knowledge.models import Entry, EntryKind, EntryStatus, Visibility
 from .knowledge.redaction import Redactor, case_parties
 from .knowledge.retrieval import case_context
 from .knowledge.service import KnowledgeBase
-from .knowledge.store import KnowledgeError, KnowledgeRuleError, MakerCheckerError
+from .knowledge.store import (
+    KnowledgeError,
+    KnowledgeRuleError,
+    MakerCheckerError,
+    SecondReviewerError,
+)
 
 APPROVE = "POLICY_APPROVE"
 MUTATE = "POLICY_MUTATE"
@@ -136,6 +145,7 @@ AUTHOR_MESSAGE = "You cannot approve or reject an entry you wrote or edited."
 CHANGED_MESSAGE = "This entry has changed or was already decided. Refresh and try again."
 RULE_MESSAGE = "This change is not allowed."
 NOT_FOUND_MESSAGE = "No such entry."
+SECOND_REVIEWER_MESSAGE = "A different reviewer must confirm this."
 
 
 def in_team(entry: Entry, team: str | None) -> bool:
@@ -198,11 +208,23 @@ def knowledge_router(
 
     def refused(exc: KnowledgeError) -> HTTPException:
         # Fixed messages only: the browser shows nothing else (apps/frontend aiAssistant.ts).
+        if isinstance(exc, SecondReviewerError):
+            return HTTPException(
+                403, detail={"code": "SECOND_REVIEWER", "message": SECOND_REVIEWER_MESSAGE}
+            )
         if isinstance(exc, MakerCheckerError):
             return HTTPException(403, detail={"code": "MAKER_CHECKER", "message": AUTHOR_MESSAGE})
         if isinstance(exc, KnowledgeRuleError):
             return HTTPException(409, detail={"code": "NOT_ALLOWED", "message": RULE_MESSAGE})
         return HTTPException(409, detail={"code": "CHANGED", "message": CHANGED_MESSAGE})
+
+    def team_entry_counts(profile: dict[str, Any]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in kb.store.entries():
+            if in_team(item, team(profile)):
+                name = f"{item.kind.value}_{item.status.value}"
+                counts[name] = counts.get(name, 0) + 1
+        return counts
 
     def team_feedback(profile: dict[str, Any], status: str | None = None) -> list[dict[str, Any]]:
         return [row for row in kb.store.feedback(status=status) if row["team"] == team(profile)]
@@ -355,8 +377,17 @@ def knowledge_router(
     def retire(entry_id: str, body: RetireRequest, profile: Actor) -> dict[str, Any]:
         require(profile, APPROVE)
         found(kb.store.current(entry_id), profile)
-        retired = found(kb.retire(entry_id, by=user_id(profile), notes=body.notes), profile)
-        return entry_view(retired)
+        # Two people: the first call asks for the retirement, a different reviewer confirms.
+        try:
+            current, retired = kb.request_retirement(
+                entry_id, by=user_id(profile), notes=body.notes
+            )
+        except KnowledgeError as exc:
+            raise refused(exc) from None
+        return {
+            "retirement": "done" if retired else "requested",
+            "entry": entry_view(current),
+        }
 
     @router.post("/assistant/knowledge/feedback/{feedback_id}/close")
     def close(feedback_id: int, profile: Actor) -> dict[str, str]:
@@ -381,7 +412,7 @@ def knowledge_router(
         feedback_rows = team_feedback(profile)
         helpful = sum(1 for row in feedback_rows if row["helpful"])
         return {
-            "entries": kb.status(),
+            "entries": team_entry_counts(profile),
             "feedback": {
                 "total": len(feedback_rows),
                 "helpful": helpful,
