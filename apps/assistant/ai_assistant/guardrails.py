@@ -309,6 +309,27 @@ def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
+_SECTION_REF = re.compile(r"\s*\(section:\s*([^)\n]{1,80})\)", re.IGNORECASE)
+
+
+def _fix_section_names(answer: str, facts: dict[str, Any]) -> str:
+    """Keep "(section: X)" only when X is a real case page section.
+
+    A wrong one (a blocker title, a backend stage name) is dropped rather than shown, so
+    the RM is never sent to a section that does not exist. Formatting around the name
+    ("*Ownership & UBO*") is removed so the panel can link it.
+    """
+
+    sections = {str(name).lower(): str(name) for name in facts.get("case_page_sections") or []}
+
+    def repair(match: re.Match[str]) -> str:
+        name = match.group(1).strip().strip("*_`\"' ").strip()
+        real = sections.get(name.lower())
+        return f" (section: {real})" if real else ""
+
+    return _SECTION_REF.sub(repair, answer)
+
+
 def validate_answer(
     answer: str,
     facts: dict[str, Any],
@@ -319,6 +340,7 @@ def validate_answer(
     """Check an answer sentence by sentence; keep only what passes."""
 
     ctx = Context(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
+    answer = _fix_section_names(answer, facts)
     removed: list[str] = []
     lines_out: list[str] = []
     for line in answer.splitlines():

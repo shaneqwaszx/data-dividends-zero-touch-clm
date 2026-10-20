@@ -54,3 +54,28 @@ def test_guardrails_keep_an_answer_that_names_the_review_choices() -> None:
         'To use the ACRA address, choose "Keep registry value".'
     )
     assert guard_answer(answer, _facts()) == answer
+
+
+def test_opening_names_the_blocker_section_and_what_else_is_needed() -> None:
+    from ai_assistant.briefing import opening_message
+
+    facts = _facts()
+    facts["blockers"][0]["code"] = "DOCUMENT_SOURCE_CONFLICT"
+    facts["blockers"][0]["where_on_the_case_page"] = "Document verification"
+    facts["still_needed_before_goldtier"] = [
+        {
+            "code": "SOURCE_CONFLICT_REQUIRES_POLICY",
+            "what": "A document value differs.",
+            "where_on_the_case_page": "Document verification",
+        },
+        {
+            "code": "OWNERSHIP_REQUIRED",
+            "what": "Ownership evidence is needed.",
+            "where_on_the_case_page": "Ownership & UBO",
+        },
+    ]
+    text = opening_message(facts)
+    assert "(section: Document verification)" in text.splitlines()[1]
+    # The conflict is told once; ownership is listed as still needed.
+    assert "A document value differs." not in text
+    assert "- Ownership evidence is needed. (section: Ownership & UBO)" in text

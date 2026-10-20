@@ -10,6 +10,7 @@ from typing import Any
 from .clm_client import CaseSnapshot
 from .guide import (
     AUTOMATION_STATUS,
+    BLOCKER_SECTIONS,
     CASE_PAGE_SECTIONS,
     DOCUMENT_REVIEW_CHOICES,
     DOCUMENT_REVIEW_GROUP,
@@ -172,9 +173,25 @@ def _blockers(summary: dict[str, Any]) -> list[dict[str, Any]]:
                 "who_resolves": OWNER.get(str(metadata.get("owner")), metadata.get("owner")),
                 "resolution_condition": _text(data.get("resolution_condition")),
                 "differences": _evidence_for(exception),
+                "where_on_the_case_page": blocker_section(
+                    data.get("blocker_code"), data.get("owning_stage_label")
+                ),
             }
         )
     return blockers
+
+
+def blocker_section(code: object, stage: object) -> str | None:
+    """The case page section where this blocker is handled, or None when unknown.
+
+    Only real section titles are returned: a blocker's own title or a backend stage name
+    that is not a case page section is never offered as a place to look.
+    """
+
+    section = READINESS_NEEDS.get(str(code), ("", ""))[1] or BLOCKER_SECTIONS.get(str(code))
+    if section in CASE_PAGE_SECTIONS:
+        return section
+    return str(stage) if stage in CASE_PAGE_SECTIONS else None
 
 
 def _discrepancies(summary: dict[str, Any]) -> list[dict[str, Any]]:
@@ -327,7 +344,7 @@ def _still_needed(summary: dict[str, Any]) -> list[dict[str, str]]:
     needs = []
     for code in _list(readiness.get("blockers")):
         need, section = READINESS_NEEDS.get(str(code), (f"Open readiness item {code}.", ""))
-        needs.append({"what": need, "where_on_the_case_page": section})
+        needs.append({"code": str(code), "what": need, "where_on_the_case_page": section})
     return needs
 
 

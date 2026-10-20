@@ -71,3 +71,17 @@ def test_an_explanation_between_steps_does_not_restart_numbering() -> None:
     assert "1. A decision." in text and "2. Evidence." in text
     restarted = validate_answer("Steps:\n1. One.\n2. Two.\nAlso:\n1. Three.", {}).text
     assert restarted.endswith("Also:\n1. Three.")
+
+
+def test_section_names_are_kept_only_when_they_are_real_case_page_sections() -> None:
+    from ai_assistant.guardrails import validate_answer
+
+    facts = {"case_page_sections": ["Document verification", "Ownership & UBO"]}
+    answer = (
+        "1. Address discrepancy (section: *Document or reconciliation review required*)\n"
+        "2. Ownership evidence is missing (section: *Ownership & UBO*)"
+    )
+    text = validate_answer(answer, facts).text
+    assert "Document or reconciliation review required" not in text
+    assert "1. Address discrepancy\n" in text
+    assert "(section: Ownership & UBO)" in text
