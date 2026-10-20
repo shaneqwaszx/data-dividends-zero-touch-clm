@@ -105,6 +105,22 @@ it("typing a correction or clicking the correction box records an explicit corre
   expect(confirm.mock.calls[0][0].documents[0].decisions[0]).toMatchObject({ decision: "CORRECTED", corrected_value: "CORRECTED SYNTHETIC" });
 });
 
+it("tabbing through the correction box keeps an explicit choice and the enabled confirm", () => {
+  const confirm = mount();
+  for (const field of ["legal_name", "registration_number", "registered_address", "country_of_incorporation"]) pick(field, "ACCEPTED");
+  expect(button("Confirm decisions & continue onboarding").disabled).toBe(false);
+  for (const field of ["legal name", "registration number", "registered address", "country of incorporation"]) {
+    const box = container.querySelector<HTMLInputElement>(`input[aria-label="Correction for ${field}"]`)!;
+    act(() => box.focus()); expect(document.activeElement).toBe(box);
+    act(() => box.blur());
+  }
+  expect(values()).toEqual(["ACCEPTED", "ACCEPTED", "ACCEPTED", "ACCEPTED"]);
+  expect(container.textContent).not.toContain("Enter each correction before confirming.");
+  expect(button("Confirm decisions & continue onboarding").disabled).toBe(false);
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm.mock.calls[0][0].documents[0].decisions.map((item: { decision: string }) => item.decision)).toEqual(["ACCEPTED", "ACCEPTED", "ACCEPTED", "ACCEPTED"]);
+});
+
 it("read-only actor cannot select or confirm", () => {
   mount(); act(() => root!.render(<BlockerDecisionReview summary={{ ...summary, evidence_decision_authorized: false }} documents={documents} busy={false} onConfirm={vi.fn()} />));
   expect(container.querySelectorAll("input").length).toBeGreaterThan(0);

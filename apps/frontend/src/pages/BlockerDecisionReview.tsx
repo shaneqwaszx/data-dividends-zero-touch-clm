@@ -187,7 +187,6 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
             <label className="review-option__label"><input {...option("CORRECTED", "Record correction")} /> Record correction</label>
             <input type="text" className="review-option__input" maxLength={512} value={correction} disabled={disabled}
               placeholder="Type what the document shows" aria-label={`Correction for ${label}`}
-              onFocus={() => { if (decision !== "CORRECTED") change(id, { decision: "CORRECTED" }); }}
               onChange={event => change(id, { decision: "CORRECTED", correction: event.target.value })} />
           </div>
         </div>
