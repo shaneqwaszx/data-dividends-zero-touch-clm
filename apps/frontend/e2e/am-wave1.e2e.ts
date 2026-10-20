@@ -197,7 +197,8 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   // Nothing is pre-selected; one reject radio exists per pending field.
   await expect(review.locator('input[data-review-field][value="REJECTED"]')).toHaveCount(3);
   await expect(review.locator("input[data-review-field]:checked")).toHaveCount(0);
-  const name = review.locator('input[data-review-field="legal_name"][value="CORRECTED"]'); await name.check();
+  // Typing the corrected value is how a reviewer records a correction (the box overlays its radio).
+  const name = review.locator('input[data-review-field="legal_name"][value="CORRECTED"]'); await expect(name).not.toBeChecked();
   await review.getByLabel("Correction for legal name", { exact: true }).fill(company.name);
   await expect(name).toBeChecked();
   await review.getByRole("button", { name: "Add note for legal name", exact: true }).click();
