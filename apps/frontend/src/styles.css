@@ -602,7 +602,6 @@ select {
   background: #174f3b;
 }
 
-.dashboard-snapshot,
 .workspace-placeholder {
   width: min(100%, 1120px);
   margin: 0 auto 2rem;
@@ -625,48 +624,10 @@ select {
   min-width: 0;
 }
 
-.dashboard-snapshot {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.4fr);
-  gap: 2rem;
-  align-items: center;
-}
-
-.dashboard-snapshot p:not(.section-label),
 .workspace-placeholder p:not(.section-label) {
   margin-bottom: 0;
   color: #687871;
   line-height: 1.55;
-}
-
-.dashboard-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.65rem;
-}
-
-.dashboard-metrics div {
-  min-width: 0;
-  padding: 1rem 0.75rem;
-  border-left: 3px solid #d48b20;
-  background: #f5f7f1;
-}
-
-.dashboard-metrics strong,
-.dashboard-metrics span {
-  display: block;
-}
-
-.dashboard-metrics strong {
-  color: #174f3b;
-  font-size: 1.6rem;
-}
-
-.dashboard-metrics span {
-  margin-top: 0.25rem;
-  color: #687871;
-  font-size: 0.75rem;
-  font-weight: 750;
 }
 
 .workspace-placeholder {
@@ -2197,13 +2158,8 @@ dd {
     width: 100%;
   }
 
-  .dashboard-snapshot,
   .launch-card {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .dashboard-metrics {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -2231,7 +2187,6 @@ dd {
   .ownership-card,
   .clm-card,
   .reviewer-workbench__grid,
-  .dashboard-snapshot,
   .panel-grid,
   .case-access-forms,
   .comparison-grid,
@@ -2278,10 +2233,6 @@ dd {
   .mock-submission-result {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .dashboard-metrics {
-    grid-template-columns: repeat(2, 1fr);
   }
 
   .workspace-layout {
@@ -2341,10 +2292,6 @@ dd {
   .evidence-disclosure {
     padding: 1rem;
     border-radius: 0.85rem;
-  }
-
-  .dashboard-metrics {
-    grid-template-columns: 1fr;
   }
 
   .environment-banner {
@@ -3587,7 +3534,9 @@ dd {
   }
   body * { visibility: hidden; }
   .review-and-send,
-  .review-and-send * { visibility: visible; }
+  .review-and-send *,
+  .stage-disclosure--final > details,
+  .stage-disclosure--final > details * { visibility: visible; }
   .review-and-send {
     position: static;
     width: 100%;
@@ -3881,7 +3830,7 @@ dd {
 
 /* Current document cards stack their sections; the older document-card layout
    belongs to the separate legacy document surface. */
-.document-evidence-panel .document-card {
+:is(.document-evidence-panel, .document-support-panel) .document-card {
   min-width: 0;
   width: 100%;
   margin: 0;
@@ -3889,37 +3838,37 @@ dd {
   gap: 12px;
 }
 
-.document-evidence-panel .document-fields,
-.document-evidence-panel .document-field {
+:is(.document-evidence-panel, .document-support-panel) .document-fields,
+:is(.document-evidence-panel, .document-support-panel) .document-field {
   min-width: 0;
 }
 
-.document-evidence-panel .document-field__evidence {
+:is(.document-evidence-panel, .document-support-panel) .document-field__evidence {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
 }
 
-.document-evidence-panel .document-field__evidence > div {
+:is(.document-evidence-panel, .document-support-panel) .document-field__evidence > div {
   grid-template-columns: minmax(0, 1fr);
   gap: 4px;
 }
 
-.document-evidence-panel .document-card__header,
-.document-evidence-panel .document-field__heading {
+:is(.document-evidence-panel, .document-support-panel) .document-card__header,
+:is(.document-evidence-panel, .document-support-panel) .document-field__heading {
   flex-wrap: wrap;
 }
 
-.document-evidence-panel .document-card__header > *,
-.document-evidence-panel .document-field__heading > *,
-.document-evidence-panel .document-field__actions > *,
-.document-evidence-panel .document-card__actions > * {
+:is(.document-evidence-panel, .document-support-panel) .document-card__header > *,
+:is(.document-evidence-panel, .document-support-panel) .document-field__heading > *,
+:is(.document-evidence-panel, .document-support-panel) .document-field__actions > *,
+:is(.document-evidence-panel, .document-support-panel) .document-card__actions > * {
   min-width: 0;
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.document-evidence-panel .document-correction,
-.document-evidence-panel .document-correction .input {
+:is(.document-evidence-panel, .document-support-panel) .document-correction,
+:is(.document-evidence-panel, .document-support-panel) .document-correction .input {
   min-width: 0;
   max-width: 100%;
 }
@@ -4092,3 +4041,7 @@ dd {
 .ds-root .blocker-review-confirm:focus-visible { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
 .document-upload-control { position: relative; }
 .document-upload-control:focus-within { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
+
+.stage-disclosure__indicator::after { content: "+"; }
+.stage-disclosure__indicator[data-open="true"]::after { content: "−"; }
+.stage-disclosure > details[hidden] { display: none; }

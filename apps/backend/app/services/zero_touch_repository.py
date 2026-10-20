@@ -1,6 +1,7 @@
 """Atomic process-local zero-touch automation repository."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from threading import RLock
 from typing import Protocol
 from uuid import UUID
@@ -28,6 +29,58 @@ def order_zero_touch_automation_records(
     )
 
 
+class ZeroTouchRepositoryReadError(ValueError):
+    """Invalid selected evidence or misuse of a request-local read batch."""
+
+
+class AutomationReadBatch(Protocol):
+    def read_selected(
+        self, case_ids: frozenset[UUID],
+    ) -> list[ZeroTouchAutomationRecord]: ...
+
+
+def validate_automation_batch_ids(case_ids: frozenset[UUID]) -> None:
+    if type(case_ids) is not frozenset or any(type(value) is not UUID for value in case_ids):
+        raise ZeroTouchRepositoryReadError("invalid automation batch selection")
+
+
+class _MemoryAutomationReadBatch:
+    def __init__(
+        self, authorized: frozenset[UUID], records: dict[UUID, ZeroTouchAutomationRecord],
+    ) -> None:
+        self._authorized = authorized
+        self._records = records
+        self._closed = False
+
+    def close(self) -> None:
+        self._closed = True
+        self._authorized = frozenset()
+        self._records.clear()
+
+    def read_selected(self, case_ids: frozenset[UUID]) -> list[ZeroTouchAutomationRecord]:
+        if self._closed:
+            raise ZeroTouchRepositoryReadError("automation batch is closed")
+        try:
+            validate_automation_batch_ids(case_ids)
+            if not case_ids <= self._authorized:
+                raise ZeroTouchRepositoryReadError("invalid automation batch selection")
+            result = []
+            for case_id in case_ids:
+                record = self._records.get(case_id)
+                if record is None:
+                    continue
+                if record.case_id != case_id:
+                    raise ZeroTouchRepositoryReadError("invalid selected automation")
+                decoded = record.model_copy(deep=True)
+                validate_automation_record(decoded)
+                result.append(decoded)
+            return order_zero_touch_automation_records(result)
+        except ValueError:
+            raise ZeroTouchRepositoryReadError("invalid selected automation") from None
+        finally:
+            self.close()
+
+
 class ZeroTouchAutomationRepository(Protocol):
     def save(
         self, record: ZeroTouchAutomationRecord, *, expected_version: int | None
@@ -36,6 +89,10 @@ class ZeroTouchAutomationRepository(Protocol):
     def get_for_case(self, case_id: UUID) -> ZeroTouchAutomationRecord | None: ...
 
     def list_records(self) -> list[ZeroTouchAutomationRecord]: ...
+
+    def capture_for_cases(
+        self, case_ids: frozenset[UUID],
+    ) -> AbstractContextManager[AutomationReadBatch]: ...
 
     def delete_for_case(self, case_id: UUID) -> None: ...
 
@@ -75,6 +132,19 @@ class InMemoryZeroTouchAutomationRepository:
         with self._lock:
             records = [record.model_copy(deep=True) for record in self._records.values()]
         return order_zero_touch_automation_records(records)
+
+    @contextmanager
+    def capture_for_cases(self, case_ids: frozenset[UUID]) -> Iterator[AutomationReadBatch]:
+        """Capture owned copies before observation; decode only one selected subset."""
+        validate_automation_batch_ids(case_ids)
+        with self._lock:
+            records = {key: self._records[key].model_copy(deep=True)
+                       for key in case_ids if key in self._records}
+        batch = _MemoryAutomationReadBatch(case_ids, records)
+        try:
+            yield batch
+        finally:
+            batch.close()
 
     def delete_for_case(self, case_id: UUID) -> None:
         with self._lock:

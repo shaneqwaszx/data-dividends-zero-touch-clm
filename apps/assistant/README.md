@@ -10,16 +10,24 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
 ```
 
 - **The backend stays the authority.** Blockers, owners, next steps and allowed actions are
-  copied from what the CLM backend already computed. The model only puts them into plain
-  English. Access is still decided by the backend, because the RM's own session is
-  forwarded.
+  copied from what the CLM backend already computed. The model writes the answer, and code
+  checks every sentence against the case facts and the actions the backend offers before the
+  RM sees it (see Grounding and policy validation). Access is still decided by the backend,
+  because the RM's own session is forwarded.
 - **Read-only.** Only `GET` requests are made to the CLM backend.
 - **No-AI fallback.** The opening summary is built straight from the case data, so it is
   instant. If the model is off, missing or slow, chat answers come from the case data and
   say so.
-- **Swappable model.** Any OpenAI-compatible endpoint works: Ollama (default), LM Studio,
-  or a cloud provider. Only the `AI_ASSISTANT_LLM_*` settings change.
-- **Document text is data.** The model is told never to follow instructions found in it.
+- **Swappable model.** Explicit questions use an OpenAI-compatible endpoint, such as
+  Ollama (default) or LM Studio. Configuring an endpoint does not establish approved
+  data handling. Remote/cloud deployment authorization remains a separate policy boundary.
+- **Document text is data.** Allowed actions come only from the backend's action list, never
+  from document values. Streaming checks each complete sentence before displaying it. Failing
+  sentences are dropped; if nothing verified remains, the service uses the case-data answer.
+- **Truthful completion.** The model adapter requires `[DONE]` or a supported terminal
+  `finish_reason` (`stop` or `length`). EOF without a terminal marker is a failure.
+  Already verified partial text is retained with a cut-short notice; malformed provider
+  objects are contained by the same owned failure boundary.
 
 ## Run it locally (Mac)
 
@@ -41,7 +49,9 @@ Settings are in `.env.example` (copy to `.env` to change them).
 
 ## Changing how the AI Assistant behaves
 
-The bot's behaviour is written in plain English in `ai_assistant/instructions/`, not in code:
+The model instructions live in `ai_assistant/instructions/`. The code-owned output policy in
+`guardrails.py` remains authoritative: editing the rules cannot allow an action, value or claim
+that its checks would remove.
 
 | File | What it controls |
 |---|---|
@@ -178,13 +188,15 @@ answer's notice says how many were left out; the reply's `checks` lists the reas
 | Factual claims | a UEN, postal code, unit number, score or long number is not in the case facts | `unsupported_value` |
 | | "N of M steps" does not match the case | `wrong_step_count` |
 | | a quoted button or label, or a contact, is not in the facts | `invented_label`, `invented_contact` |
-| Action permissions | it tells the RM to take an action this case does not offer them (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve, submit to GoldTier). Saying an action is not available is fine | `action_not_allowed` |
+| Action permissions | it tells the RM to take an action this case does not offer them (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve/authorize, submit or resend to GoldTier). Saying an action is not available is fine | `action_not_allowed` |
+| | it claims something only people or other systems can decide: legal UBO verification, KYC/regulatory approval, official verification, or one source always overriding the other | `authority_claim` |
 | Disclosures | it calls a mock/sandbox system live or production | `live_claim` |
 | | it presents a document value that differs from ACRA as confirmed | `document_value_as_fact` |
 
 When an answer uses registry data from a registry that is not live, a notice says so
 (for example "Registry data in this case comes from ACRA (MOCK) …"). If nothing is left
-after the checks, the answer comes from the case data instead.
+after the checks, the answer comes from the case data instead, with the notice "The model
+response could not be verified".
 
 ## Speed
 
@@ -196,9 +208,43 @@ A small model on a laptop is slow, so the AI Assistant keeps the model's work sm
 | **Glossary only when asked** | A page label's meaning is added only if the question mentions it (a small keyword retrieval step). |
 | **Cache-friendly order** | Rules, then case facts, then history, then the question. The start stays the same, so Ollama reuses what it already read. |
 | **History budget** | The opening summary is not sent back (it repeats the facts), and only recent turns that fit about 2,400 characters are sent. The RM still sees the whole chat. |
-| **Pre-warming** | Opening the panel has the model read the rules and case facts in the background, so the first question only needs the question read. |
+| **Pre-warming** | Optional background reading of rules and case facts is restricted to literal loopback model URLs. Remote and ambiguous destinations are skipped even when enabled. |
 | **Streaming** | The answer appears sentence by sentence. Each sentence is checked by the guardrails before it is shown. |
 | **Length safety limit** | `AI_ASSISTANT_LLM_MAX_ANSWER_TOKENS` (600) only stops a runaway answer; if reached, the RM is told it was cut short. Answers are asked to be concise but complete. |
+
+`AI_ASSISTANT_LLM_WARM_UP=true` retains local warm-up for literal loopback IPv4
+(`127.0.0.0/8`) or IPv6 (`::1`) HTTP(S) URLs. The model adapter checks the actual
+call destination, ignores environment proxies and refuses redirects for warm-up.
+DNS names (including `localhost`), wildcard/private/remote IPs, credentials in URLs,
+query/fragment routing and malformed or ambiguous URLs fail closed. Use a numeric
+loopback URL for a controlled local inference server. A loopback forwarding gateway
+is not verification of local inference; deployment must ensure the model runs locally.
+Set the flag false to disable local warm-up too. There is no remote warm-up override
+or cloud approval mechanism. Explicit user questions and their deployment data-handling
+authorization remain separate and unchanged. A brief still comes from backend case data.
+
+Streaming resource limits are enforced independently of the model's requested token
+budget (600 by default, at most 4,000 in settings). The adapter accepts at most 64 KiB
+per SSE frame/line and 1 MiB of raw response bytes, including comments and empty-delta
+frames. The server guard accepts at most 64 KiB of UTF-8 model text; if the stream fails,
+only sentences already checked and shown are kept. These fixed safety ceilings leave
+generous room for concise answers;
+provider compliance with `max_tokens` is never assumed.
+
+The configured model timeout bounds the complete network request, from connection and
+headers through the final event. Each pending async read is cancellable at the remaining
+deadline; HTTPX also keeps the configured connect/read/write/pool timeouts. UTF-8,
+LF/CRLF/CR boundaries and multiline SSE data are handled incrementally. A terminal
+`[DONE]`, `stop` or `length` must arrive in a complete SSE frame. Malformed, oversized,
+uncompleted and timed-out streams close their HTTP resources. Already guarded text
+keeps the cut-short notice; otherwise the deterministic case-data answer is returned.
+The adapter requests identity encoding and rejects compressed SSE, so decompression
+cannot expand input outside the byte limits. Cancellation closes the model stream.
+
+The browser adds 128 KiB per NDJSON line and 2 MiB per response, scans only new bytes,
+validates incremental UTF-8, and cancels/releases its reader on completion, failure or
+abort. The same limits cover the buffered-response compatibility path. These browser
+limits supplement the independent server limits and do not authorize model output.
 
 Recommended Ollama settings on a Mac (quit Ollama, run these, then open Ollama again):
 
@@ -229,3 +275,20 @@ cd apps/assistant
 
 One-click actions, resuming the pipeline, navigation links and the audit log are Phase 2.
 They will call the existing CLM endpoints only after the RM clicks.
+
+### Browser HTTP error and finite JSON containment
+
+All Assistant non-2xx bodies are limited to 16 KiB before strict UTF-8 decoding and
+JSON parsing, regardless of Content-Length. Brief and explicit nonstream chat JSON
+are independently limited to 128 KiB. Each finite JSON body has an absolute five-second
+deadline after response headers, including stalled and continuous trickle bodies.
+Overflow, malformed data, missing bodies and deadlines fail safely; cancellation is
+initiated and readers, timers and abort listeners are released. Cleanup never waits
+for an uncooperative source's cancellation promise.
+
+Only the seven fixed safe messages currently emitted by the Assistant's origin/backend
+error projection may be displayed from an error body (at most 256 characters). Other
+bodies use fixed local HTTP-status messages; raw diagnostics are never displayed.
+HTTP status is preserved, including 401, 403, 404, 502 and 503. The existing authenticated
+transport still owns session-generation and 401 invalidation. These are local resource
+controls, without a sponsor, provider or Live interoperability claim.

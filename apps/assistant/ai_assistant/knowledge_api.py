@@ -117,6 +117,10 @@ def entry_view(entry: Entry) -> dict[str, Any]:
     }
 
 
+AUTHOR_MESSAGE = "You cannot approve or reject an entry you wrote."
+CHANGED_MESSAGE = "This entry has changed or was already decided. Refresh and try again."
+
+
 def knowledge_router(
     *,
     kb: KnowledgeBase,
@@ -161,8 +165,10 @@ def knowledge_router(
         return entry
 
     def refused(exc: KnowledgeError) -> HTTPException:
-        status = 403 if isinstance(exc, MakerCheckerError) else 409
-        return HTTPException(status, detail={"code": "NOT_ALLOWED", "message": str(exc)})
+        # Fixed messages only: the browser shows nothing else (apps/frontend aiAssistant.ts).
+        if isinstance(exc, MakerCheckerError):
+            return HTTPException(403, detail={"code": "MAKER_CHECKER", "message": AUTHOR_MESSAGE})
+        return HTTPException(409, detail={"code": "NOT_ALLOWED", "message": CHANGED_MESSAGE})
 
     # --- RM feedback ----------------------------------------------------------------
 

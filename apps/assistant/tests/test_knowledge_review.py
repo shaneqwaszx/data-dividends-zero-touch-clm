@@ -152,7 +152,8 @@ def test_an_rm_can_never_approve_and_the_author_never_decides(kb: KnowledgeBase)
     USERS["self-approver"] = _profile("maya-lim", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"])
     try:
         reply = client(kb, "self-approver").post(decision, json={"approve": True})
-        assert reply.status_code == 403 and "author" in reply.json()["detail"]["message"]
+        assert reply.json()["detail"]["code"] == "MAKER_CHECKER"
+        assert reply.status_code == 403 and "you wrote" in reply.json()["detail"]["message"]
     finally:
         del USERS["self-approver"]
 

@@ -211,9 +211,10 @@ def _discrepancies(summary: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
-    for document in documents[:MAX_DOCUMENTS]:
-        if document.get("superseded_by_document_id"):
-            continue
+    current_documents = [
+        document for document in documents if document.get("superseded_by_document_id") is None
+    ]
+    for document in current_documents[:MAX_DOCUMENTS]:
         fields = []
         for field in _list(document.get("fields"))[:MAX_FIELDS_PER_DOCUMENT]:
             data = _dict(field)

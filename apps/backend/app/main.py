@@ -175,6 +175,7 @@ from app.services.zero_touch_errors import (
     ZeroTouchRequestError,
 )
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
+from app.services.zero_touch_repository import ZeroTouchRepositoryReadError
 
 _E2E_REQUEST_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -695,7 +696,9 @@ def create_app(
         ),
         clock=active_clock,
     )
-    dashboard = DashboardService(case_query, administration.directory)
+    dashboard = DashboardService(
+        case_query, administration.directory, zero_touch.automation_repository, clock=active_clock
+    )
     case_deletion = CaseDeletionService(
         cases=service,
         access_policy=access_policy,
@@ -2058,6 +2061,7 @@ def create_app(
         outcome: Annotated[EventOutcome | None, Query(alias="outcome")] = None,
         from_at: Annotated[datetime | None, Query(alias="from")] = None,
         to_at: Annotated[datetime | None, Query(alias="to")] = None,
+        created_by: Annotated[str | None, Query(alias="created_by", max_length=32)] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
     ) -> CaseActivityPage:
@@ -2071,6 +2075,7 @@ def create_app(
                 outcome=outcome,
                 from_at=from_at,
                 to_at=to_at,
+                created_by=created_by,
                 limit=limit,
                 offset=offset,
             )
@@ -2197,11 +2202,31 @@ def create_app(
     def get_zero_touch_dashboard(
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         team_filter: Annotated[str | None, Query(alias="team_filter", max_length=64)] = None,
+        scope: Annotated[Literal["team", "mine"], Query(alias="scope")] = "team",
+        date_range: Annotated[
+            Literal["7d", "30d", "90d", "all"], Query(alias="date_range")
+        ] = "all",
     ) -> DashboardSnapshot:
         """Return a provider-free historical view of the caller's authorized cases."""
 
         try:
-            return dashboard.get_dashboard(actor, team_filter=team_filter)
+            return dashboard.get_dashboard(
+                actor, team_filter=team_filter, scope=scope, date_range=date_range
+            )
+        except (
+            CaseTimingDataInvalidError,
+            ZeroTouchRepositoryReadError,
+            PersistenceDataInvalidError,
+            PersistenceSchemaUnsupportedError,
+            PersistenceUnavailableError,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "DASHBOARD_UNAVAILABLE",
+                    "message": "Dashboard data is temporarily unavailable.",
+                },
+            ) from None
         except CaseTeamFilterForbiddenError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

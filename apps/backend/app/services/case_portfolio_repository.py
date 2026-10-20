@@ -90,6 +90,7 @@ class InMemoryCasePortfolioRepository:
                     mock_goldtier_party_id=(
                         case.goldtier_result.party_id if case.goldtier_result is not None else None
                     ),
+                    created_by_actor_id=case.created_by_actor_id,
                 )
             )
         return records
@@ -101,6 +102,8 @@ class InMemoryCasePortfolioRepository:
                 continue
             case = self._cases.get(automation.case_id)
             if case is None or not _case_in_scope(case.team_id, query.scope):
+                continue
+            if query.created_by is not None and case.created_by_actor_id != query.created_by:
                 continue
             scoped_events: list[CaseActivityRepositoryRecord] = []
             for expected_sequence, event in enumerate(automation.events, start=1):
@@ -163,6 +166,7 @@ class InMemoryCasePortfolioRepository:
                 mock_goldtier_party_id=(
                     case.goldtier_result.party_id if case.goldtier_result is not None else None
                 ),
+                created_by_actor_id=case.created_by_actor_id,
             )
             if case_portfolio_matches(record, query):
                 records.append(record)

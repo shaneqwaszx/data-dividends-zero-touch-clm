@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
-import { openStage } from "./stage-disclosures";
+import { openStage, openStageSupport } from "./stage-disclosures";
 
 test.use({ timezoneId: "America/Los_Angeles" });
 
@@ -114,6 +114,7 @@ async function balancedCorrection(page: Page, reuse: boolean) {
     expect(reloaded.version).toBe(after.version);
     expect(reloaded.case.goldtier_result).toBeNull();
     expect(targetPosts).toEqual([]); expect(violations).toEqual([]);
+    await verifyWave5Disclosure(page, caseId);
     await writeFile(path.join(evidence, "after.json"), JSON.stringify({ ...checkpoint(after, revised), elapsedMs: Date.now() - start, targetPosts, primaryCase: "NOT_SUBMITTED", externalCalls: 0 }, null, 2));
 }
 
@@ -178,11 +179,19 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   const caseId = page.url().split("/").at(-1)!;
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const before = await read(page, caseId);
+  const documentsBeforeResponse = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
+  expect(documentsBeforeResponse.status()).toBe(200);
+  const documentsBefore = await documentsBeforeResponse.json();
   await openStage(page, "Registry verification");
-  const provenance = page.locator('[aria-labelledby="registry-provenance-heading"]');
+  await openStageSupport(page, "Registry verification", "More");
+  const provenance = page.locator('[aria-labelledby="registry-provenance-more-heading"]');
+  await expect(provenance).toBeVisible();
   await expect(provenance).toContainText("SGT (UTC+08:00)");
-  const audit = provenance.locator("details"); await audit.locator("summary").click();
-  await expect(audit).toContainText(before.case.registry_acquisition.retrieved_at);
+  await openStageSupport(page, "Registry verification", "Technical");
+  const audit = page.locator('[aria-labelledby="registry-provenance-technical-heading"]');
+  const original = audit.getByText("Acquisition retrieved at — original ISO UTC", { exact: true }).locator("..").locator("dd");
+  await expect(original).toBeVisible();
+  await expect(original).toHaveText(before.case.registry_acquisition.retrieved_at);
   await openStage(page, "Document verification");
   const review = page.locator("#case-blocker-review");
   const controls = review.locator("select[data-review-field]"); await expect(controls).toHaveCount(3);
@@ -215,6 +224,14 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   await review.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true }).click();
   const response = await confirmed; expect(response.status()).toBe(200);
   const payload = response.request().postDataJSON();
+  expect(payload.expected_automation_version).toBe(before.version);
+  expect(payload.expected_case_event_count).toBe(before.case.events.length);
+  for (const request of payload.documents) {
+    const retained = documentsBefore.find((doc: any) => doc.document_id === request.document_id);
+    expect(retained).toBeDefined();
+    expect(request.source_fingerprint).toBe(retained.review_source_fingerprint);
+    expect(request.expected_event_count).toBe(retained.events.length);
+  }
   const decisions = payload.documents[0].decisions;
   expect(decisions.find((item: any) => item.field_key === "legal_name")).toEqual({ field_key: "legal_name", decision: "CORRECTED", corrected_value: company.name, note: "Reviewed synthetic field deliberately." });
   expect(decisions.find((item: any) => item.field_key === "registered_address").decision).toBe("REJECTED");
@@ -229,3 +246,80 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   expect(violations).toEqual([]);
   await writeFile(path.join(evidence, "receipt.json"), JSON.stringify({ caseId, widths: [1440, 900, 360], eligible, payload, status: after.status, blockers: after.active_exceptions.map((item: any) => item.blocker_code), businessWrites }, null, 2));
 });
+
+
+async function verifyWave5Disclosure(page: Page, caseId: string) {
+  const retained = await read(page, caseId);
+  const mutations: string[] = [];
+  page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); });
+  const final = page.locator(".stage-disclosure--final");
+  const target = page.locator(".stage-disclosure").filter({ has: page.locator("h2").filter({ hasText: /^GoldTier submission package$/ }) });
+  const confirm = final.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true, includeHidden: true });
+  for (const width of [1440, 1280, 900, 360]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const [name, stage] of [["GoldTier submission package", target], ["Final review & send", final]] as const) {
+      await expect(stage.locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
+      await expect(stage.locator(":scope > div").first()).toBeVisible();
+      const more = stage.locator(":scope > details").nth(0), technical = stage.locator(":scope > details").nth(1);
+      await expect(more.locator(":scope > summary")).toHaveText(`More details — ${name}`);
+      await expect(technical.locator(":scope > summary")).toHaveText(`Technical details — ${name}`);
+      await expect(more).not.toHaveAttribute("open", ""); await expect(technical).not.toHaveAttribute("open", "");
+      for (const support of [more, technical]) {
+        await expect(support.locator("button, input, select, textarea, details")).toHaveCount(0);
+        const native = support.locator(":scope > summary"); await page.keyboard.press("Tab"); await native.focus(); await expect(native).toBeFocused();
+        expect(await native.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe("none");
+        await native.press("Enter"); await expect(support).toHaveAttribute("open", "");
+        await expect(stage.locator(":scope > div").first()).toBeVisible();
+        await native.press("Space"); await expect(support).not.toHaveAttribute("open", "");
+      }
+      const ids = await stage.locator("[id]").evaluateAll(items => items.map(item => item.id)); expect(new Set(ids).size).toBe(ids.length);
+    }
+    const targetToggle = target.locator(":scope > h2 > button");
+    await targetToggle.focus(); await page.keyboard.press("Enter");
+    await expect(targetToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(target.locator(":scope > div")).toBeHidden();
+    const targetDescription = target.locator(":scope > .stage-disclosure__summary");
+    await expect(targetDescription).toBeVisible();
+    await expect(targetDescription).toContainText(/Submission not started|Target intervention requires review/);
+    await expect(targetToggle).toHaveAccessibleDescription(await targetDescription.innerText());
+    await expect(targetToggle).toBeFocused();
+    await page.keyboard.press("Space"); await expect(targetToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(confirm).toBeEnabled(); await expect(final.locator("#review-notes-title")).toBeVisible();
+    await expect(final.getByRole("heading", { name: "What will be sent", exact: true })).toBeVisible();
+    const fields = retained.clm.submission_plan.request_preview.operations.flatMap((operation: any) => operation.fields);
+    expect(await final.locator(".review-and-send__operation dt").count()).toBe(fields.length);
+    expect(await final.locator(".review-and-send__operation dd").allTextContents()).toEqual(fields.map((field: any) => field.value ?? "Not provided"));
+    await expect(target).toContainText("Submission environment: MOCK"); await expect(target).toContainText("Backend submission state: NOT_SUBMITTED");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  const supports = final.locator(":scope > details");
+  const parent = final.locator(":scope > h2 > button");
+  for (const parentOpen of [true, false]) for (const states of [[false, false], [true, false], [false, true], [true, true]]) {
+    if ((await parent.getAttribute("aria-expanded") === "true") !== parentOpen) await parent.click();
+    for (let index = 0; index < 2; index++) await supports.nth(index).evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, states[index]);
+    await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
+    await page.emulateMedia({ media: "print" });
+    for (const content of [final.locator(".review-and-send__operations"), final.locator(".review-and-send__notes"), final.locator(".review-and-send__technical-content")]) {
+      await expect(content).toBeVisible(); await expect(content).toHaveCSS("visibility", "visible");
+    }
+    await expect(final.locator(".review-and-send__technical-content")).toHaveCount(1);
+    await expect(final.locator(".review-and-send__actions")).toBeHidden();
+    await expect(target).toBeHidden();
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    expect(await supports.evaluateAll(items => items.map(item => (item as HTMLDetailsElement).open))).toEqual(states);
+    await expect(parent).toHaveAttribute("aria-expanded", String(parentOpen));
+    await expect(confirm).toBeEnabled();
+    if (!parentOpen) await expect(confirm).toBeHidden();
+  }
+  await parent.click(); await expect(parent).toHaveAttribute("aria-expanded", "true");
+  expect(await page.getByRole("button", { name: /^Confirm and send/ }).count()).toBe(1);
+  expect((await read(page, caseId)).case.target_dispatch_confirmation).toBeNull();
+  expect((await read(page, caseId)).target_operations).toEqual(retained.target_operations);
+  expect(mutations).toEqual([]);
+  for (const support of await supports.all()) await support.evaluate(element => { (element as HTMLDetailsElement).open = false; });
+  const evidence = retainedEvidencePath("wave5"); await mkdir(evidence, { recursive: true });
+  await final.screenshot({ path: path.join(evidence, "final-review-360.png") });
+  await target.screenshot({ path: path.join(evidence, "target-package-360.png") });
+  await writeFile(path.join(evidence, "disclosure-print.json"), JSON.stringify({ caseId, widths: [1440, 1280, 900, 360], printCombinations: 8, confirmations: 0, mutations }, null, 2));
+}

@@ -71,20 +71,99 @@ async function send(path: string, body: unknown | undefined, signal?: AbortSigna
     throw new AiAssistantError("The AI assistant service is not running.");
   }
   if (!response.ok) {
-    let message = "The AI assistant could not answer right now.";
+    let message = httpErrorMessage(response.status);
     try {
-      const detail = (await response.json())?.detail;
-      if (detail && typeof detail.message === "string") message = detail.message;
+      const payload = await readJsonBody(response, MAX_ERROR_BODY_BYTES, signal);
+      const detail = payload && typeof payload === "object" && "detail" in payload
+        ? payload.detail : null;
+      const candidate = detail && typeof detail === "object" && "message" in detail
+        ? detail.message : null;
+      // Only fixed messages emitted by this read-only service are trusted for display.
+      // A length cap alone cannot sanitize provider diagnostics or proxy error pages.
+      if (typeof candidate === "string" && candidate.length <= 256
+        && SAFE_ERROR_MESSAGES.has(candidate)) message = candidate;
     } catch {
-      // keep the generic message
+      signal?.throwIfAborted();
+      // Keep the safe status-specific fallback, never the body or parser exception.
     }
     throw new AiAssistantError(message, response.status);
   }
   return response;
 }
 
+// Error payloads contain only a code/message pair. Budget bytes before UTF-8/JSON
+// decoding, independently of Content-Length. Brief/chat JSON uses the existing
+// compatibility line budget; both finite JSON reads have a 5s post-header deadline.
+const MAX_ERROR_BODY_BYTES = 16 * 1024;
+const MAX_JSON_BODY_BYTES = 128 * 1024;
+const JSON_BODY_DEADLINE_MS = 5000;
+const SAFE_ERROR_MESSAGES = new Set([
+  "Please sign in again.",
+  "This case was not found.",
+  "Request origin not allowed.",
+  "The onboarding app could not be reached.",
+  "The onboarding app could not provide this case.",
+  "The onboarding app returned an unreadable reply.",
+  "The onboarding app returned an unexpected reply.",
+  // Fixed knowledge-review messages (apps/assistant/ai_assistant/knowledge_api.py).
+  "You are not allowed to do this.",
+  "No such entry.",
+  "You cannot approve or reject an entry you wrote.",
+  "This entry has changed or was already decided. Refresh and try again.",
+]);
+
+function httpErrorMessage(status: number): string {
+  switch (status) {
+    case 401: return "Please sign in again.";
+    case 403: return "The AI assistant request was not allowed.";
+    case 404: return "This case was not found.";
+    case 502: return "The onboarding app could not be reached.";
+    case 503: return "The AI assistant service is unavailable right now.";
+    default: return "The AI assistant could not answer right now.";
+  }
+}
+
+async function readJsonBody(response: Response, maxBytes: number, signal?: AbortSignal): Promise<unknown> {
+  if (!response.body) throw new AiAssistantError("The AI assistant could not read its answer.", response.status);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const parts: string[] = [];
+  let totalBytes = 0;
+  let timedOut = false;
+  const deadline = performance.now() + JSON_BODY_DEADLINE_MS;
+  const cancel = () => { void reader.cancel().catch(() => undefined); };
+  const timeout = setTimeout(() => { timedOut = true; cancel(); }, JSON_BODY_DEADLINE_MS);
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      if (timedOut || performance.now() >= deadline) throw new Error("body deadline");
+      const { value, done } = await reader.read();
+      signal?.throwIfAborted();
+      if (timedOut || performance.now() >= deadline) throw new Error("body deadline");
+      if (done) return JSON.parse(parts.join("") + decoder.decode()) as unknown;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        throw new AiAssistantError("The AI assistant response limit was exceeded.", response.status);
+      }
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error instanceof AiAssistantError) throw error;
+    throw new AiAssistantError("The AI assistant could not read its answer.", response.status);
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", cancel);
+    // Cancellation is initiated before unlocking, but an uncooperative source's
+    // cancel promise cannot keep completion/abort/deadline indefinitely pending.
+    cancel();
+    reader.releaseLock();
+  }
+}
+
 async function request<T>(path: string, body: unknown | undefined, signal?: AbortSignal): Promise<T> {
-  return (await (await send(path, body, signal)).json()) as T;
+  return await readJsonBody(await send(path, body, signal), MAX_JSON_BODY_BYTES, signal) as T;
 }
 
 export function fetchAiAssistantBrief(caseId: string, signal?: AbortSignal): Promise<AiAssistantBrief> {
@@ -120,36 +199,86 @@ export async function askAiAssistantStreaming(
 ): Promise<AiAssistantAnswer> {
   const response = await send(`/cases/${encodeURIComponent(caseId)}/chat/stream`, { message, history }, signal);
   const isStream = (response.headers.get("Content-Type") ?? "").includes("ndjson");
-  if (!isStream || !response.body) {
-    const text = await response.text();
-    const lines = text.split("\n").filter((line) => line.trim());
-    const last = lines.length ? (JSON.parse(lines[lines.length - 1]) as Partial<StreamEvent>) : null;
-    if (last && "answer" in last) return last as AiAssistantAnswer;
-    throw new AiAssistantError("The AI assistant could not answer right now.");
-  }
+  if (!response.body) throw new AiAssistantError("The AI assistant could not answer right now.");
+  // Additional browser containment above the service's 64 KiB model text cap.
+  const maxLineBytes = 128 * 1024;
+  const maxResponseBytes = 2 * 1024 * 1024;
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    let newline = buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) {
-        const event = JSON.parse(line) as StreamEvent;
-        if (event.type === "text") onText(event.text);
-        else if (event.type === "done") {
-          const { type: _type, ...answer } = event;
-          return answer;
-        }
-      }
-      newline = buffer.indexOf("\n");
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let parts: string[] = [];
+  let lineBytes = 0;
+  let totalBytes = 0;
+  const aborted = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", aborted, { once: true });
+
+  function parseLine(line: string): AiAssistantAnswer | null {
+    signal?.throwIfAborted();
+    if (!line.trim()) return null;
+    const event = JSON.parse(line) as StreamEvent;
+    if (!event || typeof event !== "object") throw new Error("invalid event");
+    if (event.type === "text" && typeof event.text === "string") {
+      signal?.throwIfAborted();
+      onText(event.text);
+      return null;
     }
-    if (done) break;
+    if ((event.type === "done" || !isStream) && "answer" in event
+      && typeof event.answer === "string"
+      && ["model", "case_data"].includes(event.answered_by)
+      && (event.model === null || typeof event.model === "string")
+      && (event.notice === null || typeof event.notice === "string")
+      && Array.isArray(event.suggested_questions)
+      && event.suggested_questions.every((question) => typeof question === "string")) {
+      const { type: _type, ...answer } = event;
+      return answer;
+    }
+    throw new Error("invalid event");
   }
-  throw new AiAssistantError("The AI assistant stopped before finishing its answer.");
+
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      const { value, done } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) {
+        const tail = decoder.decode();
+        if (!isStream && (lineBytes || tail)) {
+          const answer = parseLine(parts.join("") + tail);
+          if (answer) return answer;
+        }
+        throw new AiAssistantError("The AI assistant stopped before finishing its answer.");
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > maxResponseBytes) {
+        throw new AiAssistantError("The AI assistant response limit was exceeded.");
+      }
+      // Scan incoming bytes once, including one-byte fragments of a retained line.
+      let start = 0;
+      while (start < value.byteLength) {
+        const newline = value.indexOf(10, start);
+        const end = newline < 0 ? value.byteLength : newline + 1;
+        lineBytes += end - start;
+        if (lineBytes > maxLineBytes) {
+          throw new AiAssistantError("The AI assistant response line limit was exceeded.");
+        }
+        parts.push(decoder.decode(value.subarray(start, end), { stream: true }));
+        if (newline >= 0) {
+          const answer = parseLine(parts.join("") + decoder.decode());
+          parts = [];
+          lineBytes = 0;
+          if (answer) return answer;
+        }
+        start = end;
+      }
+    }
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error instanceof AiAssistantError) throw error;
+    throw new AiAssistantError("The AI assistant could not read its answer.");
+  } finally {
+    signal?.removeEventListener("abort", aborted);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }
 
 // --- Knowledge loop: RM feedback and Director review --------------------------------------

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
@@ -94,6 +94,7 @@ test("Slice B Garden partnership automatically uses labelled local ownership", {
   await openStage(page, "Registry verification");
   await expect(page.getByText(/ACRA Marketplace protocol · synthetic offline test evidence \| GoldTier/) ).toBeVisible();
   await expect(page.getByText(/not an authoritative partnership-ownership source/)).toBeVisible();
+  await openStageSupport(page, "Registry verification", "More");
   await expect(page.getByRole("heading", { name: "Registry officers and roles", exact: true })).toBeVisible();
   const initial = await summary(page, caseId);
   expect(initial.case.entity.party_type).toBe("PARTNERSHIP");
@@ -136,7 +137,9 @@ test("Slice B Merlion fresh cache makes zero new ACRA calls", { tag: "@slice-b-s
   expect(await counts(page)).toEqual(before);
   await openStage(page, "Registry verification");
   await expect(page.getByText("Reused fresh registry evidence — no ACRA request required.", { exact: true }).first()).toBeVisible();
+  await openStageSupport(page, "Registry verification", "Technical");
   const bindingView = page.getByLabel("Case evidence binding", { exact: true });
+  await expect(bindingView).toBeVisible();
   const hit = await summary(page, caseId);
   expect(hit.case.registry_evidence_binding.disposition).toBe("CACHE_HIT");
   expect(hit.case.registry_acquisition).toEqual(warm.case.registry_acquisition);

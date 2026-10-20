@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { HumanInterventionProjection, ZeroTouchCaseSummary } from "../types";
@@ -62,5 +65,86 @@ describe("HumanInterventionPanel compact summaries", () => {
     expect(html).toContain("2 related blockers");
     expect(html).toContain("Keep registry value");
     expect(html.match(/data-intervention-id="document-field-/g)).toHaveLength(2);
+  });
+});
+
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+function visiblyAvailable(element: Element): boolean {
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    if (node instanceof HTMLElement && (node.hidden || getComputedStyle(node).display === "none")) return false;
+    if (node instanceof HTMLDetailsElement && !node.open
+      && !node.querySelector(":scope > summary")?.contains(element)) return false;
+  }
+  return true;
+}
+
+describe("current intervention essentials", () => {
+  it("shows every distinct required input, next step and resolution condition with Why closed and performs no mutation on toggles", async () => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    const onResolve = vi.fn(), onEvidenceAction = vi.fn(), onConfirmExisting = vi.fn();
+    const items = [1, 2].map(index => intervention(index, { resolution_condition: `Current evidence ${index} retained.` }));
+    try {
+      await act(async () => root.render(<HumanInterventionPanel
+        summary={{ interventions: items, active_exceptions: [] } as unknown as ZeroTouchCaseSummary}
+        isBusy={false} onResolve={onResolve} onEvidenceAction={onEvidenceAction} onConfirmExisting={onConfirmExisting} />));
+      expect(host.querySelector("details")!.open).toBe(false);
+      for (const item of items) {
+        for (const text of [...item.required_evidence_or_input, item.expected_next_step, item.resolution_condition!]) {
+          const field = [...host.querySelectorAll("dd")].find(e => e.textContent === text)!;
+          expect(field, text).toBeDefined(); expect(visiblyAvailable(field), text).toBe(true);
+        }
+      }
+      expect(host.querySelectorAll("button")).toHaveLength(1);
+      for (const open of [true, false]) await act(async () => { host.querySelector("details")!.open = open; });
+      expect(onResolve).not.toHaveBeenCalled(); expect(onEvidenceAction).not.toHaveBeenCalled(); expect(onConfirmExisting).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+});
+
+
+describe("intervention authority and drafts", () => {
+  it("retains explicit candidate rationale through disclosure toggles and denies confirmation when backend authority is absent", async () => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    const onResolve = vi.fn(), onConfirmExisting = vi.fn();
+    const item = intervention(1, {
+      existing_customer_confirmation_action: "CONFIRM_EXISTING_GOLDTIER_CUSTOMER",
+      candidate_summaries: [{ party_id: "SYNTHETIC_PARTY", legal_name: "Synthetic retained customer", registration_number: null, country: null, legal_form: null }],
+    });
+    const render = async (authorized: boolean, busy = false) => { await act(async () => root.render(<HumanInterventionPanel
+      summary={{ interventions: [item], active_exceptions: [], evidence_decision_authorized: authorized } as unknown as ZeroTouchCaseSummary}
+      isBusy={busy} onResolve={onResolve} onConfirmExisting={onConfirmExisting} />)); };
+    try {
+      await render(true);
+      const input = host.querySelector<HTMLInputElement>("#existing-customer-confirmation-rationale")!;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Compared explicit synthetic identity"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+      for (const open of [true, false]) await act(async () => { host.querySelector("details")!.open = open; });
+      expect(input.value).toBe("Compared explicit synthetic identity"); expect(visiblyAvailable(input)).toBe(true);
+      expect(onResolve).not.toHaveBeenCalled(); expect(onConfirmExisting).not.toHaveBeenCalled();
+      await render(true, true); expect(input.disabled).toBe(true);
+      expect(input.value).toBe("Compared explicit synthetic identity");
+      expect([...host.querySelectorAll("button")].every(button => button.disabled)).toBe(true);
+      await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(onConfirmExisting).not.toHaveBeenCalled();
+      await render(true, false);
+      await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(onConfirmExisting).toHaveBeenCalledExactlyOnceWith("Compared explicit synthetic identity");
+      await render(false); expect(host.querySelector("form")).toBeNull(); expect(onConfirmExisting).toHaveBeenCalledTimes(1);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it("keeps unavailable and frozen explanations visible without creating fallback actions", async () => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<HumanInterventionPanel summary={{ interventions: [intervention(1, {
+        evidence_actions: [], no_action_reason: "Current evidence is frozen; no correction is authorized.",
+        resolution_condition: "An authorized new review is required.",
+      })], active_exceptions: [] } as unknown as ZeroTouchCaseSummary} isBusy={false} onResolve={vi.fn()} />));
+      expect(host.querySelectorAll("button,input,select,textarea")).toHaveLength(0);
+      expect(visiblyAvailable(host.querySelector('[role="status"]')!)).toBe(true);
+      expect([...host.querySelectorAll("dd")].every(visiblyAvailable)).toBe(true);
+      expect(host.querySelector("details")!.open).toBe(false);
+    } finally { await act(async () => root.unmount()); host.remove(); }
   });
 });

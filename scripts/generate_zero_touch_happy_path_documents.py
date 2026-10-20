@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "apps/backend")]
 
-from scripts.zero_touch_happy_path_fixtures import (  # noqa: E402
+from scripts.zero_touch_happy_path_fixtures import (
     COMPANIES,
     GOVERNMENT,
     HappyPathCompany,

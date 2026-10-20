@@ -111,7 +111,7 @@ describe("KnowledgeReview", () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal(
       "fetch",
-      backend(calls, () => json({ detail: { message: "the author of an entry cannot approve or reject it" } }, 403)),
+      backend(calls, () => json({ detail: { message: "You cannot approve or reject an entry you wrote." } }, 403)),
     );
     const view = render();
     await flush();
@@ -119,7 +119,7 @@ describe("KnowledgeReview", () => {
     await flush();
     expect(calls).toHaveLength(1);
     expect(calls[0].body).toEqual({ approve: false, notes: "" });
-    expect(view.querySelector("[role=alert]")?.textContent).toBe("the author of an entry cannot approve or reject it");
+    expect(view.querySelector("[role=alert]")?.textContent).toBe("You cannot approve or reject an entry you wrote.");
   });
 
   it("closes a gap", async () => {

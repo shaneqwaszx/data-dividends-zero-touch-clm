@@ -93,6 +93,7 @@ RULE_PLAIN = {
 
 # The case page's own section titles (apps/frontend/src/pages/CaseDetail.tsx).
 CASE_PAGE_SECTIONS = (
+    "Existing-customer search",
     "Registry verification",
     "Document verification",
     "Ownership & UBO",
@@ -137,16 +138,16 @@ READINESS_NEEDS: dict[str, tuple[str, str]] = {
     "OWNERSHIP_ANALYSIS_FAILED": ("The UBO check failed.", "Ownership & UBO"),
     "GOLDTIER_SEARCH_REQUIRED": (
         "The GoldTier existing-customer search has not run.",
-        "Registry verification",
+        "Existing-customer search",
     ),
     "GOLDTIER_SEARCH_REVIEW_REQUIRED": (
         "GoldTier may already have this customer; this needs confirming.",
-        "Registry verification",
+        "Existing-customer search",
     ),
-    "GOLDTIER_SEARCH_FAILED": ("The GoldTier customer search failed.", "Registry verification"),
+    "GOLDTIER_SEARCH_FAILED": ("The GoldTier customer search failed.", "Existing-customer search"),
     "GOLDTIER_SEARCH_STALE": (
         "The GoldTier customer search is out of date and must be re-run.",
-        "Registry verification",
+        "Existing-customer search",
     ),
     "GOLDTIER_CLASSIFICATION_REQUIRED": (
         "The GoldTier customer classification (KYC customer type and client segment) "

@@ -113,26 +113,34 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
     expect(next.active_exceptions.some((item: any) => item.blocker_code === "ACRA_ENTITY_NOT_FOUND")).toBe(false);
     previous = next;
   }
-  await expect(page.locator(".stage-disclosure > h2 > button").last()).toHaveText("Final review & send+");
+  await expect(page.locator(".stage-disclosure--final > h2")).toHaveText("Final review & send");
   await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
-  await expect(page.getByText(/Not yet available —/)).toBeVisible();
+  await expect(page.locator(".stage-disclosure--final > div").getByText(/Not yet available —/)).toBeVisible();
   await expect(page.locator(".review-and-send")).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 900 });
   await expect.poll(() => page.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
   )).toBe(true);
-  const documents = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Document verification" });
-  await page.mouse.move(0, 0);
-  await expectDisclosureContrast(documents);
-  await documents.hover();
-  await expectDisclosureContrast(documents);
-  await page.mouse.move(0, 0);
-  await documents.focus();
-  await expectDisclosureContrast(documents);
-  await page.keyboard.press("Enter");
-  await expect(documents).toHaveAttribute("aria-expanded", "false");
-  await page.keyboard.press("Space");
-  await expect(documents).toHaveAttribute("aria-expanded", "true");
+  const documents = page.getByRole("region", { name: "Document verification", exact: true });
+  await expect(documents.locator(":scope > div").first()).toBeVisible();
+  for (const kind of ["More", "Technical"]) {
+    const control = documents.getByText(`${kind} details — Document verification`, { exact: true });
+    const support = control.locator("..");
+    await expect(support).not.toHaveAttribute("open", "");
+    await page.mouse.move(0, 0);
+    await expectDisclosureContrast(control);
+    await control.hover();
+    await expectDisclosureContrast(control);
+    await page.mouse.move(0, 0);
+    await control.focus();
+    await expectDisclosureContrast(control);
+    await page.keyboard.press("Enter");
+    await expect(support).toHaveAttribute("open", "");
+    await expect(documents.locator(":scope > div").first()).toBeVisible();
+    await page.keyboard.press("Space");
+    await expect(support).not.toHaveAttribute("open", "");
+    await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
+  }
 });
 
 test("Phase24 entered UEN choice resolves current identity conflict without silent source selection", async ({ page }) => {
@@ -183,9 +191,9 @@ for (const choice of ["DOCUMENT", "OTHER"] as const) {
     expect(corrected.case.identity_corrections.at(-1).previous_identity.registration_number).toBe("202400001A");
     await openStage(page, "Ownership & UBO");
     await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
-    const ownershipStructure = page.locator(".s2-ownership-structure");
+    const ownershipStructure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
     await expect(ownershipStructure).not.toHaveAttribute("open", "");
-    const calculations = ownershipStructure.getByText("Technical calculations and retained paths", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
+    const calculations = ownershipStructure.getByText("Technical details — Ownership & UBO", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
     const evidence = page.getByLabel("Original ownership evidence", { exact: true });
     await expect(evidence).toBeVisible();
     await expect(evidence).toContainText("202400009I");

@@ -34,6 +34,22 @@ class ResourceReadinessTests(unittest.TestCase):
         self.assertFalse(resources.thread.is_alive())
         self.assertFalse(resources.host_cpu)
 
+    def test_unexpected_sampler_errors_are_contained_without_false_evidence(self):
+        for error in (RuntimeError, ValueError, TypeError, OSError):
+            with self.subTest(error=error.__name__):
+                resources = Resources(startup_seconds=0.03, join_seconds=1)
+                with (
+                    patch("psutil.Process", side_effect=error("synthetic OS detail")),
+                    patch("threading.excepthook") as unhandled,
+                    self.assertRaisesRegex(RuntimeError, "first observation"),
+                ):
+                    resources.__enter__()
+                unhandled.assert_not_called()
+                self.assertFalse(resources.first_sample.is_set())
+                self.assertFalse(resources.thread.is_alive())
+                self.assertEqual(resources.peak_rss, 0)
+                self.assertEqual(resources.host_cpu, [])
+
     def test_join_failure_is_bounded_and_reported(self):
         resources = Resources(join_seconds=0.01)
         with patch.object(resources.thread, "join") as join, patch.object(
@@ -116,7 +132,7 @@ class ActiveProbeTests(unittest.TestCase):
             probe.observe(lambda: 42)
         self.assertEqual(probe.active, 0)
 
-    def test_primary_cohort_bytes_are_unchanged(self):
+    def test_primary_cohort_bytes_except_unused_binding_are_unchanged(self):
         import inspect
         import subprocess
 
@@ -130,4 +146,11 @@ class ActiveProbeTests(unittest.TestCase):
             text=True,
         )
         old_function = old[old.index("def measure_level("):old.index("\ndef run(")].rstrip()
-        self.assertEqual(inspect.getsource(measure_level).rstrip(), old_function)
+        # R3 authorizes only this unused tuple-binding rename. Keep the exact
+        # cohort-body barrier for every other byte, including all assertions.
+        source = inspect.getsource(measure_level).rstrip()
+        before = "as (client, bundle, target, registry)"
+        after = "as (client, _bundle, target, registry)"
+        self.assertEqual(old_function.count(before), 1)
+        self.assertEqual(source.count(after), 1)
+        self.assertEqual(source.replace(after, before), old_function)

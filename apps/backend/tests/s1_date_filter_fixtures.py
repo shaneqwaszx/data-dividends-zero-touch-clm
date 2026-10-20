@@ -76,6 +76,7 @@ def memory_date_filter_repository(
             entity=None,
             jurisdiction_resolution=None,
             goldtier_result=None,
+            created_by_actor_id=None,
             # Different from automation creation: never use the wrong owner.
             created_at=OBSERVED,
         )

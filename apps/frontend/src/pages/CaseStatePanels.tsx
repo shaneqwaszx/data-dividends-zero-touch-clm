@@ -280,12 +280,22 @@ function ProcessingExplanation({ node, children }: { node: ProcessingNode; child
   );
 }
 
-export function ProcessingBlockerPanels({ summary, stage }: { summary: ZeroTouchCaseSummary; stage?: "REGISTRY" | "TARGET" }) {
+export function ProcessingBlockerPanels({ summary, stage, searchPart = "all" }: {
+  summary: ZeroTouchCaseSummary; stage?: "REGISTRY" | "TARGET"; searchPart?: "all" | "main" | "more" | "technical";
+}) {
   const pipeline = summary.processing_pipeline ?? [];
   const search = findProcessingNode(pipeline, "GOLDTIER_SEARCH");
   const finalReview = findProcessingNode(pipeline, "FINAL_REVIEW_SEND");
   const target = finalReview && NAVIGABLE_PROCESSING_STATUSES.has(finalReview.status)
     ? finalReview : findProcessingNode(pipeline, "GOLDTIER_TARGET");
+
+  const searchWarning = "A failed Search does not prove that the customer is absent. A bounded read-only Search recheck may be available through Registry identity under the current case state. Target mutation remains prohibited until authoritative prerequisites are met. A recheck confirms identity only when its result satisfies the existing resolver rules.";
+  if (searchPart === "main") return search && NAVIGABLE_PROCESSING_STATUSES.has(search.status) ? <div className="ds-banner ds-banner-warn">
+    <strong>Search: {PROGRESS_STATUS_LABELS[search.status]}</strong>
+    {search.safe_result && <p>{search.safe_result}</p>}
+    <p className="control-help">{searchWarning}</p>
+  </div> : summary.clm.target_search_checkpoint?.status === "FAILED" ? <p className="control-help">{searchWarning}</p> : null;
+  if (searchPart === "more") return search?.children.length ? <ol aria-label="Retained Search result steps">{search.children.map(child => <ProcessingPipelineNodeView key={child.node_id} node={child} businessOnly />)}</ol> : null;
 
   return (
     <>
@@ -293,9 +303,16 @@ export function ProcessingBlockerPanels({ summary, stage }: { summary: ZeroTouch
         <section id="case-search-diagnostic" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-search-diagnostic-heading">
           <p className="card-kicker">Read-only diagnostic</p>
           <h2 id="case-search-diagnostic-heading">GoldTier Search</h2>
-          <ProcessingExplanation node={search}>
-            A failed Search does not prove that the customer is absent. A bounded read-only Search recheck may be available through Registry identity under the current case state. Target mutation remains prohibited until authoritative prerequisites are met. A recheck confirms identity only when its result satisfies the existing resolver rules.
-          </ProcessingExplanation>
+          <ProcessingExplanation node={search}>{searchWarning}</ProcessingExplanation>
+          {searchPart === "technical" && <dl>
+            <div><dt>Processing node</dt><dd>{search.node_id}</dd></div>
+            <div><dt>Backend stage</dt><dd>{search.backend_stage ?? "Not recorded"}</dd></div>
+            <div><dt>Operation</dt><dd>{search.operation ?? "Not recorded"}</dd></div>
+            <div><dt>Provider</dt><dd>{search.provider ?? "Not recorded"} · {search.environment ?? "Not recorded"}</dd></div>
+            <div><dt>Recorded at</dt><dd>{search.timestamp ?? "Not recorded"}</dd></div>
+            <div><dt>Record count</dt><dd>{search.record_count ?? "Not recorded"}</dd></div>
+          </dl>}
+          {searchPart === "technical" && search.children.length > 0 && <ol aria-label="Search operation details">{search.children.map(child => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
         </section>
       )}
       {stage !== "REGISTRY" && target && NAVIGABLE_PROCESSING_STATUSES.has(target.status) && (
@@ -475,7 +492,7 @@ function processingStatusLabel(status: ProcessingNodeStatus): string {
   return status.replaceAll("_", " ");
 }
 
-function ProcessingPipelineNodeView({ node }: { node: ProcessingNode }) {
+function ProcessingPipelineNodeView({ node, businessOnly = false }: { node: ProcessingNode; businessOnly?: boolean }) {
   const safeDetails = [
     node.provider && { label: "Provider", value: node.provider },
     node.environment && { label: "Environment", value: node.environment },
@@ -488,7 +505,8 @@ function ProcessingPipelineNodeView({ node }: { node: ProcessingNode }) {
     },
     node.blocker_code && { label: "Blocker code", value: node.blocker_code },
     node.retained_goldtier_id && { label: "Retained GoldTier ID", value: node.retained_goldtier_id },
-  ].filter((item): item is { label: string; value: string } => Boolean(item));
+  ].filter((item): item is { label: string; value: string } => Boolean(item))
+    .filter(item => !businessOnly || item.label === "Record count");
 
   return (
     <li className="processing-pipeline__node" data-status={node.status}>
@@ -513,7 +531,7 @@ function ProcessingPipelineNodeView({ node }: { node: ProcessingNode }) {
       {node.children.length > 0 && (
         <ol className="processing-pipeline__children" aria-label={`${node.label} steps`}>
           {node.children.map((child) => (
-            <ProcessingPipelineNodeView key={child.node_id} node={child} />
+            <ProcessingPipelineNodeView key={child.node_id} node={child} businessOnly={businessOnly} />
           ))}
         </ol>
       )}
@@ -810,9 +828,11 @@ export function registryPresentation(
 export function RegistryStatePanel({
   summary,
   registryProviderMode,
+  compact = false,
 }: {
   summary: ZeroTouchCaseSummary;
   registryProviderMode?: RegistryProviderMode;
+  compact?: boolean;
 }) {
   const resolution = summary.case.jurisdiction_resolution;
   const route = summary.case.registry_route;
@@ -828,24 +848,20 @@ export function RegistryStatePanel({
         ? "REQUIRED_BUT_UNAVAILABLE"
         : "MISSING";
 
-  const registryNode = (summary.processing_pipeline ?? [])
-    .find((item) => item.node_id === "ACRA_REGISTRY");
-  if (
-    summary.current_stage !== "REGISTRY"
-    && !presentation.attention
-    && registryNode?.status !== "NOT_REACHED"
-  ) return null;
+  const registryNode = (summary.processing_pipeline ?? []).find(item => item.node_id === "ACRA_REGISTRY");
+  const showState = summary.current_stage === "REGISTRY" || presentation.attention || registryNode?.status === "NOT_REACHED";
+  if (!compact && !showState) return null;
 
   return (
-    <section className="state-composition" aria-labelledby="registry-state-heading">
+    <section className="state-composition" aria-label={compact && !showState ? "Retained registry state" : undefined} aria-labelledby={showState ? "registry-state-heading" : undefined}>
       <div className="state-composition__header">
         <div>
           <p className="card-kicker">Registry acquisition</p>
-          <h2 id="registry-state-heading">{presentation.heading}</h2>
-          <p className="text-muted">{presentation.description}</p>
+          {showState ? <h2 id="registry-state-heading">{presentation.heading}</h2> : <h3>Retained registry state</h3>}
+          <p className="text-muted">{showState ? presentation.description : acquisition ? presentation.description : "Registry acquisition is not retained. Completion and provider activity cannot be inferred."}</p>
         </div>
         <span className={presentation.attention ? "tag tag-outline" : "tag tag-accent-2"}>
-          {presentation.tag}
+          {!showState && !acquisition ? registryNode?.status ?? "Not recorded" : presentation.tag}
         </span>
       </div>
 
@@ -857,7 +873,7 @@ export function RegistryStatePanel({
       )}
 
       <div className="state-grid state-grid--registry">
-        <div className="card progress-card">
+        {!compact && <div className="card progress-card">
           <p className="card-kicker">Progress</p>
           <ol className="progress-list">
             <li data-state={jurisdictionState} aria-label={`Jurisdiction status: ${progressStateLabel(jurisdictionState)}`}>
@@ -882,18 +898,20 @@ export function RegistryStatePanel({
               );
             })}
           </ol>
-        </div>
+        </div>}
         <aside className="card registry-policy-card">
           <p className="card-kicker">Registry boundary</p>
           <div className="kv-row"><span className="kv-label">This case's registry identity evidence</span><span className="kv-value">{identityCompleteness}</span></div>
           <p className="control-help">This describes retained case identity and its backend blocker. Unsupported connector operations describe capability limits separately.</p>
-          <div className="kv-row"><span className="kv-label">Provider</span><span className="kv-value">{presentation.provider}</span></div>
-          <div className="kv-row"><span className="kv-label">Connection</span><span className="kv-value">{presentation.connection}</span></div>
+          <div className="kv-row"><span className="kv-label">Jurisdiction</span><span className="kv-value">{resolution?.resolved_jurisdiction ?? "Not resolved"} · {resolution?.status ?? "Not evaluated"}</span></div>
+          <div className="kv-row"><span className="kv-label">Registry route</span><span className="kv-value">{route?.status ?? "Not selected"} · {route?.provider ?? "No provider"} · {route?.jurisdiction ?? "Not recorded"}</span></div>
+          <div className="kv-row"><span className="kv-label">{compact ? "Configured provider" : "Provider"}</span><span className="kv-value">{presentation.provider}</span></div>
+          <div className="kv-row"><span className="kv-label">Connection</span><span className="kv-value">{!showState && !acquisition ? "Not recorded" : presentation.connection}</span></div>
           <div className="kv-row"><span className="kv-label">Entity</span><span className="kv-value">{presentation.entity}</span></div>
           <div className="kv-row"><span className="kv-label">Environment</span><span className="kv-value">{summary.case.entity?.source?.environment ?? acquisition?.operation_results.find((item) => item.provenance)?.provenance?.environment ?? "—"}</span></div>
-          <div className="kv-row"><span className="kv-label">Acquisition</span><span className="kv-value">{acquisition?.status ?? "Not started"}</span></div>
+          <div className="kv-row"><span className="kv-label">Acquisition</span><span className="kv-value">{acquisition?.status ?? "Not recorded"}</span></div>
           <div className="kv-row"><span className="kv-label">Issue</span><span className="kv-value">{presentation.issue}</span></div>
-          <div className="kv-row"><span className="kv-label">Action</span><span className="kv-value">{presentation.action}</span></div>
+          <div className="kv-row"><span className="kv-label">Action</span><span className="kv-value">{!showState && !acquisition ? "Follow the current backend workflow action" : presentation.action}</span></div>
           <div className="kv-row"><span className="kv-label">Access</span><span className="kv-value">Backend-managed</span></div>
           <p className="control-help">
             {registryProviderMode === "API_MARKETPLACE_PROTOCOL_TEST"
@@ -916,16 +934,32 @@ export function RegistryStatePanel({
 
 export function ConfirmDetailsPanel({
   summary,
+  presentation = "full",
   isBusy = false,
   onResolve,
 }: {
   summary: ZeroTouchCaseSummary;
   isBusy?: boolean;
+  presentation?: "full" | "main" | "technical";
   onResolve?: (discrepancy: ReconciliationDiscrepancy, action: ReconciliationDecisionAction) => void;
 }) {
   const reconciliation = summary.reconciliation;
-  if (!reconciliation || summary.current_stage !== "DOCUMENT") return null;
+  if (!reconciliation || (presentation !== "technical" && summary.current_stage !== "DOCUMENT")) return null;
   const discrepancies = new Map(reconciliation.discrepancies.map((item) => [item.discrepancy_id, item]));
+  if (presentation === "technical") return <section aria-label="Reconciliation provenance">
+    <h3>Reconciliation provenance</h3>
+    <dl className="document-field__evidence">
+      <div><dt>Reconciliation status / version</dt><dd>{reconciliation.status} / {reconciliation.version}</dd></div>
+      <div><dt>Reconciliation reference</dt><dd>{reconciliation.reconciliation_id}</dd></div>
+      <div><dt>Updated at — original ISO UTC</dt><dd>{reconciliation.updated_at}</dd></div>
+      <div><dt>Source document bindings</dt><dd>{reconciliation.source_document_ids.map((id, index) => `${id} · event count ${reconciliation.source_document_event_counts[index] ?? "Not recorded"}`).join("; ") || "None recorded"}</dd></div>
+    </dl>
+    {reconciliation.fields.map(field => <section key={field.field_name}>
+      <h4>{field.field_name.replaceAll("_", " ")} · {field.outcome}</h4>
+      {field.observations.map(observation => <p key={observation.observation_id}>{observation.source_kind} · {observation.source_system ?? "—"} {observation.environment ?? "—"} · {observation.evidence_reference ?? "safe reference unavailable"}</p>)}
+      <p>Decision: {field.discrepancy_id ? discrepancies.get(field.discrepancy_id)?.decision?.action ?? discrepancies.get(field.discrepancy_id)?.status ?? "Not required" : "Not required"}</p>
+    </section>)}
+  </section>;
   return (
     <section className="state-composition confirm-details" aria-labelledby="confirm-details-heading">
       <div className="state-composition__header">
@@ -958,7 +992,7 @@ export function ConfirmDetailsPanel({
                 <div><span>Registry observation</span><strong>{registry.length ? registry.map(observationText).join(" · ") : "Not observed"}</strong></div>
                 <div><span>Document observation</span><strong>{documents.length ? documents.map(observationText).join(" · ") : "Not observed"}</strong></div>
               </div>
-              <details>
+              {presentation === "full" && <details>
                 <summary>Provenance and decision state</summary>
                 {field.observations.map((observation) => (
                   <p key={observation.observation_id}>
@@ -966,7 +1000,7 @@ export function ConfirmDetailsPanel({
                   </p>
                 ))}
                 <p>Decision: {discrepancy?.decision?.action.replaceAll("_", " ") ?? discrepancy?.status ?? "Not required"}</p>
-              </details>
+              </details>}
               {discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length > 0 && onResolve && (
                 <div className="comparison-actions">
                   {discrepancy.allowed_actions.map((action) => (

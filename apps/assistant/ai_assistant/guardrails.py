@@ -31,6 +31,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .llm import LlmUnavailableError
+
 _SNAKE = re.compile(r"\s*\(?`?\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b`?\)?")
 # A label in double quotes, or in single quotes that are not apostrophes ("ACRA's", "it's").
 _QUOTED = re.compile(
@@ -80,8 +82,9 @@ _REQUEST = r"(?:request|requests|requested|requesting)"
 _ACCEPT = r"(?:accept|accepts|accepted|accepting)"
 _REJECT = r"(?:reject|rejects|rejected|rejecting)"
 _RECORD = r"(?:record|records|recorded|recording)"
-_APPROVE = r"(?:approve|approves|approved|approving)"
+_APPROVE = r"(?:approv(?:e|es|ed|ing)|authori[sz](?:e|es|ed|ing))"
 _SUBMIT = r"(?:submit|submits|submitted|submitting|send|sends|sent|sending)"
+_RESEND = r"(?:resend|resends|resending|resubmit|resubmits|resubmitting|re-send|re-submit)"
 # Any tense counts: a past case described as "they used the document value" is still an
 # action this case may not offer.
 _ACTION_PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -122,10 +125,14 @@ _ACTION_PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             rf"\b{_APPROVE} (?:the |this )?(?:case|onboarding|client|company)\b"
             rf"|\b{_SUBMIT} (?:it |the case |this case )?to goldtier\b"
+            # Uncertain or frozen GoldTier submissions are never resent from the chat.
+            rf"|\b{_RESEND}\b"
         ),
     ),
 )
-_NEGATION = re.compile(r"\b(?:cannot|can't|can not|not|no|never|isn't|aren't|unavailable)\b")
+_NEGATION = re.compile(
+    r"\b(?:cannot|can't|can not|not|no|never|neither|nor|isn't|aren't|doesn't|unavailable)\b"
+)
 # Parts of one sentence that can say opposite things ("you cannot X, but you can Y").
 _CLAUSE = re.compile(r",?\s+but\s+|;\s*|,\s*however,?\s*|\s+whereas\s+|,\s*while\s+")
 
@@ -156,6 +163,16 @@ _STEPS = re.compile(r"\b(\d+)\s*(?:of|out of|/)\s*(\d+)\s*(?:onboarding\s+)?step
 _LIVE = re.compile(
     r"\b(?:live|production|real)\s+(?:acra|registry|goldtier|system|environment|integration"
     r"|connection|api|data)\b|\b(?:acra|goldtier|registry|system)\b[^.]{0,30}\b(?:is|are) live\b"
+    r"|\b(?:case|client|company|it|this)\b[^.]{0,20}\b(?:is|are) live\b"
+)
+# Claims only people or other systems can make: legal UBO verification, KYC or regulatory
+# approval, official verification, or one source automatically winning over the other.
+_AUTHORITY = re.compile(
+    r"\blegally (?:verified|confirmed|established)\b"
+    r"|\b(?:ubos?|beneficial owners?|ownership)\b[^.]{0,30}\b(?:are|is) (?:verified|confirmed)\b"
+    r"|\b(?:kyc|regulatory|compliance)(?:/kyc)? (?:approval|approved|clearance|cleared)\b"
+    r"|\bofficially (?:verified|approved|confirmed)\b"
+    r"|\b(?:always|automatically) (?:overrides?|wins?|takes? precedence|replaces?)\b"
 )
 _CONFIRMED = re.compile(r"\b(?:confirmed|verified|official|is correct|are correct)\b")
 
@@ -221,6 +238,9 @@ def _check(sentence: str, ctx: Context) -> str | None:
         for label, pattern in _ACTION_PHRASES:
             if pattern.search(clause) and label not in ctx.allowed:
                 return "action_not_allowed"
+    for clause in clauses:
+        if _AUTHORITY.search(clause) and not _NEGATION.search(clause):
+            return "authority_claim"
     # 3. Disclosures
     if _LIVE.search(lowered) and "status" not in lowered:
         return "live_claim"
@@ -344,6 +364,10 @@ def guard_answer(answer: str, facts: dict[str, Any]) -> str:
 _SAFE_END = re.compile(r"(?:\n|[.!?](?=\s))")
 
 
+# A runaway or hostile stream cannot grow without bound (also when it never ends a sentence).
+MAX_MODEL_TEXT_BYTES = 64 * 1024
+
+
 class StreamingGuard:
     """Checks a streamed answer one finished sentence (or line) at a time.
 
@@ -365,24 +389,42 @@ class StreamingGuard:
         self._knowledge_tags = knowledge_tags
         self._raw = ""
         self._shown = ""
+        self._total_bytes = 0
+        self._checked = Validation(text="")
 
     def feed(self, text: str) -> str | None:
         """Add new model text; return the checked answer so far if it changed."""
 
+        try:
+            size = len(text.encode("utf-8"))
+        except UnicodeError:
+            raise LlmUnavailableError("unreadable model reply") from None
+        if self._total_bytes + size > MAX_MODEL_TEXT_BYTES:
+            raise LlmUnavailableError("model text limit exceeded")
+        self._total_bytes += size
         self._raw += text
         ends = [match.end() for match in _SAFE_END.finditer(self._raw)]
         if not ends:
             return None
-        checked = validate_answer(
+        validation = validate_answer(
             self._raw[: ends[-1]],
             self._facts,
             knowledge_text=self._knowledge_text,
             knowledge_tags=self._knowledge_tags,
-        ).text
-        if checked == self._shown:
+        )
+        self._checked = validation
+        if validation.text == self._shown:
             return None
-        self._shown = checked
-        return checked
+        self._shown = validation.text
+        return validation.text
+
+    def partial(self) -> Validation:
+        """What was already checked and shown, for when the stream fails part-way.
+
+        The unfinished last sentence is never included: it was not checked as a whole.
+        """
+
+        return self._checked
 
     def finish(self) -> Validation:
         """The final check, including a last sentence without a full stop."""

@@ -6,7 +6,7 @@
 Every request re-reads the case, so answers reflect the case as it is now. The RM's own
 session is forwarded to the CLM backend, which stays the authority for access.
 
-Opening the panel (/brief) also pre-warms the model in the background, and the chat panel
+Opening the panel (/brief) may pre-warm a literal loopback model in the background; the chat panel
 uses /chat/stream so the answer appears while it is written (see README "Speed").
 """
 
@@ -15,7 +15,8 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -41,7 +42,7 @@ from .knowledge_answers import (
     sources_for,
     tag_hits,
 )
-from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel
+from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel, is_local_model_url
 from .prompts import build_messages, prefix_messages
 from .small_talk import small_talk_reply
 
@@ -118,6 +119,7 @@ class HealthResponse(BaseModel):
 
 
 FALLBACK_NOTICE = "The AI model is not available, so this answer comes straight from the case data."
+POLICY_NOTICE = "The model response could not be verified, so this answer comes from the case data."
 CUT_SHORT_NOTICE = "This answer was cut short. Ask me to continue for the rest."
 
 
@@ -165,12 +167,12 @@ def _model_reply(
     )
 
 
-def _fallback_reply(prep: Prepared) -> "ChatResponse":
+def _fallback_reply(prep: Prepared, *, notice: str = FALLBACK_NOTICE) -> "ChatResponse":
     return ChatResponse(
         answer=prep.fallback,
         answered_by="case_data",
         model=None,
-        notice=FALLBACK_NOTICE,
+        notice=notice,
         suggested_questions=prep.suggestions,
         sources=prep.sources(prep.fallback),
         knowledge=prep.knowledge,
@@ -279,6 +281,7 @@ def create_app(
         )
 
     def answer_with_model(prep: Prepared) -> ChatResponse:
+        notice = FALLBACK_NOTICE
         if model is not None:
             try:
                 reply = model.complete(prep.messages)
@@ -289,13 +292,14 @@ def create_app(
                     knowledge_tags=prep.knowledge_tags,
                 )
                 if not validation.text:
+                    notice = POLICY_NOTICE
                     raise LlmUnavailableError("nothing left after validation")
                 return _model_reply(
                     validation, prep, model_name=model.name, cut_short=reply.cut_short
                 )
             except LlmUnavailableError:
                 pass
-        return _fallback_reply(prep)
+        return _fallback_reply(prep, notice=notice)
 
     warmed: dict[str, float] = {}
     warm_lock = threading.Lock()
@@ -307,7 +311,7 @@ def create_app(
         same facts were read recently (the model server still has them cached).
         """
 
-        if model is None or not config.llm_warm_up:
+        if model is None or not config.llm_warm_up or not is_local_model_url(config.llm_base_url):
             return
         messages = prefix_messages(facts)
         key = hashlib.sha256(json.dumps(messages).encode()).hexdigest()
@@ -321,7 +325,7 @@ def create_app(
                 del warmed[old]
         model.warm(messages)
 
-    def stream_answer(prep: Prepared) -> Iterator[str]:
+    async def stream_answer(prep: Prepared) -> AsyncIterator[str]:
         """The answer as newline-delimited JSON: "text" updates while the model writes,
         then one "done" with the final answer (the same fields as the /chat reply)."""
 
@@ -331,30 +335,34 @@ def create_app(
         def done(response: ChatResponse) -> str:
             return line({"type": "done", **response.model_dump()})
 
+        notice = FALLBACK_NOTICE
         if model is not None:
             guard = StreamingGuard(
                 prep.facts, knowledge_text=prep.knowledge_text, knowledge_tags=prep.knowledge_tags
             )
             cut_short = False
             try:
-                for piece in model.stream(prep.messages):
-                    cut_short = cut_short or piece.cut_short
-                    shown = guard.feed(piece.text) if piece.text else None
-                    if shown is not None:
-                        yield line({"type": "text", "text": shown})
+                async with aclosing(model.stream(prep.messages)) as source:
+                    async for piece in source:
+                        cut_short = cut_short or piece.cut_short
+                        shown = guard.feed(piece.text) if piece.text else None
+                        if shown is not None:
+                            yield line({"type": "text", "text": shown})
                 validation = guard.finish()
+                if not validation.text:
+                    notice = POLICY_NOTICE
                 if validation.text:
                     yield done(
                         _model_reply(validation, prep, model_name=model.name, cut_short=cut_short)
                     )
                     return
             except LlmUnavailableError:
-                partial = guard.finish()
+                partial = guard.partial()
                 if partial.text:
                     # Keep what the RM has already read, and say it stopped early.
                     yield done(_model_reply(partial, prep, model_name=model.name, cut_short=True))
                     return
-        yield done(_fallback_reply(prep))
+        yield done(_fallback_reply(prep, notice=notice))
 
     if knowledge is not None and config.knowledge_enabled:
         from .knowledge_api import knowledge_router
@@ -418,7 +426,7 @@ def create_app(
                 notice=None,
                 suggested_questions=suggestions,
             )
-            events: Iterator[str] = iter(
+            events: Iterator[str] | AsyncIterator[str] = iter(
                 [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]
             )
         else:

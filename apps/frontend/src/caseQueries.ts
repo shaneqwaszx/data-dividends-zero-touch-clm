@@ -10,6 +10,7 @@ import {
   fetchIntelligence,
   fetchZeroTouchCase,
   fetchZeroTouchCases,
+  type DashboardDateRange,
   type PriorityFilter,
   type PrioritySort,
   type CaseActivityFilters,
@@ -32,12 +33,14 @@ function dashboardTeamScope(teamFilter?: string): string {
   return teamFilter ?? absent;
 }
 
+type ActivityActorScope = Pick<AuthenticatedProfile, "role" | "team_id">;
+
 export const caseQueryKeys = {
   auth: (userId: string) => ["auth", userId] as const,
   dashboards: (userId: string) => ["auth", userId, "dashboard"] as const,
-  dashboard: (userId: string, teamFilter?: string) => [
+  dashboard: (userId: string, teamFilter?: string, scope?: "team" | "mine", dateRange?: DashboardDateRange) => [
     ...caseQueryKeys.dashboards(userId),
-    { teamFilter: dashboardTeamScope(teamFilter) },
+    { teamFilter: dashboardTeamScope(teamFilter), scope: scope ?? "team", dateRange: dateRange ?? "30d" },
   ] as const,
   caseLists: (userId: string) => ["auth", userId, "cases", "list"] as const,
   casePortfolio: (userId: string, filters: CasePortfolioFilters) => [
@@ -86,7 +89,7 @@ export const caseQueryKeys = {
   intelligence: (userId: string, caseId: string) =>
     ["auth", userId, "cases", "intelligence", caseId] as const,
   activities: (userId: string) => ["auth", userId, "activity"] as const,
-  activity: (userId: string, filters: CaseActivityFilters) => [
+  activity: (userId: string, filters: CaseActivityFilters, actorScope?: ActivityActorScope) => [
     ...caseQueryKeys.activities(userId),
     {
       caseId: filters.caseId ?? absent,
@@ -96,6 +99,9 @@ export const caseQueryKeys = {
       outcome: filters.outcome ?? absent,
       from: filters.from ?? absent,
       to: filters.to ?? absent,
+      createdBy: filters.createdBy ?? absent,
+      actorRole: actorScope?.role ?? absent,
+      actorTeam: actorScope?.team_id ?? absent,
       offset: filters.offset ?? 0,
       limit: filters.limit ?? 50,
     },
@@ -104,11 +110,11 @@ export const caseQueryKeys = {
     ["auth", userId, "system", "execution-profile"] as const,
 };
 
-export function dashboardQueryOptions(userId: string, teamFilter?: string) {
-  const scope = dashboardTeamScope(teamFilter);
+export function dashboardQueryOptions(userId: string, teamFilter?: string, scope: "team" | "mine" = "team", dateRange: DashboardDateRange = "30d") {
+  const team = dashboardTeamScope(teamFilter);
   return {
-    queryKey: caseQueryKeys.dashboard(userId, scope),
-    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboard(scope, signal),
+    queryKey: caseQueryKeys.dashboard(userId, team, scope, dateRange),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboard(team, scope, dateRange, signal),
   };
 }
 
@@ -184,9 +190,9 @@ export function intelligenceQueryOptions(userId: string, caseId: string) {
   };
 }
 
-export function activityQueryOptions(userId: string, filters: CaseActivityFilters) {
+export function activityQueryOptions(userId: string, filters: CaseActivityFilters, actorScope?: ActivityActorScope) {
   return {
-    queryKey: caseQueryKeys.activity(userId, filters),
+    queryKey: caseQueryKeys.activity(userId, filters, actorScope),
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchCaseActivity(filters, signal),
   };
 }

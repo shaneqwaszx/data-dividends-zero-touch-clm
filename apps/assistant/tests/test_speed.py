@@ -11,6 +11,7 @@ from ai_assistant.guardrails import StreamingGuard
 from ai_assistant.llm import OpenAICompatibleChatModel, Piece
 from ai_assistant.prompts import build_messages, prefix_messages, trim_history
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, SUMMARY, FakeBackend, FakeModel, _client
+from tests.test_streaming_resources import Bytes, collect
 
 FACTS = build_case_facts(CaseSnapshot(summary=SUMMARY, documents=DOCUMENTS, actor=ME))
 STREAM = f"/assistant/cases/{CASE_ID}/chat/stream"
@@ -131,7 +132,9 @@ def test_openai_compatible_client_reads_a_streamed_reply() -> None:
             {"choices": [{"delta": {"content": "lo"}, "finish_reason": "length"}]},
         ]
         body = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks) + "data: [DONE]\n\n"
-        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, stream=Bytes([body.encode()]), headers={"content-type": "text/event-stream"}
+        )
 
     model = OpenAICompatibleChatModel(
         base_url="http://127.0.0.1:11434/v1",
@@ -141,6 +144,6 @@ def test_openai_compatible_client_reads_a_streamed_reply() -> None:
         temperature=0,
         transport=httpx.MockTransport(handler),
     )
-    pieces = list(model.stream([{"role": "user", "content": "hi"}]))
+    pieces = collect(model, [{"role": "user", "content": "hi"}])
     assert pieces == [Piece("Hel"), Piece("lo"), Piece(cut_short=True)]
     assert seen["body"]["stream"] is True and seen["body"]["max_tokens"] == 600

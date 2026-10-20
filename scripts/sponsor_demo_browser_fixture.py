@@ -3,8 +3,11 @@
 import secrets
 from datetime import UTC, datetime
 
+from app.config import Settings
+from app.persistence.composition import build_persistence_bundle
 from pydantic import SecretStr
 from pymongo import MongoClient
+
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     require_ephemeral_mongo_database,
@@ -14,9 +17,6 @@ from scripts.seed_zero_touch_happy_path_companies import manage_fixtures
 from scripts.slice_b_registry_fixture import CountingSyntheticRegistry
 from scripts.synthetic_company_pack_test_transport import NoMarketplaceRequests
 from scripts.zero_touch_happy_path_fixtures import SPONSOR_DEMO_COMPANIES
-
-from app.config import Settings
-from app.persistence.composition import build_persistence_bundle
 
 SPONSOR_DEMO_MODES = tuple(
     f"sponsor-{c.code.lower()}" for c in SPONSOR_DEMO_COMPANIES
@@ -98,11 +98,11 @@ class SponsorDemoBrowserFixture:
             else:
                 self.target.name, self.target.uen = BLOCKER_IDENTITIES[mode]
                 if self.protocol_fixture:
+                    from app.composition import build_acra_connector
+
                     from scripts.garden_protocol_fixture import (
                         OfflineGardenProtocolTransport,
                     )
-
-                    from app.composition import build_acra_connector
 
                     self.marketplace = OfflineGardenProtocolTransport()
                     self.registry = build_acra_connector(
