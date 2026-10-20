@@ -41,6 +41,11 @@ or hide invalid chronology.
 - `GET /api/clm/zero-touch/cases/{case_id}` returns one backend-authored `timing`
   object containing `observed_at` and the same four fields. This avoids browser-time
   arithmetic on the Case Detail view.
+- Dashboard case lists add `case_elapsed_ms` using this same canonical projection and
+  one response `data_as_of` observation after both existing authorized-case and
+  retained-automation reads, shared with workload oldest-open age. Manager
+  and My work tables render, sort and filter the returned duration; completed cases
+  stop at completion. Invalid timing returns sanitized `DASHBOARD_UNAVAILABLE` 503.
 - `GET /api/clm/zero-touch/cases` retains its existing array DTO exactly and gains no
   timing fields.
 - Invalid portfolio timing returns the existing sanitized

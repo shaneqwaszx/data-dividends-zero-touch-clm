@@ -63,8 +63,19 @@ def _event(
     )
 
 
-def _case(case_id: UUID, team_id: TeamId | None, priority: int | None) -> SimpleNamespace:
-    return SimpleNamespace(case_id=case_id, team_id=team_id, priority=priority)
+def _case(
+    case_id: UUID,
+    team_id: TeamId | None,
+    priority: int | None,
+    *,
+    created_by_actor_id: str | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        case_id=case_id,
+        team_id=team_id,
+        priority=priority,
+        created_by_actor_id=created_by_actor_id,
+    )
 
 
 def _automation(case_id: UUID, events: list[AutomationEvent]) -> SimpleNamespace:
@@ -161,6 +172,28 @@ def test_memory_activity_scopes_before_events_filters_before_paging_and_orders_t
     assert [(item.case_id, item.sequence) for item in page.items] == [(CASE_A, 2)]
     assert not page.has_more
     assert page.items[0].current_priority == 8
+
+
+def test_memory_activity_filters_by_created_by_actor_id() -> None:
+    cases = {
+        CASE_A: _case(CASE_A, TeamId.TEAM_A, 8, created_by_actor_id="maya-lim"),
+        CASE_B: _case(CASE_B, TeamId.TEAM_A, 2, created_by_actor_id="ethan-tan"),
+    }
+    repository = _repository(
+        cases,
+        [
+            _automation(CASE_A, [_event(CASE_A, 1)]),
+            _automation(CASE_B, [_event(CASE_B, 1)]),
+        ],
+    )
+    query = CaseActivityQuery(
+        scope=CasePortfolioScope(kind=PortfolioScopeKind.TEAM, team_id=TeamId.TEAM_A),
+        created_by="maya-lim",
+    )
+
+    page = repository.list_activity(query)
+
+    assert [item.case_id for item in page.items] == [CASE_A]
 
 
 def test_memory_activity_rejects_malformed_scoped_sequence_and_naive_time() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import builtins
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -73,6 +73,56 @@ from app.persistence.models import (
     reject_classification_legacy_fields,
     reject_session2_legacy_fields,
 )
+
+
+class CapturedCaseBatch:
+    """Opaque one-shot store read; raw envelopes never leave this boundary."""
+
+    def __init__(
+        self, authorized: frozenset[UUID], raw_records: list[dict[str, Any]],
+        decode: Callable[[dict[str, Any]], DurableCaseSnapshot],
+    ) -> None:
+        self._authorized = authorized
+        self._raw_records = raw_records
+        self._decode: Callable[[dict[str, Any]], DurableCaseSnapshot] | None = decode
+
+    def close(self) -> None:
+        self._authorized = frozenset()
+        self._raw_records.clear()
+        self._decode = None
+
+    def read_selected(self, case_ids: frozenset[UUID]) -> list[DurableCaseSnapshot]:
+        decode = self._decode
+        if decode is None:
+            raise ValueError("case batch is closed")
+        try:
+            if (type(case_ids) is not frozenset
+                    or any(type(value) is not UUID for value in case_ids)
+                    or not case_ids <= self._authorized):
+                raise ValueError("invalid case batch selection")
+            selected = {str(value): value for value in case_ids}
+            authorized = {str(value) for value in self._authorized}
+            seen: set[UUID] = set()
+            snapshots = []
+            for raw in self._raw_records:
+                # Mongo's canonical _id alone routes the captured raw batch. Never
+                # inspect excluded nested/schema data before final cohort selection.
+                key = raw.get("_id")
+                if type(key) is not str or key not in authorized:
+                    raise PersistenceDataInvalidError
+                if key not in selected:
+                    continue
+                case_id = selected[key]
+                if case_id in seen:
+                    raise PersistenceDataInvalidError
+                snapshot = decode(raw)
+                if snapshot.case_id != case_id:
+                    raise PersistenceDataInvalidError
+                seen.add(case_id)
+                snapshots.append(snapshot)
+            return snapshots
+        finally:
+            self.close()
 
 
 class MongoCaseStore:
@@ -161,6 +211,30 @@ class MongoCaseStore:
             raise PersistenceUnavailableError from None
         return [self._decode(item) for item in raw_records]
 
+    @contextmanager
+    def capture_for_cases(self, case_ids: frozenset[UUID]) -> Iterator[CapturedCaseBatch]:
+        """Materialize one authorized-ID raw read before yielding, without decoding."""
+        if type(case_ids) is not frozenset or any(type(value) is not UUID for value in case_ids):
+            raise ValueError("invalid case batch selection")
+        raw_records: builtins.list[dict[str, Any]] = []
+        cursor = None
+        try:
+            try:
+                if case_ids:
+                    cursor = self._collection.find({"_id": {"$in": sorted(map(str, case_ids))}})
+                    raw_records = builtins.list(cursor)
+            finally:
+                if cursor is not None:
+                    cursor.close()
+        except PyMongoError:
+            raw_records.clear()
+            raise PersistenceUnavailableError from None
+        batch = CapturedCaseBatch(case_ids, raw_records, self._decode)
+        try:
+            yield batch
+        finally:
+            batch.close()
+
     def list_portfolio(
         self,
         scope: CasePortfolioScope,
@@ -184,6 +258,7 @@ class MongoCaseStore:
             "onboarding.case_id": 1,
             "onboarding.team_id": 1,
             "onboarding.priority": 1,
+        "onboarding.created_by_actor_id": 1,
             "onboarding.requested_uen": 1,
             "onboarding.entity.legal_name": 1,
             "onboarding.jurisdiction_resolution.resolved_jurisdiction": 1,
@@ -345,6 +420,7 @@ class MongoCaseStore:
                     "onboarding.case_id": 1,
                     "onboarding.team_id": 1,
                     "onboarding.priority": 1,
+                    "onboarding.created_by_actor_id": 1,
                     "automation.case_id": 1,
                     "automation.events": 1,
                 }
@@ -358,6 +434,11 @@ class MongoCaseStore:
                     ],
                     "rows": [
                         {"$match": {"$expr": valid_candidate}},
+                        # Validate the authorized envelope before creator filtering.
+                        *(
+                            [{"$match": {"onboarding.created_by_actor_id": query.created_by}}]
+                            if query.created_by is not None else []
+                        ),
                         {"$unwind": "$automation.events"},
                         {"$match": row_match},
                         {
@@ -605,6 +686,8 @@ class MongoCaseStore:
             required_onboarding = {"case_id", "requested_uen"}
             v2_fields = {"team_id", "priority"}
             optional_onboarding = {"entity", "jurisdiction_resolution", "goldtier_result"}
+            if schema_version >= 9:
+                optional_onboarding.add("created_by_actor_id")
             keys = set(onboarding)
             if not required_onboarding <= keys or keys - (
                 required_onboarding | v2_fields | optional_onboarding
@@ -684,6 +767,7 @@ class MongoCaseStore:
                 ),
                 team_id=team_id,
                 priority=priority,
+                created_by_actor_id=onboarding.get("created_by_actor_id"),
                 status=AutomationStatus(automation["status"]),
                 current_stage=AutomationStage(automation["current_stage"]),
                 created_at=_utc_datetime(automation["created_at"]),
@@ -1083,6 +1167,7 @@ def _portfolio_projection() -> dict[str, int]:
         "onboarding.case_id": 1,
         "onboarding.team_id": 1,
         "onboarding.priority": 1,
+        "onboarding.created_by_actor_id": 1,
         "onboarding.requested_uen": 1,
         "onboarding.entity.legal_name": 1,
         "onboarding.jurisdiction_resolution.resolved_jurisdiction": 1,
@@ -1177,6 +1262,27 @@ def _portfolio_exception_valid_expression() -> dict[str, Any]:
     }
 
 
+def _creator_valid_expression() -> dict[str, Any]:
+    value = "$onboarding.created_by_actor_id"
+    value_type = {"$type": value}
+    return {
+        "$cond": [
+            {"$lt": ["$schema_version", 9]},
+            {"$eq": [value_type, "missing"]},
+            {"$or": [
+                {"$in": [value_type, ["missing", "null"]]},
+                {"$and": [
+                    {"$eq": [value_type, "string"]},
+                    {"$regexMatch": {
+                        "input": {"$cond": [{"$eq": [value_type, "string"]}, value, ""]},
+                        "regex": "^[a-z][a-z0-9-]{2,31}$",
+                    }},
+                ]},
+            ]},
+        ]
+    }
+
+
 def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     schema_type = {"$type": "$schema_version"}
     revision_type = {"$type": "$revision"}
@@ -1197,6 +1303,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     jurisdiction_type = {"$type": "$onboarding.jurisdiction_resolution.resolved_jurisdiction"}
     return {
         "$and": [
+            _creator_valid_expression(),
             {"$in": [schema_type, ["int", "long"]]},
             {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
@@ -1491,6 +1598,7 @@ def _activity_candidate_valid_expression() -> dict[str, Any]:
     priority_type = {"$type": "$onboarding.priority"}
     return {
         "$and": [
+            _creator_valid_expression(),
             {"$in": [schema_type, ["int", "long"]]},
             {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},

@@ -299,11 +299,11 @@ def measure(mode, level, groups, db, db_lock, perf):
                 assert documents[0].pages[0].extraction_method == "NATIVE_PDF_TEXT"
                 graph = bundle.ownership.get_for_case(UUID(case["case_id"]))
                 assert {c.aggregated_ownership_percent for c in graph.candidates} == {
-                    Decimal("60"),
-                    Decimal("40"),
+                    Decimal(60),
+                    Decimal(40),
                 }
                 assert all(
-                    len(c.paths) == 1 and c.indirect_ownership_percent == Decimal("0")
+                    len(c.paths) == 1 and c.indirect_ownership_percent == Decimal(0)
                     for c in graph.candidates
                 )
             with lock:

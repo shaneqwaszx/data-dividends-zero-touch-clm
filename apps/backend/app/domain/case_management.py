@@ -85,6 +85,7 @@ class CaseActivityQuery(BaseModel):
     outcome: EventOutcome | None = None
     from_at: datetime | None = None
     to_at: datetime | None = None
+    created_by: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]{2,31}$")
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=10_000)
 
@@ -190,6 +191,7 @@ class CasePortfolioRecord(BaseModel):
     human_interventions: int = Field(ge=0)
     final_outcome: str | None = Field(default=None, max_length=64)
     mock_goldtier_party_id: str | None = Field(default=None, min_length=1, max_length=96)
+    created_by_actor_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]{2,31}$")
 
     @model_validator(mode="after")
     def validate_timestamps(self) -> "CasePortfolioRecord":
