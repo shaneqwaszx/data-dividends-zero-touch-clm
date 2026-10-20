@@ -199,9 +199,11 @@ def knowledge_router(
             feedback_id=feedback_id,
             draft_entry_id=draft_id,
             message=(
-                "Thanks. A Director will review it before it can help others."
+                # The RM only needs a short thanks; the Director review behind it is not
+                # their concern (and a one-click "Yes, helpful" should not feel like a task).
+                "Thanks for your feedback."
                 if body.helpful
-                else "Thanks. This has been flagged so the guidance can be improved."
+                else "Thanks. This has been flagged so the answer can be improved."
             ),
         )
 

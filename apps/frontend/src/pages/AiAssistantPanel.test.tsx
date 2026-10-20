@@ -371,7 +371,7 @@ describe("AiAssistantPanel", () => {
       }
       if (url.endsWith("/feedback")) {
         sent.push(JSON.parse(String(init?.body)));
-        return json({ feedback_id: 1, draft_entry_id: "resolution.abc", message: "Thanks. A Director will review it before it can help others." });
+        return json({ feedback_id: 1, draft_entry_id: "resolution.abc", message: "Thanks for your feedback." });
       }
       return json({}, 404);
     });
@@ -402,7 +402,7 @@ describe("AiAssistantPanel", () => {
         ],
       },
     ]);
-    expect(view.textContent).toContain("A Director will review it");
+    expect(view.textContent).toContain("Thanks for your feedback.");
     // The opening summary has no feedback buttons.
     expect([...view.querySelectorAll(".ai-assistant-feedback-button")]).toHaveLength(0);
   });
