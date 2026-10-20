@@ -22,7 +22,7 @@ from typing import Any
 
 from .models import Entry, EntryKind, EntryStatus, Visibility
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -57,10 +57,27 @@ CREATE TABLE IF NOT EXISTS reviews (
     entry_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     reviewer TEXT NOT NULL,
-    decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject', 'retire')),
+    decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject', 'retire', 'edit')),
     notes TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version)
+);
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT,
+    team TEXT,
+    helpful INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    blocker_codes TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    stages TEXT NOT NULL,
+    entry_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('open', 'drafted', 'closed')),
+    created_at TEXT NOT NULL,
+    closed_by TEXT,
+    closed_at TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS entry_text
     USING fts5 (key UNINDEXED, kind UNINDEXED, title, body, codes);
@@ -231,9 +248,19 @@ class KnowledgeStore:
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
+            existing = db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'"
+            ).fetchone()
+            version = (
+                db.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+                if existing
+                else None
+            )
+            if version is not None and int(version[0]) < 2:
+                self._migrate_to_2(db)
             db.executescript(_SCHEMA)
             db.execute(
-                "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
 
@@ -493,7 +520,142 @@ class KnowledgeStore:
                 self._task(db, _row_to_entry(row), "upsert", now)
         return len(rows)
 
+    def revise_pending(self, entry_id: str, version: int, *, editor: str, **changes: Any) -> Entry:
+        """A reviewer tidies a pending version (wording, redaction, follow-ups, visibility,
+        what it replaces) before deciding. Recorded as an 'edit' in the review history; the
+        original author stays the author, so they still cannot approve it."""
+
+        allowed = {
+            "title",
+            "body",
+            "blocker_codes",
+            "fields",
+            "stages",
+            "follow_ups",
+            "visibility",
+            "replaces",
+        }
+        unknown = set(changes) - allowed
+        if unknown:
+            raise KnowledgeError(f"cannot change {sorted(unknown)}")
+        with self._connect() as db:
+            entry = self._require(db, entry_id, version)
+            if entry.status != EntryStatus.PENDING_REVIEW:
+                raise KnowledgeError("only a version pending review can be edited")
+            revised = entry.with_changes(**changes)
+            db.execute(
+                "UPDATE entries SET title = ?, body = ?, blocker_codes = ?, fields = ?, "
+                "stages = ?, follow_ups = ?, visibility = ?, replaces = ?, content_hash = ? "
+                "WHERE entry_id = ? AND version = ?",
+                (
+                    revised.title,
+                    revised.body,
+                    json.dumps(list(revised.blocker_codes)),
+                    json.dumps(list(revised.fields)),
+                    json.dumps(list(revised.stages)),
+                    json.dumps(list(revised.follow_ups)),
+                    revised.visibility.to_json(),
+                    revised.replaces,
+                    revised.content_hash(),
+                    entry_id,
+                    version,
+                ),
+            )
+            db.execute(
+                "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
+                "VALUES (?, ?, ?, 'edit', ?, ?)",
+                (entry_id, version, editor, ", ".join(sorted(changes)), self._clock()),
+            )
+        return revised
+
+    # --- feedback ---------------------------------------------------------------------
+
+    def add_feedback(
+        self,
+        *,
+        case_id: str,
+        user_id: str,
+        role: str | None,
+        team: str | None,
+        helpful: bool,
+        note: str,
+        blocker_codes: tuple[str, ...],
+        fields: tuple[str, ...],
+        stages: tuple[str, ...],
+        entry_id: str | None,
+    ) -> int:
+        with self._connect() as db:
+            cursor = db.execute(
+                "INSERT INTO feedback (case_id, user_id, role, team, helpful, note, "
+                "blocker_codes, fields, stages, entry_id, status, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    case_id,
+                    user_id,
+                    role,
+                    team,
+                    int(helpful),
+                    note,
+                    json.dumps(list(blocker_codes)),
+                    json.dumps(list(fields)),
+                    json.dumps(list(stages)),
+                    entry_id,
+                    "drafted" if entry_id else "open",
+                    self._clock(),
+                ),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def feedback(self, *, status: str | None = None) -> list[dict[str, Any]]:
+        sql, args = "SELECT * FROM feedback", []
+        if status is not None:
+            sql += " WHERE status = ?"
+            args.append(status)
+        with self._connect() as db:
+            rows = db.execute(sql + " ORDER BY id", args).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["helpful"] = bool(item["helpful"])
+            for key in ("blocker_codes", "fields", "stages"):
+                item[key] = json.loads(item[key])
+            out.append(item)
+        return out
+
+    def close_feedback(self, feedback_id: int, *, by: str) -> None:
+        with self._connect() as db:
+            updated = db.execute(
+                "UPDATE feedback SET status = 'closed', closed_by = ?, closed_at = ? "
+                "WHERE id = ? AND status != 'closed'",
+                (by, self._clock(), feedback_id),
+            ).rowcount
+        if not updated:
+            raise KnowledgeError("no such open feedback")
+
     # --- internals ------------------------------------------------------------------
+
+    @staticmethod
+    def _migrate_to_2(db: sqlite3.Connection) -> None:
+        """Version 1 did not allow 'edit' review rows: rebuild the reviews table."""
+
+        db.executescript(
+            """
+            ALTER TABLE reviews RENAME TO reviews_v1;
+            CREATE TABLE reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entry_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                reviewer TEXT NOT NULL,
+                decision TEXT NOT NULL
+                    CHECK (decision IN ('approve', 'reject', 'retire', 'edit')),
+                notes TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version)
+            );
+            INSERT INTO reviews SELECT * FROM reviews_v1;
+            DROP TABLE reviews_v1;
+            """
+        )
 
     def _require(self, db: sqlite3.Connection, entry_id: str, version: int) -> Entry:
         row = db.execute(

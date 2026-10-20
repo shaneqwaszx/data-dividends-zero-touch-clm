@@ -356,6 +356,15 @@ def create_app(
                     return
         yield done(_fallback_reply(prep))
 
+    if knowledge is not None and config.knowledge_enabled:
+        from .knowledge_api import knowledge_router
+
+        app.include_router(
+            knowledge_router(
+                kb=knowledge, backend=backend, check_origin=check_origin, load_case=load_case
+            )
+        )
+
     @app.get("/assistant/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(

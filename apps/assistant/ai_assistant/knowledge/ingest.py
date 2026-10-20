@@ -16,8 +16,9 @@ Each guidance file has a small header, then the guidance text:
 Lists are comma-separated. ``roles`` and ``teams`` (optional) limit who may see an entry.
 
 Re-ingesting is safe: an unchanged file is skipped, a changed file becomes a new version
-that replaces the old one, and guidance whose file was removed is retired. Guidance loaded
-here is approved by the recorded decision it cites (``source``), shown as approver
+that replaces the old one, and guidance whose file was removed is retired. Once guidance has
+been changed in the app (HR proposes, a Director approves), its file no longer overrides it.
+Guidance loaded here is approved by the recorded decision it cites (``source``), shown as approver
 ``recorded-decision``; illustrative entries are approved as ``illustrative-seed``.
 """
 
@@ -52,6 +53,8 @@ class IngestReport:
     updated: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
     retired: list[str] = field(default_factory=list)
+    # Guidance changed in the app (by HR, approved by a Director): the file no longer wins.
+    kept_app_version: list[str] = field(default_factory=list)
 
 
 def _split(value: str) -> tuple[str, ...]:
@@ -100,6 +103,9 @@ def parse_guidance(path: Path) -> Entry:
 
 def _load(kb: KnowledgeBase, entry: Entry, approver: str, report: IngestReport) -> None:
     current = kb.store.current(entry.entry_id)
+    if current is not None and current.author != entry.author:
+        report.kept_app_version.append(entry.entry_id)
+        return
     if current is not None and current.content_hash() == entry.content_hash():
         report.unchanged.append(entry.entry_id)
         return
