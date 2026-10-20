@@ -76,6 +76,32 @@ for (const width of [320,360,768,1280,1440,1920]) {
     await contained(page);
   });
 }
+for (const width of [768,1280]) {
+  test(`Phase24C staged draft tray never hides the keyboard-focused control ${width}`,async({page})=>{
+    // WCAG 2.2 SC 2.4.11: with a staged change the tray is sticky at the viewport bottom (>=768x640).
+    await page.setViewportSize({width,height:700}); await login(page,"hr-admin");
+    const card=page.locator(".policy-parameter").filter({has:page.getByRole("heading",{name:"IDP extraction evidence score threshold",exact:true})});
+    await card.getByRole("button",{name:"Propose change",exact:true}).click();
+    await card.getByLabel("Proposed value for IDP extraction evidence score threshold").fill("0.90");
+    await card.getByRole("button",{name:"Use proposed value",exact:true}).click();
+    await expect(page.locator(".policy-draft-tray--active")).toBeVisible();
+    await page.getByLabel("Search rules").focus();
+    let checked=0;
+    for (let step=0; step<80; step++) {
+      await page.keyboard.press("Tab");
+      const state=await page.evaluate(()=>{
+        const active=document.activeElement as HTMLElement|null; const tray=document.querySelector<HTMLElement>(".policy-draft-tray--active");
+        if (!active || !tray || !active.closest(".policy-category") || tray.contains(active)) return null;
+        const focus=active.getBoundingClientRect(); const box=tray.getBoundingClientRect();
+        return {label:active.getAttribute("aria-label")??active.textContent?.trim().slice(0,60)??active.tagName,focusBottom:focus.bottom,trayTop:box.top,stuck:box.bottom>=window.innerHeight-1};
+      });
+      if (!state) continue;
+      checked+=1;
+      if (state.stuck) expect(state.focusBottom,`focused "${state.label}" is hidden behind the sticky draft tray`).toBeLessThanOrEqual(state.trayTop+1);
+    }
+    expect(checked).toBeGreaterThan(5);
+  });
+}
 test("Phase24C RM views policy without draft or decision controls",async({page})=>{
   await page.setViewportSize({width:320,height:1000}); await login(page,"ethan-tan");
   await expect(page.getByRole("heading",{name:"Prepare policy proposal",exact:true})).toHaveCount(0);
