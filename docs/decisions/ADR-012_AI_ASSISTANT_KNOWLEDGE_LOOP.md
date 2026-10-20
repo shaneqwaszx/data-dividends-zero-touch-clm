@@ -1,11 +1,10 @@
-# ADR-012 - AI Assistant knowledge loop: local knowledge store, assistant-ui panel, sentence-level answer checks
+# ADR-012 - AI Assistant knowledge loop: local knowledge store, assistant-ui panel, catalog plus approved knowledge lines
 
 ## Status
 
-Proposed. Sections A and B are proposed for owner acceptance with PR #99. Section C (the
-replacement of the exact-line output catalog) is an **owner decision pending**: it is not
-accepted by this ADR and must not be described as architecturally approved until the owner
-records a decision.
+Proposed. Sections A and B are proposed for owner acceptance with PR #99. Section C
+implements the owner's G6 direction (quoted in C) and is proposed pending an independent
+architecture review; it must not be described as architecturally approved until then.
 
 ## Date
 
@@ -19,7 +18,9 @@ RMs can mark an answer as solved or not helpful, and Directors review drafts. Th
 architecture entry describes the assistant as read-only with no persistence owner; that is
 still true towards the CLM backend (GET only) but no longer true for the assistant's own
 data. The independent quality gate on `ad4661c` (FAIL) and its architecture review (REVISE)
-require this ADR before the change can be accepted. Review authority remains
+require this ADR before the change can be accepted. The gates on the two remediation heads
+(`79621fe`, `97612a1`) failed again on replacing the exact-line catalog with sentence-level
+checks of model prose, and the owner then decided G6 (section C). Review authority remains
 `UNKNOWN_BLOCKED` (Q-014); nothing here is sponsor review policy.
 
 ## Decision
@@ -69,37 +70,62 @@ require this ADR before the change can be accepted. Review authority remains
   packages (MIT/BSD-3-Clause/0BSD, no install scripts) and about 321 kB (95 kB gzip) to the
   bundle, several of them pre-1.0.
 
-### C. Sentence-level answer checks replacing the exact-line output catalog (owner decision pending)
+### C. Output policy: the exact-line catalog stays mandatory; approved knowledge adds lines
 
-- Existing deterministic behavior (main, PR89 `8407d9e`): only answer lines that exactly match
-  a catalog generated from the case facts are shown; anything else is withheld. Safety is by
-  allow-list.
-- New behavior (PR #99): the model's answer is split into sentences; each sentence is checked
-  for grounding (values, labels, contacts, step counts, cited sources), policy (actions this RM
-  is not offered, authority claims) and disclosures (Live claims, document values as fact).
-  Failing sentences are removed and the RM is told how many. Safety is by deny-list.
-- Retained guarantees: a sentence that fails a check is never shown, also while streaming;
-  actions come only from the backend's offered actions, never from document text; Live and
-  authority claims are removed; the 64 KiB model-text limit, cancellation and required
-  terminal event are kept; checking is incremental (each sentence once).
-- Negation handling is fail-closed: an action the RM is not offered, or an authority claim,
-  is removed unless a fixed negating construction directly governs it (a negated modal or
-  "never" before the action; "no", "not", a negated "is" or a negated denial verb before
-  the claim) with no other negation earlier in that phrase. Two independent gates found
-  negation bypasses (6 sentences on `ad4661c`, 15 more on `79621fe`); all of them are
-  regression tests now. Some genuine negations are over-dropped.
-- Checking cost is linear in the answer's length, also on long whitespace runs: every
-  sentence's whitespace runs are collapsed before the checks, and the streaming guard looks
-  at each piece of model text once.
-- Residual risks: a deny-list cannot enumerate every unsafe phrasing. Paraphrases outside
-  the action and authority patterns (for example an action described without its verb) may
-  still pass; grounding treats values in retrieved knowledge as known. A third negation
-  repair is not planned: further bypasses are an argument for the allow-list below.
-- Recommended compatibility strategy: keep sentence-level checks for free-form explanation,
-  and add an allow-list for operational instructions, so that any sentence that tells the RM
-  to act must name an action the backend offers (the PR89 catalog principle applied to action
-  sentences only); keep the adversarial regression suite as an acceptance gate.
-- Until the owner decides, the PR stays Draft and this section is not accepted.
+Owner direction (G6, 2026-10-21), verbatim: "Preserve the deterministic safety guarantees of
+the original output catalog. Treat sentence-level grounding as an additional safeguard unless
+an independently supported architecture decision establishes an equivalent or stronger
+replacement. Do not silently remove mandatory checks."
+
+- Mandatory gate, as on main (PR89 `8407d9e`): model text reaches the RM only as whole lines
+  that exactly equal an allowed line, in whole answers and while streaming. The catalog
+  (`allowed_guidance`) is main's, unchanged: trusted templates filled only from this request's
+  backend projection. Free model prose, paraphrases, history and document values never extend
+  the allowed lines. If no allowed line remains, the deterministic case-data answer is shown
+  with "The model response could not be verified".
+- Extension, knowledge lines: for each entry that retrieval returned for this user and case
+  and that is approved and visible to them (checked again before use), each sentence of the
+  approved body becomes the line `<sentence> [Gn]` or `[Pn]`, exactly as approved (a leading
+  list marker is dropped and runs of spaces become one), and only if the sentence passes the
+  sentence checks against this case's facts. The prompt lists these lines with the catalog
+  and tells the model to copy lines exactly; source chips still come from the tags.
+- Sentence checks, an additional safeguard on knowledge sentences only (never on model text),
+  fail closed: non-printable characters (tabs, non-breaking or zero-width spaces); values,
+  step counts, quoted labels, contacts and section names that are not in this case's facts;
+  citation tags inside the body; actions this RM is not offered and authority claims, unless
+  a fixed negation directly governs them (the cycle-2 rule, without the coordination
+  exemption the third gate bypassed); Live claims; document values presented as confirmed.
+  Text in a knowledge entry never vouches for its own values or labels.
+- Streaming is main's line-based acceptance: only new text is split into lines, each
+  complete line is looked up once and dropped from the buffer, an unfinished line is never
+  shown, and model text is bounded at 64 KiB. After a stream failure only lines completed
+  before it are kept, with the cut-short notice.
+- Cost: model text is only split into lines and looked up in a set. On the third gate's 42
+  probe shapes at 64 KiB the whole stream took at most 0.04 s in 1-byte feeds, and no single
+  feed took 1 ms. The sentence checks run once per retrieved knowledge sentence per request;
+  each match costs bounded work (a governing negation is searched within 80 characters, and
+  phrase breaks and negation words are found once per clause). The slowest 64 KiB probe body
+  took 0.18 s. Knowledge bodies from the API are limited to 4,000 characters.
+- Residual risks:
+  - Answer flexibility is reduced to selecting catalog and knowledge lines, so answers are
+    less fluent and less specific than free prose; a question the lines do not cover gets
+    the case-data answer.
+  - Knowledge granularity: bodies are split at line breaks and after `.`, `!` or `?`
+    followed by a space. An abbreviation such as "e.g." splits a sentence, a line can be
+    shown without the sentence before it, and an entry whose sentences all fail adds nothing.
+  - The sentence checks remain a deny-list over reviewed text. Phrasings they do not
+    recognise would be offered if a reviewer approved them: context that reverses a negated
+    action ("Previously you couldn't approve the case, but now you can.") and authority
+    wording outside the patterns ("KYC is approved."). 17 of the third gate's 81 sentences
+    are of this kind (`KNOWLEDGE_FILTER_LIMITS` in the tests); none of them is shown from
+    model output. Maker-checker review of every knowledge version is the control.
+  - Some genuine negations are over-dropped, including the R4 disclaimer, which stays
+    available as a catalog line.
+  - The illustrative marker of an entry is carried by its source chip (and, for the seed, by
+    the entry's own first sentence), not by every line.
+  - Guidance sentences that quote values or labels absent from the case (for example the
+    0.85 policy default) are withheld.
+- Until an independent architecture review accepts this section, the PR stays Draft.
 
 ## Alternatives considered
 
@@ -109,8 +135,11 @@ require this ADR before the change can be accepted. Review authority remains
   reviewed feedback loop the PR exists to add.
 - Keep the plain React panel: viable; the library was chosen for chat primitives and
   streaming rendering, at the dependency cost recorded in B.
-- Keep the exact-line catalog: the safest model, but it cannot carry cited knowledge or
-  explanation; see the compatibility strategy in C.
+- Replace the catalog with sentence-level checks of model prose (the PR #99 author head and
+  the first two remediation cycles): three independent gates found bypasses of that
+  deny-list, and the owner's G6 direction keeps the catalog mandatory.
+- The catalog alone, without knowledge lines: the strictest, but it cannot carry cited
+  knowledge.
 
 ## Consequences
 
@@ -123,7 +152,7 @@ embedding model (Ollama); without it, index tasks wait and keyword search still 
 
 - Preserved: CLM backend authority (assistant reads CLM data through GET only); backend-
   authoritative RBAC and team scope (the assistant asks `/api/auth/me` every time);
-  no Live claims.
+  the PR89 exact-line output catalog as the mandatory gate for model text; no Live claims.
 - Added: append-only knowledge versions with maker-checker over the edit chain; decision
   bound to reviewed content; team-scoped review queue; loopback-only embeddings; telemetry off.
 
@@ -142,21 +171,28 @@ Opening an older store migrates it (v1 -> v2 -> v3). Rolling back to the PR #99 
 schema version to 2 and can still read and decide, but cannot add a version (it inserts 20
 values into a 21-column table), and it would ignore edit chains and retirement requests. To
 roll back, restore a copy of `apps/assistant/data/` taken before the upgrade, or recreate the
-(development-only) store. The exact-line catalog is retired only if section C is accepted.
+(development-only) store. The exact-line catalog is not retired: it stays the mandatory
+output gate.
 
 ## Verification
 
-Assistant pytest, ruff, format and mypy; the adversarial negation (both gates' sentences),
-whitespace-run cost, cross-team, edit-then-approve, single-person retirement, concurrent
-decision/edit, officer redaction and forged-turn regressions; restart/persistence and
-v2-to-v3 migration tests; frontend
-Vitest, typecheck and build; real-embedding retrieval evaluation with a local model (not
-yet run); architecture and project-state checks; a fresh independent quality gate.
+Assistant pytest, ruff, format and mypy. The PR89 catalog tests restored from main; knowledge
+lines shown verbatim with their tag, paraphrased, partial or re-tagged lines dropped,
+unretrieved, unapproved and other-team entries never allowed, and an approved sentence that
+fails a check withheld; all three gates' negation sentences as model output (never shown,
+whole or streamed) and as approved knowledge (withheld, apart from the listed limits); 64 KiB
+stream shapes including whitespace runs and long tokens with a per-feed bound. Cross-team,
+edit-then-approve, two-person retirement, concurrent decision/edit, officer redaction and
+forged-turn regressions; restart/persistence and v2-to-v3 migration tests. Frontend Vitest,
+typecheck and build; real-embedding retrieval evaluation with a local model (not yet run);
+architecture and project-state checks; a fresh independent quality gate and an independent
+architecture review of section C.
 
 ## Revisit conditions
 
 Sponsor review authority (Q-014), any non-local embedding or model endpoint, cross-team
-knowledge sharing, an `@assistant-ui/react` major upgrade, or any further guardrail bypass.
+knowledge sharing, an `@assistant-ui/react` major upgrade, any further guardrail bypass, or a
+proposal to show model text that is not an allowed line.
 
 ## Related contracts and sponsor questions
 

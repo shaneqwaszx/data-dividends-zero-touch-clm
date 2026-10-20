@@ -48,12 +48,13 @@ def test_both_decision_groups_reach_the_model_and_the_opening_summary() -> None:
 
 
 def test_guardrails_keep_an_answer_that_names_the_review_choices() -> None:
-    answer = (
-        'You can check the document under "Review extracted document fields": '
-        '"Accept document suggestion", "Reject document suggestion" or "Record correction". '
-        'To use the ACRA address, choose "Keep registry value".'
+    answer = "\n".join(
+        f'Document verification offers "{choice}" to review the extracted field; '
+        "this does not decide registry/document precedence."
+        for choice in CHOICES
     )
     assert guard_answer(answer, _facts()) == answer
+    assert guard_answer(answer, _facts(authorized=False)) == ""
 
 
 def test_opening_names_the_blocker_section_and_what_else_is_needed() -> None:

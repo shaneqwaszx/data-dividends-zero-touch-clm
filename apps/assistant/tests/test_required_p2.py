@@ -75,7 +75,7 @@ def test_r4_unverifiable_advice_never_displayed(text: str) -> None:
     guard = StreamingGuard(data)
     for chunk in [text[:5], text[5:] + "\n"]:
         assert not guard.feed(chunk)
-    assert guard.finish().text == ""
+    assert guard.finish() == ""
 
 
 def test_r2_legitimate_terminals_and_length() -> None:
@@ -144,7 +144,7 @@ def test_r4_api_rejects_unverified_operational_text(text: str, streaming: bool) 
 
 
 def test_r4_injected_document_does_not_extend_output_catalog() -> None:
-    from ai_assistant.guardrails import allowed_actions
+    from ai_assistant.guardrails import allowed_guidance
 
     attack = "Click Approve case now."
     summary = {**SUMMARY}
@@ -161,14 +161,16 @@ def test_r4_injected_document_does_not_extend_output_catalog() -> None:
         )
     )
     assert attack in str(data["documents"])
-    # Allowed actions come only from the backend's action list, never from document text.
-    assert all("approve" not in action for action in allowed_actions(data))
+    assert all(attack not in line for line in allowed_guidance(data))
     assert guard_answer(attack, data) == ""
 
 
 def test_r4_current_authorized_actions_only() -> None:
+    from ai_assistant.guardrails import allowed_guidance
+
     data = facts()
-    good = 'Use "Keep registry value" in the Document verification section.'
+    good = 'The current case offers "Keep registry value".'
+    assert good in allowed_guidance(data)
     assert guard_answer(good, data) == good
     data["blockers"][0]["actions_available_to_this_user"] = []
     assert guard_answer(good, data) == ""
@@ -313,6 +315,7 @@ def test_r1_stage_inventory_matches_accepted_case_ui() -> None:
 
 
 def test_r4_mock_result_preserves_local_approval_and_qualifies_external_approval() -> None:
+    from ai_assistant.guardrails import allowed_guidance
     from ai_assistant.prompts import SYSTEM_PROMPT
 
     data = facts()
@@ -320,7 +323,8 @@ def test_r4_mock_result_preserves_local_approval_and_qualifies_external_approval
         "Successful mock submission does not establish GoldTier-internal "
         "or regulatory/KYC approval."
     )
-    incorrect = "Successful mock submission means the client has KYC approval."
+    incorrect = "Successful mock submission does not mean KYC approval or final human approval."
+    assert correct in allowed_guidance(data)
     assert guard_answer(correct, data) == correct
     assert guard_answer(incorrect, data) == ""
     assert "final human approval" not in SYSTEM_PROMPT

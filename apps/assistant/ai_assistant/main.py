@@ -30,15 +30,21 @@ from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
-from .guardrails import StreamingGuard, Validation, validate_answer
+from .guardrails import (
+    LEFT_OUT_REASON,
+    StreamingGuard,
+    Validation,
+    knowledge_lines,
+    validate_answer,
+)
 from .knowledge.retrieval import Retriever, case_context, settings_from
 from .knowledge.service import KnowledgeBase
 from .knowledge_answers import (
     TaggedHit,
+    approved_knowledge,
     follow_up_questions,
     guidance_summary,
     knowledge_message,
-    knowledge_text,
     sources_for,
     tag_hits,
 )
@@ -71,8 +77,9 @@ class BriefResponse(BaseModel):
 
 
 class AnswerChecks(BaseModel):
-    """What grounding and policy validation did to a model answer (reason codes only)."""
+    """What the output policy did to a model answer (reason codes only, never the text)."""
 
+    # "not_an_allowed_line" when any model line was not an allowed line and was left out.
     removed: list[str]
     disclosures: list[str]
 
@@ -136,14 +143,8 @@ class Prepared:
     suggestions: list[str]
     tagged: list[TaggedHit] = field(default_factory=list)
     knowledge: KnowledgeUse | None = None
-
-    @property
-    def knowledge_text(self) -> str:
-        return knowledge_text(self.tagged)
-
-    @property
-    def knowledge_tags(self) -> frozenset[str]:
-        return frozenset(item.tag for item in self.tagged)
+    # Approved knowledge sentences the model may select (guardrails.knowledge_lines).
+    knowledge_lines: list[str] = field(default_factory=list)
 
     def sources(self, answer: str) -> list[KnowledgeSource]:
         return [KnowledgeSource(**source) for source in sources_for(self.tagged, answer)]
@@ -160,7 +161,8 @@ def _model_reply(
         notice=" ".join(notices) or None,
         suggested_questions=prep.suggestions,
         checks=AnswerChecks(
-            removed=list(validation.removed), disclosures=list(validation.disclosures)
+            removed=[LEFT_OUT_REASON] if validation.left_out else [],
+            disclosures=list(validation.disclosures),
         ),
         sources=prep.sources(validation.text),
         knowledge=prep.knowledge,
@@ -246,21 +248,18 @@ def create_app(
         facts = build_case_facts(snapshot)
         tagged: list[TaggedHit] = []
         use: KnowledgeUse | None = None
+        profile = snapshot.actor.get("profile") or {}
+        role, team = profile.get("role"), profile.get("team_id")
         if retriever is not None:
-            profile = snapshot.actor.get("profile") or {}
             try:
-                retrieval = retriever.retrieve(
-                    question,
-                    case_context(facts),
-                    role=profile.get("role"),
-                    team=profile.get("team_id"),
-                )
+                retrieval = retriever.retrieve(question, case_context(facts), role=role, team=team)
                 tagged = tag_hits(retrieval)
                 use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
             except Exception:  # knowledge is optional: never let it break an answer
                 log.exception("knowledge retrieval failed")
+        lines = knowledge_lines(facts, approved_knowledge(tagged, role=role, team=team))
         fallback = fallback_answer(question, facts)
-        summary = guidance_summary(tagged)
+        summary = guidance_summary(tagged, lines)
         if summary:
             fallback += "\n\n" + summary
         base = suggested_questions(facts)
@@ -272,12 +271,13 @@ def create_app(
         return Prepared(
             facts=facts,
             messages=build_messages(
-                facts, history_of(body), question, knowledge=knowledge_message(tagged)
+                facts, history_of(body), question, knowledge=knowledge_message(tagged, lines)
             ),
             fallback=fallback,
             suggestions=suggestions[:6],
             tagged=tagged,
             knowledge=use,
+            knowledge_lines=lines,
         )
 
     def answer_with_model(prep: Prepared) -> ChatResponse:
@@ -286,14 +286,11 @@ def create_app(
             try:
                 reply = model.complete(prep.messages)
                 validation = validate_answer(
-                    reply.text,
-                    prep.facts,
-                    knowledge_text=prep.knowledge_text,
-                    knowledge_tags=prep.knowledge_tags,
+                    reply.text, prep.facts, knowledge_lines=prep.knowledge_lines
                 )
                 if not validation.text:
                     notice = POLICY_NOTICE
-                    raise LlmUnavailableError("nothing left after validation")
+                    raise LlmUnavailableError("no allowed line in the model reply")
                 return _model_reply(
                     validation, prep, model_name=model.name, cut_short=reply.cut_short
                 )
@@ -337,9 +334,7 @@ def create_app(
 
         notice = FALLBACK_NOTICE
         if model is not None:
-            guard = StreamingGuard(
-                prep.facts, knowledge_text=prep.knowledge_text, knowledge_tags=prep.knowledge_tags
-            )
+            guard = StreamingGuard(prep.facts, knowledge_lines=prep.knowledge_lines)
             cut_short = False
             try:
                 async with aclosing(model.stream(prep.messages)) as source:
@@ -348,7 +343,8 @@ def create_app(
                         shown = guard.feed(piece.text) if piece.text else None
                         if shown is not None:
                             yield line({"type": "text", "text": shown})
-                validation = guard.finish()
+                guard.finish()
+                validation = guard.validation()
                 if not validation.text:
                     notice = POLICY_NOTICE
                 if validation.text:
@@ -357,7 +353,8 @@ def create_app(
                     )
                     return
             except LlmUnavailableError:
-                partial = guard.partial()
+                # Only lines completed before the failure; an unfinished line is not shown.
+                partial = guard.validation()
                 if partial.text:
                     # Keep what the RM has already read, and say it stopped early.
                     yield done(_model_reply(partial, prep, model_name=model.name, cut_short=True))

@@ -1,4 +1,9 @@
-"""Grounding and policy validation: factual claims, action permissions and disclosures."""
+"""Sentence checks: factual claims, action permissions and disclosures.
+
+They decide which approved knowledge sentences become allowed lines
+(guardrails.knowledge_lines). Model text itself is never repaired or partly kept: only whole
+allowed lines are shown (see the whole-answer tests at the end).
+"""
 
 import json
 
@@ -6,15 +11,23 @@ import pytest
 
 from ai_assistant.clm_client import CaseSnapshot
 from ai_assistant.context import build_case_facts
-from ai_assistant.guardrails import validate_answer
+from ai_assistant.guardrails import (
+    allowed_guidance,
+    knowledge_lines,
+    sentence_problem,
+    validate_answer,
+)
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, SUMMARY, FakeBackend, FakeModel, _client
 from tests.test_document_review_choices import _facts as facts_with_document_review
 
 FACTS = build_case_facts(CaseSnapshot(summary=SUMMARY, documents=DOCUMENTS, actor=ME))
+OFFERED = 'The current case offers "Keep registry value".'
+OPEN_OWNERSHIP = 'Open the "Ownership & UBO" section to inspect the current case evidence.'
 
 
-def _reasons(answer: str, facts: dict[str, object] = FACTS) -> tuple[str, ...]:
-    return validate_answer(answer, facts).removed
+def _reasons(sentence: str, facts: dict[str, object] = FACTS) -> tuple[str, ...]:
+    reason = sentence_problem(sentence, facts)
+    return (reason,) if reason else ()
 
 
 # 1. Grounding: factual claims ---------------------------------------------------------
@@ -41,10 +54,19 @@ def test_values_that_are_in_the_case_facts_are_kept(sentence: str) -> None:
         ("The unit is #04-01.", "unsupported_value"),
         ("The evidence score is 0.85.", "unsupported_value"),
         ("6 of 12 onboarding steps are done.", "wrong_step_count"),
+        ("Ask the compliance team.", "invented_contact"),
+        ('Click "Approve now".', "invented_label"),
+        ("Upload it (section: Upload centre).", "unknown_section"),
+        ("As the other entry says [G2].", "invented_source"),
+        ("Keep\tthe registry value.", "unprintable_text"),
     ],
 )
 def test_values_that_are_not_in_the_case_facts_are_left_out(sentence: str, reason: str) -> None:
     assert _reasons(sentence) == (reason,)
+
+
+def test_a_real_case_page_section_is_allowed() -> None:
+    assert _reasons("Upload ownership evidence (section: Ownership & UBO).") == ()
 
 
 # 2. Policy: action permissions ----------------------------------------------------------
@@ -117,62 +139,63 @@ def test_a_document_value_that_differs_from_acra_is_not_presented_as_confirmed()
 
 
 def test_registry_data_from_a_mock_registry_comes_with_a_notice() -> None:
-    validation = validate_answer("ACRA has the UEN 11111999A.", FACTS)
+    lines = knowledge_lines(FACTS, [("G1", "ACRA has the UEN 11111999A.")])
+    assert lines == ["ACRA has the UEN 11111999A. [G1]"]
+    validation = validate_answer(lines[0], FACTS, knowledge_lines=lines)
     assert validation.disclosures == (
         "Registry data in this case comes from ACRA (MOCK), not the live ACRA service.",
     )
-    assert validate_answer('Click "Keep registry value".', FACTS).disclosures == ()
+    assert validate_answer(OFFERED, FACTS).disclosures == ()
 
 
 # Whole answers ---------------------------------------------------------------------------
 
 
-def test_only_failing_sentences_are_removed_and_the_rm_is_told() -> None:
-    answer = (
-        "1. Keep the registry value in Document verification.\n"
-        "2. You can also reject the document if it is wrong.\n"
-        "3. Then upload ownership evidence in Ownership & UBO."
-    )
+def test_only_allowed_lines_are_kept_and_the_rm_is_told() -> None:
+    assert {OFFERED, OPEN_OWNERSHIP} <= set(allowed_guidance(FACTS))
+    answer = f"{OFFERED}\nYou can also reject the document if it is wrong.\n{OPEN_OWNERSHIP}"
     validation = validate_answer(answer, FACTS)
-    assert validation.text == (
-        "1. Keep the registry value in Document verification.\n"
-        "2. Then upload ownership evidence in Ownership & UBO."
-    )
-    assert validation.removed == ("action_not_allowed",)
+    assert validation.text == f"{OFFERED}\n{OPEN_OWNERSHIP}"
+    assert validation.left_out == 1
     assert validation.notice() == (
         "I left out 1 statement that I could not check against the case data."
     )
 
 
+def test_free_prose_is_never_shown_even_when_every_fact_in_it_is_true() -> None:
+    # Each of these passes the sentence checks, but model prose is not an allowed line.
+    for answer in ("Keep the registry value.", "The UEN is 11111999A.", OFFERED[:-1]):
+        assert validate_answer(answer, FACTS).text == ""
+
+
 def test_chat_reply_reports_the_checks_and_tells_the_rm() -> None:
-    model = FakeModel(answer="Keep the registry value. Then approve the case.")
+    model = FakeModel(answer=f"{OFFERED}\nThen approve the case.")
     reply = _client(FakeBackend(), model).post(
         f"/assistant/cases/{CASE_ID}/chat", json={"message": "What next?"}
     )
     body = reply.json()
-    assert body["answer"] == "Keep the registry value."
-    assert body["checks"] == {"removed": ["action_not_allowed"], "disclosures": []}
+    assert body["answer"] == OFFERED
+    assert body["checks"] == {"removed": ["not_an_allowed_line"], "disclosures": []}
     assert "I left out 1 statement" in body["notice"]
 
 
-def test_a_streamed_sentence_that_fails_a_check_is_never_shown() -> None:
-    model = FakeModel(
-        answer="Keep the registry value. Then approve the case. Upload ownership evidence."
-    )
+def test_a_streamed_line_that_is_not_allowed_is_never_shown() -> None:
+    model = FakeModel(answer=f"{OFFERED}\nThen approve the case.\n{OPEN_OWNERSHIP}")
     response = _client(FakeBackend(), model).post(
         f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "What next?"}
     )
     events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
     assert all("approve" not in json.dumps(event).lower() for event in events[:-1])
-    assert events[-1]["answer"] == "Keep the registry value. Upload ownership evidence."
-    assert events[-1]["checks"]["removed"] == ["action_not_allowed"]
+    assert events[-1]["answer"] == f"{OFFERED}\n{OPEN_OWNERSHIP}"
+    assert events[-1]["checks"]["removed"] == ["not_an_allowed_line"]
 
 
 def test_an_answer_with_nothing_left_falls_back_to_case_data() -> None:
-    model = FakeModel(answer="Approve the case. The UEN is 202400001A.")
+    model = FakeModel(answer="Keep the registry value. The UEN is 11111999A.")
     body = (
         _client(FakeBackend(), model)
         .post(f"/assistant/cases/{CASE_ID}/chat", json={"message": "What next?"})
         .json()
     )
     assert body["answered_by"] == "case_data"
+    assert body["notice"].startswith("The model response could not be verified")

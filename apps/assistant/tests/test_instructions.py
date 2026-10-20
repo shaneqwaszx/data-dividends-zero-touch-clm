@@ -13,7 +13,7 @@ def test_rules_are_loaded_from_markdown_without_editor_notes() -> None:
     prompt = system_prompt()
     assert prompt.startswith("You are the AI Assistant")
     assert "<!--" not in prompt and "HOW THE AI ASSISTANT BEHAVES" not in prompt
-    for number in range(1, 19):
+    for number in range(1, 16):
         assert f"\n{number}. " in prompt, f"rule {number} must start on its own line"
 
 

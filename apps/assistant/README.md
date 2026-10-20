@@ -10,9 +10,10 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
 ```
 
 - **The backend stays the authority.** Blockers, owners, next steps and allowed actions are
-  copied from what the CLM backend already computed. The model writes the answer, and code
-  checks every sentence against the case facts and the actions the backend offers before the
-  RM sees it (see Grounding and policy validation). Access is still decided by the backend,
+  copied from what the CLM backend already computed. The model only selects exact allowed
+  lines: reviewed statements grounded in the current actions, and approved knowledge
+  sentences that pass the checks (see Output policy). Anything else is withheld; if nothing
+  is left, a deterministic case-data answer is shown. Access is still decided by the backend,
   because the RM's own session is forwarded.
 - **Read-only.** Only `GET` requests are made to the CLM backend.
 - **No-AI fallback.** The opening summary is built straight from the case data, so it is
@@ -21,9 +22,9 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
 - **Swappable model.** Explicit questions use an OpenAI-compatible endpoint, such as
   Ollama (default) or LM Studio. Configuring an endpoint does not establish approved
   data handling. Remote/cloud deployment authorization remains a separate policy boundary.
-- **Document text is data.** Allowed actions come only from the backend's action list, never
-  from document values. Streaming checks each complete sentence before displaying it. Failing
-  sentences are dropped; if nothing verified remains, the service uses the case-data answer.
+- **Document text is data.** Document values never extend the allowed lines. Streaming
+  checks each complete line before displaying it. Unknown lines are dropped; if no allowed
+  line remains, the service uses the case-data answer.
 - **Truthful completion.** The model adapter requires `[DONE]` or a supported terminal
   `finish_reason` (`stop` or `length`). EOF without a terminal marker is a failure.
   Already verified partial text is retained with a cut-short notice; malformed provider
@@ -50,8 +51,8 @@ Settings are in `.env.example` (copy to `.env` to change them).
 ## Changing how the AI Assistant behaves
 
 The model instructions live in `ai_assistant/instructions/`. The code-owned output policy in
-`guardrails.py` remains authoritative: editing the rules cannot allow an action, value or claim
-that its checks would remove.
+`guardrails.py` remains authoritative: editing the rules cannot add an allowed line, so it
+cannot allow an action, value or claim.
 
 | File | What it controls |
 |---|---|
@@ -106,7 +107,7 @@ RM clicks "Not helpful" ─► gap for the Director to handle
 | `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from feedback |
 | `ingest.py` | Loads the guidance files (an app-approved edit is not overwritten by its file) |
 | `evaluation.py` | Recall and "correctly found nothing" on a labelled question set |
-| `../knowledge_answers.py` | Tags hits, builds the KNOWLEDGE prompt part, works out cited sources and follow-up suggestions |
+| `../knowledge_answers.py` | Tags hits, keeps only approved entries the user may see, lists their allowed lines in the KNOWLEDGE prompt part, works out cited sources and follow-up suggestions |
 | `../knowledge_api.py` | Feedback and review endpoints |
 
 **Rules.** Versions are never overwritten. The author of an entry can never approve it. Approving a
@@ -155,7 +156,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | GET | `/assistant/knowledge/entries/{id}` | author, Director, HR | All versions and reviews of one entry |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded) |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
-| POST | `/assistant/knowledge/entries/{id}/retire` | Director | Stop using an entry |
+| POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
 | POST | `/assistant/knowledge/feedback/{id}/close` | Director | Mark a gap as handled |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
 | POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index |
@@ -177,26 +178,34 @@ see a **Review** button that opens the Knowledge review window.
    replaced with `[COMPANY]`. Edit if needed, then **Approve**.
 5. Back as an RM on a similar case, ask again: the new resolution is now cited.
 
-## Grounding and policy validation
+## Output policy
 
-Every model answer is checked by code (`ai_assistant/guardrails.py`) before the RM sees it,
-one sentence at a time (also while streaming). A sentence that fails is left out, and the
-answer's notice says how many were left out; the reply's `checks` lists the reasons.
+The model's answer is never shown as written. Code (`ai_assistant/guardrails.py`) shows only
+whole lines that exactly equal an allowed line, also while streaming; every other line is
+left out, the answer's notice says how many, and the reply's `checks.removed` is
+`["not_an_allowed_line"]`. The allowed lines are:
 
-| Check | Left out when | Reason code |
-|---|---|---|
-| Factual claims | a UEN, postal code, unit number, score or long number is not in the case facts | `unsupported_value` |
-| | "N of M steps" does not match the case | `wrong_step_count` |
-| | a quoted button or label, or a contact, is not in the facts | `invented_label`, `invented_contact` |
-| Action permissions | it tells the RM to take an action this case does not offer them (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve/authorize, submit or resend to GoldTier). Saying an action is not available is fine | `action_not_allowed` |
-| | it claims something only people or other systems can decide: legal UBO verification, KYC/regulatory approval, official verification, or one source always overriding the other | `authority_claim` |
-| Disclosures | it calls a mock/sandbox system live or production | `live_claim` |
-| | it presents a document value that differs from ACRA as confirmed | `document_value_as_fact` |
+1. **The catalog** (`allowed_guidance`): fixed statements filled only from the backend's case
+   facts (offered actions, readiness items with their section, rule explanations, the
+   standing disclaimers).
+2. **Knowledge lines**: each sentence of a retrieved, approved entry the user may see,
+   exactly as approved and followed by its tag (`... [G1]`), but only if it passes these
+   checks against this case's facts:
 
-When an answer uses registry data from a registry that is not live, a notice says so
-(for example "Registry data in this case comes from ACRA (MOCK) …"). If nothing is left
-after the checks, the answer comes from the case data instead, with the notice "The model
-response could not be verified".
+| Check | The sentence is not offered when |
+|---|---|
+| Factual claims | a UEN, postal code, unit number, score or long number is not in the case facts; "N of M steps" does not match the case |
+| Labels and places | a quoted button or label, a contact, or a "(section: ...)" is not in the case facts; the sentence carries a citation tag of its own |
+| Action permissions | it tells the RM to take an action this case does not offer them (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve/authorize, submit or resend to GoldTier). Saying an action is not available is fine |
+| Authority | it claims something only people or other systems can decide: legal UBO verification, KYC/regulatory approval, official verification, or one source always overriding the other |
+| Disclosures | it calls a mock/sandbox system live or production, or presents a document value that differs from ACRA as confirmed |
+| Characters | it contains a tab, a non-breaking or zero-width space or another character that is not printable |
+
+Free model prose, paraphrases and earlier chat turns never become allowed lines. When an
+answer uses registry data from a registry that is not live, a notice says so (for example
+"Registry data in this case comes from ACRA (MOCK) …"). If no allowed line is left, the
+answer comes from the case data instead, with the notice "The model response could not be
+verified".
 
 ## Speed
 
@@ -209,7 +218,7 @@ A small model on a laptop is slow, so the AI Assistant keeps the model's work sm
 | **Cache-friendly order** | Rules, then case facts, then history, then the question. The start stays the same, so Ollama reuses what it already read. |
 | **History budget** | The opening summary is not sent back (it repeats the facts), and only recent turns that fit about 2,400 characters are sent. The RM still sees the whole chat. |
 | **Pre-warming** | Optional background reading of rules and case facts is restricted to literal loopback model URLs. Remote and ambiguous destinations are skipped even when enabled. |
-| **Streaming** | The answer appears sentence by sentence. Each sentence is checked by the guardrails before it is shown. |
+| **Streaming** | The answer appears line by line. Each complete line is looked up in the allowed lines before it is shown. |
 | **Length safety limit** | `AI_ASSISTANT_LLM_MAX_ANSWER_TOKENS` (600) only stops a runaway answer; if reached, the RM is told it was cut short. Answers are asked to be concise but complete. |
 
 `AI_ASSISTANT_LLM_WARM_UP=true` retains local warm-up for literal loopback IPv4
@@ -227,7 +236,7 @@ Streaming resource limits are enforced independently of the model's requested to
 budget (600 by default, at most 4,000 in settings). The adapter accepts at most 64 KiB
 per SSE frame/line and 1 MiB of raw response bytes, including comments and empty-delta
 frames. The server guard accepts at most 64 KiB of UTF-8 model text; if the stream fails,
-only sentences already checked and shown are kept. These fixed safety ceilings leave
+only allowed lines completed before the failure are kept. These fixed safety ceilings leave
 generous room for concise answers;
 provider compliance with `max_tokens` is never assumed.
 

@@ -54,7 +54,7 @@ class FakeBackend:
 
 class FakeModel:
     name = "fake-model"
-    ANSWER = "The registered address on the document differs from ACRA (from ACRA)."
+    ANSWER = 'The current case offers "Keep registry value".'
 
     def __init__(
         self, *, fail: bool = False, answer: str | None = None, cut_short: bool = False

@@ -39,12 +39,11 @@ def test_invented_buttons_contacts_and_field_names_are_removed() -> None:
     assert "Support Team" not in answer
     assert "who_resolves" not in answer
     assert "e.g." not in answer
-    assert answer.splitlines()[2].startswith("1. Ensure the file is a valid company document.")
-    assert answer.splitlines()[3].startswith("2. Verify the file appears")
+    assert answer == ""  # Free-form guidance has no authority, even with known nouns.
 
 
 def test_real_labels_and_facts_are_kept() -> None:
-    good = 'Use "Keep registry value" in the Document verification section (from ACRA).'
+    good = 'The current case offers "Keep registry value".'
 
     assert guard_answer(good, CONFLICT) == good
 
@@ -52,7 +51,7 @@ def test_real_labels_and_facts_are_kept() -> None:
 def test_snake_case_names_are_stripped_from_otherwise_good_sentences() -> None:
     answer = guard_answer("The next step is listed in actions_available_to_this_user.", CONFLICT)
 
-    assert answer == "The next step is listed in."
+    assert answer == ""  # Do not repair arbitrary prose into apparent advice.
 
 
 def test_empty_values_are_not_sent_to_the_model() -> None:
@@ -61,27 +60,3 @@ def test_empty_values_are_not_sent_to_the_model() -> None:
     )
 
     assert compact == {"f": [1], "h": 0}
-
-
-def test_an_explanation_between_steps_does_not_restart_numbering() -> None:
-    from ai_assistant.guardrails import validate_answer
-
-    answer = "Two things are missing:\n\n1. A decision.\n\nIt is about the address.\n\n2. Evidence."
-    text = validate_answer(answer, {}).text
-    assert "1. A decision." in text and "2. Evidence." in text
-    restarted = validate_answer("Steps:\n1. One.\n2. Two.\nAlso:\n1. Three.", {}).text
-    assert restarted.endswith("Also:\n1. Three.")
-
-
-def test_section_names_are_kept_only_when_they_are_real_case_page_sections() -> None:
-    from ai_assistant.guardrails import validate_answer
-
-    facts = {"case_page_sections": ["Document verification", "Ownership & UBO"]}
-    answer = (
-        "1. Address discrepancy (section: *Document or reconciliation review required*)\n"
-        "2. Ownership evidence is missing (section: *Ownership & UBO*)"
-    )
-    text = validate_answer(answer, facts).text
-    assert "Document or reconciliation review required" not in text
-    assert "1. Address discrepancy\n" in text
-    assert "(section: Ownership & UBO)" in text

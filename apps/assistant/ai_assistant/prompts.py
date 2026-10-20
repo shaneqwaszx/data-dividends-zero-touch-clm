@@ -9,7 +9,7 @@ same between questions. The model server can then reuse its earlier reading of t
     1. rules            - same for every case and question
     2. case facts       - same for every question about this case, until the case changes
     3. chat history     - grows by one turn per question
-    4. knowledge        - retrieved guidance and past cases for this question (tagged)
+    4. knowledge        - allowed lines from retrieved guidance and past cases (tagged)
     5. page terms       - only the glossary entries this question asks about
     6. the question
 """
@@ -19,7 +19,7 @@ import re
 from typing import Any
 
 from .context import readable_time as when
-from .guardrails import compact_facts
+from .guardrails import allowed_guidance, compact_facts
 from .instructions import system_prompt
 
 # The rules live in instructions/persona_and_rules.md so they can be edited as plain text.
@@ -129,6 +129,7 @@ def facts_for_model(facts: dict[str, Any]) -> dict[str, Any]:
 
     readiness = facts.get("readiness") or {}
     view = {
+        "allowed_guidance": allowed_guidance(facts),
         "viewer": facts.get("viewer"),
         "company": facts.get("company"),
         "overall": {

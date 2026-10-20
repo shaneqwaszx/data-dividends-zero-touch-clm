@@ -1,63 +1,45 @@
-"""Grounding and policy validation: code checks every model answer before the RM sees it.
+"""Exact output policy over current backend actions, reviewed explanations and approved knowledge.
 
-Small local models do not always follow the prompt rules, so each sentence of an answer is
-checked against the case facts (the same facts the backend gave the AI Assistant). A
-sentence that fails a check is left out, and the RM is told how many were left out.
+Generated prose is untrusted, including paraphrases. Only whole model lines that exactly equal
+an allowed line may be displayed (the owner's G6 direction, ADR-012). The allowed lines are:
 
-1. Grounding (factual claims)
-   - a UEN, postal code, unit number, score or other specific value must appear in the facts;
-   - "N of M steps" must match the case's real progress;
-   - a button, screen or label named in quotes must exist in the facts;
-   - a person or team to contact must be named in the facts;
-   - a cited knowledge entry ([G1], [P2] ...) must be one that was actually retrieved.
-2. Policy (action permissions)
-   - an action the answer tells the RM to take (keep the registry value, use the document
-     value, accept or reject a document suggestion, approve, submit ...) must be one this RM
-     is allowed to take on this case. Saying an action is NOT available is fine.
-3. Disclosures
-   - never call a mock, local or sandbox system "live" or "production";
-   - never present a value read from a document as confirmed when it differs from ACRA;
-   - when the answer relies on registry data from a non-live registry, say so in a notice.
+1. the catalog (``allowed_guidance``): trusted templates filled only from this request's
+   backend projection;
+2. knowledge lines (``knowledge_lines``): each sentence of an approved knowledge entry that
+   retrieval returned for this user and case, verbatim and followed by its tag
+   ("<sentence> [G1]"), and only when the sentence passes the sentence checks below against
+   this case's facts.
 
-Clean-up (not a failure): internal field names (``who_resolves``) and generic example lists
-("e.g., business licence") are removed, and numbered steps are renumbered.
+Document/company values, history, free model prose and paraphrases never extend the allowed
+lines. The deterministic case-data answer handles unsupported responses. This is bounded
+statement selection, not general semantic verification.
 
-Facts sent to the model are also stripped of empty values, so the model is not prompted to
-fill gaps such as an empty ``who_resolves``.
+The sentence checks are an additional safeguard on knowledge sentences, never a replacement
+for the catalog. A knowledge sentence is not offered when (fail closed):
+
+- it contains a character that is not printable (a tab, a non-breaking or zero-width space);
+- grounding: a UEN, postal code, unit number, score or other specific value is not in the case
+  facts; "N of M steps" does not match the case; a quoted button, screen or label, a person or
+  team to contact, or a "(section: ...)" is not in the case facts; it carries a citation tag
+  of its own;
+- policy: it tells the RM to take an action this RM is not offered on this case, or claims
+  something only people or other systems can decide (legal UBO verification, KYC/regulatory
+  approval, one source automatically winning). Only a negation that directly governs the
+  action or claim cancels it (see ``_negated``);
+- disclosures: it calls a mock, local or sandbox system live, or presents a document value
+  that differs from ACRA as confirmed.
 """
 
+import bisect
 import json
 import re
+import unicodedata
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .guide import CASE_PAGE_SECTIONS, DOCUMENT_REVIEW_CHOICES, READINESS_NEEDS, RULE_PLAIN
 from .llm import LlmUnavailableError
-
-_SNAKE = re.compile(r"\s?\(?`?\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b`?\)?")
-# A label in double quotes, or in single quotes that are not apostrophes ("ACRA's", "it's").
-_QUOTED = re.compile(
-    r"[\"“”]([^\"“”\n]{2,60})[\"“”]|(?<![A-Za-z])['‘]([^'’\n]{2,60})['’](?![A-Za-z])"
-)
-_OR_SIMILAR = re.compile(r"\s?\((?:or similar|if available[^)]{0,200})\)", re.IGNORECASE)
-# Generic example lists the model adds from its own knowledge, e.g. "(e.g., business licence)".
-_EXAMPLES = re.compile(r"\s?\((?:e\.g\.|eg\.|for example|such as|like)[^)]{0,200}\)", re.IGNORECASE)
-# Every check runs on a sentence whose whitespace runs are one space long, so no pattern
-# with a leading \s* or \s+ can backtrack across a long run (a 64 KiB run of spaces once
-# took minutes to check).
-_WHITESPACE_RUN = re.compile(r"\s{2,}")
-_CONTACTS = (
-    "support team",
-    "help desk",
-    "helpdesk",
-    "it team",
-    "compliance team",
-    "your manager",
-    "your supervisor",
-    "case owner",
-    "administrator",
-    "contact support",
-)
-_SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 
 def compact_facts(value: Any) -> Any:
@@ -72,12 +54,76 @@ def compact_facts(value: Any) -> Any:
     return value
 
 
-# --- what the case allows -----------------------------------------------------------
+def allowed_guidance(facts: dict[str, Any]) -> list[str]:
+    """Build advice only from trusted templates and this request's backend projection."""
 
-# Actions the app can offer, and the wording a model uses for them. The labels are the ones
-# the case page shows (backend api_models._INTERVENTION_ACTIONS and the review panel in
-# BlockerDecisionReview.tsx). "Approve" and "submit to GoldTier" are never offered by the
-# AI Assistant in Phase 1: final approval is a human gate outside the chat.
+    allowed = [
+        "Ownership and UBO analysis is provisional; it does not establish legal verification.",
+        "Mock, Local and Sandbox evidence do not establish Live integration or KYC approval.",
+        "Successful mock submission does not establish GoldTier-internal "
+        "or regulatory/KYC approval.",
+        "Registry and document differences require the current case decision; neither source "
+        "automatically overrides the other.",
+        "For uncertain or frozen GoldTier submissions, use only the recovery actions currently "
+        "offered by the case; do not resend.",
+        "The seven case page stages are distinct from the backend processing steps.",
+    ]
+    for need in facts.get("still_needed_before_goldtier") or []:
+        for what, where in READINESS_NEEDS.values():
+            if need.get("what") == what and need.get("where_on_the_case_page") == where:
+                allowed.append(f"{what} (section: {where})")
+    for blocker in facts.get("blockers") or []:
+        explanation = blocker.get("plain_explanation")
+        if explanation in RULE_PLAIN.values():
+            allowed.append(explanation)
+        # Labels originate only in authorized_actions, never document evidence.
+        for action in blocker.get("actions_available_to_this_user") or []:
+            label = action.get("label")
+            if isinstance(label, str) and label and not any(c in label for c in "\n\r"):
+                allowed.append(f'The current case offers "{label}".')
+        if blocker.get("why_no_action"):
+            allowed.append("No action is currently available to you for this blocker.")
+    review = facts.get("document_field_review") or {}
+    for field in review.get("fields") or []:
+        for choice in field.get("choices") or []:
+            if choice in DOCUMENT_REVIEW_CHOICES:
+                allowed.append(
+                    f'Document verification offers "{choice}" to review the extracted field; '
+                    "this does not decide registry/document precedence."
+                )
+    for section in CASE_PAGE_SECTIONS:
+        allowed.append(f'Open the "{section}" section to inspect the current case evidence.')
+    return list(dict.fromkeys(allowed))
+
+
+# --- sentence checks (knowledge sentences only) -----------------------------------------
+
+# A label in double quotes, or in single quotes that are not apostrophes ("ACRA's", "it's").
+_QUOTED = re.compile(
+    r"[\"“”]([^\"“”\n]{2,60})[\"“”]|(?<![A-Za-z])['‘]([^'’\n]{2,60})['’](?![A-Za-z])"
+)
+_CONTACTS = (
+    "support team",
+    "help desk",
+    "helpdesk",
+    "it team",
+    "compliance team",
+    "your manager",
+    "your supervisor",
+    "case owner",
+    "administrator",
+    "contact support",
+)
+_SECTION_REF = re.compile(r"\(section: ?([^)]{1,80})\)", re.IGNORECASE)
+_CITATION = re.compile(r"\[[GP]\d+\]")
+_SPACES = re.compile(" {2,}")
+# Non-breaking hyphens read as hyphens ("Re‑send"); NFKC folds the other look-alikes.
+_HYPHENS = str.maketrans({"‐": "-", "‑": "-"})
+
+# Actions the app can offer, and the wording used for them. The labels are the ones the case
+# page shows (backend api_models._INTERVENTION_ACTIONS and the review panel in
+# BlockerDecisionReview.tsx). "Approve" and "submit to GoldTier" are never offered by the AI
+# Assistant in Phase 1: final approval is a human gate outside the chat.
 _NEVER_OFFERED = "(final approval or submission)"
 _KEEP = r"(?:keep|keeps|kept|keeping)"
 _USE = r"(?:use|uses|used|using)"
@@ -134,67 +180,78 @@ _ACTION_PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
 )
-_NEGATION = re.compile(
-    r"\b(?:cannot|can't|can not|not|no|never|neither|nor|isn't|aren't|doesn't|unavailable)\b"
-)
 # Parts of one sentence that can say opposite things ("you cannot X, but you can Y").
-_CLAUSE = re.compile(r",?\sbut\s|;\s?|,\s?however,?\s?|\swhereas\s|,\s?while\s")
+_CLAUSE = re.compile(r",? but |; ?|, ?however,? ?| whereas |, ?while ")
 
-# Fail closed: an action the RM is not offered, or an authority claim, is left out unless a
+# Fail closed: an action the RM is not offered, or an authority claim, counts unless a
 # negation directly governs it. Only these fixed constructions count, written immediately
 # before the phrase (allowing a few listed filler words):
 #   action: a negated modal or "never"           "You cannot approve the case", "Do not resend"
 #   claim:  no / not / never / without, a negated "is", or a negated denial verb
-#           "This is not KYC approval", "does not establish ... KYC approval"
+#           "This is not KYC approval", "does not establish KYC approval"
 # and only when nothing earlier in the same phrase is negated too ("There's no reason you
 # shouldn't resend it" affirms). The single other exemption is the action phrase itself as
 # the subject of "is not available/allowed/possible/offered". Anything else ("Do not wait to
-# approve the case", "Never forget to resend it", "No issues remain and the UBOs are
-# verified") is left out. Some genuine negations are over-dropped; that is the safe side.
-_PHRASE_BREAK = re.compile(r"[,:;()–—]|\s-\s")
+# approve the case", "No issues remain and the UBOs are verified") counts. Some genuine
+# negations are over-dropped; that is the safe side. Known limit: wording around a governed
+# action can still reverse it ("Previously you couldn't approve the case, but now you can.");
+# such a sentence reaches a user only as part of approved knowledge (ADR-012 residual risks).
+_PHRASE_BREAK = re.compile(r"[,:;()–—]| - ")
 _ACTION_GOVERNOR = re.compile(
     r"\b(?:cannot|can not|can't|could not|couldn't|do not|don't|does not|doesn't|did not"
     r"|didn't|will not|won't|would not|wouldn't|should not|shouldn't|must not|mustn't"
-    r"|may not|might not|shall not|never)\s(?:(?:be|directly|yet|ever|then)\s)?$"
+    r"|may not|might not|shall not|never) (?:(?:be|directly|yet|ever|then) )?$"
 )
 _CLAIM_GOVERNOR = re.compile(
     r"(?:\b(?:no|not|never|without|is not|are not|was not|were not|isn't|aren't|wasn't"
     r"|weren't)|\b(?:does not|doesn't|do not|don't|did not|didn't|will not|won't|cannot"
     r"|can't) (?:mean|establish|imply|constitute|guarantee|give|grant|confirm|prove))"
-    r"\s(?:(?:a|an|the|any|full|final|yet|be|directly)\s)*$"
+    r" (?:(?:a|an|the|any|full|final|yet|be|directly) )*$"
 )
-# "GoldTier-internal or regulatory/KYC approval": the listed words share the claim's noun.
-_COORDINATED = re.compile(r"(?:[\w/'-]+,? (?:or|and) )+$")
 _ANY_NEGATION = re.compile(
     r"\b(?:no|not|never|none|nothing|nobody|neither|nor|without|cannot)\b|\b\w+n't\b"
 )
 _SUBJECT_UNAVAILABLE = re.compile(
-    r"^\s(?:is|are)(?: not|n't) (?:available|allowed|possible|offered)\b"
+    r" (?:is|are)(?: not|n't) (?:available|allowed|possible|offered)\b"
 )
+# How far before an action or claim its governing negation may start; a governor further
+# away is not found, so the action or claim counts (fail closed).
+_GOVERNOR_REACH = 80
 
 
-def _negated(clause: str, start: int, end: int, *, claim: bool) -> bool:
-    """True when a negation directly governs the action or claim at ``start:end``."""
+def _negated(
+    clause: str, start: int, end: int, breaks: list[int], negations: list[int], *, claim: bool
+) -> bool:
+    """True when a negation directly governs the action or claim at ``start:end``.
 
-    before = _PHRASE_BREAK.split(clause[:start])[-1]
-    if not claim and before.strip() in ("", "the", "a", "an"):
-        return bool(_SUBJECT_UNAVAILABLE.match(clause[end:]))
-    if claim:
-        coordinated = _COORDINATED.search(before)
-        if coordinated:
-            before = before[: coordinated.start()]
-    governor = (_CLAIM_GOVERNOR if claim else _ACTION_GOVERNOR).search(before)
+    ``breaks`` (phrase-break ends) and ``negations`` (negation-word starts) are found once
+    per clause, so each match costs a bounded amount of work.
+    """
+
+    index = bisect.bisect_right(breaks, start)
+    phrase = breaks[index - 1] if index else 0
+    if not claim and start - phrase <= 5 and clause[phrase:start].strip() in ("", "the", "a", "an"):
+        return bool(_SUBJECT_UNAVAILABLE.match(clause, end))
+    governor = (_CLAIM_GOVERNOR if claim else _ACTION_GOVERNOR).search(
+        clause, max(phrase, start - _GOVERNOR_REACH), start
+    )
     if governor is None:
         return False
     # A second negation earlier in the phrase turns the whole thing back into advice.
-    return not _ANY_NEGATION.search(before[: governor.start()])
+    first = bisect.bisect_left(negations, phrase)
+    return not (first < len(negations) and negations[first] < governor.start())
 
 
 def _asserted(pattern: re.Pattern[str], clause: str, *, claim: bool = False) -> bool:
     """True when ``pattern`` occurs in ``clause`` without a negation governing it."""
 
+    matches = list(pattern.finditer(clause))
+    if not matches:
+        return False
+    breaks = [m.end() for m in _PHRASE_BREAK.finditer(clause)]
+    negations = [m.start() for m in _ANY_NEGATION.finditer(clause)]
     return any(
-        not _negated(clause, m.start(), m.end(), claim=claim) for m in pattern.finditer(clause)
+        not _negated(clause, m.start(), m.end(), breaks, negations, claim=claim) for m in matches
     )
 
 
@@ -215,14 +272,13 @@ def allowed_actions(facts: dict[str, Any]) -> set[str]:
     return allowed
 
 
-# --- one sentence --------------------------------------------------------------------
-
-# Specific values a model could get wrong: UENs, postal codes, unit numbers, decimals, and
-# any number of three or more digits. Short counts ("2 documents") are not checked here.
+# Specific values that could be wrong for this case: UENs, postal codes, unit numbers,
+# decimals, and any number of three or more digits. Short counts ("2 documents") are not
+# checked here.
 _VALUE = re.compile(r"#\d+(?:-\d+)+|\b\d+\.\d+\b|\b\d{3,}[A-Za-z]?\b")
-_STEPS = re.compile(r"\b(\d+)\s*(?:of|out of|/)\s*(\d+)\s*(?:onboarding\s+)?steps?\b")
+_STEPS = re.compile(r"\b(\d+) ?(?:of|out of|/) ?(\d+) ?(?:onboarding )?steps?\b")
 _LIVE = re.compile(
-    r"\b(?:live|production|real)\s+(?:acra|registry|goldtier|system|environment|integration"
+    r"\b(?:live|production|real) (?:acra|registry|goldtier|system|environment|integration"
     r"|connection|api|data)\b|\b(?:acra|goldtier|registry|system)\b[^.]{0,30}\b(?:is|are) live\b"
     r"|\b(?:case|client|company|it|this)\b[^.]{0,20}\b(?:is|are) live\b"
 )
@@ -238,27 +294,15 @@ _AUTHORITY = re.compile(
 _CONFIRMED = re.compile(r"\b(?:confirmed|verified|official|is correct|are correct)\b")
 
 
-_CITATION = re.compile(r"\[([GP]\d+)\]")
-
-
 class Context:
-    """Everything the checks need, worked out once per answer."""
+    """This case's facts, worked out once for all sentence checks of one request."""
 
-    def __init__(
-        self,
-        facts: dict[str, Any],
-        *,
-        knowledge_text: str = "",
-        knowledge_tags: frozenset[str] = frozenset(),
-    ) -> None:
-        self.facts = facts
-        # Values and labels may come from the case facts or from retrieved knowledge entries;
-        # allowed actions still come only from the case facts (the backend).
-        self.known = (
-            json.dumps(facts, ensure_ascii=False, default=str) + "\n" + knowledge_text
-        ).lower()
-        self.knowledge_tags = knowledge_tags
+    def __init__(self, facts: dict[str, Any]) -> None:
+        # Values, labels and contacts must come from the case facts; knowledge text never
+        # vouches for itself.
+        self.known = json.dumps(facts, ensure_ascii=False, default=str).lower()
         self.allowed = allowed_actions(facts)
+        self.sections = {str(name) for name in facts.get("case_page_sections") or []}
         overall = facts.get("overall") or {}
         self.steps = (overall.get("steps_done"), overall.get("steps_total"))
         self.unconfirmed_document_values = {
@@ -271,21 +315,25 @@ class Context:
 
 
 def _check(sentence: str, ctx: Context) -> str | None:
-    """The reason this sentence must be left out, or None when it passes."""
+    """The reason this sentence must not be offered, or None when it passes."""
 
-    sentence = _WHITESPACE_RUN.sub(" ", sentence)
-    lowered = sentence.lower().replace("’", "'")
+    if not sentence.isprintable():
+        return "unprintable_text"
+    text = _SPACES.sub(" ", unicodedata.normalize("NFKC", sentence).translate(_HYPHENS))
+    lowered = text.lower().replace("’", "'")
     # 1. Grounding
-    for tag in _CITATION.findall(sentence):
-        if tag not in ctx.knowledge_tags:
-            return "invented_source"
+    if _CITATION.search(text):
+        return "invented_source"
     for phrase in _CONTACTS:
         if phrase in lowered and phrase not in ctx.known:
             return "invented_contact"
-    for double, single in _QUOTED.findall(sentence):
+    for double, single in _QUOTED.findall(text):
         label = (double or single).strip().lower()
         if label and label not in ctx.known and not any(ch.isdigit() for ch in label):
             return "invented_label"
+    for name in _SECTION_REF.findall(text):
+        if name.strip() not in ctx.sections:
+            return "unknown_section"
     for value in _VALUE.findall(lowered):
         if value not in ctx.known:
             return "unsupported_value"
@@ -293,8 +341,7 @@ def _check(sentence: str, ctx: Context) -> str | None:
         if (int(done), int(total)) != ctx.steps:
             return "wrong_step_count"
     clauses = _CLAUSE.split(lowered)
-    # 2. Policy. Fail closed: only a negation that directly governs the action or claim
-    # cancels it (see _negated).
+    # 2. Policy
     for clause in clauses:
         for label, pattern in _ACTION_PHRASES:
             if label not in ctx.allowed and _asserted(pattern, clause):
@@ -315,39 +362,63 @@ def _check(sentence: str, ctx: Context) -> str | None:
     return None
 
 
-def _tidy(sentence: str) -> str | None:
-    cleaned = _EXAMPLES.sub("", _OR_SIMILAR.sub("", _WHITESPACE_RUN.sub(" ", sentence)))
-    cleaned = _SNAKE.sub("", cleaned)
-    cleaned = re.sub(r"\(\s*\)", "", cleaned)
-    cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    return cleaned if cleaned.strip(" -*•.") else None
+def sentence_problem(sentence: str, facts: dict[str, Any]) -> str | None:
+    """Why ``sentence`` could not be offered as a knowledge line on this case (None: it can)."""
+
+    return _check(sentence, Context(facts))
 
 
-# --- whole answer --------------------------------------------------------------------
+_SENTENCE = re.compile(r"(?<=[.!?]) ")
+_LIST_MARKER = re.compile(r"(?:[-*•]|\d{1,3}[.)]) ")
 
+
+def knowledge_lines(facts: dict[str, Any], knowledge: Iterable[tuple[str, str]]) -> list[str]:
+    """The lines approved knowledge adds: "<sentence> [tag]" for each sentence that passes.
+
+    ``knowledge`` is (tag, body) for each retrieved entry that is approved and visible to this
+    user (see knowledge_answers.approved_knowledge). Each body line loses a leading list
+    marker and is split into sentences; runs of spaces become one space. Everything else is
+    kept exactly as approved.
+    """
+
+    ctx = Context(facts)
+    lines: list[str] = []
+    for tag, body in knowledge:
+        for raw in body.splitlines():
+            text = _SPACES.sub(" ", raw.strip())
+            marker = _LIST_MARKER.match(text)
+            if marker:
+                text = text[marker.end() :]
+            for sentence in _SENTENCE.split(text):
+                if sentence.strip(" -*•.") and _check(sentence, ctx) is None:
+                    lines.append(f"{sentence} [{tag}]")
+    return list(dict.fromkeys(lines))
+
+
+# --- what the RM sees -----------------------------------------------------------------
+
+LEFT_OUT_REASON = "not_an_allowed_line"
 REMOVED_NOTICE = "I left out {count} that I could not check against the case data."
 
 
 @dataclass(frozen=True)
 class Validation:
     text: str
-    # Why each left-out sentence failed (reason codes only, never the sentence itself).
-    removed: tuple[str, ...] = ()
+    # How many non-empty model lines were not allowed lines and so were left out.
+    left_out: int = 0
     # Short notices the RM should see with the answer.
     disclosures: tuple[str, ...] = ()
 
     def notice(self) -> str | None:
         parts = list(self.disclosures)
-        if self.removed:
-            count = len(self.removed)
-            noun = "1 statement" if count == 1 else f"{count} statements"
+        if self.left_out:
+            noun = "1 statement" if self.left_out == 1 else f"{self.left_out} statements"
             parts.append(REMOVED_NOTICE.format(count=noun))
         return " ".join(parts) or None
 
 
 def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
-    """A note when the answer relies on registry data from a registry that is not live."""
+    """A note when the shown answer relies on registry data from a registry that is not live."""
 
     lowered = text.lower()
     company = facts.get("company") or {}
@@ -369,193 +440,74 @@ def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-_SECTION_REF = re.compile(r"\s?\(section:\s?([^)\n]{1,80})\)", re.IGNORECASE)
-
-
-def _fix_section_names(answer: str, facts: dict[str, Any]) -> str:
-    """Keep "(section: X)" only when X is a real case page section.
-
-    A wrong one (a blocker title, a backend stage name) is dropped rather than shown, so
-    the RM is never sent to a section that does not exist. Formatting around the name
-    ("*Ownership & UBO*") is removed so the panel can link it.
-    """
-
-    sections = {str(name).lower(): str(name) for name in facts.get("case_page_sections") or []}
-
-    def repair(match: re.Match[str]) -> str:
-        name = match.group(1).strip().strip("*_`\"' ").strip()
-        real = sections.get(name.lower())
-        return f" (section: {real})" if real else ""
-
-    return _SECTION_REF.sub(repair, _WHITESPACE_RUN.sub(" ", answer))
-
-
-# Possessive quantifiers (*+, ++) keep these anchored line patterns linear on long
-# whitespace runs.
-_LIST_PREFIX = re.compile(r"^(\s*+(?:[-*•]|\d++[.)])\s++)")
-_NUMBERED = re.compile(r"^(\s*+)\d++([.)])\s++")
-# Only a new heading ("Next steps:") starts a new list; an explanation under a step,
-# indented or not, keeps the count going (1, 2 rather than 1, 1).
-_HEADING = re.compile(r"^\s*+(?:#|\**+[^\s].{0,60}:\**+\s*+$)")
-_TRAILING_HEADING = re.compile(r"^\s*+\**+[A-Za-z ]{2,30}:\**+\s*+$")
-
-
-class _Answer:
-    """Builds the checked answer line by line. Each sentence is checked exactly once, so
-    checking a streamed answer costs the same as checking the finished one."""
-
-    def __init__(
-        self,
-        facts: dict[str, Any],
-        *,
-        knowledge_text: str = "",
-        knowledge_tags: frozenset[str] = frozenset(),
-    ) -> None:
-        self._facts = facts
-        self._ctx = Context(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
-        self._lines: list[str] = []  # finished output lines, already numbered
-        self._number = 0
-        self._removed: list[str] = []
-        self._prefix = ""  # the current line's list marker
-        self._current = ""  # the current line's kept sentences
-        self.changes = 0  # bumped whenever the answer may read differently
-
-    def blank_line(self) -> None:
-        # Runs of blank lines become one, and the answer never starts with one.
-        if self._lines and self._lines[-1] != "":
-            self._lines.append("")
-            self.changes += 1
-
-    def start_line(self, prefix: str) -> None:
-        self._prefix = prefix
-        self._current = ""
-
-    def sentence(self, sentence: str, *, first: bool) -> None:
-        sentence = _fix_section_names(_WHITESPACE_RUN.sub(" ", sentence), self._facts)
-        if not first:
-            sentence = sentence.lstrip()
-        reason = _check(sentence, self._ctx)
-        if reason is not None:
-            self._removed.append(reason)
-            return
-        tidy = _tidy(sentence)
-        if tidy:
-            self._current = f"{self._current} {tidy}" if self._current else tidy
-            self.changes += 1
-
-    def _numbered(self, line: str, number: int) -> str | None:
-        match = _NUMBERED.match(line)
-        if not match:
-            return None
-        return f"{match.group(1)}{number}{match.group(2)} {line[match.end() :]}"
-
-    def end_line(self) -> None:
-        if self._current:
-            line = self._prefix + self._current
-            numbered = self._numbered(line, self._number + 1)
-            if numbered is not None:
-                self._number += 1
-                line = numbered
-            elif _HEADING.match(line):
-                self._number = 0
-            self._lines.append(line)
-            self.changes += 1
-        self._prefix = ""
-        self._current = ""
-
-    def text(self) -> str:
-        lines = self._lines
-        if self._current:
-            line = self._prefix + self._current
-            lines = [*lines, self._numbered(line, self._number + 1) or line]
-        text = "\n".join(lines).strip()
-        head, _, last = text.rpartition("\n")
-        # Drop a heading left with nothing under it (e.g. "Next steps:" at the end).
-        if _TRAILING_HEADING.match(last):
-            text = head.strip()
-        return text
-
-    def validation(self) -> Validation:
-        text = self.text()
-        return Validation(
-            text=text, removed=tuple(self._removed), disclosures=_disclosures(text, self._facts)
-        )
-
-
-def _add_line(answer: _Answer, line: str) -> None:
-    if not line.strip():
-        answer.blank_line()
-        return
-    match = _LIST_PREFIX.match(line)
-    prefix = match.group(1) if match else ""
-    answer.start_line(prefix)
-    for index, sentence in enumerate(_SENTENCE.split(line[len(prefix) :])):
-        answer.sentence(sentence, first=index == 0)
-    answer.end_line()
+def _allowed(facts: dict[str, Any], knowledge_lines: Sequence[str]) -> set[str]:
+    return {*allowed_guidance(facts), *knowledge_lines}
 
 
 def validate_answer(
-    answer: str,
-    facts: dict[str, Any],
-    *,
-    knowledge_text: str = "",
-    knowledge_tags: frozenset[str] = frozenset(),
+    answer: str, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()
 ) -> Validation:
-    """Check an answer sentence by sentence; keep only what passes."""
+    """Select exact allowed lines; unknown wording cannot become operational advice.
 
-    built = _Answer(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
-    for line in answer.replace("\r", "").split("\n"):
-        _add_line(built, line)
-    return built.validation()
+    ``knowledge_lines`` must come from ``knowledge_lines()`` for this request.
+    """
+
+    allowed = _allowed(facts, knowledge_lines)
+    kept: dict[str, None] = {}
+    left_out = 0
+    for line in answer.splitlines():
+        line = line.strip()
+        if line in allowed:
+            kept[line] = None
+        elif line:
+            left_out += 1
+    text = "\n".join(kept)
+    return Validation(text=text, left_out=left_out, disclosures=_disclosures(text, facts))
 
 
-def guard_answer(answer: str, facts: dict[str, Any]) -> str:
-    """The checked answer text only (see validate_answer for what was left out and why)."""
+def guard_answer(answer: str, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()) -> str:
+    """The selected allowed lines only (see validate_answer)."""
 
-    return validate_answer(answer, facts).text
+    return validate_answer(answer, facts, knowledge_lines=knowledge_lines).text
 
 
-# A runaway or hostile stream cannot grow without bound (also when it never ends a sentence).
 MAX_MODEL_TEXT_BYTES = 64 * 1024
+# Everything str.splitlines() ends a line at, so streaming splits exactly like the batch check.
+_LINE_ENDS = frozenset("\n\r\v\f\x1c\x1d\x1e\x85  ")
 
 
 class StreamingGuard:
-    """Checks a streamed answer one finished sentence (or line) at a time.
+    """Select new complete allowed lines once; bound even newline-free model output.
 
-    Only finished sentences are checked and shown, so a sentence that the guardrails would
-    drop is never displayed, not even briefly. Every piece of model text is looked at once:
-    held text is only appended to, a line's list marker is recognised in a single pass, and a
-    finished sentence is checked once and never parsed again, so the cost grows with the
-    answer's length (also for long runs of whitespace), not with its square. The result is
-    the same as ``validate_answer`` on the whole text. Each update is the whole checked answer
-    so far (not just the new part), because removing a sentence can renumber the list below.
+    Only the new text is split into lines, a complete line is looked up once and then
+    dropped from the buffer (never parsed again), and an unfinished line is never shown.
+    The result equals ``validate_answer`` on the whole text.
     """
 
-    def __init__(
-        self,
-        facts: dict[str, Any],
-        *,
-        knowledge_text: str = "",
-        knowledge_tags: frozenset[str] = frozenset(),
-    ) -> None:
-        self._answer = _Answer(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
+    def __init__(self, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()) -> None:
+        self._facts = facts
+        self._allowed = _allowed(facts, knowledge_lines)
+        self._pending: list[str] = []  # the unfinished line, in pieces
+        self._accepted: dict[str, None] = {}
+        self._left_out = 0
         self._total_bytes = 0
-        self._pending: list[str] = []  # unchecked text of the current line
-        self._prev = ""  # the last character of that text
-        self._started = False  # the current line's list marker is known
-        self._phase = "lead"  # how far the list-marker scan of the current line has got
-        self._first = True  # the next sentence is the first of its line
-        self._shown = ""
 
     @property
     def _raw(self) -> str:
-        """Model text held but not yet checked (bounded by MAX_MODEL_TEXT_BYTES)."""
+        """Model text held but not yet looked up (bounded by MAX_MODEL_TEXT_BYTES)."""
 
         return "".join(self._pending)
 
-    def feed(self, text: str) -> str | None:
-        """Add new model text; return the checked answer so far if it changed."""
+    def _accept(self, line: str) -> None:
+        line = line.strip()
+        if line in self._allowed:
+            self._accepted[line] = None
+        elif line:
+            self._left_out += 1
 
+    def feed(self, text: str) -> str | None:
+        if self._total_bytes + len(text) > MAX_MODEL_TEXT_BYTES:
+            raise LlmUnavailableError("model text limit exceeded")
         try:
             size = len(text.encode("utf-8"))
         except UnicodeError:
@@ -563,123 +515,31 @@ class StreamingGuard:
         if self._total_bytes + size > MAX_MODEL_TEXT_BYTES:
             raise LlmUnavailableError("model text limit exceeded")
         self._total_bytes += size
-        before = self._answer.changes
-        parts = text.replace("\r", "").split("\n")
-        for index, part in enumerate(parts):
-            self._take(part)
-            if index < len(parts) - 1:
-                self._end_line()
-        if self._answer.changes == before:
-            return None
-        shown = self._answer.text()
-        if shown == self._shown:
-            return None
-        self._shown = shown
-        return shown
-
-    def _marker_end(self, text: str) -> tuple[int, bool] | None:
-        """Scan new text of a line that has not started yet.
-
-        Returns where the line's start is decided and whether it has a list marker (then
-        the marker is everything before that point), or None while it could still be one.
-        The rule is ``_LIST_PREFIX``: whitespace, ``-``/``*``/``•`` or digits then ``.``/``)``,
-        then at least one whitespace character.
-        """
-
-        for index, char in enumerate(text):
-            phase = self._phase
-            if phase == "lead":
-                if char.isspace():
-                    continue
-                if char in "-*•":
-                    self._phase = "need_gap"
-                elif char.isdecimal():
-                    self._phase = "digits"
-                else:
-                    return index, False
-            elif phase == "digits":
-                if char.isdecimal():
-                    continue
-                if char in ".)":
-                    self._phase = "need_gap"
-                else:
-                    return index, False
-            elif phase == "need_gap":
-                if not char.isspace():
-                    return index, False
-                self._phase = "gap"
-            elif not char.isspace():  # "gap": the first character after the marker
-                return index, True
-        return None
-
-    def _take(self, text: str) -> None:
-        if not text:
-            return
-        if not self._started:
-            decided = self._marker_end(text)
-            if decided is None:
-                self._pending.append(text)
-                return
-            index, has_marker = decided
-            held = "".join(self._pending)
-            self._pending = []
-            self._started = True
-            self._first = True
-            self._prev = ""
-            if has_marker:
-                self._answer.start_line(held + text[:index])
-                text = text[index:]
+        before = len(self._accepted)
+        for part in text.splitlines(keepends=True):
+            if part[-1] in _LINE_ENDS:
+                self._accept("".join(self._pending) + part)
+                self._pending = []
             else:
-                self._answer.start_line("")
-                text = held + text
-        self._split(text)
+                self._pending.append(part)
+        return self.text if len(self._accepted) != before else None
 
-    def _split(self, text: str) -> None:
-        """Check each sentence that ends in ``text`` (., ! or ? followed by whitespace)."""
+    @property
+    def text(self) -> str:
+        return "\n".join(self._accepted)
 
-        if self._prev in (".", "!", "?") and text[:1].isspace():
-            self._sentence("".join(self._pending))
-        position = 0
-        for match in _SENTENCE.finditer(text):
-            self._sentence("".join(self._pending) + text[position : match.start()])
-            position = match.end()
-        if position < len(text):
-            self._pending.append(text[position:])
-        self._prev = text[-1]
+    def finish(self) -> str:
+        """Look up the last line (it may end without a line break) and return the answer."""
 
-    def _sentence(self, sentence: str) -> None:
-        self._pending = []
-        self._answer.sentence(sentence, first=self._first)
-        self._first = False
+        if self._pending:
+            self._accept("".join(self._pending))
+            self._pending = []
+        return self.text
 
-    def _end_line(self) -> None:
-        if self._started:
-            rest = "".join(self._pending)
-            if rest.strip() or self._first:
-                self._sentence(rest)
-            self._answer.end_line()
-        else:
-            # The whole line is held (whitespace or an unfinished marker): check it as a line.
-            _add_line(self._answer, "".join(self._pending))
-        self._pending = []
-        self._prev = ""
-        self._started = False
-        self._phase = "lead"
-        self._first = True
+    def validation(self) -> Validation:
+        """The answer so far, how many model lines were left out, and its disclosures."""
 
-    def partial(self) -> Validation:
-        """What was already checked and shown, for when the stream fails part-way.
-
-        The unfinished last sentence is never included: it was not checked as a whole.
-        """
-
-        return self._answer.validation()
-
-    def finish(self) -> Validation:
-        """The final check, including a last sentence without a full stop."""
-
-        if self._started or self._pending:
-            self._end_line()
-        validation = self._answer.validation()
-        self._shown = validation.text
-        return validation
+        text = self.text
+        return Validation(
+            text=text, left_out=self._left_out, disclosures=_disclosures(text, self._facts)
+        )

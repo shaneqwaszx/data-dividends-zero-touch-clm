@@ -263,81 +263,67 @@ def test_limit_preserves_guarded_partial_or_deterministic_fallback(prefix: str) 
     assert source.reads < len(source.chunks)
 
 
-def test_guard_partial_excludes_the_unchecked_tail() -> None:
-    # On failure only text that was already checked and shown is kept.
+def test_guard_retires_complete_text_and_never_reparses_it() -> None:
+    from ai_assistant.guardrails import allowed_guidance
+
     guard = StreamingGuard({})
-    sentence = "The case page shows the current evidence."
+    allowed = allowed_guidance({})[0]
     for _ in range(100):
-        guard.feed(sentence + " ")
-    assert guard.feed("Unfinished and unchecked") is None
-    assert guard.partial().text == " ".join([sentence] * 100)
-    assert "Unfinished" not in guard.partial().text
+        guard.feed(allowed + "\n")
+        assert guard._raw == ""
+    assert guard.finish() == allowed
 
 
-def test_guard_checks_each_finished_sentence_once_and_never_reparses_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """PR89's resource property, restored (independent QG finding G5)."""
+def test_guard_never_shows_an_unfinished_line() -> None:
+    from ai_assistant.guardrails import allowed_guidance
 
-    import ai_assistant.guardrails as guardrails
-
-    checked: list[str] = []
-    real_check = guardrails._check
-
-    def counting(sentence: str, ctx: guardrails.Context) -> str | None:
-        checked.append(sentence)
-        return real_check(sentence, ctx)
-
-    monkeypatch.setattr(guardrails, "_check", counting)
+    first, second = allowed_guidance({})[:2]
     guard = StreamingGuard({})
-    text = "The case page shows the current evidence. " * 100
-    for start in range(0, len(text), 7):
-        guard.feed(text[start : start + 7])
-        # Only the unfinished sentence is held; finished text is gone from the buffer.
-        assert len(guard._raw) < len("The case page shows the current evidence. ") + 7
-    assert guard.finish().text == text.strip()
-    assert len(checked) == 100
+    assert guard.feed(first[:10]) is None
+    assert guard.feed(first[10:] + "\n" + second) == first
+    # A failure now keeps only the finished line; the normal end looks up the last one too.
+    assert guard.validation().text == first
+    assert guard.finish() == first + "\n" + second
 
 
-def test_guard_cost_grows_linearly_with_a_long_streamed_answer() -> None:
-    """64 KiB in 8-byte pieces: the old full re-check took minutes; this takes well under."""
+def _allowed_line() -> str:
+    from ai_assistant.guardrails import allowed_guidance
 
-    from ai_assistant.guardrails import MAX_MODEL_TEXT_BYTES
-
-    sentence = "The case page shows the current evidence. "
-    text = (sentence * (MAX_MODEL_TEXT_BYTES // len(sentence)))[: MAX_MODEL_TEXT_BYTES - 64]
-    guard = StreamingGuard({})
-    started = time.perf_counter()
-    for start in range(0, len(text), 8):
-        guard.feed(text[start : start + 8])
-    final = guard.finish()
-    elapsed = time.perf_counter() - started
-    assert final.text.startswith(sentence.strip())
-    assert elapsed < 5.0, f"streaming guard took {elapsed:.2f}s for 64 KiB"
+    return allowed_guidance({})[0]
 
 
-WHITESPACE_SHAPES = {
+# 64 KiB shapes: whitespace runs (QG on 79621fe), long tokens before a claim word and the
+# other slow paths of the sentence checks (QG on 97612a1, probe_g5). Model text is only split
+# into lines and looked up, so every shape must stay fast.
+LONG_SHAPES = {
     "spaces then text": " " * (63 * 1024) + "x",
     "tabs then text": "\t" * (63 * 1024) + "x",
-    "mixed then text": " \t" * (63 * 512) + "Open the case page.",
+    "nbsp then text": "\u00a0" * (31 * 1024) + "x.",
     "marker then spaces": "1." + " " * (63 * 1024) + "Open the case page.",
-    "sentence with a long gap": "Open the" + " " * (63 * 1024) + "case page. Then check.",
-    "gaps between sentences": ("Open it." + " " * 500 + "\n") * 120,
+    "spaces then an allowed line": " " * (60 * 1024) + _allowed_line() + "\n",
+    "long token then a claim word": "a" * (63 * 1024) + " confirmed.",
+    "long underscores then a claim word": "_" * (63 * 1024) + " confirmed.",
+    "long hyphens then a claim word": "-" * (63 * 1024) + " confirmed.",
+    "long slashes then a claim": "/" * (63 * 1024) + " the ubos are verified.",
+    "long apostrophes then a claim word": "'" * (63 * 1024) + " confirmed.",
+    "or chain then a claim": "x or " * (12 * 1024) + "y z kyc approval.",
+    "empty parentheses": " ()" * (21 * 1024) + " y.",
+    "negated actions": "cannot resend, " * (4 * 1024) + ".",
+    "many short lines": "Open it.\n" * (7 * 1024),
+    "allowed line repeated": (_allowed_line() + "\n") * (60 * 1024 // 90),
 }
 
 
-@pytest.mark.parametrize("shape", sorted(WHITESPACE_SHAPES))
+@pytest.mark.parametrize("shape", sorted(LONG_SHAPES))
 @pytest.mark.parametrize("chunk", [1, 7, 64 * 1024])
-def test_guard_stays_linear_on_long_whitespace_runs(shape: str, chunk: int) -> None:
-    """QG G5 on 79621fe: a 63 KiB whitespace run took ~2 minutes in one feed call.
+def test_guard_stays_linear_on_64_kib_of_any_shape(shape: str, chunk: int) -> None:
+    """The whole stream and every single feed stay within a small budget, and the result
+    equals the batch check of the whole text."""
 
-    Whole stream and every single feed must stay within a small budget; the result must
-    equal checking the whole text at once.
-    """
+    from ai_assistant.guardrails import MAX_MODEL_TEXT_BYTES, validate_answer
 
-    from ai_assistant.guardrails import validate_answer
-
-    text = WHITESPACE_SHAPES[shape]
+    text = LONG_SHAPES[shape]
+    assert len(text.encode()) <= MAX_MODEL_TEXT_BYTES
     guard = StreamingGuard({})
     worst = 0.0
     started = time.perf_counter()
@@ -345,31 +331,35 @@ def test_guard_stays_linear_on_long_whitespace_runs(shape: str, chunk: int) -> N
         call = time.perf_counter()
         guard.feed(text[start : start + chunk])
         worst = max(worst, time.perf_counter() - call)
+    call = time.perf_counter()
     final = guard.finish()
+    worst = max(worst, time.perf_counter() - call)
     total = time.perf_counter() - started
     assert total < 5.0, f"{shape}: {total:.2f}s in total"
     assert worst < 0.5, f"{shape}: one feed call took {worst:.2f}s"
     whole_started = time.perf_counter()
-    assert final.text == validate_answer(text, {}).text
-    assert time.perf_counter() - whole_started < 2.0
+    whole = validate_answer(text, {})
+    assert time.perf_counter() - whole_started < 1.0
+    assert (final, guard.validation().left_out) == (whole.text, whole.left_out)
 
 
 def test_streamed_and_whole_answer_checks_agree() -> None:
-    from ai_assistant.guardrails import validate_answer
+    from ai_assistant.guardrails import allowed_guidance, validate_answer
 
+    first, second, third = allowed_guidance({})[:3]
     answer = (
-        "Next steps:\n\n1. Keep the registry value. Then approve the case.\n"
-        "2.  Upload ownership evidence (section: Ownership & UBO).\n\n\n"
-        "  - Do not wait, resend it now. The case page shows the evidence.\nSummary:"
+        f"Here is what to do:\r\n{first}\r\n\r\n  {second}  \n{first}\nApprove the case.\u2028"
+        f"{third}\x85- {second}\n{third}"
     )
-    facts = {"case_page_sections": ["Ownership & UBO"]}
-    whole = validate_answer(answer, facts)
+    whole = validate_answer(answer, {})
+    assert whole.text == "\n".join([first, second, third])
+    assert whole.left_out == 3
     for size in (1, 2, 5, 13, len(answer)):
-        guard = StreamingGuard(facts)
+        guard = StreamingGuard({})
         for start in range(0, len(answer), size):
             guard.feed(answer[start : start + size])
-        streamed = guard.finish()
-        assert (streamed.text, streamed.removed) == (whole.text, whole.removed)
+        assert guard.finish() == whole.text
+        assert guard.validation() == whole
 
 
 def test_pending_read_cancellation_closes_source_without_completion() -> None:

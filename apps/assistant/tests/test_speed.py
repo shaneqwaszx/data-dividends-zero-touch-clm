@@ -23,8 +23,7 @@ def _events(response: httpx.Response) -> list[dict[str, Any]]:
 
 def test_prompt_is_small_and_keeps_the_facts_the_rm_needs() -> None:
     messages = build_messages(FACTS, [], "What should I do next?")
-    # Was about 11,900 characters; the knowledge rules (16-18) added about 900.
-    assert sum(len(m["content"]) for m in messages) < 9000
+    assert sum(len(m["content"]) for m in messages) < 8000  # was about 11,900 characters
     facts = messages[1]["content"]
     for needed in ("Keep registry value", "11111999A", "18 GARDEN WALK", "Ownership & UBO"):
         assert needed in facts
@@ -60,24 +59,28 @@ def test_history_is_trimmed_to_a_budget_but_recent_turns_are_kept() -> None:
 
 
 def test_answer_streams_in_finished_sentences_then_ends_with_the_full_answer() -> None:
-    model = FakeModel(answer="First, keep the registry value. Then upload ownership evidence.")
+    first = 'The current case offers "Keep registry value".'
+    second = 'Open the "Ownership & UBO" section to inspect the current case evidence.'
+    model = FakeModel(answer=first + "\n" + second)
     response = _client(FakeBackend(), model).post(STREAM, json={"message": "What next?"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/x-ndjson")
     events = _events(response)
     texts = [event["text"] for event in events if event["type"] == "text"]
-    assert texts[0] == "First, keep the registry value."
+    assert texts[0] == first
     assert events[-1]["type"] == "done"
     assert events[-1]["answered_by"] == "model"
-    assert events[-1]["answer"] == "First, keep the registry value. Then upload ownership evidence."
+    assert events[-1]["answer"] == first + "\n" + second
 
 
 def test_a_sentence_the_guardrails_drop_is_never_shown_while_streaming() -> None:
-    model = FakeModel(answer='Click "Approve case" now. Use Keep registry value instead.')
+    model = FakeModel(
+        answer='Click "Approve case" now.\nThe current case offers "Keep registry value".'
+    )
     events = _events(_client(FakeBackend(), model).post(STREAM, json={"message": "What next?"}))
     assert all("Approve case" not in json.dumps(event) for event in events)
-    assert events[-1]["answer"] == "Use Keep registry value instead."
+    assert events[-1]["answer"] == 'The current case offers "Keep registry value".'
 
 
 def test_streaming_falls_back_to_case_data_when_the_model_is_down() -> None:
@@ -96,7 +99,7 @@ def test_small_talk_is_answered_at_once_on_the_stream_too() -> None:
 
 
 def test_an_answer_that_hits_the_length_limit_says_so() -> None:
-    model = FakeModel(answer="Here is part of the answer.", cut_short=True)
+    model = FakeModel(answer=FakeModel.ANSWER, cut_short=True)
     client = _client(FakeBackend(), model)
     streamed = _events(client.post(STREAM, json={"message": "Tell me everything"}))[-1]
     plain = client.post(f"/assistant/cases/{CASE_ID}/chat", json={"message": "Tell me everything"})
@@ -114,11 +117,11 @@ def test_opening_the_panel_prewarms_the_model_once_with_the_same_prompt_start() 
     assert model.calls[0][:2] == model.warmed[0]
 
 
-def test_streaming_guard_waits_for_the_end_of_a_sentence() -> None:
+def test_streaming_guard_waits_for_a_complete_catalog_line() -> None:
     guard = StreamingGuard(FACTS)
-    assert guard.feed("Keep the regis") is None
-    assert guard.feed("try value. Then") == "Keep the registry value."
-    assert guard.finish().text == "Keep the registry value. Then"
+    assert guard.feed('The current case offers "Keep regis') is None
+    assert guard.feed('try value".\nUnverified trailing advice') == FakeModel.ANSWER
+    assert guard.finish() == FakeModel.ANSWER
 
 
 def test_openai_compatible_client_reads_a_streamed_reply() -> None:
