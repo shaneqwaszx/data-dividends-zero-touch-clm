@@ -323,7 +323,7 @@ def test_ollama_embedder_reports_bad_replies_as_unavailable(reply: httpx.Respons
 
 
 def test_editor_notes_are_not_part_of_the_guidance_text() -> None:
-    entry = parse_guidance(GUIDANCE_DIR / "ownership-evidence-documents.md")
+    entry = parse_guidance(GUIDANCE_DIR / "where-to-find-information.md")
     assert entry.illustrative
     assert "<!--" not in entry.body and "Replace this list" not in entry.body
-    assert entry.body.startswith("This list is an illustrative placeholder")
+    assert entry.body.startswith("This guide is an illustrative placeholder")

@@ -180,7 +180,11 @@ class Retriever:
         guidance = self._rank(EntryKind.GUIDANCE, question, query_vector, ctx, role, team)
         resolutions = self._rank(EntryKind.RESOLUTION, question, query_vector, ctx, role, team)
         s = self.settings
+        # The most relevant entries are chosen by score; among them, confirmed guidance is
+        # listed before placeholder (illustrative) guidance, the same order of authority the
+        # model is told (case facts, then rules, then examples).
         good_guidance = [h for h in guidance if h.score >= s.min_score_guidance][: s.max_guidance]
+        good_guidance.sort(key=lambda h: h.entry.illustrative)  # stable within each group
         good_resolutions = [h for h in resolutions if h.score >= s.min_score_resolution][
             : s.max_resolutions
         ]

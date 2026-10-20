@@ -276,7 +276,7 @@
   },
   "expect": [
    "resolution.synthetic-missing-shareholder-register",
-   "guidance.ownership-evidence-documents"
+   "guidance.where-to-find-information"
   ]
  },
  {
@@ -379,7 +379,24 @@
    ]
   },
   "expect": [
-   "guidance.ownership-evidence-documents"
+   "guidance.where-to-find-information"
+  ]
+ },
+ {
+  "question": "Where can I find the UEN?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_REQUIRED"
+   ],
+   "fields": [
+    "registration_number"
+   ],
+   "stages": [
+    "Document verification"
+   ]
+  },
+  "expect": [
+   "guidance.where-to-find-information"
   ]
  }
 ]

@@ -1,6 +1,7 @@
 """Milestone 3: retrieved knowledge in answers (prompt, citations, sources, fallback)."""
 
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -49,7 +50,8 @@ def test_retrieved_guidance_and_past_cases_reach_the_prompt_after_the_history(
     )
     messages = model.calls[0]
     knowledge = next(m["content"] for m in messages if m["content"].startswith("KNOWLEDGE"))
-    assert "[G1] Registered address in a document differs from ACRA" in knowledge
+    # Tag numbers follow the ranking; the address rule must be among the guidance sent.
+    assert re.search(r"\[G\d\] Registered address in a document differs from ACRA", knowledge)
     assert "[P1]" in knowledge and "ILLUSTRATIVE" in knowledge
     assert messages.index(next(m for m in messages if m["content"] == "Hello")) < messages.index(
         next(m for m in messages if m["content"].startswith("KNOWLEDGE"))

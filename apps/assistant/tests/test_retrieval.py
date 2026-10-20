@@ -124,3 +124,21 @@ def test_when_nothing_specific_passes_stage_guidance_is_a_marked_fallback(
 def test_off_topic_questions_without_context_retrieve_nothing(kb: KnowledgeBase) -> None:
     result = Retriever(kb).retrieve("What is the weather today?", CaseContext(), **RM)
     assert result.confidence == "none" and result.hits == ()
+
+
+def test_confirmed_guidance_ranks_above_placeholder_guidance(tmp_path: Path) -> None:
+    kb = _kb(tmp_path)
+    ingest_guidance(kb)
+    ctx = CaseContext(
+        blocker_codes=("DOCUMENT_REQUIRED", "DOCUMENT_REVIEW_INCOMPLETE"),
+        fields=("registration_number", "legal_name"),
+        stages=("Document verification",),
+    )
+    hits = (
+        Retriever(kb)
+        .retrieve("Which document shows the UEN and legal name?", ctx, role=None, team=None)
+        .guidance
+    )
+    flags = [hit.entry.illustrative for hit in hits]
+    assert True in flags and False in flags, [hit.entry.entry_id for hit in hits]
+    assert flags == sorted(flags)  # every confirmed entry first, the placeholder after
