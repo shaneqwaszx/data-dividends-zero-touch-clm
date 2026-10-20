@@ -347,7 +347,7 @@ describe("AiAssistantPanel", () => {
     expect(view.querySelector("[role=alert]")).toBeNull();
   });
 
-  it("shows cited sources and sends Solved it with the conversation, never the summary", async () => {
+  it("shows cited sources and sends Yes, helpful with the conversation, never the summary", async () => {
     const sent: unknown[] = [];
     stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -387,7 +387,7 @@ describe("AiAssistantPanel", () => {
     expect(sources?.textContent).toContain("Registered address differs from ACRA");
     expect(sources?.textContent).not.toContain("Not cited");
 
-    click([...view.querySelectorAll("button")].find((b) => b.textContent === "Solved it"));
+    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Yes, helpful"));
     const note = view.querySelector(".ai-assistant-feedback-form textarea") as HTMLTextAreaElement;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, "ACRA was current.");

@@ -346,7 +346,9 @@ def validate_answer(
         if m:
             number += 1
             lines_out[i] = f"{m.group(1)}{number}{m.group(2)} {m.group(3)}"
-        elif line.strip():
+        elif re.match(r"^\s*(?:#|\**[^\s].{0,60}:\**\s*$)", line):
+            # Only a new heading ("Next steps:") starts a new list; an explanation under a
+            # step, indented or not, keeps the count going (1, 2 rather than 1, 1).
             number = 0
     text = "\n".join(lines_out)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()

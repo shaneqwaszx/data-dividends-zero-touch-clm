@@ -61,3 +61,13 @@ def test_empty_values_are_not_sent_to_the_model() -> None:
     )
 
     assert compact == {"f": [1], "h": 0}
+
+
+def test_an_explanation_between_steps_does_not_restart_numbering() -> None:
+    from ai_assistant.guardrails import validate_answer
+
+    answer = "Two things are missing:\n\n1. A decision.\n\nIt is about the address.\n\n2. Evidence."
+    text = validate_answer(answer, {}).text
+    assert "1. A decision." in text and "2. Evidence." in text
+    restarted = validate_answer("Steps:\n1. One.\n2. Two.\nAlso:\n1. Three.", {}).text
+    assert restarted.endswith("Also:\n1. Three.")

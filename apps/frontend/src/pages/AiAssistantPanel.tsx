@@ -111,22 +111,68 @@ function AiAssistantIcon() {
   );
 }
 
+function sourceLabel(source: AiAssistantSource): string {
+  return source.kind === "guidance" ? `Guidance v${source.version}` : "Approved past case";
+}
+
+/** The guidance and past cases an answer cited: one line, expandable to the full list. */
 function SourceChips({ sources }: { sources: AiAssistantSource[] }) {
   const shown = sources.filter((source) => source.cited);
   if (!shown.length) return null;
+  const first = shown[0];
   return (
-    <ul className="ai-assistant-sources" aria-label="Sources">
-      {shown.map((source) => (
-        <li key={source.tag} className={`ai-assistant-source ai-assistant-source-${source.kind}`}>
-          <span className="ai-assistant-source-tag">{source.tag}</span>
-          <span className="ai-assistant-source-title">{source.title}</span>
-          <span className="ai-assistant-source-kind">
-            {source.kind === "guidance" ? `Guidance v${source.version}` : "Approved past case"}
-            {source.illustrative ? " · illustrative" : ""}
+    <details className="ai-assistant-sources">
+      <summary>
+        <span className="ai-assistant-sources-first">
+          <BookIcon />
+          <span className="ai-assistant-sources-first-text">
+            Source: {first.title} ({sourceLabel(first)})
           </span>
-        </li>
-      ))}
-    </ul>
+        </span>
+        <span className="ai-assistant-sources-toggle">View sources ({shown.length})</span>
+      </summary>
+      <ul aria-label="Sources">
+        {shown.map((source) => (
+          <li key={source.tag} className={`ai-assistant-source ai-assistant-source-${source.kind}`}>
+            <span className="ai-assistant-source-tag">{source.tag}</span>
+            <span className="ai-assistant-source-title">{source.title}</span>
+            <span className="ai-assistant-source-kind">
+              {sourceLabel(source)}
+              {source.illustrative ? " · illustrative" : ""}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function BookIcon() {
+  return (
+    <svg className="ai-assistant-icon-small" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ThumbIcon({ down = false }: { down?: boolean }) {
+  return (
+    <svg
+      className="ai-assistant-icon-small"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+      style={down ? { transform: "rotate(180deg)" } : undefined}
+    >
+      <path
+        d="M7 10v11H4V10h3Zm0 0 4.5-7c1.4 0 2.5 1.1 2.5 2.5V9h5a2 2 0 0 1 2 2.3l-1.3 7.9A2 2 0 0 1 17.7 21H7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -328,13 +374,16 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     const state = feedback[messageId];
     if (!state) {
       return (
-        <div className="ai-assistant-feedback">
-          <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, true)}>
-            Solved it
-          </button>
-          <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, false)}>
-            Not helpful
-          </button>
+        <div className="ai-assistant-rate" role="group" aria-label="Was this answer helpful?">
+          <span className="ai-assistant-rate-question">Was this answer helpful?</span>
+          <span className="ai-assistant-rate-buttons">
+            <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, true)}>
+              <ThumbIcon /> Yes, helpful
+            </button>
+            <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, false)}>
+              <ThumbIcon down /> Not helpful
+            </button>
+          </span>
         </div>
       );
     }

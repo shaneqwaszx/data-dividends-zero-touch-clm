@@ -354,10 +354,68 @@
 }
 
 /* --- sources used by an answer -------------------------------------------------------- */
+.ai-assistant-icon-small {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
 .ai-assistant-sources {
+  margin: 10px 0 0;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-assistant-sources summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
   list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
+}
+
+.ai-assistant-sources summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-assistant-sources-first {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-text-muted, #5f5a52);
+  font-style: italic;
+}
+
+.ai-assistant-sources-first-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-assistant-sources-toggle {
+  flex: none;
+  color: var(--color-accent-700, #6b4a12);
+  font-weight: 600;
+}
+
+.ai-assistant-sources-toggle::after {
+  content: " \25BE";
+}
+
+.ai-assistant-sources[open] .ai-assistant-sources-toggle::after {
+  content: " \25B4";
+}
+
+.ai-assistant-sources ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -371,8 +429,6 @@
   border: 1px solid var(--color-divider, #d7d3d3);
   border-radius: 8px;
   background: #fff;
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 .ai-assistant-source-tag {
@@ -394,7 +450,33 @@
   color: var(--color-text-muted, #5f5a52);
 }
 
-/* --- Solved it / Not helpful ---------------------------------------------------------- */
+.ai-assistant-item-detail {
+  margin: 4px 0 0;
+}
+
+/* --- Was this answer helpful? ---------------------------------------------------------- */
+.ai-assistant-rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.04));
+  font-size: 12px;
+}
+
+.ai-assistant-rate-question {
+  color: var(--color-text, #201f1d);
+}
+
+.ai-assistant-rate-buttons {
+  display: flex;
+  gap: 6px;
+}
+
 .ai-assistant-feedback {
   display: flex;
   gap: 6px;
@@ -402,11 +484,14 @@
 }
 
 .ai-assistant-feedback-button {
-  padding: 2px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
   border: 1px solid var(--color-divider, #d7d3d3);
-  border-radius: 999px;
+  border-radius: 8px;
   background: #fff;
-  color: var(--color-text-muted, #5f5a52);
+  color: var(--color-text, #201f1d);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
