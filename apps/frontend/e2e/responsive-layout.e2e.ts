@@ -518,7 +518,7 @@ test("responsive review case exposes only supported authoritative review control
   }
   expect(mutations).toEqual([]);
   await evidenceAction.click();
-  await expect(page.locator("input[data-review-field]:checked").first()).toBeFocused();
+  await expect(page.locator("input[data-review-field]:not([disabled])").first()).toBeFocused();
   expect(mutations).toEqual([]);
   await expect(page.getByRole("button", { name: /replay|retry target/i })).toHaveCount(0);
 });
@@ -780,7 +780,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   await page.screenshot({ path: path.join(comparison, `${label}-case-sections.png`), fullPage: true });
   expect(await page.locator(".stage-disclosure > h2").evaluateAll(items => items.map(item => item.querySelector("button > span")?.textContent ?? item.textContent))).toEqual([
     "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
-    "Submission readiness", "GoldTier submission package", "Final review & send", "Historical / resolved issues",
+    "Submission readiness", "GoldTier submission package", "Historical / resolved issues", "Final review & send",
   ]);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
@@ -802,7 +802,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
       await expect(section.locator(":scope > div").first()).toBeVisible();
       if (name === "Document verification") {
         await expect(section.locator("#case-blocker-review")).toBeVisible();
-        await expect(section.getByRole("button", { name: "Use document suggestion for all", exact: true })).toBeVisible();
+        await expect(section.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true })).toBeVisible();
         await expect(section.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeVisible();
         await expect(section.locator("#case-evidence-documents input[type=file]")).toBeEnabled();
         await expect(section.locator("#case-evidence-reconciliation")).toBeVisible();

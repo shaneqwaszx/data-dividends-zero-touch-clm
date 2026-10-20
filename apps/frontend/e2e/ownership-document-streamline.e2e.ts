@@ -138,13 +138,15 @@ test("Ownership hotfix valid root identity selects retained holder with keyboard
     await page.setViewportSize({ width, height: 1000 });
     const person = page.locator('[aria-label="Ownership hierarchy"]').getByRole("button", { name: "Avery Tan", exact: true });
     await person.focus(); await person.press("Enter");
+    await expect(page.getByRole("complementary", { name: "Selected holder" }).locator("h5")).toHaveText("Avery Tan");
+    await expect(page.getByRole("complementary", { name: "Selected holder" })).toContainText(formatOwnershipPercent(candidate.aggregated_ownership_percent));
     await expect(selectedHolderName(page)).toHaveText("Avery Tan");
-    await expect(page.locator(".ubo-summary").first()).toContainText(formatOwnershipPercent(candidate.aggregated_ownership_percent));
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     await page.locator(".ownership-structure").screenshot({ path: path.join(evidence, `valid-root-${width}.png`) });
   }
   await page.reload(); await openStage(page, "Ownership & UBO");
   await page.locator('[aria-label="Ownership hierarchy"]').getByRole("button", { name: "Avery Tan", exact: true }).click();
+  await expect(page.getByRole("complementary", { name: "Selected holder" }).locator("h5")).toHaveText("Avery Tan");
   await expect(selectedHolderName(page)).toHaveText("Avery Tan");
   const final = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
   expect(final.case.target_dispatch_confirmation).toBeNull(); expect(final.case.goldtier_result).toBeNull();

@@ -788,7 +788,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     });
     expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value).toBe("CORRECTED");
     await click("Open B");
-    expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value ?? "REJECTED").toBe("REJECTED");
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
     expect(container?.textContent).not.toMatch(/Assign reviewer|Return for rework/);
     expect(request.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
   });
@@ -1343,15 +1343,15 @@ describe("Phase 15C case-bound action lifetime", () => {
     });
     expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value).toBe("CORRECTED");
     await click("Open B");
-    expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value ?? "REJECTED").toBe("REJECTED");
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
     await click("History back");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_A)));
-    expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value ?? 'REJECTED').toBe('REJECTED');
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
     await click("History forward");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_B)));
-    expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value ?? 'REJECTED').toBe('REJECTED');
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
   });
 });
 

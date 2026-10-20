@@ -1,4 +1,4 @@
-import { formatOwnershipPercent } from "../ownershipDisplay";
+import { formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { OwnershipAnalysisRecord, OwnershipRelationship } from "../types";
 
@@ -63,6 +63,8 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
   }, [rows]);
   const selected = rows.find(row => row.key === selectedKey) ?? rows.find(row => row.partyId === selectedPartyId) ?? rows[0];
   const partyById = new Map(record.parties.map(party => [party.party_id, party]));
+  const holder = selected ? partyById.get(selected.partyId) ?? record.candidates.find(item => item.party.party_id === selected.partyId)?.party : null;
+  const candidate = record.candidates.find(item => item.party.party_id === selected?.partyId);
   function partyName(id: string) { return partyById.get(id)?.display_name ?? id; }
   const visibleRows = rows.filter(row => row.unlinked || !row.path.length
     || row.path.every((_, index) => !collapsed.has(occurrenceKey(record.root_party_id, row.path.slice(0, index)))));
@@ -122,6 +124,22 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
         })}
         {!rows.length && <p>No retained hierarchy is available.</p>}
       </div>
+      <aside className="ownership-structure__detail" aria-label="Selected holder">
+        <p className="card-kicker">Selected holder</p><h5>{holder?.display_name ?? selected?.partyId ?? "No holder selected"}</h5>
+        {selected && <>
+          <p>{holder?.party_type.replaceAll("_", " ") ?? "Unknown type"} · {holder?.country ?? "Country not supplied"}</p>
+          <dl><div><dt>Direct holding in immediate entity</dt><dd>{selected.path.length ? formatOwnershipPercent(selected.path[selected.path.length - 1].ownership_percent) : "Not retained"}</dd></div>
+            <div><dt>Effective on selected path</dt><dd>{pathPercent(record, selected) !== null ? formatOwnershipPercent(pathPercent(record, selected)) : "Not calculated by retained analysis"}</dd></div>
+            {candidate && <><div><dt>Aggregate effective in root (all retained paths)</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div><div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.threshold_result}</dd></div><div><dt>Classification</dt><dd>{candidate.classification}</dd></div></>}
+          </dl>
+          <h6>Path from client to holder</h6>
+          {selected.unlinked ? <p>No retained root path is available.</p> : <ol className="ownership-structure__path"><li>{partyName(record.root_party_id ?? selected.partyId)} · client</li>{selected.path.map(edge => <li key={edge.relationship_id}>{partyName(edge.child_party_id)} holds {formatOwnershipPercent(edge.ownership_percent)} of {partyName(edge.parent_party_id)}</li>)}</ol>}
+          {selected.path.length > 0 && <p className="control-help">Source: {selected.path[selected.path.length - 1].provenance.provider} · {selected.path[selected.path.length - 1].provenance.environment}</p>}
+          {retainedPath(record, selected) && <p>Calculation: {formatOwnershipCalculation(retainedPath(record, selected)!.calculation)}</p>}
+          {candidate && candidate.paths.length > 1 && <p>{candidate.paths.length} retained paths reach this person. The highlighted occurrence shows one path; the aggregate covers all retained paths. Inspect other paths in technical calculations.</p>}
+          {selected.cycle && <p>Cycle detected; this path is non-definitive.</p>}
+        </>}
+      </aside>
     </div>
     {limited && <p role="note">Hierarchy display limited to {ROW_LIMIT} rows / {DEPTH_LIMIT} layers. Inspect the retained relationships in technical calculations for further evidence.</p>}
     <p className="control-help">This displays retained evidence only. It does not establish complete tracing, screening, control without ownership, or legal beneficial ownership.</p>

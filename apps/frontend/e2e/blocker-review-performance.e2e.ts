@@ -63,8 +63,8 @@ async function runPerformanceGroup(page: Page, group: number) {
           const stage = page.locator('.ds-stage[data-node-id="DOCUMENT_IDP"]');
           await stage.locator("summary").click();
           await stage.getByRole("button", { name: "Open case stage details" }).click();
-          await expect(page.locator("input[data-review-field]:checked").first()).toBeFocused();
-          await expect.poll(() => page.locator("input[data-review-field]:checked").first().evaluate(element => {
+          await expect(page.locator("input[data-review-field]:not([disabled])").first()).toBeFocused();
+          await expect.poll(() => page.locator("input[data-review-field]:not([disabled])").first().evaluate(element => {
             const r = element.getBoundingClientRect();
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
             return hit === element || (hit !== null && element.contains(hit));

@@ -603,6 +603,7 @@ describe("Evidence workbench integration isolation", () => {
     click("Inspect a-path-2");
     expect(container?.textContent).toContain("Selected retained path: a-path-2");
     click("a Candidate Two");
+    expect(container!.querySelector('[aria-label="Selected holder"]')?.textContent).toContain("a Candidate Two");
     expect(container!.querySelector('[aria-label="Ownership hierarchy"] [role="row"].is-selected')?.textContent).toContain("a Candidate Two");
     expect(container!.querySelector('[aria-label^="Ownership candidate "]')).toBeNull();
     click("Focus documents evidence");
@@ -730,14 +731,14 @@ describe("Evidence workbench integration isolation", () => {
     expect(sections.map((section) => section.querySelector(":scope > h2 button span")?.textContent ?? section.querySelector(":scope > h2")?.textContent)).toEqual([
       "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
       "Submission readiness", "GoldTier submission package",
-      "Final review & send", "Historical / resolved issues",
+      "Historical / resolved issues", "Final review & send",
     ]);
     expect(sections[2].querySelector(":scope > h2 button")).not.toBeNull();
     expect([...sections[2].querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
-    expect(sections[7].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-    expect(sections[6].querySelector(":scope > h2 button")).not.toBeNull();
-    expect(sections[6].textContent).toContain("Not yet available");
-    expect(sections[6].querySelector(".review-and-send")).toBeNull();
+    expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(sections[7].querySelector(":scope > h2 button")).not.toBeNull();
+    expect(sections[7].textContent).toContain("Not yet available");
+    expect(sections[7].querySelector(".review-and-send")).toBeNull();
   });
 });
 
@@ -867,9 +868,10 @@ describe("Case attention corrective navigation", () => {
     act(() => control.click());
     await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
     expect([...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
-    expect((document.activeElement as HTMLInputElement).value).toBe("REJECTED"); expect(fetch).not.toHaveBeenCalled();
+    expect((document.activeElement as HTMLInputElement).checked).toBe(false);
+    expect(container!.querySelector('input[data-review-field="legal_name"]:checked')).toBeNull(); expect(fetch).not.toHaveBeenCalled();
   });
-  it("switches to the specific reconciliation decision on its registry default", async () => {
+  it("switches to the specific reconciliation decision without choosing a source", async () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
     const summary = summaryFixture(CASE_A); const doc = documentFixture(CASE_A);
     summary.active_exceptions = ["first", "second"].map(id => ({ ...summary.active_exceptions[0], exception_id: id, blocker_code: `DOCUMENT_SOURCE_CONFLICT_${id}` }));
@@ -880,7 +882,8 @@ describe("Case attention corrective navigation", () => {
     expect(container!.querySelector("input[data-discrepancy-id]")).toBeNull();
     act(() => attentionButton("Blocker: DOCUMENT SOURCE CONFLICT second").click());
     await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-discrepancy-id")).toBe("second"));
-    expect((document.activeElement as HTMLInputElement).value).toBe("KEEP_REGISTRY_VALUE"); expect(fetch).not.toHaveBeenCalled();
+    expect((document.activeElement as HTMLInputElement).checked).toBe(false);
+    expect(container!.querySelector('input[data-discrepancy-id="second"]:checked')).toBeNull(); expect(fetch).not.toHaveBeenCalled();
   });
   it("opens the document-specific replacement upload", async () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
@@ -980,9 +983,9 @@ describe("Case attention corrective navigation", () => {
       seedCase(client, actorB, CASE_A, "analysis-c", "C");
       const fetch = vi.spyOn(globalThis, "fetch");
       renderCase(client, actorA, CASE_A);
-      click("Use document suggestion for all");
+      click("Reject all undecided suggestions");
       const selected = container!.querySelector<HTMLInputElement>("input[data-review-field]:checked")!;
-      expect(selected.value).toBe("ACCEPTED");
+      expect(selected.value).toBe("REJECTED");
       if (change === "case") renderCase(client, actorA, CASE_B);
       else if (change === "actor") renderCase(client, actorB, CASE_A);
       else await act(async () => {
@@ -997,7 +1000,7 @@ describe("Case attention corrective navigation", () => {
         await new Promise(resolve => setTimeout(resolve, 0));
       });
       expect(selected.isConnected).toBe(false);
-      expect(Array.from(container!.querySelectorAll<HTMLInputElement>("input[data-review-field]:checked")).every(control => control.value === "REJECTED")).toBe(true);
+      expect(container!.querySelectorAll("input[data-review-field]:checked")).toHaveLength(0);
       expect(fetch).not.toHaveBeenCalled();
     },
   );

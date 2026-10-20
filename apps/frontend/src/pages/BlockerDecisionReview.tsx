@@ -9,15 +9,14 @@ interface Draft { decision: string; correction: string; note: string }
 interface ReviewDraftState {
   choices: Record<string, Draft>;
   bindings: Record<string, string>;
-  bulkResult: { updated: number; kept: number } | null;
+  bulkResult: { filled: number; skipped: number; remaining: number } | null;
 }
 
-// Submitted values stay the backend ReviewDecision enum. REJECTED sets the
-// document suggestion aside so the registry value stands; it is the default.
-const DEFAULT_DOCUMENT_DECISION = "REJECTED";
+// Every field and discrepancy needs an explicit reviewer choice; nothing is pre-selected.
+// Submitted values stay the backend ReviewDecision / ReconciliationDecisionAction enums.
 const DECISION_NAMES: Record<string, string> = {
-  ACCEPTED: "Document suggestion", REJECTED: "Registry value", CORRECTED: "Manual value",
-  KEEP_REGISTRY_VALUE: "Registry value", USE_DOCUMENT_VALUE: "Document value",
+  ACCEPTED: "Suggestion accepted", REJECTED: "Suggestion rejected", CORRECTED: "Correction recorded",
+  KEEP_REGISTRY_VALUE: "Keep registry value", USE_DOCUMENT_VALUE: "Use document value",
 };
 const EMPTY_DRAFT: Draft = { decision: "", correction: "", note: "" };
 
@@ -60,45 +59,35 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
     setSaved(false);
   }
   const disabled = busy || summary.evidence_decision_authorized !== true;
-
-  // Untouched fields resolve to the registry value; only explicit changes are stored.
-  function documentDecision(id: string) { return drafts[id]?.decision || DEFAULT_DOCUMENT_DECISION; }
-  function sourceDecision(item: typeof sources[number]) {
-    return drafts[item.discrepancy_id]?.decision
-      || (item.allowed_actions.includes("KEEP_REGISTRY_VALUE") ? "KEEP_REGISTRY_VALUE" : "");
-  }
-  const decisions = family === "document"
-    ? fields.map(({ id }) => documentDecision(id))
-    : sources.map(item => sourceDecision(item));
-  const items = decisions.length;
-  const selected = decisions.filter(Boolean).length;
-  const invalid = family === "document" && fields.some(({ id }) => documentDecision(id) === "CORRECTED" && !drafts[id]?.correction.trim());
-  const complete = selected === items && items > 0 && !invalid;
-  const tally = decisions.reduce<Record<string, number>>((counts, value) => value ? { ...counts, [value]: (counts[value] ?? 0) + 1 } : counts, {});
+  const items = family === "document" ? fields.map(item => item.id) : sources.map(item => item.discrepancy_id);
+  const selected = items.filter(id => drafts[id]?.decision).length;
+  const invalid = family === "document" && fields.some(({ id }) => drafts[id]?.decision === "CORRECTED" && !drafts[id].correction.trim());
+  const complete = selected === items.length && items.length > 0 && !invalid;
 
   function change(id: string, update: Partial<Draft>) {
     setDraftState(current => ({ ...current, choices: { ...current.choices,
       [id]: { ...(current.choices[id] ?? EMPTY_DRAFT), ...update } }, bulkResult: null }));
     setSaved(false);
   }
-  // Apply one source to every field; typed manual values and notes are kept.
-  function applyToAll(decision: "ACCEPTED" | "REJECTED") {
+  // Fill only undecided eligible fields; existing choices, corrections and notes are kept.
+  function fillUndecided(decision: "ACCEPTED" | "REJECTED") {
     if (disabled || family !== "document") return;
     setDraftState(current => {
       const choices = { ...current.choices };
-      let updated = 0;
-      let kept = 0;
+      let filled = 0;
+      let skipped = 0;
       for (const { id, field } of fields) {
-        const draft = choices[id] ?? EMPTY_DRAFT;
-        const manual = (draft.decision || DEFAULT_DOCUMENT_DECISION) === "CORRECTED" && draft.correction.trim();
-        if (manual || (decision === "ACCEPTED" && field.original_extracted_value == null)) {
-          kept += 1;
+        const draft = choices[id];
+        if (draft?.decision || draft?.correction.trim()
+          || (decision === "ACCEPTED" && field.original_extracted_value == null)) {
+          skipped += 1;
         } else {
-          choices[id] = { ...draft, decision };
-          updated += 1;
+          choices[id] = { decision, correction: "", note: draft?.note ?? "" };
+          filled += 1;
         }
       }
-      return { choices, bindings: current.bindings, bulkResult: { updated, kept } };
+      return { choices, bindings: current.bindings, bulkResult: { filled, skipped,
+        remaining: fields.filter(({ id }) => !choices[id]?.decision).length } };
     });
     setSaved(false);
   }
@@ -127,31 +116,26 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
     if (family === "source") {
       onConfirm({ ...base, expected_reconciliation_version: summary.reconciliation!.version,
         reconciliation: sources.map(item => ({ discrepancy_id: item.discrepancy_id,
-          action: sourceDecision(item) as ReconciliationDecisionAction,
+          action: drafts[item.discrepancy_id].decision as ReconciliationDecisionAction,
           evidence_fingerprint: item.evidence_fingerprint })) });
     } else {
       onConfirm({ ...base, documents: reviewable.filter(doc => fields.some(item => item.doc.document_id === doc.document_id)).map(doc => ({
         document_id: doc.document_id, expected_event_count: doc.events.length, source_fingerprint: doc.review_source_fingerprint!,
-        decisions: fields.filter(item => item.doc.document_id === doc.document_id).map(({ id, field }) => {
-          const decision = documentDecision(id);
-          const note = drafts[id]?.note.trim();
-          return {
-            field_key: field.field_key, decision: decision as ReviewDecision,
-            ...(decision === "CORRECTED" ? { corrected_value: drafts[id].correction.trim() } : {}),
-            ...(note ? { note } : {}),
-          };
-        }),
+        decisions: fields.filter(item => item.doc.document_id === doc.document_id).map(({ id, field }) => ({
+          field_key: field.field_key, decision: drafts[id].decision as ReviewDecision,
+          ...(drafts[id].decision === "CORRECTED" ? { corrected_value: drafts[id].correction.trim() } : {}),
+          ...(drafts[id].note.trim() ? { note: drafts[id].note.trim() } : {}),
+        })),
       })) });
     }
   }
   const threshold = Number(summary.case.policy_snapshot?.idp_review_confidence_threshold);
-  const breakdown = Object.entries(tally).map(([value, count]) => `${count} ${DECISION_NAMES[value]?.toLowerCase() ?? value}`).join(" · ");
   return <section id="case-blocker-review" className="blocker-review card" aria-labelledby="blocker-review-heading">
     <header className="blocker-review__header">
       <div>
         <p className="card-kicker">Document verification</p>
         <h3 id="blocker-review-heading">Review blocker decisions</h3>
-        <p className="blocker-review__lede">Each field uses the registry value unless you pick another box. Nothing is processed until you confirm.</p>
+        <p className="blocker-review__lede">Select all choices, review them, then confirm. Selecting a choice does not process the case.</p>
       </div>
     </header>
     {fields.length > 0 && sources.length > 0 && <label className="blocker-review__group">Decision group
@@ -161,46 +145,48 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
       </select>
     </label>}
     {family === "document" && <div className="blocker-review__bulk">
-      <p>Apply one source to every field. Manual values you have typed are kept.</p>
+      <p>Fill undecided eligible document drafts only. Existing choices, corrections and notes are kept; Confirm is still required.</p>
       <div className="document-card__actions">
-        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => applyToAll("ACCEPTED")}>Use document suggestion for all</button>
-        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => applyToAll("REJECTED")}>Use registry value for all</button>
+        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => fillUndecided("ACCEPTED")}>Accept all eligible undecided suggestions</button>
+        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => fillUndecided("REJECTED")}>Reject all undecided suggestions</button>
       </div>
-      {draftState.bulkResult && <p role="status">{draftState.bulkResult.updated} updated · {draftState.bulkResult.kept} kept</p>}
+      {draftState.bulkResult && <p role="status">{draftState.bulkResult.filled} filled · {draftState.bulkResult.skipped} skipped · {draftState.bulkResult.remaining} remaining</p>}
     </div>}
     <div className="blocker-review__cards">
     {family === "document" ? fields.map(({ doc, field, id }) => {
       const label = field.field_key.replaceAll("_", " ");
-      const decision = documentDecision(id);
+      const decision = drafts[id]?.decision ?? "";
       const correction = drafts[id]?.correction ?? "";
       const weak = field.original_extracted_value === null || field.confidence < threshold;
-      const option = (value: string) => ({
+      const option = (value: string, title: string) => ({
         type: "radio" as const, name: `review:${id}`, value, checked: decision === value, disabled,
         "data-review-field": field.field_key, "data-document-id": doc.document_id,
+        "aria-label": `${title} for ${label}`,
         onChange: () => change(id, { decision: value }),
       });
-      return <fieldset key={id} className="comparison-card review-item is-decided">
+      return <fieldset key={id} className={`comparison-card review-item${decision ? " is-decided" : ""}`}>
         <legend className="review-item__title"><span className="review-item__field">{label}</span><span className="review-item__doc">{doc.display_name}</span></legend>
         <div className="review-item__badges">
-          <span className="review-pill review-pill--done">{DECISION_NAMES[decision]}</span>
+          <span className={`review-pill${decision ? " review-pill--done" : ""}`}>{decision ? DECISION_NAMES[decision] : "Decision needed"}</span>
           {weak && field.original_extracted_value !== null && <span className="review-pill review-pill--warn">Low confidence</span>}
         </div>
-        <div className="review-options" role="radiogroup" aria-label={`Value for ${label}`}>
-          <label className={`review-option${decision === "REJECTED" ? " is-chosen" : ""}${field.canonical_value == null ? " is-unavailable" : ""}`}>
-            <input {...option("REJECTED")} aria-label={`Use registry value for ${label}`} />
-            <span className="review-option__label">Registry value</span>
-            {field.canonical_value == null ? <span className="review-option__missing">Not in registry</span> : <strong className="review-option__value">{field.canonical_value}</strong>}
-          </label>
+        <p className="review-item__reference">Registry value <strong>{field.canonical_value ?? "Missing"}</strong></p>
+        <div className="review-options" role="radiogroup" aria-label={`Decision for ${label}`}>
           <label className={`review-option${decision === "ACCEPTED" ? " is-chosen" : ""}${field.original_extracted_value == null ? " is-unavailable" : ""}`}>
-            <input {...option("ACCEPTED")} disabled={disabled || field.original_extracted_value == null} aria-label={`Use document suggestion for ${label}`} />
-            <span className="review-option__label">Document suggestion</span>
+            <input {...option("ACCEPTED", "Accept document suggestion")} disabled={disabled || field.original_extracted_value == null} />
+            <span className="review-option__label">Accept document suggestion</span>
             {field.original_extracted_value == null ? <span className="review-option__missing">Not found in document</span> : <strong className="review-option__value">{field.original_extracted_value}</strong>}
+          </label>
+          <label className={`review-option${decision === "REJECTED" ? " is-chosen" : ""}`}>
+            <input {...option("REJECTED", "Reject document suggestion")} />
+            <span className="review-option__label">Reject document suggestion</span>
+            <span className="review-option__missing">The value read from the document is not used</span>
           </label>
           <div className={`review-option review-option--manual${decision === "CORRECTED" ? " is-chosen" : ""}`}
             onClick={event => { if (disabled || (event.target as HTMLInputElement).type === "text") return; change(id, { decision: "CORRECTED" }); event.currentTarget.querySelector<HTMLInputElement>("input[type=text]")?.focus(); }}>
-            <label className="review-option__label"><input {...option("CORRECTED")} aria-label={`Enter value manually for ${label}`} /> Manual value</label>
+            <label className="review-option__label"><input {...option("CORRECTED", "Record correction")} /> Record correction</label>
             <input type="text" className="review-option__input" maxLength={512} value={correction} disabled={disabled}
-              placeholder="Type a value" aria-label={`Correction for ${label}`}
+              placeholder="Type what the document shows" aria-label={`Correction for ${label}`}
               onFocus={() => { if (decision !== "CORRECTED") change(id, { decision: "CORRECTED" }); }}
               onChange={event => change(id, { decision: "CORRECTED", correction: event.target.value })} />
           </div>
@@ -215,41 +201,43 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
           </div>
           : <button type="button" className="btn btn-ghost review-item__add-note" disabled={disabled} aria-label={`Add note for ${label}`}
             onClick={() => setOpenNotes(current => new Set(current).add(id))}>+ Add note</button>}
-        {decision === "REJECTED" && field.canonical_value == null && <p className="control-help">The registry has no value for this field, so it stays empty.</p>}
-        {decision === "CORRECTED" && !correction.trim() && <p className="control-help review-item__error">Type the manual value before confirming.</p>}
+        {decision === "CORRECTED" && !correction.trim() && <p className="control-help review-item__error">Type the corrected value before confirming.</p>}
         {weak && <p className="control-help">A review decision does not replace missing or low-confidence evidence. Replacement may still be required.</p>}
+        {decision && <p className="control-help">Draft: {decision.toLowerCase()}{decision === "CORRECTED" ? ` · ${correction || "Correction needed"}` : ""}</p>}
       </fieldset>;
     }) : sources.map(item => {
       const label = item.field_name.replaceAll("_", " ");
-      const decision = sourceDecision(item);
+      const decision = drafts[item.discrepancy_id]?.decision ?? "";
       const value = (kind: string) => item.observations.filter(obs => obs.source_kind === kind && obs.normalized_value != null).map(obs => obs.normalized_value).join(" · ");
       const choice = (action: ReconciliationDecisionAction, title: string, kind: string) => {
         const allowed = item.allowed_actions.includes(action);
         return <label className={`review-option${decision === action ? " is-chosen" : ""}${allowed ? "" : " is-unavailable"}`}>
           <input type="radio" name={`source:${item.discrepancy_id}`} value={action} checked={decision === action} disabled={disabled || !allowed}
             data-reconciliation-field={item.field_name} data-discrepancy-id={item.discrepancy_id}
-            aria-label={`${action === "KEEP_REGISTRY_VALUE" ? "Keep registry value" : "Use document value"} for ${label}`}
+            aria-label={`${title} for ${label}`}
             onChange={() => change(item.discrepancy_id, { decision: action })} />
           <span className="review-option__label">{title}</span>
           {value(kind) ? <strong className="review-option__value">{value(kind)}</strong> : <span className="review-option__missing">{kind === "REGISTRY" ? "Not in registry" : "Not found in document"}</span>}
+          {!allowed && <span className="review-option__missing">Not offered for this field</span>}
         </label>;
       };
       return <fieldset key={item.discrepancy_id} className={`comparison-card review-item${decision ? " is-decided" : ""}`}>
         <legend className="review-item__title"><span className="review-item__field">{label}</span><span className="review-item__doc">Registry vs document</span></legend>
-        <div className="review-item__badges"><span className={`review-pill${decision ? " review-pill--done" : ""}`}>{decision ? DECISION_NAMES[decision] : "Choose a value"}</span></div>
-        <div className="review-options review-options--two" role="radiogroup" aria-label={`Value for ${label}`}>
-          {choice("KEEP_REGISTRY_VALUE", "Registry value", "REGISTRY")}
-          {choice("USE_DOCUMENT_VALUE", "Document value", "DOCUMENT_IDP")}
+        <div className="review-item__badges"><span className={`review-pill${decision ? " review-pill--done" : ""}`}>{decision ? DECISION_NAMES[decision] : "Decision needed"}</span></div>
+        <div className="review-options review-options--two" role="radiogroup" aria-label={`Source decision for ${label}`}>
+          {choice("KEEP_REGISTRY_VALUE", "Keep registry value", "REGISTRY")}
+          {choice("USE_DOCUMENT_VALUE", "Use document value", "DOCUMENT_IDP")}
         </div>
+        {decision && <p className="control-help">Draft: {decision.replaceAll("_", " ").toLowerCase()}</p>}
       </fieldset>;
     })}
     </div>
     <footer className="blocker-review__footer">
-      <p role="status" className="blocker-review__status">{selected} of {items} decided{breakdown ? ` · ${breakdown}` : ""} · {saved ? "Draft saved in this tab" : "Draft not saved"}</p>
+      <p role="status" className="blocker-review__status">{selected} selected / {items.length} required · {items.length - selected} remaining · {saved ? "Draft saved in this tab" : "Draft not saved"}</p>
       {!complete && <p id="batch-confirm-disabled" className="blocker-review__hint">{invalid ? "Enter each correction before confirming." : "Select all required decisions before confirming."}</p>}
       <div className="document-card__actions">
-        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setSaved(true)}>Save draft in this tab</button>
-        <button type="button" className="btn btn-ghost" disabled={disabled || Object.keys(drafts).length === 0} onClick={() => { setDraftState({ choices: {}, bindings, bulkResult: null }); setSaved(false); }}>Clear draft</button>
+        <button type="button" className="btn btn-secondary" disabled={disabled || selected === 0} onClick={() => setSaved(true)}>Save draft in this tab</button>
+        <button type="button" className="btn btn-ghost" disabled={disabled || selected === 0} onClick={() => { setDraftState({ choices: {}, bindings, bulkResult: null }); setSaved(false); }}>Clear draft</button>
         <button type="button" className="btn btn-primary blocker-review-confirm" disabled={disabled || !complete} aria-describedby={!complete ? "batch-confirm-disabled" : undefined} onClick={confirm}>Confirm decisions & continue onboarding</button>
       </div>
       <details className="blocker-review__about">

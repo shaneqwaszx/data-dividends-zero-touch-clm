@@ -278,7 +278,7 @@ async function resolveDiscrepancy(page: Page, file: string | ReturnType<typeof t
     const codes = before.active_exceptions.filter((item: any) => item.stage === "DOCUMENT").map((item: any) => item.blocker_code);
     expect(codes.length).toBeGreaterThan(0);
     await page.locator(".intervention-card").getByRole("button", { name: "Keep registry value", exact: true }).first().click();
-    await expect(page.locator("input[data-reconciliation-field]:checked").first()).toBeFocused();
+    await expect(page.locator("input[data-reconciliation-field]:not([disabled])").first()).toBeFocused();
     await expect(page.getByRole("button", { name: /Confirm and send/ })).toHaveCount(0);
     await reviewSourceChoices(page);
     await expect.poll(async () => (await summary(page, caseId)).active_exceptions.filter((item: any) => item.stage === "DOCUMENT")).toEqual([]);

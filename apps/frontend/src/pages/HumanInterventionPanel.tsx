@@ -62,6 +62,12 @@ export default function HumanInterventionPanel({
 
   return (
     <section className="intervention-stack" aria-label="Case interventions and history">
+      {interventions.length > 0 && <div className="state-composition__header">
+        <div>
+          <p className="card-kicker">Backend-authorized intervention</p>
+          <h3>Action required</h3>
+        </div>
+      </div>}
       {groups.map(([intervention, ...related]) => (
         <InterventionCard
           key={intervention.intervention_id}

@@ -194,10 +194,10 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   await expect(original).toHaveText(before.case.registry_acquisition.retrieved_at);
   await openStage(page, "Document verification");
   const review = page.locator("#case-blocker-review");
-  // Every field starts on the registry value; one registry radio exists per field.
+  // Nothing is pre-selected; one reject radio exists per pending field.
   await expect(review.locator('input[data-review-field][value="REJECTED"]')).toHaveCount(3);
-  await expect(review.locator('input[data-review-field][value="REJECTED"]:checked')).toHaveCount(3);
-  const name = review.locator('input[data-review-field="legal_name"][value="CORRECTED"]');
+  await expect(review.locator("input[data-review-field]:checked")).toHaveCount(0);
+  const name = review.locator('input[data-review-field="legal_name"][value="CORRECTED"]'); await name.check();
   await review.getByLabel("Correction for legal name", { exact: true }).fill(company.name);
   await expect(name).toBeChecked();
   await review.getByRole("button", { name: "Add note for legal name", exact: true }).click();
@@ -206,11 +206,11 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
     .map(node => node.getAttribute("data-review-field")).filter(key => key !== "legal_name"));
   const businessWrites: string[] = [];
   page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) businessWrites.push(new URL(request.url()).pathname); });
-  await review.getByRole("button", { name: "Use document suggestion for all", exact: true }).click();
+  await review.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true }).click();
   await expect(name).toBeChecked();
   for (const key of eligible) await expect(review.locator(`input[data-review-field="${key}"][value="ACCEPTED"]`)).toBeChecked();
-  await expect(review.locator('input[data-review-field="registered_address"][value="REJECTED"]')).toBeChecked();
-  await expect(review.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeEnabled();
+  await expect(review.locator('input[data-review-field="registered_address"]:checked')).toHaveCount(0);
+  await expect(review.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeDisabled();
   const evidence = retainedEvidencePath("am-review"); await mkdir(evidence, { recursive: true });
   for (const width of [1440, 900, 360]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -221,6 +221,7 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   }
   expect(businessWrites).toEqual([]);
   const unchanged = await read(page, caseId); expect(unchanged.version).toBe(before.version);
+  await review.getByRole("button", { name: "Reject all undecided suggestions", exact: true }).click();
   await expect(review.locator('input[data-review-field="registered_address"][value="REJECTED"]')).toBeChecked();
   await expect(review.getByLabel("Optional note for legal name", { exact: true })).toHaveValue("Reviewed synthetic field deliberately.");
   expect(businessWrites).toEqual([]);
@@ -245,7 +246,7 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   expect(after.active_exceptions.length).toBeGreaterThan(0);
   await expect.poll(async () => (await read(page, caseId)).active_exceptions.length).toBeGreaterThan(0);
   await page.reload(); await openStage(page, "Document verification");
-  await expect(page.getByRole("button", { name: "Use document suggestion for all", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true })).toHaveCount(0);
   expect((await read(page, caseId)).target_submission.attempted_operations).toEqual([]);
   expect(violations).toEqual([]);
   await writeFile(path.join(evidence, "receipt.json"), JSON.stringify({ caseId, widths: [1440, 900, 360], eligible, payload, status: after.status, blockers: after.active_exceptions.map((item: any) => item.blocker_code), businessWrites }, null, 2));

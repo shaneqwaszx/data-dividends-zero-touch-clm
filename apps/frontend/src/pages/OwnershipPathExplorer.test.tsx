@@ -190,7 +190,7 @@ describe("OwnershipPathExplorer", () => {
 
 
 describe("direct ownership primary inspection", () => {
-  it.each([[60, 40], [50, 30, 20]])("keeps the selected holder in the hierarchy without a redundant direct candidate/path table for %s", (...percentages) => {
+  it.each([[60, 40], [50, 30, 20]])("keeps Selected holder primary without a redundant direct candidate/path table for %s", (...percentages) => {
     const value = record();
     value.issues = []; value.state = "ANALYZED";
     value.candidates = percentages.map((percent, index) => ({ ...value.candidates[0],
@@ -209,13 +209,14 @@ describe("direct ownership primary inspection", () => {
     expect(container.querySelector('[aria-label^="Ownership candidate "]')).toBeNull();
     expect(container.querySelector('[aria-label^="Selected retained path "]')).toBeNull();
     expect([...container.querySelectorAll("caption")].some(item => item.textContent?.includes("Retained paths"))).toBe(false);
-    const selected = () => container!.querySelector('[aria-label="Ownership hierarchy"] [role="row"].is-selected')!;
-    expect(selected().textContent).toContain("Person 0");
-    click("Person 1"); expect(selected().textContent).toContain("Person 1");
-    expect(selected().textContent).not.toContain("Person 0");
-    expect(selected().textContent).toContain(`${percentages[1]}%`);
-    expect(selected().textContent).toContain("MOCK_REGISTRY · MOCK");
-    expect(container.querySelector('[aria-label="Selected holder"]')).toBeNull();
+    const panel = container.querySelector('[aria-label="Selected holder"]')!;
+    expect(panel.textContent).toContain("Person 0");
+    click("Person 1"); expect(panel.textContent).toContain("Person 1");
+    expect(panel.textContent).not.toContain("Person 0");
+    expect(panel.textContent).toContain(`${percentages[1]}%`);
+    expect(panel.textContent).toContain(`Calculation: ${percentages[1]}% = ${percentages[1]}%`);
+    expect(panel.textContent).toContain("MOCK_REGISTRY · MOCK");
+    expect(panel.textContent).toContain("GREATER_THAN_OR_EQUAL_TO");
   });
   it("keeps complex retained inspection optional and lazy with bounded pagination", () => {
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);

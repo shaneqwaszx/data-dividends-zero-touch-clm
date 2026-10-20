@@ -735,6 +735,8 @@ button.tag {
 .review-item__field::first-letter { text-transform: uppercase; }
 .review-item__doc { font-size: 11.5px; color: var(--color-neutral-700); }
 .review-item__badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.review-item__reference { margin: 0; font-size: 12.5px; color: var(--color-neutral-700); }
+.review-item__reference strong { margin-left: 6px; color: var(--color-text); }
 .review-pill { padding: 2px 9px; border: 1px solid var(--color-divider); border-radius: 999px; background: var(--color-neutral-100); color: var(--color-neutral-700); font-size: 11px; }
 .review-pill--done { border-color: var(--color-accent-400); background: var(--color-accent-100); color: var(--color-accent-900); }
 .review-pill--done::before { content: "✓ "; }

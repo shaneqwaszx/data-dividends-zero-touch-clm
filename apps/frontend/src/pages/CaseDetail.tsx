@@ -86,7 +86,6 @@ import HumanInterventionPanel from "./HumanInterventionPanel";
 import ReviewAndSend from "./ReviewAndSend";
 import TargetRecoveryPanel, { TargetRecoveryDetails } from "./TargetRecoveryPanel";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
-import OwnershipPreviewMock, { ownershipPreviewEnabled } from "../dev/ownershipPreviewMock";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
 import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
@@ -865,7 +864,7 @@ export default function CaseDetail({
       if (failed) { focusActionControl(EVIDENCE_TARGET_IDS.documents, `.document-card[data-document-id="${failed.document_id}"] input[type=file]:not([disabled])`); return; }
       if (document.getElementById("case-document-intake-continue")) { focusActionControl("case-document-intake-continue", "button:not([disabled])"); return; }
       if (document.getElementById("case-document-intake-start")) { focusActionControl("case-document-intake-start", "button:not([disabled])"); return; }
-      if (document.getElementById("case-blocker-review")) { focusActionControl("case-blocker-review", "input[data-review-field]:checked:not([disabled]), input[data-reconciliation-field]:not([disabled])"); return; }
+      if (document.getElementById("case-blocker-review")) { focusActionControl("case-blocker-review", "input[data-review-field]:not([disabled]), input[data-reconciliation-field]:not([disabled])"); return; }
       if (document.getElementById("case-document-checkpoint-repair")) { focusActionControl("case-document-checkpoint-repair", "button:not([disabled])"); return; }
       focusActionControl(document.getElementById("case-document-upload") ? "case-document-upload" : EVIDENCE_TARGET_IDS.documents, "input[type=file]:not([disabled])"); return;
     }
@@ -949,10 +948,10 @@ export default function CaseDetail({
       const escaped = (value: string) => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
       if (discrepancy?.allowed_actions.length) {
         batchReviewRef.current?.openDecision({ discrepancyId: discrepancy.discrepancy_id });
-        focusActionControl("case-blocker-review", `input[data-discrepancy-id="${escaped(discrepancy.discrepancy_id)}"]:checked:not([disabled]), input[data-discrepancy-id="${escaped(discrepancy.discrepancy_id)}"]:not([disabled])`); return;
+        focusActionControl("case-blocker-review", `input[data-discrepancy-id="${escaped(discrepancy.discrepancy_id)}"]:not([disabled])`); return;
       }
       if (field && batchReviewRef.current?.openDecision({ documentId: field.reference_id!, fieldKey: field.field_key! })) {
-        focusActionControl("case-blocker-review", `input[data-document-id="${escaped(field.reference_id!)}"][data-review-field="${escaped(field.field_key!)}"]:checked:not([disabled])`); return;
+        focusActionControl("case-blocker-review", `input[data-document-id="${escaped(field.reference_id!)}"][data-review-field="${escaped(field.field_key!)}"]:not([disabled])`); return;
       }
       if (documentId) {
         focusActionControl(EVIDENCE_TARGET_IDS.documents, `.document-card[data-document-id="${escaped(documentId)}"] input[type=file]:not([disabled])`); return;
@@ -1160,7 +1159,7 @@ export default function CaseDetail({
           }}
           onResolve={(exception, action) => {
             if (exception.stage === "DOCUMENT" && (action === "KEEP_REGISTRY_VALUE" || action === "USE_DOCUMENT_VALUE") && batchReviewRef.current?.selectSourceDecision(exception.exception_id, action)) {
-              focusActionControl("case-blocker-review", `[data-discrepancy-id="${exception.exception_id}"]`);
+              focusActionControl("case-blocker-review", `input[data-discrepancy-id="${exception.exception_id}"][value="${action}"]`);
               return;
             }
             if (exception.stage === "DOCUMENT") {
@@ -1496,7 +1495,6 @@ export default function CaseDetail({
           </div>
         )}
           <div key={`${evidenceIdentity}:ownership`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target" tabIndex={-1}>
-            {!ownership && ownershipPreviewEnabled() && <OwnershipPreviewMock />}
             {ownership && <OwnershipPathExplorer presentation="main" key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} primaryBlockerVisible={summary.active_exceptions.some((item) => item.stage === "OWNERSHIP")} />}
           </div>
         </>}
@@ -1642,6 +1640,11 @@ export default function CaseDetail({
             </aside>
           </>}
         />
+        <StageDisclosure title="Historical / resolved issues">
+          {renderInterventions(undefined, true)}
+          <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
+        <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>          {intelligence && <details className="evidence-details"><summary>Advisory intelligence</summary><IntelligencePanel record={intelligence} /></details>}
+        </StageDisclosure>
         {showFinalReview ? <ReviewAndSend
           disclosureScopeKey={disclosureIdentity}
           readNotice={finalReadNotice}
@@ -1678,11 +1681,6 @@ export default function CaseDetail({
             ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
             : "Not yet available — complete the current stage."}</p></>}
         /> }
-        <StageDisclosure title="Historical / resolved issues">
-          {renderInterventions(undefined, true)}
-          <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
-        <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>          {intelligence && <details className="evidence-details"><summary>Advisory intelligence</summary><IntelligencePanel record={intelligence} /></details>}
-        </StageDisclosure>
       </div>
       </OnboardingWorkspace>
 

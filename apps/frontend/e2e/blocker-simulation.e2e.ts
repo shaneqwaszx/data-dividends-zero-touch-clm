@@ -50,8 +50,8 @@ for (const scenario of scenarios) {
     if (scenario.choice === "identity") await focusPipelineAction(page, "RECONCILIATION", page.locator("#identity-registration-number"));
     else if (scenario.choice === "source") await page.locator(".intervention-card").getByRole("button", { name: "Keep registry value", exact: true }).first().click();
     else await page.getByRole("button", { name: action.label, exact: true }).click();
-    const selector = scenario.choice === "source" ? "input[data-reconciliation-field]"
-      : scenario.choice === "document" ? "input[data-review-field]:checked"
+    const selector = scenario.choice === "source" ? "input[data-reconciliation-field]:not([disabled])"
+      : scenario.choice === "document" ? "input[data-review-field]:not([disabled])"
       : scenario.choice === "identity" ? "#identity-registration-number" : "#case-target-classification select:not([disabled])";
     const control = page.locator(selector).first();
     await expect(control).toBeVisible(); await expect(control).toBeEnabled(); await expect(control).toBeFocused();
@@ -65,7 +65,9 @@ for (const scenario of scenarios) {
       const controls = page.locator(scenario.choice === "source" ? 'input[data-reconciliation-field][value="KEEP_REGISTRY_VALUE"]' : 'input[data-review-field][value="REJECTED"]');
       decisions = await controls.count();
       for (let index = 0; index < decisions; index++) {
+        await controls.nth(index).focus();
         await controls.nth(index).check();
+        await expect(controls.nth(index)).toBeFocused();
         await expect(controls.nth(index)).toBeChecked();
       }
       expect(calls.filter(call => !call.startsWith("GET "))).toEqual([]);
@@ -206,14 +208,14 @@ test("Blocker simulation draft isolation and same-team/cross-team authorization"
   const draft = page.locator('input[data-review-field][value="REJECTED"]').first();
   const mutations: string[] = [];
   const listener = (request: import("@playwright/test").Request) => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); };
-  page.on("request", listener); await page.getByRole("button", { name: "Use registry value for all", exact: true }).click();
+  page.on("request", listener); await page.getByRole("button", { name: "Reject all undecided suggestions", exact: true }).click();
   await expect(draft).toBeChecked();
   await page.getByRole("button", { name: "Save draft in this tab", exact: true }).click();
   await expect(page.getByText("Draft saved in this tab", { exact: false })).toBeVisible();
   expect(mutations).toEqual([]); page.off("request", listener);
   await signOut(); const otherHeaders = await signIn("ethan-tan");
   await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
-  await expect(page.locator('input[data-review-field][value="REJECTED"]').first()).toBeChecked();
+  await expect(page.locator("input[data-review-field]:checked")).toHaveCount(0);
   for (const control of await page.locator("input[data-review-field]").all()) await expect(control).toBeDisabled();
   await expect(page.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeDisabled();
   expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/review-decisions`, { headers: otherHeaders, data: batch })).status()).toBe(403);
@@ -442,11 +444,12 @@ test("Blocker simulation early stage click waits for the actual current document
   await node.getByRole("button", { name: "Open case stage details", exact: true }).click();
   await expect(page.locator("input[data-review-field]")).toHaveCount(0);
   release();
-  const control = page.locator('input[data-review-field="country_of_incorporation"]:checked');
+  const control = page.locator('input[data-review-field="country_of_incorporation"]:not([disabled])').first();
   await expect(control).toBeVisible(); await expect(control).toBeEnabled(); await expect(control).toBeFocused();
   await expect(control).toBeInViewport({ ratio: 1 });
+  await expect(page.locator('input[data-review-field="country_of_incorporation"]:checked')).toHaveCount(0);
   const boundary = requests.length;
-  await control.check();
+  await page.locator('input[data-review-field="country_of_incorporation"][value="REJECTED"]').check();
   expect(requests.slice(boundary)).toEqual([]);
   expect(requests.every(method => method === "GET")).toBe(true);
   expect(initial.case.goldtier_result).toBeNull();

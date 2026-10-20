@@ -21,7 +21,7 @@ export async function reviewPendingFields(page: Page, corrections: Record<string
   page.on("request", listener);
   const family = page.getByLabel("Decision group", { exact: true });
   if (await family.count()) await family.selectOption("document");
-  // One registry radio exists per pending field; each field defaults to it.
+  // Nothing is pre-selected: every pending field needs an explicit decision.
   const fields = page.locator('input[data-review-field][value="REJECTED"]');
   await expect(fields.first()).toBeVisible();
   const count = await fields.count();
@@ -29,13 +29,12 @@ export async function reviewPendingFields(page: Page, corrections: Record<string
   for (let index = 0; index < count; index++) {
     const key = (await fields.nth(index).getAttribute("data-review-field"))!;
     const documentId = (await fields.nth(index).getAttribute("data-document-id"))!;
-    if (key in corrections) {
-      await page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true }).fill(corrections[key]);
-      continue;
-    }
-    const accept = page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="ACCEPTED"]`);
-    await accept.check();
-    await expect(accept).toBeChecked();
+    const control = page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="${key in corrections ? "CORRECTED" : "ACCEPTED"}"]`);
+    await control.focus();
+    await control.check();
+    await expect(control).toBeFocused();
+    await expect(control).toBeChecked();
+    if (key in corrections) await page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true }).fill(corrections[key]);
   }
   page.off("request", listener);
   expect(mutations).toEqual([]);
@@ -55,7 +54,9 @@ export async function reviewSourceChoices(page: Page, action = "KEEP_REGISTRY_VA
   const count = await controls.count();
   expect(count).toBeGreaterThan(0);
   for (let index = 0; index < count; index++) {
+    await controls.nth(index).focus();
     await controls.nth(index).check();
+    await expect(controls.nth(index)).toBeFocused();
     await expect(controls.nth(index)).toBeChecked();
   }
   page.off("request", listener);

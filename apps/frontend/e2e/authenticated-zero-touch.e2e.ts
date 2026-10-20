@@ -332,7 +332,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(caseLink).toBeVisible();
   await caseLink.click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
-  await expect(page.locator(".intervention-card").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
   const identityInterventionDetails = page.locator(".intervention-card .evidence-details")
     .filter({ hasText: "INITIAL_IDENTITY_INCOMPLETE" });
   await expect(identityInterventionDetails).toHaveCount(1);
@@ -570,7 +570,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit documents" }).click();
   await expect(page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator("#case-blocker-review input[data-review-field]:checked, #case-blocker-review input[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
+  await expect(page.locator("#case-blocker-review input[data-review-field]:not([disabled]), #case-blocker-review input[data-reconciliation-field]:not([disabled]), #case-evidence-documents input[type=file]").first()).toBeFocused();
   await page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit ownership" }).click();
   await expect(page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
@@ -1327,7 +1327,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await openStage(page, "GoldTier submission package");
   await openStageSupport(page, "GoldTier submission package", "Technical");
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
-  await expect(page.locator("#case-blocker-review input[data-review-field]:checked, #case-blocker-review input[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
+  await expect(page.locator("#case-blocker-review input[data-review-field]:not([disabled]), #case-blocker-review input[data-reconciliation-field]:not([disabled]), #case-evidence-documents input[type=file]").first()).toBeFocused();
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
   await expect(page.getByText("3 final / 4 fields")).toBeVisible();
   await expect(page.getByText(/1 field remains for review/)).toBeVisible();
