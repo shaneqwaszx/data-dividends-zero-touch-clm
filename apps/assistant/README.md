@@ -67,38 +67,105 @@ case being onboarded on **New onboarding** (once it has been created). Its butto
 page for easy access; elsewhere it asks the RM to open or start a case. It keeps a separate
 conversation per case and requests nothing until it is opened.
 
-## Knowledge base (Milestone 1: store)
+## Knowledge loop (reviewed guidance and past resolutions)
 
-Reviewed knowledge the AI Assistant will search: **official guidance** (the rulebook) and
-**approved past resolutions** (worked examples). It learns by retrieving reviewed entries,
-never by retraining the model. Code: `ai_assistant/knowledge/`.
+The AI Assistant learns from reviewed knowledge by **retrieving** it at question time, never by
+retraining the model. There are two kinds of entry:
 
-| Part | What it does |
+- **Official guidance**: the rulebook, written from recorded decisions (`knowledge/guidance/*.md`,
+  each citing its source). HR (`POLICY_MUTATE`) can propose new guidance in the app.
+- **Approved past resolutions**: worked examples drafted from an RM's "Solved it" feedback and
+  approved by a manager (Director, `POLICY_APPROVE`). The demo seed
+  (`seed/synthetic_resolutions.json`) is made up and labelled illustrative.
+
+```
+RM asks ─► case context (blocker codes, fields, stage)
+        ─► search: approved, current versions the RM may see ─► top guidance [G1..] + resolutions [P1..]
+        ─► prompt (rules → facts → history → KNOWLEDGE → question) ─► guardrails ─► answer + source chips
+RM clicks "Solved it" ─► redacted draft ─► Director edits / approves ─► searchable for the next RM
+RM clicks "Not helpful" ─► gap for the Director to handle
+```
+
+| Part (`ai_assistant/knowledge/`) | What it does |
 |---|---|
 | `models.py` | An entry: kind, version, status, blocker codes, fields, stages, who may see it, follow-up questions |
-| `store.py` | SQLite: every version, every review, keyword index (FTS5), index to-do list |
-| `vector_index.py` | ChromaDB: vectors of the approved, current versions only |
-| `embeddings.py` | Local embeddings through Ollama (`nomic-embed-text`) |
-| `service.py` | Keeps SQLite and ChromaDB in step; retries; rebuild |
-| `ingest.py` + `guidance/*.md` | Official guidance written from recorded decisions, each citing its source |
-| `seed/synthetic_resolutions.json` | Made-up past resolutions for the demo, labelled illustrative |
+| `store.py` | SQLite: every version, every review and edit, feedback, keyword index (FTS5), index to-do list |
+| `vector_index.py` + `embeddings.py` | ChromaDB vectors of approved current versions only; local embeddings through Ollama (`nomic-embed-text`) |
+| `service.py` | Propose, decide, retire; keeps SQLite and ChromaDB in step; retries; rebuild |
+| `retrieval.py` | Hybrid search with permission filters (below) |
+| `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from feedback |
+| `ingest.py` | Loads the guidance files (an app-approved edit is not overwritten by its file) |
+| `evaluation.py` | Recall and "correctly found nothing" on a labelled question set |
+| `../knowledge_answers.py` | Tags hits, builds the KNOWLEDGE prompt part, works out cited sources and follow-up suggestions |
+| `../knowledge_api.py` | Feedback and review endpoints |
 
-Rules: versions are never overwritten; the author of an entry can never approve it; approving a
-version retires the previous one (and any entry it replaces), so only one version is searched;
-rejected and retired versions are never searched. Data lives in `apps/assistant/data/knowledge/`
-(not in Git).
+**Rules.** Versions are never overwritten. The author of an entry can never approve it. Approving a
+version retires the previous one (and any entry it replaces), so only one version is searched.
+Rejected and retired versions are never searched. Official guidance outranks past cases, and the
+case facts outrank both.
 
-Set it up (needs `ollama pull nomic-embed-text` and the new dependency `chromadb`):
+**How search ranks entries.** Only approved, current entries the RM may see (by role and team, from
+`/api/auth/me`) are considered. A past resolution must share a blocker code or field with the case.
+Each entry then gets a score:
+
+| Signal | Weight | Meaning |
+|---|---|---|
+| Meaning (semantic) | 0.45 | Vector similarity between question and entry |
+| Keywords | 0.2 | FTS5 match, squashed so one long entry does not dominate |
+| Case context | 0.3 | Same blocker code (0.6), field (0.3), stage (0.1) |
+| Recency | ×0.05 | Tie-breaker: newer approvals rank slightly higher (half-life 180 days) |
+
+Guidance needs 0.3 and resolutions 0.4 to be used; at most 3 of each. If Ollama embeddings are down,
+search falls back to keywords and context only. All weights are `AI_ASSISTANT_RETRIEVAL_*` settings.
+
+**Follow-up questions.** An approved resolution can carry follow-up questions; when it is used,
+they are offered as suggestions after the top three.
+
+Set it up (needs `ollama pull nomic-embed-text`):
 
 ```
 cd apps/assistant
 ../../.venv/bin/python -m pip install -e ".[dev]"
 ../../.venv/bin/python scripts/ingest_knowledge.py --with-synthetic-resolutions
+../../.venv/bin/python scripts/evaluate_retrieval.py --show-misses
 ```
 
-Run it again any time: unchanged guidance is skipped, edited files become new versions and
-replace the old ones, removed files are retired. If Ollama is not running, entries are saved
-and indexed on the next run.
+Run the ingest again any time: unchanged guidance is skipped, edited files become new versions,
+removed files are retired. If Ollama is not running, entries are saved and indexed later. Data
+lives in `apps/assistant/data/knowledge/` (not in Git).
+
+### Knowledge API
+
+| Method | Path | Who | What it does |
+|---|---|---|---|
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Solved it" (drafts a resolution) or "Not helpful" (records a gap) |
+| GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance |
+| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open gaps |
+| GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
+| GET | `/assistant/knowledge/entries/{id}` | author, Director, HR | All versions and reviews of one entry |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded) |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
+| POST | `/assistant/knowledge/entries/{id}/retire` | Director | Stop using an entry |
+| POST | `/assistant/knowledge/feedback/{id}/close` | Director | Mark a gap as handled |
+| POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
+| POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index |
+| GET | `/assistant/knowledge/stats` | Director | Entry counts and how helpful answers were |
+
+### In the app
+
+The panel is built on `@assistant-ui/react`. Each answer shows the guidance and past cases it
+cited as chips (G1, P1 …) and has **Solved it** / **Not helpful** buttons. Users who can review
+see a **Review** button that opens the Knowledge review window.
+
+### Demo script
+
+1. Sign in as an RM, open a case blocked by a document/ACRA address conflict, open the AI Assistant.
+2. Ask "Can I use the document address?" The answer cites guidance [G1] and an illustrative past
+   case [P1], shown as chips.
+3. Click **Solved it** and add a note ("ACRA was current; kept registry value").
+4. Sign in as a Director (not the same user), open **Review**: the draft has the client's name
+   replaced with `[COMPANY]`. Edit if needed, then **Approve**.
+5. Back as an RM on a similar case, ask again: the new resolution is now cited.
 
 ## Grounding and policy validation
 
