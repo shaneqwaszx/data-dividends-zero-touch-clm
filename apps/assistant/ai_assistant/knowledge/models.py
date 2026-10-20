@@ -78,6 +78,9 @@ class Entry:
     # True for demo content that is not a real rule or a real case.
     illustrative: bool = False
     created_at: str | None = None
+    # The version this one was revised from by a reviewer's edit (None for an original).
+    # Everyone who wrote a version in that chain is barred from deciding it.
+    revises: int | None = None
 
     @property
     def key(self) -> str:

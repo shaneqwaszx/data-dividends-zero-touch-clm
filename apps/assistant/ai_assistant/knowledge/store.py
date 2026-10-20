@@ -3,8 +3,13 @@ and the to-do list that keeps the vector index in step.
 
 Rules enforced here, in one transaction per change:
 
-- a new version never overwrites an old one (versions are append-only);
-- only a reviewer who is not the author can approve or reject (maker-checker);
+- a new version never overwrites an old one (versions are append-only). A reviewer's edit
+  is stored as a new version written by that reviewer; the version it revises is kept,
+  unchanged, and taken out of review;
+- only a reviewer who wrote no version in the chain being decided can approve or reject it
+  (maker-checker), and only the exact content they were shown (content hash);
+- an entry may only replace an entry of the same kind (a past resolution never retires
+  official guidance);
 - approving a version retires the entry's previous approved version, and the entry it
   replaces, so at most one version of an entry is current;
 - only current approved versions are in the keyword index;
@@ -22,7 +27,13 @@ from typing import Any
 
 from .models import Entry, EntryKind, EntryStatus, Visibility
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+_ENTRY_COLUMNS = (
+    "entry_id, version, kind, status, title, body, blocker_codes, fields, stages, visibility, "
+    "follow_ups, effective_from, replaces, author, approver, approved_at, source_ref, "
+    "illustrative, content_hash, created_at, revises"
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -48,6 +59,7 @@ CREATE TABLE IF NOT EXISTS entries (
     illustrative INTEGER NOT NULL,
     content_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    revises INTEGER,
     PRIMARY KEY (entry_id, version)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_current_version
@@ -99,7 +111,15 @@ class KnowledgeError(Exception):
 
 
 class MakerCheckerError(KnowledgeError):
-    """The author of an entry tried to approve or reject it."""
+    """Someone who wrote or edited an entry tried to approve or reject it."""
+
+
+class ContentChangedError(KnowledgeError):
+    """The version was decided against content other than what it now says."""
+
+
+class KnowledgeRuleError(KnowledgeError):
+    """A change the knowledge rules never allow (not a stale or concurrent request)."""
 
 
 def _now() -> str:
@@ -127,6 +147,7 @@ def _row_to_entry(row: sqlite3.Row) -> Entry:
         source_ref=row["source_ref"],
         illustrative=bool(row["illustrative"]),
         created_at=row["created_at"],
+        revises=row["revises"],
     )
 
 
@@ -232,6 +253,17 @@ _STOPWORDS = frozenset(
 )
 
 
+def _narrows(old: tuple[str, ...], new: tuple[str, ...]) -> bool:
+    """True when ``new`` team visibility is the same as ``old`` or a subset of it.
+
+    No teams means every team, so an edit may restrict it but never empty a restricted list.
+    """
+
+    if not old:
+        return True
+    return bool(new) and set(new) <= set(old)
+
+
 def _fts_query(text: str) -> str | None:
     """A safe FTS5 query: any of the words, each quoted (no operators from user text)."""
 
@@ -258,6 +290,8 @@ class KnowledgeStore:
             )
             if version is not None and int(version[0]) < 2:
                 self._migrate_to_2(db)
+            if version is not None and int(version[0]) < 3:
+                self._migrate_to_3(db)
             db.executescript(_SCHEMA)
             db.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -373,6 +407,7 @@ class KnowledgeStore:
         if not entry.author:
             raise KnowledgeError("every entry needs an author")
         with self._connect() as db:
+            self._check_replaces(db, entry)
             latest = db.execute(
                 "SELECT MAX(version) FROM entries WHERE entry_id = ?", (entry.entry_id,)
             ).fetchone()[0]
@@ -382,33 +417,9 @@ class KnowledgeStore:
                 approver=None,
                 approved_at=None,
                 created_at=self._clock(),
+                revises=None,
             )
-            db.execute(
-                "INSERT INTO entries VALUES "
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    stored.entry_id,
-                    stored.version,
-                    stored.kind.value,
-                    stored.status.value,
-                    stored.title,
-                    stored.body,
-                    json.dumps(list(stored.blocker_codes)),
-                    json.dumps(list(stored.fields)),
-                    json.dumps(list(stored.stages)),
-                    stored.visibility.to_json(),
-                    json.dumps(list(stored.follow_ups)),
-                    stored.effective_from,
-                    stored.replaces,
-                    stored.author,
-                    None,
-                    None,
-                    stored.source_ref,
-                    int(stored.illustrative),
-                    stored.content_hash(),
-                    stored.created_at,
-                ),
-            )
+            self._insert(db, stored)
         return stored
 
     def submit(self, entry_id: str, version: int) -> Entry:
@@ -425,17 +436,32 @@ class KnowledgeStore:
         return entry.with_changes(status=EntryStatus.PENDING_REVIEW)
 
     def decide(
-        self, entry_id: str, version: int, *, reviewer: str, approve: bool, notes: str = ""
+        self,
+        entry_id: str,
+        version: int,
+        *,
+        reviewer: str,
+        approve: bool,
+        notes: str = "",
+        expected_hash: str | None = None,
     ) -> Entry:
-        """Approve or reject a pending version. The author can never decide their own."""
+        """Approve or reject a pending version.
+
+        Nobody who wrote this version, or a version it was revised from, can decide it. When
+        ``expected_hash`` is given (always, from the review API) the decision applies only if
+        the version still says exactly what the reviewer was shown.
+        """
 
         now = self._clock()
         with self._connect() as db:
             entry = self._require(db, entry_id, version)
             if entry.status != EntryStatus.PENDING_REVIEW:
                 raise KnowledgeError("only a version pending review can be decided")
-            if not reviewer or reviewer == entry.author:
-                raise MakerCheckerError("the author of an entry cannot approve or reject it")
+            if expected_hash is not None and expected_hash != entry.content_hash():
+                raise ContentChangedError("the version no longer says what was reviewed")
+            if not reviewer or reviewer in self._chain_authors(db, entry):
+                raise MakerCheckerError("an author or editor of an entry cannot decide it")
+            self._check_replaces(db, entry)
             decision = "approve" if approve else "reject"
             db.execute(
                 "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
@@ -520,11 +546,26 @@ class KnowledgeStore:
                 self._task(db, _row_to_entry(row), "upsert", now)
         return len(rows)
 
-    def revise_pending(self, entry_id: str, version: int, *, editor: str, **changes: Any) -> Entry:
+    def revise_pending(
+        self,
+        entry_id: str,
+        version: int,
+        *,
+        editor: str,
+        expected_hash: str | None = None,
+        **changes: Any,
+    ) -> Entry:
         """A reviewer tidies a pending version (wording, redaction, follow-ups, visibility,
-        what it replaces) before deciding. Recorded as an 'edit' in the review history; the
-        original author stays the author, so they still cannot approve it."""
+        what it replaces) before it is decided.
 
+        The edit is a new pending version written by the editor; the version it revises is
+        kept unchanged (retired from review, with an 'edit' row in its history). The editor,
+        like the original author, can then not decide it: a different reviewer must.
+        Team visibility can only be narrowed by an edit, never widened.
+        """
+
+        if not editor:
+            raise KnowledgeError("an edit needs an editor")
         allowed = {
             "title",
             "body",
@@ -538,33 +579,47 @@ class KnowledgeStore:
         unknown = set(changes) - allowed
         if unknown:
             raise KnowledgeError(f"cannot change {sorted(unknown)}")
+        now = self._clock()
         with self._connect() as db:
             entry = self._require(db, entry_id, version)
             if entry.status != EntryStatus.PENDING_REVIEW:
                 raise KnowledgeError("only a version pending review can be edited")
-            revised = entry.with_changes(**changes)
+            if expected_hash is not None and expected_hash != entry.content_hash():
+                raise ContentChangedError("the version no longer says what was reviewed")
+            new_visibility = changes.get("visibility")
+            if isinstance(new_visibility, Visibility) and not _narrows(
+                entry.visibility.teams, new_visibility.teams
+            ):
+                raise KnowledgeRuleError("an edit can only narrow which teams see an entry")
+            latest = db.execute(
+                "SELECT MAX(version) FROM entries WHERE entry_id = ?", (entry_id,)
+            ).fetchone()[0]
+            revised = entry.with_changes(
+                **changes,
+                version=int(latest) + 1,
+                status=EntryStatus.PENDING_REVIEW,
+                author=editor,
+                approver=None,
+                approved_at=None,
+                created_at=now,
+                revises=entry.version,
+            )
+            self._check_replaces(db, revised)
+            self._insert(db, revised)
             db.execute(
-                "UPDATE entries SET title = ?, body = ?, blocker_codes = ?, fields = ?, "
-                "stages = ?, follow_ups = ?, visibility = ?, replaces = ?, content_hash = ? "
-                "WHERE entry_id = ? AND version = ?",
-                (
-                    revised.title,
-                    revised.body,
-                    json.dumps(list(revised.blocker_codes)),
-                    json.dumps(list(revised.fields)),
-                    json.dumps(list(revised.stages)),
-                    json.dumps(list(revised.follow_ups)),
-                    revised.visibility.to_json(),
-                    revised.replaces,
-                    revised.content_hash(),
-                    entry_id,
-                    version,
-                ),
+                "UPDATE entries SET status = 'retired' WHERE entry_id = ? AND version = ?",
+                (entry_id, version),
             )
             db.execute(
                 "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
                 "VALUES (?, ?, ?, 'edit', ?, ?)",
-                (entry_id, version, editor, ", ".join(sorted(changes)), self._clock()),
+                (
+                    entry_id,
+                    version,
+                    editor,
+                    f"revised as v{revised.version}: " + ", ".join(sorted(changes)),
+                    now,
+                ),
             )
         return revised
 
@@ -656,6 +711,71 @@ class KnowledgeStore:
             DROP TABLE reviews_v1;
             """
         )
+
+    @staticmethod
+    def _migrate_to_3(db: sqlite3.Connection) -> None:
+        """Version 3 records which version a reviewer's edit revises."""
+
+        columns = {row[1] for row in db.execute("PRAGMA table_info(entries)")}
+        if "revises" not in columns:
+            db.execute("ALTER TABLE entries ADD COLUMN revises INTEGER")
+
+    def _insert(self, db: sqlite3.Connection, entry: Entry) -> None:
+        db.execute(
+            f"INSERT INTO entries ({_ENTRY_COLUMNS}) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                entry.entry_id,
+                entry.version,
+                entry.kind.value,
+                entry.status.value,
+                entry.title,
+                entry.body,
+                json.dumps(list(entry.blocker_codes)),
+                json.dumps(list(entry.fields)),
+                json.dumps(list(entry.stages)),
+                entry.visibility.to_json(),
+                json.dumps(list(entry.follow_ups)),
+                entry.effective_from,
+                entry.replaces,
+                entry.author,
+                None,
+                None,
+                entry.source_ref,
+                int(entry.illustrative),
+                entry.content_hash(),
+                entry.created_at,
+                entry.revises,
+            ),
+        )
+
+    def _check_replaces(self, db: sqlite3.Connection, entry: Entry) -> None:
+        if entry.replaces is None:
+            return
+        if entry.replaces == entry.entry_id:
+            raise KnowledgeRuleError("an entry cannot replace itself")
+        target = db.execute(
+            "SELECT kind FROM entries WHERE entry_id = ? LIMIT 1", (entry.replaces,)
+        ).fetchone()
+        if target is not None and target["kind"] != entry.kind.value:
+            raise KnowledgeRuleError("an entry can only replace an entry of the same kind")
+
+    def _chain_authors(self, db: sqlite3.Connection, entry: Entry) -> set[str]:
+        """Everyone who wrote ``entry`` or a version it was revised from."""
+
+        authors = {entry.author}
+        revises, seen = entry.revises, {entry.version}
+        while revises is not None and revises not in seen:
+            seen.add(revises)
+            row = db.execute(
+                "SELECT author, revises FROM entries WHERE entry_id = ? AND version = ?",
+                (entry.entry_id, revises),
+            ).fetchone()
+            if row is None:
+                break
+            authors.add(row["author"])
+            revises = row["revises"]
+        return authors
 
     def _require(self, db: sqlite3.Connection, entry_id: str, version: int) -> Entry:
         row = db.execute(

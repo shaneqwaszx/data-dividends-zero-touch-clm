@@ -76,30 +76,49 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     setDrafts((all) => ({ ...all, [key]: { ...all[key], ...update } }));
   }
 
+  function changes(entry: KnowledgeEntry, draft: Draft) {
+    const teams = draft.teams.split(",").map((team) => team.trim()).filter(Boolean);
+    const followUps = draft.followUps.split("\n").map((line) => line.trim()).filter(Boolean);
+    const edited =
+      draft.title !== entry.title ||
+      draft.body !== entry.body ||
+      followUps.join("\n") !== entry.follow_ups.join("\n") ||
+      teams.join(",") !== entry.visibility.teams.join(",") ||
+      (draft.replaces || null) !== entry.replaces;
+    return { teams, followUps, edited };
+  }
+
+  // Approve and Reject apply to exactly the content shown. Changes are saved as a new version
+  // that another reviewer must approve: whoever edits an entry can never decide it.
   async function decide(entry: KnowledgeEntry, approve: boolean): Promise<void> {
     const draft = drafts[entry.key];
     setBusy(entry.key);
     setError(null);
     try {
-      const teams = draft.teams.split(",").map((team) => team.trim()).filter(Boolean);
-      const followUps = draft.followUps.split("\n").map((line) => line.trim()).filter(Boolean);
-      const edited =
-        draft.title !== entry.title ||
-        draft.body !== entry.body ||
-        followUps.join("\n") !== entry.follow_ups.join("\n") ||
-        teams.join(",") !== entry.visibility.teams.join(",") ||
-        (draft.replaces || null) !== entry.replaces;
-      if (approve && edited) {
-        await editKnowledgeEntry(entry.entry_id, entry.version, {
-          title: draft.title,
-          body: draft.body,
-          follow_ups: followUps,
-          visibility: { roles: entry.visibility.roles, teams },
-          ...(draft.replaces ? { replaces: draft.replaces } : {}),
-        });
-      }
-      await decideKnowledgeEntry(entry.entry_id, entry.version, approve, draft.notes);
+      await decideKnowledgeEntry(entry, approve, draft.notes);
       setNotice(approve ? "Approved: it can now help answer similar questions." : "Rejected: it will not be used.");
+      setTick((value) => value + 1);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveChanges(entry: KnowledgeEntry): Promise<void> {
+    const draft = drafts[entry.key];
+    const { teams, followUps } = changes(entry, draft);
+    setBusy(entry.key);
+    setError(null);
+    try {
+      await editKnowledgeEntry(entry, {
+        title: draft.title,
+        body: draft.body,
+        follow_ups: followUps,
+        visibility: { roles: entry.visibility.roles, teams },
+        ...(draft.replaces ? { replaces: draft.replaces } : {}),
+      });
+      setNotice("Changes saved as a new version. Another reviewer must approve it.");
       setTick((value) => value + 1);
     } catch (reason) {
       setError(message(reason));
@@ -131,7 +150,8 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
         </header>
         <p className="knowledge-review-intro">
           Approved resolutions help the AI Assistant answer similar questions. Check that no client details remain
-          before approving. You cannot approve an entry you wrote.
+          before approving. You cannot approve an entry you wrote or edited: saving changes creates a new version for
+          another reviewer.
         </p>
         {stats && (
           <p className="knowledge-review-stats">
@@ -150,10 +170,12 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
             {queue.pending.map((entry) => {
               const draft = drafts[entry.key] ?? draftOf(entry);
               const disabled = busy !== null;
+              const { edited } = changes(entry, draft);
               return (
                 <article key={entry.key} className="knowledge-review-entry" aria-label={`Review ${entry.title}`}>
                   <p className="knowledge-review-meta">
                     {entry.kind === "guidance" ? "Guidance" : "Past resolution"} · by {entry.author}
+                    {entry.revises !== null ? ` · edited from version ${entry.revises}` : ""}
                     {entry.blocker_codes.length ? ` · ${entry.blocker_codes.join(", ")}` : ""}
                   </p>
                   <label>
@@ -189,7 +211,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                     </>
                   )}
                   <label>
-                    Visible to teams (comma-separated; empty = all teams)
+                    Visible to teams (comma-separated; can only be narrowed)
                     <input value={draft.teams} disabled={disabled} onChange={(event) => change(entry.key, { teams: event.target.value })} />
                   </label>
                   <label>
@@ -197,12 +219,25 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                     <input value={draft.notes} disabled={disabled} onChange={(event) => change(entry.key, { notes: event.target.value })} />
                   </label>
                   <div className="knowledge-review-actions">
-                    <button type="button" className="btn btn-primary" disabled={disabled} onClick={() => void decide(entry, true)}>
-                      Approve
-                    </button>
-                    <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => void decide(entry, false)}>
-                      Reject
-                    </button>
+                    {edited ? (
+                      <>
+                        <button type="button" className="btn btn-primary" disabled={disabled} onClick={() => void saveChanges(entry)}>
+                          Save changes for another reviewer
+                        </button>
+                        <button type="button" className="btn btn-ghost" disabled={disabled} onClick={() => change(entry.key, draftOf(entry))}>
+                          Discard changes
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="btn btn-primary" disabled={disabled} onClick={() => void decide(entry, true)}>
+                          Approve
+                        </button>
+                        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => void decide(entry, false)}>
+                          Reject
+                        </button>
+                      </>
+                    )}
                   </div>
                 </article>
               );

@@ -4,14 +4,21 @@ The index holds only what may be searched: approved, current versions. SQLite st
 source of truth; the index can always be rebuilt from it. Vectors are supplied by our own
 embedder (no model is downloaded by ChromaDB). Filters (kind, codes, roles, teams) are
 stored as metadata so they can be applied inside the search.
+
+ChromaDB's anonymous product telemetry is on by default; it is always switched off here,
+so the index makes no network calls of its own.
 """
 
 from pathlib import Path
 from typing import Any
 
 import chromadb
+from chromadb.config import Settings
 
 from .models import Entry, EntryKind
+
+# Shared by every client this process opens (ChromaDB refuses mixed settings for one path).
+CHROMA_SETTINGS = Settings(anonymized_telemetry=False)
 
 COLLECTIONS = {
     EntryKind.GUIDANCE: "official_guidance",
@@ -50,10 +57,10 @@ def metadata(entry: Entry) -> dict[str, Any]:
 class VectorIndex:
     def __init__(self, path: Path | str | None) -> None:
         if path is None:
-            self._client = chromadb.EphemeralClient()
+            self._client = chromadb.EphemeralClient(settings=CHROMA_SETTINGS)
         else:
             Path(path).mkdir(parents=True, exist_ok=True)
-            self._client = chromadb.PersistentClient(path=str(path))
+            self._client = chromadb.PersistentClient(path=str(path), settings=CHROMA_SETTINGS)
         self._collections = {
             kind: self._client.get_or_create_collection(
                 name, embedding_function=None, metadata={"hnsw:space": "cosine"}

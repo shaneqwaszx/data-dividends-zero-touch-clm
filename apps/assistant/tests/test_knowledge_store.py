@@ -313,13 +313,144 @@ def test_ollama_embedder_sends_documents_and_queries_with_their_prefixes() -> No
 )
 def test_ollama_embedder_reports_bad_replies_as_unavailable(reply: httpx.Response) -> None:
     embedder = OllamaEmbedder(
-        base_url="http://model.invalid",
+        base_url="http://127.0.0.1:11434",  # only loopback endpoints are accepted
         model="m",
         timeout_seconds=5,
         transport=httpx.MockTransport(lambda request: reply),
     )
     with pytest.raises(EmbeddingUnavailableError):
         embedder.embed_query("hi")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://model.invalid",
+        "http://localhost:11434",
+        "https://embeddings.example.com",
+        "http://10.0.0.5:11434",
+        "http://user:pw@127.0.0.1:11434",
+        "http://127.0.0.1:11434?x=1",
+    ],
+)
+def test_ollama_embedder_refuses_any_endpoint_that_is_not_literal_loopback(url: str) -> None:
+    from ai_assistant.knowledge.embeddings import EmbeddingEndpointError
+
+    with pytest.raises(EmbeddingEndpointError):
+        OllamaEmbedder(base_url=url, model="m", timeout_seconds=5)
+
+
+def test_ollama_embedder_accepts_ipv4_and_ipv6_loopback() -> None:
+    for url in ("http://127.0.0.1:11434", "http://[::1]:11434"):
+        assert OllamaEmbedder(base_url=url, model="m", timeout_seconds=5).name == "m"
+
+
+def test_ollama_embedder_ignores_proxy_environment_and_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A proxy variable must not route embedding text off the machine; redirects stop."""
+
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+    monkeypatch.setenv("ALL_PROXY", "http://proxy.invalid:3128")
+    created: list[dict[str, object]] = []
+    real_client = httpx.Client
+
+    def spy(*args: object, **kwargs: object) -> httpx.Client:
+        created.append(dict(kwargs))
+        return real_client(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx, "Client", spy)
+    embedder = OllamaEmbedder(
+        base_url="http://127.0.0.1:11434",
+        model="m",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(302, headers={"Location": "http://elsewhere.invalid/"})
+        ),
+    )
+    with pytest.raises(EmbeddingUnavailableError):
+        embedder.embed_query("hi")
+    assert created and created[0]["trust_env"] is False
+    assert created[0]["follow_redirects"] is False
+
+
+def test_chroma_product_telemetry_is_switched_off(tmp_path: Path) -> None:
+    from ai_assistant.knowledge.vector_index import CHROMA_SETTINGS, VectorIndex
+
+    assert CHROMA_SETTINGS.anonymized_telemetry is False
+    persistent = VectorIndex(tmp_path / "chroma")
+    ephemeral = VectorIndex(None)
+    for index in (persistent, ephemeral):
+        assert index._client.get_settings().anonymized_telemetry is False
+
+
+def test_versions_hashes_and_decisions_survive_a_restart(tmp_path: Path) -> None:
+    """Reopen the SQLite store and Chroma index from disk: nothing is lost or rewritten."""
+
+    kb = _kb(tmp_path)
+    original = kb.propose(_resolution(author="maya-lim"))
+    revised = kb.store.revise_pending(
+        original.entry_id, original.version, editor="director-dan", title="Tidied title"
+    )
+    kb.decide(
+        revised.entry_id,
+        revised.version,
+        reviewer="director-dee",
+        approve=True,
+        expected_hash=revised.content_hash(),
+    )
+    before = [
+        (e.version, e.status, e.author, e.revises, e.content_hash())
+        for e in kb.store.versions(original.entry_id)
+    ]
+    pending = kb.propose(_resolution(entry_id="resolution.two", author="maya-lim"))
+    kb.store.revise_pending(pending.entry_id, 1, editor="director-dan", title="Edited title")
+
+    reopened = _kb(tmp_path)
+    after = [
+        (e.version, e.status, e.author, e.revises, e.content_hash())
+        for e in reopened.store.versions(original.entry_id)
+    ]
+    assert after == before
+    assert after[0][1:4] == (EntryStatus.RETIRED, "maya-lim", None)
+    assert after[1][1:4] == (EntryStatus.APPROVED, "director-dan", 1)
+    assert reopened.store.get(original.entry_id, 1).title == original.title
+    assert reopened.index.keys(EntryKind.RESOLUTION) == {f"{original.entry_id}@v2"}
+    decisions = [row["decision"] for row in reopened.store.reviews(original.entry_id)]
+    assert decisions == ["edit", "approve"]
+    # The edit chain is still known after the restart: neither the editor nor the original
+    # author can decide the pending revision.
+    for barred in ("director-dan", "maya-lim"):
+        with pytest.raises(MakerCheckerError):
+            reopened.store.decide("resolution.two", 2, reviewer=barred, approve=False)
+
+
+def test_store_refuses_a_decision_on_changed_content_and_cross_kind_replacement(
+    tmp_path: Path,
+) -> None:
+    from ai_assistant.knowledge.store import ContentChangedError, KnowledgeRuleError
+
+    kb = _kb(tmp_path)
+    draft = kb.propose(_resolution(author="maya-lim"))
+    with pytest.raises(ContentChangedError):
+        kb.store.decide(
+            draft.entry_id, 1, reviewer="director-dan", approve=True, expected_hash="0" * 64
+        )
+    kb.store.add_version(
+        Entry(
+            entry_id="guidance.rule",
+            kind=EntryKind.GUIDANCE,
+            title="Rule",
+            body="A rule.",
+            author="repository",
+        ),
+    )
+    with pytest.raises(KnowledgeRuleError):
+        kb.store.revise_pending(draft.entry_id, 1, editor="director-dan", replaces="guidance.rule")
+    with pytest.raises(KnowledgeRuleError):
+        kb.propose(
+            _resolution(entry_id="resolution.two", author="maya-lim", replaces="guidance.rule")
+        )
 
 
 def test_editor_notes_are_not_part_of_the_guidance_text() -> None:

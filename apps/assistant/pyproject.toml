@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "onboarding-ai-assistant"
 version = "0.1.0"
-description = "Read-only AI Assistant service for the Zero-Touch CLM proof of concept"
+description = "AI Assistant service for the Zero-Touch CLM proof of concept (read-only toward the CLM backend; keeps its own reviewed knowledge store)"
 requires-python = ">=3.12"
 dependencies = [
     "chromadb==1.5.9",

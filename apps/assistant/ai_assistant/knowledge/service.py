@@ -34,10 +34,22 @@ class KnowledgeBase:
         return self.store.add_version(entry, status=EntryStatus.PENDING_REVIEW)
 
     def decide(
-        self, entry_id: str, version: int, *, reviewer: str, approve: bool, notes: str = ""
+        self,
+        entry_id: str,
+        version: int,
+        *,
+        reviewer: str,
+        approve: bool,
+        notes: str = "",
+        expected_hash: str | None = None,
     ) -> Entry:
         decided = self.store.decide(
-            entry_id, version, reviewer=reviewer, approve=approve, notes=notes
+            entry_id,
+            version,
+            reviewer=reviewer,
+            approve=approve,
+            notes=notes,
+            expected_hash=expected_hash,
         )
         self.sync()
         return decided

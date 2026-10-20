@@ -108,8 +108,9 @@ const SAFE_ERROR_MESSAGES = new Set([
   // Fixed knowledge-review messages (apps/assistant/ai_assistant/knowledge_api.py).
   "You are not allowed to do this.",
   "No such entry.",
-  "You cannot approve or reject an entry you wrote.",
+  "You cannot approve or reject an entry you wrote or edited.",
   "This entry has changed or was already decided. Refresh and try again.",
+  "This change is not allowed.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -318,12 +319,16 @@ export interface KnowledgeEntry {
   follow_ups: string[];
   visibility: { roles: string[]; teams: string[] };
   replaces: string | null;
+  /** The version a reviewer's edit was made from (null for an original). */
+  revises: number | null;
   author: string;
   approver: string | null;
   approved_at: string | null;
   created_at: string | null;
   source_ref: string | null;
   illustrative: boolean;
+  /** What this version says; edits and decisions send it back so they apply to it only. */
+  content_hash: string;
 }
 
 export interface KnowledgeGap {
@@ -366,9 +371,17 @@ export const fetchKnowledgeStats = (signal?: AbortSignal) =>
   request<KnowledgeStats>("/knowledge/stats", undefined, signal);
 export const fetchApprovedResolutions = (signal?: AbortSignal) =>
   request<KnowledgeEntry[]>("/knowledge/entries?kind=resolution", undefined, signal);
-export const editKnowledgeEntry = (entryId: string, version: number, edit: KnowledgeEdit) =>
-  request<KnowledgeEntry>(`${entryPath(entryId, version)}/edit`, edit);
-export const decideKnowledgeEntry = (entryId: string, version: number, approve: boolean, notes: string) =>
-  request<KnowledgeEntry>(`${entryPath(entryId, version)}/decision`, { approve, notes });
+// An edit is saved as a new version that a different reviewer must approve.
+export const editKnowledgeEntry = (entry: KnowledgeEntry, edit: KnowledgeEdit) =>
+  request<KnowledgeEntry>(`${entryPath(entry.entry_id, entry.version)}/edit`, {
+    content_hash: entry.content_hash,
+    ...edit,
+  });
+export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, notes: string) =>
+  request<KnowledgeEntry>(`${entryPath(entry.entry_id, entry.version)}/decision`, {
+    approve,
+    content_hash: entry.content_hash,
+    notes,
+  });
 export const closeKnowledgeGap = (feedbackId: number) =>
   request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, {});

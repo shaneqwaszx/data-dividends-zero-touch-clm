@@ -40,12 +40,14 @@ const PENDING = {
   follow_ups: ["What about ownership?"],
   visibility: { roles: [], teams: [] },
   replaces: null,
+  revises: null,
   author: "maya-lim",
   approver: null,
   approved_at: null,
   created_at: null,
   source_ref: "RM feedback",
   illustrative: false,
+  content_hash: "a".repeat(64),
 };
 
 function backend(calls: { url: string; body: unknown }[], decision = () => json({ ...PENDING, status: "approved" })) {
@@ -86,7 +88,7 @@ function button(view: HTMLElement, text: string): HTMLButtonElement {
 }
 
 describe("KnowledgeReview", () => {
-  it("shows the queue, gaps and stats, and approves with the Director's edits", async () => {
+  it("shows the queue, gaps and stats, and approves exactly the content shown", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
@@ -95,31 +97,62 @@ describe("KnowledgeReview", () => {
     expect(view.textContent).toContain("3 feedback · 2 solved · 1 not helpful · 67% helpful");
     expect(view.textContent).toContain("No proof list.");
 
-    type(view.querySelector("article input"), "Address differs from ACRA after an office move");
     act(() => button(view, "Approve").click());
     await flush();
     expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual([
-      "/knowledge/entries/resolution.abc/versions/1/edit",
       "/knowledge/entries/resolution.abc/versions/1/decision",
     ]);
-    expect(calls[0].body).toMatchObject({ title: "Address differs from ACRA after an office move" });
-    expect(calls[1].body).toEqual({ approve: true, notes: "" });
+    expect(calls[0].body).toEqual({ approve: true, content_hash: "a".repeat(64), notes: "" });
     expect(view.textContent).toContain("Approved: it can now help answer similar questions.");
+  });
+
+  it("saves the Director's edits as a new version for another reviewer instead of approving", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    const view = render();
+    await flush();
+
+    type(view.querySelector("article input"), "Address differs from ACRA after an office move");
+    expect(() => button(view, "Approve")).toThrow();
+    act(() => button(view, "Save changes for another reviewer").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual([
+      "/knowledge/entries/resolution.abc/versions/1/edit",
+    ]);
+    expect(calls[0].body).toMatchObject({
+      content_hash: "a".repeat(64),
+      title: "Address differs from ACRA after an office move",
+    });
+    expect(view.textContent).toContain("Changes saved as a new version. Another reviewer must approve it.");
+  });
+
+  it("discarding changes brings back Approve and Reject", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = render();
+    await flush();
+    type(view.querySelector("article input"), "Something else entirely");
+    act(() => button(view, "Discard changes").click());
+    expect(button(view, "Approve")).toBeTruthy();
+    expect(button(view, "Reject")).toBeTruthy();
   });
 
   it("rejects without editing and shows the backend's reason when a decision is refused", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal(
       "fetch",
-      backend(calls, () => json({ detail: { message: "You cannot approve or reject an entry you wrote." } }, 403)),
+      backend(calls, () =>
+        json({ detail: { message: "You cannot approve or reject an entry you wrote or edited." } }, 403),
+      ),
     );
     const view = render();
     await flush();
     act(() => button(view, "Reject").click());
     await flush();
     expect(calls).toHaveLength(1);
-    expect(calls[0].body).toEqual({ approve: false, notes: "" });
-    expect(view.querySelector("[role=alert]")?.textContent).toBe("You cannot approve or reject an entry you wrote.");
+    expect(calls[0].body).toEqual({ approve: false, content_hash: "a".repeat(64), notes: "" });
+    expect(view.querySelector("[role=alert]")?.textContent).toBe(
+      "You cannot approve or reject an entry you wrote or edited.",
+    );
   });
 
   it("closes a gap", async () => {

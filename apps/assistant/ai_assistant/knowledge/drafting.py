@@ -1,26 +1,27 @@
 """Turn an RM's "Solved it" into a draft past resolution for a Director to review.
 
-Only what the RM chose to send is used: their note, the conversation they marked as having
-solved it, and the case context (blocker codes, fields, stages). Client details are removed
-first. The questions the RM asked after the first become the entry's follow-up questions, so
-next time the assistant can answer them up front.
+Only what the RM wrote is used: their note, the questions they asked in the conversation
+they marked as having solved it, and the case context (blocker codes, fields, stages). The
+assistant's side of that conversation is not copied: the browser sends it, so it is not
+proof of what the assistant said, and an approved draft must not carry text the RM could
+have made up in the assistant's name. Client details are removed first. The questions the RM
+asked after the first become the entry's follow-up questions, so next time the assistant can
+answer them up front.
+
+A draft is visible only to the RM's own team (for review and, once approved, for search).
 """
 
-import re
 import secrets
+from collections.abc import Sequence
 from typing import Any
 
-from .models import Entry, EntryKind, EntryStatus
+from .models import Entry, EntryKind, EntryStatus, Visibility
 from .redaction import Redactor
 from .retrieval import case_context
 
 MAX_FOLLOW_UPS = 5
-_TAGS = re.compile(r"\s*\[(?:G|P)\d+\]")
-
-
-def _first_sentences(text: str, count: int) -> str:
-    sentences = re.split(r"(?<=[.!?])\s+", " ".join(text.split()))
-    return " ".join(sentences[:count])
+# A draft from someone the CLM backend reports without a team is visible to no team.
+NO_TEAM = "NO_TEAM"
 
 
 def draft_resolution(
@@ -29,8 +30,10 @@ def draft_resolution(
     note: str,
     *,
     author: str,
+    team: str | None = None,
+    parties: Sequence[tuple[str, str]] = (),
 ) -> Entry:
-    redact = Redactor(facts).redact
+    redact = Redactor(facts, parties=parties).redact
     ctx = case_context(facts)
     blockers = facts.get("blockers") or []
     problem = ""
@@ -40,8 +43,6 @@ def draft_resolution(
             first.get("plain_explanation") or first.get("app_explanation") or first.get("title")
         )
     questions = [t["content"] for t in turns if t.get("role") == "user" and t.get("content")]
-    answers = [t["content"] for t in turns if t.get("role") == "assistant" and t.get("content")]
-    last_answer = _TAGS.sub("", answers[-1]) if answers else ""
 
     parts = []
     if problem:
@@ -50,8 +51,6 @@ def draft_resolution(
         parts.append(f"The RM asked: {questions[0]}")
     if note.strip():
         parts.append(f"What resolved it (RM's note): {note.strip()}")
-    if last_answer:
-        parts.append(f"Guidance the assistant gave: {_first_sentences(last_answer, 4)}")
     body = redact("\n".join(parts)) or "No details were given."
 
     title_source = (blockers[0].get("title") if blockers else None) or "Resolved case"
@@ -69,6 +68,7 @@ def draft_resolution(
         blocker_codes=ctx.blocker_codes,
         fields=ctx.fields,
         stages=ctx.stages,
+        visibility=Visibility(teams=(team or NO_TEAM,)),
         follow_ups=tuple(follow_ups[:MAX_FOLLOW_UPS]),
         author=author,
         source_ref="RM feedback",

@@ -136,6 +136,43 @@ _NEGATION = re.compile(
 # Parts of one sentence that can say opposite things ("you cannot X, but you can Y").
 _CLAUSE = re.compile(r",?\s+but\s+|;\s*|,\s*however,?\s*|\s+whereas\s+|,\s*while\s+")
 
+# A negation only cancels the action or claim it is attached to. It must come shortly before
+# the phrase, in the same part of the clause ("You cannot approve the case"), or say right
+# after it that the action is not available ("Keep registry value is not available here").
+# "Do not wait, approve the case" and "No need to wait: approve the case" still tell the RM
+# to approve: the negation belongs to a different phrase.
+_NEGATION_WINDOW_WORDS = 6
+_PHRASE_BREAK = re.compile(r"[,:;()–—]|\s-\s")
+# Wording that contains a negation word but affirms ("no doubt", "do not hesitate to").
+_AFFIRMING_NEGATION = re.compile(
+    r"\b(?:no|without|beyond) (?:doubt|question)\b|\bnot in (?:doubt|question)\b"
+    r"|\bno need to\b|\bno reason not to\b|\b(?:do not|don't) hesitate to\b"
+    r"|\bnothing (?:stops|prevents) you\b|\bthere is nothing to stop\b"
+)
+_UNAVAILABLE_AFTER = re.compile(
+    r"^[^.]{0,40}?\b(?:is|are|was|were)(?: not|n't) (?:available|offered|allowed|possible)\b"
+    r"|^[^.]{0,40}?\b(?:unavailable|cannot be (?:used|chosen|done))\b"
+)
+
+
+def _negated(clause: str, start: int, end: int) -> bool:
+    """True when a negation in ``clause`` applies to the phrase at ``start:end``."""
+
+    before = _PHRASE_BREAK.split(clause[:start])[-1]
+    before = _AFFIRMING_NEGATION.sub(" ", before)
+    words = before.split()[-_NEGATION_WINDOW_WORDS:]
+    # "no reason not to resend" or "never not approve" cancel out: an odd count negates.
+    if len(_NEGATION.findall(" ".join(words))) % 2 == 1:
+        return True
+    after = _PHRASE_BREAK.split(clause[end:])[0]
+    return bool(_UNAVAILABLE_AFTER.search(after))
+
+
+def _asserted(pattern: re.Pattern[str], clause: str) -> bool:
+    """True when ``pattern`` occurs in ``clause`` without a negation attached to it."""
+
+    return any(not _negated(clause, m.start(), m.end()) for m in pattern.finditer(clause))
+
 
 def allowed_actions(facts: dict[str, Any]) -> set[str]:
     """Lower-case labels of every action and screen this RM is offered on this case."""
@@ -231,23 +268,21 @@ def _check(sentence: str, ctx: Context) -> str | None:
         if (int(done), int(total)) != ctx.steps:
             return "wrong_step_count"
     clauses = _CLAUSE.split(lowered)
-    # 2. Policy
+    # 2. Policy. A negation elsewhere in the clause does not cancel an action or claim; only
+    # one attached to the phrase does (see _negated).
     for clause in clauses:
-        if _NEGATION.search(clause):
-            continue
         for label, pattern in _ACTION_PHRASES:
-            if pattern.search(clause) and label not in ctx.allowed:
+            if label not in ctx.allowed and _asserted(pattern, clause):
                 return "action_not_allowed"
     for clause in clauses:
-        if _AUTHORITY.search(clause) and not _NEGATION.search(clause):
+        if _asserted(_AUTHORITY, clause):
             return "authority_claim"
     # 3. Disclosures
     if _LIVE.search(lowered) and "status" not in lowered:
         return "live_claim"
     for clause in clauses:
         if (
-            _CONFIRMED.search(clause)
-            and not _NEGATION.search(clause)
+            _asserted(_CONFIRMED, clause)
             and not re.search(r"\b(?:acra|registry)\b", clause)
             and any(value in clause for value in ctx.unconfirmed_document_values)
         ):
@@ -330,76 +365,19 @@ def _fix_section_names(answer: str, facts: dict[str, Any]) -> str:
     return _SECTION_REF.sub(repair, answer)
 
 
-def validate_answer(
-    answer: str,
-    facts: dict[str, Any],
-    *,
-    knowledge_text: str = "",
-    knowledge_tags: frozenset[str] = frozenset(),
-) -> Validation:
-    """Check an answer sentence by sentence; keep only what passes."""
-
-    ctx = Context(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
-    answer = _fix_section_names(answer, facts)
-    removed: list[str] = []
-    lines_out: list[str] = []
-    for line in answer.splitlines():
-        if not line.strip():
-            lines_out.append("")
-            continue
-        prefix_match = re.match(r"^(\s*(?:[-*•]|\d+[.)])\s+)", line)
-        prefix = prefix_match.group(1) if prefix_match else ""
-        body = line[len(prefix) :]
-        kept: list[str] = []
-        for sentence in _SENTENCE.split(body):
-            reason = _check(sentence, ctx)
-            if reason is not None:
-                removed.append(reason)
-                continue
-            tidy = _tidy(sentence)
-            if tidy:
-                kept.append(tidy)
-        if kept:
-            lines_out.append(prefix + " ".join(kept))
-    # Renumber ordered lists so dropped steps leave no gaps.
-    number = 0
-    for i, line in enumerate(lines_out):
-        m = re.match(r"^(\s*)\d+([.)])\s+(.*)$", line)
-        if m:
-            number += 1
-            lines_out[i] = f"{m.group(1)}{number}{m.group(2)} {m.group(3)}"
-        elif re.match(r"^\s*(?:#|\**[^\s].{0,60}:\**\s*$)", line):
-            # Only a new heading ("Next steps:") starts a new list; an explanation under a
-            # step, indented or not, keeps the count going (1, 2 rather than 1, 1).
-            number = 0
-    text = "\n".join(lines_out)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    # Drop a heading left with nothing under it (e.g. "Next steps:" at the end).
-    text = re.sub(r"(?:\n|^)\s*\**[A-Za-z ]{2,30}:\**\s*$", "", text).strip()
-    return Validation(text=text, removed=tuple(removed), disclosures=_disclosures(text, facts))
+_LIST_PREFIX = re.compile(r"^(\s*(?:[-*•]|\d+[.)])\s+)")
+# The start of a line that may still become a list marker when more text arrives.
+_MAYBE_LIST_PREFIX = re.compile(r"^\s*(?:[-*•]|\d+[.)]?)?\s*$")
+_NUMBERED = re.compile(r"^(\s*)\d+([.)])\s+")
+# Only a new heading ("Next steps:") starts a new list; an explanation under a step,
+# indented or not, keeps the count going (1, 2 rather than 1, 1).
+_HEADING = re.compile(r"^\s*(?:#|\**[^\s].{0,60}:\**\s*$)")
+_TRAILING_HEADING = re.compile(r"^\s*\**[A-Za-z ]{2,30}:\**\s*$")
 
 
-def guard_answer(answer: str, facts: dict[str, Any]) -> str:
-    """The checked answer text only (see validate_answer for what was left out and why)."""
-
-    return validate_answer(answer, facts).text
-
-
-_SAFE_END = re.compile(r"(?:\n|[.!?](?=\s))")
-
-
-# A runaway or hostile stream cannot grow without bound (also when it never ends a sentence).
-MAX_MODEL_TEXT_BYTES = 64 * 1024
-
-
-class StreamingGuard:
-    """Checks a streamed answer one finished sentence (or line) at a time.
-
-    Only text up to the last finished sentence is checked and shown, so a sentence that the
-    guardrails would drop is never displayed, not even briefly. Each update is the whole
-    checked answer so far (not just the new part), because removing a sentence can renumber
-    the list below it.
-    """
+class _Answer:
+    """Builds the checked answer line by line. Each sentence is checked exactly once, so
+    checking a streamed answer costs the same as checking the finished one."""
 
     def __init__(
         self,
@@ -409,12 +387,143 @@ class StreamingGuard:
         knowledge_tags: frozenset[str] = frozenset(),
     ) -> None:
         self._facts = facts
-        self._knowledge_text = knowledge_text
-        self._knowledge_tags = knowledge_tags
-        self._raw = ""
-        self._shown = ""
+        self._ctx = Context(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
+        self._lines: list[str] = []  # finished output lines, already numbered
+        self._number = 0
+        self._removed: list[str] = []
+        self._prefix = ""  # the current line's list marker
+        self._current = ""  # the current line's kept sentences
+        self.changes = 0  # bumped whenever the answer may read differently
+
+    def blank_line(self) -> None:
+        # Runs of blank lines become one, and the answer never starts with one.
+        if self._lines and self._lines[-1] != "":
+            self._lines.append("")
+            self.changes += 1
+
+    def start_line(self, prefix: str) -> None:
+        self._prefix = prefix
+        self._current = ""
+
+    def sentence(self, sentence: str, *, first: bool) -> None:
+        sentence = _fix_section_names(sentence, self._facts)
+        if not first:
+            sentence = sentence.lstrip()
+        reason = _check(sentence, self._ctx)
+        if reason is not None:
+            self._removed.append(reason)
+            return
+        tidy = _tidy(sentence)
+        if tidy:
+            self._current = f"{self._current} {tidy}" if self._current else tidy
+            self.changes += 1
+
+    def _numbered(self, line: str, number: int) -> str | None:
+        match = _NUMBERED.match(line)
+        if not match:
+            return None
+        return f"{match.group(1)}{number}{match.group(2)} {line[match.end() :]}"
+
+    def end_line(self) -> None:
+        if self._current:
+            line = self._prefix + self._current
+            numbered = self._numbered(line, self._number + 1)
+            if numbered is not None:
+                self._number += 1
+                line = numbered
+            elif _HEADING.match(line):
+                self._number = 0
+            self._lines.append(line)
+            self.changes += 1
+        self._prefix = ""
+        self._current = ""
+
+    def text(self) -> str:
+        lines = self._lines
+        if self._current:
+            line = self._prefix + self._current
+            lines = [*lines, self._numbered(line, self._number + 1) or line]
+        text = "\n".join(lines).strip()
+        head, _, last = text.rpartition("\n")
+        # Drop a heading left with nothing under it (e.g. "Next steps:" at the end).
+        if _TRAILING_HEADING.match(last):
+            text = head.strip()
+        return text
+
+    def validation(self) -> Validation:
+        text = self.text()
+        return Validation(
+            text=text, removed=tuple(self._removed), disclosures=_disclosures(text, self._facts)
+        )
+
+
+def _add_line(answer: _Answer, line: str) -> None:
+    if not line.strip():
+        answer.blank_line()
+        return
+    match = _LIST_PREFIX.match(line)
+    prefix = match.group(1) if match else ""
+    answer.start_line(prefix)
+    for index, sentence in enumerate(_SENTENCE.split(line[len(prefix) :])):
+        answer.sentence(sentence, first=index == 0)
+    answer.end_line()
+
+
+def validate_answer(
+    answer: str,
+    facts: dict[str, Any],
+    *,
+    knowledge_text: str = "",
+    knowledge_tags: frozenset[str] = frozenset(),
+) -> Validation:
+    """Check an answer sentence by sentence; keep only what passes."""
+
+    built = _Answer(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
+    for line in answer.replace("\r", "").split("\n"):
+        _add_line(built, line)
+    return built.validation()
+
+
+def guard_answer(answer: str, facts: dict[str, Any]) -> str:
+    """The checked answer text only (see validate_answer for what was left out and why)."""
+
+    return validate_answer(answer, facts).text
+
+
+# A runaway or hostile stream cannot grow without bound (also when it never ends a sentence).
+MAX_MODEL_TEXT_BYTES = 64 * 1024
+
+
+class StreamingGuard:
+    """Checks a streamed answer one finished sentence (or line) at a time.
+
+    Only finished sentences are checked and shown, so a sentence that the guardrails would
+    drop is never displayed, not even briefly. Checking is incremental: a finished sentence
+    is checked once and never parsed again, so the cost grows with the answer's length, not
+    with its square. Each update is the whole checked answer so far (not just the new part),
+    because removing a sentence can renumber the list below it.
+    """
+
+    def __init__(
+        self,
+        facts: dict[str, Any],
+        *,
+        knowledge_text: str = "",
+        knowledge_tags: frozenset[str] = frozenset(),
+    ) -> None:
+        self._answer = _Answer(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
         self._total_bytes = 0
-        self._checked = Validation(text="")
+        self._line = ""  # unchecked text of the current line (all of it until it starts)
+        self._started = False  # the current line's list marker is known
+        self._first = True  # the next sentence is the first of its line
+        self._scanned = 0  # how much of self._line was already searched for a sentence end
+        self._shown = ""
+
+    @property
+    def _raw(self) -> str:
+        """Model text held but not yet checked (bounded by MAX_MODEL_TEXT_BYTES)."""
+
+        return self._line
 
     def feed(self, text: str) -> str | None:
         """Add new model text; return the checked answer so far if it changed."""
@@ -426,21 +535,68 @@ class StreamingGuard:
         if self._total_bytes + size > MAX_MODEL_TEXT_BYTES:
             raise LlmUnavailableError("model text limit exceeded")
         self._total_bytes += size
-        self._raw += text
-        ends = [match.end() for match in _SAFE_END.finditer(self._raw)]
-        if not ends:
+        before = self._answer.changes
+        parts = text.replace("\r", "").split("\n")
+        for index, part in enumerate(parts):
+            self._line += part
+            if index < len(parts) - 1:
+                self._end_line()
+            else:
+                self._advance()
+        if self._answer.changes == before:
             return None
-        validation = validate_answer(
-            self._raw[: ends[-1]],
-            self._facts,
-            knowledge_text=self._knowledge_text,
-            knowledge_tags=self._knowledge_tags,
-        )
-        self._checked = validation
-        if validation.text == self._shown:
+        shown = self._answer.text()
+        if shown == self._shown:
             return None
-        self._shown = validation.text
-        return validation.text
+        self._shown = shown
+        return shown
+
+    def _start(self, *, line_ended: bool = False) -> bool:
+        if self._started:
+            return True
+        if not line_ended and _MAYBE_LIST_PREFIX.match(self._line):
+            return False
+        match = _LIST_PREFIX.match(self._line)
+        prefix = match.group(1) if match else ""
+        self._answer.start_line(prefix)
+        self._line = self._line[len(prefix) :]
+        self._started = True
+        self._first = True
+        self._scanned = 0
+        return True
+
+    def _advance(self) -> None:
+        """Check every sentence of the current line that has ended."""
+
+        if not self._start():
+            return
+        position = 0
+        # A sentence ends at ., ! or ? followed by whitespace; only new text can hold one.
+        for match in _SENTENCE.finditer(self._line, max(0, self._scanned - 1)):
+            self._answer.sentence(self._line[position : match.start()], first=self._first)
+            self._first = False
+            position = match.end()
+        self._line = self._line[position:]
+        self._scanned = len(self._line)
+
+    def _end_line(self) -> None:
+        if not self._started:
+            if not self._line.strip():
+                self._answer.blank_line()
+                self._reset_line()
+                return
+            self._start(line_ended=True)
+        self._advance()
+        if self._line.strip() or self._first:
+            self._answer.sentence(self._line, first=self._first)
+        self._answer.end_line()
+        self._reset_line()
+
+    def _reset_line(self) -> None:
+        self._line = ""
+        self._started = False
+        self._first = True
+        self._scanned = 0
 
     def partial(self) -> Validation:
         """What was already checked and shown, for when the stream fails part-way.
@@ -448,16 +604,13 @@ class StreamingGuard:
         The unfinished last sentence is never included: it was not checked as a whole.
         """
 
-        return self._checked
+        return self._answer.validation()
 
     def finish(self) -> Validation:
         """The final check, including a last sentence without a full stop."""
 
-        validation = validate_answer(
-            self._raw,
-            self._facts,
-            knowledge_text=self._knowledge_text,
-            knowledge_tags=self._knowledge_tags,
-        )
+        if self._started or self._line.strip():
+            self._end_line()
+        validation = self._answer.validation()
         self._shown = validation.text
         return validation

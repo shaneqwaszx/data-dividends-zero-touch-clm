@@ -264,8 +264,7 @@ def test_limit_preserves_guarded_partial_or_deterministic_fallback(prefix: str) 
 
 
 def test_guard_partial_excludes_the_unchecked_tail() -> None:
-    # The grounding checker re-checks the finished text (bounded by MAX_MODEL_TEXT_BYTES);
-    # on failure only text that was already checked and shown is kept.
+    # On failure only text that was already checked and shown is kept.
     guard = StreamingGuard({})
     sentence = "The case page shows the current evidence."
     for _ in range(100):
@@ -273,6 +272,66 @@ def test_guard_partial_excludes_the_unchecked_tail() -> None:
     assert guard.feed("Unfinished and unchecked") is None
     assert guard.partial().text == " ".join([sentence] * 100)
     assert "Unfinished" not in guard.partial().text
+
+
+def test_guard_checks_each_finished_sentence_once_and_never_reparses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PR89's resource property, restored (independent QG finding G5)."""
+
+    import ai_assistant.guardrails as guardrails
+
+    checked: list[str] = []
+    real_check = guardrails._check
+
+    def counting(sentence: str, ctx: guardrails.Context) -> str | None:
+        checked.append(sentence)
+        return real_check(sentence, ctx)
+
+    monkeypatch.setattr(guardrails, "_check", counting)
+    guard = StreamingGuard({})
+    text = "The case page shows the current evidence. " * 100
+    for start in range(0, len(text), 7):
+        guard.feed(text[start : start + 7])
+        # Only the unfinished sentence is held; finished text is gone from the buffer.
+        assert len(guard._raw) < len("The case page shows the current evidence. ") + 7
+    assert guard.finish().text == text.strip()
+    assert len(checked) == 100
+
+
+def test_guard_cost_grows_linearly_with_a_long_streamed_answer() -> None:
+    """64 KiB in 8-byte pieces: the old full re-check took minutes; this takes well under."""
+
+    from ai_assistant.guardrails import MAX_MODEL_TEXT_BYTES
+
+    sentence = "The case page shows the current evidence. "
+    text = (sentence * (MAX_MODEL_TEXT_BYTES // len(sentence)))[: MAX_MODEL_TEXT_BYTES - 64]
+    guard = StreamingGuard({})
+    started = time.perf_counter()
+    for start in range(0, len(text), 8):
+        guard.feed(text[start : start + 8])
+    final = guard.finish()
+    elapsed = time.perf_counter() - started
+    assert final.text.startswith(sentence.strip())
+    assert elapsed < 5.0, f"streaming guard took {elapsed:.2f}s for 64 KiB"
+
+
+def test_streamed_and_whole_answer_checks_agree() -> None:
+    from ai_assistant.guardrails import validate_answer
+
+    answer = (
+        "Next steps:\n\n1. Keep the registry value. Then approve the case.\n"
+        "2.  Upload ownership evidence (section: Ownership & UBO).\n\n\n"
+        "  - Do not wait, resend it now. The case page shows the evidence.\nSummary:"
+    )
+    facts = {"case_page_sections": ["Ownership & UBO"]}
+    whole = validate_answer(answer, facts)
+    for size in (1, 2, 5, 13, len(answer)):
+        guard = StreamingGuard(facts)
+        for start in range(0, len(answer), size):
+            guard.feed(answer[start : start + size])
+        streamed = guard.finish()
+        assert (streamed.text, streamed.removed) == (whole.text, whole.removed)
 
 
 def test_pending_read_cancellation_closes_source_without_completion() -> None:

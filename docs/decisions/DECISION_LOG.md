@@ -292,3 +292,17 @@ SPONSOR_DEMO_FINAL_QUALITY_GATE.md for the expanded frozen content. Offline XPI 
 simulations do not establish real Sandbox interoperability; real Sandbox UAT is
 NOT_VERIFIED. No new provider status, sponsor mapping/policy, schema or publication
 authority is introduced.
+
+## D-073 - proposed AI Assistant knowledge loop (owner decision pending)
+
+PR #99 proposes a reviewed knowledge loop inside the separate AI Assistant service:
+SQLite plus a rebuildable ChromaDB index, append-only versions, maker-checker over each
+edit chain, decisions bound to the reviewed content hash, team-scoped review and
+resolutions, redacted drafts without browser-supplied assistant text, telemetry off and
+loopback-only embeddings, and an `@assistant-ui/react` panel over the existing client.
+[ADR-012](ADR-012_AI_ASSISTANT_KNOWLEDGE_LOOP.md) records the design. Status: proposed,
+not accepted. Replacing the PR89 exact-line output catalog with sentence-level checks
+(ADR-012 section C) needs an explicit owner decision. Reusing POLICY_APPROVE and
+POLICY_MUTATE for knowledge review is PROJECT_DEFINED_PROVISIONAL; review authority stays
+UNKNOWN_BLOCKED (Q-014). No CLM backend write, schema, provider status or Live claim
+follows.

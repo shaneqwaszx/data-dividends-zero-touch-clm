@@ -4,15 +4,19 @@ Past resolutions are shared across clients, so a draft must not carry who the cl
 Two passes:
 
 1. Exact values known from the case: the company's legal name, UEN and addresses (from ACRA
-   and from documents), names of people on the case, and the signed-in user's name.
+   and from documents), the signed-in user's name, and every party the CLM case summary
+   lists (ownership parties, officers, shareholders: natural persons become [PERSON], other
+   entities [COMPANY], their identifiers [ID]).
 2. Patterns for what the case data may not list: Singapore UEN and NRIC/FIN formats,
    postal codes, unit numbers, email addresses and phone numbers.
 
-The Director still checks every draft before approving it; this is a first pass, not a
-guarantee.
+Names that appear nowhere in the case data (for example a person the RM mentions from
+memory) are not recognised. The Director still checks every draft before approving it; this
+is a first pass, not a guarantee.
 """
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 PLACEHOLDERS = (
@@ -42,7 +46,49 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-def _known_values(facts: dict[str, Any]) -> list[tuple[str, str]]:
+_NAME_KEYS = ("name", "display_name", "legal_name", "full_name")
+_ID_KEYS = ("party_id", "registration_identifier", "registration_number", "id_number")
+_PERSON_TYPES = frozenset({"NATURAL_PERSON", "INDIVIDUAL", "PERSON"})
+_MAX_PARTY_DEPTH = 12
+
+
+def case_parties(summary: Any) -> list[tuple[str, str]]:
+    """(value, placeholder) for every party named in the CLM case summary.
+
+    Any object with a ``party_type`` is a party (registry ownership parties, officers,
+    ownership-analysis parties): a natural person's name becomes [PERSON], any other
+    entity's name [COMPANY], and their identifiers [ID]. Values are collected, never
+    interpreted, so new party lists in the summary are covered without code changes.
+    """
+
+    found: list[tuple[str, str]] = []
+
+    def walk(value: Any, depth: int) -> None:
+        if depth > _MAX_PARTY_DEPTH:
+            return
+        if isinstance(value, dict):
+            party_type = value.get("party_type")
+            if isinstance(party_type, str):
+                placeholder = "[PERSON]" if party_type.upper() in _PERSON_TYPES else "[COMPANY]"
+                for key in _NAME_KEYS:
+                    if isinstance(value.get(key), str):
+                        found.append((value[key], placeholder))
+                for key in _ID_KEYS:
+                    if isinstance(value.get(key), str):
+                        found.append((value[key], "[ID]"))
+            for item in value.values():
+                walk(item, depth + 1)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, depth + 1)
+
+    walk(summary, 0)
+    return found
+
+
+def _known_values(
+    facts: dict[str, Any], parties: Sequence[tuple[str, str]] = ()
+) -> list[tuple[str, str]]:
     values: list[tuple[str, str]] = []
 
     def add(value: Any, placeholder: str) -> None:
@@ -77,13 +123,18 @@ def _known_values(facts: dict[str, Any]) -> list[tuple[str, str]]:
         for value in item.get("values") or []:
             placeholder = "[ADDRESS]" if "address" in str(item.get("field")) else "[COMPANY]"
             add(value.get("value"), placeholder)
+    # Parties last: a value the case facts already name keeps its more specific placeholder.
+    known = {text.lower() for text, _ in values}
+    for value, placeholder in parties:
+        if " ".join(str(value).split()).lower() not in known:
+            add(value, placeholder)
     # Longest first, so a full address is replaced before a part of it.
     return sorted(values, key=lambda pair: -len(pair[0]))
 
 
 class Redactor:
-    def __init__(self, facts: dict[str, Any]) -> None:
-        self._known = _known_values(facts)
+    def __init__(self, facts: dict[str, Any], *, parties: Sequence[tuple[str, str]] = ()) -> None:
+        self._known = _known_values(facts, parties)
 
     def redact(self, text: str) -> str:
         out = text
