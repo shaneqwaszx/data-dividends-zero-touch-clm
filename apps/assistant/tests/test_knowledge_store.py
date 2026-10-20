@@ -14,6 +14,7 @@ from ai_assistant.knowledge.embeddings import EmbeddingUnavailableError, OllamaE
 from ai_assistant.knowledge.ingest import (
     DECISION_APPROVER,
     GUIDANCE_DIR,
+    ILLUSTRATIVE_APPROVER,
     GuidanceFileError,
     ingest_guidance,
     ingest_synthetic_resolutions,
@@ -202,8 +203,14 @@ def test_every_guidance_file_loads_with_a_recorded_source(tmp_path: Path) -> Non
     assert len(report.added) == len(files) >= 8
     for entry in kb.store.entries(kind=EntryKind.GUIDANCE):
         assert entry.status == EntryStatus.APPROVED
-        assert entry.source_ref and entry.approver == DECISION_APPROVER
-        assert not entry.illustrative
+        assert entry.source_ref
+        if entry.illustrative:
+            # A POC placeholder: never presented as a recorded decision.
+            assert entry.approver == ILLUSTRATIVE_APPROVER
+            assert "placeholder" in entry.source_ref.lower()
+            assert "placeholder" in entry.body.lower()
+        else:
+            assert entry.approver == DECISION_APPROVER
     assert kb.index.count(EntryKind.GUIDANCE) == len(files)
 
 
@@ -313,3 +320,10 @@ def test_ollama_embedder_reports_bad_replies_as_unavailable(reply: httpx.Respons
     )
     with pytest.raises(EmbeddingUnavailableError):
         embedder.embed_query("hi")
+
+
+def test_editor_notes_are_not_part_of_the_guidance_text() -> None:
+    entry = parse_guidance(GUIDANCE_DIR / "ownership-evidence-documents.md")
+    assert entry.illustrative
+    assert "<!--" not in entry.body and "Replace this list" not in entry.body
+    assert entry.body.startswith("This list is an illustrative placeholder")

@@ -74,7 +74,8 @@ def parse_guidance(path: Path) -> Entry:
         if not sep:
             raise GuidanceFileError(f"{path.name}: cannot read header line {line.strip()!r}")
         header[key.strip()] = value.strip()
-    body = match.group(2).strip()
+    # Notes for editors inside <!-- ... --> are not guidance: never searched or sent.
+    body = re.sub(r"<!--.*?-->", "", match.group(2), flags=re.DOTALL).strip()
     for required in ("id", "title", "source"):
         if not header.get(required):
             raise GuidanceFileError(f"{path.name}: header needs '{required}'")

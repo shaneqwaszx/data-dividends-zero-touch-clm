@@ -275,7 +275,8 @@
    ]
   },
   "expect": [
-   "resolution.synthetic-missing-shareholder-register"
+   "resolution.synthetic-missing-shareholder-register",
+   "guidance.ownership-evidence-documents"
   ]
  },
  {
@@ -365,5 +366,20 @@
    "stages": []
   },
   "expect": []
+ },
+ {
+  "question": "Which documents can show who owns the company?",
+  "context": {
+   "blocker_codes": [
+    "OWNERSHIP_REQUIRED"
+   ],
+   "fields": [],
+   "stages": [
+    "Ownership & UBO"
+   ]
+  },
+  "expect": [
+   "guidance.ownership-evidence-documents"
+  ]
  }
 ]
