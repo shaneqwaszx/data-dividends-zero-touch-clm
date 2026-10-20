@@ -9,6 +9,7 @@ import {
 } from "@assistant-ui/react";
 import "./AiAssistantPanel.css";
 import { AiAssistantText } from "./aiAssistantText";
+import { goToCaseSection } from "./caseSections";
 import KnowledgeReview from "./KnowledgeReview";
 import {
   AiAssistantError,
@@ -340,11 +341,16 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
   }
 
   function startFeedback(messageId: string, helpful: boolean): void {
+    // "Yes, helpful" is one click; only "Not helpful" asks what was missing.
+    if (helpful) {
+      sendFeedback(messageId, { helpful: true, stage: "note", note: "" });
+      return;
+    }
     setFeedback((all) => ({ ...all, [messageId]: { helpful, stage: "note", note: "" } }));
   }
 
-  function sendFeedback(messageId: string): void {
-    const state = feedback[messageId];
+  function sendFeedback(messageId: string, given?: FeedbackState): void {
+    const state = given ?? feedback[messageId];
     if (!state || !activeCaseId) return;
     const key = activeCaseId;
     // Only the conversation up to the answer being rated, and never the opening summary.
@@ -369,6 +375,11 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     convertMessage: toThreadMessage,
     onNew: async (message: AppendMessage) => ask(messageText(message)),
   });
+
+  function goToSection(title: string): void {
+    // Scrolls the case page behind the panel; the panel stays open.
+    goToCaseSection(title);
+  }
 
   function feedbackControls(messageId: string): ReactNode {
     const state = feedback[messageId];
@@ -397,7 +408,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     return (
       <div className="ai-assistant-feedback-form">
         <label>
-          {state.helpful ? "What fixed it? (optional, helps others)" : "What was missing? (optional)"}
+          What was missing? (optional)
           <textarea
             rows={2}
             maxLength={1000}
@@ -406,7 +417,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
             onChange={(event) => setFeedback((all) => ({ ...all, [messageId]: { ...state, note: event.target.value } }))}
           />
         </label>
-        <p className="ai-assistant-hint">Client details are removed, and a Director reviews it before it is reused.</p>
+        <p className="ai-assistant-hint">Client details are removed before a Director sees it.</p>
         <div className="ai-assistant-feedback">
           <button type="button" className="btn btn-primary" disabled={state.stage === "sending"} onClick={() => sendFeedback(messageId)}>
             Send
@@ -526,7 +537,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
                     className={`ai-assistant-message ai-assistant-${message.role}`}
                     aria-busy={custom.streaming || undefined}
                   >
-                    {message.role === "assistant" ? <AiAssistantText text={text} /> : <p>{text}</p>}
+                    {message.role === "assistant" ? <AiAssistantText text={text} onSection={goToSection} /> : <p>{text}</p>}
                     {custom.note && <span className="ai-assistant-note">{custom.note}</span>}
                     {finished && <SourceChips sources={custom.sources ?? []} />}
                     {finished && feedbackControls(message.id)}

@@ -497,10 +497,33 @@
   cursor: pointer;
 }
 
-.ai-assistant-feedback-button:hover,
+/* Overrides the app-wide dark green button hover, which hid the label. */
+.ai-assistant-feedback-button:hover:not(:disabled),
 .ai-assistant-feedback-button:focus-visible {
-  border-color: var(--color-accent-300, #d9b46e);
+  background: #f4f2ef;
+  border-color: #9c968c;
+  color: var(--color-text, #201f1d);
+}
+
+/* "(section: Document verification)" in an answer: opens and scrolls to that stage. */
+.ai-assistant-section-link {
+  display: inline;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   color: var(--color-accent-700, #6b4a12);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.ai-assistant-section-link:hover:not(:disabled),
+.ai-assistant-section-link:focus-visible {
+  background: var(--color-accent-100, #fff3e4);
+  color: var(--color-accent-800, #5a3d0e);
 }
 
 .ai-assistant-feedback-form {

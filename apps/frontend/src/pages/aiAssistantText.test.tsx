@@ -37,4 +37,23 @@ describe("AiAssistantText", () => {
     const flat = renderToStaticMarkup(<AiAssistantText text={"1. First\n\nWhy it matters.\n\n2. Second"} />);
     expect(flat).toContain('<ol start="2"><li>Second</li></ol>');
   });
+
+  it("links a named section only when that stage is on the page", () => {
+    const answer = "Upload it (section: Document verification).";
+    expect(renderToStaticMarkup(<AiAssistantText text={answer} onSection={() => undefined} />)).not.toContain("<button");
+
+    const stage = document.createElement("section");
+    stage.className = "stage-disclosure";
+    stage.innerHTML = '<h2><button type="button"><span>Document verification</span><span>+</span></button></h2>';
+    document.body.appendChild(stage);
+    try {
+      const html = renderToStaticMarkup(<AiAssistantText text={answer} onSection={() => undefined} />);
+      expect(html).toContain('aria-label="Go to Document verification on the case page"');
+      expect(html).toContain("(section: <button");
+      // Without a handler (e.g. the opening summary) it stays plain text.
+      expect(renderToStaticMarkup(<AiAssistantText text={answer} />)).not.toContain("<button");
+    } finally {
+      stage.remove();
+    }
+  });
 });

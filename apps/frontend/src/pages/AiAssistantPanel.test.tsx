@@ -387,19 +387,15 @@ describe("AiAssistantPanel", () => {
     expect(sources?.textContent).toContain("Registered address differs from ACRA");
     expect(sources?.textContent).not.toContain("Not cited");
 
+    // One click: an RM is not asked to write anything when the answer helped.
     click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Yes, helpful"));
-    const note = view.querySelector(".ai-assistant-feedback-form textarea") as HTMLTextAreaElement;
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, "ACRA was current.");
-      note.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    click([...view.querySelectorAll("button")].find((b) => b.textContent === "Send"));
     await flush();
+    expect(view.querySelector(".ai-assistant-feedback-form")).toBeNull();
 
     expect(sent).toEqual([
       {
         helpful: true,
-        note: "ACRA was current.",
+        note: "",
         turns: [
           { role: "user", content: "Why is this case blocked?" },
           { role: "assistant", content: "Only Keep registry value is offered [G1]." },
