@@ -1,0 +1,369 @@
+[
+ {
+  "question": "Can I use the document address instead of the ACRA one?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "registered_address"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "guidance.address-mismatch"
+  ]
+ },
+ {
+  "question": "Why is the registered address flagged?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "registered_address"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "guidance.address-mismatch"
+  ]
+ },
+ {
+  "question": "The client says they moved office, what do I do about the address?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "registered_address"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "guidance.address-mismatch",
+   "resolution.synthetic-address-moved-office"
+  ]
+ },
+ {
+  "question": "What does keep registry value actually do?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "registered_address"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "guidance.address-mismatch"
+  ]
+ },
+ {
+  "question": "The postal code on the scan looks wrong, how do I fix it?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "registered_address"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "resolution.synthetic-ocr-misread-postal-code",
+   "guidance.document-field-review"
+  ]
+ },
+ {
+  "question": "Should I reject the document suggestion for the address?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "registered_address"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "guidance.document-field-review"
+  ]
+ },
+ {
+  "question": "The legal name on the certificate is spelled differently from ACRA",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "legal_name"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "guidance.legal-name-mismatch"
+  ]
+ },
+ {
+  "question": "Can I use the document value for the company name?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "fields": [
+    "legal_name"
+   ],
+   "stages": [
+    "Document verification",
+    "Data reconciliation"
+   ]
+  },
+  "expect": [
+   "guidance.legal-name-mismatch"
+  ]
+ },
+ {
+  "question": "What does accept document suggestion mean?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_REVIEW_INCOMPLETE"
+   ],
+   "fields": [
+    "registered_address",
+    "legal_name"
+   ],
+   "stages": [
+    "Document verification"
+   ]
+  },
+  "expect": [
+   "guidance.document-field-review"
+  ]
+ },
+ {
+  "question": "What is the difference between record correction and reject?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_REVIEW_INCOMPLETE"
+   ],
+   "fields": [
+    "registered_address",
+    "legal_name"
+   ],
+   "stages": [
+    "Document verification"
+   ]
+  },
+  "expect": [
+   "guidance.document-field-review"
+  ]
+ },
+ {
+  "question": "Why is the evidence score 0.40?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_REVIEW_INCOMPLETE"
+   ],
+   "fields": [
+    "registered_address",
+    "legal_name"
+   ],
+   "stages": [
+    "Document verification"
+   ]
+  },
+  "expect": [
+   "guidance.evidence-score"
+  ]
+ },
+ {
+  "question": "Is the evidence score a probability?",
+  "context": {
+   "blocker_codes": [
+    "DOCUMENT_REVIEW_INCOMPLETE"
+   ],
+   "fields": [
+    "registered_address",
+    "legal_name"
+   ],
+   "stages": [
+    "Document verification"
+   ]
+  },
+  "expect": [
+   "guidance.evidence-score"
+  ]
+ },
+ {
+  "question": "What threshold is used for UBOs?",
+  "context": {
+   "blocker_codes": [
+    "OWNERSHIP_REQUIRED"
+   ],
+   "fields": [],
+   "stages": [
+    "Ownership & UBO"
+   ]
+  },
+  "expect": [
+   "guidance.ubo-threshold"
+  ]
+ },
+ {
+  "question": "Who counts as an ultimate beneficial owner?",
+  "context": {
+   "blocker_codes": [
+    "OWNERSHIP_REQUIRED"
+   ],
+   "fields": [],
+   "stages": [
+    "Ownership & UBO"
+   ]
+  },
+  "expect": [
+   "guidance.ubo-threshold"
+  ]
+ },
+ {
+  "question": "The UBO check is not running, what is missing?",
+  "context": {
+   "blocker_codes": [
+    "OWNERSHIP_REQUIRED"
+   ],
+   "fields": [],
+   "stages": [
+    "Ownership & UBO"
+   ]
+  },
+  "expect": [
+   "resolution.synthetic-missing-shareholder-register",
+   "guidance.ubo-threshold"
+  ]
+ },
+ {
+  "question": "What ownership evidence should I ask the client for?",
+  "context": {
+   "blocker_codes": [
+    "OWNERSHIP_REQUIRED"
+   ],
+   "fields": [],
+   "stages": [
+    "Ownership & UBO"
+   ]
+  },
+  "expect": [
+   "resolution.synthetic-missing-shareholder-register"
+  ]
+ },
+ {
+  "question": "Is Review & Send a regulatory approval?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": [
+    "Final review & send"
+   ]
+  },
+  "expect": [
+   "guidance.review-and-send"
+  ]
+ },
+ {
+  "question": "Do I need a compliance approver before sending?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": [
+    "Final review & send"
+   ]
+  },
+  "expect": [
+   "guidance.review-and-send"
+  ]
+ },
+ {
+  "question": "How do I change a policy setting?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": []
+  },
+  "expect": [
+   "guidance.policy-changes"
+  ]
+ },
+ {
+  "question": "Who approves a change to the UBO threshold policy?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": []
+  },
+  "expect": [
+   "guidance.policy-changes"
+  ]
+ },
+ {
+  "question": "Is the ACRA data on this case live?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": []
+  },
+  "expect": [
+   "guidance.environments"
+  ]
+ },
+ {
+  "question": "Does a sandbox GoldTier result prove the real one works?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": []
+  },
+  "expect": [
+   "guidance.environments"
+  ]
+ },
+ {
+  "question": "What is the weather in Singapore today?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": []
+  },
+  "expect": []
+ },
+ {
+  "question": "Can you book me a meeting room?",
+  "context": {
+   "blocker_codes": [],
+   "fields": [],
+   "stages": []
+  },
+  "expect": []
+ }
+]

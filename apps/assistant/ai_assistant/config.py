@@ -42,5 +42,16 @@ class AiAssistantSettings(BaseSettings):
     embed_model: str = "nomic-embed-text"
     embed_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
 
+    # Retrieval: how the final score is made (weights) and how good a match must be.
+    # Tuned on the labelled set (scripts/evaluate_retrieval.py), not assumed.
+    retrieval_weight_semantic: float = Field(default=0.45, ge=0, le=1)
+    retrieval_weight_keyword: float = Field(default=0.2, ge=0, le=1)
+    retrieval_weight_context: float = Field(default=0.3, ge=0, le=1)
+    retrieval_weight_recency: float = Field(default=0.05, ge=0, le=1)
+    retrieval_min_score_guidance: float = Field(default=0.3, ge=0, le=1)
+    retrieval_min_score_resolution: float = Field(default=0.4, ge=0, le=1)
+    retrieval_max_guidance: int = Field(default=3, ge=0, le=10)
+    retrieval_max_resolutions: int = Field(default=3, ge=0, le=10)
+
     max_history_messages: int = Field(default=8, ge=0, le=20)
     max_question_chars: int = Field(default=600, ge=20, le=4000)

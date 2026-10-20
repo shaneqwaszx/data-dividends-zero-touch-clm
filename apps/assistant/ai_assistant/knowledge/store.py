@@ -114,12 +114,111 @@ def _row_to_entry(row: sqlite3.Row) -> Entry:
 
 
 _FTS_TOKEN = re.compile(r"[A-Za-z0-9_]+")
+# Words too common to say anything about which entry applies.
+_STOPWORDS = frozenset(
+    [
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "but",
+        "by",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "doing",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "me",
+        "my",
+        "of",
+        "on",
+        "or",
+        "our",
+        "should",
+        "so",
+        "than",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "to",
+        "too",
+        "us",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
+        "about",
+        "after",
+        "again",
+        "also",
+        "any",
+        "because",
+        "before",
+        "being",
+        "both",
+        "each",
+        "few",
+        "more",
+        "most",
+        "no",
+        "not",
+        "now",
+        "only",
+        "other",
+        "out",
+        "over",
+        "same",
+        "some",
+        "such",
+        "very",
+        "just",
+        "get",
+        "got",
+        "need",
+        "needs",
+        "one",
+    ]
+)
 
 
 def _fts_query(text: str) -> str | None:
     """A safe FTS5 query: any of the words, each quoted (no operators from user text)."""
 
-    tokens = [t for t in _FTS_TOKEN.findall(text) if len(t) > 1]
+    tokens = [t for t in _FTS_TOKEN.findall(text) if len(t) > 1 and t.lower() not in _STOPWORDS]
     if not tokens:
         return None
     return " OR ".join(f'"{token}"' for token in dict.fromkeys(tokens))
@@ -164,6 +263,14 @@ class KnowledgeStore:
                     (entry_id, version),
                 ).fetchone()
         return _row_to_entry(row) if row else None
+
+    def get_by_key(self, key: str) -> Entry | None:
+        """The exact version a search hit points at (``entry_id@vN``)."""
+
+        entry_id, sep, version = key.rpartition("@v")
+        if not sep or not version.isdigit():
+            return None
+        return self.get(entry_id, int(version))
 
     def current(self, entry_id: str) -> Entry | None:
         """The approved version of an entry, if any."""
