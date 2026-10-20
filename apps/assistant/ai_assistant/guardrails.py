@@ -8,7 +8,8 @@ sentence that fails a check is left out, and the RM is told how many were left o
    - a UEN, postal code, unit number, score or other specific value must appear in the facts;
    - "N of M steps" must match the case's real progress;
    - a button, screen or label named in quotes must exist in the facts;
-   - a person or team to contact must be named in the facts.
+   - a person or team to contact must be named in the facts;
+   - a cited knowledge entry ([G1], [P2] ...) must be one that was actually retrieved.
 2. Policy (action permissions)
    - an action the answer tells the RM to take (keep the registry value, use the document
      value, accept or reject a document suggestion, approve, submit ...) must be one this RM
@@ -72,43 +73,55 @@ def compact_facts(value: Any) -> Any:
 # BlockerDecisionReview.tsx). "Approve" and "submit to GoldTier" are never offered by the
 # AI Assistant in Phase 1: final approval is a human gate outside the chat.
 _NEVER_OFFERED = "(final approval or submission)"
+_KEEP = r"(?:keep|keeps|kept|keeping)"
+_USE = r"(?:use|uses|used|using)"
+_REPLACE = r"(?:replace|replaces|replaced|override|overrides|overrode|overridden)"
+_REQUEST = r"(?:request|requests|requested|requesting)"
+_ACCEPT = r"(?:accept|accepts|accepted|accepting)"
+_REJECT = r"(?:reject|rejects|rejected|rejecting)"
+_RECORD = r"(?:record|records|recorded|recording)"
+_APPROVE = r"(?:approve|approves|approved|approving)"
+_SUBMIT = r"(?:submit|submits|submitted|submitting|send|sends|sent|sending)"
+# Any tense counts: a past case described as "they used the document value" is still an
+# action this case may not offer.
 _ACTION_PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "keep registry value",
         re.compile(
-            r"\bkeep(?:ing)? (?:the )?(?:registry|acra)(?:'s)?(?: value| address| record| name)?\b"
+            rf"\b{_KEEP} (?:the )?(?:registry|acra)(?:'s)?(?: value| address| record| name)?\b"
         ),
     ),
     (
         "use document value",
         re.compile(
-            r"\buse (?:the )?document(?:'s)? (?:value|address|name)\b|\buse document value\b"
-            r"|\b(?:replace|override) (?:the )?(?:acra|registry)(?:'s)?\b"
+            rf"\b{_USE} (?:the )?document(?:'s)? (?:value|address|name)\b"
+            rf"|\buse document value\b|\b{_REPLACE} (?:the )?(?:acra|registry)(?:'s)?\b"
         ),
     ),
     (
         "request additional information",
-        re.compile(r"\brequest (?:additional|more) (?:information|evidence|documents?)\b"),
+        re.compile(rf"\b{_REQUEST} (?:additional|more) (?:information|evidence|documents?)\b"),
     ),
     (
         "accept document suggestion",
         re.compile(
-            r"\baccept (?:the |all )?(?:eligible )?(?:undecided )?"
+            rf"\b{_ACCEPT} (?:the |all )?(?:eligible )?(?:undecided )?"
             r"(?:document(?:'s)? )?suggestions?\b"
         ),
     ),
     (
         "reject document suggestion",
         re.compile(
-            r"\breject (?:the |all )?(?:undecided )?document(?:'s)?(?: suggestions?| values?)?\b"
+            rf"\b{_REJECT} (?:the |all )?(?:undecided )?document(?:'s)?"
+            r"(?: suggestions?| values?)?\b"
         ),
     ),
-    ("record correction", re.compile(r"\brecord (?:a )?correction\b")),
+    ("record correction", re.compile(rf"\b{_RECORD} (?:a )?correction\b")),
     (
         _NEVER_OFFERED,
         re.compile(
-            r"\bapprove (?:the |this )?(?:case|onboarding|client|company)\b"
-            r"|\b(?:submit|send) (?:it |the case |this case )?to goldtier\b"
+            rf"\b{_APPROVE} (?:the |this )?(?:case|onboarding|client|company)\b"
+            rf"|\b{_SUBMIT} (?:it |the case |this case )?to goldtier\b"
         ),
     ),
 )
@@ -147,12 +160,26 @@ _LIVE = re.compile(
 _CONFIRMED = re.compile(r"\b(?:confirmed|verified|official|is correct|are correct)\b")
 
 
+_CITATION = re.compile(r"\[([GP]\d+)\]")
+
+
 class Context:
     """Everything the checks need, worked out once per answer."""
 
-    def __init__(self, facts: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        facts: dict[str, Any],
+        *,
+        knowledge_text: str = "",
+        knowledge_tags: frozenset[str] = frozenset(),
+    ) -> None:
         self.facts = facts
-        self.known = json.dumps(facts, ensure_ascii=False, default=str).lower()
+        # Values and labels may come from the case facts or from retrieved knowledge entries;
+        # allowed actions still come only from the case facts (the backend).
+        self.known = (
+            json.dumps(facts, ensure_ascii=False, default=str) + "\n" + knowledge_text
+        ).lower()
+        self.knowledge_tags = knowledge_tags
         self.allowed = allowed_actions(facts)
         overall = facts.get("overall") or {}
         self.steps = (overall.get("steps_done"), overall.get("steps_total"))
@@ -170,6 +197,9 @@ def _check(sentence: str, ctx: Context) -> str | None:
 
     lowered = sentence.lower()
     # 1. Grounding
+    for tag in _CITATION.findall(sentence):
+        if tag not in ctx.knowledge_tags:
+            return "invented_source"
     for phrase in _CONTACTS:
         if phrase in lowered and phrase not in ctx.known:
             return "invented_contact"
@@ -259,10 +289,16 @@ def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-def validate_answer(answer: str, facts: dict[str, Any]) -> Validation:
+def validate_answer(
+    answer: str,
+    facts: dict[str, Any],
+    *,
+    knowledge_text: str = "",
+    knowledge_tags: frozenset[str] = frozenset(),
+) -> Validation:
     """Check an answer sentence by sentence; keep only what passes."""
 
-    ctx = Context(facts)
+    ctx = Context(facts, knowledge_text=knowledge_text, knowledge_tags=knowledge_tags)
     removed: list[str] = []
     lines_out: list[str] = []
     for line in answer.splitlines():
@@ -317,8 +353,16 @@ class StreamingGuard:
     the list below it.
     """
 
-    def __init__(self, facts: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        facts: dict[str, Any],
+        *,
+        knowledge_text: str = "",
+        knowledge_tags: frozenset[str] = frozenset(),
+    ) -> None:
         self._facts = facts
+        self._knowledge_text = knowledge_text
+        self._knowledge_tags = knowledge_tags
         self._raw = ""
         self._shown = ""
 
@@ -329,7 +373,12 @@ class StreamingGuard:
         ends = [match.end() for match in _SAFE_END.finditer(self._raw)]
         if not ends:
             return None
-        checked = validate_answer(self._raw[: ends[-1]], self._facts).text
+        checked = validate_answer(
+            self._raw[: ends[-1]],
+            self._facts,
+            knowledge_text=self._knowledge_text,
+            knowledge_tags=self._knowledge_tags,
+        ).text
         if checked == self._shown:
             return None
         self._shown = checked
@@ -338,6 +387,11 @@ class StreamingGuard:
     def finish(self) -> Validation:
         """The final check, including a last sentence without a full stop."""
 
-        validation = validate_answer(self._raw, self._facts)
+        validation = validate_answer(
+            self._raw,
+            self._facts,
+            knowledge_text=self._knowledge_text,
+            knowledge_tags=self._knowledge_tags,
+        )
         self._shown = validation.text
         return validation

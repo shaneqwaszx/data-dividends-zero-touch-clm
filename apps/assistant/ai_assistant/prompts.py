@@ -9,8 +9,9 @@ same between questions. The model server can then reuse its earlier reading of t
     1. rules            - same for every case and question
     2. case facts       - same for every question about this case, until the case changes
     3. chat history     - grows by one turn per question
-    4. page terms       - only the glossary entries this question asks about
-    5. the question
+    4. knowledge        - retrieved guidance and past cases for this question (tagged)
+    5. page terms       - only the glossary entries this question asks about
+    6. the question
 """
 
 import json
@@ -213,10 +214,17 @@ def prefix_messages(facts: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def build_messages(
-    facts: dict[str, Any], history: list[dict[str, str]], question: str
+    facts: dict[str, Any],
+    history: list[dict[str, str]],
+    question: str,
+    *,
+    knowledge: str | None = None,
 ) -> list[dict[str, str]]:
     messages = prefix_messages(facts)
     messages.extend(trim_history(history))
+    if knowledge:
+        # After the history: it changes with every question, so the cached start stays put.
+        messages.append({"role": "system", "content": knowledge})
     terms = terms_for_question(facts, question)
     if terms:
         messages.append(

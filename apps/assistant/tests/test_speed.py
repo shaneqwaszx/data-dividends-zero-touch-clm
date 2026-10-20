@@ -22,7 +22,8 @@ def _events(response: httpx.Response) -> list[dict[str, Any]]:
 
 def test_prompt_is_small_and_keeps_the_facts_the_rm_needs() -> None:
     messages = build_messages(FACTS, [], "What should I do next?")
-    assert sum(len(m["content"]) for m in messages) < 8000  # was about 11,900 characters
+    # Was about 11,900 characters; the knowledge rules (16-18) added about 900.
+    assert sum(len(m["content"]) for m in messages) < 9000
     facts = messages[1]["content"]
     for needed in ("Keep registry value", "11111999A", "18 GARDEN WALK", "Ownership & UBO"):
         assert needed in facts

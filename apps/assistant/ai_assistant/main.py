@@ -12,10 +12,12 @@ uses /chat/stream so the answer appears while it is written (see README "Speed")
 
 import hashlib
 import json
+import logging
 import threading
 import time
 from collections.abc import Iterator
-from typing import Annotated, Literal
+from dataclasses import dataclass, field
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import httpx
@@ -28,6 +30,17 @@ from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, Clm
 from .config import AiAssistantSettings
 from .context import build_case_facts
 from .guardrails import StreamingGuard, Validation, validate_answer
+from .knowledge.retrieval import Retriever, case_context, settings_from
+from .knowledge.service import KnowledgeBase
+from .knowledge_answers import (
+    TaggedHit,
+    follow_up_questions,
+    guidance_summary,
+    knowledge_message,
+    knowledge_text,
+    sources_for,
+    tag_hits,
+)
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel
 from .prompts import build_messages, prefix_messages
 from .small_talk import small_talk_reply
@@ -63,6 +76,28 @@ class AnswerChecks(BaseModel):
     disclosures: list[str]
 
 
+class KnowledgeSource(BaseModel):
+    """A retrieved knowledge entry the answer could use (cited = the answer names its tag)."""
+
+    tag: str
+    kind: Literal["guidance", "resolution"]
+    entry_id: str
+    version: int
+    title: str
+    approved_at: str | None
+    source_ref: str | None
+    illustrative: bool
+    fallback: bool
+    cited: bool
+
+
+class KnowledgeUse(BaseModel):
+    # high: specific entries matched; low: only general stage guidance; none.
+    confidence: Literal["high", "low", "none"]
+    # The embedding model was down, so only keywords and case context were used.
+    degraded: bool
+
+
 class ChatResponse(BaseModel):
     answer: str
     answered_by: Literal["model", "case_data"]
@@ -71,6 +106,9 @@ class ChatResponse(BaseModel):
     suggested_questions: list[str]
     # Set for model answers: why sentences were left out, and the disclosures added.
     checks: AnswerChecks | None = None
+    # Retrieved guidance and past cases, and how confident retrieval was.
+    sources: list[KnowledgeSource] = Field(default_factory=list)
+    knowledge: KnowledgeUse | None = None
 
 
 class HealthResponse(BaseModel):
@@ -83,8 +121,34 @@ FALLBACK_NOTICE = "The AI model is not available, so this answer comes straight 
 CUT_SHORT_NOTICE = "This answer was cut short. Ask me to continue for the rest."
 
 
+log = logging.getLogger("ai_assistant")
+
+
+@dataclass
+class Prepared:
+    """Everything one question needs, worked out once (used by /chat and /chat/stream)."""
+
+    facts: dict[str, Any]
+    messages: list[dict[str, str]]
+    fallback: str
+    suggestions: list[str]
+    tagged: list[TaggedHit] = field(default_factory=list)
+    knowledge: KnowledgeUse | None = None
+
+    @property
+    def knowledge_text(self) -> str:
+        return knowledge_text(self.tagged)
+
+    @property
+    def knowledge_tags(self) -> frozenset[str]:
+        return frozenset(item.tag for item in self.tagged)
+
+    def sources(self, answer: str) -> list[KnowledgeSource]:
+        return [KnowledgeSource(**source) for source in sources_for(self.tagged, answer)]
+
+
 def _model_reply(
-    validation: Validation, *, model_name: str, cut_short: bool, suggestions: list[str]
+    validation: Validation, prep: Prepared, *, model_name: str, cut_short: bool
 ) -> "ChatResponse":
     notices = [n for n in (validation.notice(), CUT_SHORT_NOTICE if cut_short else None) if n]
     return ChatResponse(
@@ -92,10 +156,24 @@ def _model_reply(
         answered_by="model",
         model=model_name,
         notice=" ".join(notices) or None,
-        suggested_questions=suggestions,
+        suggested_questions=prep.suggestions,
         checks=AnswerChecks(
             removed=list(validation.removed), disclosures=list(validation.disclosures)
         ),
+        sources=prep.sources(validation.text),
+        knowledge=prep.knowledge,
+    )
+
+
+def _fallback_reply(prep: Prepared) -> "ChatResponse":
+    return ChatResponse(
+        answer=prep.fallback,
+        answered_by="case_data",
+        model=None,
+        notice=FALLBACK_NOTICE,
+        suggested_questions=prep.suggestions,
+        sources=prep.sources(prep.fallback),
+        knowledge=prep.knowledge,
     )
 
 
@@ -104,8 +182,14 @@ def create_app(
     *,
     clm_transport: httpx.BaseTransport | None = None,
     chat_model: ChatModel | None = None,
+    knowledge: KnowledgeBase | None = None,
 ) -> FastAPI:
     config = settings or AiAssistantSettings()
+    retriever = (
+        Retriever(knowledge, settings_from(config))
+        if knowledge is not None and config.knowledge_enabled
+        else None
+    )
     backend = ClmBackendClient(
         config.clm_backend_url,
         timeout_seconds=config.backend_timeout_seconds,
@@ -156,33 +240,62 @@ def create_app(
             for turn in body.history[-config.max_history_messages :]
         ]
 
-    def answer_with_model(
-        messages: list[dict[str, str]],
-        fallback: str,
-        suggestions: list[str],
-        facts: dict[str, object],
-    ) -> ChatResponse:
+    def prepare(body: ChatRequest, snapshot: CaseSnapshot, question: str) -> Prepared:
+        facts = build_case_facts(snapshot)
+        tagged: list[TaggedHit] = []
+        use: KnowledgeUse | None = None
+        if retriever is not None:
+            profile = snapshot.actor.get("profile") or {}
+            try:
+                retrieval = retriever.retrieve(
+                    question,
+                    case_context(facts),
+                    role=profile.get("role"),
+                    team=profile.get("team_id"),
+                )
+                tagged = tag_hits(retrieval)
+                use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
+            except Exception:  # knowledge is optional: never let it break an answer
+                log.exception("knowledge retrieval failed")
+        fallback = fallback_answer(question, facts)
+        summary = guidance_summary(tagged)
+        if summary:
+            fallback += "\n\n" + summary
+        base = suggested_questions(facts)
+        # Questions people with the same problem asked next come right after the top three.
+        suggestions = base[:3]
+        for suggestion in [*follow_up_questions(tagged), *base[3:]]:
+            if suggestion not in suggestions:
+                suggestions.append(suggestion)
+        return Prepared(
+            facts=facts,
+            messages=build_messages(
+                facts, history_of(body), question, knowledge=knowledge_message(tagged)
+            ),
+            fallback=fallback,
+            suggestions=suggestions[:6],
+            tagged=tagged,
+            knowledge=use,
+        )
+
+    def answer_with_model(prep: Prepared) -> ChatResponse:
         if model is not None:
             try:
-                reply = model.complete(messages)
-                validation = validate_answer(reply.text, facts)
+                reply = model.complete(prep.messages)
+                validation = validate_answer(
+                    reply.text,
+                    prep.facts,
+                    knowledge_text=prep.knowledge_text,
+                    knowledge_tags=prep.knowledge_tags,
+                )
                 if not validation.text:
                     raise LlmUnavailableError("nothing left after validation")
                 return _model_reply(
-                    validation,
-                    model_name=model.name,
-                    cut_short=reply.cut_short,
-                    suggestions=suggestions,
+                    validation, prep, model_name=model.name, cut_short=reply.cut_short
                 )
             except LlmUnavailableError:
                 pass
-        return ChatResponse(
-            answer=fallback,
-            answered_by="case_data",
-            model=None,
-            notice=FALLBACK_NOTICE,
-            suggested_questions=suggestions,
-        )
+        return _fallback_reply(prep)
 
     warmed: dict[str, float] = {}
     warm_lock = threading.Lock()
@@ -208,12 +321,7 @@ def create_app(
                 del warmed[old]
         model.warm(messages)
 
-    def stream_answer(
-        messages: list[dict[str, str]],
-        fallback: str,
-        suggestions: list[str],
-        facts: dict[str, object],
-    ) -> Iterator[str]:
+    def stream_answer(prep: Prepared) -> Iterator[str]:
         """The answer as newline-delimited JSON: "text" updates while the model writes,
         then one "done" with the final answer (the same fields as the /chat reply)."""
 
@@ -224,10 +332,12 @@ def create_app(
             return line({"type": "done", **response.model_dump()})
 
         if model is not None:
-            guard = StreamingGuard(facts)
+            guard = StreamingGuard(
+                prep.facts, knowledge_text=prep.knowledge_text, knowledge_tags=prep.knowledge_tags
+            )
             cut_short = False
             try:
-                for piece in model.stream(messages):
+                for piece in model.stream(prep.messages):
                     cut_short = cut_short or piece.cut_short
                     shown = guard.feed(piece.text) if piece.text else None
                     if shown is not None:
@@ -235,33 +345,16 @@ def create_app(
                 validation = guard.finish()
                 if validation.text:
                     yield done(
-                        _model_reply(
-                            validation,
-                            model_name=model.name,
-                            cut_short=cut_short,
-                            suggestions=suggestions,
-                        )
+                        _model_reply(validation, prep, model_name=model.name, cut_short=cut_short)
                     )
                     return
             except LlmUnavailableError:
                 partial = guard.finish()
                 if partial.text:
                     # Keep what the RM has already read, and say it stopped early.
-                    yield done(
-                        _model_reply(
-                            partial, model_name=model.name, cut_short=True, suggestions=suggestions
-                        )
-                    )
+                    yield done(_model_reply(partial, prep, model_name=model.name, cut_short=True))
                     return
-        yield done(
-            ChatResponse(
-                answer=fallback,
-                answered_by="case_data",
-                model=None,
-                notice=FALLBACK_NOTICE,
-                suggested_questions=suggestions,
-            )
-        )
+        yield done(_fallback_reply(prep))
 
     @app.get("/assistant/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -298,12 +391,7 @@ def create_app(
                 notice=None,
                 suggested_questions=suggested_questions(facts),
             )
-        return answer_with_model(
-            build_messages(facts, history_of(body), question),
-            fallback_answer(question, facts),
-            suggested_questions(facts),
-            facts,
-        )
+        return answer_with_model(prepare(body, snapshot, question))
 
     @app.post("/assistant/cases/{case_id}/chat/stream")
     def chat_stream(body: ChatRequest, snapshot: Snapshot) -> StreamingResponse:
@@ -325,12 +413,7 @@ def create_app(
                 [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]
             )
         else:
-            events = stream_answer(
-                build_messages(facts, history_of(body), question),
-                fallback_answer(question, facts),
-                suggestions,
-                facts,
-            )
+            events = stream_answer(prepare(body, snapshot, question))
         return StreamingResponse(
             events,
             media_type="application/x-ndjson",
@@ -340,4 +423,21 @@ def create_app(
     return app
 
 
-app = create_app()
+def _default_knowledge(settings: AiAssistantSettings) -> KnowledgeBase | None:
+    """The local knowledge base, or None if it is switched off or cannot be opened."""
+
+    if not settings.knowledge_enabled:
+        return None
+    try:
+        from .knowledge.factory import build_knowledge_base
+
+        kb = build_knowledge_base(settings)
+        kb.reconcile()  # index anything approved while the service was down
+        return kb
+    except Exception:
+        log.exception("knowledge base unavailable; answering from case data only")
+        return None
+
+
+_settings = AiAssistantSettings()
+app = create_app(_settings, knowledge=_default_knowledge(_settings))
