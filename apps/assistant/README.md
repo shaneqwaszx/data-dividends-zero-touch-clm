@@ -67,6 +67,39 @@ case being onboarded on **New onboarding** (once it has been created). Its butto
 page for easy access; elsewhere it asks the RM to open or start a case. It keeps a separate
 conversation per case and requests nothing until it is opened.
 
+## Knowledge base (Milestone 1: store)
+
+Reviewed knowledge the AI Assistant will search: **official guidance** (the rulebook) and
+**approved past resolutions** (worked examples). It learns by retrieving reviewed entries,
+never by retraining the model. Code: `ai_assistant/knowledge/`.
+
+| Part | What it does |
+|---|---|
+| `models.py` | An entry: kind, version, status, blocker codes, fields, stages, who may see it, follow-up questions |
+| `store.py` | SQLite: every version, every review, keyword index (FTS5), index to-do list |
+| `vector_index.py` | ChromaDB: vectors of the approved, current versions only |
+| `embeddings.py` | Local embeddings through Ollama (`nomic-embed-text`) |
+| `service.py` | Keeps SQLite and ChromaDB in step; retries; rebuild |
+| `ingest.py` + `guidance/*.md` | Official guidance written from recorded decisions, each citing its source |
+| `seed/synthetic_resolutions.json` | Made-up past resolutions for the demo, labelled illustrative |
+
+Rules: versions are never overwritten; the author of an entry can never approve it; approving a
+version retires the previous one (and any entry it replaces), so only one version is searched;
+rejected and retired versions are never searched. Data lives in `apps/assistant/data/knowledge/`
+(not in Git).
+
+Set it up (needs `ollama pull nomic-embed-text` and the new dependency `chromadb`):
+
+```
+cd apps/assistant
+../../.venv/bin/python -m pip install -e ".[dev]"
+../../.venv/bin/python scripts/ingest_knowledge.py --with-synthetic-resolutions
+```
+
+Run it again any time: unchanged guidance is skipped, edited files become new versions and
+replace the old ones, removed files are retired. If Ollama is not running, entries are saved
+and indexed on the next run.
+
 ## Grounding and policy validation
 
 Every model answer is checked by code (`ai_assistant/guardrails.py`) before the RM sees it,

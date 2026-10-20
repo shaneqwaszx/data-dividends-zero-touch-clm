@@ -50,3 +50,6 @@ Thumbs.db
 tmp/
 temp/
 .runtime/
+
+# AI Assistant local knowledge store (SQLite + ChromaDB)
+apps/assistant/data/

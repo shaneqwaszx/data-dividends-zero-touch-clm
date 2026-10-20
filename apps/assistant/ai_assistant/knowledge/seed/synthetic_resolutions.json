@@ -1,0 +1,29 @@
+[
+  {
+    "id": "resolution.synthetic-address-moved-office",
+    "title": "Illustrative: client moved office before updating ACRA",
+    "body": "Illustrative case, not a real client. The Certificate of Incorporation showed an older registered address than ACRA. The RM kept the registry value, because ACRA held the current address, and noted that the document was outdated. Ownership evidence was the next blocker and was uploaded the same day.",
+    "blocker_codes": ["DOCUMENT_SOURCE_CONFLICT"],
+    "fields": ["registered_address"],
+    "stages": ["Document verification"],
+    "follow_ups": ["What do I need for the ownership step next?"]
+  },
+  {
+    "id": "resolution.synthetic-ocr-misread-postal-code",
+    "title": "Illustrative: scanned document misread the postal code",
+    "body": "Illustrative case, not a real client. A scanned document's postal code was read with one wrong digit, so it differed from ACRA. The reviewer used \"Record correction\" to enter the postal code exactly as printed on the document; after the correction it matched ACRA and no source decision was needed.",
+    "blocker_codes": ["DOCUMENT_SOURCE_CONFLICT", "DOCUMENT_REVIEW_INCOMPLETE"],
+    "fields": ["registered_address"],
+    "stages": ["Document verification"],
+    "follow_ups": ["Why was the value flagged even though it looked right?"]
+  },
+  {
+    "id": "resolution.synthetic-missing-shareholder-register",
+    "title": "Illustrative: UBO check waiting for ownership evidence",
+    "body": "Illustrative case, not a real client. The UBO check could not run because no ownership evidence had been uploaded. The RM requested the shareholder register from the client and uploaded it; the UBO check then ran automatically.",
+    "blocker_codes": ["OWNERSHIP_REQUIRED"],
+    "fields": ["ownership"],
+    "stages": ["Ownership & UBO"],
+    "follow_ups": ["Who counts as a UBO?"]
+  }
+]

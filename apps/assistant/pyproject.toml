@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Read-only AI Assistant service for the Zero-Touch CLM proof of concept"
 requires-python = ">=3.12"
 dependencies = [
+    "chromadb==1.5.9",
     "fastapi==0.141.1",
     "httpx==0.28.1",
     "pydantic-settings==2.15.0",
@@ -26,7 +27,7 @@ where = ["."]
 include = ["ai_assistant*"]
 
 [tool.setuptools.package-data]
-ai_assistant = ["instructions/*.md"]
+ai_assistant = ["instructions/*.md", "knowledge/guidance/*.md", "knowledge/seed/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
