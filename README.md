@@ -13,6 +13,9 @@ Then run `python scripts/dev_context.py` and load only the relevant contract, sp
 question, repository skill, source and tests. Historical phase reports are consulted on
 demand, not reconstructed at every task start.
 
+For orientation, see the [repository layout](#repository-layout) and the
+[documentation index](docs/README.md).
+
 Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore → EDS/orchestration → GoldTier → unresolved human approval gate`
@@ -334,12 +337,31 @@ See [POC security boundaries](docs/security/POC_SECURITY_BOUNDARIES.md).
 
 ## Repository layout
 
-- `apps/backend/` — FastAPI domain, connectors, orchestration, and tests
-- `apps/frontend/` — React/TypeScript/Vite sponsor UI and tests
-- `docs/` — architecture, contracts, UAT, demo, security, and integration handoff
-- `.ai-pipeline/` — phase planners and quality/review reports
-- `scripts/` — demo lifecycle, secret, smoke, and contract validation tools
-- `private/sponsor-artifacts/` — local ignored sponsor material; never tracked
+```text
+apps/
+  backend/      FastAPI service: domain, connectors, orchestration (app/) and pytest suite (tests/)
+    app/        api_*.py routes, composition.py wiring, connectors/, domain/, mappers/,
+                persistence/, services/, demo/
+    tests/      backend tests; tests/fixtures/ holds synthetic UAT PDFs and ACRA JSON
+  frontend/     React + TypeScript + Vite UI
+    src/        pages/, API client, React Query state, and colocated *.test.tsx (Vitest)
+    e2e/        Playwright browser journeys (*.e2e.ts)
+  assistant/    separate read-only AI Assistant service; see apps/assistant/README.md
+docs/           all project documentation; start at docs/README.md
+scripts/        checks, test runners, demo launchers, generators and fixtures; see scripts/README.md
+tests/          repository-level tooling and contract tests; see tests/README.md
+.ai-pipeline/   agent role prompts, phase planners (001_planner/) and the historical
+                report and evidence archive (reports/)
+.agents/skills/ repository workflows for coding agents; .claude/skills/ only points to them
+.codex/         project-scoped Codex tool configuration (checked by scripts/check_tooling_config.py)
+.github/        CI workflow and pull-request template
+AGENTS.md       rules for anyone (human or agent) changing this repository
+```
+
+Local-only, Git-ignored paths: `.env` (copy from `.env.example`), `.venv/`, `.runtime/`,
+`apps/frontend/node_modules/`, and `private/sponsor-artifacts/` for sponsor material,
+which is never tracked.
+
 ## Phase 08 input-driven demo
 
 The normal sponsor demo is input-driven: different synthetic UENs retrieve different

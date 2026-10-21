@@ -28,3 +28,28 @@ Serialize shared ports and conflicting browser/database/lifecycle runs.
 The active phase scope is defined by an explicitly assigned planner handoff file under
 `001_planner/`. Reports preserve evidence/history and do not override current source,
 contracts, decisions, configuration or composition.
+
+## Folder layout
+
+| Path | Contents | Status |
+|---|---|---|
+| `002_*/` … `007_*/ROLE.md` | Instructions for each pipeline role | Current |
+| `001_planner/` | Phase and task planner handoffs | The assigned planner is current; the rest are history |
+| `reports/*.md`, `reports/*.json` | Implementation reports, Quality Gates, regression runs, manifests and receipts, named by phase, slice or PR | Historical archive |
+| `reports/*_EVIDENCE/`, `reports/*_SCREENSHOTS/` | Browser screenshots, logs and diagnostics captured as evidence | Historical archive |
+| `reports/pr81-tcp-capture*/` | PR 81 TCP capture helpers | Historical archive; hash-pinned |
+
+The archive is kept as an audit trail. Read a report only when current source, contracts,
+decisions, architecture and state cannot answer a question.
+
+Some archived files are still read by code, so do not move or rename them without
+updating the code:
+
+- `scripts/pre_pr_check.py` pins about 30 `reports/` files by hash.
+- `tests/contract/` reads several `001_planner/PHASE_0*` files.
+- `scripts/run_s3_sandbox_acceptance.py` reads the `ONBOARDING_INTELLIGENCE_S*` gate
+  files.
+- `.gitattributes` has byte-preservation rules for `reports/SDQ01_ROUND3_EVIDENCE/logs/`.
+
+`reports/RECOVERABLE_ONBOARDING_OPERATOR_ROUTE_SCREENSHOTS/` used to be
+`apps/frontend/test-artifacts/operator-route/`. Older reports still cite that path.
