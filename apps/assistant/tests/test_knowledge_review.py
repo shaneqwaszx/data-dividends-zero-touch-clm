@@ -1,6 +1,7 @@
 """Milestone 4: feedback from RMs and the Director review loop (maker-checker, permissions)."""
 
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from ai_assistant.knowledge.ingest import ingest_guidance
 from ai_assistant.knowledge.models import EntryKind, EntryStatus
 from ai_assistant.knowledge.service import KnowledgeBase
 from ai_assistant.knowledge.store import KnowledgeStore
+from ai_assistant.knowledge_api import GUIDANCE_ID
 from ai_assistant.main import create_app
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, ORIGIN, SUMMARY, FakeModel, _session
 from tests.test_knowledge_store import _kb
@@ -296,6 +298,30 @@ def test_the_author_can_see_their_own_draft(kb: KnowledgeBase) -> None:
     )
 
 
+def test_the_author_sees_only_the_versions_they_wrote(kb: KnowledgeBase) -> None:
+    # QG_PR99_23c452b K5c: no reviewer's edited version and no review notes for the author.
+    entry_id = solved(kb)
+    edit(kb, "director-session", entry_id, 1, title="Tidied title written by the Director")
+    client(kb, "director-2-session").post(
+        f"/assistant/knowledge/entries/{entry_id}/versions/2/decision",
+        json={
+            "approve": False,
+            "content_hash": shown_hash(kb, entry_id, 2),
+            "notes": "Private reviewer note",
+        },
+    )
+    own = client(kb, "rm-session").get(f"/assistant/knowledge/entries/{entry_id}")
+    assert own.status_code == 200
+    assert [v["version"] for v in own.json()["versions"]] == [1]
+    assert own.json()["reviews"] == []
+    assert "Tidied title" not in own.text and "Private reviewer note" not in own.text
+    full = client(kb, "director-session").get(f"/assistant/knowledge/entries/{entry_id}").json()
+    assert [v["version"] for v in full["versions"]] == [1, 2]
+    assert "Private reviewer note" in [row["notes"] for row in full["reviews"]]
+    other = client(kb, "director-b-session").get(f"/assistant/knowledge/entries/{entry_id}")
+    assert other.status_code == 404
+
+
 def test_approving_as_a_replacement_retires_the_older_entry(kb: KnowledgeBase) -> None:
     first = solved(kb)
     decide(kb, "director-session", first, 1)
@@ -329,6 +355,38 @@ def test_hr_proposes_guidance_and_a_director_approves_it(kb: KnowledgeBase) -> N
     # The file no longer overrides guidance that was changed in the app.
     assert "guidance.address-mismatch" in ingest_guidance(kb).kept_app_version
     assert kb.store.current("guidance.address-mismatch").version == 2
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("\u0410pprove \u00fcn\u00efcode title", "guidance.pprove-n-code-title"),
+        ("Registered address: a new rule!", "guidance.registered-address-a-new-rule"),
+    ],
+)
+def test_a_guidance_id_from_a_title_uses_ascii_letters_and_digits_only(
+    kb: KnowledgeBase, title: str, expected: str
+) -> None:
+    # QG_PR99_23c452b K5b: a Cyrillic title once gave a non-ASCII id.
+    reply = client(kb, "hr-session").post(
+        "/assistant/knowledge/guidance",
+        json={"title": title, "body": "A new rule written for this test.", "source_ref": "D-030"},
+    )
+    assert reply.status_code == 200 and reply.json()["entry_id"] == expected
+    assert re.fullmatch(GUIDANCE_ID, expected)
+
+
+@pytest.mark.parametrize(
+    "title", ["\u0423\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c", "ab \u00e9\u00e9"]
+)
+def test_a_title_without_enough_ascii_needs_an_entry_id(kb: KnowledgeBase, title: str) -> None:
+    before = len(kb.store.entries())
+    reply = client(kb, "hr-session").post(
+        "/assistant/knowledge/guidance",
+        json={"title": title, "body": "A new rule written for this test.", "source_ref": "D-030"},
+    )
+    assert reply.status_code == 422 and reply.json()["detail"]["code"] == "INVALID_ENTRY_ID"
+    assert len(kb.store.entries()) == before
 
 
 def test_rm_cannot_propose_guidance(kb: KnowledgeBase) -> None:
@@ -424,5 +482,5 @@ def test_the_whole_loop_a_resolved_case_helps_the_next_similar_question(
     after = client(kb, "rm-session").post(f"/assistant/cases/{CASE_ID}/chat", json=question)
     body = after.json()
     resolutions = [s for s in body["sources"] if s["kind"] == "resolution"]
-    assert [s["entry_id"] for s in resolutions] == [entry_id]
+    assert [(s["tag"], s["title"]) for s in resolutions] == [("P1", kb.store.get(entry_id).title)]
     assert "What about the ownership step for UEN [UEN]?" in body["suggested_questions"]

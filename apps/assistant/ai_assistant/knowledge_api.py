@@ -19,6 +19,7 @@ Retiring an approved entry (official guidance included) takes two reviewers: the
 to /retire records the request, a different reviewer's POST confirms it.
 """
 
+import re
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -43,6 +44,7 @@ from .knowledge.store import (
 APPROVE = "POLICY_APPROVE"
 MUTATE = "POLICY_MUTATE"
 _HASH = r"^[0-9a-f]{64}$"
+GUIDANCE_ID = r"^guidance\.[a-z0-9-]{3,80}$"
 
 
 class Turn(BaseModel):
@@ -101,7 +103,7 @@ class RetireRequest(BaseModel):
 
 class GuidanceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    entry_id: str | None = Field(default=None, pattern=r"^guidance\.[a-z0-9-]{3,80}$")
+    entry_id: str | None = Field(default=None, pattern=GUIDANCE_ID)
     title: str = Field(min_length=3, max_length=200)
     body: str = Field(min_length=10, max_length=4000)
     source_ref: str = Field(min_length=3, max_length=300)
@@ -146,6 +148,13 @@ CHANGED_MESSAGE = "This entry has changed or was already decided. Refresh and tr
 RULE_MESSAGE = "This change is not allowed."
 NOT_FOUND_MESSAGE = "No such entry."
 SECOND_REVIEWER_MESSAGE = "A different reviewer must confirm this."
+
+
+def guidance_id(title: str) -> str:
+    """The id for new guidance named only by its title: its ASCII letters and digits, with
+    words joined by "-" (it must still match GUIDANCE_ID)."""
+
+    return "guidance." + "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:80]
 
 
 def in_team(entry: Entry, team: str | None) -> bool:
@@ -314,14 +323,19 @@ def knowledge_router(
         versions = kb.store.versions(entry_id)
         if not versions:
             raise not_found()
-        is_author = any(v.author == profile.get("user_id") for v in versions)
-        if not is_author:
-            require(profile, APPROVE, MUTATE)
-            found(versions[-1], profile)
-        return {
-            "versions": [entry_view(v) for v in versions],
-            "reviews": kb.store.reviews(entry_id),
-        }
+        reviewer = can(profile, APPROVE) or can(profile, MUTATE)
+        if reviewer and in_team(versions[-1], team(profile)):
+            return {
+                "versions": [entry_view(v) for v in versions],
+                "reviews": kb.store.reviews(entry_id),
+            }
+        # Anyone else sees only the versions they wrote: not a reviewer's edited version or
+        # anyone's review notes.
+        own = [v for v in versions if v.author == profile.get("user_id")]
+        if own:
+            return {"versions": [entry_view(v) for v in own], "reviews": []}
+        require(profile, APPROVE, MUTATE)
+        raise not_found()
 
     @router.post("/assistant/knowledge/entries/{entry_id}/versions/{version}/edit")
     def edit(entry_id: str, version: int, body: EditRequest, profile: Actor) -> dict[str, Any]:
@@ -427,13 +441,12 @@ def knowledge_router(
     @router.post("/assistant/knowledge/guidance")
     def propose_guidance(body: GuidanceRequest, profile: Actor) -> dict[str, Any]:
         require(profile, MUTATE)
-        entry_id = (
-            body.entry_id
-            or "guidance."
-            + "-".join("".join(ch if ch.isalnum() else " " for ch in body.title.lower()).split())[
-                :80
-            ]
-        )
+        entry_id = body.entry_id or guidance_id(body.title)
+        if not re.fullmatch(GUIDANCE_ID, entry_id):
+            raise HTTPException(
+                422,
+                detail={"code": "INVALID_ENTRY_ID", "message": "Give this guidance an entry id."},
+            )
         try:
             proposed = kb.propose(
                 Entry(

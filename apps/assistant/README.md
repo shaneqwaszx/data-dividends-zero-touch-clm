@@ -153,7 +153,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance |
 | GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open gaps |
 | GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
-| GET | `/assistant/knowledge/entries/{id}` | author, Director, HR | All versions and reviews of one entry |
+| GET | `/assistant/knowledge/entries/{id}` | Director, HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote, without review notes |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded) |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
@@ -193,9 +193,10 @@ left out, the answer's notice says how many, and the reply's `checks.removed` is
    followed by its tag (`... [G1]`), but only if it passes these checks against this case's
    facts. At most 20 lines per entry and 48 lines (8 KiB) per answer are offered.
 
-The same checks apply to the other knowledge text the RM can see: an entry title on a source
-chip or in the no-model answer is replaced by a neutral label ("Guidance G1", "Past case
-P1") if it fails, and a follow-up question that fails is not suggested.
+The same checks apply to the other knowledge text in chat replies: an entry title on a
+source chip or in the no-model answer is replaced by a neutral label ("Guidance G1", "Past
+case P1") if it fails, and a follow-up question that fails is not suggested. Source objects
+do not carry the entry id or the free-text source reference.
 
 For knowledge, two-person approval is the real control. The checks are a best-effort filter:
 they catch the listed phrasings and shapes only, not deliberate evasion (ADR-012 lists what
@@ -204,7 +205,7 @@ they miss).
 | Check | The text is not offered when |
 |---|---|
 | Factual claims | a UEN (including the T/S/R format), NRIC/FIN, postal code, unit number, decimal or number of three or more digits is not in the case facts; "N of M steps" does not match the case. Short numbers and percentages are not checked |
-| Labels and places | a quoted button or label, a listed contact phrase ("support team", "your manager" …), an e-mail or web address, or a "(section: ...)" is not in the case facts; the text carries a citation tag of its own. People's names are not recognised |
+| Labels and places | a quoted button or label, a listed contact phrase ("support team", "your manager" …), an e-mail address, a web address starting with `http://`, `https://` or `www.`, or a "(section: ...)" is not in the case facts; the text carries a citation tag of its own. People's names, bare domains and other schemes are not recognised |
 | Action permissions | it uses one of the listed phrasings for an action this case does not offer the RM (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve/authorize the case, submit or resend to GoldTier). Saying an action is not available is fine |
 | Authority | it uses one of the listed phrasings for something only people or other systems can decide: legal UBO verification, KYC/regulatory approval, official verification, or one source always overriding the other |
 | Disclosures | it calls a mock/sandbox system live or production in one of the listed ways, or presents a document value that differs from ACRA as confirmed |

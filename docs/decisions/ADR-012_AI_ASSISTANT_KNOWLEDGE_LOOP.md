@@ -69,7 +69,8 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
 - Python footprint: `chromadb==1.5.9` adds 62 transitive runtime packages (18 to 80 in the
   assistant environment), among them onnxruntime, grpcio, kubernetes, the OpenTelemetry SDK
   and exporters, huggingface-hub, tokenizers and numpy. They are not locked (no lock or
-  constraints file). This is accepted risk pending the owner's decision on a pinning policy.
+  constraints file). Accepting this unpinned footprint is proposed and requires the
+  owner's acceptance (or a pinning policy).
 
 ### B. `@assistant-ui/react` 0.15.23 in the frontend panel
 
@@ -103,11 +104,18 @@ replacement. Do not silently remove mandatory checks."
   runs of spaces become one), and only if the sentence passes the sentence checks against
   this case's facts. The prompt lists these lines with the catalog and tells the model to
   copy lines exactly; source chips still come from the tags.
-- Every other piece of knowledge text the RM can see passes the same checks: an entry title
-  (source chips, the no-model answer, the prompt) is shown only if it passes, otherwise a
-  neutral label ("Guidance G1", "Past case P1") is shown; a follow-up question (suggested
-  questions) is dropped unless it passes. Titles and follow-ups longer than 200 characters
-  never pass.
+- The other knowledge text in chat replies (`/chat` and `/chat/stream`) passes the same
+  checks or is not sent: an entry title (source chips, the no-model answer, the prompt) is
+  shown only if it passes, otherwise a neutral label ("Guidance G1", "Past case P1") is
+  shown; a follow-up question (suggested questions) is dropped unless it passes; titles and
+  follow-ups longer than 200 characters never pass. A source object carries only the tag,
+  kind, version, that title, the approval time and the illustrative and fallback flags: the
+  entry id and the free-text source reference are not sent to the RM's browser or put in the
+  prompt. Guidance ids derived from a title use ASCII letters and digits only.
+- Outside chat replies, the author of a draft (an RM without review capabilities) can read
+  only the versions they wrote through `GET /assistant/knowledge/entries/{id}`, without
+  reviewers' edited versions or review notes. Reviewers in the entry's team see the full
+  history; the review screens are reviewer-only and show unfiltered entries by design.
 - Controls for knowledge content: **two-person approval of every version is the primary,
   robust control** (two different identities, a decision bound to the content hash,
   team-scoped). The sentence checks are a **secondary, best-effort filter** with documented
@@ -115,7 +123,9 @@ replacement. Do not silently remove mandatory checks."
   outside printable ASCII and typographic quotes, dashes, ellipsis and bullet (tabs,
   non-breaking and invisible spaces, look-alike letters from other scripts); numbers of
   three or more digits, decimals, UENs including the T/S/R format, NRIC/FIN, postal and unit
-  numbers, step counts, quoted labels, listed contact phrases, e-mail and web addresses and
+  numbers, step counts, quoted labels, listed contact phrases, e-mail addresses, web
+  addresses written with `http://`, `https://` or `www.` (bare domains such as
+  `portal.example.com` and other schemes such as `ftp://` are not recognised), and
   `(section: ...)` names that are not in this case's facts; citation tags inside the body;
   the listed action phrasings for actions this RM is not offered and the listed authority
   phrasings, unless a fixed negation directly governs them (the cycle-2 rule, without the
@@ -127,7 +137,7 @@ replacement. Do not silently remove mandatory checks."
   so far, so one stream sends at most one update per allowed line, each no larger than the
   allowed text. The fourth gate's pathological entries (4,788 lines) produced about 126 MB
   of updates before the bound; with it, the same 1-byte stream sends about 100 kB (the test
-  allows 512 kB).
+  allows 512 kB), and the fifth gate's adversarial worst case for one stream is about 1.1 MB.
 - Streaming is main's line-based acceptance: only new text is split into lines, each
   complete line is looked up once and dropped from the buffer, an unfinished line is never
   shown, and model text is bounded at 64 KiB. After a stream failure only lines completed
@@ -159,8 +169,11 @@ replacement. Do not silently remove mandatory checks."
       client is approved."), unlisted Live wording (3, "ACRA is connected live."), short
       numbers and percentages (3, "The ownership threshold is 10%."), people's names (2,
       "Ask Priya in operations.") and an unquoted stage name (1). The other 15 (look-alike
-      letters, invisible characters, a T-format UEN, an NRIC, an e-mail and a web address)
-      are now caught.
+      letters, invisible characters, a T-format UEN, an NRIC, an e-mail and an `https://`
+      address) are now caught.
+    - Further evasions the fifth gate found outside these lists (for example "Appr0ve the
+      case now.", "KYC: approved.", "ACRA wins."), bare domains, `ftp://` and spelled-out
+      e-mail addresses are not caught either.
   - Some genuine text is over-dropped: negations such as the R4 disclaimer (which stays
     available as a catalog line), and the shipped title "Mock, Local, Sandbox and Live data"
     ("live data"), whose chip shows the neutral label instead.

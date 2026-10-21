@@ -25,8 +25,9 @@ sentence is not offered when (fail closed):
   letters from other scripts);
 - grounding: a UEN or NRIC/FIN, postal code, unit number, decimal or number of three or more
   digits is not in the case facts; "N of M steps" does not match the case; a quoted button,
-  screen or label, one of the listed contact phrases, an e-mail address or web address, or a
-  "(section: ...)" is not in the case facts; it carries a citation tag of its own;
+  screen or label, one of the listed contact phrases, an e-mail address, a web address
+  written with http://, https:// or www., or a "(section: ...)" is not in the case facts; it
+  carries a citation tag of its own;
 - policy: it uses one of the listed action phrasings for an action this RM is not offered on
   this case, or one of the listed authority phrasings (legal UBO verification, KYC/regulatory
   approval, one source automatically winning). Only a negation that directly governs the
@@ -34,8 +35,8 @@ sentence is not offered when (fail closed):
 - disclosures: it calls a mock, local or sandbox system live in one of the listed ways, or
   presents a document value that differs from ACRA as confirmed.
 
-Short numbers and percentages, people's names, and wording outside the listed phrasings are
-not recognised.
+Short numbers and percentages, people's names, bare domains, and wording outside the listed
+phrasings are not recognised.
 """
 
 import bisect
@@ -128,8 +129,9 @@ _SPACES = re.compile(" {2,}")
 # (tabs, non-breaking or invisible spaces, letters from other scripts that look like Latin
 # ones) is refused rather than normalised.
 _UNSUPPORTED_CHARACTER = re.compile("[^\x20-\x7e\u2018\u2019\u201c\u201d\u2013\u2014\u2026\u2022]")
-# E-mail and web addresses. An e-mail match starts only at the start of a word, so a long
-# word without an @ is scanned once.
+# E-mail addresses, and web addresses written with http://, https:// or www. (bare domains
+# and other schemes are not recognised). An e-mail match starts only at the start of a word,
+# so a long word without an @ is scanned once.
 _ADDRESS = re.compile(r"(?<![\w.+-])[\w.+-]++@[\w-]+(?:\.[\w-]+)+|\bhttps?://\S+|\bwww\.\S+")
 
 # Actions the app can offer, and the wording used for them. The labels are the ones the case

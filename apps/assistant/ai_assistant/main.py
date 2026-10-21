@@ -80,15 +80,17 @@ class AnswerChecks(BaseModel):
 
 
 class KnowledgeSource(BaseModel):
-    """A retrieved knowledge entry the answer could use (cited = the answer names its tag)."""
+    """A retrieved knowledge entry the answer could use (cited = the answer names its tag).
+
+    Only checked or fixed-form fields: the title is checked or a neutral label, and the
+    entry's id and free-text source reference are not sent to the RM's browser.
+    """
 
     tag: str
     kind: Literal["guidance", "resolution"]
-    entry_id: str
     version: int
     title: str
     approved_at: str | None
-    source_ref: str | None
     illustrative: bool
     fallback: bool
     cited: bool

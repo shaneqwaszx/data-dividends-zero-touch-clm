@@ -90,10 +90,9 @@ def shown_knowledge(tagged: list[TaggedHit], facts: dict[str, Any]) -> ShownKnow
 
 def _label(item: TaggedHit) -> str:
     entry = item.hit.entry
+    # Fixed-form details only; the free-text source reference is not passed on.
     if entry.kind == EntryKind.GUIDANCE:
         detail = f"official guidance, version {entry.version}"
-        if entry.source_ref:
-            detail += f", source {entry.source_ref}"
     else:
         approved = (entry.approved_at or "")[:10]
         detail = "approved past case" + (f", approved {approved}" if approved else "")
@@ -136,11 +135,9 @@ def sources_for(
         {
             "tag": item.tag,
             "kind": item.hit.entry.kind.value,
-            "entry_id": item.hit.entry.entry_id,
             "version": item.hit.entry.version,
             "title": shown.title(item),
             "approved_at": item.hit.entry.approved_at,
-            "source_ref": item.hit.entry.source_ref,
             "illustrative": item.hit.entry.illustrative,
             "fallback": item.hit.fallback,
             "cited": item.tag in cited,

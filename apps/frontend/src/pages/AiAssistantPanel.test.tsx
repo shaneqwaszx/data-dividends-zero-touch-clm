@@ -362,8 +362,8 @@ describe("AiAssistantPanel", () => {
             notice: null,
             suggested_questions: [],
             sources: [
-              { tag: "G1", kind: "guidance", entry_id: "guidance.address-mismatch", version: 1, title: "Registered address differs from ACRA", approved_at: null, source_ref: "D-030", illustrative: false, fallback: false, cited: true },
-              { tag: "P1", kind: "resolution", entry_id: "resolution.x", version: 1, title: "Not cited", approved_at: null, source_ref: null, illustrative: true, fallback: false, cited: false },
+              { tag: "G1", kind: "guidance", version: 1, title: "Registered address differs from ACRA", approved_at: null, illustrative: false, fallback: false, cited: true },
+              { tag: "P1", kind: "resolution", version: 1, title: "Not cited", approved_at: null, illustrative: true, fallback: false, cited: false },
             ],
           })}\n`,
           { status: 200, headers: { "Content-Type": "application/x-ndjson" } },

@@ -308,7 +308,8 @@ safeguard. ADR-012 section C proposes adding approved knowledge only as verbatim
 sentences that pass those checks, with entry titles and follow-up questions under the
 same checks; that extension requires explicit owner acceptance. For knowledge content,
 two-person approval is the primary control and the checks are a best-effort filter
-with documented limits. The unlocked chromadb Python footprint (62 transitive packages)
-is accepted risk pending the owner. Reusing POLICY_APPROVE and POLICY_MUTATE for
-knowledge review is PROJECT_DEFINED_PROVISIONAL; review authority stays UNKNOWN_BLOCKED
-(Q-014). No CLM backend write, schema, provider status or Live claim follows.
+with documented limits. Accepting the unlocked chromadb Python footprint (62 transitive
+packages) is proposed and requires owner acceptance. Reusing POLICY_APPROVE and
+POLICY_MUTATE for knowledge review is PROJECT_DEFINED_PROVISIONAL; review authority
+stays UNKNOWN_BLOCKED (Q-014). No CLM backend write, schema, provider status or Live
+claim follows.

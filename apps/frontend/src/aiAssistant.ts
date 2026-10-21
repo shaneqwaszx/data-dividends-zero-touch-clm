@@ -25,11 +25,10 @@ export interface AiAssistantTurn {
 export interface AiAssistantSource {
   tag: string;
   kind: "guidance" | "resolution";
-  entry_id: string;
   version: number;
+  /** The checked entry title, or a neutral label such as "Guidance G1". */
   title: string;
   approved_at: string | null;
-  source_ref: string | null;
   illustrative: boolean;
   fallback: boolean;
   cited: boolean;
