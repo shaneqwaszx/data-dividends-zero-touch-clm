@@ -6,7 +6,9 @@ Proposed, with section C accepted. Sections A and B are proposed for owner accep
 PR #99; section A's chromadb footprint is decided by D-075: the direct pin
 (`chromadb==1.5.9`) is retained and its transitive packages stay unlocked. Section C keeps
 the owner's G6 direction (quoted in C), and the owner explicitly accepted its extension of
-the allow-list with approved knowledge lines on 2026-10-21 (D-074).
+the allow-list with approved knowledge lines on 2026-10-21 (D-074). Section A's feedback
+flow is amended by D-076 (proposed, needs the owner's acceptance): drafts no longer come from
+"Solved it" / "Yes, helpful" but from enhancement requests ("Not helpful" with a note).
 
 ## Date
 
@@ -16,7 +18,8 @@ the allow-list with approved knowledge lines on 2026-10-21 (D-074).
 
 PR #99 adds a knowledge loop to the separate AI Assistant service (`apps/assistant`):
 reviewed official guidance and approved past resolutions are retrieved and cited in answers,
-RMs can mark an answer as solved or not helpful, and Directors review drafts. The 2026-10-06
+RMs can mark an answer as solved or not helpful, and Directors review drafts (since D-076,
+proposed: a helpful rating only, and a "Not helpful" note is an enhancement request). The 2026-10-06
 architecture entry describes the assistant as read-only with no persistence owner; that is
 still true towards the CLM backend (GET only) but no longer true for the assistant's own
 data. The independent quality gate on `ad4661c` (FAIL) and its architecture review (REVISE)
@@ -45,20 +48,30 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   nothing is written. An entry may only
   replace an entry of the same kind. Retiring an approved entry, official guidance
   included, takes two reviewers: one asks, a different one confirms.
-- Team scope: drafts from "Solved it" carry the author's team as visibility. Directors, whom
+- Feedback (D-076, proposed; it replaces drafting from "Solved it"): "Yes, helpful" only
+  records the rating with the case context (blocker codes, fields, stages) and counts towards
+  confidence by topic in the stats; it drafts nothing and changes no retrieval or ranking.
+  "Not helpful" needs a non-blank note (422 otherwise) and is an enhancement request
+  ("gap" in the code). A reviewer handles an open request in one of two ways: drafting a past
+  resolution from it, written by that reviewer, so a different reviewer must approve it
+  (approval marks the request resolved, rejection opens it again), or closing it with a
+  required reason. Both are review changes and recheck the caller inside the write
+  transaction like every other one.
+- Team scope: a draft from an enhancement request carries the team the request came from
+  (before D-076, a "Solved it" draft carried its RM author's team). Directors, whom
   the CLM backend scopes globally (a Director has no team), see, edit and decide every
-  team's drafts and gaps, and their stats count every team; other actors keep the team rule
-  and see only their own team's drafts, gaps and stats. An edit can narrow team and role
+  team's drafts and enhancement requests, and their stats count every team; other actors
+  keep the team rule and see only their own team's drafts, requests and stats. An edit can narrow team and role
   visibility but never widen it. HR guidance keeps the visibility HR sets.
-- Drafts contain only the RM's own words (questions and note) and case context, redacted of
-  the company, addresses and identifiers, and of the parties the case summary names in the
+- Drafts contain only the RM's own note and the case context (since D-076; earlier drafts
+  also used the RM's questions), the note redacted when it is stored of the company, addresses and identifiers, and of the parties the case summary names in the
   shapes the redactor knows: objects with a `party_type`, entries of person lists such as
   `officers` and `shareholders` (registry officers carry no `party_type`), and person-name
   fields. A known address is replaced whole and also by each of its comma-separated parts
   that has a letter and at least 6 characters (a street line; a bare country code such as
   `SG` is kept). Matching ignores letter case and whitespace between words. Names the case
-  data does not contain, or spells differently, are not recognised. Browser-supplied
-  "assistant" turns are not copied.
+  data does not contain, or spells differently, are not recognised. The draft passes the
+  pattern redaction again. Feedback no longer carries the conversation at all.
 - ChromaDB product telemetry is disabled (`Settings(anonymized_telemetry=False)`) on every
   client. The embedding endpoint must be a literal loopback URL (the warm-up rule,
   `llm.is_local_model_url`); embedding requests ignore proxy environment variables and do
@@ -162,7 +175,8 @@ replacement. Do not silently remove mandatory checks."
   each match costs bounded work (a governing negation is searched within 80 characters, and
   phrase breaks and negation words are found once per clause). The slowest 64 KiB probe body
   took 0.18 s. Bodies proposed or edited through the API are limited to 4,000 characters;
-  drafts from RM feedback can be longer (a 4,000-character question and a 1,000-character
+  drafts from enhancement requests hold one note of at most 1,000 characters (drafts from
+  "Solved it" in older stores can be longer: a 4,000-character question and a 1,000-character
   note), which the per-answer bound above covers.
 - Residual risks:
   - Answer flexibility is reduced to selecting catalog and knowledge lines, so answers are
@@ -241,7 +255,9 @@ embedding model (Ollama); without it, index tasks wait and keyword search still 
 ## Security and persistence implications
 
 SQLite schema v3 adds `entries.revises` (nullable) and a `retire_requests` table; v1 and v2
-stores are migrated in place on open. A reviewer who edited a pending version in place under
+stores are migrated in place on open. Schema v4 (D-076) rebuilds the `feedback` table, in one
+transaction, to add a `resolved` status and a nullable `close_reason`; every existing row keeps
+its values and has no close reason. A reviewer who edited a pending version in place under
 schema v2 has only an 'edit' review row on it; that row counts as editing, so they stay barred
 from deciding it after the migration, and the version is left out of the RM author's own
 view of the entry. No credentials are stored. Redaction is a first pass: names that appear nowhere in
@@ -249,7 +265,10 @@ the case data are not recognised, so Director review remains required before app
 
 ## Migration and retirement implications
 
-Opening an older store migrates it (v1 -> v2 -> v3). Rolling back to the PR #99 author head
+Opening an older store migrates it (v1 -> v2 -> v3 -> v4). Code from before v4 can still
+open a v4 store (it names the feedback columns it writes), but it rewrites the schema
+version to 3, drafts from "Yes, helpful" again and closes requests without a reason; the
+v4 code then leaves the already rebuilt table as it is. Rolling back to the PR #99 author head
 (`ad4661c`) after a v3 store has been written is not supported: that code rewrites the
 schema version to 2 and can still read and decide, but cannot add a version (it inserts 20
 values into a 21-column table), and it would ignore edit chains and retirement requests. To
@@ -270,6 +289,9 @@ per-answer knowledge bound with the fourth gate's pathological entries; 64 KiB s
 including whitespace runs and long tokens with a per-feed bound. Cross-team, global-Director,
 edit-then-approve, two-person retirement, concurrent decision/edit, officer and address-part
 redaction and forged-turn regressions; restart/persistence and v2-to-v3 migration tests.
+D-076: helpful-only ratings, required notes, drafting from and closing enhancement requests
+(scope, two-person rule, resolve/reopen, concurrent draft and close, in-transaction recheck)
+and the v3-to-v4 migration.
 Frontend Vitest, typecheck and build; real-embedding retrieval evaluation with a local model
 `NOT_EXECUTED — MODEL NOT INSTALLED / OWNER-DEFERRED` (D-075);
 architecture and project-state checks; a fresh independent quality gate and an independent

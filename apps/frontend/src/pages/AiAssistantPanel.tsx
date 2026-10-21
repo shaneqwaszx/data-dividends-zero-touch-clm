@@ -38,7 +38,7 @@ interface Thread {
   badge: number;
 }
 
-/** Feedback on one answer: choosing (with an optional note), sent, or failed. */
+/** Feedback on one answer: writing the note "Not helpful" needs, sending, sent, or failed. */
 interface FeedbackState {
   helpful: boolean;
   stage: "note" | "sending" | "sent" | "error";
@@ -341,7 +341,8 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
   }
 
   function startFeedback(messageId: string, helpful: boolean): void {
-    // "Yes, helpful" is one click; only "Not helpful" asks what was missing.
+    // "Yes, helpful" is one click that records the rating; "Not helpful" asks what was missing
+    // (required) and becomes an enhancement request for a Director.
     if (helpful) {
       sendFeedback(messageId, { helpful: true, stage: "note", note: "" });
       return;
@@ -352,15 +353,12 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
   function sendFeedback(messageId: string, given?: FeedbackState): void {
     const state = given ?? feedback[messageId];
     if (!state || !activeCaseId) return;
+    const note = state.note.trim();
+    if (!state.helpful && !note) return;
     const key = activeCaseId;
-    // Only the conversation up to the answer being rated, and never the opening summary.
-    const upTo = thread.messages.findIndex((item) => item.id === messageId);
-    const turns = thread.messages
-      .slice(0, upTo + 1)
-      .filter((item) => !item.brief && !item.streaming && item.content)
-      .map(({ role, content }) => ({ role, content }));
     setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "sending" } }));
-    sendAiAssistantFeedback(key, { helpful: state.helpful, note: state.note.trim(), turns })
+    // Only the rating and the note: the conversation is not sent.
+    sendAiAssistantFeedback(key, { helpful: state.helpful, note })
       .then((result) =>
         setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "sent", message: result.message } })),
       )
@@ -408,18 +406,24 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     return (
       <div className="ai-assistant-feedback-form">
         <label>
-          What was missing? (optional)
+          What was missing?
           <textarea
             rows={2}
             maxLength={1000}
+            required
             value={state.note}
             disabled={state.stage === "sending"}
             onChange={(event) => setFeedback((all) => ({ ...all, [messageId]: { ...state, note: event.target.value } }))}
           />
         </label>
-        <p className="ai-assistant-hint">Client details are removed before a Director sees it.</p>
+        <p className="ai-assistant-hint">Your note goes to a Director. Client names, UENs and addresses are removed first.</p>
         <div className="ai-assistant-feedback">
-          <button type="button" className="btn btn-primary" disabled={state.stage === "sending"} onClick={() => sendFeedback(messageId)}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={state.stage === "sending" || !state.note.trim()}
+            onClick={() => sendFeedback(messageId)}
+          >
             Send
           </button>
           <button

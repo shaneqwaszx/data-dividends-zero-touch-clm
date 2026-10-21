@@ -348,3 +348,24 @@ retrieval quality; the local synthetic and mock embedding tests remain the funct
 retrieval evidence. Q-014 review authority stays UNKNOWN_BLOCKED and no sponsor approval or
 production readiness is claimed. Cycle 9 aligns the knowledge-review scope of Directors with
 the CLM backend's global Director scope (a defect fix, not a new authority).
+
+## D-076 - proposed AI Assistant feedback: ratings and enhancement requests (PROPOSED)
+
+Status: PROPOSED by the project team on 2026-10-21; it needs the repository owner's (Shane's)
+acceptance and is not accepted. It amends ADR-012 section A for the AI Assistant's two
+feedback buttons. "Yes, helpful" only records the rating with the case context (blocker
+codes, fields, stages): it no longer drafts a past resolution, adds nothing to the review
+queue and changes no retrieval or ranking. "Not helpful" starts an enhancement request: a
+non-blank note is required (the API answers an empty or whitespace-only note with 422 and the
+panel keeps Send disabled until text is typed) and is redacted before it is stored. In the
+Knowledge review window ("Enhancement requests"), a reviewer either drafts a past resolution
+from an open request (its redacted note and case context, written by that reviewer, visible
+to the team the request came from), which a different reviewer must approve (the existing
+two-person rule; approval resolves the request and rejection opens it again), or closes it
+with a required reason (SQLite schema v4: a nullable `feedback.close_reason` and a `resolved`
+status; v3 stores migrate in place). Only an open request can be drafted or closed. Both
+actions recheck the caller inside the SQLite write transaction. The Director's stats add
+confidence by topic: helpful and not-helpful counts per blocker code, alongside the totals.
+The panel no longer sends the conversation with feedback. The POLICY_APPROVE mapping stays
+PROJECT_DEFINED_PROVISIONAL and review authority stays UNKNOWN_BLOCKED (Q-014). Not sponsor
+policy; no CLM backend write, provider status or Live claim follows.

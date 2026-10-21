@@ -971,7 +971,12 @@ mandatory output gate: model text is shown only as whole allowed lines. Approved
 knowledge the user may see adds lines only as verbatim, tagged sentences that pass
 sentence-level checks against the case facts, with titles and follow-up questions under the
 same checks; the owner accepted this extension on 2026-10-21 (D-074). Two-person approval is
-the primary control for knowledge content and the checks are a best-effort filter. The
+the primary control for knowledge content and the checks are a best-effort filter. RM
+feedback (D-076, proposed, needs the owner's acceptance): "Yes, helpful" only records a
+rating with the case context, counted per blocker code in the reviewer's stats; "Not
+helpful" needs a note and becomes an enhancement request, which a reviewer resolves by
+drafting a past resolution from it (a different reviewer approves it) or closes with a
+reason, both rechecked inside the SQLite write transaction (schema v4). The
 2026-10-06 read-only description above stays current main until PR #99 is accepted and
 merged.
 

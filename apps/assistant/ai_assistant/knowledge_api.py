@@ -1,7 +1,8 @@
 """Feedback and review endpoints for the knowledge loop.
 
-    RM / Client Onboarder  POST /assistant/cases/{id}/feedback      "Solved it" / "Not helpful"
-    Director (POLICY_APPROVE)   review queue, edit, approve/reject, retire, re-index, stats
+    RM / Client Onboarder  POST /assistant/cases/{id}/feedback      "Yes, helpful" / "Not helpful"
+    Director (POLICY_APPROVE)   review queue, edit, approve/reject, retire, re-index, stats,
+                                draft knowledge from or close an enhancement request
     HR (POLICY_MUTATE)          propose new guidance or a new version of guidance
 
 Who someone is, and what they may do, always comes from the CLM backend (/api/auth/me with
@@ -11,12 +12,18 @@ the reviewer was shown (both enforced by the store). Every review or guidance ch
 the backend again inside its write transaction, so a role, team or session withdrawn since
 the request began stops it.
 
+"Yes, helpful" only records the rating with the case context (it counts towards confidence by
+topic in the stats); it drafts nothing. "Not helpful" needs a note and is an enhancement
+request: a reviewer either drafts a past resolution from it (written by that reviewer, so a
+different one must approve it; approval resolves the request, rejection opens it again) or
+closes it with a reason.
+
 Team scope: approved past resolutions are visible only to the team they came from. A Director,
 whom the CLM backend scopes globally (a Director has no team), sees, edits and decides every
-team's drafts and gaps, and their stats count every team. Any other caller keeps the team
-rule: anything outside their team is answered as "not found", and stats count only their
-team's entries and feedback. Guidance proposed by HR keeps the visibility HR set. An edit can
-narrow team and role visibility, never widen it.
+team's drafts and enhancement requests (called gaps here), and their stats count every team.
+Any other caller keeps the team rule: anything outside their team is answered as "not found",
+and stats count only their team's entries and feedback. Guidance proposed by HR keeps the
+visibility HR set. An edit can narrow team and role visibility, never widen it.
 
 Retiring an approved entry (official guidance included) takes two reviewers: the first POST
 to /retire records the request, a different reviewer's POST confirms it.
@@ -25,20 +32,21 @@ to /retire records the request, a different reviewer's POST confirms it.
 import re
 from collections import Counter
 from collections.abc import Callable
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .context import build_case_facts
-from .knowledge.drafting import draft_resolution
+from .knowledge.drafting import draft_from_request
 from .knowledge.models import Entry, EntryKind, EntryStatus, Visibility
 from .knowledge.redaction import Redactor, case_parties
 from .knowledge.retrieval import case_context
 from .knowledge.service import KnowledgeBase
 from .knowledge.store import (
+    ContentChangedError,
     KnowledgeError,
     KnowledgeRuleError,
     MakerCheckerError,
@@ -51,24 +59,20 @@ _HASH = r"^[0-9a-f]{64}$"
 GUIDANCE_ID = r"^guidance\.[a-z0-9-]{3,80}$"
 
 
-class Turn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=4000)
-
-
 class FeedbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     helpful: bool
     note: str = Field(default="", max_length=1000)
-    # The browser sends the conversation; only the RM's own questions are used (an
-    # "assistant" turn here is not proof of what the assistant said).
-    turns: list[Turn] = Field(default_factory=list, max_length=40)
+
+    @model_validator(mode="after")
+    def _not_helpful_says_what_was_missing(self) -> "FeedbackRequest":
+        if not self.helpful and not self.note.strip():
+            raise ValueError("say what was missing")
+        return self
 
 
 class FeedbackResponse(BaseModel):
     feedback_id: int
-    draft_entry_id: str | None
     message: str
 
 
@@ -98,6 +102,17 @@ class DecisionRequest(BaseModel):
     # The content the reviewer was shown; the decision is refused if the version differs.
     content_hash: str = Field(pattern=_HASH)
     notes: str = Field(default="", max_length=1000)
+
+
+class CloseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(max_length=1000)
+
+    @model_validator(mode="after")
+    def _has_a_reason(self) -> "CloseRequest":
+        if not self.reason.strip():
+            raise ValueError("give a reason")
+        return self
 
 
 class RetireRequest(BaseModel):
@@ -152,6 +167,8 @@ CHANGED_MESSAGE = "This entry has changed or was already decided. Refresh and tr
 RULE_MESSAGE = "This change is not allowed."
 NOT_FOUND_MESSAGE = "No such entry."
 SECOND_REVIEWER_MESSAGE = "A different reviewer must confirm this."
+REQUEST_NOT_FOUND_MESSAGE = "No such enhancement request."
+REQUEST_CHANGED_MESSAGE = "This request was already handled. Refresh and try again."
 
 
 def guidance_id(title: str) -> str:
@@ -269,12 +286,34 @@ def knowledge_router(
                 counts[name] = counts.get(name, 0) + 1
         return counts
 
-    def team_feedback(profile: dict[str, Any], status: str | None = None) -> list[dict[str, Any]]:
+    def team_feedback(
+        profile: dict[str, Any], status: str | None = None, helpful: bool | None = None
+    ) -> list[dict[str, Any]]:
         return [
             row
-            for row in kb.store.feedback(status=status)
+            for row in kb.store.feedback(status=status, helpful=helpful)
             if global_reviewer(profile) or row["team"] == team(profile)
         ]
+
+    def request_in_scope(feedback_id: int) -> Callable[[dict[str, Any]], None]:
+        """An enhancement request ("Not helpful" feedback) the caller may handle, else 404."""
+
+        def reach(who: dict[str, Any]) -> None:
+            if not any(row["id"] == feedback_id for row in team_feedback(who, helpful=False)):
+                raise HTTPException(
+                    404, detail={"code": "NOT_FOUND", "message": REQUEST_NOT_FOUND_MESSAGE}
+                )
+
+        return reach
+
+    def request_refused(exc: KnowledgeError) -> HTTPException:
+        if isinstance(exc, ContentChangedError):
+            return HTTPException(
+                409, detail={"code": "CHANGED", "message": REQUEST_CHANGED_MESSAGE}
+            )
+        return HTTPException(
+            404, detail={"code": "NOT_FOUND", "message": REQUEST_NOT_FOUND_MESSAGE}
+        )
 
     # --- RM feedback ----------------------------------------------------------------
 
@@ -284,21 +323,8 @@ def knowledge_router(
         facts = build_case_facts(snapshot)
         parties = case_parties(snapshot.summary)
         ctx = case_context(facts)
-        turns = [turn.model_dump() for turn in body.turns]
-        note = Redactor(facts, parties=parties).redact(body.note)
-        draft_id: str | None = None
-        if body.helpful:
-            draft = kb.propose(
-                draft_resolution(
-                    facts,
-                    turns,
-                    body.note,
-                    author=user_id(profile),
-                    team=team(profile),
-                    parties=parties,
-                )
-            )
-            draft_id = draft.entry_id
+        # Redacted before it is stored: a Director reads the note of an enhancement request.
+        note = Redactor(facts, parties=parties).redact(body.note.strip())
         feedback_id = kb.store.add_feedback(
             case_id=str(case_id),
             user_id=user_id(profile),
@@ -309,11 +335,10 @@ def knowledge_router(
             blocker_codes=ctx.blocker_codes,
             fields=ctx.fields,
             stages=ctx.stages,
-            entry_id=draft_id,
+            entry_id=None,
         )
         return FeedbackResponse(
             feedback_id=feedback_id,
-            draft_entry_id=draft_id,
             message=(
                 # The RM only needs a short thanks; the Director review behind it is not
                 # their concern (and a one-click "Yes, helpful" should not feel like a task).
@@ -344,7 +369,8 @@ def knowledge_router(
                 for e in kb.store.entries(status=EntryStatus.PENDING_REVIEW)
                 if in_scope(e, profile)
             ],
-            "gaps": team_feedback(profile, "open"),
+            # Open enhancement requests ("Enhancement requests" in the review window).
+            "gaps": team_feedback(profile, "open", helpful=False),
         }
 
     @router.get("/assistant/knowledge/entries")
@@ -481,22 +507,41 @@ def knowledge_router(
             "entry": entry_view(current),
         }
 
-    @router.post("/assistant/knowledge/feedback/{feedback_id}/close")
-    def close(feedback_id: int, profile: Actor, request: Request) -> dict[str, str]:
-        def reach(who: dict[str, Any]) -> None:
-            if not any(row["id"] == feedback_id for row in team_feedback(who)):
-                raise HTTPException(404, detail={"code": "NOT_FOUND"})
+    @router.post("/assistant/knowledge/feedback/{feedback_id}/draft")
+    def draft(feedback_id: int, profile: Actor, request: Request) -> dict[str, Any]:
+        # Resolve a request by drafting knowledge: a past resolution written by this reviewer,
+        # from the request's redacted note and case context. A different reviewer must approve
+        # it (maker-checker); approving it resolves the request.
+        reach = request_in_scope(feedback_id)
+        require(profile, APPROVE)
+        reach(profile)
+        author = user_id(profile)
+        try:
+            drafted = kb.store.draft_request(
+                feedback_id,
+                lambda row: draft_from_request(row, author=author),
+                authorize=recheck(request, profile, APPROVE, reach),
+            )
+        except KnowledgeError as exc:
+            raise request_refused(exc) from None
+        return entry_view(drafted)
 
+    @router.post("/assistant/knowledge/feedback/{feedback_id}/close")
+    def close(
+        feedback_id: int, body: CloseRequest, profile: Actor, request: Request
+    ) -> dict[str, str]:
+        reach = request_in_scope(feedback_id)
         require(profile, APPROVE)
         reach(profile)
         try:
             kb.store.close_feedback(
                 feedback_id,
                 by=user_id(profile),
+                reason=body.reason,
                 authorize=recheck(request, profile, APPROVE, reach),
             )
-        except KnowledgeError:
-            raise HTTPException(404, detail={"code": "NOT_FOUND"}) from None
+        except KnowledgeError as exc:
+            raise request_refused(exc) from None
         return {"status": "closed"}
 
     @router.post("/assistant/knowledge/reindex")
@@ -511,6 +556,13 @@ def knowledge_router(
         require(profile, APPROVE)
         feedback_rows = team_feedback(profile)
         helpful = sum(1 for row in feedback_rows if row["helpful"])
+        # Confidence by topic: the ratings given on cases with each blocker code (a rating on
+        # a case with no blocker code counts only in the totals).
+        by_topic: dict[str, dict[str, int]] = {}
+        for row in feedback_rows:
+            for code in dict.fromkeys(row["blocker_codes"]):
+                counts = by_topic.setdefault(code, {"helpful": 0, "not_helpful": 0})
+                counts["helpful" if row["helpful"] else "not_helpful"] += 1
         return {
             "entries": team_entry_counts(profile),
             "feedback": {
@@ -518,8 +570,11 @@ def knowledge_router(
                 "helpful": helpful,
                 "not_helpful": len(feedback_rows) - helpful,
                 "helpful_rate": round(helpful / len(feedback_rows), 3) if feedback_rows else None,
-                "open_gaps": sum(1 for row in feedback_rows if row["status"] == "open"),
+                "open_gaps": sum(
+                    1 for row in feedback_rows if not row["helpful"] and row["status"] == "open"
+                ),
             },
+            "by_topic": dict(sorted(by_topic.items())),
         }
 
     # --- HR guidance changes --------------------------------------------------------

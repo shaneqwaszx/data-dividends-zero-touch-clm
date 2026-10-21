@@ -3,6 +3,7 @@ import {
   AiAssistantError,
   closeKnowledgeGap,
   decideKnowledgeEntry,
+  draftFromKnowledgeGap,
   editKnowledgeEntry,
   fetchApprovedResolutions,
   fetchKnowledgeReviews,
@@ -40,8 +41,9 @@ const FOCUSABLE = "button:not([disabled]), input:not([disabled]), select:not([di
 
 /**
  * Director review of the knowledge loop: drafted past resolutions waiting for a decision,
- * and gaps flagged as "Not helpful". Shown only to users the backend reports as able to
- * review; every action is checked again by the backend (and the author can never decide
+ * and enhancement requests (an RM's "Not helpful" note), which a reviewer resolves by drafting
+ * knowledge from it or closes with a reason. Shown only to users the backend reports as able
+ * to review; every action is checked again by the backend (and the author can never decide
  * their own entry).
  */
 export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
@@ -49,6 +51,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [approved, setApproved] = useState<KnowledgeEntry[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [reasons, setReasons] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -166,10 +169,31 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     }
   }
 
-  async function close(id: number): Promise<void> {
+  // Drafting writes a past resolution as this reviewer: a different reviewer must approve it,
+  // and approving it resolves the request.
+  async function draftFrom(id: number): Promise<void> {
     setBusy(`gap-${id}`);
+    setError(null);
     try {
-      await closeKnowledgeGap(id);
+      await draftFromKnowledgeGap(id);
+      setNotice("Draft created from the request. Another reviewer must approve it.");
+      setTick((value) => value + 1);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function close(id: number): Promise<void> {
+    const why = (reasons[id] ?? "").trim();
+    if (!why) return;
+    setBusy(`gap-${id}`);
+    setError(null);
+    try {
+      await closeKnowledgeGap(id, why);
+      setNotice("Request closed.");
+      setReasons(({ [id]: _closed, ...rest }) => rest);
       setTick((value) => value + 1);
     } catch (reason) {
       setError(message(reason));
@@ -193,10 +217,21 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
           another reviewer.
         </p>
         {stats && (
-          <p className="knowledge-review-stats">
-            {stats.feedback.total} feedback · {stats.feedback.helpful} solved · {stats.feedback.not_helpful} not helpful
-            {stats.feedback.helpful_rate !== null ? ` · ${Math.round(stats.feedback.helpful_rate * 100)}% helpful` : ""}
-          </p>
+          <>
+            <p className="knowledge-review-stats">
+              {stats.feedback.total} feedback · {stats.feedback.helpful} helpful · {stats.feedback.not_helpful} not helpful
+              {stats.feedback.helpful_rate !== null ? ` · ${Math.round(stats.feedback.helpful_rate * 100)}% helpful` : ""}
+            </p>
+            {Object.keys(stats.by_topic).length > 0 && (
+              <ul className="knowledge-review-stats" aria-label="Confidence by topic">
+                {Object.entries(stats.by_topic).map(([code, counts]) => (
+                  <li key={code}>
+                    {code}: {counts.helpful} helpful · {counts.not_helpful} not helpful
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
         {notice && <p className="knowledge-review-notice" role="status">{notice}</p>}
         {error && <p className="ai-assistant-error" role="alert">{error}</p>}
@@ -282,17 +317,39 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
               );
             })}
 
-            <h3>Gaps flagged as not helpful ({queue.gaps.length})</h3>
-            {queue.gaps.length === 0 && <p className="ai-assistant-hint">No open gaps.</p>}
-            {queue.gaps.map((gap) => (
-              <article key={gap.id} className="knowledge-review-entry">
-                <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
-                <p>{gap.note || "No note given."}</p>
-                <button type="button" className="btn btn-ghost" disabled={busy !== null} onClick={() => void close(gap.id)}>
-                  Mark as handled
-                </button>
-              </article>
-            ))}
+            <h3>Enhancement requests ({queue.gaps.length})</h3>
+            {queue.gaps.length === 0 && <p className="ai-assistant-hint">No open enhancement requests.</p>}
+            {queue.gaps.map((gap) => {
+              const why = reasons[gap.id] ?? "";
+              return (
+                <article key={gap.id} className="knowledge-review-entry" aria-label={`Enhancement request ${gap.id}`}>
+                  <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
+                  <p>{gap.note || "No note given."}</p>
+                  <label>
+                    Reason for closing
+                    <input
+                      value={why}
+                      maxLength={1000}
+                      disabled={busy !== null}
+                      onChange={(event) => setReasons((all) => ({ ...all, [gap.id]: event.target.value }))}
+                    />
+                  </label>
+                  <div className="knowledge-review-actions">
+                    <button type="button" className="btn btn-primary" disabled={busy !== null} onClick={() => void draftFrom(gap.id)}>
+                      Draft knowledge from this
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      disabled={busy !== null || !why.trim()}
+                      onClick={() => void close(gap.id)}
+                    >
+                      Close with reason
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </>
         )}
       </section>

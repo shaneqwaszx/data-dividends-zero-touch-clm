@@ -110,6 +110,8 @@ const SAFE_ERROR_MESSAGES = new Set([
   "You cannot approve or reject an entry you wrote or edited.",
   "This entry has changed or was already decided. Refresh and try again.",
   "This change is not allowed.",
+  "No such enhancement request.",
+  "This request was already handled. Refresh and try again.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -286,13 +288,16 @@ export async function askAiAssistantStreaming(
 
 export interface AiAssistantFeedbackResult {
   feedback_id: number;
-  draft_entry_id: string | null;
   message: string;
 }
 
+/**
+ * "Yes, helpful" records the rating; "Not helpful" needs a note (the backend refuses an empty
+ * one) and becomes an enhancement request for a Director.
+ */
 export function sendAiAssistantFeedback(
   caseId: string,
-  feedback: { helpful: boolean; note: string; turns: AiAssistantTurn[] },
+  feedback: { helpful: boolean; note: string },
   signal?: AbortSignal,
 ): Promise<AiAssistantFeedbackResult> {
   return request<AiAssistantFeedbackResult>(`/cases/${encodeURIComponent(caseId)}/feedback`, feedback, signal);
@@ -330,6 +335,7 @@ export interface KnowledgeEntry {
   content_hash: string;
 }
 
+/** An enhancement request: an RM's "Not helpful" note, redacted, with its case context. */
 export interface KnowledgeGap {
   id: number;
   note: string;
@@ -353,6 +359,8 @@ export interface KnowledgeStats {
     helpful_rate: number | null;
     open_gaps: number;
   };
+  /** Confidence by topic: helpful and not-helpful ratings per blocker code. */
+  by_topic: Record<string, { helpful: number; not_helpful: number }>;
 }
 
 /** A reviewer's edit; `replaces: null` clears what the version replaces, leaving it out keeps it. */
@@ -383,5 +391,9 @@ export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, no
     content_hash: entry.content_hash,
     notes,
   });
-export const closeKnowledgeGap = (feedbackId: number) =>
-  request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, {});
+// Drafts a past resolution from the request, written by this reviewer: a different reviewer
+// must approve it, which resolves the request.
+export const draftFromKnowledgeGap = (feedbackId: number) =>
+  request<KnowledgeEntry>(`/knowledge/feedback/${feedbackId}/draft`, {});
+export const closeKnowledgeGap = (feedbackId: number, reason: string) =>
+  request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, { reason });

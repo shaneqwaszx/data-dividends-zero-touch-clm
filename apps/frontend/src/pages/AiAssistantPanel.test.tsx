@@ -347,7 +347,7 @@ describe("AiAssistantPanel", () => {
     expect(view.querySelector("[role=alert]")).toBeNull();
   });
 
-  it("shows cited sources and sends Yes, helpful with the conversation, never the summary", async () => {
+  it("shows cited sources and sends Yes, helpful as a rating only, without the conversation", async () => {
     const sent: unknown[] = [];
     stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -371,7 +371,7 @@ describe("AiAssistantPanel", () => {
       }
       if (url.endsWith("/feedback")) {
         sent.push(JSON.parse(String(init?.body)));
-        return json({ feedback_id: 1, draft_entry_id: "resolution.abc", message: "Thanks for your feedback." });
+        return json({ feedback_id: 1, message: "Thanks for your feedback." });
       }
       return json({}, 404);
     });
@@ -392,19 +392,65 @@ describe("AiAssistantPanel", () => {
     await flush();
     expect(view.querySelector(".ai-assistant-feedback-form")).toBeNull();
 
-    expect(sent).toEqual([
-      {
-        helpful: true,
-        note: "",
-        turns: [
-          { role: "user", content: "Why is this case blocked?" },
-          { role: "assistant", content: "Only Keep registry value is offered [G1]." },
-        ],
-      },
-    ]);
+    expect(sent).toEqual([{ helpful: true, note: "" }]);
     expect(view.textContent).toContain("Thanks for your feedback.");
     // The opening summary has no feedback buttons.
     expect([...view.querySelectorAll(".ai-assistant-feedback-button")]).toHaveLength(0);
+  });
+
+  it("asks Not helpful for a required note and sends it as an enhancement request", async () => {
+    const sent: unknown[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        return new Response(
+          `${JSON.stringify({ type: "done", answer: "Keep the registry value.", answered_by: "model", model: "m", notice: null, suggested_questions: [] })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      if (url.endsWith("/feedback")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ feedback_id: 2, message: "Thanks. This has been flagged so the answer can be improved." });
+      }
+      return json({}, 404);
+    });
+
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
+    await flush();
+
+    const form = view.querySelector(".ai-assistant-feedback-form");
+    expect(form?.querySelector("label")?.textContent).toBe("What was missing?");
+    expect(form?.textContent).not.toContain("optional");
+    expect(form?.querySelector(".ai-assistant-hint")?.textContent).toBe(
+      "Your note goes to a Director. Client names, UENs and addresses are removed first.",
+    );
+    const note = form?.querySelector("textarea") as HTMLTextAreaElement;
+    expect(note.required).toBe(true);
+    const send = [...(form?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === "Send");
+    // Nothing typed, or only whitespace: Send stays disabled and nothing is sent.
+    expect(send?.disabled).toBe(true);
+    const type = (value: string) => act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, value);
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    type("   ");
+    expect(send?.disabled).toBe(true);
+    click(send);
+    await flush();
+    expect(sent).toEqual([]);
+
+    type("  It did not list the proof to ask for. ");
+    expect(send?.disabled).toBe(false);
+    click(send);
+    await flush();
+    expect(sent).toEqual([{ helpful: false, note: "It did not list the proof to ask for." }]);
+    expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
   });
 
   it("offers Knowledge review only to someone the backend allows to review", async () => {
@@ -412,7 +458,7 @@ describe("AiAssistantPanel", () => {
       const url = String(input);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary."));
       if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [] });
-      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 0, helpful: 0, not_helpful: 0, helpful_rate: null, open_gaps: 0 } });
+      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 0, helpful: 0, not_helpful: 0, helpful_rate: null, open_gaps: 0 }, by_topic: {} });
       if (url.includes("/knowledge/entries")) return json([]);
       return json({}, 404);
     }, { user_id: "director-dan", can_review: true, can_edit_guidance: false });

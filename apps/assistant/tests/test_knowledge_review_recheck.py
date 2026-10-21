@@ -26,10 +26,10 @@ from tests.test_knowledge_review import (  # noqa: F401
     _profile,
     client,
     decide,
+    drafted,
     edit,
     kb,
     shown_hash,
-    solved,
 )
 from tests.test_knowledge_store import HashEmbedder
 
@@ -143,13 +143,13 @@ Mutation = tuple[str, str, dict[str, Any] | None]
 
 
 def _edit(kb: KnowledgeBase) -> Mutation:  # noqa: F811
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     body = {"content_hash": shown_hash(kb, entry_id, 1), "title": "Tidied title for review"}
     return "director-session", f"/assistant/knowledge/entries/{entry_id}/versions/1/edit", body
 
 
 def _decision(kb: KnowledgeBase) -> Mutation:  # noqa: F811
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     body = {"approve": True, "content_hash": shown_hash(kb, entry_id, 1)}
     return "director-session", f"/assistant/knowledge/entries/{entry_id}/versions/1/decision", body
 
@@ -170,7 +170,16 @@ def _close_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
     )
     assert reply.status_code == 200
     gap = kb.store.feedback(status="open")[0]["id"]
-    return "director-session", f"/assistant/knowledge/feedback/{gap}/close", None
+    return "director-session", f"/assistant/knowledge/feedback/{gap}/close", {"reason": "Dup."}
+
+
+def _draft_from_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
+    reply = client(kb, "rm-session").post(
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": "No proof list."}
+    )
+    assert reply.status_code == 200
+    gap = kb.store.feedback(status="open")[0]["id"]
+    return "director-session", f"/assistant/knowledge/feedback/{gap}/draft", None
 
 
 def _reindex(kb: KnowledgeBase) -> Mutation:  # noqa: F811
@@ -193,6 +202,7 @@ MUTATIONS: dict[str, Callable[[KnowledgeBase], Mutation]] = {
     "retire-request": _retire_request,
     "retire-confirm": _retire_confirm,
     "close-gap": _close_gap,
+    "draft-from-gap": _draft_from_gap,
     "reindex": _reindex,
     "propose-guidance": _propose_guidance,
 }
@@ -238,7 +248,7 @@ def test_a_caller_revoked_during_the_request_changes_nothing(
     assert backend.me_calls == 2
 
 
-@pytest.mark.parametrize("mutation", ["edit", "decision", "close-gap"])
+@pytest.mark.parametrize("mutation", ["edit", "decision", "close-gap", "draft-from-gap"])
 def test_a_reviewer_moved_to_another_team_during_the_request_changes_nothing(
     quiet_kb: KnowledgeBase,
     tmp_path: Path,
@@ -333,7 +343,18 @@ STORE_CALLS: dict[str, StoreCall] = {
         "guidance.g", by="director-dan", notes="old", authorize=check
     ),
     "close_feedback": lambda store, check: store.close_feedback(
-        1, by="director-dan", authorize=check
+        1, by="director-dan", reason="Duplicate.", authorize=check
+    ),
+    "draft_request": lambda store, check: store.draft_request(
+        1,
+        lambda row: Entry(
+            entry_id="resolution.from-request",
+            kind=EntryKind.RESOLUTION,
+            title="Draft",
+            body=row["note"],
+            author="director-dan",
+        ),
+        authorize=check,
     ),
     "queue_full_reindex": lambda store, check: store.queue_full_reindex(authorize=check),
 }
@@ -391,9 +412,9 @@ def test_an_explicit_null_clears_what_a_draft_replaces(
     monkeypatch.setitem(
         USERS, "director-3-session", _profile("director-dov", "DIRECTOR", ["POLICY_APPROVE"])
     )
-    first = solved(quiet_kb)
+    first = drafted(quiet_kb)
     assert decide(quiet_kb, "director-session", first, 1).status_code == 200
-    second = solved(quiet_kb, note="Newer, clearer resolution.")
+    second = drafted(quiet_kb, note="Newer, clearer resolution.")
     replacing = edit(quiet_kb, "director-session", second, 1, replaces=first)
     assert replacing.json()["replaces"] == first
     # Leaving "replaces" out keeps it.

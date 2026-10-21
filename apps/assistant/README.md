@@ -86,16 +86,20 @@ retraining the model. There are two kinds of entry:
 - **Official guidance**: the rulebook, written from recorded decisions (`knowledge/guidance/*.md`,
   each citing its source). HR (`POLICY_MUTATE`) can propose new guidance through
   `POST /api/assistant/knowledge/guidance`; there is no in-app UI for it.
-- **Approved past resolutions**: worked examples drafted from an RM's "Yes, helpful" feedback and
-  approved by a manager (Director, `POLICY_APPROVE`). The demo seed
+- **Approved past resolutions**: worked examples a manager (Director, `POLICY_APPROVE`) drafts
+  from an RM's enhancement request ("Not helpful" with a note) and a different manager approves
+  (D-076, proposed). The demo seed
   (`seed/synthetic_resolutions.json`) is made up and labelled illustrative.
 
 ```
 RM asks ─► case context (blocker codes, fields, stage)
         ─► search: approved, current versions the RM may see ─► top guidance [G1..] + resolutions [P1..]
         ─► prompt (rules → facts → history → KNOWLEDGE → question) ─► guardrails ─► answer + source chips
-RM clicks "Yes, helpful" ─► redacted draft ─► Director edits / approves ─► searchable for the next RM
-RM clicks "Not helpful" ─► gap for the Director to handle
+RM clicks "Yes, helpful" ─► rating stored with the case context (confidence by topic in the stats)
+RM clicks "Not helpful" + note ─► redacted enhancement request
+        ─► Director drafts knowledge from it ─► a different Director approves ─► request resolved,
+                                                 searchable for the next RM (rejected: request open again)
+        ─► or Director closes it with a reason
 ```
 
 | Part (`ai_assistant/knowledge/`) | What it does |
@@ -105,7 +109,7 @@ RM clicks "Not helpful" ─► gap for the Director to handle
 | `vector_index.py` + `embeddings.py` | ChromaDB vectors of approved current versions only; local embeddings through Ollama (`nomic-embed-text`) |
 | `service.py` | Propose, decide, retire; keeps SQLite and ChromaDB in step; retries; rebuild |
 | `retrieval.py` | Hybrid search with permission filters (below) |
-| `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from feedback |
+| `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from an enhancement request |
 | `ingest.py` | Loads the guidance files (an app-approved edit is not overwritten by its file) |
 | `evaluation.py` | Recall and "correctly found nothing" on a labelled question set |
 | `../knowledge_answers.py` | Tags hits, keeps only approved entries the user may see, checks every knowledge text the RM can see (lines, titles, follow-up questions), lists the allowed lines in the KNOWLEDGE prompt part, works out cited sources |
@@ -150,24 +154,25 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (drafts a resolution) or "Not helpful" (records a gap) |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422) |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance |
-| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open gaps |
+| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open enhancement requests (`gaps`) |
 | GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
 | GET | `/assistant/knowledge/entries/{id}` | Director (every team), HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
-| POST | `/assistant/knowledge/feedback/{id}/close` | Director | Mark a gap as handled |
+| POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Draft a past resolution from an open enhancement request, as its author; a different Director must approve it, which resolves the request |
+| POST | `/assistant/knowledge/feedback/{id}/close` | Director | Close an open enhancement request; `reason` is required |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
 | POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
-| GET | `/assistant/knowledge/stats` | Director | Entry counts and how helpful answers were |
+| GET | `/assistant/knowledge/stats` | Director | Entry counts, how helpful answers were, and confidence by topic (helpful / not helpful per blocker code) |
 
 ### In the app
 
 The panel is built on `@assistant-ui/react`. Each answer shows the guidance and past cases it
 cited as chips (G1, P1 …) and has **Yes, helpful** (one click, no note) and **Not helpful**
-(with an optional note) buttons. Users who can review
+(asks "What was missing?"; Send stays disabled until a note is typed) buttons. Users who can review
 see a **Review** button that opens the Knowledge review window.
 
 ### Demo script
@@ -175,10 +180,12 @@ see a **Review** button that opens the Knowledge review window.
 1. Sign in as an RM, open a case blocked by a document/ACRA address conflict, open the AI Assistant.
 2. Ask "Can I use the document address?" The answer cites guidance [G1] and an illustrative past
    case [P1], shown as chips.
-3. Click **Yes, helpful** (one click; only **Not helpful** asks for a note).
-4. Sign in as a Director (not the same user), open **Review**: the draft has the client's name
-   replaced with `[COMPANY]`. Edit if needed, then **Approve**.
-5. Back as an RM on a similar case, ask again: the new resolution is now cited.
+3. Click **Not helpful** and say what was missing, naming the client.
+4. Sign in as a Director, open **Review**: under **Enhancement requests** the note has the
+   client's name replaced with `[COMPANY]`. Click **Draft knowledge from this**, edit the draft
+   to say what resolves it.
+5. Sign in as a different Director, open **Review** and **Approve** the draft.
+6. Back as an RM on a similar case, ask again: the new resolution is now cited.
 
 ## Output policy
 

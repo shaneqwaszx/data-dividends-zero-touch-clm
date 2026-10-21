@@ -55,11 +55,18 @@ function backend(calls: { url: string; body: unknown }[], decision = () => json(
     const url = String(input);
     if (init?.method === "POST") calls.push({ url, body: JSON.parse(String(init.body)) });
     if (url.endsWith("/knowledge/reviews")) return json({ pending: [PENDING], gaps: [{ id: 7, note: "No proof list.", blocker_codes: [], fields: [], stages: [], created_at: "" }] });
-    if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 3, helpful: 2, not_helpful: 1, helpful_rate: 0.667, open_gaps: 1 } });
+    if (url.endsWith("/knowledge/stats")) {
+      return json({
+        entries: {},
+        feedback: { total: 3, helpful: 2, not_helpful: 1, helpful_rate: 0.667, open_gaps: 1 },
+        by_topic: { DOCUMENT_SOURCE_CONFLICT: { helpful: 2, not_helpful: 1 }, UBO_EVIDENCE_REQUIRED: { helpful: 0, not_helpful: 1 } },
+      });
+    }
     if (url.includes("/knowledge/entries?kind=resolution")) return json([]);
     if (url.endsWith("/edit")) return json(PENDING);
     if (url.endsWith("/decision")) return decision();
     if (url.endsWith("/close")) return json({ status: "closed" });
+    if (url.endsWith("/draft")) return json({ ...PENDING, entry_id: "resolution.new", author: "director-dan" });
     return json({}, 404);
   });
 }
@@ -96,13 +103,19 @@ function button(view: HTMLElement, text: string): HTMLButtonElement {
 }
 
 describe("KnowledgeReview", () => {
-  it("shows the queue, gaps and stats, and approves exactly the content shown", async () => {
+  it("shows the queue, enhancement requests and stats, and approves exactly the content shown", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
     expect(view.textContent).toContain("Waiting for review (1)");
-    expect(view.textContent).toContain("3 feedback · 2 solved · 1 not helpful · 67% helpful");
+    expect(view.textContent).toContain("3 feedback · 2 helpful · 1 not helpful · 67% helpful");
+    expect([...view.querySelectorAll('[aria-label="Confidence by topic"] li')].map((li) => li.textContent)).toEqual([
+      "DOCUMENT_SOURCE_CONFLICT: 2 helpful · 1 not helpful",
+      "UBO_EVIDENCE_REQUIRED: 0 helpful · 1 not helpful",
+    ]);
+    expect(view.textContent).toContain("Enhancement requests (1)");
+    expect(view.textContent).not.toContain("Gaps");
     expect(view.textContent).toContain("No proof list.");
 
     act(() => button(view, "Approve").click());
@@ -193,14 +206,50 @@ describe("KnowledgeReview", () => {
     );
   });
 
-  it("closes a gap", async () => {
+  it("closes an enhancement request only with a reason", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    act(() => button(view, "Mark as handled").click());
+    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    expect(button(request, "Close with reason").disabled).toBe(true);
+    type(request.querySelector("input"), "   ");
+    expect(button(request, "Close with reason").disabled).toBe(true);
+    type(request.querySelector("input"), " Covered by the proof-list guidance. ");
+    act(() => button(request, "Close with reason").click());
     await flush();
-    expect(calls[0].url).toContain("/knowledge/feedback/7/close");
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual(["/knowledge/feedback/7/close"]);
+    expect(calls[0].body).toEqual({ reason: "Covered by the proof-list guidance." });
+    expect(view.textContent).toContain("Request closed.");
+  });
+
+  it("drafts knowledge from an enhancement request for another reviewer", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    const view = render();
+    await flush();
+    act(() => button(view, "Draft knowledge from this").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual(["/knowledge/feedback/7/draft"]);
+    expect(view.textContent).toContain("Draft created from the request. Another reviewer must approve it.");
+  });
+
+  it("shows the backend's reason when a request was already handled", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const rest = backend(calls);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith("/draft")
+          ? json({ detail: { code: "CHANGED", message: "This request was already handled. Refresh and try again." } }, 409)
+          : rest(input, init),
+      ),
+    );
+    const view = render();
+    await flush();
+    act(() => button(view, "Draft knowledge from this").click());
+    await flush();
+    expect(view.querySelector("[role=alert]")?.textContent).toBe("This request was already handled. Refresh and try again.");
   });
 });
 
@@ -279,7 +328,7 @@ describe("KnowledgeReview dialog focus", () => {
     const controls = dialogControls(view);
     const [first, last] = [controls[0], controls[controls.length - 1]];
     expect(first.getAttribute("aria-label")).toBe("Close knowledge review");
-    expect(last.textContent).toBe("Mark as handled");
+    expect(last.textContent).toBe("Draft knowledge from this");
 
     // Shift+Tab from the heading (where focus starts) goes to the last control, not out.
     expect(press("Tab", true).defaultPrevented).toBe(true);
