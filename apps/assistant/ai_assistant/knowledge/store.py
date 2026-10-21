@@ -330,7 +330,9 @@ class KnowledgeStore:
                 self._migrate_to_2(db)
             if version is not None and int(version[0]) < 3:
                 self._migrate_to_3(db)
-            if version is not None and int(version[0]) < 4:
+            # Also at 4: earlier builds of this branch (never on main) stamped 4 on table
+            # shapes without every v4 column; the v4 step only adds what is missing.
+            if version is not None and int(version[0]) <= 4:
                 self._migrate_to_4(db)
             db.executescript(_SCHEMA)
             db.execute(

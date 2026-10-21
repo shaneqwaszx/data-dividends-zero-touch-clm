@@ -940,21 +940,68 @@ def test_the_whole_loop_a_resolved_case_helps_the_next_similar_question(
     assert follow_up in body["suggested_questions"]
 
 
-def test_a_store_rebuilt_before_fix_versions_were_linked_gains_the_column(tmp_path: Path) -> None:
+# Stores written by earlier builds of this branch (never on main) are stamped schema 4 but lack
+# v4 columns: 6d090a7 has neither reviews.single_reviewer nor feedback.entry_version, 81a59c2
+# lacks feedback.entry_version (independent gate R1-F1 on 0ed9055).
+EARLY_V4_SHAPES = {
+    "6d090a7": "ALTER TABLE reviews DROP COLUMN single_reviewer;"
+    " ALTER TABLE feedback DROP COLUMN entry_version;",
+    "81a59c2": "ALTER TABLE feedback DROP COLUMN entry_version;",
+}
+
+
+@pytest.mark.parametrize("shape", EARLY_V4_SHAPES)
+def test_a_branch_only_v4_store_gains_its_missing_columns(tmp_path: Path, shape: str) -> None:
     import sqlite3
 
-    path = tmp_path / "early-v4.sqlite3"
-    KnowledgeStore(path)
+    path = tmp_path / f"{shape}.sqlite3"
+    seeded = KnowledgeStore(path)
+    request_id = seeded.add_feedback(
+        case_id="c1",
+        user_id="maya-lim",
+        role="CLIENT_ONBOARDER",
+        team="TEAM_A",
+        helpful=False,
+        note="No proof list.",
+        blocker_codes=("B1",),
+        fields=(),
+        stages=(),
+        entry_id=None,
+    )
     with sqlite3.connect(path) as db:
-        db.executescript(
-            "ALTER TABLE feedback DROP COLUMN entry_version;"
-            "UPDATE meta SET value = '3' WHERE key = 'schema_version';"
-        )
-    store = KnowledgeStore(path)
+        db.executescript(EARLY_V4_SHAPES[shape])  # the version stays '4'
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    store = KnowledgeStore(path)  # repairs
     with sqlite3.connect(path) as db:
-        columns = {row[1] for row in db.execute("PRAGMA table_info(feedback)")}
-    assert {"close_reason", "entry_version"} <= columns
-    assert store.feedback() == []
+        feedback = {row[1] for row in db.execute("PRAGMA table_info(feedback)")}
+        reviews = {row[1] for row in db.execute("PRAGMA table_info(reviews)")}
+    assert {"close_reason", "entry_version"} <= feedback and "single_reviewer" in reviews
+    assert [row["id"] for row in store.feedback()] == [request_id]
+    # What failed before the repair: listing single-reviewer approvals, writing a fix (it
+    # records the fix version), and deciding it.
+    assert store.single_reviewer_approvals() == set()
+    fix = store.draft_request(
+        request_id,
+        lambda row: Entry(
+            entry_id="resolution.fix",
+            kind=EntryKind.RESOLUTION,
+            title="Fix",
+            body=str(row["note"]),
+            author="olivia-koh",
+        ),
+    )
+    store.decide(
+        fix.entry_id,
+        fix.version,
+        reviewer="olivia-koh",
+        approve=True,
+        single_reviewer=True,
+        confirmed=True,
+    )
+    assert store.single_reviewer_approvals() == {fix.key}
+    assert store.feedback()[0]["status"] == "resolved"
+    KnowledgeStore(path)  # opening again changes nothing
+    assert [row["status"] for row in KnowledgeStore(path).feedback()] == ["resolved"]
 
 
 def guidance_fix_for(kb: KnowledgeBase, session: str, entry_id: str) -> tuple[int, int]:

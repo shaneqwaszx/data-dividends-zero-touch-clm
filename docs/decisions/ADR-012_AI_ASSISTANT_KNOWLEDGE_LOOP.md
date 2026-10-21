@@ -299,7 +299,8 @@ Opening an older store migrates it (v1 -> v2 -> v3 -> v4). Code from before v4 c
 open a v4 store (it names the feedback and review columns it writes), but it rewrites the
 schema version to 3, enforces two-person review again, drafts from "Yes, helpful" again and
 closes requests without a reason; the v4 code then leaves the already migrated tables as
-they are. Rolling back to the PR #99 author head
+they are. A store from an earlier build of this branch (never on main) that is stamped 4
+without every v4 column gains the missing ones when it is opened. Rolling back to the PR #99 author head
 (`ad4661c`) after a v3 store has been written is not supported: that code rewrites the
 schema version to 2 and can still read and decide, but cannot add a version (it inserts 20
 values into a 21-column table), and it would ignore edit chains and retirement requests. To
