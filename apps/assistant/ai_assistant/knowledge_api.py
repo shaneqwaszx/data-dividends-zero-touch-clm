@@ -20,6 +20,7 @@ to /retire records the request, a different reviewer's POST confirms it.
 """
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -334,17 +335,20 @@ def knowledge_router(
         user = profile.get("user_id")
         own = [v for v in versions if v.author == user]
         if own:
-            # A store from before schema v3 edited a pending version in place: it kept the
-            # author and only an 'edit' row shows that someone else changed it. Since v3 an
-            # edit is a new version that revises the old one, which stays as written.
-            revised = {v.revises for v in versions}
-            edited_in_place = {
-                row["version"]
-                for row in kb.store.reviews(entry_id)
-                if row["decision"] == "edit"
-                and row["reviewer"] != user
-                and row["version"] not in revised
-            }
+            # Since schema v3 an edit is a new version that revises the old one, which stays
+            # as written: each 'edit' row on a version is paired with one version revising it.
+            # A store from before v3 edited a pending version in place, keeping its author and
+            # adding only an 'edit' row. So a version with someone else's 'edit' row and more
+            # 'edit' rows than versions revising it holds another person's text.
+            edits: Counter[int] = Counter()
+            foreign: set[int] = set()
+            for row in kb.store.reviews(entry_id):
+                if row["decision"] == "edit":
+                    edits[row["version"]] += 1
+                    if row["reviewer"] != user:
+                        foreign.add(row["version"])
+            revising = Counter(v.revises for v in versions if v.revises is not None)
+            edited_in_place = {version for version in foreign if edits[version] > revising[version]}
             return {
                 "versions": [entry_view(v) for v in own if v.version not in edited_in_place],
                 "reviews": [],

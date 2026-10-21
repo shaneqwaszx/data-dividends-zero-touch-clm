@@ -116,8 +116,11 @@ replacement. Do not silently remove mandatory checks."
   only the versions they wrote through `GET /assistant/knowledge/entries/{id}`, without
   reviewers' edited versions or review notes. That includes a store migrated from schema
   v2, where a reviewer's edit changed the RM's pending version in place and kept the RM as
-  its author: a version with another person's 'edit' row and no later version revising it
-  is left out. Directors and HR in the entry's team see the full history (including
+  its author, also when it was edited again after the migration. Since v3 every 'edit' row
+  on a version is paired with exactly one version that revises it, so a version with
+  another person's 'edit' row and more 'edit' rows than versions revising it is left out
+  (a version its author edited in place that someone else then edited normally is left out
+  too, the safe side). Directors and HR in the entry's team see the full history (including
   Directors' review notes on the team's RM drafts); the review screens are for them only and
   show unfiltered entries by design.
 - Controls for knowledge content: **two-person approval of every version is the primary,

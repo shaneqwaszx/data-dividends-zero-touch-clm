@@ -357,11 +357,12 @@ def test_hr_proposes_guidance_and_a_director_approves_it(kb: KnowledgeBase) -> N
     assert kb.store.current("guidance.address-mismatch").version == 2
 
 
-def test_the_author_view_leaves_out_a_version_a_reviewer_edited_in_place(
-    tmp_path: Path,
-) -> None:
-    """QG_PR99_6399814 K7: under schema v2 (ad4661c) a Director's edit changed the RM's pending
-    version in place and kept the RM as its author; only an 'edit' row records it."""
+def _legacy_kb(tmp_path: Path) -> KnowledgeBase:
+    """A schema-v2 store in the shape ad4661c's in-place edit left, opened (migrated) as v3.
+
+    Under schema v2 a Director's edit changed the RM's pending version in place and kept the
+    RM as its author; only an 'edit' row records it.
+    """
 
     import sqlite3
 
@@ -391,7 +392,15 @@ def test_the_author_view_leaves_out_a_version_a_reviewer_edited_in_place(
             " VALUES ('resolution.legacy', 1, 'director-dan', 'edit', 'body, title',"
             " '2026-10-01T00:05:00+00:00');"
         )
-    kb = _kb(tmp_path)  # opening the store migrates it to schema v3
+    return _kb(tmp_path)  # opening the store migrates it to schema v3
+
+
+def test_the_author_view_leaves_out_a_version_a_reviewer_edited_in_place(
+    tmp_path: Path,
+) -> None:
+    """QG_PR99_6399814 K7."""
+
+    kb = _legacy_kb(tmp_path)
     legacy = kb.store.get("resolution.legacy", 1)
     assert legacy is not None and legacy.author == "maya-lim" and legacy.revises is None
     own = client(kb, "rm-session").get("/assistant/knowledge/entries/resolution.legacy")
@@ -400,6 +409,32 @@ def test_the_author_view_leaves_out_a_version_a_reviewer_edited_in_place(
     # The Director, in the entry's team, still sees the full record.
     full = client(kb, "director-2-session").get("/assistant/knowledge/entries/resolution.legacy")
     assert "LEGACYEDITMARK" in full.text and full.json()["reviews"][0]["decision"] == "edit"
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        [("director-2-session", 1)],  # another Director edits the legacy draft
+        [("director-session", 1)],  # the Director who edited it in place edits it again
+        [("director-2-session", 1), ("director-session", 2)],  # a chain v1 -> v2 -> v3
+    ],
+    ids=["other-director", "same-director", "chain"],
+)
+def test_a_later_edit_does_not_bring_back_a_version_edited_in_place(
+    tmp_path: Path, edits: list[tuple[str, int]]
+) -> None:
+    """QG_PR99_b037d4e K9: a normal (v3) edit after the migration adds a version that revises
+    the legacy one; the legacy version must still stay out of the RM's view."""
+
+    kb = _legacy_kb(tmp_path)
+    queue = client(kb, "director-2-session").get("/assistant/knowledge/reviews").json()
+    assert "resolution.legacy" in [entry["entry_id"] for entry in queue["pending"]]
+    for number, (session, version) in enumerate(edits, start=1):
+        reply = edit(kb, session, "resolution.legacy", version, title=f"Tidied title {number}")
+        assert reply.status_code == 200 and reply.json()["version"] == version + 1
+    own = client(kb, "rm-session").get("/assistant/knowledge/entries/resolution.legacy")
+    assert own.status_code == 200 and own.json() == {"versions": [], "reviews": []}
+    assert "LEGACY" not in own.text and "Tidied" not in own.text
 
 
 @pytest.mark.parametrize(
