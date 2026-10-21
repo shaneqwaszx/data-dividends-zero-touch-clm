@@ -148,3 +148,57 @@ test("Blocker decision review performance sample group 2", async ({ page }) => {
 test("Blocker decision review performance sample group 3", async ({ page }) => {
   await runPerformanceGroup(page, 2);
 });
+
+test("Blocker decision review keyboard focus stays unobscured at mid-width viewports", async ({ page }) => {
+  const violations: string[] = [];
+  const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
+  await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
+  await page.goto("/");
+  const loginResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await page.getByLabel("User ID").fill("maya-lim"); await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const headers = { "X-CSRF-Token": (await (await loginResponse).json()).csrf_token };
+  await expect(page.getByRole("link", { name: "New onboarding", exact: true })).toBeVisible();
+  const created = await page.request.post("/api/clm/zero-touch/cases", { headers, data: { uen: "202400001A", legal_name: "MERLION CIRCULAR LABS PTE. LTD.", country_of_incorporation: "SG" } });
+  expect(created.status()).toBe(201); const cid = (await created.json()).case.case_id;
+  const uploaded = await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/documents`, { headers: { ...headers, "Content-Type": "text/plain", "X-Document-Name": "synthetic-ambiguous.txt" }, data: content });
+  expect(uploaded.status()).toBe(201);
+  expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/complete`, { headers, data: { expected_document_count: 1 } })).status()).toBe(200);
+  for (const viewport of [{ width: 768, height: 1024 }, { width: 1024, height: 768 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    const review = page.locator("#case-blocker-review");
+    await expect(review).toHaveCount(1);
+    await review.locator("select:enabled, button:enabled").first().focus();
+    const visited: string[] = [];
+    for (let stop = 0; stop < 40; stop++) {
+      const focused = await page.evaluate(() => {
+        const element = document.activeElement;
+        return element?.closest("#case-blocker-review") ? element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.tagName : null;
+      });
+      if (focused === null) break;
+      visited.push(focused);
+      // WCAG 2.2 SC 2.4.11: the focused review control is inside the viewport and nothing covers its centre.
+      await expect.poll(() => page.evaluate(() => {
+        const element = document.activeElement!;
+        const r = element.getBoundingClientRect();
+        const { clientWidth, clientHeight } = document.documentElement;
+        // Layout rects are fractional; painting snaps them to whole pixels.
+        const [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom].map(Math.round);
+        if (top < 0 || left < 0 || bottom > clientHeight || right > clientWidth) {
+          return `outside the ${clientWidth}x${clientHeight} viewport at ${[left, top, right, bottom].join(",")}`;
+        }
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return hit === element || (hit !== null && element.contains(hit)) ? "unobscured" : `covered by ${hit?.closest("[class]")?.className ?? "nothing"}`;
+      }), `${focused} at ${viewport.width}x${viewport.height}`).toBe("unobscured");
+      await page.keyboard.press("Tab");
+    }
+    expect(await page.evaluate(() => document.activeElement?.closest("#case-blocker-review") == null)).toBe(true);
+    expect(visited.filter(name => /^(Accept|Reject) document suggestion for /.test(name))).toHaveLength(fields.length);
+    expect(visited.filter(name => name.startsWith("Correction for "))).toHaveLength(fields.length);
+    expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
+    expect(visited).toContain("Reject all undecided suggestions");
+    expect(visited).toContain("How drafts work");
+  }
+  expect(violations).toEqual([]);
+});

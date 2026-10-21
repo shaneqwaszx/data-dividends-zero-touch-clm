@@ -771,9 +771,7 @@ button.tag {
 .blocker-review .review-item > .review-item__error { color: #8c3a2e; }
 .review-option.is-chosen::after { content: "✓"; position: absolute; top: 6px; right: 8px; color: var(--color-accent-700); font-size: 12px; font-weight: 700; }
 .blocker-review .review-item > .control-help { margin: 0; font-size: 11.5px; color: var(--color-neutral-700); }
-.blocker-review .blocker-review__footer { position: sticky; bottom: 0; z-index: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 16px; margin-top: 4px; padding: 10px 84px 10px 16px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg, 7px); background: #fff; box-shadow: var(--shadow-md); }
-/* The sticky footer must never hide the focused review control (WCAG 2.2 SC 2.4.11). */
-.blocker-review :is(input, select, textarea, button, summary, [tabindex]) { scroll-margin-bottom: 12rem; }
+.blocker-review .blocker-review__footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 16px; margin-top: 4px; padding: 10px 84px 10px 16px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg, 7px); background: #fff; box-shadow: var(--shadow-md); }
 .blocker-review .blocker-review__footer > .document-card__actions { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
 .blocker-review .blocker-review__footer > p, .blocker-review .blocker-review__footer > details { grid-column: 1; margin: 0; }
 .blocker-review__status { margin: 0; font-weight: 600; font-size: 13px; }
@@ -783,7 +781,7 @@ button.tag {
 .blocker-review__about p { margin: 6px 0 0; }
 @media (max-width: 640px) {
   .review-options, .review-options--two { grid-template-columns: minmax(0, 1fr); }
-  .blocker-review .blocker-review__footer { position: static; grid-template-columns: minmax(0, 1fr); }
+  .blocker-review .blocker-review__footer { grid-template-columns: minmax(0, 1fr); }
   .blocker-review .blocker-review__footer > * { grid-column: 1 !important; grid-row: auto !important; }
 }
 
