@@ -15,14 +15,20 @@ only the skills triggered by the work.
 | `frontend-state-cache-change` | React Query keys, authenticated cache scope, cancellation, invalidation, mutation retry, or stale responses | Owns frontend server-state/session-cache safety |
 | `persistence-schema-change` | Durable schema, repository semantics, CAS/index, migration, restart, or recovery | Owns persistence safety and guarded physical evidence |
 | `integration-security-review` | Credentials, TLS, auth, uploads, external payloads, KYC/PII, logging, or browser error projection | Review-only unless remediation is explicitly assigned |
-| `integration-safe-development` | Branch synchronization, conflict resolution, integration, or pre-PR readiness | Canonical integration/pre-PR workflow; uses `references/PRE_PR_CHECKLIST.md` |
+| `integration-safe-development` | Branch synchronization, conflict resolution, integrated acceptance, pre-PR readiness, or publication | Canonical lifecycle Stage 2 and Stage 4 workflow; uses `references/PRE_PR_CHECKLIST.md` |
 | `poc-regression-check` | Accepted POC scenarios, terminal states, ordering, call stopping, or truthful mode labels | Verifies the canonical regression catalogue after affected work |
 | `sponsor-contract-reconciliation` | Conflicting sponsor/API artefacts, mappings, mandatory fields, or authority | Reconciles evidence and stops dependent work rather than guessing |
 | `phase-closeout-context-refresh` | Accepted or merged phase context/state refresh | Updates current truth only at the appropriate acceptance/merge state |
 
-Typical composition for implementation is:
+Typical composition follows the five-stage lifecycle in `docs/DEVELOPMENT_WORKFLOW.md`:
 
-`fyp-phase-execution -> triggered specialist skill(s) -> affected regression -> independent fyp-quality-gate -> integration-safe-development -> phase-closeout-context-refresh`
+1. Stable implementation: `fyp-phase-execution` plus triggered specialist skill(s).
+2. One integrated acceptance: `integration-safe-development` Stage 2 (latest main, then
+   the applicable change-class set once, including `poc-regression-check` when affected).
+3. Independent QG: `fyp-quality-gate` on the exact integrated candidate.
+4. Publication: `integration-safe-development` Stage 4, after exact `PASS` and
+   authorization.
+5. Owner merge (human only), then `phase-closeout-context-refresh`.
 
 Use `worktree-task` before that flow only when concurrent checkout isolation is needed.
 Do not create generic implementation, quality-gate, or pre-PR skills that overlap the

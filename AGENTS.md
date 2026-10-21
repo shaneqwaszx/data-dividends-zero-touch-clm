@@ -110,19 +110,22 @@ Preserve current main behavior unless the assigned requirement supersedes it; av
 unrelated refactors, renames, formatting, dependency, generated-file, or lockfile churn.
 
 One coordinator owns Git mutations. Multiple writers require explicit non-overlapping
-ownership, and workers sharing a checkout are not isolated. Keep implementation,
-independent Quality Gate, remediation, integration, and publication as distinct assigned
-runs. A Quality Gate does not fix reviewed content; changed reviewed content requires a
-fresh independent review. Publication requires exact independent `PASS`, unchanged
+ownership, and workers sharing a checkout are not isolated. Follow the five-stage
+lifecycle in `docs/DEVELOPMENT_WORKFLOW.md`: stable implementation -> one integrated
+acceptance -> independent QG `PASS` -> publication -> owner merge. Keep implementation,
+independent Quality Gate, remediation, integration/acceptance, and publication as
+distinct assigned runs. A Quality Gate does not fix reviewed content; changed reviewed
+content requires a fresh independent review. Publication requires exact independent `PASS`, unchanged
 reviewed content, and explicit owner authorization. Repository-owner humans merge PRs.
 
 ## Verification and completion
 
-Use the change-class matrix in `docs/DEVELOPMENT_WORKFLOW.md`. Run focused checks first,
-then only the affected broader checks, adverse paths, regression, security, physical, or
-contract evidence the class and scope require. Inspect the complete diff, including
-task-owned new files. Check whitespace for untracked Markdown explicitly because
-`git diff --check` does not cover it. Never report stale, skipped, unavailable, or
+Use the change-class matrix in `docs/DEVELOPMENT_WORKFLOW.md`. Iterate with focused
+checks; run the broader, adverse-path, regression, security, physical, or contract
+evidence the class and scope require once on the integrated candidate, reusing valid
+evidence and rerunning only what a later change invalidates. Inspect the complete diff,
+including task-owned new files. Check whitespace for untracked Markdown explicitly
+because `git diff --check` does not cover it. Never report stale, skipped, unavailable, or
 unexecuted evidence as passing.
 
 Before PR readiness, use `integration-safe-development`, fetch and assess latest main,

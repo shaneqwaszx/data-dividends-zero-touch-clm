@@ -6,43 +6,39 @@ human Git integration procedure; repository skills supply specialized procedures
 
 ## Lifecycle
 
+Every bounded task follows one five-stage lifecycle:
+
 ```text
-requirement or sponsor input
-  -> planner and authority reconciliation
-  -> bounded phase/change class
-  -> synchronized feature branch
-  -> implementation and focused verification
-  -> broad affected verification
-  -> independent quality gate
-  -> bounded remediation
-  -> independent re-quality gate
-  -> latest-main integration when authorized
-  -> affected regression and physical evidence where relevant
-  -> pre-PR check
-  -> separately authorized publication role
-  -> CI
-  -> human merge
-  -> project-state/architecture/context refresh
+1 Stable implementation      PLANNER, IMPLEMENTER  task branch; focused checks only
+2 One integrated acceptance  INTEGRATION, TESTING  latest main; applicable set once
+3 Independent QG PASS        QUALITY GATE          exact integrated candidate
+4 Publication                PUBLICATION           after PASS and authorization
+5 Owner merge                OWNER                 human squash merge
 ```
 
-No step grants authority for the next one. In particular, implementation does not
-perform its own independent gate, a gate does not fix findings, and an agent does not
-merge to main.
+Skills: `fyp-phase-execution` (1), `integration-safe-development` (2, 4),
+`fyp-quality-gate` (3). A non-`PASS` gate returns to Stage 1 for bounded remediation,
+reruns only invalidated Stage 2 evidence, then a fresh Stage 3 review. Context refresh
+follows the merge. No stage grants authority for the next one. Implementation does not
+perform its own independent gate, a gate does not fix findings, and no agent merges to
+main.
 
 ## Responsibilities
 
 | Role | Owns | Must not do |
 |---|---|---|
 | PLANNER | authority read-set, goals, acceptance, non-goals, exact files, risks, checks | invent sponsor rules or implement before plan |
-| IMPLEMENTER | smallest assigned delta and meaningful tests | broaden phase, self-approve, push/merge without instruction |
-| QUALITY GATE | independent contract/test/architecture/security/adversarial evidence and verdict | remediate reviewed work |
-| REMEDIATION | only gate findings and their regressions | reinterpret the gate or add unrelated features |
-| INTEGRATION | latest-main intent reconciliation and complete affected regression | rebase shared history, blindly choose conflict sides, merge PR |
-| PUBLICATION | unchanged accepted content, scoped staging/commit/push/PR, and exact remote evidence | alter accepted content, self-approve, bypass platform approval, merge PR |
-| OWNER | sponsor/product decisions, risk acceptance, external account/secrets/settings, PR approval/merge | delegate irreversible authority implicitly |
+| IMPLEMENTER | Stage 1 delta, tests, focused checks and self-review | broaden phase, self-approve, push/merge without instruction |
+| INTEGRATION | Stage 2 latest-main intent reconciliation and frozen candidate | rebase shared history, blindly choose conflict sides, merge PR |
+| TESTING | Stage 2 applicable acceptance once, evidence bound to content identity | edit the candidate, report stale/partial/skipped as pass |
+| QUALITY GATE | Stage 3 independent review, risk-based verification and verdict | remediate reviewed work or rubber-stamp a test report |
+| REMEDIATION | only gate findings, their regressions and invalidated evidence | reinterpret the gate or add unrelated features |
+| PUBLICATION | Stage 4 unchanged content, scoped commit/push/PR, remote/CI evidence | alter accepted content, self-approve, bypass platform approval, merge PR |
+| OWNER | Stage 5; sponsor/product decisions, risk/CI exceptions, secrets/settings, merge | delegate irreversible authority implicitly |
 
-One person/agent may perform multiple roles only in distinct assigned runs. Independent
-QG and re-QG must remain independent from implementation/remediation.
+One person/agent may perform multiple roles only in distinct assigned runs; INTEGRATION
+and TESTING may share the Stage 2 run. Independent QG and re-QG must remain independent
+from implementation/remediation.
 
 ## Task start
 
@@ -92,7 +88,7 @@ questions. Agents may always widen context; they must not narrow it by judgment 
 Heading selectors are exact and mechanically validated. When a canonical heading moves,
 the selector/tests must change in the same reviewed delta. Historical reports are not
 loaded recursively or treated as truth by recency. Independent QG receives a compact
-manifest but still inspects actual changed content and runs the required checks.
+manifest but still inspects actual changed content and verifies the evidence.
 
 ## Planning, handoffs and evidence identity
 
@@ -127,9 +123,9 @@ chronology only when it materially explains a failure, repair, or safety decisio
 
 ## Coordination and model routing
 
-Default to one implementation writer, optional narrow read-only specialists, a fresh
-independent reviewer, and a separate publication role after exact independent `PASS`.
-More than one
+Default to one implementation writer, optional narrow read-only specialists, one Stage 2
+integration/testing run, a fresh independent reviewer, and a separate publication role
+after exact independent `PASS`. More than one
 implementation writer requires explicit, non-overlapping file/owner boundaries and a
 named integration owner. Subagents may share the same checkout and filesystem; do not
 assume isolation. One coordinator owns Git mutations. Do not switch a branch while any
@@ -204,13 +200,14 @@ database; never `clm_poc`.
 
 ## Focused, broad and independent evidence
 
-- Focused evidence directly falsifies the changed behavior and its adverse paths.
-- Broad affected evidence covers all consumers and accepted regressions named by the
-  change-class rows.
-- Independent QG inspects code and tests, runs relevant checks, challenges false-success
-  and security paths, and writes the sole gate verdict.
-- Remediation reruns the failed focus plus affected suites; re-QG independently verifies
-  the repaired delta.
+- Focused evidence directly falsifies the changed behavior and its adverse paths; it is
+  the Stage 1 iteration loop. Do not run complete suites on every iteration.
+- Stage 2 acceptance evidence covers all consumers and accepted regressions named by the
+  change-class rows, once, on the frozen integrated candidate.
+- Independent QG inspects code, tests and evidence, challenges false-success and
+  security paths, and writes the sole gate verdict.
+- Remediation reruns the failed focus plus the evidence its change invalidates; re-QG
+  independently verifies the repaired delta.
 - Physical evidence supplements deterministic tests when real Mongo, operating-system
   process behavior or an authorized sandbox is materially affected. It is not inferred
   from mocks.
@@ -226,14 +223,9 @@ database; never `clm_poc`.
   a skipped shard cannot pass it. Local execution without `--shard` remains the complete
   unfiltered suite. Discovery, execution, cleanup and CI job deadlines are unchanged.
   Partition coverage and each shard's outer budget are tested in `tests/test_run_e2e.py`.
-- Before QG, inspect the implementation diff against the approved criteria, examine
-  relevant failure, stale-state, authorization, restart and replay paths, reproduce a
-  suspected defect with a test or concrete evidence, remediate it, then rerun every
-  affected check after the final change.
-- Default to no more than two unsuccessful repair cycles for the same underlying design
-  problem before escalating the design/authority question. Specialist falsification is
-  risk-based; trivial edits do not require an exhaustive adversarial ceremony.
-- Self-review may produce implementation evidence, never an independent-QG PASS.
+- Stage 1 self-review follows `fyp-phase-execution` (criteria diff, adverse paths,
+  reproduce before fixing, two-cycle escalation, risk-based falsification). It yields
+  implementation evidence, never an independent-QG PASS.
 - Passing-command evidence is summary-first: command, tested revision/content identity,
   result, dynamic count, meaningful skips/warnings, and duration only when useful. Full
   successful logs remain drill-down evidence rather than default handoff/report content.
@@ -258,6 +250,26 @@ Required missing evidence blocks its dependent acceptance claim, not unrelated l
 Derive test inventory from current owned suites and record counts as revision-specific
 evidence rather than permanent constants. Pre-QG hygiene covers tracked files and every
 task-owned new file; `git diff --check` alone does not inspect untracked Markdown.
+
+### Evidence reuse and invalidation
+
+Bind each result to its content identity (commit/tree, or `HEAD` plus path set and
+per-file hashes for uncommitted content), integrated `origin/main` SHA, environment/mode
+and command. Valid evidence carries forward between stages:
+
+- Stages 3 and 4 do not repeat a complete suite whose content identity, environment and
+  applicable scope are unchanged.
+- A gate report, handoff, PR text, or a commit of exactly the tested tree does not
+  invalidate behavioral evidence.
+- A change to implementation, tests, configuration, dependencies/lockfiles, CI, scripts
+  or integrated main invalidates the evidence it can reach: rerun focused checks plus
+  the affected change-class rows. Rerun the complete applicable set when it touches a
+  shared owner, hotspot, composition, dependency or CI orchestration, or its impact
+  cannot be safely bounded.
+- The independent reviewer confirms each reused result matches the frozen identity and
+  is complete, inspects the implementation, and runs risk-based verification: focused
+  and adversarial probes plus any check whose evidence is missing, stale, partial,
+  inconsistent or doubtful. It may rerun anything and never passes unverified evidence.
 
 ## Conditional retrieval/RAG decision gate
 
@@ -284,8 +296,8 @@ authority.
 | source/contract discrepancy | `sponsor-contract-reconciliation` | authority before implementation |
 | CI failure | `ci-failure-triage` | diagnose first causal failure before fix |
 | external boundary/security | `integration-security-review` | review component of provider/security work |
-| accepted POC regression | `poc-regression-check` | after affected implementation/integration |
-| branch/integration/PR | `integration-safe-development` | Git lifecycle owner |
+| accepted POC regression | `poc-regression-check` | Stage 2 when the surface is affected |
+| branch/integration/PR | `integration-safe-development` | Git owner; Stages 2 and 4 |
 | new/replaced owner/boundary | `architecture-change-review` | run before implementation/ADR decision |
 | accepted phase closeout | `phase-closeout-context-refresh` | update current context after acceptance/merge |
 | external provider | `external-provider-integration` | composes contract reconciliation and security review |
@@ -294,8 +306,8 @@ authority.
 
 Where triggers overlap, use the phase skill as coordinator, apply architecture review
 first for owner/boundary decisions, reconcile contracts before provider implementation,
-then apply persistence/cache procedures, security review, regression, integration and
-independent QG.
+then apply persistence/cache procedures and security review in Stage 1, integration and
+regression in Stage 2, and independent QG in Stage 3.
 
 ## Stop conditions
 
@@ -341,10 +353,11 @@ recorded in decisions/open questions.
 
 ## Integration and PR readiness
 
-Before PR readiness, fetch and compare latest `origin/main` to `BASE_SHA`. Merge main
-only when authorized; never rebase a shared branch. Resolve conflicts by current-main
-intent and the smallest feature delta. Run affected regression against the integrated
-state, then `python scripts/pre_pr_check.py` on a clean committed feature tree.
+Stage 2 integration fetches latest `origin/main` and compares it to `BASE_SHA` before
+final acceptance. If main advanced, merge it (and make any commit that requires) only
+when authorized; never rebase a shared branch. Resolve conflicts by current-main intent
+and the smallest feature delta. Without authorization, report `NOT INTEGRATED`; earlier
+evidence is then pre-integration and is revalidated by effect after integration.
 
 Immutable archival whitespace follows the exact owner-approved
 [publication policy](development/IMMUTABLE_ARCHIVE_WHITESPACE_POLICY.md) through
@@ -356,22 +369,24 @@ The PR records change class, baseline, owners/invariants, sponsor/provisional be
 provider truth, security/persistence impact, verification, independent QG, and context
 refresh. CI evidence and human review precede the human merge.
 
-After exact independent `PASS`, publication still requires explicit task/owner
-authorization. `PASS WITH MINOR FIXES` is not publication-eligible until the fixes are
-remediated and independently rechecked to `PASS`.
-The publisher first proves the reviewed implementation/instruction content is unchanged,
-then stages only reviewed task-owned files plus the assigned independent report, inspects
-the staged diff and whitespace, commits, fetches, assesses latest-main drift, performs
-only understood/authorized integration, reruns affected checks, and reaches a clean-tree
-pre-PR result before push. An integration that changes reviewed content requires a fresh
-independent recheck. Never bypass an approval prompt and never merge the PR.
+Stage 4 publication requires exact independent `PASS` (`PASS WITH MINOR FIXES` must be
+remediated and rechecked first), explicit task/owner authorization, unchanged reviewed
+content, scoped staging, a drift check with authorized integration revalidated by
+effect, and a clean-tree `python scripts/pre_pr_check.py` before push. Any change to the
+reviewed task delta needs a fresh independent recheck. Follow `BRANCH_MERGE_PROTOCOL.md`
+and `integration-safe-development`; never bypass an approval prompt or merge the PR.
 
 For each applicable remote run, record repository/PR, head/base, workflow event, actual
 checkout SHA/tree when available, run/attempt and relevant job conclusions. Push and
 `pull_request` events may test different checkouts: a PR-only query is not evidence that
 push checks passed, and one passing run does not excuse another failing applicable run.
-If CI is pending, report it as in progress; if it fails, identify the actual failing
-check and its evidence. Do not promise unattended monitoring.
+Classify each as passed, `CI IN PROGRESS`, failed (actual job and evidence), or
+skipped/cancelled (not a pass). Use
+`HOSTED_CI_NOT_EXECUTED — BILLING/INFRASTRUCTURE BLOCKED` only when GitHub
+run/job/annotation evidence shows jobs did not execute for billing or
+hosted-infrastructure reasons; record the local evidence and leave any
+manual-CI exception to the owner. Never report it as passed, waive a required check or
+bypass branch protection. Do not promise unattended monitoring.
 
 ## Closeout and context refresh
 

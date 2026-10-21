@@ -8,6 +8,12 @@ description: "Run the independent combined quality gate for a completed Data Div
 Review independently. Make no implementation, test, configuration, or ordinary
 documentation fixes during the gate.
 
+This is Stage 3 of the five-stage lifecycle in `docs/DEVELOPMENT_WORKFLOW.md`. Review
+the exact integrated candidate produced by Stage 2, including risks the latest-main
+integration introduced. The reviewer must not have authored or remediated the reviewed
+content. If no independent reviewer is available, record `AWAITING_INDEPENDENT_QG`;
+never substitute self-review.
+
 ## Establish evidence and write boundary
 
 1. Confirm the phase or governance change from the explicit task and matching planner
@@ -35,8 +41,11 @@ Assess each current-phase acceptance criterion through these workstreams:
 
 1. Contract and integration: verify evidence authority, schemas/mappings, connector
    boundaries, mock claims, quarantines, and unresolved dependencies.
-2. Testing: run the configured checks and targeted tests; verify happy, review,
-   failure, contract, and regression paths.
+2. Testing: verify that each Stage 2 result matches the frozen content identity and
+   environment and is complete; reuse valid evidence rather than mechanically repeating
+   it. Run targeted and adversarial tests yourself, plus any check whose evidence is
+   missing, stale, partial, inconsistent, or doubtful. Verify happy, review, failure,
+   contract, and regression paths and the quality of the tests themselves.
 3. Code and architecture: inspect correctness, maintainability, coupling, state
    transitions, error handling, test depth, and scope creep.
 4. Security: inspect secrets, auth, TLS, external data, KYC/PII, logging, browser
@@ -45,8 +54,9 @@ Assess each current-phase acceptance criterion through these workstreams:
    downstream call stopping, terminal-state integrity, isolation, and false-success
    claims.
 
-Do not treat an authored test alone as proof; inspect implementation and obtain focused
-execution evidence where practical.
+Do not treat an authored test or a Testing-role report alone as proof; inspect the
+implementation and obtain focused execution evidence where practical. The gate stays
+substantive: approving a test report without independent inspection is not a review.
 
 Use actual runtime evidence when the affected surface requires it: configured
 Playwright plus real HTTP/process behavior for browser claims, guarded physical Mongo
@@ -82,7 +92,9 @@ Use one result:
 
 The independent verdict applies only to the frozen reviewed content and recorded
 evidence revisions. Self-review, a prior gate on another tree, or a report authored by
-the implementer cannot supply independence.
+the implementer cannot supply independence. A non-`PASS` result returns to bounded
+remediation; the recheck reviews the corrected delta and the evidence it invalidated,
+and reuses unchanged valid evidence instead of requiring a new full-suite run.
 
 For a phase gate, state next-phase readiness explicitly and separately from real
 ACRA/GoldTier readiness. For a governance gate, state only governance/publication

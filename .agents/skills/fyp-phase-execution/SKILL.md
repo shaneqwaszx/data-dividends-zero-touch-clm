@@ -10,6 +10,11 @@ Execute exactly one assigned bounded feature, phase, or remediation task. Treat
 `.ai-pipeline/001_planner/` is the scope authority for a phase or remediation; otherwise
 the explicit task supplies the bounded goal and acceptance criteria.
 
+This skill owns Stage 1 (stable implementation) of the five-stage lifecycle in
+`docs/DEVELOPMENT_WORKFLOW.md`, and Stage 1 remediation after a non-`PASS` gate. It ends
+at a stable candidate; Stage 2 integration and acceptance belong to
+`integration-safe-development`.
+
 ## Establish the work boundary
 
 1. Inspect the current branch, HEAD, staged files, tracked changes, and untracked files.
@@ -53,7 +58,7 @@ the explicit task supplies the bounded goal and acceptance criteria.
 5. Implement tests with each meaningful behavior change. Update only documentation
    affected by the assigned work, including explicit assumptions and unresolved items.
 
-## Reflect and remediate before independent review
+## Reflect and remediate before integrated acceptance
 
 1. Inspect the complete task diff, including task-owned new files, against every approved
    acceptance criterion and explicit non-goal.
@@ -61,8 +66,8 @@ the explicit task supplies the bounded goal and acceptance criteria.
    Use a narrow specialist falsification review only when risk justifies it; do not impose
    an exhaustive adversarial ceremony on a trivial edit.
 3. Reproduce a suspected defect with a focused test or concrete evidence before changing
-   the design. Apply the smallest in-scope remediation and rerun affected checks after the
-   final change.
+   the design. Apply the smallest in-scope remediation and rerun the affected focused
+   checks after the final change.
 4. Stop after two unsuccessful repair cycles for the same underlying design problem by
    default. Escalate the design or authority question instead of looping or widening
    scope.
@@ -70,17 +75,21 @@ the explicit task supplies the bounded goal and acceptance criteria.
 
 ## Verify and hand off
 
-1. Run every relevant configured backend, frontend, type/lint, contract, regression,
-   dependency-integrity, secret, and whitespace check required by the task, any
-   applicable planner, and `AGENTS.md`. Whitespace/hygiene must include task-owned untracked files as well as
-   tracked changes. Report skipped, unavailable, and failed checks accurately, using the
-   workflow's reproducible-defect/missing-infrastructure/stale-evidence/unresolved-authority
+1. Iterate with focused checks that directly exercise the changed behavior and its
+   adverse paths, plus lint/type/whitespace checks for touched files. Do not run complete
+   repository suites on every iteration; the complete applicable change-class set runs
+   once in Stage 2 on the integrated candidate. Run a broader check early only to
+   diagnose a suspected cross-cutting failure. Whitespace/hygiene must include
+   task-owned untracked files as well as tracked changes. Report skipped, unavailable,
+   and failed checks accurately, using the workflow's
+   reproducible-defect/missing-infrastructure/stale-evidence/unresolved-authority
    classifications.
 2. Recheck the diff for scope creep, secrets, confidential artefacts, and unrelated
    edits.
-3. Report branch/repository state, files changed, behavior implemented, checks and exact
-   results, current/tested/reviewed revision identities, decisions/assumptions,
-   blockers/risks, and the recommended next authorized action.
+3. Report a stable candidate in one compact handoff: branch/repository state, files
+   changed, behavior implemented, focused checks and exact results, current/tested
+   revision identities, decisions/assumptions, blockers/risks, and the next authorized
+   action (normally Stage 2 integration and acceptance).
 4. Do not commit, push, merge, or change branches unless explicitly instructed.
 5. End after the assigned task. Never automatically begin the next phase, even when a
    gate or report says it is ready.
