@@ -63,14 +63,16 @@ function AttentionLine({ item, onNavigate }: { item: AttentionItem; onNavigate: 
   // Name the field(s) the backend exception is about, so similar rows stay distinguishable.
   const fields = [...new Set((exception?.evidence ?? []).map(entry => entry.field_key).filter((key): key is string => Boolean(key)))]
     .map(key => key.replaceAll("_", " ")).join(", ");
+  // The field list is shown and announced as a description, so the accessible name stays "<kind>: <title>".
+  const fieldId = useId();
   return <>
-    <button type="button" className={`btn btn-ghost attention-line attention-line--${kind.toLowerCase()}`} onClick={() => onNavigate(final ? { kind: "final" }
+    <button type="button" className={`btn btn-ghost attention-line attention-line--${kind.toLowerCase()}`} aria-describedby={fields ? fieldId : undefined} onClick={() => onNavigate(final ? { kind: "final" }
       : exception ? { kind: "exception", exception }
       : fix ? { kind: "evidence", target: fix.target }
       : { kind: "intervention", interventionId: intervention!.intervention_id })}>
       <span className="sr-only">{kind}: </span>
       <span className="attention-line__title">{title}</span>
-      {fields && <span className="attention-line__field">{fields}</span>}
+      {fields && <span id={fieldId} className="attention-line__field" aria-hidden="true">{fields}</span>}
       {fix && <span className="attention-line__fix">{fix.label} →</span>}
     </button>
     {actions.slice(fix ? 1 : 0).map(action => <button type="button" className="btn btn-ghost attention-line__extra" key={action.target} onClick={() => onNavigate({ kind: "evidence", target: action.target })}>Action: {action.label}</button>)}

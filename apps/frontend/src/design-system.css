@@ -850,8 +850,9 @@ button.tag {
 .ds-root .stage-disclosure__summary { padding: 0 20px 14px; background: var(--tone-tint); color: var(--color-neutral-700); font-size: 12.5px; line-height: 1.45; }
 .ds-root .stage-disclosure > div:not([hidden]) { padding: 20px; border-top: 1px solid var(--color-divider); }
 /* Support disclosures become a quiet footer strip. */
-.ds-root .stage-disclosure > details.evidence-details { margin: 0; padding: 10px 20px; border: 0; border-top: 1px solid var(--color-divider); background: var(--color-neutral-100); font-size: 12px; }
-.ds-root .stage-disclosure > details.evidence-details > summary { color: var(--color-neutral-700); }
+.ds-root .stage-disclosure > details.evidence-details { margin: 0; padding: 10px 11px; border: 0; border-top: 1px solid var(--color-divider); background: var(--color-neutral-100); font-size: 12px; }
+/* Main's 11px content inset keeps support evidence readable; the summary keeps the 20px header alignment. */
+.ds-root .stage-disclosure > details.evidence-details > summary { padding-left: 9px; color: var(--color-neutral-700); }
 .ds-root .stage-disclosure > details.evidence-details[open] { background: #fff; }
 .ds-root .stage-disclosure > details.evidence-details[open] > summary { margin-bottom: 10px; color: var(--color-accent-800); }
 @media (max-width: 540px) {
@@ -860,7 +861,8 @@ button.tag {
   .ds-root .stage-disclosure > div:not([hidden]) { padding: 14px; }
 }
 .ds-root .stage-disclosure > h2 { margin: 0; background: var(--tone-tint); }
-.case-attention .attention-line { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 1px; padding: 4px 0; text-align: left; }
+/* position: relative keeps the visually hidden kind label inside the scrollable rail (no page overflow). */
+.case-attention .attention-line { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 1px; padding: 4px 0; text-align: left; }
 .attention-line__title { color: var(--color-text); font-size: 12px; font-weight: 600; line-height: 1.35; }
 .attention-line--blocker .attention-line__title { color: #8c3a2e; }
 .attention-line__fix { color: var(--color-accent-800); font-size: 11.5px; }
@@ -1089,13 +1091,13 @@ button.tag {
 .ds-root .nav-tab, .ds-root .nav-tab:hover, .ds-root .nav-tab:visited { text-decoration: none; }
 
 /* Current evidence as a table (main case view). Row labels stay for screen readers only. */
-.ds-root .document-evidence-panel .document-card { gap: 10px; }
+.ds-root .document-evidence-panel .document-card { gap: 10px; container-type: inline-size; }
 .ds-root .document-evidence-panel .document-card__header h5 { font-size: 17px; }
 .ds-root .document-evidence-panel .document-card > p.control-help { color: var(--color-neutral-600); }
 .document-fields__head,
 .ds-root .document-evidence-panel .document-fields--table > .document-field {
   display: grid;
-  grid-template-columns: minmax(160px, 1.3fr) minmax(0, .9fr) minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, .8fr);
+  grid-template-columns: minmax(160px, 1.3fr) minmax(104px, .9fr) minmax(104px, 1.3fr) minmax(104px, 1.1fr) minmax(104px, .9fr) minmax(104px, .8fr);
   column-gap: 14px;
 }
 .document-fields__head { margin: 6px 0 0; padding: 8px 14px; border: 1px solid var(--color-divider); border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--color-neutral-100); color: var(--color-neutral-600); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
@@ -1109,23 +1111,25 @@ button.tag {
 .ds-root .document-evidence-panel .document-fields--table .document-field__evidence dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(n+6) dt { position: static; width: auto; height: auto; clip-path: none; display: inline; margin-right: 6px; }
 .ds-root .document-evidence-panel .document-fields--table .document-field__evidence dd { margin: 0; font-size: 12.5px; }
-.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(4) dd,
-.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(5) dd { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--color-neutral-100); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(4) dd > .document-field__status,
+.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(5) dd > .document-field__status { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--color-neutral-100); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
 .ds-root .document-evidence-panel .document-fields--table .document-field__heading .tag { display: none; }
 .ds-root .document-evidence-panel .document-fields--table > .document-field > :is(.document-checkpoint-repair, .document-field__actions, .document-correction, .ds-banner, section, details, p.control-help:last-child) { grid-column: 1 / -1; }
-@media (max-width: 900px) {
+/* Reflow by the card's own width (not the viewport) so every value keeps a readable column. */
+@container (max-width: 799px) {
   .document-fields__head { display: none; }
   .ds-root .document-evidence-panel .document-fields--table { border-radius: 6px; }
-  .ds-root .document-evidence-panel .document-fields--table > .document-field { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Keep main's accepted minimum readable evidence width (110px) when the table reflows. */
+  .ds-root .document-evidence-panel .document-fields--table > .document-field { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+  .ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(n+6) { grid-column: 1 / -1; }
   .ds-root .document-evidence-panel .document-fields--table > .document-field > .document-field__heading,
   .ds-root .document-evidence-panel .document-fields--table > .document-field > p.control-help:not(:last-child) { grid-column: 1 / -1; grid-row: auto; }
   .ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div { grid-row: auto; }
   .ds-root .document-evidence-panel .document-fields--table .document-field__evidence dt { position: static; width: auto; height: auto; clip-path: none; font-size: 10px; text-transform: uppercase; color: var(--color-neutral-600); }
 }
-.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(4) dd,
-.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(5) dd { width: auto; max-width: 100%; }
-.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(4),
-.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(5) { justify-self: start; }
+/* The status pill is an inner badge; the value cell keeps its full column width (accepted >100px evidence width). */
+.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(4) dd > .document-field__status,
+.ds-root .document-evidence-panel .document-fields--table .document-field__evidence > div:nth-child(5) dd > .document-field__status { max-width: 100%; }
 .ds-root .document-evidence-panel .document-fields__head + .document-fields--table { margin-top: -10px; }
 /* The read-only explanation is identical per field: show it once, keep each field's retry link. */
 .ds-root .document-evidence-panel .document-fields--table > .document-field:not(:first-child) .document-checkpoint-repair .control-help { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

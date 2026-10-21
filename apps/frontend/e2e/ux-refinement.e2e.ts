@@ -206,7 +206,8 @@ test("PR84 mixed identity blockers preserve registry correction", async ({ page 
   const attention = page.getByRole("region", { name: "Attention required", exact: true });
   await expect(attention).toContainText("2 active blockers");
   await collapse(page, "Registry verification");
-  await showAllIssues(page); const action = attention.getByRole("button", { name: /Correct identity/ });
+  // Two identity blockers exist; the accepted target is the exact "Correct identity" action, not "Correct identity and recheck".
+  await showAllIssues(page); const action = attention.getByRole("button", { name: /Correct identity →$/ });
   await action.focus(); await action.press("Enter");
   await expect(page.locator("#identity-registration-number")).toBeFocused();
   expect(requests).toEqual([]);

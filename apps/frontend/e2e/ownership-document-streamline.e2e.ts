@@ -107,7 +107,8 @@ test("Ownership hotfix valid root identity selects retained holder with keyboard
   const document = documents.find((item: { state: string; superseded_by_document_id: string | null }) => !item.superseded_by_document_id && item.state === "REVIEWED");
   expect(document).toBeTruthy();
   await page.goto(`/cases/${cid}`);
-  await showAllIssues(page); await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker:/ }).first().click();
+  // Attention is grouped by pipeline step (Registry before Ownership); the ownership blocker is the target.
+  await showAllIssues(page); await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker: Ownership and UBO/ }).first().click();
   await expect(page.locator("#case-manual-ownership-evidence input:focus, #case-manual-ownership-evidence select:focus")).toHaveCount(1);
   const parties = structuredClone(validIdentityFixture.parties);
   const rootParty = parties.find(party => party.party_id === validIdentityFixture.root_party_id)!;
@@ -191,7 +192,8 @@ for (const replace of [false, true]) {
       for (let index = 0; index < 4; index++) await fields.nth(index).check();
       const rejected = await confirmBatch(page); expect(rejected.current_stage).toBe("DOCUMENT");
       expect(rejected.case.goldtier_result).toBeNull();
-      await showAllIssues(page); await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker:/ }).first().click();
+      // Attention is grouped by pipeline step (Registry before Document); the rejected document blocker is the target.
+      await showAllIssues(page); await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker: Document or reconciliation review required/ }).first().click();
       await expect(page.getByLabel("Replace current document", { exact: true })).toBeFocused();
       const replacement = page.waitForResponse(r => r.url().includes("/replace") && r.request().method() === "POST");
       await page.getByLabel("Replace current document", { exact: true }).setInputFiles({ name: "synthetic-replacement.txt", mimeType: "text/plain", buffer: Buffer.from(clean) });

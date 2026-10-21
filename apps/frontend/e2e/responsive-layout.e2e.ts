@@ -808,7 +808,8 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         await expect(section.locator("#case-evidence-reconciliation")).toBeVisible();
         const choice = section.locator('input[data-review-field][value="REJECTED"]').first();
         await expect(choice).toBeVisible();
-        if (width === 1440) await choice.check();
+        // Choose by keyboard (as the former <select> did) so later scripted focus keeps :focus-visible.
+        if (width === 1440) { await choice.focus(); await page.keyboard.press("Space"); }
         await expect(choice).toBeChecked();
         await expect(section.getByText("Supporting document evidence", { exact: true })).toBeHidden();
         await expect(section.getByRole("heading", { name: "Document processing provenance", exact: true })).toBeHidden();

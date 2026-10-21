@@ -24,17 +24,28 @@ export async function reviewPendingFields(page: Page, corrections: Record<string
   // Nothing is pre-selected: every pending field needs an explicit decision.
   const fields = page.locator('input[data-review-field][value="REJECTED"]');
   await expect(fields.first()).toBeVisible();
+  // Case navigation focuses the review two animation frames after render; let it land before deciding,
+  // so it cannot move focus away from the control being decided.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
   const count = await fields.count();
   expect(count).toBeGreaterThan(0);
   for (let index = 0; index < count; index++) {
     const key = (await fields.nth(index).getAttribute("data-review-field"))!;
     const documentId = (await fields.nth(index).getAttribute("data-document-id"))!;
-    const control = page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="${key in corrections ? "CORRECTED" : "ACCEPTED"}"]`);
+    if (key in corrections) {
+      // Typing the corrected value records the correction (the box overlays its radio), as a reviewer does.
+      const correction = page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true });
+      await correction.focus();
+      await correction.fill(corrections[key]);
+      await expect(correction).toBeFocused();
+      await expect(page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="CORRECTED"]`)).toBeChecked();
+      continue;
+    }
+    const control = page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="ACCEPTED"]`);
     await control.focus();
     await control.check();
     await expect(control).toBeFocused();
     await expect(control).toBeChecked();
-    if (key in corrections) await page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true }).fill(corrections[key]);
   }
   page.off("request", listener);
   expect(mutations).toEqual([]);
