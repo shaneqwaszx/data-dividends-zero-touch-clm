@@ -1,3 +1,4 @@
+import { displayTimestamp } from "../shared";
 import { useState, type FormEvent } from "react";
 
 import type { GoldTierTargetClassification, PolicyRebindMetadata } from "../types";
@@ -156,7 +157,7 @@ export function PolicyRebindDetails({ metadata, registrationNumber, presentation
       <p><strong>Configuration status:</strong> {metadata.configuration_status === "REQUIRES_REBIND" ? "Requires rebind" : "Current accepted POC"}</p>
       {metadata.configuration_status !== "REQUIRES_REBIND" && metadata.last_rebound_by && metadata.last_rebound_at && <div aria-label="Latest policy rebind receipt">
         <p><strong>Last rebound by:</strong> {metadata.last_rebound_by}</p>
-        <p><strong>Last rebound at:</strong> {new Date(metadata.last_rebound_at).toLocaleString()} · original {metadata.last_rebound_at}</p>
+        <p><strong>Last rebound at:</strong> {displayTimestamp(metadata.last_rebound_at)}</p>
         <p><strong>Rationale:</strong> {metadata.last_rationale ?? "Not retained"}</p>
         <p><strong>Changed accepted fields:</strong> {metadata.last_changed_fields.map(fieldLabel).join(", ") || "None"}</p>
       </div>}

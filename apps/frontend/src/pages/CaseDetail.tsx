@@ -1,5 +1,5 @@
 import { CasePipelineAttention, type AttentionDestination } from "./CaseAttentionSummary";
-import BlockerDecisionReview, { type ReviewDraftHandle } from "./BlockerDecisionReview";
+import BlockerDecisionReview, { clearSourceIntents, followUpSourceDecisions, reviewableSourceDiscrepancies, type ReviewDraftHandle } from "./BlockerDecisionReview";
 import type { ReviewDecisionBatch } from "../types";
 import { confirmReviewDecisions } from "../api";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -50,12 +50,14 @@ import {
   priorityMutationEffect,
   targetConfirmationMutationEffect,
 } from "../caseQueries";
-import { formatTimestamp, shouldPollAutomation, targetOutcomeLabel } from "../shared";
+import { displayTimestamp, formatTimestamp, shouldPollAutomation, targetOutcomeLabel } from "../shared";
 import type {
   DocumentProcessingRecord,
   AuthenticatedProfile,
+  HumanInterventionProjection,
   OwnershipAnalysisRecord,
   ProcessingNode,
+  ReadinessStageStatus,
   SimulationProfile,
   ZeroTouchCaseSummary,
 } from "../types";
@@ -63,6 +65,7 @@ import {
   CompletedOverview,
   ConfirmDetailsPanel,
   stageStatusFor,
+  GOLDTIER_DETAILS_STAGE_LABEL,
   DetailedProcessingInspector,
   findProcessingNode,
   OnboardingProgressPanel,
@@ -71,7 +74,7 @@ import {
   ProcessingBlockerPanels,
   RegistryStatePanel,
 } from "./CaseStatePanels";
-import CaseStateExplanationPanel, { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
+import { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
 import PriorityControl from "./PriorityControl";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import DocumentEvidencePanel, {
@@ -126,6 +129,49 @@ interface EvidenceFocusNotice {
   readonly message: string;
 }
 
+/** "NOT_SUBMITTED" -> "Not submitted" for display. */
+function titleCaseWords(value: string): string {
+  const words = value.replaceAll("_", " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function readinessTone(status: ReadinessStageStatus): "done" | "attention" | "pending" {
+  if (status === "READY" || status === "SUBMITTED") return "done";
+  if (status === "MISSING" || status === "BLOCKED" || status === "FAILED" || status === "REVIEW_REQUIRED") return "attention";
+  return "pending";
+}
+
+export interface PendingDocuments {
+  fileNames: string[];
+  busy: boolean;
+  progress: string | null;
+  error: string | null;
+  onUpload: () => void;
+  onDiscard: () => void;
+}
+
+function PendingDocumentsBanner({ pending }: { pending: PendingDocuments }) {
+  const count = pending.fileNames.length;
+  return (
+    <section className="ds-banner pending-documents" aria-labelledby="pending-documents-title" role="status">
+      {pending.error ? <>
+        {/* The upload reached the backend and was refused; say so instead of implying it never ran. */}
+        <h3 id="pending-documents-title">{count === 1 ? "Your document couldn't be uploaded" : `${count} documents couldn't be uploaded`}</h3>
+        <p>{pending.fileNames.join(", ")} — the upload was rejected. Fix the cause below, then try again.</p>
+        <p className="control-help pending-documents__error">{pending.error}</p>
+      </> : <>
+        <h3 id="pending-documents-title">{count === 1 ? "1 document is waiting to upload" : `${count} documents are waiting to upload`}</h3>
+        <p>{pending.fileNames.join(", ")} — not uploaded yet because the case stopped before document intake. Fix the issue above (for example, complete the company details), then upload.</p>
+        {pending.progress && <p className="control-help">{pending.progress}</p>}
+      </>}
+      <div className="pending-documents__actions">
+        <button type="button" className="btn btn-primary" disabled={pending.busy} onClick={pending.onUpload}>{pending.error ? "Try upload again" : "Upload now"}</button>
+        <button type="button" className="btn btn-ghost" disabled={pending.busy} onClick={pending.onDiscard}>Discard</button>
+      </div>
+    </section>
+  );
+}
+
 export function shouldRefreshAfterMutationError(error: unknown): boolean {
   return error instanceof TypeError || (error instanceof ApiError && [409, 503].includes(error.status));
 }
@@ -138,6 +184,7 @@ export default function CaseDetail({
   onViewAudit,
   registryProviderMode,
   initialFocusNodeId,
+  pendingDocuments,
 }: {
   caseId: string;
   actor: AuthenticatedProfile;
@@ -146,6 +193,8 @@ export default function CaseDetail({
   onViewAudit: (caseId: string) => void;
   registryProviderMode?: SimulationProfile["registry_provider_mode"];
   initialFocusNodeId?: string;
+  /** Documents chosen at Create onboarding that are not uploaded yet (e.g. the registry step stopped first). */
+  pendingDocuments?: PendingDocuments;
 }) {
   const queryClient = useQueryClient();
   const batchReviewRef = useRef<ReviewDraftHandle>(null);
@@ -1091,7 +1140,6 @@ export default function CaseDetail({
   const readinessReadUnconfirmed = detailQuery.isPending || detailQuery.isFetching || detailQuery.isError;
   const ownershipReadNotice = readNotice("Ownership", ownershipQuery.isPending, ownershipQuery.isFetching || detailQuery.isFetching, ownershipQuery.isError || detailQuery.isError, ownershipQuery.data !== undefined);
   const readinessReadNotice = readNotice("Readiness", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
-  const targetReadNotice = readNotice("Target", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
   const finalReadNotice = readNotice("Final review", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
   const confirmedOwnershipEmpty = !ownershipReadUnconfirmed && ownership === null;
   const loadError = detailQuery.error ?? documentQuery.error ?? ownershipQuery.error;
@@ -1132,11 +1180,12 @@ export default function CaseDetail({
     ...(summary.case.policy_rebind ? [EVIDENCE_TARGET_IDS.policy] : []),
   ]);
 
-  const renderInterventions = (stages?: readonly string[], historyOnly = false) => (
+  const renderInterventions = (stages?: readonly string[], historyOnly = false, omit?: (item: HumanInterventionProjection) => boolean) => (
         <HumanInterventionPanel
           summary={summary}
           stages={stages}
           historyOnly={historyOnly}
+          omit={omit}
           isBusy={isBusy || mutationBlocked || documentQuery.isPending || summary.evidence_decision_authorized !== true}
           onConfirmExisting={(rationale) => void runMutation(
             () => confirmExistingGoldTierCustomer(summary, rationale),
@@ -1239,6 +1288,26 @@ export default function CaseDetail({
       ? [{ uen, documentId: item.document_id, eventCount: item.events.length }] : [];
   });
   const identityConflict = identityEditable && documentUenCandidates.length > 0;
+  // Open discrepancies with no permitted value choice can only be cleared by replacement evidence.
+  const replacementFieldNames = summary.current_stage === "DOCUMENT"
+    ? [...new Set((summary.reconciliation?.discrepancies ?? []).filter(item => item.status === "OPEN" && item.allowed_actions.length === 0)
+      .map(item => item.field_name.replaceAll("_", " ")))]
+    : [];
+  // The comparison table shows whenever reconciliation evidence exists, so the chosen values stay visible later.
+  const showComparison = Boolean(summary.reconciliation);
+  // Document-stage "Documents / reconciliation" cards repeat what this section already shows
+  // (comparison table, review decisions, replace-document control), so they are hidden.
+  // A card stays only if it carries an action that nothing else on the page offers.
+  const reviewPanelSourceIds = new Set(reviewableSourceDiscrepancies(summary, documents).map(item => item.discrepancy_id));
+  const coveredByReviewPanel = (item: HumanInterventionProjection) => item.owning_stage === "DOCUMENT"
+    && (item.evidence_actions ?? []).every(action => action.target === "DOCUMENTS")
+    && item.authorized_actions.every(action => (action.action === "KEEP_REGISTRY_VALUE" || action.action === "USE_DOCUMENT_VALUE")
+      && reviewPanelSourceIds.has(item.intervention_id));
+  // A UEN mismatch reopens registry identity review even though the backend registry step completed.
+  const registryStageStatus = identityConflict ? { tone: "attention" as const, label: "Review required" } : stageStatusFor(summary, ["ACRA_REGISTRY"]);
+  const displaySummary = identityConflict ? { ...summary, processing_pipeline: summary.processing_pipeline?.map(node => (
+    node.node_id === "ACRA_REGISTRY" ? { ...node, status: "REVIEW_REQUIRED" as const, safe_result: "Entered UEN and document UEN differ — confirm which to use." } : node
+  )) } : summary;
 
   // The backend projection owns placement; endpoint eligibility stays with the
   // existing predicate above. A genuine Registry correction keeps the one editor.
@@ -1294,7 +1363,7 @@ export default function CaseDetail({
       <div className="side-panel case-pipeline-panel">
         <button type="button" className="btn btn-ghost" onClick={onBack} style={{ paddingLeft: 0 }}>← Back to Cases</button>
         {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
-        <CasePipelineAttention summary={summary} onNavigate={focusAttention} onStageActivate={focusProcessingNode} />
+        <CasePipelineAttention summary={displaySummary} onNavigate={focusAttention} onStageActivate={focusProcessingNode} />
         {(targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" || summary.current_stage !== "MOCK_GOLDTIER" || summary.technical_failure?.code !== "CLM_TARGET_OUTCOME_UNCERTAIN") && !preflightUnavailable && summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
         <hr className="hr" />
         <div className="text-muted" style={{ fontSize: 11.5 }}>
@@ -1308,11 +1377,12 @@ export default function CaseDetail({
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
 
         <OnboardingProgressPanel
-          summary={summary}
+          summary={displaySummary}
           onStageActivate={focusProcessingNode}
           availableFocusTargets={availableFocusTargets}
           initialFocusNodeId={initialFocusNodeId}
         />
+        {pendingDocuments && <PendingDocumentsBanner pending={pendingDocuments} />}
 
 
         {isBusy && busyLabel && (
@@ -1353,12 +1423,12 @@ export default function CaseDetail({
               <div><dt>Retained request</dt><dd>{summary.clm.target_search_checkpoint.request_id}</dd></div>
               <div><dt>Safe code</dt><dd>{summary.clm.target_search_checkpoint.code ?? "None recorded"}</dd></div>
               <div><dt>Status code</dt><dd>{summary.clm.target_search_checkpoint.status_code ?? "Not recorded"}</dd></div>
-              <div><dt>Searched at — original ISO UTC</dt><dd>{summary.clm.target_search_checkpoint.searched_at ?? "Not recorded"}</dd></div>
+              <div><dt>Searched at</dt><dd>{displayTimestamp(summary.clm.target_search_checkpoint.searched_at)}</dd></div>
             </dl>}
           </>}
         />
         </div>
-        <StageDisclosure title="Registry verification" status={stageStatusFor(summary, ["ACRA_REGISTRY"])} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
+        <StageDisclosure title="Registry verification" status={registryStageStatus} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
           main={<>
             {renderInterventions(["REGISTRY"])}
             {!identityInSearch && identityEditor}
@@ -1377,7 +1447,7 @@ export default function CaseDetail({
         />
         <StageDisclosure title="Document verification" status={stageStatusFor(summary, ["DOCUMENT_IDP", "RECONCILIATION"])} summary={`${documentHeaderFreshness}Documents: ${summary.clm.readiness.document.status}. ${stageNeedsAttention(["DOCUMENT"]) ? "Attention required — review document evidence and required actions." : summary.current_stage === "DOCUMENT" ? "Current stage — review document evidence and required actions." : "Document evidence and reconciliation."}`} scopeKey={disclosureIdentity}
           main={<>
-          {renderInterventions(["DOCUMENT"])}
+          {renderInterventions(["DOCUMENT"], false, coveredByReviewPanel)}
           {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary)) && <label id="case-document-upload" className="btn btn-secondary document-upload-control">
             Upload required document
             <input type="file" className="sr-only document-upload-input"
@@ -1422,19 +1492,45 @@ export default function CaseDetail({
         <BlockerDecisionReview
           key={`${evidenceIdentity}:${actor.role}:${actor.team_id}:${summary.evidence_decision_authorized}:${summary.version}:${summary.case.events.length}:${documents.map(doc => `${doc.document_id}:${doc.events.length}:${doc.review_source_fingerprint}`).join("|")}`}
           ref={batchReviewRef} summary={summary} documents={documents} busy={isBusy || mutationBlocked}
-          onConfirm={(batch: ReviewDecisionBatch) => void settleEvidenceMutation(
-            () => confirmReviewDecisions(caseId, batch), "Applying confirmed review decisions…", "Review confirmation could not be completed.")}
+          onReplaceDocument={() => document.querySelector<HTMLInputElement>(`#${EVIDENCE_TARGET_IDS.documents} .document-upload-input:not([disabled])`)?.click()}
+          onConfirm={(batch: ReviewDecisionBatch) => void settleEvidenceMutation(async () => {
+            // One Confirm: apply the field review, then the registry-vs-document step with the same
+            // choices when the refreshed case allows every one of them. Otherwise the panel stays pre-filled.
+            const reviewed = await confirmReviewDecisions(caseId, batch);
+            if (!batch.documents) return reviewed;
+            const followUp = followUpSourceDecisions(reviewed);
+            if (!followUp) return reviewed;
+            const finished = await confirmReviewDecisions(caseId, followUp);
+            clearSourceIntents(caseId);
+            return finished;
+          }, "Applying confirmed review decisions…", "Review confirmation could not be completed.")}
         />
-        {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
+        {/* One card: the registry-vs-document comparison, then the uploaded file's status. */}
+        <section className="card document-combined" aria-labelledby="document-combined-heading">
+          <div className="document-combined__header">
+            <p className="card-kicker">Local/Mock evidence · not approval</p>
+            <h3 id="document-combined-heading">Document evidence</h3>
+            <p className="text-muted">Registry and document values side by side. No source wins automatically.</p>
+          </div>
+          {replacementFieldNames.length > 0 && <div className="ds-banner ds-banner-warn document-combined__action" role="status">
+            <strong>Action needed: upload a replacement document</strong>
+            <span>The current document has no usable value for {replacementFieldNames.join(", ")}. Upload a corrected document to continue — the case re-checks it automatically.</span>
+            <button type="button" className="btn btn-primary" disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+              onClick={() => document.querySelector<HTMLInputElement>(`#${EVIDENCE_TARGET_IDS.documents} .document-upload-input:not([disabled])`)?.click()}>
+              Upload replacement document
+            </button>
+          </div>}
+        {showComparison && (
           <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
-            <ConfirmDetailsPanel presentation="main" summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
+            <ConfirmDetailsPanel presentation="main" embedded summary={summary} documents={documents} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
           </div>
         )}
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
           {error && reviewEdit.current?.target === "documents" && isCurrentCaseAction(reviewEdit.current)
             && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
-          <DocumentEvidencePanel presentation="main" reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
+          <DocumentEvidencePanel presentation="main" embedded hideFieldRows={showComparison} reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
         </div>
+        </section>
 
           </>}
           moreDetails={<DocumentEvidencePanel presentation="more" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />}
@@ -1501,14 +1597,27 @@ export default function CaseDetail({
           moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" /></>}
           technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" /></>}
         />
-        <StageDisclosure title="Submission readiness" status={stageStatusFor(summary, ["READINESS"])} summary={`${headerReadSummary("readiness", detailHeaderQueries)}Readiness checkpoint: ${summary.status.replaceAll("_", " ")}. ${summary.clm.readiness.blockers.length} retained blockers. ${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration." : "Review required inputs and configuration."}`} scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title={GOLDTIER_DETAILS_STAGE_LABEL} status={stageStatusFor(summary, ["READINESS", "GOLDTIER_TARGET"])} summary={`${targetHeaderFreshness}${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration. " : ""}${targetHeaderStatus} · ${titleCaseWords(summary.clm.submission_plan.environment)}`} scopeKey={disclosureIdentity} main={<>
           {readinessReadNotice}
-          <section aria-label="Backend-projected readiness">
-            <p>Registry: {summary.clm.readiness.registry.status} · Documents: {summary.clm.readiness.document.status} · Ownership: {summary.clm.readiness.ownership.status} · GoldTier: {summary.clm.readiness.goldtier.status}</p>
-            {summary.clm.readiness.blockers.map((blocker, index) => <p key={`blocker-${index}`} className="ds-banner ds-banner-warn">{blocker}</p>)}
-            {summary.clm.readiness.warnings.map((warning, index) => <p key={`warning-${index}`} className="control-help">{warning}</p>)}
+          {/* Focus anchors for "Resolve issue" / "Review outstanding" navigation into this section. */}
+          <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target" tabIndex={-1}>
+          <section id="case-target-blocker" className="goldtier-status evidence-focus-target" tabIndex={-1} aria-label="GoldTier readiness and submission status">
+            <ul className="goldtier-status__grid" aria-label="Readiness by area">
+              {([
+                ["Registry", summary.clm.readiness.registry.status],
+                ["Documents", summary.clm.readiness.document.status],
+                ["Ownership", summary.clm.readiness.ownership.status],
+                ["GoldTier", summary.clm.readiness.goldtier.status],
+              ] as const).map(([label, status]) => (
+                <li key={label} className="goldtier-status__tile" data-tone={readinessTone(status)}>
+                  <span className="goldtier-status__label">{label}</span>
+                  <span className="goldtier-status__value">{titleCaseWords(status)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="control-help goldtier-status__note">Shows whether the case is ready to send to GoldTier. GoldTier KYC and four-eye approval happen separately.</p>
           </section>
-          <p className="control-help">Checks whether the current case evidence and GoldTier submission inputs are complete and current enough to prepare the submission. GoldTier KYC and four-eye approval remain separate.</p>
+          </div>
           {renderInterventions(["READINESS"])}
         {summary.case.policy_rebind && (
           <PolicyRebindPanel
@@ -1552,24 +1661,6 @@ export default function CaseDetail({
           />
           </div>
         )}
-        </>}
-          moreDetails={<>
-            {readinessReadNotice}
-            <p>Readiness prepares the current case for submission. It does not establish GoldTier KYC verification or four-eye approval.</p>
-            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="more" />}
-            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="more" />}
-          </>}
-          technicalDetails={<>
-            {readinessReadNotice}
-            <p>Readiness policy version: {summary.clm.readiness.policy_version ?? "Not recorded"} · evaluated at: {summary.clm.readiness.evaluated_at ?? "Not recorded"} · CLM version: {summary.clm.version ?? "Not recorded"}</p>
-            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="technical" />}
-            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
-          </>}
-        />
-        <StageDisclosure title="GoldTier submission package" status={stageStatusFor(summary, ["GOLDTIER_TARGET"])} summary={`${targetHeaderFreshness}${targetHeaderStatus} · ${summary.clm.submission_plan.environment}`} scopeKey={disclosureIdentity} main={<>
-          {targetReadNotice}
-          <p>Submission environment: {summary.clm.submission_plan.environment}</p>
-          <p>Backend submission state: {targetSubmission?.state ?? "Not available in retained evidence"}</p>
 
         {preflightUnavailable && <section className="ds-banner ds-banner-warn" aria-labelledby="target-preflight-title">
           <h3 id="target-preflight-title">GoldTier availability check needed</h3>
@@ -1594,7 +1685,6 @@ export default function CaseDetail({
           onRecover={recoverTarget}
         />}
           {renderInterventions(["MOCK_GOLDTIER"])}
-        {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && <ProcessingBlockerPanels summary={summary} stage="TARGET" />}
         {safeContinuation && <section className="ds-banner" aria-labelledby="target-continuation-title" aria-live="polite" style={{ marginBottom: 16 }}>
           <h3 id="target-continuation-title" tabIndex={-1}>Verified work is saved</h3>
           <p>Continue the same submission to complete the remaining steps. Previously completed or verified steps will not be sent again.</p>
@@ -1604,19 +1694,24 @@ export default function CaseDetail({
           && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
 
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
-
-          <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
-            <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />
-          </div>
         </>}
           moreDetails={<>
-            {targetReadNotice}
+            {readinessReadNotice}
+            <p>Readiness prepares the current case for submission. It does not establish GoldTier KYC verification or four-eye approval.</p>
+            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="more" />}
+            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="more" />}
             <h3>Retained operation summaries</h3>
             <ul>{summary.target_operations.map(item => <li key={item.operation}>{item.operation}: {item.status}</li>)}</ul>
             <OperationalTiming summary={summary} />
           </>}
           technicalDetails={<>
-            {targetReadNotice}
+            {readinessReadNotice}
+            <p>Readiness policy version: {summary.clm.readiness.policy_version ?? "Not recorded"} · evaluated at: {displayTimestamp(summary.clm.readiness.evaluated_at)} · CLM version: {summary.clm.version ?? "Not recorded"}</p>
+            <p>Backend submission state: {targetSubmission?.state ?? "Not available in retained evidence"}</p>
+            {summary.clm.readiness.blockers.length > 0 && <><h4>Readiness blocker codes</h4><ul>{summary.clm.readiness.blockers.map((blocker, index) => <li key={`blocker-${index}`}>{blocker}</li>)}</ul></>}
+            {summary.clm.readiness.warnings.length > 0 && <><h4>Readiness warning codes</h4><ul>{summary.clm.readiness.warnings.map((warning, index) => <li key={`warning-${index}`}>{warning}</li>)}</ul></>}
+            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="technical" />}
+            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
             <TargetRecoveryDetails summary={summary} result={currentTargetStatusCheck?.result ?? null} />
             {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && <dl>
               <div><dt>Submission ID</dt><dd>{targetSubmission?.submission_id ?? "Not retained"}</dd></div>
@@ -1640,11 +1735,6 @@ export default function CaseDetail({
             </aside>
           </>}
         />
-        <StageDisclosure title="Historical / resolved issues">
-          {renderInterventions(undefined, true)}
-          <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
-        <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>          {intelligence && <details className="evidence-details"><summary>Advisory intelligence</summary><IntelligencePanel record={intelligence} /></details>}
-        </StageDisclosure>
         {showFinalReview ? <ReviewAndSend
           disclosureScopeKey={disclosureIdentity}
           readNotice={finalReadNotice}
@@ -1681,6 +1771,11 @@ export default function CaseDetail({
             ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
             : "Not yet available — complete the current stage."}</p></>}
         /> }
+        <StageDisclosure title="Historical / resolved issues">
+          {renderInterventions(undefined, true)}
+          <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
+        <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>          {intelligence && <details className="evidence-details"><summary>Advisory intelligence</summary><IntelligencePanel record={intelligence} /></details>}
+        </StageDisclosure>
       </div>
       </OnboardingWorkspace>
 

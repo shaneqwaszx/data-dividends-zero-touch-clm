@@ -197,7 +197,7 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
     expect(visited.filter(name => /^(Accept|Reject) document suggestion for /.test(name))).toHaveLength(fields.length);
     expect(visited.filter(name => name.startsWith("Correction for "))).toHaveLength(fields.length);
     expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
-    expect(visited).toContain("Reject all undecided suggestions");
+    expect(visited).toContain("Use registry value for all undecided");
     expect(visited).toContain("How drafts work");
   }
   // WCAG 2.2 SC 1.4.4: the footer status, hint and "How drafts work" keep a readable column at every review width.

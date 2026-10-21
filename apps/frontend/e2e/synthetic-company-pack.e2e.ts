@@ -61,7 +61,7 @@ for (const company of companies) {
     const ownership = await (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
     expect(ownership.state).toBe("ANALYZED");
     expect(ownership.candidates.filter((c: any) => c.classification === "PROVISIONAL_UBO_CANDIDATE").map((c: any) => c.party.display_name).sort()).toEqual([...company.candidates].sort());
-    await openStage(page, "Submission readiness");
+    await openStage(page, "GoldTier Details & Status");
     expect(initial.target_classification.kyc_customer_type.selected_value).toBe("Company - Private");
     expect(initial.target_classification.client_segment.selected_value).toBe("Corporate");
     expect(initial.target_classification.kyc_customer_type.selection.source).toBe("DOCUMENT");
@@ -82,7 +82,7 @@ for (const company of companies) {
     expect(done.case.goldtier_result.readback_party_id).toBe(done.case.goldtier_result.party_id);
     const before = posts.length;
     await page.reload();
-    await openStage(page, "GoldTier submission package");
+    await openStage(page, "GoldTier Details & Status");
     await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
     const retained = await summary(page, caseId);
     expect(retained.target_operations).toEqual(done.target_operations);

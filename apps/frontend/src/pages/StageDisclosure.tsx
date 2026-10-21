@@ -63,9 +63,11 @@ export default function StageDisclosure(props: Parameters<typeof LegacyStageDisc
   return "scopeKey" in props ? <PersistentStageDisclosure {...props} /> : <LegacyStageDisclosure {...props} />;
 }
 
-function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails, scopeKey, active = true, final = false, summary, status }: PersistentStageProps) {
+function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails, scopeKey, active, final = false, summary, status }: PersistentStageProps) {
   const id = useId();
-  const [open, setOpen] = useState(active);
+  // Completed sections start collapsed unless the caller decides; navigation can still reveal them.
+  const initiallyOpen = active ?? status?.tone !== "done";
+  const [open, setOpen] = useState(initiallyOpen);
   const toggle = useRef<HTMLButtonElement>(null);
   const section = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -84,7 +86,7 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
       // A keyed scope remount can remove the active control before this effect.
       if (section.current?.contains(focused) || (sectionHasFocus.current && focused === document.body)) heading.current?.focus();
       for (const element of [more.current, technical.current]) if (element) element.open = false;
-      setOpen(active);
+      setOpen(initiallyOpen);
       printedState.current = null;
     }
     // Same-scope removal may not emit blur: retire history against the current DOM.
