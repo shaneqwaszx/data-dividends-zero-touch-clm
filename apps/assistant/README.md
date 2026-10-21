@@ -188,7 +188,7 @@ left out, the answer's notice says how many, and the reply's `checks.removed` is
 1. **The catalog** (`allowed_guidance`): fixed statements filled only from the backend's case
    facts (offered actions, readiness items with their section, rule explanations, the
    standing disclaimers).
-2. **Knowledge lines** (proposed in ADR-012; needs the owner's explicit acceptance): each
+2. **Knowledge lines** (ADR-012 section C, accepted by the owner on 2026-10-21, D-074): each
    sentence of a retrieved, approved entry the user may see, exactly as approved and
    followed by its tag (`... [G1]`), but only if it passes these checks against this case's
    facts. At most 20 lines per entry and 48 lines (8 KiB) per answer are offered.

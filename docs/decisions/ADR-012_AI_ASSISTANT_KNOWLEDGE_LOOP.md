@@ -2,11 +2,11 @@
 
 ## Status
 
-Proposed. Sections A and B are proposed for owner acceptance with PR #99. Section C keeps
-the owner's G6 direction (quoted in C). Its extension of the allow-list with approved
-knowledge lines **REQUIRES EXPLICIT OWNER ACCEPTANCE**: the G6 direction does not by itself
-authorise it, and it must not be described as accepted or architecturally approved until the
-owner records that acceptance in the decision log.
+Proposed, with section C accepted. Sections A and B are proposed for owner acceptance with
+PR #99; section A's unlocked chromadb footprint needs the owner's explicit acceptance or a
+pinning policy. Section C keeps the owner's G6 direction (quoted in C), and the owner
+explicitly accepted its extension of the allow-list with approved knowledge lines on
+2026-10-21 (D-074).
 
 ## Date
 
@@ -97,7 +97,7 @@ replacement. Do not silently remove mandatory checks."
   backend projection. Free model prose, paraphrases, history and document values never extend
   the allowed lines. If no allowed line remains, the deterministic case-data answer is shown
   with "The model response could not be verified".
-- Extension, knowledge lines (**requires explicit owner acceptance**, see Status): for
+- Extension, knowledge lines (**accepted by the owner on 2026-10-21**, D-074): for
   each entry that retrieval returned for this user and case and that is approved and visible
   to them (checked again before use), each sentence of the approved body becomes the line
   `<sentence> [Gn]` or `[Pn]`, exactly as approved (a leading list marker is dropped and
@@ -188,8 +188,11 @@ replacement. Do not silently remove mandatory checks."
     the entry's own first sentence), not by every line.
   - Guidance sentences that quote values or labels absent from the case (for example the
     0.85 policy default) are withheld.
-- Until the owner explicitly accepts the knowledge-line extension (recorded in the decision
-  log) and an independent architecture review agrees, the PR stays Draft.
+- The owner accepted the knowledge-line extension on 2026-10-21 (D-074); the residual risks
+  above are unchanged. The independent architecture review of `8457f02` reviewed this section
+  (PROCEED, conditional on that acceptance and on the chromadb footprint). The PR stays Draft
+  until section A's footprint is decided, the real-embedding evaluation is run or waived and
+  the remaining verification below is complete.
 
 ## Alternatives considered
 
@@ -209,8 +212,8 @@ replacement. Do not silently remove mandatory checks."
 - Source chips only (no knowledge lines in answers): retrieved entries are listed as
   sources next to a catalog-only answer, so the catalog stays untouched while the answer
   still cites. Not chosen because the RM would only see that guidance exists, not what it
-  says, which is what the knowledge loop is for. It remains the fallback if the owner does
-  not accept the knowledge-line extension; the chips would still need the title check.
+  says, which is what the knowledge loop is for; the owner chose the knowledge-line
+  extension instead (D-074).
 
 ## Consequences
 
@@ -272,4 +275,4 @@ proposal to show model text that is not an allowed line.
 ## Related contracts and sponsor questions
 
 `docs/contracts/POLICY_AUTHORITY_MATRIX.md` (review authority, reviewer separation); Q-014;
-D-073 in `DECISION_LOG.md`; the 2026-10-06 read-only AI Assistant entry in `ARCHITECTURE.md`.
+D-073 and D-074 in `DECISION_LOG.md`; the 2026-10-06 read-only AI Assistant entry in `ARCHITECTURE.md`.

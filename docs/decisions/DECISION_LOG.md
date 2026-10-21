@@ -313,3 +313,25 @@ packages) is proposed and requires owner acceptance. Reusing POLICY_APPROVE and
 POLICY_MUTATE for knowledge review is PROJECT_DEFINED_PROVISIONAL; review authority
 stays UNKNOWN_BLOCKED (Q-014). No CLM backend write, schema, provider status or Live
 claim follows.
+
+## D-074 - owner-accepted ADR-012 section C output policy
+
+On 2026-10-21 the repository owner accepted ADR-012 section C option 1, verbatim: "I accept
+ADR-012 section C option 1: the exact-line catalog stays mandatory and approved knowledge
+sentences are added as exact [Gn]/[Pn] lines, with two-person approval as the primary
+control." The PR89 exact-line catalog stays the mandatory gate for model text, in whole
+answers and while streaming. A sentence of a retrieved, approved entry the user may see is
+offered only verbatim as `<sentence> [Gn]` or `[Pn]` and only if it passes the sentence
+checks; entry titles and follow-up questions stay under the same checks. Two-person approval
+bound to the reviewed content hash is the primary control for knowledge content; the
+sentence checks remain a best-effort filter with the limits and residual risks recorded in
+ADR-012 section C (`KNOWLEDGE_FILTER_LIMITS`). The independent architecture review of
+`8457f02` (PROCEED, conditional on this acceptance and on the chromadb footprint) reviewed
+the same section C. This accepts section C only and supersedes only D-073's statement that
+the extension requires explicit owner acceptance. Still open: section A's unlocked chromadb
+footprint (acceptance or a pinning policy), section B as proposed with PR #99, and the
+real-embedding retrieval evaluation (or a waiver). Unchanged: the POLICY_APPROVE and
+POLICY_MUTATE mapping stays PROJECT_DEFINED_PROVISIONAL and review authority stays
+UNKNOWN_BLOCKED (Q-014). PR #99 stays Draft until the open items are settled.
+`USER_AUTHORIZED_POC`; not sponsor review policy, and no CLM backend write, schema,
+provider status or Live claim follows.
