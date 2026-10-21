@@ -884,9 +884,9 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
             db.execute("SELECT name FROM sqlite_master WHERE name = 'feedback_v3'").fetchone()
             is None
         )
-    # Every row keeps its values; none has a close reason, and no earlier decision was a
-    # single-reviewer one.
-    assert after == [(*row, None) for row in before]
+    # Every row keeps its values; none has a close reason or a linked fix version, and no
+    # earlier decision was a single-reviewer one.
+    assert after == [(*row, None, None) for row in before]
     assert [(r["decision"], r["single_reviewer"]) for r in store.reviews("guidance.rule")] == [
         ("approve", False)
     ]
@@ -938,3 +938,136 @@ def test_the_whole_loop_a_resolved_case_helps_the_next_similar_question(
     resolutions = [s for s in body["sources"] if s["kind"] == "resolution"]
     assert [(s["tag"], s["title"]) for s in resolutions] == [("P1", kb.store.get(entry_id).title)]
     assert follow_up in body["suggested_questions"]
+
+
+def test_a_store_rebuilt_before_fix_versions_were_linked_gains_the_column(tmp_path: Path) -> None:
+    import sqlite3
+
+    path = tmp_path / "early-v4.sqlite3"
+    KnowledgeStore(path)
+    with sqlite3.connect(path) as db:
+        db.executescript(
+            "ALTER TABLE feedback DROP COLUMN entry_version;"
+            "UPDATE meta SET value = '3' WHERE key = 'schema_version';"
+        )
+    store = KnowledgeStore(path)
+    with sqlite3.connect(path) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(feedback)")}
+    assert {"close_reason", "entry_version"} <= columns
+    assert store.feedback() == []
+
+
+def guidance_fix_for(kb: KnowledgeBase, session: str, entry_id: str) -> tuple[int, int]:
+    """An RM's request whose fix ``session`` writes as a new version of ``entry_id``.
+    Returns (request id, fix version)."""
+
+    request_id = not_helpful(kb)
+    reply = client(kb, session).post(
+        f"/assistant/knowledge/feedback/{request_id}/draft",
+        json={
+            "kind": "guidance",
+            "entry_id": entry_id,
+            "title": "Ask for the tenancy agreement first",
+            "body": "When the registered office moved, ask for the tenancy agreement first.",
+            "source_ref": "docs/decisions/DECISION_LOG.md#D-030",
+        },
+    )
+    assert reply.status_code == 200, reply.text
+    return request_id, int(reply.json()["version"])
+
+
+def statuses(kb: KnowledgeBase) -> dict[int, str]:
+    return {row["id"]: row["status"] for row in kb.store.feedback(helpful=False)}
+
+
+def test_two_requests_fixed_in_the_same_guidance_are_resolved_by_their_own_versions(
+    kb: KnowledgeBase,
+) -> None:
+    """QG F1 on 81a59c2: a decision on one version changed every request linked to the id."""
+
+    guidance = "guidance.address-mismatch"
+    first, first_version = guidance_fix_for(kb, "drafter-session", guidance)
+    second, second_version = guidance_fix_for(kb, "drafter-session", guidance)
+    links = {row["id"]: row["entry_version"] for row in kb.store.feedback()}
+    assert links == {first: first_version, second: second_version}
+    assert decide(kb, "director-session", guidance, first_version).status_code == 200
+    assert statuses(kb) == {first: "resolved", second: "drafted"}
+    assert (
+        decide(kb, "director-session", guidance, second_version, approve=False).status_code == 200
+    )
+    assert statuses(kb) == {first: "resolved", second: "open"}
+    gaps = client(kb, "director-session").get("/assistant/knowledge/reviews").json()["gaps"]
+    assert [gap["id"] for gap in gaps] == [second]
+
+
+def test_a_decision_on_another_version_of_the_guidance_leaves_the_request_alone(
+    kb: KnowledgeBase,
+) -> None:
+    guidance = "guidance.address-mismatch"
+    request_id, fix_version = guidance_fix_for(kb, "drafter-session", guidance)
+    current = kb.store.current(guidance)
+    assert current is not None
+    for approve in (False, True):
+        hr = kb.propose(
+            current.with_changes(body=f"HR's own wording, approve={approve}.", author="hr-hana")
+        )
+        assert (
+            decide(kb, "director-session", guidance, hr.version, approve=approve).status_code == 200
+        )
+        assert statuses(kb) == {request_id: "drafted"}
+    # Only the fix's own version resolves it, and a reviewer's edit carries the link along.
+    edited = edit(kb, "director-session", guidance, fix_version, title="Tidied by the Director")
+    assert edited.status_code == 200
+    (row,) = kb.store.feedback(helpful=False)
+    assert row["entry_version"] == edited.json()["version"]
+    assert decide(kb, "director-2-session", guidance, edited.json()["version"]).status_code == 200
+    assert statuses(kb) == {request_id: "resolved"}
+
+
+def test_a_guidance_fix_takes_scope_and_visibility_from_the_current_approved_version(
+    kb: KnowledgeBase,
+) -> None:
+    """QG F3 on 81a59c2: the newest (pending) version was used instead."""
+
+    rule = Entry(
+        entry_id="guidance.team-b-rule",
+        kind=EntryKind.GUIDANCE,
+        title="Team B rule",
+        body="A rule only Team B follows.",
+        visibility=Visibility(teams=("TEAM_B",)),
+        author="hr-hana",
+        source_ref="D-030",
+    )
+    approved = kb.propose(rule)
+    assert decide(kb, "director-b-session", rule.entry_id, approved.version).status_code == 200
+    # A pending version visible to TEAM_A does not bring the rule into TEAM_A's scope.
+    kb.propose(
+        rule.with_changes(
+            body="A pending rewrite for Team A.", visibility=Visibility(teams=("TEAM_A",))
+        )
+    )
+    request_id = not_helpful(kb)
+    body = {
+        "kind": "guidance",
+        "entry_id": rule.entry_id,
+        "title": "Team B rule, clarified",
+        "body": "A clarified rule only Team B follows.",
+        "source_ref": "D-030",
+    }
+    refused = client(kb, "director-session").post(
+        f"/assistant/knowledge/feedback/{request_id}/draft", json=body
+    )
+    assert refused.status_code == 404
+    assert statuses(kb) == {request_id: "open"}
+    # A reviewer who sees the current version inherits its visibility, not the pending one's.
+    USERS["director-ab-session"] = _profile(
+        "director-abe", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"], team=None
+    )  # type: ignore[arg-type]
+    try:
+        written = client(kb, "director-ab-session").post(
+            f"/assistant/knowledge/feedback/{request_id}/draft", json=body
+        )
+        assert written.status_code == 200, written.text
+        assert written.json()["visibility"]["teams"] == ["TEAM_B"]
+    finally:
+        del USERS["director-ab-session"]

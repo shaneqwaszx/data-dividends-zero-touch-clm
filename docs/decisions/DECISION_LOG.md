@@ -378,12 +378,15 @@ approver no fix a Director writes could ever be published. The setting
 `AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER` (default true for this POC) therefore lets a reviewer
 approve or reject an entry they wrote or edited. An approval shows the reviewer the final
 entry text and needs an explicit confirmation (`confirm_single_reviewer`, refused with 403
-otherwise); every such decision is recorded as single-reviewer in the review history
-(`reviews.single_reviewer`) and listed in the Review window. With the setting false the
+otherwise); every such decision, approval or rejection, is recorded as single-reviewer in
+the review history (`reviews.single_reviewer`), and the Review window lists the entries
+currently published that way and says so in its confirm step. With the setting false the
 two-person rule applies unchanged. Unchanged in both modes: decisions bound to the content
 hash, the sentence checks, redaction, team scope, and retiring an approved entry (official
 guidance included) still takes two reviewers. SQLite schema v4 adds `reviews.single_reviewer`
-(0 for existing rows), a `resolved` request status and a nullable `feedback.close_reason`.
+(0 for existing rows), a `resolved` request status, a nullable `feedback.close_reason` and
+`feedback.entry_version`: a request is linked to the exact version of its fix (a reviewer's
+edit moves the link), so a decision on another version of the same entry leaves it alone.
 
 The POLICY_APPROVE mapping stays PROJECT_DEFINED_PROVISIONAL and review authority stays
 UNKNOWN_BLOCKED (Q-014). Not sponsor review policy; no CLM backend write, provider status or

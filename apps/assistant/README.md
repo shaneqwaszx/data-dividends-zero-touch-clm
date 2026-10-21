@@ -107,7 +107,8 @@ D-076, proposed, needs the owner's acceptance before merge). The synthetic users
 Director, so with two-person review nothing a Director writes could be published. In this
 mode a reviewer may approve or reject an entry they wrote or edited; approving needs
 `"confirm_single_reviewer": true` (the Review window asks after showing the final text) and is
-recorded as single-reviewer in the history and listed in the Review window. Set it to `false`
+recorded as single-reviewer in the review history (as is a rejection of your own entry); the
+Review window lists the entries currently published that way. Set it to `false`
 to keep the two-person rule. Retiring an entry always takes two reviewers.
 
 | Part (`ai_assistant/knowledge/`) | What it does |

@@ -136,7 +136,12 @@ class FixRequest(BaseModel):
         if self.kind == "guidance" and self.follow_ups:
             raise ValueError("follow-up questions belong to past resolutions")
         if self.kind == "resolution" and (
-            self.entry_id or self.source_ref or self.visibility or self.blocker_codes
+            self.entry_id is not None
+            or self.source_ref is not None
+            or self.visibility is not None
+            or self.blocker_codes is not None
+            or self.fields is not None
+            or self.stages is not None
         ):
             raise ValueError("a past resolution takes its context from the request")
         return self
@@ -583,8 +588,10 @@ def knowledge_router(
         in_request = request_in_scope(feedback_id)
 
         def reach(who: dict[str, Any]) -> None:
+            # Changing existing guidance needs its current approved version in scope (or, with
+            # none approved yet, its latest version).
             in_request(who)
-            existing = kb.store.get(target) if target else None
+            existing = (kb.store.current(target) or kb.store.get(target)) if target else None
             if existing is not None:
                 found(existing, who)
 
@@ -614,7 +621,7 @@ def knowledge_router(
                     follow_ups=body.follow_ups,
                 )
             assert target is not None
-            current = kb.store.get(target)
+            current = kb.store.current(target)
             visibility = (
                 Visibility(roles=tuple(body.visibility.roles), teams=tuple(body.visibility.teams))
                 if body.visibility is not None

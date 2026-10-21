@@ -219,6 +219,8 @@ def test_a_fix_must_fit_its_kind(kb: KnowledgeBase) -> None:  # noqa: F811
         guidance_fix(follow_ups=["Anything else?"]),
         {**fix(), "entry_id": "guidance.address-mismatch"},
         {**fix(), "source_ref": "somewhere"},
+        {**fix(), "fields": ["registered address"]},
+        {**fix(), "stages": ["documents"]},
         {**fix(), "kind": "note"},
         {**fix(), "body": "short"},
         {"kind": "resolution", "title": "No body"},

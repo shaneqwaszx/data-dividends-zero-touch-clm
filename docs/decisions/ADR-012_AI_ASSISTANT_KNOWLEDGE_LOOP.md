@@ -59,8 +59,11 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   ("gap" in the code). Directors (`POLICY_APPROVE`) handle an open request end to end; HR
   does not (it has no case access). A Director either writes the fix, a past resolution or a
   guidance change (new guidance, or a new version of existing guidance, whose visibility it
-  keeps unless the Director sets one), linked to the request and pending review like any
-  other entry (publishing it marks the request resolved, rejecting it opens it again), or
+  takes from the current approved version, as it does the scope check, unless the Director
+  sets one), linked to the request by that exact version (a reviewer's edit moves the link)
+  and pending review like any other entry (publishing that version marks the request
+  resolved, rejecting it opens it again; decisions on other versions of the same entry leave
+  the request alone), or
   closes the request with a required reason. Both recheck the caller inside the write
   transaction like every other review change.
 - Single-reviewer mode (D-076, proposed; **relaxes D-074's two-person control for the POC and
@@ -70,8 +73,10 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   `AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER` (default true for this POC) lets a reviewer approve
   or reject an entry they wrote or edited. Approving shows them the entry's final text and
   needs an explicit confirmation (`confirm_single_reviewer`; otherwise 403
-  `CONFIRM_SINGLE_REVIEWER`); every such decision is recorded as single-reviewer in the
-  review history and listed in the Review window. With the setting false the two-person rule
+  `CONFIRM_SINGLE_REVIEWER`); every such decision, approval or rejection, is recorded as
+  single-reviewer in the review history, and the Review window lists the entries currently
+  published that way (a replaced or retired one, or a rejection, is only in the entry's
+  history). With the setting false the two-person rule
   applies unchanged. In both modes the decision stays bound to the content hash, the sentence
   checks and redaction stay as they are, and retiring an approved entry still takes two
   reviewers.
@@ -280,8 +285,8 @@ embedding model (Ollama); without it, index tasks wait and keyword search still 
 SQLite schema v3 adds `entries.revises` (nullable) and a `retire_requests` table; v1 and v2
 stores are migrated in place on open. Schema v4 (D-076) adds `reviews.single_reviewer` (0 for
 every existing decision) and rebuilds the `feedback` table, in one transaction, to add a
-`resolved` status and a nullable `close_reason`; every existing row keeps its values and has
-no close reason. A reviewer who edited a pending version in place under
+`resolved` status, a nullable `close_reason` and a nullable `entry_version` (the exact version
+of a request's fix); every existing row keeps its values and has neither. A reviewer who edited a pending version in place under
 schema v2 has only an 'edit' review row on it; that row counts as editing, so they stay barred
 from deciding it after the migration, and the version is left out of the RM author's own
 view of the entry. No credentials are stored. Redaction is a first pass: names that appear nowhere in

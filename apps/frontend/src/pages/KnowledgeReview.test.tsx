@@ -74,6 +74,9 @@ function backend(calls: { url: string; body: unknown }[], decision = () => json(
       });
     }
     if (url.endsWith("/knowledge/entries")) return json([GUIDANCE]);
+    if (url.endsWith("/knowledge/me")) {
+      return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
+    }
     if (url.endsWith("/edit")) return json(PENDING);
     if (url.endsWith("/decision")) return decision();
     if (url.endsWith("/close")) return json({ status: "closed" });
@@ -136,6 +139,7 @@ describe("KnowledgeReview", () => {
     expect(confirm.textContent).toContain("Problem: the [COMPANY] address differs from ACRA.");
     expect(confirm.textContent).toContain("What about ownership?");
     expect(confirm.textContent).toContain("goes live for every team");
+    expect(confirm.textContent).toContain("recorded as a single-reviewer decision");
     expect(calls).toEqual([]);
     act(() => button(view, "Back").click());
     expect(view.querySelector('[aria-label="Confirm publishing"]')).toBeNull();
@@ -295,6 +299,24 @@ describe("KnowledgeReview", () => {
       source_ref: "docs/decisions/DECISION_LOG.md#D-030",
       entry_id: "guidance.address-mismatch",
     });
+  });
+
+  it("says nothing about single-reviewer decisions when the mode is off", async () => {
+    const rest = backend([]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith("/knowledge/me")
+          ? json({ user_id: "director-dan", can_review: true, can_edit_guidance: false, single_reviewer: false })
+          : rest(input, init),
+      ),
+    );
+    const view = render();
+    await flush();
+    act(() => button(view, "Approve").click());
+    const confirm = view.querySelector('[aria-label="Confirm publishing"]') as HTMLElement;
+    expect(confirm.textContent).toContain("goes live for every team.");
+    expect(confirm.textContent).not.toContain("single-reviewer");
   });
 
   it("lists entries published by a single reviewer and says so after self-publishing", async () => {

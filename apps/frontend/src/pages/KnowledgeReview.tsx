@@ -6,6 +6,7 @@ import {
   draftFromKnowledgeGap,
   editKnowledgeEntry,
   fetchApprovedEntries,
+  fetchKnowledgeAccess,
   fetchKnowledgeReviews,
   fetchKnowledgeStats,
   type KnowledgeEntry,
@@ -89,6 +90,8 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
   const [fixes, setFixes] = useState<Record<number, FixDraft>>({});
   // The entry whose final text is shown for confirmation before it is published.
   const [confirming, setConfirming] = useState<KnowledgeEntry | null>(null);
+  // Whether the backend runs the POC's single-reviewer mode (D-076).
+  const [singleReviewer, setSingleReviewer] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -136,9 +139,11 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
       fetchKnowledgeReviews(controller.signal),
       fetchKnowledgeStats(controller.signal),
       fetchApprovedEntries(controller.signal),
+      fetchKnowledgeAccess(controller.signal),
     ])
-      .then(([reviews, numbers, resolutions]) => {
+      .then(([reviews, numbers, resolutions, access]) => {
         if (controller.signal.aborted) return;
+        setSingleReviewer(access.single_reviewer === true);
         setQueue(reviews);
         setStats(numbers);
         setApproved(resolutions);
@@ -348,8 +353,8 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                       <p className="knowledge-review-meta">
                         This exact text goes live for{" "}
                         {entry.visibility.teams.length ? `teams ${entry.visibility.teams.join(", ")}` : "every team"}
-                        {entry.visibility.roles.length ? ` (roles ${entry.visibility.roles.join(", ")})` : ""}. If you wrote or
-                        edited it, publishing is recorded as a single-reviewer decision.
+                        {entry.visibility.roles.length ? ` (roles ${entry.visibility.roles.join(", ")})` : ""}.
+                        {singleReviewer ? " If you wrote or edited it, publishing is recorded as a single-reviewer decision." : ""}
                       </p>
                       <p><strong>{entry.title}</strong></p>
                       <p className="knowledge-review-final">{entry.body}</p>
@@ -476,6 +481,8 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
               const single = approved.filter((entry) => entry.single_reviewer);
               return (
                 <>
+                  {/* Currently published entries only; the review history of each entry records every
+                      single-reviewer decision, including rejections and later-replaced versions. */}
                   <h3>Published by a single reviewer ({single.length})</h3>
                   {single.length === 0 ? (
                     <p className="ai-assistant-hint">None.</p>

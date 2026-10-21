@@ -16,9 +16,11 @@ Rules enforced here, in one transaction per change:
   replaces, so at most one version of an entry is current;
 - only current approved versions are in the keyword index;
 - every approve/retire leaves a vector-index task, done (or retried) by the service;
-- an RM's "Not helpful" is an enhancement request: a reviewer drafts a past resolution from
-  it or closes it with a reason, only while it is open. Approving that draft resolves the
-  request; rejecting it opens the request again.
+- an RM's "Not helpful" is an enhancement request: a reviewer writes its fix or closes it
+  with a reason, only while it is open. The request is linked to the exact version of the fix
+  (``entry_id``, ``entry_version``), and a reviewer's edit moves the link to the new version.
+  Approving that version resolves the request; rejecting it opens the request again. A
+  decision on any other version of the same entry leaves the request alone.
 """
 
 import json
@@ -96,7 +98,8 @@ CREATE TABLE IF NOT EXISTS feedback (
     created_at TEXT NOT NULL,
     closed_by TEXT,
     closed_at TEXT,
-    close_reason TEXT
+    close_reason TEXT,
+    entry_version INTEGER
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS entry_text
     USING fts5 (key UNINDEXED, kind UNINDEXED, title, body, codes);
@@ -591,9 +594,9 @@ class KnowledgeStore:
                 self._set_status(db, entry, "rejected")
                 # The request this was drafted from needs handling again.
                 db.execute(
-                    "UPDATE feedback SET status = 'open' "
-                    "WHERE entry_id = ? AND status = 'drafted' AND helpful = 0",
-                    (entry_id,),
+                    "UPDATE feedback SET status = 'open' WHERE entry_id = ? "
+                    "AND entry_version = ? AND status = 'drafted' AND helpful = 0",
+                    (entry_id, version),
                 )
                 return entry.with_changes(status=EntryStatus.REJECTED)
             # Retire what this version supersedes: the entry's own current version and, if
@@ -609,8 +612,8 @@ class KnowledgeStore:
             )
             db.execute(
                 "UPDATE feedback SET status = 'resolved', closed_by = ?, closed_at = ? "
-                "WHERE entry_id = ? AND status = 'drafted' AND helpful = 0",
-                (reviewer, now, entry_id),
+                "WHERE entry_id = ? AND entry_version = ? AND status = 'drafted' AND helpful = 0",
+                (reviewer, now, entry_id, version),
             )
             approved = entry.with_changes(
                 status=EntryStatus.APPROVED, approver=reviewer, approved_at=now
@@ -796,6 +799,12 @@ class KnowledgeStore:
             # Take the revised version out of review first, and only if nobody did already.
             self._set_status(db, entry, "retired")
             self._insert(db, revised)
+            # A request whose fix this was now waits for the revised version.
+            db.execute(
+                "UPDATE feedback SET entry_version = ? WHERE entry_id = ? "
+                "AND entry_version = ? AND status = 'drafted' AND helpful = 0",
+                (revised.version, entry_id, version),
+            )
             db.execute(
                 "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
                 "VALUES (?, ?, ?, 'edit', ?, ?)",
@@ -879,8 +888,9 @@ class KnowledgeStore:
             row = self._open_request(db, feedback_id)
             entry = self._add_version(db, build(row), EntryStatus.PENDING_REVIEW)
             db.execute(
-                "UPDATE feedback SET status = 'drafted', entry_id = ? WHERE id = ?",
-                (entry.entry_id, feedback_id),
+                "UPDATE feedback SET status = 'drafted', entry_id = ?, entry_version = ? "
+                "WHERE id = ?",
+                (entry.entry_id, entry.version, feedback_id),
             )
         return entry
 
@@ -957,16 +967,23 @@ class KnowledgeStore:
         """Version 4 marks single-reviewer decisions (D-076): reviews gain ``single_reviewer``
         (0 for every existing row). It also lets an enhancement request be 'resolved' (its
         draft was approved) and records why one was closed: rebuild the feedback table.
-        Existing rows keep their values; none has a close reason. The rebuild is one
-        transaction. A store without a feedback table gets the new one from the schema; one
-        already rebuilt is left alone."""
+        Existing rows keep their values; none has a close reason or a linked fix version
+        (``entry_version``: requests are linked to the exact version of their fix). The
+        rebuild is one transaction. A store without a feedback table gets the new one from
+        the schema; one already rebuilt is left alone, except that a rebuild from before
+        ``entry_version`` existed gains that column."""
 
         reviews = {row[1] for row in db.execute("PRAGMA table_info(reviews)")}
         if reviews and "single_reviewer" not in reviews:
             db.execute("ALTER TABLE reviews ADD COLUMN single_reviewer INTEGER NOT NULL DEFAULT 0")
             db.commit()
         existing = {row[1] for row in db.execute("PRAGMA table_info(feedback)")}
-        if not existing or "close_reason" in existing:
+        if not existing:
+            return
+        if "close_reason" in existing:
+            if "entry_version" not in existing:
+                db.execute("ALTER TABLE feedback ADD COLUMN entry_version INTEGER")
+                db.commit()
             return
         columns = (
             "id, case_id, user_id, role, team, helpful, note, blocker_codes, fields, stages, "
@@ -993,7 +1010,8 @@ class KnowledgeStore:
                 created_at TEXT NOT NULL,
                 closed_by TEXT,
                 closed_at TEXT,
-                close_reason TEXT
+                close_reason TEXT,
+                entry_version INTEGER
             );
             INSERT INTO feedback ({columns}) SELECT {columns} FROM feedback_v3;
             DROP TABLE feedback_v3;
