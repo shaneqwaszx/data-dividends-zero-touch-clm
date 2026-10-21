@@ -39,7 +39,10 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   API decision or edit carries the content hash of the version the reviewer was shown.
   Every change runs in one SQLite write transaction taken before its checks (BEGIN
   IMMEDIATE) and moves a version on only while it is still pending, so concurrent decisions
-  or edits have exactly one winner and the others get a clean 409. An entry may only
+  or edits have exactly one winner and the others get a clean 409. The first check in a
+  review or guidance change reloads the caller from the CLM backend (same user, capability
+  and scope), so a role, team or session withdrawn since the request began stops it and
+  nothing is written. An entry may only
   replace an entry of the same kind. Retiring an approved entry, official guidance
   included, takes two reviewers: one asks, a different one confirms.
 - Team scope: drafts from "Solved it" carry the author's team as visibility. Directors, whom

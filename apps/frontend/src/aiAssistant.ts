@@ -355,6 +355,7 @@ export interface KnowledgeStats {
   };
 }
 
+/** A reviewer's edit; `replaces: null` clears what the version replaces, leaving it out keeps it. */
 export type KnowledgeEdit = Partial<
   Pick<KnowledgeEntry, "title" | "body" | "follow_ups" | "replaces"> & { visibility: KnowledgeEntry["visibility"] }
 >;

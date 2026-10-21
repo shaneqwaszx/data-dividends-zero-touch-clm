@@ -7,6 +7,7 @@ and a retired one never lingers. ``reconcile`` compares the two stores and queue
 differs, so the index can always be rebuilt from SQLite.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .embeddings import Embedder, EmbeddingUnavailableError
@@ -29,9 +30,11 @@ class KnowledgeBase:
         self.embedder = embedder
 
     # --- changes --------------------------------------------------------------------
+    # ``authorize`` is the caller's permission check, run inside the store's write transaction
+    # (``KnowledgeStore._write``).
 
-    def propose(self, entry: Entry) -> Entry:
-        return self.store.add_version(entry, status=EntryStatus.PENDING_REVIEW)
+    def propose(self, entry: Entry, *, authorize: Callable[[], None] | None = None) -> Entry:
+        return self.store.add_version(entry, status=EntryStatus.PENDING_REVIEW, authorize=authorize)
 
     def decide(
         self,
@@ -42,6 +45,7 @@ class KnowledgeBase:
         approve: bool,
         notes: str = "",
         expected_hash: str | None = None,
+        authorize: Callable[[], None] | None = None,
     ) -> Entry:
         decided = self.store.decide(
             entry_id,
@@ -50,6 +54,7 @@ class KnowledgeBase:
             approve=approve,
             notes=notes,
             expected_hash=expected_hash,
+            authorize=authorize,
         )
         self.sync()
         return decided
@@ -61,8 +66,17 @@ class KnowledgeBase:
         self.sync()
         return retired
 
-    def request_retirement(self, entry_id: str, *, by: str, notes: str) -> tuple[Entry, bool]:
-        entry, retired = self.store.request_retirement(entry_id, by=by, notes=notes)
+    def request_retirement(
+        self,
+        entry_id: str,
+        *,
+        by: str,
+        notes: str,
+        authorize: Callable[[], None] | None = None,
+    ) -> tuple[Entry, bool]:
+        entry, retired = self.store.request_retirement(
+            entry_id, by=by, notes=notes, authorize=authorize
+        )
         if retired:
             self.sync()
         return entry, retired
@@ -111,13 +125,19 @@ class KnowledgeBase:
                 self.store.queue_full_reindex()
         return self.sync()
 
-    def rebuild(self) -> SyncReport:
-        """Re-embed every current approved version (e.g. after changing the embedding model)."""
+    def rebuild(self, *, authorize: Callable[[], None] | None = None) -> SyncReport:
+        """Re-embed every current approved version (e.g. after changing the embedding model).
 
+        ``authorize`` runs before any vector is removed and again inside the write that queues
+        the re-embedding.
+        """
+
+        if authorize is not None:
+            authorize()
         for kind in EntryKind:
             for key in self.index.keys(kind):
                 self.index.remove(kind, key)
-        self.store.queue_full_reindex()
+        self.store.queue_full_reindex(authorize=authorize)
         return self.sync()
 
     def status(self) -> dict[str, int]:

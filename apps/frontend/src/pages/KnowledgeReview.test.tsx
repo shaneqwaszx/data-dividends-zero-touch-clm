@@ -81,6 +81,14 @@ function type(element: Element | null, value: string): void {
   });
 }
 
+function choose(element: Element | null, value: string): void {
+  const select = element as HTMLSelectElement;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 function button(view: HTMLElement, text: string): HTMLButtonElement {
   const found = [...view.querySelectorAll("button")].find((b) => b.textContent === text);
   if (!found) throw new Error(`no button ${text}`);
@@ -124,6 +132,36 @@ describe("KnowledgeReview", () => {
       title: "Address differs from ACRA after an office move",
     });
     expect(view.textContent).toContain("Changes saved as a new version. Another reviewer must approve it.");
+  });
+
+  // PR #99 review on 9cae747: leaving out "replaces" kept the old target, so approving still
+  // retired it.
+  it("sends replaces: null when the reviewer chooses Does not replace one", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const older = { ...PENDING, entry_id: "resolution.old", key: "resolution.old@v1", status: "approved", title: "Older resolution" };
+    const replacing = { ...PENDING, replaces: "resolution.old" };
+    const rest = backend(calls);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/knowledge/reviews")) return json({ pending: [replacing], gaps: [] });
+        if (url.includes("/knowledge/entries?kind=resolution")) return json([older]);
+        return rest(input, init);
+      }),
+    );
+    const view = render();
+    await flush();
+    const select = view.querySelector("article select") as HTMLSelectElement;
+    expect(select.value).toBe("resolution.old");
+
+    choose(select, "");
+    act(() => button(view, "Save changes for another reviewer").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual([
+      "/knowledge/entries/resolution.abc/versions/1/edit",
+    ]);
+    expect(calls[0].body).toHaveProperty("replaces", null);
   });
 
   it("discarding changes brings back Approve and Reject", async () => {

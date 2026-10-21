@@ -326,7 +326,7 @@ class KnowledgeStore:
             db.close()
 
     @contextmanager
-    def _write(self) -> Iterator[sqlite3.Connection]:
+    def _write(self, authorize: Callable[[], None] | None = None) -> Iterator[sqlite3.Connection]:
         """One change, holding SQLite's write lock from its first read (BEGIN IMMEDIATE).
 
         A check (status, content hash, maker-checker) and the change it allows therefore
@@ -334,6 +334,9 @@ class KnowledgeStore:
         first one's result and is refused. A writer that cannot get the lock in time, or a
         constraint broken by a concurrent change, is reported as a stale request (409), never
         as a crash.
+
+        ``authorize`` (the caller's permission check) runs first once the lock is held, before
+        any check or change: if it raises, nothing is written and its error is raised as is.
         """
 
         db = sqlite3.connect(self._path, isolation_level=None, timeout=_BUSY_TIMEOUT_SECONDS)
@@ -345,6 +348,8 @@ class KnowledgeStore:
             except sqlite3.OperationalError:
                 raise ContentChangedError("the knowledge store is busy") from None
             try:
+                if authorize is not None:
+                    authorize()
                 yield db
             except sqlite3.IntegrityError:
                 db.execute("ROLLBACK")
@@ -464,7 +469,11 @@ class KnowledgeStore:
     # --- writing --------------------------------------------------------------------
 
     def add_version(
-        self, entry: Entry, *, status: EntryStatus = EntryStatus.PENDING_REVIEW
+        self,
+        entry: Entry,
+        *,
+        status: EntryStatus = EntryStatus.PENDING_REVIEW,
+        authorize: Callable[[], None] | None = None,
     ) -> Entry:
         """Store ``entry`` as the next version of its entry id (never overwrites)."""
 
@@ -472,7 +481,7 @@ class KnowledgeStore:
             raise KnowledgeError("a new version starts as a draft or pending review")
         if not entry.author:
             raise KnowledgeError("every entry needs an author")
-        with self._write() as db:
+        with self._write(authorize) as db:
             self._check_replaces(db, entry)
             latest = db.execute(
                 "SELECT MAX(version) FROM entries WHERE entry_id = ?", (entry.entry_id,)
@@ -510,6 +519,7 @@ class KnowledgeStore:
         approve: bool,
         notes: str = "",
         expected_hash: str | None = None,
+        authorize: Callable[[], None] | None = None,
     ) -> Entry:
         """Approve or reject a pending version.
 
@@ -519,7 +529,7 @@ class KnowledgeStore:
         """
 
         now = self._clock()
-        with self._write() as db:
+        with self._write(authorize) as db:
             entry = self._require(db, entry_id, version)
             if entry.status != EntryStatus.PENDING_REVIEW:
                 raise KnowledgeError("only a version pending review can be decided")
@@ -582,7 +592,14 @@ class KnowledgeStore:
             self._retire(db, entry, by=by, notes=notes, now=now)
         return entry.with_changes(status=EntryStatus.RETIRED)
 
-    def request_retirement(self, entry_id: str, *, by: str, notes: str) -> tuple[Entry, bool]:
+    def request_retirement(
+        self,
+        entry_id: str,
+        *,
+        by: str,
+        notes: str,
+        authorize: Callable[[], None] | None = None,
+    ) -> tuple[Entry, bool]:
         """Retire an approved entry with two people: one asks, a different one confirms.
 
         Returns the current version and whether it is now retired. The first call records the
@@ -594,7 +611,7 @@ class KnowledgeStore:
         if not by:
             raise KnowledgeError("a retirement needs a reviewer")
         now = self._clock()
-        with self._write() as db:
+        with self._write(authorize) as db:
             row = db.execute(
                 "SELECT * FROM entries WHERE entry_id = ? AND status = 'approved'", (entry_id,)
             ).fetchone()
@@ -651,11 +668,11 @@ class KnowledgeStore:
                 (error[:200], self._clock(), key),
             )
 
-    def queue_full_reindex(self) -> int:
+    def queue_full_reindex(self, *, authorize: Callable[[], None] | None = None) -> int:
         """Ask for every current approved version to be (re)indexed."""
 
         now = self._clock()
-        with self._write() as db:
+        with self._write(authorize) as db:
             rows = db.execute("SELECT * FROM entries WHERE status = 'approved'").fetchall()
             for row in rows:
                 self._task(db, _row_to_entry(row), "upsert", now)
@@ -668,6 +685,7 @@ class KnowledgeStore:
         *,
         editor: str,
         expected_hash: str | None = None,
+        authorize: Callable[[], None] | None = None,
         **changes: Any,
     ) -> Entry:
         """A reviewer tidies a pending version (wording, redaction, follow-ups, visibility,
@@ -695,7 +713,7 @@ class KnowledgeStore:
         if unknown:
             raise KnowledgeError(f"cannot change {sorted(unknown)}")
         now = self._clock()
-        with self._write() as db:
+        with self._write(authorize) as db:
             entry = self._require(db, entry_id, version)
             if entry.status != EntryStatus.PENDING_REVIEW:
                 raise KnowledgeError("only a version pending review can be edited")
@@ -791,8 +809,10 @@ class KnowledgeStore:
             out.append(item)
         return out
 
-    def close_feedback(self, feedback_id: int, *, by: str) -> None:
-        with self._write() as db:
+    def close_feedback(
+        self, feedback_id: int, *, by: str, authorize: Callable[[], None] | None = None
+    ) -> None:
+        with self._write(authorize) as db:
             updated = db.execute(
                 "UPDATE feedback SET status = 'closed', closed_by = ?, closed_at = ? "
                 "WHERE id = ? AND status != 'closed'",

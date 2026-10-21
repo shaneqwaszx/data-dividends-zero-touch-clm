@@ -155,12 +155,12 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open gaps |
 | GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
 | GET | `/assistant/knowledge/entries/{id}` | Director (every team), HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
-| POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded) |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
 | POST | `/assistant/knowledge/feedback/{id}/close` | Director | Mark a gap as handled |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
-| POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index |
+| POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
 | GET | `/assistant/knowledge/stats` | Director | Entry counts and how helpful answers were |
 
 ### In the app

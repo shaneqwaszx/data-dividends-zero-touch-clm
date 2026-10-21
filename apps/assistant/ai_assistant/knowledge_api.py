@@ -7,7 +7,9 @@
 Who someone is, and what they may do, always comes from the CLM backend (/api/auth/me with
 their own session); nothing in a request body can grant a permission. Nobody who wrote or
 edited an entry can approve or reject it, and a decision applies only to the exact content
-the reviewer was shown (both enforced by the store).
+the reviewer was shown (both enforced by the store). Every review or guidance change asks
+the backend again inside its write transaction, so a role, team or session withdrawn since
+the request began stops it.
 
 Team scope: approved past resolutions are visible only to the team they came from. A Director,
 whom the CLM backend scopes globally (a Director has no team), sees, edits and decides every
@@ -226,6 +228,27 @@ def knowledge_router(
             raise not_found()
         return entry
 
+    def recheck(
+        request: Request,
+        profile: dict[str, Any],
+        capability: str,
+        reach: Callable[[dict[str, Any]], None] | None = None,
+    ) -> Callable[[], None]:
+        """The checks above again, for the store to run inside the change's write transaction:
+        the caller is reloaded from the CLM backend with the same session and must still be the
+        same user, with ``capability`` and the target in ``reach``. Fails closed with the same
+        401/403/404, or the backend's own error."""
+
+        def authorize() -> None:
+            current = actor(request)
+            if user_id(current) != user_id(profile):
+                raise HTTPException(401, detail={"code": "AUTHENTICATION_REQUIRED"})
+            require(current, capability)
+            if reach is not None:
+                reach(current)
+
+        return authorize
+
     def refused(exc: KnowledgeError) -> HTTPException:
         # Fixed messages only: the browser shows nothing else (apps/frontend aiAssistant.ts).
         if isinstance(exc, SecondReviewerError):
@@ -372,14 +395,24 @@ def knowledge_router(
         raise not_found()
 
     @router.post("/assistant/knowledge/entries/{entry_id}/versions/{version}/edit")
-    def edit(entry_id: str, version: int, body: EditRequest, profile: Actor) -> dict[str, Any]:
+    def edit(
+        entry_id: str, version: int, body: EditRequest, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        def reach(who: dict[str, Any]) -> None:
+            found(kb.store.get(entry_id, version), who)
+            if body.replaces is not None:
+                found(kb.store.current(body.replaces), who)
+
         require(profile, APPROVE)
-        found(kb.store.get(entry_id, version), profile)
+        reach(profile)
         changes: dict[str, Any] = {}
         for name in ("title", "body", "replaces"):
             value = getattr(body, name)
             if value is not None:
                 changes[name] = value
+        if body.replaces is None and "replaces" in body.model_fields_set:
+            # An explicit null clears what the version replaces; leaving it out keeps it.
+            changes["replaces"] = None
         for name in ("follow_ups", "blocker_codes", "fields", "stages"):
             value = getattr(body, name)
             if value is not None:
@@ -388,14 +421,13 @@ def knowledge_router(
             changes["visibility"] = Visibility(
                 roles=tuple(body.visibility.roles), teams=tuple(body.visibility.teams)
             )
-        if body.replaces is not None:
-            found(kb.store.current(body.replaces), profile)
         try:
             revised = kb.store.revise_pending(
                 entry_id,
                 version,
                 editor=user_id(profile),
                 expected_hash=body.content_hash,
+                authorize=recheck(request, profile, APPROVE, reach),
                 **changes,
             )
         except KnowledgeError as exc:
@@ -404,10 +436,13 @@ def knowledge_router(
 
     @router.post("/assistant/knowledge/entries/{entry_id}/versions/{version}/decision")
     def decide(
-        entry_id: str, version: int, body: DecisionRequest, profile: Actor
+        entry_id: str, version: int, body: DecisionRequest, profile: Actor, request: Request
     ) -> dict[str, Any]:
+        def reach(who: dict[str, Any]) -> None:
+            found(kb.store.get(entry_id, version), who)
+
         require(profile, APPROVE)
-        found(kb.store.get(entry_id, version), profile)
+        reach(profile)
         try:
             decided = kb.decide(
                 entry_id,
@@ -416,19 +451,28 @@ def knowledge_router(
                 approve=body.approve,
                 notes=body.notes,
                 expected_hash=body.content_hash,
+                authorize=recheck(request, profile, APPROVE, reach),
             )
         except KnowledgeError as exc:
             raise refused(exc) from None
         return entry_view(decided)
 
     @router.post("/assistant/knowledge/entries/{entry_id}/retire")
-    def retire(entry_id: str, body: RetireRequest, profile: Actor) -> dict[str, Any]:
+    def retire(
+        entry_id: str, body: RetireRequest, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        def reach(who: dict[str, Any]) -> None:
+            found(kb.store.current(entry_id), who)
+
         require(profile, APPROVE)
-        found(kb.store.current(entry_id), profile)
+        reach(profile)
         # Two people: the first call asks for the retirement, a different reviewer confirms.
         try:
             current, retired = kb.request_retirement(
-                entry_id, by=user_id(profile), notes=body.notes
+                entry_id,
+                by=user_id(profile),
+                notes=body.notes,
+                authorize=recheck(request, profile, APPROVE, reach),
             )
         except KnowledgeError as exc:
             raise refused(exc) from None
@@ -438,20 +482,28 @@ def knowledge_router(
         }
 
     @router.post("/assistant/knowledge/feedback/{feedback_id}/close")
-    def close(feedback_id: int, profile: Actor) -> dict[str, str]:
+    def close(feedback_id: int, profile: Actor, request: Request) -> dict[str, str]:
+        def reach(who: dict[str, Any]) -> None:
+            if not any(row["id"] == feedback_id for row in team_feedback(who)):
+                raise HTTPException(404, detail={"code": "NOT_FOUND"})
+
         require(profile, APPROVE)
-        if not any(row["id"] == feedback_id for row in team_feedback(profile)):
-            raise HTTPException(404, detail={"code": "NOT_FOUND"})
+        reach(profile)
         try:
-            kb.store.close_feedback(feedback_id, by=user_id(profile))
+            kb.store.close_feedback(
+                feedback_id,
+                by=user_id(profile),
+                authorize=recheck(request, profile, APPROVE, reach),
+            )
         except KnowledgeError:
             raise HTTPException(404, detail={"code": "NOT_FOUND"}) from None
         return {"status": "closed"}
 
     @router.post("/assistant/knowledge/reindex")
-    def reindex(profile: Actor) -> dict[str, int]:
+    def reindex(profile: Actor, request: Request) -> dict[str, int]:
         require(profile, APPROVE)
-        report = kb.reconcile()
+        # Re-embeds every current approved version, so a changed embedding model takes effect.
+        report = kb.rebuild(authorize=recheck(request, profile, APPROVE))
         return {"indexed": report.indexed, "removed": report.removed, "waiting": report.failed}
 
     @router.get("/assistant/knowledge/stats")
@@ -473,7 +525,7 @@ def knowledge_router(
     # --- HR guidance changes --------------------------------------------------------
 
     @router.post("/assistant/knowledge/guidance")
-    def propose_guidance(body: GuidanceRequest, profile: Actor) -> dict[str, Any]:
+    def propose_guidance(body: GuidanceRequest, profile: Actor, request: Request) -> dict[str, Any]:
         require(profile, MUTATE)
         entry_id = body.entry_id or guidance_id(body.title)
         if not re.fullmatch(GUIDANCE_ID, entry_id):
@@ -497,7 +549,8 @@ def knowledge_router(
                     source_ref=body.source_ref,
                     illustrative=body.illustrative,
                     author=user_id(profile),
-                )
+                ),
+                authorize=recheck(request, profile, MUTATE),
             )
         except KnowledgeError as exc:
             raise refused(exc) from None

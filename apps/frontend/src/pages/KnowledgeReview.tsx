@@ -154,7 +154,8 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
         body: draft.body,
         follow_ups: followUps,
         visibility: { roles: entry.visibility.roles, teams },
-        ...(draft.replaces ? { replaces: draft.replaces } : {}),
+        // Always sent: null ("Does not replace one") clears a target the version had.
+        replaces: draft.replaces || null,
       });
       setNotice("Changes saved as a new version. Another reviewer must approve it.");
       setTick((value) => value + 1);
