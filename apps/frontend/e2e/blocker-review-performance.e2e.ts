@@ -149,7 +149,7 @@ test("Blocker decision review performance sample group 3", async ({ page }) => {
   await runPerformanceGroup(page, 2);
 });
 
-test("Blocker decision review keyboard focus stays unobscured at mid-width viewports", async ({ page }) => {
+test("Blocker decision review keyboard focus stays unobscured and footer text readable at review widths", async ({ page }) => {
   const violations: string[] = [];
   const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
   await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
@@ -199,6 +199,36 @@ test("Blocker decision review keyboard focus stays unobscured at mid-width viewp
     expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
     expect(visited).toContain("Reject all undecided suggestions");
     expect(visited).toContain("How drafts work");
+  }
+  // WCAG 2.2 SC 1.4.4: the footer status, hint and "How drafts work" keep a readable column at every review width.
+  for (const viewport of [{ width: 360, height: 780 }, { width: 768, height: 1024 }, { width: 960, height: 800 }, { width: 1024, height: 768 }, { width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    const footer = page.locator("#case-blocker-review .blocker-review__footer");
+    await expect(footer).toHaveCount(1);
+    const measure = () => footer.evaluate(element => {
+      const style = getComputedStyle(element);
+      const column = element.getBoundingClientRect().width - ["borderLeftWidth", "borderRightWidth", "paddingLeft", "paddingRight"]
+        .reduce((total, side) => total + parseFloat(style[side as "paddingLeft"]), 0);
+      const texts = [...element.querySelectorAll(":scope > p, :scope > details, :scope > details[open] > p")];
+      const actions = element.querySelector(":scope > .document-card__actions")!.getBoundingClientRect();
+      const status = element.querySelector(":scope > .blocker-review__status")!.getBoundingClientRect();
+      return {
+        column, narrowest: Math.min(...texts.map(text => text.getBoundingClientRect().width)), texts: texts.length,
+        height: element.getBoundingClientRect().height, beside: actions.left >= status.right,
+      };
+    });
+    for (const [state, texts, maxHeight] of [["closed", 3, 400], ["open", 5, 720]] as const) {
+      if (state === "open") await footer.getByText("How drafts work", { exact: true }).click();
+      const geometry = await measure();
+      const where = `${state} footer at ${viewport.width}x${viewport.height}: ${JSON.stringify(geometry)}`;
+      expect(geometry.texts, where).toBe(texts);
+      // At least 18rem, or the whole column where the review is narrower; 1px absorbs sub-pixel layout.
+      expect(geometry.narrowest, where).toBeGreaterThanOrEqual(Math.min(288, geometry.column) - 1);
+      expect(geometry.height, where).toBeLessThanOrEqual(maxHeight);
+      // The side-by-side footer is kept where the review is wide enough for it.
+      expect(geometry.beside, where).toBe(viewport.width >= 1440);
+    }
   }
   expect(violations).toEqual([]);
 });
