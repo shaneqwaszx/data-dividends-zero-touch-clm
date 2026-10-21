@@ -9,14 +9,15 @@ source/tests. Unknown/ambiguous work uses `--full`; historical reports stay on d
 
 This folder contains role instructions and phase handoffs for Codex.
 
-Recommended order:
+Recommended order follows the five-stage lifecycle in `docs/DEVELOPMENT_WORKFLOW.md`:
 
-`001_planner` -> `003_builder` -> fresh independent gate -> `007_publisher`
+`001_planner` + `003_builder` -> integration + `004_tester` acceptance once -> fresh
+independent gate -> `007_publisher` -> owner merge
 
-Insert `002_contract_analyst`, `004_tester`, `005_reviewer`,
-`006_security_reviewer`, or another narrow read-only specialist when the current change
-and risk require it. Not every task needs every role. Security review is mandatory when
-secrets/auth/PII/external connectivity are touched. `007_publisher` runs only after
+Insert `002_contract_analyst`, `005_reviewer`, `006_security_reviewer`, or another
+narrow read-only specialist when the current change and risk require it. Not every task
+needs every role. Security review is mandatory when secrets/auth/PII/external
+connectivity are touched. `007_publisher` runs only after
 exact independent `PASS` and explicit publication authorization; `PASS WITH MINOR FIXES`
 requires remediation and recheck first. The publisher never merges.
 

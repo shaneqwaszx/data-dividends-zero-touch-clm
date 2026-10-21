@@ -1,7 +1,8 @@
 # Pre-PR Checklist
 
-Use this checklist only after implementation and latest-main integration. Record command
-output; do not mark an item complete from memory.
+Use this checklist in lifecycle Stage 4 (publication), after Stage 2 integrated
+acceptance, exact independent Stage 3 `PASS`, and the authorized publication commit.
+Record command output; do not mark an item complete from memory.
 
 ## Baseline and branch
 
@@ -48,17 +49,22 @@ output; do not mark an item complete from memory.
 
 ## Verification
 
-- [ ] Focused tests pass.
-- [ ] Applicable repository-defined backend, frontend, type/lint, contract, security,
-      dependency-integrity, and build checks pass.
+- [ ] Stage 2 evidence covers the complete applicable change-class set (backend,
+      frontend, type/lint, contract, security, dependency-integrity, build, and any
+      browser/physical/OCR/lifecycle checks) and passed on a recorded content identity,
+      integrated `origin/main` SHA, and environment.
+- [ ] That identity matches the reviewed content, or every result invalidated by a later
+      change or drift merge was rerun; unchanged valid evidence was reused, not repeated.
 - [ ] `python scripts/pre_pr_check.py` returns PASS.
 - [ ] Skipped or unavailable checks are named; the branch is not called merge-safe while
       a required check lacks evidence.
 
 ## Handoff
 
-- [ ] PR template includes branch/SHA evidence, changed areas, hotspots, tests, checker
-      result, conflict resolutions, assumptions, limitations, and reviewer attention.
+- [ ] PR template includes branch/SHA evidence, changed areas, hotspots, integrated
+      acceptance evidence and identity, independent QG verdict and reviewed identity,
+      checker result, conflict resolutions, assumptions, limitations, and reviewer
+      attention.
 - [ ] Every claim is labeled accurately as observed, inferred, or assumed where the
       distinction matters.
 - [ ] PR targets `main`; final integration is a repository-owner squash merge.
@@ -79,4 +85,8 @@ output; do not mark an item complete from memory.
       not used as push evidence and no failing applicable run is dismissed because a
       different run passed.
 - [ ] Pending CI is reported as `CI IN PROGRESS`; failures identify the actual check and
-      evidence. No unattended monitoring is promised.
+      evidence; skipped or cancelled jobs are not counted as passed. No unattended
+      monitoring is promised.
+- [ ] `HOSTED_CI_NOT_EXECUTED — BILLING/INFRASTRUCTURE BLOCKED` is used only with
+      GitHub run/job/annotation evidence; the local evidence is recorded, any manual-CI
+      exception is left to the owner, and blocked CI is never reported as passed.

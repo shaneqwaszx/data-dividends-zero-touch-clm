@@ -26,12 +26,15 @@
 
 <!-- Exact commands and results; state skipped/unavailable checks. -->
 
-- Focused and broad affected checks:
+- Integrated acceptance (content identity / integrated origin/main SHA / checks):
 - Contract/security/physical/regression evidence:
+- Evidence rerun after later changes, or reused unchanged:
 - `python scripts/check_project_state.py`:
 - `python scripts/check_architecture.py`:
 - `python scripts/pre_pr_check.py`:
-- Independent QG/re-QG:
+- Independent QG/re-QG verdict and reviewed content identity:
+- Hosted CI per push/`pull_request` run (passed / in progress / failed / skipped /
+  `HOSTED_CI_NOT_EXECUTED — BILLING/INFRASTRUCTURE BLOCKED` with GitHub evidence):
 
 ## Integration and context
 
@@ -40,4 +43,5 @@
 - Mock/sandbox/live labeling reviewed:
 - Known limitations and reviewer attention:
 
-Final merge is performed by a human repository owner.
+Final squash merge is performed by a human repository owner, who also decides any
+manual-CI exception.

@@ -20,14 +20,18 @@ Publish only the accepted scope:
 2. Inspect the staged diff, whitespace, secrets and file classification.
 3. Create the authorized descriptive commit.
 4. Fetch and assess latest-main drift; integrate only safely understood, authorized
-   changes without rebasing shared history. If integration changes reviewed content,
-   obtain a fresh independent recheck before publication continues.
-5. Rerun affected checks after integration and obtain a clean-tree pre-PR result.
+   changes without rebasing shared history. If integration changes the reviewed task
+   delta, obtain a fresh independent recheck before publication continues.
+5. Reuse valid Stage 2/3 evidence; rerun only what integration invalidates, then obtain
+   a clean-tree pre-PR result.
 6. Push the authorized branch, verify local/remote SHA identity, and create or update the
    PR against `main`. Never bypass a platform approval prompt.
 7. Inspect applicable push and `pull_request` CI independently. Record repository/PR,
    head/base, event, checkout SHA/tree when available, run/attempt and relevant job
-   conclusions. Report pending runs as `CI IN PROGRESS` and actual failures as failures.
+   conclusions. Report pending runs as `CI IN PROGRESS`, actual failures as failures,
+   and skipped/cancelled jobs as not passed. Use
+   `HOSTED_CI_NOT_EXECUTED — BILLING/INFRASTRUCTURE BLOCKED` only with GitHub
+   run/job/annotation evidence, and never as a pass.
 
 Do not edit accepted implementation/instructions, fix review findings, change acceptance
 criteria, promise unattended CI monitoring, force-push, approve, or merge the PR. Return

@@ -19,27 +19,33 @@ but unavailable connector exists here.
 
 ## Default pipeline
 
-The default role topology is:
+The default role topology follows the five-stage lifecycle in
+`docs/DEVELOPMENT_WORKFLOW.md`:
 
-`planner -> implementation writer -> independent reviewer -> publication role`
+`planner + implementation writer -> integration/testing -> independent reviewer ->
+publication role -> owner merge`
 
-Insert a contract analyst, tester, security reviewer or narrow read-only specialist only
-when the change or risk justifies it. The repository role folders provide supporting
+Insert a contract analyst, security reviewer or narrow read-only specialist only when
+the change or risk justifies it. The repository role folders provide supporting
 instructions; specialist skills under `.agents/skills/` own reusable procedures.
 
 - The planner defines scope, canonical owners, boundaries, criteria, adverse cases and
   required evidence.
-- One implementation writer normally owns all implementation changes and self-review.
+- One implementation writer normally owns all implementation changes, focused checks
+  and self-review, ending at a stable candidate.
 - Read-only specialists may falsify a narrow risk or gather evidence without changing
   the accepted scope.
-- A fresh independent reviewer inspects frozen content and writes only its gate report;
-  it never fixes findings or changes acceptance criteria.
+- An integration/testing run reconciles latest `origin/main`, freezes the integrated
+  candidate and runs the applicable acceptance set once, recording evidence identity.
+- A fresh independent reviewer inspects frozen content, verifies and reuses valid
+  evidence, runs risk-based checks, and writes only its gate report; it never fixes
+  findings or changes acceptance criteria.
 - After exact independent `PASS`, a separate publisher may perform only the explicitly
   authorized stage/commit/integrate/push/PR actions and observe CI. Humans merge.
 
 Self-review is not independent review. If the reviewer finds a defect, control returns
-to the implementation writer for bounded remediation and then to the independent
-reviewer for a recheck of the changed scope.
+to the implementation writer for bounded remediation, the evidence it invalidates is
+rerun, and the independent reviewer rechecks the changed scope.
 
 ## Shared-worktree coordination
 
