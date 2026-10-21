@@ -980,9 +980,10 @@ rechecked inside the SQLite write transaction (schema v4). D-076's POC single-re
 (`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER`, default true; the synthetic users have one
 Director) relaxes D-074's two-person control: a reviewer may publish their own entry after
 seeing its final text and confirming, recorded as single-reviewer; it needs the owner's
-explicit acceptance before merge. Retirement still takes two reviewers. The
-2026-10-06 read-only description above stays current main until PR #99 is accepted and
-merged.
+explicit acceptance before merge. Retirement still takes two reviewers. PR #99 is
+merged (main `5d9fd14`), so the knowledge store is current main; the 2026-10-06
+read-only description above still holds towards the CLM backend (GET only), not for
+the assistant's own data.
 
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 
