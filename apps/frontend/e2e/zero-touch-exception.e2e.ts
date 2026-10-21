@@ -164,11 +164,11 @@ for (const conflict of [false, true]) {
     if (conflict) {
       await openStage(page, "Document verification");
       await page.getByLabel("Decision group", { exact: true }).selectOption("source");
-      await expect(page.locator("select[data-reconciliation-field]")).toHaveCount(4);
+      await expect(page.locator('input[data-reconciliation-field][value="KEEP_REGISTRY_VALUE"]')).toHaveCount(4);
       const measure = await boundedMutation(page, info, "/review-decisions", async () => {
         await reviewSourceChoices(page);
       }, "conflict-group");
-      await expect(page.locator("select[data-reconciliation-field]")).toHaveCount(0);
+      await expect(page.locator("input[data-reconciliation-field]")).toHaveCount(0);
       measure();
     } else {
       await expect(page.locator(".document-field .tag", { hasText: "AUTO CONFIRMED" })).toHaveCount(4);

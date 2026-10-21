@@ -202,11 +202,8 @@ function documentFixture(caseId: string): DocumentProcessingRecord {
 
 
 async function acceptDraftControl(): Promise<HTMLButtonElement> {
-  const control = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]');
-  if (control && !control.disabled) await act(async () => {
-    control.value = "ACCEPTED";
-    control.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  const control = container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="ACCEPTED"]');
+  if (control && !control.disabled) await act(async () => control.click());
   return Array.from(container!.querySelectorAll<HTMLButtonElement>("button"))
     .find(button => button.textContent === "Confirm decisions & continue onboarding")!;
 }
@@ -787,13 +784,11 @@ describe("Phase 15C case-bound action lifetime", () => {
 
     await click("Open A");
     await act(async () => {
-      const control = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
-      control.value = "CORRECTED";
-      control.dispatchEvent(new Event("change", { bubbles: true }));
+      container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="CORRECTED"]')!.click();
     });
-    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).not.toBeNull();
+    expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value).toBe("CORRECTED");
     await click("Open B");
-    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
     expect(container?.textContent).not.toMatch(/Assign reviewer|Return for rework/);
     expect(request.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
   });
@@ -1253,7 +1248,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     await act(async () => accept.click());
     await vi.waitFor(() => expect(container?.textContent).toContain("Evidence reload could not be confirmed."));
     expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
-    const reject = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
+    const reject = container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="REJECTED"]')!;
     expect(reject.disabled).toBe(true);
     const refresh = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .find((button) => button.textContent === "Refresh case evidence")!;
@@ -1344,21 +1339,19 @@ describe("Phase 15C case-bound action lifetime", () => {
       await act(async () => target?.click());
     };
     await act(async () => {
-      const control = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
-      control.value = "CORRECTED";
-      control.dispatchEvent(new Event("change", { bubbles: true }));
+      container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="CORRECTED"]')!.click();
     });
-    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).not.toBeNull();
+    expect(container?.querySelector<HTMLInputElement>('#case-blocker-review input[data-review-field="legal_name"]:checked')?.value).toBe("CORRECTED");
     await click("Open B");
-    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
     await click("History back");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_A)));
-    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
     await click("History forward");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_B)));
-    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[data-review-field="legal_name"]:checked')).toBeNull();
   });
 });
 
@@ -1910,7 +1903,7 @@ it("does not apply a deferred A processing-focus action to the routed B case", a
   const openB = [...container!.querySelectorAll<HTMLAnchorElement>("a")].find((item) => item.textContent === "Open B")!;
   await act(async () => openB.click());
   await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE B"));
-  const currentSection = container!.querySelector<HTMLElement>("select[data-review-field]")!;
+  const currentSection = container!.querySelector<HTMLElement>("input[data-review-field]")!;
   expect(currentSection).toBeTruthy();
   const focus = vi.spyOn(currentSection, "focus");
   await act(async () => callbacks.forEach((callback) => callback()));

@@ -194,17 +194,23 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   await expect(original).toHaveText(before.case.registry_acquisition.retrieved_at);
   await openStage(page, "Document verification");
   const review = page.locator("#case-blocker-review");
-  const controls = review.locator("select[data-review-field]"); await expect(controls).toHaveCount(3);
-  const name = review.locator('select[data-review-field="legal_name"]'); await name.selectOption("CORRECTED");
+  // Nothing is pre-selected; one reject radio exists per pending field.
+  await expect(review.locator('input[data-review-field][value="REJECTED"]')).toHaveCount(3);
+  await expect(review.locator("input[data-review-field]:checked")).toHaveCount(0);
+  // Typing the corrected value is how a reviewer records a correction (the box overlays its radio).
+  const name = review.locator('input[data-review-field="legal_name"][value="CORRECTED"]'); await expect(name).not.toBeChecked();
   await review.getByLabel("Correction for legal name", { exact: true }).fill(company.name);
+  await expect(name).toBeChecked();
+  await review.getByRole("button", { name: "Add note for legal name", exact: true }).click();
   await review.getByLabel("Optional note for legal name", { exact: true }).fill("Reviewed synthetic field deliberately.");
-  const eligible = await controls.evaluateAll(nodes => nodes.filter(node => !(node as HTMLSelectElement).value && Array.from((node as HTMLSelectElement).options).some(option => option.value === "ACCEPTED")).map(node => node.getAttribute("data-review-field")));
+  const eligible = await review.locator('input[data-review-field][value="ACCEPTED"]:not([disabled])').evaluateAll(nodes => nodes
+    .map(node => node.getAttribute("data-review-field")).filter(key => key !== "legal_name"));
   const businessWrites: string[] = [];
   page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) businessWrites.push(new URL(request.url()).pathname); });
   await review.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true }).click();
-  expect(await name.inputValue()).toBe("CORRECTED");
-  for (const key of eligible) await expect(review.locator(`select[data-review-field="${key}"]`)).toHaveValue("ACCEPTED");
-  await expect(review.locator('select[data-review-field="registered_address"]')).toHaveValue("");
+  await expect(name).toBeChecked();
+  for (const key of eligible) await expect(review.locator(`input[data-review-field="${key}"][value="ACCEPTED"]`)).toBeChecked();
+  await expect(review.locator('input[data-review-field="registered_address"]:checked')).toHaveCount(0);
   await expect(review.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeDisabled();
   const evidence = retainedEvidencePath("am-review"); await mkdir(evidence, { recursive: true });
   for (const width of [1440, 900, 360]) {
@@ -217,7 +223,7 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   expect(businessWrites).toEqual([]);
   const unchanged = await read(page, caseId); expect(unchanged.version).toBe(before.version);
   await review.getByRole("button", { name: "Reject all undecided suggestions", exact: true }).click();
-  await expect(review.locator('select[data-review-field="registered_address"]')).toHaveValue("REJECTED");
+  await expect(review.locator('input[data-review-field="registered_address"][value="REJECTED"]')).toBeChecked();
   await expect(review.getByLabel("Optional note for legal name", { exact: true })).toHaveValue("Reviewed synthetic field deliberately.");
   expect(businessWrites).toEqual([]);
   const confirmed = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith("/review-decisions"));

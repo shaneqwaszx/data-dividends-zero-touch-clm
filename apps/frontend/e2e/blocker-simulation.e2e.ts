@@ -50,8 +50,8 @@ for (const scenario of scenarios) {
     if (scenario.choice === "identity") await focusPipelineAction(page, "RECONCILIATION", page.locator("#identity-registration-number"));
     else if (scenario.choice === "source") await page.locator(".intervention-card").getByRole("button", { name: "Keep registry value", exact: true }).first().click();
     else await page.getByRole("button", { name: action.label, exact: true }).click();
-    const selector = scenario.choice === "source" ? "select[data-reconciliation-field]"
-      : scenario.choice === "document" ? "select[data-review-field]"
+    const selector = scenario.choice === "source" ? "input[data-reconciliation-field]:not([disabled])"
+      : scenario.choice === "document" ? "input[data-review-field]:not([disabled])"
       : scenario.choice === "identity" ? "#identity-registration-number" : "#case-target-classification select:not([disabled])";
     const control = page.locator(selector).first();
     await expect(control).toBeVisible(); await expect(control).toBeEnabled(); await expect(control).toBeFocused();
@@ -62,11 +62,13 @@ for (const scenario of scenarios) {
     expect(calls.filter(call => !call.startsWith("GET "))).toEqual([]);
     let decisions = 0, result = before, confirmation = "Not applicable", callsBeforeConfirmation = 0;
     if (scenario.choice === "source" || scenario.choice === "document") {
-      const controls = page.locator(selector); decisions = await controls.count();
+      const controls = page.locator(scenario.choice === "source" ? 'input[data-reconciliation-field][value="KEEP_REGISTRY_VALUE"]' : 'input[data-review-field][value="REJECTED"]');
+      decisions = await controls.count();
       for (let index = 0; index < decisions; index++) {
         await controls.nth(index).focus();
-        await controls.nth(index).selectOption(scenario.choice === "source" ? "KEEP_REGISTRY_VALUE" : "REJECTED");
+        await controls.nth(index).check();
         await expect(controls.nth(index)).toBeFocused();
+        await expect(controls.nth(index)).toBeChecked();
       }
       expect(calls.filter(call => !call.startsWith("GET "))).toEqual([]);
       callsBeforeConfirmation = calls.length;
@@ -203,18 +205,18 @@ test("Blocker simulation draft isolation and same-team/cross-team authorization"
     documents: docs.map((doc: any) => ({ document_id: doc.document_id, expected_event_count: doc.events.length, source_fingerprint: doc.review_source_fingerprint,
       decisions: doc.fields.map((field: any) => ({ field_key: field.field_key, decision: "REJECTED" })) })) };
   await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
-  const draft = page.locator("select[data-review-field]").first();
+  const draft = page.locator('input[data-review-field][value="REJECTED"]').first();
   const mutations: string[] = [];
   const listener = (request: import("@playwright/test").Request) => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); };
   page.on("request", listener); await page.getByRole("button", { name: "Reject all undecided suggestions", exact: true }).click();
-  await expect(draft).toHaveValue("REJECTED");
+  await expect(draft).toBeChecked();
   await page.getByRole("button", { name: "Save draft in this tab", exact: true }).click();
   await expect(page.getByText("Draft saved in this tab", { exact: false })).toBeVisible();
   expect(mutations).toEqual([]); page.off("request", listener);
   await signOut(); const otherHeaders = await signIn("ethan-tan");
   await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
-  await expect(page.locator("select[data-review-field]").first()).toHaveValue("");
-  for (const control of await page.locator("select[data-review-field]").all()) await expect(control).toBeDisabled();
+  await expect(page.locator("input[data-review-field]:checked")).toHaveCount(0);
+  for (const control of await page.locator("input[data-review-field]").all()) await expect(control).toBeDisabled();
   await expect(page.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeDisabled();
   expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/review-decisions`, { headers: otherHeaders, data: batch })).status()).toBe(403);
   await signOut(); const crossHeaders = await signIn("sophia-ng");
@@ -440,20 +442,21 @@ test("Blocker simulation early stage click waits for the actual current document
   const node = page.locator('.ds-stage[data-node-id="DOCUMENT_IDP"]');
   await node.locator("summary").click();
   await node.getByRole("button", { name: "Open case stage details", exact: true }).click();
-  await expect(page.locator("select[data-review-field]")).toHaveCount(0);
+  await expect(page.locator("input[data-review-field]")).toHaveCount(0);
   release();
-  const control = page.locator('select[data-review-field="country_of_incorporation"]');
+  const control = page.locator('input[data-review-field="country_of_incorporation"]:not([disabled])').first();
   await expect(control).toBeVisible(); await expect(control).toBeEnabled(); await expect(control).toBeFocused();
   await expect(control).toBeInViewport({ ratio: 1 });
+  await expect(page.locator('input[data-review-field="country_of_incorporation"]:checked')).toHaveCount(0);
   const boundary = requests.length;
-  await control.selectOption("REJECTED");
+  await page.locator('input[data-review-field="country_of_incorporation"][value="REJECTED"]').check();
   expect(requests.slice(boundary)).toEqual([]);
   expect(requests.every(method => method === "GET")).toBe(true);
   expect(initial.case.goldtier_result).toBeNull();
   await mkdir(evidence(), { recursive: true });
   await writeFile(path.join(evidence(), "simulation-delayed-stage-focus.json"), JSON.stringify({ scenario: "early stage click with delayed actual document read",
-    initial: initial.active_exceptions.map((item: any) => item.blocker_code), expected_navigation: "Current missing-country decision SELECT",
-    actual_control: "SELECT:data-review-field=country_of_incorporation (visible, enabled, focused, in viewport)", choices: 1,
+    initial: initial.active_exceptions.map((item: any) => item.blocker_code), expected_navigation: "Current missing-country decision radio",
+    actual_control: "RADIO:data-review-field=country_of_incorporation (visible, enabled, focused, in viewport)", choices: 1,
     calls_before_confirmation: 0, initial_reads: requests.length, confirmation: "Local draft only; no confirmation submitted",
     final: initial.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", fabricated_response: false }, null, 2)+"\n");
   expect(violations).toEqual([]);

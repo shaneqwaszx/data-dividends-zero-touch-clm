@@ -5,6 +5,7 @@ import type { TargetStatusCheckResult } from "../src/api";
 import type { ZeroTouchCaseSummary } from "../src/types";
 import { focusPipelineAction, openStage } from "./stage-disclosures";
 import { reviewPendingFields } from "./blocker-decisions";
+import { showAllIssues } from "./attention";
 
 const syntheticName = "ZERO TOUCH POC ACCEPTANCE TESTS3";
 const syntheticUen = "202698765Z";
@@ -93,7 +94,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
     page.on("request", navigationListener);
     for (const width of [1440, 1280, 900, 360]) {
       await page.setViewportSize({ width, height: 900 });
-      await attention.getByRole("button", { name: /^Blocker:/ }).first().focus();
+      await showAllIssues(page); await attention.getByRole("button", { name: /^Blocker:/ }).first().focus();
       await page.keyboard.press("Enter");
       await expect(rationale).toBeFocused();
       await focusPipelineAction(page, "GOLDTIER_SEARCH", rationale);

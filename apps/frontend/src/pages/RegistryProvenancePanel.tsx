@@ -74,7 +74,7 @@ export default function RegistryProvenancePanel({ acquisition, binding, entityTy
     </>}
   </dl>;
   const headingId = part === "all" || part === "main" ? "registry-provenance-heading" : `registry-provenance-${part}-heading`;
-  return <section className="evidence-section-block" aria-labelledby={headingId}>
+  return <section className="evidence-section-block registry-provenance" aria-labelledby={headingId}>
     <p className="card-kicker">Case-bound registry evidence</p>
     <h4 id={headingId}>{part === "all" || part === "main" ? "Registry provenance" : part === "more" ? "Registry acquisition and case use" : "Registry audit evidence"}</h4>
     {(part === "all" || part === "main") && main}

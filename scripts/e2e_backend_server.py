@@ -10,6 +10,12 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = ROOT / "apps" / "backend"
 
+# The guarded E2E Vite proxy reuses pooled keep-alive sockets. Uvicorn's default 5 s idle
+# close races that reuse: the proxy gets ECONNRESET for a request the backend never reads
+# and answers 500. Outlive any lifecycle (at most 900 s plus runner overhead) so the
+# server never closes an idle proxy socket while the lifecycle is running.
+UPSTREAM_KEEP_ALIVE_SECONDS = 3600
+
 _SYSTEM_ENV_KEYS = (
     "APPDATA",
     "COMSPEC",
@@ -414,7 +420,10 @@ def main() -> int:
     import uvicorn
 
     try:
-        uvicorn.run(application, host="127.0.0.1", port=port, access_log=False, log_level="warning")
+        uvicorn.run(
+            application, host="127.0.0.1", port=port, access_log=False, log_level="warning",
+            timeout_keep_alive=UPSTREAM_KEEP_ALIVE_SECONDS,
+        )
     finally:
         if database_fixture is not None:
             database_fixture.close()

@@ -126,3 +126,22 @@ describe("Ownership hierarchy and authoritative candidate summary", () => {
     expect(view.querySelector(".ubo-summary li")).toBeNull();
   });
 });
+
+describe("Ownership hierarchy rows and summary header", () => {
+  it("marks the client, the owned entity and provisional UBO rows, and keeps the selected holder highlighted", () => {
+    const record = validIdentityRecord();
+    render(record);
+    const rows = [...host.querySelectorAll<HTMLElement>('[aria-label="Ownership hierarchy"] [role="row"]:not(.ownership-structure__head)')];
+    expect(rows[0].classList.contains("is-client")).toBe(true);
+    expect(rows[0].textContent).toContain("Client");
+    const avery = rows.find(row => row.textContent?.includes("Avery Tan"))!;
+    expect(avery.textContent).toContain("Holds 60% of");
+    expect(avery.textContent).toContain("Provisional UBO");
+    act(() => button("Avery Tan").click());
+    expect(host.querySelector('[aria-label="Ownership hierarchy"] [role="row"].is-selected')!.textContent).toContain("Avery Tan");
+    expect(host.querySelector('[aria-label="Ownership hierarchy"] .ownership-node__body > button[aria-pressed="true"]')!.textContent).toBe("Avery Tan");
+    const stats = host.querySelector('[aria-label="Hierarchy summary"]')!;
+    expect(stats.textContent).toContain(`${record.parties.length} part`);
+    expect(stats.textContent).toContain("provisional UBO");
+  });
+});

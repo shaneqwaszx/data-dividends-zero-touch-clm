@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import projections from "../test-fixtures/attention-projections.json";
 import type { HumanInterventionProjection, ZeroTouchCaseSummary, ZeroTouchException } from "../types";
-import CaseAttentionSummary from "./CaseAttentionSummary";
+import CaseAttentionSummary, { CasePipelineAttention } from "./CaseAttentionSummary";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const identity = projections.identityOnly.interventions[0] as HumanInterventionProjection;
@@ -82,5 +82,50 @@ describe("authoritative attention record union", () => {
     expect(view.textContent).not.toContain("Initial identity incomplete"); expect(view.textContent).toContain("No immediate blockers");
     act(() => root!.render(<CaseAttentionSummary summary={summary([documentProjection], [documentException])} onNavigate={vi.fn()} />));
     expect(view.textContent).toContain(documentProjection.title); expect(view.textContent).not.toContain("Initial identity incomplete");
+  });
+});
+
+describe("pipeline-grouped attention", () => {
+  const pipeline = [
+    { node_id: "ACRA_REGISTRY", label: "Registry verification", status: "REVIEW_REQUIRED", backend_stage: "REGISTRY", children: [] },
+    { node_id: "DOCUMENT_IDP", label: "Document verification", status: "REVIEW_REQUIRED", backend_stage: "DOCUMENT", children: [] },
+    { node_id: "RECONCILIATION", label: "Data reconciliation", status: "REVIEW_REQUIRED", backend_stage: "DOCUMENT", children: [] },
+  ];
+  function renderGrouped(value: ZeroTouchCaseSummary, navigate = vi.fn()) {
+    host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<CasePipelineAttention summary={{ ...value, processing_pipeline: pipeline } as ZeroTouchCaseSummary} onNavigate={navigate} />)); return host;
+  }
+  const stage = (view: HTMLElement, id: string) => view.querySelector<HTMLElement>(`.ds-stage[data-node-id="${id}"]`)!;
+  it("nests each item under the first step owning its stage, collapsed by default", () => {
+    const view = renderGrouped(summary([identity, documentProjection], [documentException]));
+    expect(view.textContent).toContain("2 active blockers");
+    expect(stage(view, "ACRA_REGISTRY").textContent).toContain("Initial identity incomplete");
+    expect(stage(view, "DOCUMENT_IDP").textContent).toContain(documentProjection.title);
+    expect(stage(view, "RECONCILIATION").querySelector(".stage-attention")).toBeNull();
+    expect([...view.querySelectorAll<HTMLElement>(".stage-attention__list")].every(list => list.hidden)).toBe(true);
+  });
+  it("opens one step, then all steps, and navigates without mutating", () => {
+    const navigate = vi.fn(); const value = summary([identity, documentProjection], [documentException]); const snapshot = structuredClone(value);
+    const view = renderGrouped(value, navigate);
+    const toggle = stage(view, "ACRA_REGISTRY").querySelector<HTMLButtonElement>(".stage-attention__toggle")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false"); act(() => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(stage(view, "DOCUMENT_IDP").querySelector<HTMLElement>(".stage-attention__list")!.hidden).toBe(true);
+    const all = [...view.querySelectorAll("button")].find(item => item.textContent === "Show all issues")!;
+    act(() => all.click());
+    expect([...view.querySelectorAll<HTMLElement>(".stage-attention__list")].every(list => !list.hidden)).toBe(true);
+    expect(all.textContent).toBe("Hide all issues");
+    const action = [...view.querySelectorAll(".attention-line")].find(item => item.textContent?.startsWith("Blocker: Initial identity"))! as HTMLButtonElement;
+    expect(action.textContent).toContain("Correct identity →");
+    act(() => action.click()); expect(navigate).toHaveBeenCalledExactlyOnceWith({ kind: "evidence", target: "IDENTITY" });
+    act(() => all.click());
+    expect([...view.querySelectorAll<HTMLElement>(".stage-attention__list")].every(list => list.hidden)).toBe(true);
+    expect(value).toEqual(snapshot);
+  });
+  it("keeps a technical failure visible at the top and hides the toggle when nothing is grouped", () => {
+    const value = summary([], []); value.status = "TECHNICAL_FAILURE"; value.technical_failure = { code: "SAFE_FAILURE", message: "Safe diagnostic" };
+    const view = renderGrouped(value);
+    expect(view.querySelector(".case-attention__general")!.textContent).toContain("Technical failure: SAFE_FAILURE");
+    expect([...view.querySelectorAll("button")].some(item => item.textContent === "Show all issues")).toBe(false);
   });
 });
