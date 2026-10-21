@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -163,5 +163,101 @@ describe("KnowledgeReview", () => {
     act(() => button(view, "Mark as handled").click());
     await flush();
     expect(calls[0].url).toContain("/knowledge/feedback/7/close");
+  });
+});
+
+// PR #99 panel evidence D5: the aria-modal dialog takes focus, closes on Escape, keeps Tab
+// inside and gives focus back to what opened it.
+function Opener() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Review
+      </button>
+      {open && <KnowledgeReview onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+async function openFromButton(): Promise<HTMLDivElement> {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() => root?.render(<Opener />));
+  const opener = button(container, "Review");
+  opener.focus();
+  act(() => opener.click());
+  await flush();
+  return container;
+}
+
+function press(key: string, shiftKey = false): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key, shiftKey, bubbles: true, cancelable: true });
+  act(() => {
+    (document.activeElement ?? document.body).dispatchEvent(event);
+  });
+  return event;
+}
+
+function dialogControls(view: HTMLElement): HTMLElement[] {
+  const dialog = view.querySelector("[role=dialog]");
+  return [...(dialog?.querySelectorAll<HTMLElement>("button, input, select, textarea") ?? [])].filter(
+    (control) => !control.hasAttribute("disabled"),
+  );
+}
+
+describe("KnowledgeReview dialog focus", () => {
+  it("moves focus into the dialog when it opens", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const dialog = view.querySelector("[role=dialog]");
+    expect(document.activeElement?.textContent).toBe("Knowledge review");
+    expect(dialog?.contains(document.activeElement)).toBe(true);
+  });
+
+  it("closes on Escape and returns focus to the button that opened it", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const event = press("Escape");
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.querySelector("[role=dialog]")).toBeNull();
+    expect(document.activeElement).toBe(button(view, "Review"));
+  });
+
+  it("returns focus to the button that opened it when closed with the close button", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const close = view.querySelector<HTMLButtonElement>("[aria-label='Close knowledge review']");
+    close?.focus();
+    act(() => close?.click());
+    expect(view.querySelector("[role=dialog]")).toBeNull();
+    expect(document.activeElement).toBe(button(view, "Review"));
+  });
+
+  it("wraps Tab and Shift+Tab around the dialog's controls", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const controls = dialogControls(view);
+    const [first, last] = [controls[0], controls[controls.length - 1]];
+    expect(first.getAttribute("aria-label")).toBe("Close knowledge review");
+    expect(last.textContent).toBe("Mark as handled");
+
+    // Shift+Tab from the heading (where focus starts) goes to the last control, not out.
+    expect(press("Tab", true).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+    // Tab from the last control wraps to the first; Shift+Tab from the first to the last.
+    expect(press("Tab").defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    expect(press("Tab", true).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+    // Between the ends the browser moves focus as usual.
+    controls[1].focus();
+    expect(press("Tab").defaultPrevented).toBe(false);
+    expect(press("Tab", true).defaultPrevented).toBe(false);
+    // Focus that fell out of the dialog (a removed or disabled control) comes back in.
+    (document.activeElement as HTMLElement).blur();
+    expect(press("Tab").defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
   });
 });

@@ -335,3 +335,16 @@ POLICY_MUTATE mapping stays PROJECT_DEFINED_PROVISIONAL and review authority sta
 UNKNOWN_BLOCKED (Q-014). PR #99 stays Draft until the open items are settled.
 `USER_AUTHORIZED_POC`; not sponsor review policy, and no CLM backend write, schema,
 provider status or Live claim follows.
+
+## D-075 - owner direction for PR #99 merge readiness
+
+Owner direction 2026-10-21 for PR #99 merge readiness: keep ADR-012 option 1 and D-074 as
+accepted; retain the SQLite plus ChromaDB implementation with the current direct ChromaDB
+version pin (`chromadb==1.5.9`), with no new dependency management system or broad
+dependency upgrade; the real-model embedding evaluation is
+`NOT_EXECUTED — MODEL NOT INSTALLED / OWNER-DEFERRED` to a later validation phase, an
+accepted scope limitation for the local POC and not a passing test or proof of semantic
+retrieval quality; the local synthetic and mock embedding tests remain the functional
+retrieval evidence. Q-014 review authority stays UNKNOWN_BLOCKED and no sponsor approval or
+production readiness is claimed. Cycle 9 aligns the knowledge-review scope of Directors with
+the CLM backend's global Director scope (a defect fix, not a new authority).

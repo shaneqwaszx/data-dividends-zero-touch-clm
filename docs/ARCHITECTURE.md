@@ -962,7 +962,8 @@ PR #99 proposes that the AI Assistant service keep its own reviewed knowledge st
 `apps/assistant/data/`). Towards the CLM backend it remains GET-only, and backend RBAC and
 team scope remain authoritative. Knowledge versions are append-only. An edit is a new
 version by its editor, nobody in an edit chain may decide it, and decisions are bound to the
-reviewed content hash. Review queues and approved resolutions are team-scoped. ChromaDB
+reviewed content hash. Review queues and approved resolutions are team-scoped (Directors,
+whom the CLM backend scopes globally, review every team's queue). ChromaDB
 telemetry is off and embeddings are loopback-only. The panel uses `@assistant-ui/react`
 presentation primitives over the existing client. See ADR-012 (proposed, section C
 accepted), D-073 and D-074. By the owner's G6 direction the PR89 exact-line catalog stays the

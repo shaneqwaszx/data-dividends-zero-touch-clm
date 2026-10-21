@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AiAssistantError,
   closeKnowledgeGap,
@@ -36,6 +36,8 @@ function message(error: unknown): string {
   return error instanceof AiAssistantError ? error.message : "Something went wrong. Please try again.";
 }
 
+const FOCUSABLE = "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])";
+
 /**
  * Director review of the knowledge loop: drafted past resolutions waiting for a decision,
  * and gaps flagged as "Not helpful". Shown only to users the backend reports as able to
@@ -51,6 +53,42 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const dialog = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+
+  // A modal dialog: focus moves into it when it opens and back to what opened it on close.
+  useEffect(() => {
+    const opener = document.activeElement;
+    heading.current?.focus();
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, []);
+
+  // Escape closes it; Tab and Shift+Tab wrap around its controls instead of leaving it.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog.current) return;
+      const controls = [...dialog.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      if (controls.length === 0) return;
+      const active = document.activeElement;
+      const index = controls.findIndex((control) => control === active);
+      if (event.shiftKey && index <= 0) {
+        event.preventDefault();
+        controls[controls.length - 1].focus();
+      } else if (!event.shiftKey && (index === controls.length - 1 || !dialog.current.contains(active))) {
+        event.preventDefault();
+        controls[0].focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -140,10 +178,10 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="knowledge-review-backdrop" role="dialog" aria-modal="true" aria-labelledby="knowledge-review-title">
+    <div ref={dialog} className="knowledge-review-backdrop" role="dialog" aria-modal="true" aria-labelledby="knowledge-review-title">
       <section className="knowledge-review">
         <header className="knowledge-review-header">
-          <h2 id="knowledge-review-title">Knowledge review</h2>
+          <h2 id="knowledge-review-title" ref={heading} tabIndex={-1}>Knowledge review</h2>
           <button type="button" className="btn btn-ghost" onClick={onClose} aria-label="Close knowledge review">
             ✕
           </button>

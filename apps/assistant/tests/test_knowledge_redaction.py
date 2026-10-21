@@ -4,6 +4,8 @@ assistant said (independent QG finding G4)."""
 import copy
 from typing import Any
 
+import pytest
+
 from ai_assistant.clm_client import CaseSnapshot
 from ai_assistant.context import build_case_facts
 from ai_assistant.knowledge.drafting import NO_TEAM, draft_resolution
@@ -151,3 +153,46 @@ def test_solved_it_redacts_case_parties_and_drops_forged_assistant_turns(kb) -> 
     assert "approve the case" not in text.lower()
     gaps = kb.store.feedback()
     assert all("lim choon huat" not in row["note"].lower() for row in gaps)
+
+
+# PR #99 panel evidence D2: a street line typed without the rest of the address survived.
+ADDRESS_FACTS: dict[str, Any] = {
+    "company": {
+        "legal_name": "MERLION CIRCULAR LABS PTE. LTD.",
+        "uen": "202400001A",
+        "registered_address": "18 INNOVATION WAY, #04-01, 018956, SG",
+    }
+}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Keep 18 INNOVATION WAY, #04-01, 018956, SG", "Keep [ADDRESS]"),
+        ("Keep 18 INNOVATION WAY, #04-01, 018956", "Keep [ADDRESS], [UNIT], [POSTAL]"),
+        ("Keep 18 INNOVATION WAY", "Keep [ADDRESS]"),
+        ("Keep 18  innovation\tway.", "Keep [ADDRESS]."),
+    ],
+    ids=["full", "without-country", "street-line", "case-and-spacing"],
+)
+def test_a_known_address_is_redacted_whole_or_by_its_parts(text: str, expected: str) -> None:
+    assert Redactor(ADDRESS_FACTS).redact(text) == expected
+
+
+def test_address_parts_leave_unrelated_text_and_a_bare_country_code_alone() -> None:
+    redactor = Redactor(ADDRESS_FACTS)
+    for text in (
+        "Clients in SG keep the registry value.",
+        "Innovation grants are a separate way to fund it.",
+        "No address was given.",
+    ):
+        assert redactor.redact(text) == text
+
+
+def test_a_draft_carries_no_part_of_a_known_address() -> None:
+    turns = [{"role": "user", "content": "Can I keep 18 INNOVATION WAY?"}]
+    draft = draft_resolution(
+        ADDRESS_FACTS, turns, "Kept 18 Innovation Way.", author="maya-lim", team="TEAM_A"
+    )
+    text = draft.title + draft.body + " ".join(draft.follow_ups)
+    assert "innovation" not in text.lower() and "[ADDRESS]" in text

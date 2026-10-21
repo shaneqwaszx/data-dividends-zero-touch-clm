@@ -8,7 +8,8 @@ have made up in the assistant's name. Client details are removed first. The ques
 asked after the first become the entry's follow-up questions, so next time the assistant can
 answer them up front.
 
-A draft is visible only to the RM's own team (for review and, once approved, for search).
+A draft is visible only to the RM's own team (for review and, once approved, for search);
+Directors, whom the CLM backend scopes globally, review every team's drafts.
 """
 
 import secrets

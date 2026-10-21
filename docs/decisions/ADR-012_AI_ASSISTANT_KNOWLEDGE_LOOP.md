@@ -3,10 +3,10 @@
 ## Status
 
 Proposed, with section C accepted. Sections A and B are proposed for owner acceptance with
-PR #99; section A's unlocked chromadb footprint needs the owner's explicit acceptance or a
-pinning policy. Section C keeps the owner's G6 direction (quoted in C), and the owner
-explicitly accepted its extension of the allow-list with approved knowledge lines on
-2026-10-21 (D-074).
+PR #99; section A's chromadb footprint is decided by D-075: the direct pin
+(`chromadb==1.5.9`) is retained and its transitive packages stay unlocked. Section C keeps
+the owner's G6 direction (quoted in C), and the owner explicitly accepted its extension of
+the allow-list with approved knowledge lines on 2026-10-21 (D-074).
 
 ## Date
 
@@ -42,17 +42,20 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   or edits have exactly one winner and the others get a clean 409. An entry may only
   replace an entry of the same kind. Retiring an approved entry, official guidance
   included, takes two reviewers: one asks, a different one confirms.
-- Team scope: drafts from "Solved it" carry the author's team as visibility; Directors see,
-  edit and decide only their own team's drafts and gaps, and their stats count only their
-  team's entries and feedback; an edit can narrow team and role visibility but never widen
-  it. HR guidance keeps the visibility HR sets.
+- Team scope: drafts from "Solved it" carry the author's team as visibility. Directors, whom
+  the CLM backend scopes globally (a Director has no team), see, edit and decide every
+  team's drafts and gaps, and their stats count every team; other actors keep the team rule
+  and see only their own team's drafts, gaps and stats. An edit can narrow team and role
+  visibility but never widen it. HR guidance keeps the visibility HR sets.
 - Drafts contain only the RM's own words (questions and note) and case context, redacted of
   the company, addresses and identifiers, and of the parties the case summary names in the
   shapes the redactor knows: objects with a `party_type`, entries of person lists such as
   `officers` and `shareholders` (registry officers carry no `party_type`), and person-name
-  fields. Matching ignores letter case and whitespace between words. Names the case data does
-  not contain, or spells differently, are not recognised. Browser-supplied "assistant" turns
-  are not copied.
+  fields. A known address is replaced whole and also by each of its comma-separated parts
+  that has a letter and at least 6 characters (a street line; a bare country code such as
+  `SG` is kept). Matching ignores letter case and whitespace between words. Names the case
+  data does not contain, or spells differently, are not recognised. Browser-supplied
+  "assistant" turns are not copied.
 - ChromaDB product telemetry is disabled (`Settings(anonymized_telemetry=False)`) on every
   client. The embedding endpoint must be a literal loopback URL (the warm-up rule,
   `llm.is_local_model_url`); embedding requests ignore proxy environment variables and do
@@ -69,8 +72,8 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
 - Python footprint: `chromadb==1.5.9` adds 62 transitive runtime packages (18 to 80 in the
   assistant environment), among them onnxruntime, grpcio, kubernetes, the OpenTelemetry SDK
   and exporters, huggingface-hub, tokenizers and numpy. They are not locked (no lock or
-  constraints file). Accepting this unpinned footprint is proposed and requires the
-  owner's acceptance (or a pinning policy).
+  constraints file). D-075 retains the direct pin with the transitive packages unlocked,
+  without a new dependency management system or a broad dependency upgrade.
 
 ### B. `@assistant-ui/react` 0.15.23 in the frontend panel
 
@@ -120,13 +123,14 @@ replacement. Do not silently remove mandatory checks."
   on a version is paired with exactly one version that revises it, so a version with
   another person's 'edit' row and more 'edit' rows than versions revising it is left out
   (a version its author edited in place that someone else then edited normally is left out
-  too, the safe side). Directors and HR in the entry's team see the full history (including
-  Directors' review notes on the team's RM drafts); the review screens are for them only and
-  show unfiltered entries by design.
+  too, the safe side). Directors (global, as in section A) and HR in the entry's team see the
+  full history (including Directors' review notes on RM drafts); the review screens are for
+  them only and show unfiltered entries by design.
 - Controls for knowledge content: **two-person approval of every version is the primary,
   robust control** (two different identities, a decision bound to the content hash,
-  team-scoped). The sentence checks are a **secondary, best-effort filter** with documented
-  limits. They run on knowledge text only, never on model text, and fail closed: characters
+  team-scoped except for global Directors). The sentence checks are a **secondary,
+  best-effort filter** with documented limits. They run on knowledge text only, never on
+  model text, and fail closed: characters
   outside printable ASCII and typographic quotes, dashes, ellipsis and bullet (tabs,
   non-breaking and invisible spaces, look-alike letters from other scripts); numbers of
   three or more digits, decimals, UENs including the T/S/R format, NRIC/FIN, postal and unit
@@ -190,8 +194,8 @@ replacement. Do not silently remove mandatory checks."
     0.85 policy default) are withheld.
 - The owner accepted the knowledge-line extension on 2026-10-21 (D-074); the residual risks
   above are unchanged. The independent architecture review of `8457f02` reviewed this section
-  (PROCEED, conditional on that acceptance and on the chromadb footprint). The PR stays Draft
-  until section A's footprint is decided, the real-embedding evaluation is run or waived and
+  (PROCEED, conditional on that acceptance and on the chromadb footprint). D-075 decides
+  section A's footprint and defers the real-embedding evaluation; the PR stays Draft until
   the remaining verification below is complete.
 
 ## Alternatives considered
@@ -228,7 +232,8 @@ embedding model (Ollama); without it, index tasks wait and keyword search still 
   authoritative RBAC and team scope (the assistant asks `/api/auth/me` every time);
   the PR89 exact-line output catalog as the mandatory gate for model text; no Live claims.
 - Added: append-only knowledge versions with maker-checker over the edit chain; decision
-  bound to reviewed content; team-scoped review queue; loopback-only embeddings; telemetry off.
+  bound to reviewed content; team-scoped review queue (global for Directors, as in the CLM
+  backend); loopback-only embeddings; telemetry off.
 
 ## Security and persistence implications
 
@@ -259,10 +264,11 @@ RM through chips, suggestions or the no-model answer (chat and stream); all four
 unsafe sentences as model output (never shown, whole or streamed) and as approved knowledge
 (withheld, apart from the listed limits); identifiers, addresses and characters; the
 per-answer knowledge bound with the fourth gate's pathological entries; 64 KiB stream shapes
-including whitespace runs and long tokens with a per-feed bound. Cross-team,
-edit-then-approve, two-person retirement, concurrent decision/edit, officer redaction and
-forged-turn regressions; restart/persistence and v2-to-v3 migration tests. Frontend Vitest,
-typecheck and build; real-embedding retrieval evaluation with a local model (not yet run);
+including whitespace runs and long tokens with a per-feed bound. Cross-team, global-Director,
+edit-then-approve, two-person retirement, concurrent decision/edit, officer and address-part
+redaction and forged-turn regressions; restart/persistence and v2-to-v3 migration tests.
+Frontend Vitest, typecheck and build; real-embedding retrieval evaluation with a local model
+`NOT_EXECUTED — MODEL NOT INSTALLED / OWNER-DEFERRED` (D-075);
 architecture and project-state checks; a fresh independent quality gate and an independent
 architecture review of section C.
 

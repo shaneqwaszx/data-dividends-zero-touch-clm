@@ -9,11 +9,12 @@ their own session); nothing in a request body can grant a permission. Nobody who
 edited an entry can approve or reject it, and a decision applies only to the exact content
 the reviewer was shown (both enforced by the store).
 
-Team scope: a Director sees, edits and decides only drafts and gaps from their own team, and
-approved past resolutions are visible only to the team they came from. Guidance proposed by
-HR keeps the visibility HR set. An edit can narrow team and role visibility, never widen it.
-Anything outside the caller's team is answered as "not found"; stats count only the caller's
-team's entries and feedback.
+Team scope: approved past resolutions are visible only to the team they came from. A Director,
+whom the CLM backend scopes globally (a Director has no team), sees, edits and decides every
+team's drafts and gaps, and their stats count every team. Any other caller keeps the team
+rule: anything outside their team is answered as "not found", and stats count only their
+team's entries and feedback. Guidance proposed by HR keeps the visibility HR set. An edit can
+narrow team and role visibility, never widen it.
 
 Retiring an approved entry (official guidance included) takes two reviewers: the first POST
 to /retire records the request, a different reviewer's POST confirms it.
@@ -206,13 +207,22 @@ def knowledge_router(
         value = profile.get("team_id")
         return str(value) if value else None
 
+    def global_reviewer(profile: dict[str, Any]) -> bool:
+        """A Director, whom the CLM backend scopes globally (a Director has no team), reviews
+        every team's entries and gaps; anyone else keeps the team rule."""
+
+        return profile.get("role") == "DIRECTOR" and team(profile) is None
+
+    def in_scope(entry: Entry, profile: dict[str, Any]) -> bool:
+        return global_reviewer(profile) or in_team(entry, team(profile))
+
     def not_found() -> HTTPException:
         return HTTPException(404, detail={"code": "NOT_FOUND", "message": NOT_FOUND_MESSAGE})
 
     def found(entry: Entry | None, profile: dict[str, Any]) -> Entry:
-        """The entry, or "not found" when it is missing or outside the caller's team."""
+        """The entry, or "not found" when it is missing or outside the caller's review scope."""
 
-        if entry is None or not in_team(entry, team(profile)):
+        if entry is None or not in_scope(entry, profile):
             raise not_found()
         return entry
 
@@ -231,13 +241,17 @@ def knowledge_router(
     def team_entry_counts(profile: dict[str, Any]) -> dict[str, int]:
         counts: dict[str, int] = {}
         for item in kb.store.entries():
-            if in_team(item, team(profile)):
+            if in_scope(item, profile):
                 name = f"{item.kind.value}_{item.status.value}"
                 counts[name] = counts.get(name, 0) + 1
         return counts
 
     def team_feedback(profile: dict[str, Any], status: str | None = None) -> list[dict[str, Any]]:
-        return [row for row in kb.store.feedback(status=status) if row["team"] == team(profile)]
+        return [
+            row
+            for row in kb.store.feedback(status=status)
+            if global_reviewer(profile) or row["team"] == team(profile)
+        ]
 
     # --- RM feedback ----------------------------------------------------------------
 
@@ -305,7 +319,7 @@ def knowledge_router(
             "pending": [
                 entry_view(e)
                 for e in kb.store.entries(status=EntryStatus.PENDING_REVIEW)
-                if in_team(e, team(profile))
+                if in_scope(e, profile)
             ],
             "gaps": team_feedback(profile, "open"),
         }
@@ -316,7 +330,7 @@ def knowledge_router(
         return [
             entry_view(e)
             for e in kb.store.entries(status=EntryStatus.APPROVED, kind=kind)
-            if in_team(e, team(profile))
+            if in_scope(e, profile)
         ]
 
     @router.get("/assistant/knowledge/entries/{entry_id}")
@@ -325,7 +339,7 @@ def knowledge_router(
         if not versions:
             raise not_found()
         reviewer = can(profile, APPROVE) or can(profile, MUTATE)
-        if reviewer and in_team(versions[-1], team(profile)):
+        if reviewer and in_scope(versions[-1], profile):
             return {
                 "versions": [entry_view(v) for v in versions],
                 "reviews": kb.store.reviews(entry_id),

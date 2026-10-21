@@ -8,8 +8,11 @@ Two passes:
    lists, found by shape (see ``case_parties``): objects with a ``party_type`` (ownership
    parties), entries of person lists such as ``officers`` and ``shareholders`` (the CLM's
    registry officers carry no ``party_type``), and person-name fields. Natural persons
-   become [PERSON], other entities [COMPANY], their identifiers [ID]. A known value matches
-   regardless of letter case and of how much whitespace separates its words.
+   become [PERSON], other entities [COMPANY], their identifiers [ID]. A known address is
+   also replaced by each of its comma-separated parts that has a letter and at least 6
+   characters (a street line, for example; not a bare country code such as "SG"), after
+   the whole address. A known value matches regardless of letter case and of how much
+   whitespace separates its words.
 2. Patterns for what the case data may not list: Singapore UEN and NRIC/FIN formats,
    postal codes, unit numbers, email addresses and phone numbers.
 
@@ -166,6 +169,14 @@ def _known_values(
         for value in item.get("values") or []:
             placeholder = "[ADDRESS]" if "address" in str(item.get("field")) else "[COMPANY]"
             add(value.get("value"), placeholder)
+    # Each comma-separated part of a known address that can identify it alone (a street line):
+    # it has a letter and at least 6 characters, so a bare country code such as "SG" is kept.
+    for text, placeholder in list(values):
+        if placeholder == "[ADDRESS]":
+            for part in text.split(","):
+                words = " ".join(part.split())
+                if len(words) >= 6 and any(char.isalpha() for char in words):
+                    add(words, "[ADDRESS]")
     # Parties last: a value the case facts already name keeps its more specific placeholder.
     known = {text.lower() for text, _ in values}
     for value, placeholder in parties:

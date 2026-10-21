@@ -1,0 +1,180 @@
+"""PR #99 panel evidence D1: the CLM backend makes every Director global (a Director has no
+team), so a Director reviews every team's drafts and gaps. Everyone else keeps the team rule.
+The fictional TEAM_A/TEAM_B Directors of test_knowledge_review are team-scoped reviewers."""
+
+import copy
+from typing import Any
+
+import httpx
+import pytest
+
+import tests.test_knowledge_review as review
+from ai_assistant.knowledge.models import EntryStatus
+from ai_assistant.knowledge.service import KnowledgeBase
+from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, SUMMARY, _session
+from tests.test_knowledge_review import TURNS, client, decide, edit, kb, solved  # noqa: F401
+
+TEAM_B_CASE_ID = "5d0c3a4e-6f1b-4c2d-9e8f-7a6b5c4d3e2f"
+
+
+def _backend_profile(
+    user_id: str, role: str, team: str | None, capabilities: list[str]
+) -> dict[str, Any]:
+    """An /api/auth/me reply in the backend's shape (app/domain/access.py UserProfile)."""
+
+    me = copy.deepcopy(ME)
+    me["profile"].update(
+        user_id=user_id,
+        display_name=user_id.replace("-", " ").title(),
+        role=role,
+        team_id=team,
+        team_display_name={"TEAM_A": "Alpha", "TEAM_B": "Beta"}.get(team or ""),
+        team_type="Corporate Client Onboarding" if team else None,
+        capabilities=capabilities,
+    )
+    return me
+
+
+DIRECTOR_CAPABILITIES = [
+    "POLICY_VIEW",
+    "POLICY_APPROVE",
+    "CASE_ACCESS",
+    "CASE_GLOBAL",
+    "TARGET_RECOVERY",
+]
+BACKEND_USERS = {
+    # The backend's seeded Director: role DIRECTOR, team_id None, global case scope.
+    "director-global-session": _backend_profile(
+        "olivia-koh", "DIRECTOR", None, DIRECTOR_CAPABILITIES
+    ),
+    # A second global Director, for the two-person steps.
+    "director-global-2-session": _backend_profile(
+        "director-gus", "DIRECTOR", None, DIRECTOR_CAPABILITIES
+    ),
+    "rm-b-session": _backend_profile(
+        "ryan-lee", "RELATIONSHIP_MANAGER", "TEAM_B", ["POLICY_VIEW", "CASE_ACCESS"]
+    ),
+    "hr-global-session": _backend_profile(
+        "hr-admin", "HR", None, ["POLICY_VIEW", "POLICY_MUTATE", "IDENTITY_ADMIN", "TEAM_ADMIN"]
+    ),
+}
+
+
+@pytest.fixture(autouse=True)
+def backend_users(monkeypatch: pytest.MonkeyPatch) -> None:
+    for session, user in BACKEND_USERS.items():
+        monkeypatch.setitem(review.USERS, session, user)
+    real_handler = review.handler
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if _session(request) == "rm-b-session" and path != "/api/auth/me":
+            # The backend's team scope: the TEAM_B RM reaches TEAM_B's case only.
+            if path == f"/api/clm/zero-touch/cases/{TEAM_B_CASE_ID}":
+                return httpx.Response(200, json=SUMMARY)
+            if path == f"/api/onboarding/cases/{TEAM_B_CASE_ID}/documents":
+                return httpx.Response(200, json=DOCUMENTS)
+            return httpx.Response(404, json={"detail": "not found"})
+        return real_handler(request)
+
+    monkeypatch.setattr(review, "handler", handler)
+
+
+def solved_in_team_b(kb: KnowledgeBase) -> str:  # noqa: F811
+    reply = client(kb, "rm-b-session").post(
+        f"/assistant/cases/{TEAM_B_CASE_ID}/feedback",
+        json={"helpful": True, "note": "Kept the registry value.", "turns": TURNS},
+    )
+    assert reply.status_code == 200, reply.text
+    return str(reply.json()["draft_entry_id"])
+
+
+def not_helpful(kb: KnowledgeBase, session: str, case_id: str) -> None:  # noqa: F811
+    reply = client(kb, session).post(
+        f"/assistant/cases/{case_id}/feedback", json={"helpful": False, "note": "No proof list."}
+    )
+    assert reply.status_code == 200, reply.text
+
+
+def test_a_global_director_sees_every_teams_drafts_gaps_and_stats(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    team_a, team_b = solved(kb), solved_in_team_b(kb)
+    not_helpful(kb, "rm-session", CASE_ID)
+    not_helpful(kb, "rm-b-session", TEAM_B_CASE_ID)
+    director = client(kb, "director-global-session")
+    queue = director.get("/assistant/knowledge/reviews").json()
+    assert sorted(e["entry_id"] for e in queue["pending"]) == sorted([team_a, team_b])
+    assert sorted(gap["team"] for gap in queue["gaps"]) == ["TEAM_A", "TEAM_B"]
+    stats = director.get("/assistant/knowledge/stats").json()
+    assert stats["entries"]["resolution_pending_review"] == 2
+    assert stats["feedback"]["total"] == 4 and stats["feedback"]["open_gaps"] == 2
+    full = director.get(f"/assistant/knowledge/entries/{team_b}")
+    assert full.status_code == 200 and [v["version"] for v in full.json()["versions"]] == [1]
+    # A team-scoped reviewer keeps the team rule.
+    own_a = client(kb, "director-session").get("/assistant/knowledge/reviews").json()
+    own_b = client(kb, "director-b-session").get("/assistant/knowledge/reviews").json()
+    assert [e["entry_id"] for e in own_a["pending"]] == [team_a]
+    assert [e["entry_id"] for e in own_b["pending"]] == [team_b]
+    assert [gap["team"] for gap in own_b["gaps"]] == ["TEAM_B"]
+    gap_b = next(gap["id"] for gap in queue["gaps"] if gap["team"] == "TEAM_B")
+    closed = director.post(f"/assistant/knowledge/feedback/{gap_b}/close")
+    assert closed.status_code == 200 and closed.json() == {"status": "closed"}
+    still_open = [row["team"] for row in kb.store.feedback(status="open")]
+    assert still_open == ["TEAM_A"]
+
+
+def test_a_global_director_approves_a_team_a_rm_draft_with_the_shown_hash(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    entry_id = solved(kb)
+    director = client(kb, "director-global-session")
+    shown = next(
+        e
+        for e in director.get("/assistant/knowledge/reviews").json()["pending"]
+        if e["entry_id"] == entry_id
+    )
+    reply = director.post(
+        f"/assistant/knowledge/entries/{entry_id}/versions/1/decision",
+        json={"approve": True, "content_hash": shown["content_hash"]},
+    )
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["status"] == "approved" and reply.json()["approver"] == "olivia-koh"
+    # Approval does not widen who may search it: TEAM_A only.
+    approved = kb.store.current(entry_id)
+    assert approved is not None and approved.visibility.teams == ("TEAM_A",)
+    listed = director.get("/assistant/knowledge/entries?kind=resolution").json()
+    assert [e["entry_id"] for e in listed] == [entry_id]
+    # HR, also global in the backend, keeps the team rule.
+    hr = client(kb, "hr-global-session")
+    assert hr.get("/assistant/knowledge/entries?kind=resolution").json() == []
+    assert hr.get(f"/assistant/knowledge/entries/{entry_id}").status_code == 404
+
+
+def test_a_global_director_cannot_decide_a_version_it_edited(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    entry_id = solved(kb)
+    widened = edit(
+        kb, "director-global-session", entry_id, 1, visibility={"roles": [], "teams": []}
+    )
+    assert widened.status_code == 409 and widened.json()["detail"]["code"] == "NOT_ALLOWED"
+    edited = edit(kb, "director-global-session", entry_id, 1, title="Tidied by the Director")
+    assert edited.status_code == 200 and edited.json()["version"] == 2
+    assert edited.json()["author"] == "olivia-koh"
+    refused = decide(kb, "director-global-session", entry_id, 2)
+    assert refused.status_code == 403 and refused.json()["detail"]["code"] == "MAKER_CHECKER"
+    approved = decide(kb, "director-global-2-session", entry_id, 2)
+    assert approved.status_code == 200 and approved.json()["approver"] == "director-gus"
+
+
+def test_a_team_b_rm_still_cannot_read_list_or_decide_a_team_a_draft(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    entry_id = solved(kb)
+    rm_b = client(kb, "rm-b-session")
+    assert rm_b.get(f"/assistant/knowledge/entries/{entry_id}").status_code == 403
+    assert rm_b.get("/assistant/knowledge/reviews").status_code == 403
+    assert decide(kb, "rm-b-session", entry_id, 1).status_code == 403
+    assert rm_b.get(f"/assistant/cases/{CASE_ID}/brief").status_code == 404
+    assert kb.store.get(entry_id, 1).status == EntryStatus.PENDING_REVIEW
