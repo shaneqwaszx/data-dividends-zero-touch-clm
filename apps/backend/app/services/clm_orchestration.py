@@ -8,8 +8,12 @@ from threading import RLock
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
-from app.connectors.errors import ConnectorError, public_connector_error
+from app.connectors.errors import ConnectorError
 from app.connectors.goldtier_models import GoldTierSearchOutcome
+from app.connectors.goldtier_xpi import (
+    observed_goldtier_xpi_search_status,
+    public_goldtier_xpi_search_error,
+)
 from app.domain.access import CasePriority, TeamId
 from app.domain.clm import (
     ClmBlockerCode,
@@ -1200,7 +1204,8 @@ class ClmOrchestrationService:
                 message="GoldTier target returned an invalid response.",
             )
         except ConnectorError as exc:
-            public = public_connector_error(exc)
+            # Trusted XPI families keep their fixed category; other errors stay generic.
+            public = public_goldtier_xpi_search_error(exc)
             return self._record_search_failure(
                 started,
                 request_id=request_id,
@@ -1208,6 +1213,7 @@ class ClmOrchestrationService:
                 searched_at=searched_at,
                 code=public.code,
                 message=public.message,
+                status_code=observed_goldtier_xpi_search_status(exc),
             )
         except Exception:
             return self._record_search_failure(
@@ -1309,6 +1315,7 @@ class ClmOrchestrationService:
         searched_at: datetime,
         code: str,
         message: str,
+        status_code: int | None = None,
     ) -> ClmOrchestrationRecord:
         checkpoint = GoldTierSearchCheckpoint(
             request_id=request_id,
@@ -1318,7 +1325,8 @@ class ClmOrchestrationService:
             status=GoldTierSearchCheckpointStatus.FAILED,
             disposition=GoldTierSearchDisposition.FAILED,
             provider_outcome="FAILURE",
-            status_code=503,
+            # Retain an observed provider status; otherwise keep the synthesized 503.
+            status_code=503 if status_code is None else status_code,
             candidate_count=0,
             code=code,
             message=message,

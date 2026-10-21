@@ -14,8 +14,13 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.config import Settings
-from app.connectors.errors import ConnectorError, public_connector_error
-from app.connectors.goldtier_models import GoldTierSearchCandidate
+from app.connectors.errors import ConnectorError
+from app.connectors.goldtier_models import GoldTierSearchCandidate, GoldTierSearchOutcome
+from app.connectors.goldtier_xpi import (
+    XPI_SEARCH_FAILURE_CODES,
+    GoldTierXpiObservedStatusError,
+    public_goldtier_xpi_search_error,
+)
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability
 from app.domain.onboarding_intelligence import EntityResolutionOutcome
@@ -37,6 +42,11 @@ from app.domain.target_submission import (
 )
 from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
 from app.services.onboarding import OnboardingService
+from app.services.target_response_validation import InvalidTargetResponseError
+
+_DIAGNOSTIC_CODE_PATTERN = r"^[A-Z0-9_]{3,64}$"
+_SEARCH_FAILED_CODE = "GOLDTIER_SANDBOX_SEARCH_FAILED"
+_SEARCH_FAILED_MESSAGE = "GoldTier sandbox Search could not be completed."
 
 
 class SandboxDiagnosticEvent(BaseModel):
@@ -45,7 +55,7 @@ class SandboxDiagnosticEvent(BaseModel):
     event_id: UUID
     action: Literal["STATUS", "SEARCH", "DRY_RUN", "WRITE_BLOCKED"]
     outcome: Literal["SUCCEEDED", "FAILED", "BLOCKED"]
-    code: Annotated[str, Field(pattern=r"^[A-Z0-9_]{3,64}$")]
+    code: Annotated[str, Field(pattern=_DIAGNOSTIC_CODE_PATTERN)]
     occurred_at: datetime
 
 
@@ -82,13 +92,18 @@ class SandboxSearchRequest(BaseModel):
 
 
 class SandboxSearchResponse(BaseModel):
+    """Provider retrieval kept separate from the advisory identity assessment."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: str
     count: int = Field(ge=0, le=25)
     candidates: tuple[GoldTierSearchCandidate, ...] = Field(max_length=25)
     elapsed_ms: int = Field(ge=0)
-    entity_resolution: EntityResolutionOutcome
+    entity_resolution: EntityResolutionOutcome | Literal["NOT_ASSESSED"]
+    error_code: Annotated[str, Field(pattern=_DIAGNOSTIC_CODE_PATTERN)] | None = None
+    upstream_status: Annotated[int, Field(ge=100, le=599)] | None = None
+    correlation_id: UUID
 
 
 class SandboxTestValues(BaseModel):
@@ -222,43 +237,61 @@ def build_provider_sandbox_router(
                     "message": "At least one valid bounded Search criterion is required.",
                 },
             ) from None
+        correlation_id = uuid4()
         started = perf_counter()
+
+        def search_failure(
+            code: str, message: str, upstream_status: int | None = None
+        ) -> HTTPException:
+            record("SEARCH", "FAILED", code)
+            detail: dict[str, object] = {
+                "code": code,
+                "message": message,
+                "correlation_id": str(correlation_id),
+                "elapsed_ms": _elapsed_ms(started),
+            }
+            if upstream_status is not None:
+                detail["upstream_status"] = upstream_status
+            return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
+
         try:
-            evidence = onboarding.search_sandbox_target(criteria, correlation_id=uuid4())
+            evidence = onboarding.search_sandbox_target(criteria, correlation_id=correlation_id)
         except ConnectorError as exc:
-            public = public_connector_error(exc)
-            record("SEARCH", "FAILED", public.code)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={"code": public.code, "message": public.message},
+            public = public_goldtier_xpi_search_error(exc)
+            observed = (
+                exc.upstream_status if isinstance(exc, GoldTierXpiObservedStatusError) else None
+            )
+            raise search_failure(public.code, public.message, observed) from None
+        except InvalidTargetResponseError:
+            raise search_failure(
+                "GT_XPI_MALFORMED_RESPONSE",
+                "The GoldTier sandbox returned an unexpected response.",
             ) from None
         except Exception:
-            record("SEARCH", "FAILED", "GOLDTIER_SANDBOX_SEARCH_FAILED")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "code": "GOLDTIER_SANDBOX_SEARCH_FAILED",
-                    "message": "GoldTier sandbox Search could not be completed.",
-                },
-            ) from None
+            raise search_failure(_SEARCH_FAILED_CODE, _SEARCH_FAILED_MESSAGE) from None
         result = evidence.result
-        resolution = evidence.resolution
-        if resolution is None:
-            record("SEARCH", "FAILED", "GOLDTIER_SANDBOX_RESOLUTION_FAILED")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "code": "GOLDTIER_SANDBOX_RESOLUTION_FAILED",
-                    "message": "GoldTier sandbox Search could not be resolved safely.",
-                },
+        failed = result.outcome == GoldTierSearchOutcome.FAILURE
+        error_code: str | None = None
+        if failed:
+            # Only the connector's fixed controlled-failure codes are projected.
+            error_code = (
+                result.error_code
+                if result.error_code in XPI_SEARCH_FAILURE_CODES
+                else _SEARCH_FAILED_CODE
             )
-        record("SEARCH", "SUCCEEDED", f"GOLDTIER_SANDBOX_SEARCH_{result.outcome.value}")
+            record("SEARCH", "FAILED", error_code)
+        else:
+            record("SEARCH", "SUCCEEDED", f"GOLDTIER_SANDBOX_SEARCH_{result.outcome.value}")
+        resolution = None if failed else evidence.resolution
         return SandboxSearchResponse(
             status=result.outcome.value,
             count=len(result.candidates),
             candidates=result.candidates,
-            elapsed_ms=max(0, int((perf_counter() - started) * 1000)),
-            entity_resolution=resolution.outcome,
+            elapsed_ms=_elapsed_ms(started),
+            entity_resolution="NOT_ASSESSED" if resolution is None else resolution.outcome,
+            error_code=error_code,
+            upstream_status=result.status_code,
+            correlation_id=correlation_id,
         )
 
     @router.post("/dry-run", response_model=SandboxDryRunResponse)
@@ -292,6 +325,10 @@ def build_provider_sandbox_router(
         )
 
     return router
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, int((perf_counter() - started) * 1000))
 
 
 def _submission_for(body: SandboxDryRunRequest) -> GoldTierSubmissionInput:
