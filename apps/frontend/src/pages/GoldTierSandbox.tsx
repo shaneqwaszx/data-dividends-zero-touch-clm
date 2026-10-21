@@ -12,8 +12,18 @@ import type {
   AuthenticatedProfile,
   GoldTierSandboxDryRunInput,
   GoldTierSandboxSearchInput,
+  GoldTierSandboxSearchResult,
   GoldTierSandboxTestValues,
 } from "../types";
+
+// Optional backend diagnostics read defensively until the shared contract type adopts them.
+type SandboxSearchDiagnostics = GoldTierSandboxSearchResult & {
+  error_code?: unknown;
+  upstream_status?: unknown;
+  correlation_id?: unknown;
+};
+
+const NO_EXISTENCE_CONCLUSION = "No conclusion can be drawn about whether the customer exists.";
 
 const EMPTY_SEARCH: Required<GoldTierSandboxSearchInput> = {
   goldtier_id: "",
@@ -58,6 +68,39 @@ function safeError(error: unknown, fallback: string): string {
 
 function readable(value: string): string {
   return value.replaceAll("_", " ");
+}
+
+function safeText(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function safeStatus(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function searchFailureExplanation(upstreamStatus: number | null): string {
+  if (upstreamStatus === 400) return "GoldTier rejected the Search request (HTTP 400).";
+  if (upstreamStatus !== null && upstreamStatus >= 500) {
+    return `The GoldTier Search service failed or was unavailable (HTTP ${upstreamStatus}).`;
+  }
+  return "The GoldTier Search did not complete.";
+}
+
+function retrievalSummary(result: GoldTierSandboxSearchResult): string {
+  if (result.status === "NO_MATCH") return "No match — the provider Search completed and returned no candidate.";
+  if (result.status === "MATCH_FOUND") return "Candidate retrieved — the provider Search returned one candidate.";
+  if (result.status === "MULTIPLE_MATCHES") return "Candidates retrieved — the provider Search returned multiple candidates.";
+  return readable(result.status);
+}
+
+function resolutionSummary(result: GoldTierSandboxSearchResult): string {
+  if (result.status === "FAILURE") return "Not assessed — the provider Search did not succeed.";
+  if (result.entity_resolution === "NOT_ASSESSED") {
+    return result.candidates.length > 0
+      ? "Not assessed — the Search criteria and returned candidate gave the resolver no identity feature it could compare. A retrieved GoldTier ID is not a verified identity match."
+      : "Not assessed.";
+  }
+  return `${readable(result.entity_resolution)} — advisory only; not identity authority or existing-customer reuse approval.`;
 }
 
 export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile }) {
@@ -131,6 +174,15 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
   const status = statusQuery.data;
   const writeBlocker = status?.blocker
     ?? "Guarded synthetic write execution is not enabled in this frontend slice.";
+  const searchResult = searchMutation.data as SandboxSearchDiagnostics | undefined;
+  const searchFailed = searchResult?.status === "FAILURE";
+  const searchErrorCode = searchMutation.error instanceof ApiError ? searchMutation.error.code : null;
+  const searchErrorDetail: Record<string, unknown> | null = searchMutation.error instanceof ApiError
+    ? { ...searchMutation.error.detail }
+    : null;
+  const searchErrorCorrelation = safeText(searchErrorDetail?.correlation_id);
+  const searchErrorStatus = safeStatus(searchErrorDetail?.upstream_status);
+  const searchErrorElapsed = safeStatus(searchErrorDetail?.elapsed_ms);
 
   return (
     <section className="ds-root ds-page" aria-labelledby="goldtier-sandbox-heading">
@@ -250,19 +302,48 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
         </button>
         {searchMutation.isError && (
           <div className="ds-banner ds-banner-warn" role="alert">
-            {safeError(searchMutation.error, "GoldTier Sandbox search could not be completed.")}
+            <span>{safeError(searchMutation.error, "GoldTier Sandbox search could not be completed.")}</span>
+            <span> {NO_EXISTENCE_CONCLUSION}</span>
+            {(searchErrorCode || searchErrorStatus !== null || searchErrorElapsed !== null || searchErrorCorrelation) && (
+              <span className="control-help">
+                {searchErrorCode && <> Code: <code>{searchErrorCode}</code></>}
+                {searchErrorStatus !== null && <> · Provider HTTP status: {searchErrorStatus}</>}
+                {searchErrorElapsed !== null && <> · Elapsed: {searchErrorElapsed.toLocaleString()} ms</>}
+                {searchErrorCorrelation && <> · Correlation ID: <code>{searchErrorCorrelation}</code></>}
+              </span>
+            )}
           </div>
         )}
-        {searchMutation.data && (
+        {searchResult && (
           <div aria-live="polite">
-            <p><strong>{readable(searchMutation.data.status)}</strong> · {searchMutation.data.count} candidate(s) · {searchMutation.data.elapsed_ms.toLocaleString()} ms</p>
-            <p className="control-help">Entity resolution: {readable(searchMutation.data.entity_resolution)}</p>
-            {searchMutation.data.candidates.length > 0 && (
+            {searchFailed ? (
+              <div className="ds-banner ds-banner-warn" role="alert">
+                <strong>Search failed</strong>
+                <span> {searchFailureExplanation(safeStatus(searchResult.upstream_status))} {NO_EXISTENCE_CONCLUSION}</span>
+              </div>
+            ) : (
+              <p><strong>{retrievalSummary(searchResult)}</strong> · {searchResult.count} candidate(s)</p>
+            )}
+            <p className="control-help">Advisory identity resolution: {resolutionSummary(searchResult)}</p>
+            <dl aria-label="Safe Search diagnostics">
+              <div><dt>Search outcome</dt><dd>{readable(searchResult.status)}</dd></div>
+              {safeText(searchResult.error_code) && (
+                <div><dt>Trusted error code</dt><dd><code>{safeText(searchResult.error_code)}</code></dd></div>
+              )}
+              {safeStatus(searchResult.upstream_status) !== null && (
+                <div><dt>Provider HTTP status</dt><dd>{safeStatus(searchResult.upstream_status)}</dd></div>
+              )}
+              <div><dt>Elapsed</dt><dd>{searchResult.elapsed_ms.toLocaleString()} ms</dd></div>
+              {safeText(searchResult.correlation_id) && (
+                <div><dt>Correlation ID</dt><dd><code>{safeText(searchResult.correlation_id)}</code></dd></div>
+              )}
+            </dl>
+            {searchResult.candidates.length > 0 && (
               <div className="table-scroll" tabIndex={0}>
                 <table className="table">
                   <thead><tr><th>GoldTier ID</th><th>Legal name</th><th>Registration</th><th>Country</th><th>Legal form</th><th>Registered address</th></tr></thead>
                   <tbody>
-                    {searchMutation.data.candidates.map((candidate) => (
+                    {searchResult.candidates.map((candidate) => (
                       <tr key={candidate.party_id}>
                         <td>{candidate.party_id}</td>
                         <td>{candidate.legal_name ?? "—"}</td>

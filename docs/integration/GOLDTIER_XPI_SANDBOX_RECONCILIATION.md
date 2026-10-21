@@ -260,6 +260,42 @@ customer operations are `PARTIAL`, while related-party operations are
 `SPONSOR_CONFIRMATION`. This is a contract/lifecycle blocker, not evidence of a network
 connectivity problem.
 
+### HR console and case Search diagnostics (2026-10-21, unmerged candidate)
+
+The standalone console Search separates provider retrieval from advisory identity
+resolution. These semantics are project-defined/provisional and were verified only with
+local injected transports; no GoldTier request was made for this change.
+
+| Provider observation | Console result | Timeline |
+|---|---|---|
+| HTTP 200, empty array | `NO_MATCH`; resolution `NO_MATCH` | `SUCCEEDED` |
+| HTTP 200, candidate(s) | retrieved; resolution from the existing resolver, or `NOT_ASSESSED` when it could compare no feature for any candidate (for example ID-only); a resolver `CONFLICT` is retained | `SUCCEEDED` |
+| HTTP 400 / 5xx with JSON or empty body | 200 `FAILURE`, `error_code`, `upstream_status`; resolution `NOT_ASSESSED` | `FAILED` with that code |
+| 5xx with non-JSON body | 503 `GT_XPI_SERVICE_UNAVAILABLE` with `upstream_status` | `FAILED` |
+| 400, 404 or other 4xx with non-JSON body | 503 `GT_XPI_MALFORMED_RESPONSE` with `upstream_status` | `FAILED` |
+| 401/403, 429 | 503 `GT_XPI_AUTHORIZATION_FAILED`, `GT_XPI_RATE_LIMITED` | `FAILED` |
+| 404, other unexpected status, malformed 200, timeout, transport | 503 `GT_XPI_MALFORMED_RESPONSE`, `GT_XPI_TIMEOUT`, `GT_XPI_SERVICE_UNAVAILABLE` | `FAILED` |
+
+No failure establishes customer absence. 503 details carry only the trusted code and
+message, generated `correlation_id` (also sent as `X-Correlation-Id`), `elapsed_ms`,
+and an observed integer status; bodies, headers, endpoints and `user_id` are discarded.
+`GT_XPI_AUTHORIZATION_FAILED`/`GT_XPI_RATE_LIMITED` read generic HTTP statuses; XPI
+401/403/404/429 Search semantics are not sponsor-confirmed and collection `noauth`
+remains sandbox evidence only. There is no retry.
+
+Case-level Search keeps its exception paths and stays `FAILED` with no mutation. The
+early CLM Search checkpoint (case Search stage and technical failure) now records the
+same trusted XPI code and message as the console (for example `GT_XPI_TIMEOUT` or
+`GT_XPI_SERVICE_UNAVAILABLE`) instead of the generic `CONNECTOR_FAILURE`; non-XPI
+connector errors keep `CONNECTOR_FAILURE`. Initial case Search keeps its existing
+`SEARCH_*` codes and blocker policy. Both retain an observed 200-599 provider status
+(so a non-JSON HTTP 500 retains 500, like a JSON-bodied 500) and keep the previous
+synthesized status (503, or the initial-Search table value) when none was observed.
+The ledger still records `CONNECTOR_FAILURE`, read-back/verification keep their
+connector-failure outcomes, and mutation response handling is unchanged.
+Classification stays `SANDBOX_PARTIAL`. The 18–19 October real-Sandbox HTTP 500 is not
+explained or repaired by this change; its provider-side cause remains undetermined.
+
 The future safe architecture is to obtain an authoritative child customer identity
 from a sponsor-confirmed create/search/read-back lifecycle, durably bind that identity
 to the case-owned party evidence, and pass only that exact ID to the ledger-owned

@@ -349,6 +349,149 @@ describe("GoldTier Sandbox frontend boundary", () => {
   });
 });
 
+describe("GoldTier Sandbox truthful Search diagnostics", () => {
+  const correlationId = "00000000-0000-4000-8000-00000000d1a9";
+
+  function configuredStatus(timeline: unknown[] = []): Response {
+    return response({
+      configured: true, mode: "SANDBOX", classification: "SANDBOX_PARTIAL",
+      safe_host: "sandbox.example.test", writes_enabled: false, timeout_seconds: 5,
+      max_response_bytes: 65536, last_diagnostic_at: null,
+      blocker: "GOLDTIER_SANDBOX_WRITES_DISABLED", customer_operations: "PARTIAL",
+      related_party_operations: "BLOCKED_CONTRACT", blocker_code: "BLOCKED_CHILD_ID_LIFECYCLE",
+      required_authority: "SPONSOR_CONFIRMATION", related_party_blocker: "BLOCKED_CHILD_ID_LIFECYCLE",
+      vocabulary_version: "GOLDTIER_OPENAPI_1_0_0", kyc_customer_types: [], client_segments: [],
+      timeline,
+    });
+  }
+
+  async function searchById(searchResult: () => Response, timeline: unknown[] = []): Promise<HTMLFormElement> {
+    let searched = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/admin/goldtier-sandbox/status")) {
+        return configuredStatus(searched ? timeline : []);
+      }
+      if (url.endsWith("/api/admin/goldtier-sandbox/search")) {
+        searched = true;
+        return searchResult();
+      }
+      return response({ detail: { code: "NOT_FOUND", message: "Unavailable." } }, 404);
+    }));
+    await act(async () => root?.render(
+      <QueryClientProvider client={createSessionQueryClient()}>
+        <GoldTierSandbox actor={hr} />
+      </QueryClientProvider>,
+    ));
+    await vi.waitFor(() => expect(container?.textContent).toContain("sandbox.example.test"));
+    setInputValue(container!.querySelector("#sandbox-goldtier-id")!, "900001");
+    const form = container!.querySelector("form")!;
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    return form;
+  }
+
+  it("reports a failed provider Search as a failure with no customer-existence conclusion", async () => {
+    const form = await searchById(() => response({
+      status: "FAILURE", count: 0, candidates: [], elapsed_ms: 710,
+      entity_resolution: "NOT_ASSESSED", error_code: "GT_XPI_SERVICE_UNAVAILABLE",
+      upstream_status: 500, correlation_id: correlationId,
+    }), [{
+      event_id: "00000000-0000-4000-8000-00000000d1aa", action: "SEARCH", outcome: "FAILED",
+      code: "GT_XPI_SERVICE_UNAVAILABLE", occurred_at: "2026-10-19T01:00:00Z",
+    }]);
+
+    await vi.waitFor(() => expect(form.textContent).toContain("Search failed"));
+    const alert = form.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("HTTP 500");
+    expect(alert?.textContent).toContain("No conclusion can be drawn about whether the customer exists");
+    expect(form.textContent).toContain("GT_XPI_SERVICE_UNAVAILABLE");
+    expect(form.textContent).toContain(correlationId);
+    expect(form.textContent).toContain("Not assessed");
+    expect(form.textContent).not.toContain("NO MATCH");
+    expect(form.textContent).not.toContain("candidate(s)");
+    await vi.waitFor(() => expect(
+      container?.querySelector('[aria-label="Safe Sandbox operation timeline"]')?.textContent,
+    ).toContain("FAILED"));
+  });
+
+  it("never presents a failed Search as no match even when an older backend sends NO_MATCH", async () => {
+    const form = await searchById(() => response({
+      status: "FAILURE", count: 0, candidates: [], elapsed_ms: 710, entity_resolution: "NO_MATCH",
+    }));
+
+    await vi.waitFor(() => expect(form.textContent).toContain("Search failed"));
+    expect(form.textContent).toContain("Not assessed");
+    expect(form.textContent).not.toContain("NO MATCH");
+  });
+
+  it("shows trusted connector failure feedback without a no-match claim", async () => {
+    const form = await searchById(() => response({
+      detail: {
+        code: "GT_XPI_TIMEOUT",
+        message: "The GoldTier sandbox request timed out.",
+        correlation_id: correlationId,
+      },
+    }, 503));
+
+    await vi.waitFor(() => expect(form.textContent).toContain("The GoldTier sandbox request timed out."));
+    const alert = form.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("No conclusion can be drawn about whether the customer exists");
+    expect(alert?.textContent).toContain("GT_XPI_TIMEOUT");
+    expect(alert?.textContent).toContain(correlationId);
+    expect(form.textContent).not.toContain("NO MATCH");
+  });
+
+  it("shows the observed provider status for an unavailable Search with a non-JSON body", async () => {
+    const form = await searchById(() => response({
+      detail: {
+        code: "GT_XPI_SERVICE_UNAVAILABLE",
+        message: "The GoldTier sandbox service is unavailable.",
+        correlation_id: correlationId,
+        elapsed_ms: 710,
+        upstream_status: 500,
+      },
+    }, 503));
+
+    await vi.waitFor(() => expect(form.textContent).toContain("The GoldTier sandbox service is unavailable."));
+    const alert = form.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Provider HTTP status: 500");
+    expect(alert?.textContent).toContain("Elapsed: 710 ms");
+    expect(alert?.textContent).toContain("No conclusion can be drawn about whether the customer exists");
+    expect(form.textContent).not.toContain("NO MATCH");
+  });
+
+  it("separates ID-only candidate retrieval from advisory identity resolution", async () => {
+    const form = await searchById(() => response({
+      status: "MATCH_FOUND", count: 1, elapsed_ms: 25, entity_resolution: "NOT_ASSESSED",
+      error_code: null, upstream_status: 200, correlation_id: correlationId,
+      candidates: [{
+        party_id: "900001", legal_name: "SYNTHETIC DIAGNOSTIC PTE LTD", registration_number: null,
+        country: null, legal_form: null, registered_address: null,
+      }],
+    }));
+
+    await vi.waitFor(() => expect(form.textContent).toContain("Candidate retrieved"));
+    expect(form.textContent).toContain("900001");
+    expect(form.textContent).toContain("Not assessed");
+    expect(form.textContent).toContain("no identity feature it could compare");
+    expect(form.textContent).toContain("A retrieved GoldTier ID is not a verified identity match");
+    expect(form.textContent).not.toContain("NO MATCH");
+    expect(form.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("shows a genuine no match only for a successful empty Search", async () => {
+    const form = await searchById(() => response({
+      status: "NO_MATCH", count: 0, candidates: [], elapsed_ms: 12, entity_resolution: "NO_MATCH",
+      error_code: null, upstream_status: 200, correlation_id: correlationId,
+    }));
+
+    await vi.waitFor(() => expect(form.textContent).toContain("No match"));
+    expect(form.textContent).toContain("returned no candidate");
+    expect(form.textContent).toContain("NO MATCH");
+    expect(form.querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
 describe("backend-authored detailed processing", () => {
   it("starts collapsed and reveals the server-ordered semantic pipeline", () => {
     act(() => root?.render(<DetailedProcessingInspector summary={processingSummary()} />));

@@ -27,6 +27,7 @@ from app.connectors.goldtier_models import (
     GoldTierSearchResult,
     SearchPartyRequest,
 )
+from app.connectors.goldtier_xpi import observed_goldtier_xpi_search_status
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.connectors.registry import (
     AcraRegistryProviderAdapter,
@@ -65,6 +66,7 @@ from app.domain.onboarding_intelligence import (
     EntityIdentity,
     EntityResolutionOutcome,
     EntityResolutionResult,
+    FeatureAssessment,
 )
 from app.domain.policy import (
     GOLDTIER_BOOKING_ENTITY_POC_VALUE,
@@ -1007,7 +1009,9 @@ class OnboardingService:
                 )
             )
         except ConnectorError as exc:
-            result = _initial_search_failure(exc.code)
+            result = _initial_search_failure(
+                exc.code, status_code=observed_goldtier_xpi_search_status(exc)
+            )
         except InvalidTargetResponseError:
             result = _initial_search_failure("GT_XPI_MALFORMED_RESPONSE")
 
@@ -1483,6 +1487,8 @@ class OnboardingService:
         """Execute one read-only XPI Search outside the case lifecycle.
 
         The standalone provider console never obtains access to mutation methods.
+        ``resolution`` is ``None`` when no identity assessment exists: the provider
+        Search failed, or the existing resolver could compare no identity feature.
         """
 
         if self.target_provider_mode != GoldTierProviderMode.SANDBOX:
@@ -1497,6 +1503,9 @@ class OnboardingService:
                 ),
             )
         )
+        if result.outcome == GoldTierSearchOutcome.FAILURE:
+            # A failed provider Search establishes nothing about customer existence.
+            return TargetIdentitySearchEvidence(result=result, resolution=None)
         source = EntityIdentity(
             candidate_id="SANDBOX-CONSOLE",
             country=request.country_of_incorporation,
@@ -1508,6 +1517,14 @@ class OnboardingService:
             candidates=self._target_candidate_identities(result),
             policy=self._policy_snapshot_provider().intelligence,
         )
+        if resolution.candidates and all(
+            feature.assessment == FeatureAssessment.NOT_ASSESSED
+            for candidate in resolution.candidates
+            for feature in candidate.features
+        ):
+            # Retrieval without comparable evidence (for example an ID-only Search) is
+            # not an identity no-match; a resolver CONFLICT is always retained.
+            return TargetIdentitySearchEvidence(result=result, resolution=None)
         return TargetIdentitySearchEvidence(result=result, resolution=resolution)
 
     def reserve_case_identity(self) -> tuple[UUID, UUID]:
@@ -1724,7 +1741,9 @@ class OnboardingService:
                     )
                 )
             except ConnectorError as exc:
-                result = _initial_search_failure(exc.code)
+                result = _initial_search_failure(
+                    exc.code, status_code=observed_goldtier_xpi_search_status(exc)
+                )
             except InvalidTargetResponseError:
                 result = _initial_search_failure("GT_XPI_MALFORMED_RESPONSE")
 
