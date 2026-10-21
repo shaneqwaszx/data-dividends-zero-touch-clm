@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { expectSelectedHolder } from "./ownership-selection";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 import { expectDisclosureContrast, focusPipelineAction, openStage } from "./stage-disclosures";
 
@@ -209,10 +210,7 @@ for (const choice of ["DOCUMENT", "OTHER"] as const) {
       await expect(person).toBeVisible();
       await person.click();
       await expect(person).toHaveAttribute("aria-pressed", "true");
-      const selected = page.getByRole("complementary", { name: "Selected holder", exact: true });
-      await expect(selected.getByRole("heading", { name: candidate.party.display_name, exact: true })).toBeVisible();
-      await expect(selected).toContainText(candidate.classification);
-      await expect(selected).toContainText(candidate.threshold_result);
+      await expectSelectedHolder(page, candidate);
     }
   });
 }

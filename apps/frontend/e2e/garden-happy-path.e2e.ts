@@ -301,7 +301,7 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
 test("Garden discrepancy human intervention clears reviewed conflicts and continues onboarding", async ({ page }) => {
   const caseId = await createGarden(page, true);
   await reviewedCurrentDocument(page, caseId);
-  await expect(page.locator("select[data-reconciliation-field]")).toHaveCount(4);
+  await expect(page.locator('input[data-reconciliation-field][value="KEEP_REGISTRY_VALUE"]')).toHaveCount(4);
   await measured("reconciliation decision group", () => reviewSourceChoices(page).then(() => undefined));
   const reconciled = await summary(page, caseId);
   expect(reconciled.case.entity.legal_name).toBe("GARDEN BUSINESS");

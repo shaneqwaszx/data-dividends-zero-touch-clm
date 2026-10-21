@@ -21,17 +21,31 @@ export async function reviewPendingFields(page: Page, corrections: Record<string
   page.on("request", listener);
   const family = page.getByLabel("Decision group", { exact: true });
   if (await family.count()) await family.selectOption("document");
-  const controls = page.locator("select[data-review-field]");
-  await expect(controls.first()).toBeVisible();
-  const count = await controls.count();
+  // Nothing is pre-selected: every pending field needs an explicit decision.
+  const fields = page.locator('input[data-review-field][value="REJECTED"]');
+  await expect(fields.first()).toBeVisible();
+  // Case navigation focuses the review two animation frames after render; let it land before deciding,
+  // so it cannot move focus away from the control being decided.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
+  const count = await fields.count();
   expect(count).toBeGreaterThan(0);
   for (let index = 0; index < count; index++) {
-    const control = controls.nth(index);
-    const key = (await control.getAttribute("data-review-field"))!;
+    const key = (await fields.nth(index).getAttribute("data-review-field"))!;
+    const documentId = (await fields.nth(index).getAttribute("data-document-id"))!;
+    if (key in corrections) {
+      // Typing the corrected value records the correction (the box overlays its radio), as a reviewer does.
+      const correction = page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true });
+      await correction.focus();
+      await correction.fill(corrections[key]);
+      await expect(correction).toBeFocused();
+      await expect(page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="CORRECTED"]`)).toBeChecked();
+      continue;
+    }
+    const control = page.locator(`input[data-document-id="${documentId}"][data-review-field="${key}"][value="ACCEPTED"]`);
     await control.focus();
-    await control.selectOption(key in corrections ? "CORRECTED" : "ACCEPTED");
+    await control.check();
     await expect(control).toBeFocused();
-    if (key in corrections) await page.getByLabel(`Correction for ${key.replaceAll("_", " ")}`, { exact: true }).fill(corrections[key]);
+    await expect(control).toBeChecked();
   }
   page.off("request", listener);
   expect(mutations).toEqual([]);
@@ -46,14 +60,15 @@ export async function reviewSourceChoices(page: Page, action = "KEEP_REGISTRY_VA
   page.on("request", listener);
   const family = page.getByLabel("Decision group", { exact: true });
   if (await family.count()) await family.selectOption("source");
-  const controls = page.locator("select[data-reconciliation-field]");
+  const controls = page.locator(`input[data-reconciliation-field][value="${action}"]`);
   await expect(controls.first()).toBeVisible();
   const count = await controls.count();
   expect(count).toBeGreaterThan(0);
   for (let index = 0; index < count; index++) {
     await controls.nth(index).focus();
-    await controls.nth(index).selectOption(action);
+    await controls.nth(index).check();
     await expect(controls.nth(index)).toBeFocused();
+    await expect(controls.nth(index)).toBeChecked();
   }
   page.off("request", listener);
   expect(mutations).toEqual([]);

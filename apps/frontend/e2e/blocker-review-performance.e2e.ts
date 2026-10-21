@@ -63,8 +63,8 @@ async function runPerformanceGroup(page: Page, group: number) {
           const stage = page.locator('.ds-stage[data-node-id="DOCUMENT_IDP"]');
           await stage.locator("summary").click();
           await stage.getByRole("button", { name: "Open case stage details" }).click();
-          await expect(page.locator("select[data-review-field]").first()).toBeFocused();
-          await expect.poll(() => page.locator("select[data-review-field]").first().evaluate(element => {
+          await expect(page.locator("input[data-review-field]:not([disabled])").first()).toBeFocused();
+          await expect.poll(() => page.locator("input[data-review-field]:not([disabled])").first().evaluate(element => {
             const r = element.getBoundingClientRect();
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
             return hit === element || (hit !== null && element.contains(hit));
@@ -78,14 +78,14 @@ async function runPerformanceGroup(page: Page, group: number) {
       for (const field of fields) {
         const start = Date.now();
         if (batch) {
-          const control = page.locator(`select[data-review-field="${field}"]`);
+          const control = page.locator(`input[data-review-field="${field}"][value="REJECTED"]`);
           await control.focus();
           await expect.poll(() => control.evaluate(element => {
             const r = element.getBoundingClientRect();
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
             return hit === element || (hit !== null && element.contains(hit));
           })).toBe(true);
-          await control.selectOption("REJECTED");
+          await control.check();
           await expect(control).toBeFocused(); await expect(control).toBeEnabled();
         } else {
           const button = page.getByRole("button", { name: `Reject ${field.replaceAll("_", " ")} suggestion`, exact: true });
@@ -147,4 +147,88 @@ test("Blocker decision review performance sample group 2", async ({ page }) => {
 
 test("Blocker decision review performance sample group 3", async ({ page }) => {
   await runPerformanceGroup(page, 2);
+});
+
+test("Blocker decision review keyboard focus stays unobscured and footer text readable at review widths", async ({ page }) => {
+  const violations: string[] = [];
+  const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
+  await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
+  await page.goto("/");
+  const loginResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await page.getByLabel("User ID").fill("maya-lim"); await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const headers = { "X-CSRF-Token": (await (await loginResponse).json()).csrf_token };
+  await expect(page.getByRole("link", { name: "New onboarding", exact: true })).toBeVisible();
+  const created = await page.request.post("/api/clm/zero-touch/cases", { headers, data: { uen: "202400001A", legal_name: "MERLION CIRCULAR LABS PTE. LTD.", country_of_incorporation: "SG" } });
+  expect(created.status()).toBe(201); const cid = (await created.json()).case.case_id;
+  const uploaded = await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/documents`, { headers: { ...headers, "Content-Type": "text/plain", "X-Document-Name": "synthetic-ambiguous.txt" }, data: content });
+  expect(uploaded.status()).toBe(201);
+  expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/complete`, { headers, data: { expected_document_count: 1 } })).status()).toBe(200);
+  for (const viewport of [{ width: 768, height: 1024 }, { width: 1024, height: 768 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    const review = page.locator("#case-blocker-review");
+    await expect(review).toHaveCount(1);
+    await review.locator("select:enabled, button:enabled").first().focus();
+    const visited: string[] = [];
+    for (let stop = 0; stop < 40; stop++) {
+      const focused = await page.evaluate(() => {
+        const element = document.activeElement;
+        return element?.closest("#case-blocker-review") ? element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.tagName : null;
+      });
+      if (focused === null) break;
+      visited.push(focused);
+      // WCAG 2.2 SC 2.4.11: the focused review control is inside the viewport and nothing covers its centre.
+      await expect.poll(() => page.evaluate(() => {
+        const element = document.activeElement!;
+        const r = element.getBoundingClientRect();
+        const { clientWidth, clientHeight } = document.documentElement;
+        // Layout rects are fractional; painting snaps them to whole pixels.
+        const [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom].map(Math.round);
+        if (top < 0 || left < 0 || bottom > clientHeight || right > clientWidth) {
+          return `outside the ${clientWidth}x${clientHeight} viewport at ${[left, top, right, bottom].join(",")}`;
+        }
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return hit === element || (hit !== null && element.contains(hit)) ? "unobscured" : `covered by ${hit?.closest("[class]")?.className ?? "nothing"}`;
+      }), `${focused} at ${viewport.width}x${viewport.height}`).toBe("unobscured");
+      await page.keyboard.press("Tab");
+    }
+    expect(await page.evaluate(() => document.activeElement?.closest("#case-blocker-review") == null)).toBe(true);
+    expect(visited.filter(name => /^(Accept|Reject) document suggestion for /.test(name))).toHaveLength(fields.length);
+    expect(visited.filter(name => name.startsWith("Correction for "))).toHaveLength(fields.length);
+    expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
+    expect(visited).toContain("Reject all undecided suggestions");
+    expect(visited).toContain("How drafts work");
+  }
+  // WCAG 2.2 SC 1.4.4: the footer status, hint and "How drafts work" keep a readable column at every review width.
+  for (const viewport of [{ width: 360, height: 780 }, { width: 768, height: 1024 }, { width: 960, height: 800 }, { width: 1024, height: 768 }, { width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    const footer = page.locator("#case-blocker-review .blocker-review__footer");
+    await expect(footer).toHaveCount(1);
+    const measure = () => footer.evaluate(element => {
+      const style = getComputedStyle(element);
+      const column = element.getBoundingClientRect().width - ["borderLeftWidth", "borderRightWidth", "paddingLeft", "paddingRight"]
+        .reduce((total, side) => total + parseFloat(style[side as "paddingLeft"]), 0);
+      const texts = [...element.querySelectorAll(":scope > p, :scope > details, :scope > details[open] > p")];
+      const actions = element.querySelector(":scope > .document-card__actions")!.getBoundingClientRect();
+      const status = element.querySelector(":scope > .blocker-review__status")!.getBoundingClientRect();
+      return {
+        column, narrowest: Math.min(...texts.map(text => text.getBoundingClientRect().width)), texts: texts.length,
+        height: element.getBoundingClientRect().height, beside: actions.left >= status.right,
+      };
+    });
+    for (const [state, texts, maxHeight] of [["closed", 3, 400], ["open", 5, 720]] as const) {
+      if (state === "open") await footer.getByText("How drafts work", { exact: true }).click();
+      const geometry = await measure();
+      const where = `${state} footer at ${viewport.width}x${viewport.height}: ${JSON.stringify(geometry)}`;
+      expect(geometry.texts, where).toBe(texts);
+      // At least 18rem, or the whole column where the review is narrower; 1px absorbs sub-pixel layout.
+      expect(geometry.narrowest, where).toBeGreaterThanOrEqual(Math.min(288, geometry.column) - 1);
+      expect(geometry.height, where).toBeLessThanOrEqual(maxHeight);
+      // The side-by-side footer is kept where the review is wide enough for it.
+      expect(geometry.beside, where).toBe(viewport.width >= 1440);
+    }
+  }
+  expect(violations).toEqual([]);
 });

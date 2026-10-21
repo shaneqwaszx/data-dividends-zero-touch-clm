@@ -106,7 +106,7 @@ describe("ReviewAndSend", () => {
     expect(markup).toContain("Synthetic qualifying person");
     expect(markup).toContain("25% effective");
     expect(markup).toContain("GREATER_THAN_OR_EQUAL_TO 25% → MET");
-    expect(markup).toContain("indirect: 25%");
+    expect(markup).toContain("<dt>Indirect</dt><dd>25%</dd>");
     expect(markup).toContain("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
     expect(markup).not.toContain("Synthetic below-threshold person");
   });

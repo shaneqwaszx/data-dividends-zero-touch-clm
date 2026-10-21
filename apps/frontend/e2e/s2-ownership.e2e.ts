@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
+import { showAllIssues } from "./attention";
 
 const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf");
 let violations: string[];
@@ -157,7 +158,7 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   expect(blocked.target_operations.filter((item: any) => item.operation !== "SEARCH").every((item: any) => item.status === "NOT_ATTEMPTED")).toBe(true);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 1000 });
-    await attention.getByRole("button", { name: "Action: Add structured ownership details", exact: true }).click();
+    await showAllIssues(page); await attention.getByRole("button", { name: /Add structured ownership details/ }).click();
     await expect(page.locator('#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))').first()).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }

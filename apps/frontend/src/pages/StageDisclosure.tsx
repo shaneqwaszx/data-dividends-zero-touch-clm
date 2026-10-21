@@ -12,8 +12,15 @@ export function revealStage(target: Element): void {
   }
 }
 
-function LegacyStageDisclosure({ title, active = false, children, final = false, summary }: {
-  title: string; active?: boolean; children: ReactNode; final?: boolean; summary?: string;
+interface SectionStatus { tone: string; label: string }
+
+/** Visual status only; the summary sentence remains the accessible description. */
+function StatusPill({ status }: { status?: SectionStatus }) {
+  return status ? <span className="stage-disclosure__status" aria-hidden="true">{status.label}</span> : null;
+}
+
+function LegacyStageDisclosure({ title, active = false, children, final = false, summary, status }: {
+  title: string; active?: boolean; children: ReactNode; final?: boolean; summary?: string; status?: SectionStatus;
 }) {
   const [open, setOpen] = useState(active);
   const id = useId();
@@ -31,12 +38,13 @@ function LegacyStageDisclosure({ title, active = false, children, final = false,
       window.removeEventListener("beforeprint", beforePrint);
     };
   }, [final]);
-  return <section ref={ref} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} aria-labelledby={`${id}-title`}>
+  return <section ref={ref} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} data-tone={status?.tone} aria-labelledby={`${id}-title`}>
     <h2 id={`${id}-title`}>
       <button type="button" aria-expanded={open} aria-controls={`${id}-content`} aria-describedby={summary ? `${id}-summary` : undefined} onClick={() => setOpen(!open)}>
         <span>{title}</span><span aria-hidden="true">{open ? "−" : "+"}</span>
       </button>
     </h2>
+    <StatusPill status={status} />
     {summary && <p id={`${id}-summary`} className="stage-disclosure__summary">{summary}</p>}
     <div id={`${id}-content`} hidden={!open}>{children}</div>
   </section>;
@@ -55,7 +63,7 @@ export default function StageDisclosure(props: Parameters<typeof LegacyStageDisc
   return "scopeKey" in props ? <PersistentStageDisclosure {...props} /> : <LegacyStageDisclosure {...props} />;
 }
 
-function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails, scopeKey, active = true, final = false, summary }: PersistentStageProps) {
+function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails, scopeKey, active = true, final = false, summary, status }: PersistentStageProps) {
   const id = useId();
   const [open, setOpen] = useState(active);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -118,7 +126,7 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   const restoreFocus = (element: HTMLDetailsElement) => {
     if (!element.open && element.contains(document.activeElement)) element.querySelector("summary")?.focus();
   };
-  return <section ref={section} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} aria-labelledby={`${id}-title`}
+  return <section ref={section} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} data-tone={status?.tone} aria-labelledby={`${id}-title`}
     onFocusCapture={() => { sectionHasFocus.current = true; }}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) sectionHasFocus.current = false; }}>
     <h2 ref={heading} id={`${id}-title`} tabIndex={-1}>
@@ -130,6 +138,7 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
           setOpen(value => !value);
         }}><span>{title}</span><span className="stage-disclosure__indicator" aria-hidden="true" data-open={open} /></button>
     </h2>
+    <StatusPill status={status} />
     {summary && <p id={`${id}-summary`} className="stage-disclosure__summary">{summary}</p>}
     <div id={`${id}-main`} key={scopeKey} hidden={!open}>{main}</div>
     {moreDetails != null && <details ref={more} id={`${id}-more`} hidden={!open} className="evidence-details" onToggle={(event) => restoreFocus(event.currentTarget)}>

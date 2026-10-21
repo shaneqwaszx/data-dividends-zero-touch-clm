@@ -219,7 +219,11 @@ function DocumentCard({
       )}
       {(essential || historical) && document.error && <div className="ds-banner ds-banner-warn"><strong>{document.error.code}</strong><span>{document.error.message}</span></div>}
 
-      <div className="document-fields">
+      {/* The main case view reads as one table: headings once, one aligned row per field. */}
+      {presentation === "main" && <div className="document-fields__head" aria-hidden="true">
+        <span>Field</span><span>Suggestion</span><span>Canonical</span><span>Source agreement</span><span>Verification state</span><span>Final value</span>
+      </div>}
+      <div className={presentation === "main" ? "document-fields document-fields--table" : "document-fields"}>
         {document.fields.map((field) => {
           const label = fieldLabel(field.field_key);
           const headingId = `${document.document_id}-${field.field_key}${presentation === "full" ? "" : `-${presentation}`}`;
@@ -244,8 +248,8 @@ function DocumentCard({
               <dl className="document-field__evidence">
                 <div><dt>Suggestion</dt><dd>{evidenceValue(field.original_extracted_value)}</dd></div>
                 <div><dt>Canonical</dt><dd>{evidenceValue(field.canonical_value)}</dd></div>
-                <div><dt>Source agreement</dt><dd>{field.comparison_status.replaceAll("_", " ")}</dd></div>
-                <div><dt>Verification state</dt><dd>{document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status === "ACCEPTED" ? "HUMAN ACCEPTED" : field.review_status}</dd></div>
+                <div><dt>Source agreement</dt><dd><span className="document-field__status">{field.comparison_status.replaceAll("_", " ")}</span></dd></div>
+                <div><dt>Verification state</dt><dd><span className="document-field__status">{document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status === "ACCEPTED" ? "HUMAN ACCEPTED" : field.review_status}</span></dd></div>
                 {presentation === "full" && <><ExtractionDetails metadata={field} score={field.confidence} />
                 <div><dt>Provenance</dt><dd>{field.provenance.provider} {field.provenance.environment} · {field.provenance.source_reference} · page {field.provenance.page_number ?? "UNKNOWN"}</dd></div></>}
                 {!isPending && <div><dt>Final value</dt><dd>{field.review_status === "CORRECTED" ? evidenceValue(field.reviewed_value) : field.review_status}</dd></div>}

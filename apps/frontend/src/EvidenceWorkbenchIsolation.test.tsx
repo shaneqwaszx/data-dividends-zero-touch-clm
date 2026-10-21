@@ -354,7 +354,7 @@ describe("Evidence workbench integration isolation", () => {
     if (change === "case") renderCase(client, actorA, CASE_B);
     else act(() => client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...summary, version: 2 }));
     await act(async () => { release(response([documentFixture(CASE_A)])); });
-    await vi.waitFor(() => expect(container?.querySelector("select[data-review-field]")).not.toBeNull());
+    await vi.waitFor(() => expect(container?.querySelector("input[data-review-field]")).not.toBeNull());
     expect(document.activeElement?.getAttribute("data-review-field")).toBeNull();
   });
 
@@ -604,6 +604,7 @@ describe("Evidence workbench integration isolation", () => {
     expect(container?.textContent).toContain("Selected retained path: a-path-2");
     click("a Candidate Two");
     expect(container!.querySelector('[aria-label="Selected holder"]')?.textContent).toContain("a Candidate Two");
+    expect(container!.querySelector('[aria-label="Ownership hierarchy"] [role="row"].is-selected')?.textContent).toContain("a Candidate Two");
     expect(container!.querySelector('[aria-label^="Ownership candidate "]')).toBeNull();
     click("Focus documents evidence");
 
@@ -689,12 +690,9 @@ describe("Evidence workbench integration isolation", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
     renderCase(client, actorA, CASE_A);
 
-    const choice = container?.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]');
+    const choice = container?.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="ACCEPTED"]');
     expect(choice).toBeTruthy();
-    await act(async () => {
-      choice!.value = "ACCEPTED";
-      choice!.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await act(async () => { choice!.click(); });
     expect(fetchSpy).not.toHaveBeenCalled();
     await clickAndFlush("Confirm decisions & continue onboarding");
     await vi.waitFor(() => expect(container?.textContent).toContain("Evidence reload could not be confirmed."));
@@ -770,7 +768,7 @@ describe("Case attention corrective navigation", () => {
     expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
     expect(stage.querySelector<HTMLElement>(":scope > div")!.hidden).toBe(true);
     expect([...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
-    const action = attentionButton("Action: Correct identity"); action.focus(); expect(document.activeElement).toBe(action);
+    const action = attentionButton("Blocker: Initial identity"); action.focus(); expect(document.activeElement).toBe(action);
     act(() => action.click());
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("identity-registration-number"));
     expect(stage.contains(document.activeElement)).toBe(true);
@@ -825,7 +823,7 @@ describe("Case attention corrective navigation", () => {
     const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Registry verification")!;
     act(() => stage.querySelector<HTMLButtonElement>("h2 button")!.click());
     expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
-    act(() => attentionButton("Action: Correct identity").click());
+    act(() => attentionButton("Blocker: Initial identity").click());
     await vi.waitFor(() => expect(container!.textContent).toContain("No corrective input is currently authorized here"));
     expect(document.activeElement?.id).not.toBe("identity-registration-number"); expect(fetch).not.toHaveBeenCalled();
   });
@@ -870,7 +868,8 @@ describe("Case attention corrective navigation", () => {
     act(() => control.click());
     await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
     expect([...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
-    expect((document.activeElement as HTMLSelectElement).value).toBe(""); expect(fetch).not.toHaveBeenCalled();
+    expect((document.activeElement as HTMLInputElement).checked).toBe(false);
+    expect(container!.querySelector('input[data-review-field="legal_name"]:checked')).toBeNull(); expect(fetch).not.toHaveBeenCalled();
   });
   it("switches to the specific reconciliation decision without choosing a source", async () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
@@ -880,10 +879,11 @@ describe("Case attention corrective navigation", () => {
       discrepancies: ["first", "second"].map(id => ({ discrepancy_id: id, field_name: "legal_name", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE"], evidence_fingerprint: "a".repeat(64), observations: [] })) } as unknown as NonNullable<ZeroTouchCaseSummary["reconciliation"]>;
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
-    expect(container!.querySelector("select[data-discrepancy-id]")).toBeNull();
+    expect(container!.querySelector("input[data-discrepancy-id]")).toBeNull();
     act(() => attentionButton("Blocker: DOCUMENT SOURCE CONFLICT second").click());
     await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-discrepancy-id")).toBe("second"));
-    expect((document.activeElement as HTMLSelectElement).value).toBe(""); expect(fetch).not.toHaveBeenCalled();
+    expect((document.activeElement as HTMLInputElement).checked).toBe(false);
+    expect(container!.querySelector('input[data-discrepancy-id="second"]:checked')).toBeNull(); expect(fetch).not.toHaveBeenCalled();
   });
   it("opens the document-specific replacement upload", async () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
@@ -984,7 +984,7 @@ describe("Case attention corrective navigation", () => {
       const fetch = vi.spyOn(globalThis, "fetch");
       renderCase(client, actorA, CASE_A);
       click("Reject all undecided suggestions");
-      const selected = container!.querySelector<HTMLSelectElement>("select[data-review-field]")!;
+      const selected = container!.querySelector<HTMLInputElement>("input[data-review-field]:checked")!;
       expect(selected.value).toBe("REJECTED");
       if (change === "case") renderCase(client, actorA, CASE_B);
       else if (change === "actor") renderCase(client, actorB, CASE_A);
@@ -1000,7 +1000,7 @@ describe("Case attention corrective navigation", () => {
         await new Promise(resolve => setTimeout(resolve, 0));
       });
       expect(selected.isConnected).toBe(false);
-      expect(Array.from(container!.querySelectorAll<HTMLSelectElement>("select[data-review-field]")).every(control => control.value === "")).toBe(true);
+      expect(container!.querySelectorAll("input[data-review-field]:checked")).toHaveLength(0);
       expect(fetch).not.toHaveBeenCalled();
     },
   );
@@ -1024,7 +1024,7 @@ describe("Document persistent disclosure migration", () => {
     ]);
     expect(support.every(item => !item.open)).toBe(true);
     const main = stage.querySelector(":scope > div")!;
-    expect(main.querySelector("#case-blocker-review select[data-review-field]")).not.toBeNull();
+    expect(main.querySelector("#case-blocker-review input[data-review-field]")).not.toBeNull();
     expect(main.querySelector("#case-evidence-documents")).not.toBeNull();
     expect(main.textContent).toContain("1 field remains for review");
     expect(main.textContent).toContain("MISMATCH");
@@ -1038,10 +1038,10 @@ describe("Document persistent disclosure migration", () => {
     const stage = documentStage(); expect(stage).toBeTruthy();
     const support = [...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")];
     expect(support).toHaveLength(2);
-    const select = stage.querySelector<HTMLSelectElement>("select[data-review-field]")!;
-    act(() => { select.value = "REJECTED"; select.dispatchEvent(new Event("change", { bubbles: true })); support[0].open = true; support[0].open = false; });
+    const choice = stage.querySelector<HTMLInputElement>('input[data-review-field][value="ACCEPTED"]')!;
+    act(() => { choice.click(); support[0].open = true; support[0].open = false; });
     await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...summaryFixture(CASE_A), updated_at: "2026-10-15T12:00:00Z" }); await new Promise(resolve => setTimeout(resolve, 0)); });
-    expect(stage.querySelector<HTMLSelectElement>("select[data-review-field]")!.value).toBe("REJECTED");
+    expect(stage.querySelector<HTMLInputElement>("input[data-review-field]:checked")!.value).toBe("ACCEPTED");
     expect(support[0].open).toBe(false); expect(fetch).not.toHaveBeenCalled();
   });
   it.each(["loading", "failed-empty", "failed-retained"] as const)(
@@ -1245,8 +1245,8 @@ describe("Automation polling document read authority", () => {
       throw new Error("Unexpected synthetic explicit refresh route");
     });
     renderCase(client, actorA, CASE_A);
-    const choice = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
-    act(() => { choice.value = "ACCEPTED"; choice.dispatchEvent(new Event("change", { bubbles: true })); });
+    const choice = container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="ACCEPTED"]')!;
+    act(() => choice.click());
     act(() => button("Confirm decisions & continue onboarding").click()); await tick(10);
     expect(container!.textContent).toContain("Evidence reload could not be confirmed.");
     rejectDocuments = false;

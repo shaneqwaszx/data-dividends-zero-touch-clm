@@ -1,5 +1,5 @@
 import { formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { OwnershipAnalysisRecord, OwnershipRelationship } from "../types";
 
 const ROW_LIMIT = 200;
@@ -68,10 +68,22 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
   function partyName(id: string) { return partyById.get(id)?.display_name ?? id; }
   const visibleRows = rows.filter(row => row.unlinked || !row.path.length
     || row.path.every((_, index) => !collapsed.has(occurrenceKey(record.root_party_id, row.path.slice(0, index)))));
+  const layers = rows.reduce((deepest, row) => Math.max(deepest, row.path.length), 0);
+  const uboCount = record.candidates.filter(item => item.classification === "PROVISIONAL_UBO_CANDIDATE" && item.threshold_result === "MET").length;
   return <section className="ownership-structure" aria-label="Hierarchical ownership structure">
-    <h4>Ownership structure</h4>
-    <p className="control-help">Follow each owned entity to its holders. Direct percentages belong to the immediate owned entity. Displayed percentages are rounded to at most two decimals. Threshold comparisons and classifications use full backend precision. Effective percentages are retained backend path results; intermediate interests are not inferred.</p>
-    <dl className="ownership-structure__legend"><div><dt>Direct interest</dt><dd>Holding in the immediate owned entity.</dd></div><div><dt>Indirect interest</dt><dd>Holding through intermediate entities.</dd></div><div><dt>Effective interest</dt><dd>Backend-calculated path value; candidate aggregate combines retained paths.</dd></div><div><dt>Ownership evidence source</dt><dd>Original provider and environment on each relationship.</dd></div><div><dt>Provisional UBO candidate</dt><dd>Natural person classified as qualifying by the backend.</dd></div><div><dt>Review/incomplete status</dt><dd>Unresolved evidence is not a final determination.</dd></div></dl>
+    <header className="ownership-structure__header">
+      <h4>Ownership structure</h4>
+      <ul className="ownership-structure__stats" aria-label="Hierarchy summary">
+        <li><strong>{layers}</strong> {layers === 1 ? "layer" : "layers"}</li>
+        <li><strong>{record.parties.length}</strong> {record.parties.length === 1 ? "party" : "parties"}</li>
+        <li className={uboCount ? "is-ubo" : undefined}><strong>{uboCount}</strong> provisional {uboCount === 1 ? "UBO" : "UBOs"}</li>
+      </ul>
+    </header>
+    <details className="ownership-structure__about">
+      <summary>What these values mean</summary>
+      <p className="control-help">Follow each owned entity to its holders. Direct percentages belong to the immediate owned entity. Displayed percentages are rounded to at most two decimals. Threshold comparisons and classifications use full backend precision. Effective percentages are retained backend path results; intermediate interests are not inferred.</p>
+      <dl className="ownership-structure__legend"><div><dt>Direct interest</dt><dd>Holding in the immediate owned entity.</dd></div><div><dt>Indirect interest</dt><dd>Holding through intermediate entities.</dd></div><div><dt>Effective interest</dt><dd>Backend-calculated path value; candidate aggregate combines retained paths.</dd></div><div><dt>Ownership evidence source</dt><dd>Original provider and environment on each relationship.</dd></div><div><dt>Provisional UBO candidate</dt><dd>Natural person classified as qualifying by the backend.</dd></div><div><dt>Review/incomplete status</dt><dd>Unresolved evidence is not a final determination.</dd></div></dl>
+    </details>
     {record.state !== "ANALYZED" && <p className="ds-banner ds-banner-warn">Partial or disputed ownership evidence — review required.</p>}
     <div className="ownership-structure__layout">
       <div className="ownership-structure__rows" tabIndex={0} role="table" aria-label="Ownership hierarchy">
@@ -80,21 +92,34 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
           const party = partyById.get(row.partyId) ?? record.candidates.find(item => item.party.party_id === row.partyId)?.party;
           const result = record.candidates.find(item => item.party.party_id === row.partyId);
           const qualifies = result?.classification === "PROVISIONAL_UBO_CANDIDATE" && result.threshold_result === "MET";
-          return <div key={row.key} role="row" className={`ownership-structure__row${qualifies ? " is-ubo" : ""}${selected?.key === row.key ? " is-selected" : ""}`}>
-            <div role="cell" className="ownership-structure__holder" style={{ paddingLeft: `${Math.min(row.path.length, 8) * 14 + 8}px` }}>
-              {!row.cycle && !row.unlinked && record.relationships.some(edge => edge.parent_party_id === row.partyId) && <button type="button" className="ownership-structure__toggle" aria-label={`${collapsed.has(row.key) ? "Expand" : "Collapse"} holders of ${party?.display_name ?? row.partyId}`} aria-expanded={!collapsed.has(row.key)} onClick={() => { setCollapsed(current => { const next = new Set(current); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; }); setSelectedKey(row.key); }}>{collapsed.has(row.key) ? "+" : "−"}</button>}
-              <span aria-hidden="true">{party?.party_type === "NATURAL_PERSON" ? "○ " : "□ "}</span>
-              <button type="button" aria-pressed={selected?.key === row.key} onClick={() => { setSelectedKey(row.key); if (result) onSelectPerson(row.partyId); }}>{party?.display_name ?? row.partyId}</button>
-              {qualifies && <span className="tag tag-warn">Provisional UBO</span>}
-              {row.cycle && <span className="tag tag-neutral">Cycle — traversal stopped</span>}
-              {row.unlinked && <span className="tag tag-neutral">No retained root path</span>}
-              {row.path.length > 8 && <small>Layer {row.path.length} from root</small>}
+          const person = party?.party_type === "NATURAL_PERSON";
+          const isClient = !row.unlinked && !row.path.length;
+          const ownedName = row.path.length ? partyName(row.path[row.path.length - 1].parent_party_id) : null;
+          const depth = Math.min(row.path.length, 8);
+          return <div key={row.key} role="row" style={{ "--depth": depth } as CSSProperties}
+            className={`ownership-structure__row${qualifies ? " is-ubo" : ""}${selected?.key === row.key ? " is-selected" : ""}${isClient ? " is-client" : ""}`}>
+            <div role="cell" className="ownership-structure__holder">
+              {!row.cycle && !row.unlinked && record.relationships.some(edge => edge.parent_party_id === row.partyId)
+                ? <button type="button" className="ownership-structure__toggle" aria-label={`${collapsed.has(row.key) ? "Expand" : "Collapse"} holders of ${party?.display_name ?? row.partyId}`} aria-expanded={!collapsed.has(row.key)} onClick={() => { setCollapsed(current => { const next = new Set(current); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; }); setSelectedKey(row.key); }}>{collapsed.has(row.key) ? "+" : "−"}</button>
+                : <span className="ownership-structure__toggle-spacer" aria-hidden="true" />}
+              <span className={`ownership-node__icon ${person ? "is-person" : "is-company"}`} aria-hidden="true">{person ? "P" : "C"}</span>
+              <span className="ownership-node__body">
+                <button type="button" aria-pressed={selected?.key === row.key} onClick={() => { setSelectedKey(row.key); if (result) onSelectPerson(row.partyId); }}>{party?.display_name ?? row.partyId}</button>
+                <span className="ownership-node__context">
+                  {isClient && <span className="tag tag-neutral">Client</span>}
+                  {ownedName && <small>Holds {formatOwnershipPercent(row.path[row.path.length - 1].ownership_percent)} of {ownedName}</small>}
+                  {qualifies && <span className="tag tag-warn">Provisional UBO</span>}
+                  {row.cycle && <span className="tag tag-neutral">Cycle — traversal stopped</span>}
+                  {row.unlinked && <span className="tag tag-neutral">No retained root path</span>}
+                  {row.path.length > 8 && <small>Layer {row.path.length} from root</small>}
+                </span>
+              </span>
             </div>
-            <span role="cell" data-label="Type">{party?.party_type === "NATURAL_PERSON" ? "Individual" : party?.party_type === "LEGAL_ENTITY" ? "Company" : "Unknown"}</span>
+            <span role="cell" data-label="Type">{person ? "Individual" : party?.party_type === "LEGAL_ENTITY" ? "Company" : "Unknown"}</span>
             <span role="cell" data-label="Country">{party?.country ?? "Not supplied"}</span>
-            <span role="cell" data-label="Direct holding">{row.path.length ? formatOwnershipPercent(row.path[row.path.length - 1].ownership_percent) : "—"}</span>
-            <span role="cell" data-label="Effective on path">{pathPercent(record, row) !== null ? formatOwnershipPercent(pathPercent(record, row)) : "Not retained"}</span>
-            <span role="cell" data-label="Evidence source">{row.path.length ? `${row.path[row.path.length - 1].provenance.provider} · ${row.path[row.path.length - 1].provenance.environment}` : `${record.provider_name ?? "Not supplied"} · ${record.provider_environment ?? "Not supplied"}`}</span>
+            <span role="cell" data-label="Direct">{row.path.length ? formatOwnershipPercent(row.path[row.path.length - 1].ownership_percent) : "—"}</span>
+            <span role="cell" data-label="Effective">{pathPercent(record, row) !== null ? formatOwnershipPercent(pathPercent(record, row)) : "Not retained"}</span>
+            <span role="cell" data-label="Source">{row.path.length ? `${row.path[row.path.length - 1].provenance.provider} · ${row.path[row.path.length - 1].provenance.environment}` : `${record.provider_name ?? "Not supplied"} · ${record.provider_environment ?? "Not supplied"}`}</span>
           </div>;
         })}
         {!rows.length && <p>No retained hierarchy is available.</p>}

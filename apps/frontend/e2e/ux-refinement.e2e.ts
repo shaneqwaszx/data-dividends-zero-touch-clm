@@ -4,6 +4,7 @@ import path from "node:path";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { openStage } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
+import { showAllIssues } from "./attention";
 import attentionProjections from "../src/test-fixtures/attention-projections.json" with { type: "json" };
 
 const clean = "Legal Name: MERLION CIRCULAR LABS PTE. LTD.\nUEN: 202400001A\nRegistered Address: 18 INNOVATION WAY, #04-01, 018956, SG\nCountry: SG";
@@ -57,7 +58,7 @@ test("UX refinement attention identity, sticky twelve-stage rail and mobile keyb
   await expect(attention).toContainText("Registry identity requires correction");
   await expect(page.locator(".case-pipeline-panel .ds-stage")).toHaveCount(12);
   await collapse(page, "Registry verification");
-  const action = attention.getByRole("button", { name: /^Blocker:/ }).first();
+  await showAllIssues(page); const action = attention.getByRole("button", { name: /^Blocker:/ }).first();
   await action.focus(); await action.press("Enter"); await expect(page.locator("#identity-registration-number")).toBeFocused();
   const registry = page.getByRole("region", { name: "Registry verification", exact: true });
   await expect(registry.locator(":scope > div").first()).toBeVisible();
@@ -104,14 +105,14 @@ test("UX refinement specific document decisions, resolved attention and final ac
   const navigationMutations: string[] = [];
   const listener = (request: import("@playwright/test").Request) => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) navigationMutations.push(new URL(request.url()).pathname); };
   page.on("request", listener);
-  await attention.getByRole("button", { name: /^Blocker:/ }).first().click();
-  await expect(page.locator("select[data-review-field]:focus, select[data-discrepancy-id]:focus")).toHaveCount(1);
+  await showAllIssues(page); await attention.getByRole("button", { name: /^Blocker:/ }).first().click();
+  await expect(page.locator("input[data-review-field]:focus, input[data-discrepancy-id]:focus")).toHaveCount(1);
   expect(navigationMutations).toEqual([]); page.off("request", listener);
   await reviewPendingFields(page); await reviewSourceChoices(page);
   await expect(attention).not.toContainText("DOCUMENT SOURCE CONFLICT");
   await expect(attention).toContainText("No immediate blockers");
   const finalAction = attention.getByRole("button", { name: "Action: Review and send", exact: true });
-  await expect(finalAction).toBeVisible(); await collapse(page, "Final review & send");
+  await showAllIssues(page); await expect(finalAction).toBeVisible(); await collapse(page, "Final review & send");
   await finalAction.focus(); await finalAction.press("Enter");
   await expect(page.locator("#case-review-and-send .btn-primary")).toBeFocused();
   const state = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
@@ -156,7 +157,7 @@ for (const withDocument of [false, true]) {
     await expect(attention).toContainText(`${withDocument ? 2 : 1} active blocker`);
     await expect(attention).not.toContainText("No immediate blockers");
     if (withDocument) await expect(attention).toContainText("Document or reconciliation review required");
-    const action = attention.getByRole("button", { name: "Action: Correct identity", exact: true });
+    await showAllIssues(page); const action = attention.getByRole("button", { name: /Correct identity/ });
     const evidence = retainedEvidencePath("pr84-projection-attention"); await mkdir(evidence, { recursive: true });
     for (const width of [1280, 360]) {
       await page.setViewportSize({ width, height: 900 }); await collapse(page, "Registry verification");
@@ -205,7 +206,8 @@ test("PR84 mixed identity blockers preserve registry correction", async ({ page 
   const attention = page.getByRole("region", { name: "Attention required", exact: true });
   await expect(attention).toContainText("2 active blockers");
   await collapse(page, "Registry verification");
-  const action = attention.getByRole("button", { name: "Action: Correct identity", exact: true });
+  // Two identity blockers exist; the accepted target is the exact "Correct identity" action, not "Correct identity and recheck".
+  await showAllIssues(page); const action = attention.getByRole("button", { name: /Correct identity →$/ });
   await action.focus(); await action.press("Enter");
   await expect(page.locator("#identity-registration-number")).toBeFocused();
   expect(requests).toEqual([]);
