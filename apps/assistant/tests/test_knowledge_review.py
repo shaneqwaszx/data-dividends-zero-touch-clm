@@ -357,11 +357,18 @@ def test_hr_proposes_guidance_and_a_director_approves_it(kb: KnowledgeBase) -> N
     assert kb.store.current("guidance.address-mismatch").version == 2
 
 
-def _legacy_kb(tmp_path: Path) -> KnowledgeBase:
+def _legacy_kb(
+    tmp_path: Path,
+    *,
+    editor: str = "director-dan",
+    title: str = "Director title LEGACYEDITMARK",
+    body: str = "Director body LEGACYBODYMARK.",
+) -> KnowledgeBase:
     """A schema-v2 store in the shape ad4661c's in-place edit left, opened (migrated) as v3.
 
     Under schema v2 a Director's edit changed the RM's pending version in place and kept the
-    RM as its author; only an 'edit' row records it.
+    RM as its author; only an 'edit' row records it. ``editor`` made that edit and ``title``
+    and ``body`` are what it wrote (the author's own store-level edit left the same shape).
     """
 
     import sqlite3
@@ -382,14 +389,14 @@ def _legacy_kb(tmp_path: Path) -> KnowledgeBase:
             " decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject', 'retire', 'edit')),"
             " notes TEXT NOT NULL, created_at TEXT NOT NULL,"
             " FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version));"
-            # The RM's draft as ad4661c's in-place edit left it: the Director's title and body,
-            # the RM still the author, and an 'edit' row by the Director.
+            # The RM's draft as ad4661c's in-place edit left it: the editor's title and body,
+            # the RM still the author, and an 'edit' row by the editor.
             "INSERT INTO entries VALUES ('resolution.legacy', 1, 'resolution', 'pending_review',"
-            " 'Director title LEGACYEDITMARK', 'Director body LEGACYBODYMARK.', '[]', '[]',"
+            f" '{title}', '{body}', '[]', '[]',"
             " '[]', '{\"roles\": [], \"teams\": [\"TEAM_A\"]}', '[]', NULL, NULL, 'maya-lim',"
             " NULL, NULL, 'RM feedback', 0, 'x', '2026-10-01T00:00:00+00:00');"
             "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at)"
-            " VALUES ('resolution.legacy', 1, 'director-dan', 'edit', 'body, title',"
+            f" VALUES ('resolution.legacy', 1, '{editor}', 'edit', 'body, title',"
             " '2026-10-01T00:05:00+00:00');"
         )
     return _kb(tmp_path)  # opening the store migrates it to schema v3
@@ -437,10 +444,44 @@ def test_a_later_edit_does_not_bring_back_a_version_edited_in_place(
     assert "LEGACY" not in own.text and "Tidied" not in own.text
 
 
+# The author's own words, written into their draft by their own in-place edit under schema v2.
+OWN_TITLE, OWN_BODY = "RM title OWNEDITMARK", "RM body OWNBODYMARK."
+
+
+def test_a_later_edit_also_leaves_out_the_authors_own_in_place_edit(tmp_path: Path) -> None:
+    """QG_PR99_8457f02 G5: the author edited the draft in place under schema v2, then a
+    Director edited it normally. The version holds the author's own text but is left out:
+    the stated over-hide, on the safe side (ADR-012 section C)."""
+
+    kb = _legacy_kb(tmp_path, editor="maya-lim", title=OWN_TITLE, body=OWN_BODY)
+    reply = edit(kb, "director-session", "resolution.legacy", 1, title="Tidied title")
+    assert reply.status_code == 200 and reply.json()["version"] == 2
+    reviews = kb.store.reviews("resolution.legacy")  # two 'edit' rows on v1; only v2 revises it
+    assert [(row["version"], row["reviewer"], row["decision"]) for row in reviews] == [
+        (1, "maya-lim", "edit"),
+        (1, "director-dan", "edit"),
+    ]
+    own = client(kb, "rm-session").get("/assistant/knowledge/entries/resolution.legacy")
+    assert own.status_code == 200 and own.json() == {"versions": [], "reviews": []}
+
+
+def test_the_author_still_sees_a_version_only_they_edited_in_place(tmp_path: Path) -> None:
+    """QG_PR99_8457f02 G6: the author edited the draft in place under schema v2 and nobody
+    else edited it, so the version holds only their own text and stays in their view."""
+
+    kb = _legacy_kb(tmp_path, editor="maya-lim", title=OWN_TITLE, body=OWN_BODY)
+    own = client(kb, "rm-session").get("/assistant/knowledge/entries/resolution.legacy")
+    assert own.status_code == 200 and own.json()["reviews"] == []
+    versions = own.json()["versions"]
+    assert [(v["version"], v["author"], v["title"], v["body"]) for v in versions] == [
+        (1, "maya-lim", OWN_TITLE, OWN_BODY)
+    ]
+
+
 @pytest.mark.parametrize(
     ("title", "expected"),
     [
-        ("Аpprove ünïcode title", "guidance.pprove-n-code-title"),
+        ("\u0410pprove \u00fcn\u00efcode title", "guidance.pprove-n-code-title"),
         ("Registered address: a new rule!", "guidance.registered-address-a-new-rule"),
     ],
 )

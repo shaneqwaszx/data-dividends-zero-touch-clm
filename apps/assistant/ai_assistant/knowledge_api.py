@@ -339,7 +339,8 @@ def knowledge_router(
             # as written: each 'edit' row on a version is paired with one version revising it.
             # A store from before v3 edited a pending version in place, keeping its author and
             # adding only an 'edit' row. So a version with someone else's 'edit' row and more
-            # 'edit' rows than versions revising it holds another person's text.
+            # 'edit' rows than versions revising it is left out, also when its in-place text is
+            # the author's own and someone else then edited it normally (the safe side).
             edits: Counter[int] = Counter()
             foreign: set[int] = set()
             for row in kb.store.reviews(entry_id):
