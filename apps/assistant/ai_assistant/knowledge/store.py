@@ -7,7 +7,9 @@ Rules enforced here, in one transaction per change:
   is stored as a new version written by that reviewer; the version it revises is kept,
   unchanged, and taken out of review;
 - only a reviewer who wrote no version in the chain being decided can approve or reject it
-  (maker-checker), and only the exact content they were shown (content hash);
+  (maker-checker), and only the exact content they were shown (content hash). In the POC's
+  single-reviewer mode (D-076, proposed) an author or editor may decide it too, an approval
+  only once confirmed, and the review row records it as single-reviewer;
 - an entry may only replace an entry of the same kind (a past resolution never retires
   official guidance);
 - approving a version retires the entry's previous approved version, and the entry it
@@ -75,6 +77,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject', 'retire', 'edit')),
     notes TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    single_reviewer INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version)
 );
 CREATE TABLE IF NOT EXISTS feedback (
@@ -131,6 +134,10 @@ class MakerCheckerError(KnowledgeError):
 
 class SecondReviewerError(MakerCheckerError):
     """The same person tried to both ask for and confirm a retirement."""
+
+
+class ConfirmationRequiredError(MakerCheckerError):
+    """In single-reviewer mode, an author approved their own entry without confirming it."""
 
 
 class ContentChangedError(KnowledgeError):
@@ -451,11 +458,21 @@ class KnowledgeStore:
     def reviews(self, entry_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT entry_id, version, reviewer, decision, notes, created_at "
+                "SELECT entry_id, version, reviewer, decision, notes, created_at, single_reviewer "
                 "FROM reviews WHERE entry_id = ? ORDER BY id",
                 (entry_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**dict(row), "single_reviewer": bool(row["single_reviewer"])} for row in rows]
+
+    def single_reviewer_approvals(self) -> set[str]:
+        """Keys (``entry_id@vN``) of the versions approved by a single reviewer."""
+
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT entry_id, version FROM reviews "
+                "WHERE decision = 'approve' AND single_reviewer = 1"
+            ).fetchall()
+        return {f"{row['entry_id']}@v{row['version']}" for row in rows}
 
     def keyword_search(
         self, text: str, *, kinds: tuple[EntryKind, ...] | None = None, limit: int = 20
@@ -537,12 +554,16 @@ class KnowledgeStore:
         notes: str = "",
         expected_hash: str | None = None,
         authorize: Callable[[], None] | None = None,
+        single_reviewer: bool = False,
+        confirmed: bool = False,
     ) -> Entry:
         """Approve or reject a pending version.
 
-        Nobody who wrote this version, or a version it was revised from, can decide it. When
-        ``expected_hash`` is given (always, from the review API) the decision applies only if
-        the version still says exactly what the reviewer was shown.
+        Nobody who wrote this version, or a version it was revised from, can decide it, unless
+        ``single_reviewer`` (the POC setting, D-076): then they may, an approval only when
+        ``confirmed``, and the review row is marked single-reviewer. When ``expected_hash`` is
+        given (always, from the review API) the decision applies only if the version still
+        says exactly what the reviewer was shown.
         """
 
         now = self._clock()
@@ -552,14 +573,19 @@ class KnowledgeStore:
                 raise KnowledgeError("only a version pending review can be decided")
             if expected_hash is not None and expected_hash != entry.content_hash():
                 raise ContentChangedError("the version no longer says what was reviewed")
-            if not reviewer or reviewer in self._chain_authors(db, entry):
+            if not reviewer:
+                raise MakerCheckerError("a decision needs a reviewer")
+            own = reviewer in self._chain_authors(db, entry)
+            if own and not single_reviewer:
                 raise MakerCheckerError("an author or editor of an entry cannot decide it")
+            if own and approve and not confirmed:
+                raise ConfirmationRequiredError("approving your own entry must be confirmed")
             self._check_replaces(db, entry)
             decision = "approve" if approve else "reject"
             db.execute(
-                "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (entry_id, version, reviewer, decision, notes, now),
+                "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at, "
+                "single_reviewer) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (entry_id, version, reviewer, decision, notes, now, int(own)),
             )
             if not approve:
                 self._set_status(db, entry, "rejected")
@@ -911,7 +937,9 @@ class KnowledgeStore:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version)
             );
-            INSERT INTO reviews SELECT * FROM reviews_v1;
+            INSERT INTO reviews (id, entry_id, version, reviewer, decision, notes, created_at)
+                SELECT id, entry_id, version, reviewer, decision, notes, created_at
+                FROM reviews_v1;
             DROP TABLE reviews_v1;
             """
         )
@@ -926,11 +954,17 @@ class KnowledgeStore:
 
     @staticmethod
     def _migrate_to_4(db: sqlite3.Connection) -> None:
-        """Version 4 lets an enhancement request be 'resolved' (its draft was approved) and
-        records why one was closed: rebuild the feedback table. Existing rows keep their
-        values; none has a close reason. The rebuild is one transaction. A store without a
-        feedback table gets the new one from the schema; one already rebuilt is left alone."""
+        """Version 4 marks single-reviewer decisions (D-076): reviews gain ``single_reviewer``
+        (0 for every existing row). It also lets an enhancement request be 'resolved' (its
+        draft was approved) and records why one was closed: rebuild the feedback table.
+        Existing rows keep their values; none has a close reason. The rebuild is one
+        transaction. A store without a feedback table gets the new one from the schema; one
+        already rebuilt is left alone."""
 
+        reviews = {row[1] for row in db.execute("PRAGMA table_info(reviews)")}
+        if reviews and "single_reviewer" not in reviews:
+            db.execute("ALTER TABLE reviews ADD COLUMN single_reviewer INTEGER NOT NULL DEFAULT 0")
+            db.commit()
         existing = {row[1] for row in db.execute("PRAGMA table_info(feedback)")}
         if not existing or "close_reason" in existing:
             return

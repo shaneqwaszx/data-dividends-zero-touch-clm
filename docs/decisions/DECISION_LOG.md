@@ -349,23 +349,42 @@ retrieval evidence. Q-014 review authority stays UNKNOWN_BLOCKED and no sponsor 
 production readiness is claimed. Cycle 9 aligns the knowledge-review scope of Directors with
 the CLM backend's global Director scope (a defect fix, not a new authority).
 
-## D-076 - proposed AI Assistant feedback: ratings and enhancement requests (PROPOSED)
+## D-076 - proposed AI Assistant feedback, enhancement requests and single-reviewer POC mode (PROPOSED)
 
-Status: PROPOSED by the project team on 2026-10-21; it needs the repository owner's (Shane's)
-acceptance and is not accepted. It amends ADR-012 section A for the AI Assistant's two
-feedback buttons. "Yes, helpful" only records the rating with the case context (blocker
-codes, fields, stages): it no longer drafts a past resolution, adds nothing to the review
-queue and changes no retrieval or ranking. "Not helpful" starts an enhancement request: a
-non-blank note is required (the API answers an empty or whitespace-only note with 422 and the
-panel keeps Send disabled until text is typed) and is redacted before it is stored. In the
-Knowledge review window ("Enhancement requests"), a reviewer either drafts a past resolution
-from an open request (its redacted note and case context, written by that reviewer, visible
-to the team the request came from), which a different reviewer must approve (the existing
-two-person rule; approval resolves the request and rejection opens it again), or closes it
-with a required reason (SQLite schema v4: a nullable `feedback.close_reason` and a `resolved`
-status; v3 stores migrate in place). Only an open request can be drafted or closed. Both
-actions recheck the caller inside the SQLite write transaction. The Director's stats add
-confidence by topic: helpful and not-helpful counts per blocker code, alongside the totals.
-The panel no longer sends the conversation with feedback. The POLICY_APPROVE mapping stays
-PROJECT_DEFINED_PROVISIONAL and review authority stays UNKNOWN_BLOCKED (Q-014). Not sponsor
-policy; no CLM backend write, provider status or Live claim follows.
+Status: PROPOSED by the project team on 2026-10-21. **It relaxes D-074's two-person control
+for the POC and needs the repository owner's (Shane's) explicit acceptance before merge**;
+it is not accepted. It amends ADR-012 section A.
+
+Feedback. "Yes, helpful" only records the rating with the case context (blocker codes,
+fields, stages): it drafts nothing, adds nothing to the review queue and changes no retrieval
+or ranking; the Director's stats show confidence by topic (helpful and not-helpful counts per
+blocker code). "Not helpful" starts an enhancement request: a non-blank note is required (422
+otherwise; the panel keeps Send disabled) and is redacted before it is stored. The panel no
+longer sends the conversation.
+
+Enhancement requests. Directors (POLICY_APPROVE) handle them end to end in the Knowledge
+review window; HR does not, as it has no case access. A Director either writes the fix as a
+past case or a guidance change (new guidance or a new version of existing guidance) linked to
+the request, or closes the request with a required reason. The fix is redacted against the
+request's own case (loaded with the Director's session) and by pattern, then waits for review
+like any other entry: publishing it resolves the request, rejecting it opens the request again.
+Only an open request can be handled. Both actions recheck the caller inside the SQLite write
+transaction.
+
+Single-reviewer mode (relaxes D-074). D-074 made two-person approval bound to the reviewed
+content hash the primary control for knowledge content. The POC's synthetic users have only
+one Director (olivia-koh), and only POLICY_APPROVE can approve knowledge, so with author ≠
+approver no fix a Director writes could ever be published. The setting
+`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER` (default true for this POC) therefore lets a reviewer
+approve or reject an entry they wrote or edited. An approval shows the reviewer the final
+entry text and needs an explicit confirmation (`confirm_single_reviewer`, refused with 403
+otherwise); every such decision is recorded as single-reviewer in the review history
+(`reviews.single_reviewer`) and listed in the Review window. With the setting false the
+two-person rule applies unchanged. Unchanged in both modes: decisions bound to the content
+hash, the sentence checks, redaction, team scope, and retiring an approved entry (official
+guidance included) still takes two reviewers. SQLite schema v4 adds `reviews.single_reviewer`
+(0 for existing rows), a `resolved` request status and a nullable `feedback.close_reason`.
+
+The POLICY_APPROVE mapping stays PROJECT_DEFINED_PROVISIONAL and review authority stays
+UNKNOWN_BLOCKED (Q-014). Not sponsor review policy; no CLM backend write, provider status or
+Live claim follows.

@@ -7,8 +7,10 @@ PR #99; section A's chromadb footprint is decided by D-075: the direct pin
 (`chromadb==1.5.9`) is retained and its transitive packages stay unlocked. Section C keeps
 the owner's G6 direction (quoted in C), and the owner explicitly accepted its extension of
 the allow-list with approved knowledge lines on 2026-10-21 (D-074). Section A's feedback
-flow is amended by D-076 (proposed, needs the owner's acceptance): drafts no longer come from
-"Solved it" / "Yes, helpful" but from enhancement requests ("Not helpful" with a note).
+flow is amended by D-076 (proposed): drafts no longer come from "Solved it" / "Yes, helpful";
+a Director writes the fix for an enhancement request ("Not helpful" with a note). **D-076 also
+relaxes D-074's two-person control for the POC (single-reviewer mode, below) and needs the
+owner's (Shane's) explicit acceptance before merge.**
 
 ## Date
 
@@ -19,7 +21,8 @@ flow is amended by D-076 (proposed, needs the owner's acceptance): drafts no lon
 PR #99 adds a knowledge loop to the separate AI Assistant service (`apps/assistant`):
 reviewed official guidance and approved past resolutions are retrieved and cited in answers,
 RMs can mark an answer as solved or not helpful, and Directors review drafts (since D-076,
-proposed: a helpful rating only, and a "Not helpful" note is an enhancement request). The 2026-10-06
+proposed: a helpful rating only, and a "Not helpful" note is an enhancement request that a
+Director handles). The 2026-10-06
 architecture entry describes the assistant as read-only with no persistence owner; that is
 still true towards the CLM backend (GET only) but no longer true for the assistant's own
 data. The independent quality gate on `ad4661c` (FAIL) and its architecture review (REVISE)
@@ -38,8 +41,9 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   `apps/assistant/data/` (git-ignored) and hold no CLM case data beyond redacted drafts.
 - Versions are append-only. A reviewer's edit is a new version written by that reviewer
   (`revises` names the version it came from); the earlier version is kept unchanged and
-  taken out of review. Nobody who wrote a version in that chain may decide it, and every
-  API decision or edit carries the content hash of the version the reviewer was shown.
+  taken out of review. Nobody who wrote a version in that chain may decide it (except in the
+  POC's single-reviewer mode, below), and every API decision or edit carries the content
+  hash of the version the reviewer was shown.
   Every change runs in one SQLite write transaction taken before its checks (BEGIN
   IMMEDIATE) and moves a version on only while it is still pending, so concurrent decisions
   or edits have exactly one winner and the others get a clean 409. The first check in a
@@ -52,26 +56,42 @@ checks of model prose, and the owner then decided G6 (section C). Review authori
   records the rating with the case context (blocker codes, fields, stages) and counts towards
   confidence by topic in the stats; it drafts nothing and changes no retrieval or ranking.
   "Not helpful" needs a non-blank note (422 otherwise) and is an enhancement request
-  ("gap" in the code). A reviewer handles an open request in one of two ways: drafting a past
-  resolution from it, written by that reviewer, so a different reviewer must approve it
-  (approval marks the request resolved, rejection opens it again), or closing it with a
-  required reason. Both are review changes and recheck the caller inside the write
-  transaction like every other one.
+  ("gap" in the code). Directors (`POLICY_APPROVE`) handle an open request end to end; HR
+  does not (it has no case access). A Director either writes the fix, a past resolution or a
+  guidance change (new guidance, or a new version of existing guidance, whose visibility it
+  keeps unless the Director sets one), linked to the request and pending review like any
+  other entry (publishing it marks the request resolved, rejecting it opens it again), or
+  closes the request with a required reason. Both recheck the caller inside the write
+  transaction like every other review change.
+- Single-reviewer mode (D-076, proposed; **relaxes D-074's two-person control for the POC and
+  needs the owner's (Shane's) explicit acceptance before merge**). Why: the synthetic users
+  have one Director (olivia-koh) and only `POLICY_APPROVE` approves knowledge, so with
+  author ≠ approver nothing a Director writes could be published. The setting
+  `AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER` (default true for this POC) lets a reviewer approve
+  or reject an entry they wrote or edited. Approving shows them the entry's final text and
+  needs an explicit confirmation (`confirm_single_reviewer`; otherwise 403
+  `CONFIRM_SINGLE_REVIEWER`); every such decision is recorded as single-reviewer in the
+  review history and listed in the Review window. With the setting false the two-person rule
+  applies unchanged. In both modes the decision stays bound to the content hash, the sentence
+  checks and redaction stay as they are, and retiring an approved entry still takes two
+  reviewers.
 - Team scope: a draft from an enhancement request carries the team the request came from
   (before D-076, a "Solved it" draft carried its RM author's team). Directors, whom
   the CLM backend scopes globally (a Director has no team), see, edit and decide every
   team's drafts and enhancement requests, and their stats count every team; other actors
   keep the team rule and see only their own team's drafts, requests and stats. An edit can narrow team and role
   visibility but never widen it. HR guidance keeps the visibility HR sets.
-- Drafts contain only the RM's own note and the case context (since D-076; earlier drafts
-  also used the RM's questions), the note redacted when it is stored of the company, addresses and identifiers, and of the parties the case summary names in the
-  shapes the redactor knows: objects with a `party_type`, entries of person lists such as
+- Redaction: an enhancement request's note is redacted when it is stored, and a Director's
+  fix (since D-076) is redacted against the request's own case, loaded with the Director's
+  session (a case they cannot load stops the change), before it is stored; earlier "Solved it"
+  drafts used the RM's note and questions. Both remove the company, addresses and
+  identifiers, and the parties the case summary names in the shapes the redactor knows: objects with a `party_type`, entries of person lists such as
   `officers` and `shareholders` (registry officers carry no `party_type`), and person-name
   fields. A known address is replaced whole and also by each of its comma-separated parts
   that has a letter and at least 6 characters (a street line; a bare country code such as
   `SG` is kept). Matching ignores letter case and whitespace between words. Names the case
-  data does not contain, or spells differently, are not recognised. The draft passes the
-  pattern redaction again. Feedback no longer carries the conversation at all.
+  data does not contain, or spells differently, are not recognised (bank staff, such as the
+  RM, are not case parties). Feedback no longer carries the conversation at all.
 - ChromaDB product telemetry is disabled (`Settings(anonymized_telemetry=False)`) on every
   client. The embedding endpoint must be a literal loopback URL (the warm-up rule,
   `llm.is_local_model_url`); embedding requests ignore proxy environment variables and do
@@ -144,7 +164,10 @@ replacement. Do not silently remove mandatory checks."
   them only and show unfiltered entries by design.
 - Controls for knowledge content: **two-person approval of every version is the primary,
   robust control** (two different identities, a decision bound to the content hash,
-  team-scoped except for global Directors). The sentence checks are a **secondary,
+  team-scoped except for global Directors). D-076 (proposed, needs the owner's explicit
+  acceptance) relaxes this for the POC: with `AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER` on (the
+  default), one confirmed reviewer may publish their own entry, recorded as single-reviewer;
+  the sentence checks below are unchanged and then carry more of the weight. The sentence checks are a **secondary,
   best-effort filter** with documented limits. They run on knowledge text only, never on
   model text, and fail closed: characters
   outside printable ASCII and typographic quotes, dashes, ellipsis and bullet (tabs,
@@ -255,20 +278,23 @@ embedding model (Ollama); without it, index tasks wait and keyword search still 
 ## Security and persistence implications
 
 SQLite schema v3 adds `entries.revises` (nullable) and a `retire_requests` table; v1 and v2
-stores are migrated in place on open. Schema v4 (D-076) rebuilds the `feedback` table, in one
-transaction, to add a `resolved` status and a nullable `close_reason`; every existing row keeps
-its values and has no close reason. A reviewer who edited a pending version in place under
+stores are migrated in place on open. Schema v4 (D-076) adds `reviews.single_reviewer` (0 for
+every existing decision) and rebuilds the `feedback` table, in one transaction, to add a
+`resolved` status and a nullable `close_reason`; every existing row keeps its values and has
+no close reason. A reviewer who edited a pending version in place under
 schema v2 has only an 'edit' review row on it; that row counts as editing, so they stay barred
 from deciding it after the migration, and the version is left out of the RM author's own
 view of the entry. No credentials are stored. Redaction is a first pass: names that appear nowhere in
-the case data are not recognised, so Director review remains required before approval.
+the case data are not recognised, so Director review, with the final text shown before
+publishing, remains required before approval.
 
 ## Migration and retirement implications
 
 Opening an older store migrates it (v1 -> v2 -> v3 -> v4). Code from before v4 can still
-open a v4 store (it names the feedback columns it writes), but it rewrites the schema
-version to 3, drafts from "Yes, helpful" again and closes requests without a reason; the
-v4 code then leaves the already rebuilt table as it is. Rolling back to the PR #99 author head
+open a v4 store (it names the feedback and review columns it writes), but it rewrites the
+schema version to 3, enforces two-person review again, drafts from "Yes, helpful" again and
+closes requests without a reason; the v4 code then leaves the already migrated tables as
+they are. Rolling back to the PR #99 author head
 (`ad4661c`) after a v3 store has been written is not supported: that code rewrites the
 schema version to 2 and can still read and decide, but cannot add a version (it inserts 20
 values into a 21-column table), and it would ignore edit chains and retirement requests. To
@@ -289,9 +315,12 @@ per-answer knowledge bound with the fourth gate's pathological entries; 64 KiB s
 including whitespace runs and long tokens with a per-feed bound. Cross-team, global-Director,
 edit-then-approve, two-person retirement, concurrent decision/edit, officer and address-part
 redaction and forged-turn regressions; restart/persistence and v2-to-v3 migration tests.
-D-076: helpful-only ratings, required notes, drafting from and closing enhancement requests
-(scope, two-person rule, resolve/reopen, concurrent draft and close, in-transaction recheck)
-and the v3-to-v4 migration.
+D-076: helpful-only ratings, required notes, a Director's fix (past case, new or changed
+guidance) for and closing of enhancement requests (scope, HR refused, redaction against the
+request's case, resolve/reopen, concurrent draft and close, in-transaction recheck), single-
+reviewer mode on and off (confirmation, history marks, editor, second reviewer, self-reject,
+two-person retirement unchanged), the full flow with the real synthetic roles (maya-lim,
+olivia-koh, hr-admin) and the v3-to-v4 migration.
 Frontend Vitest, typecheck and build; real-embedding retrieval evaluation with a local model
 `NOT_EXECUTED — MODEL NOT INSTALLED / OWNER-DEFERRED` (D-075);
 architecture and project-state checks; a fresh independent quality gate and an independent
@@ -299,7 +328,8 @@ architecture review of section C.
 
 ## Revisit conditions
 
-Sponsor review authority (Q-014), any non-local embedding or model endpoint, cross-team
+Sponsor review authority (Q-014), a second Director account or any non-POC use (turn off
+single-reviewer mode, D-076), any non-local embedding or model endpoint, cross-team
 knowledge sharing, an `@assistant-ui/react` major upgrade, any further guardrail bypass, or a
 proposal to show model text that is not an allowed line.
 

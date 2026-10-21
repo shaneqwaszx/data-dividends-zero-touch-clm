@@ -71,8 +71,13 @@ def kb(tmp_path: Path) -> KnowledgeBase:
     return knowledge
 
 
-def client(kb: KnowledgeBase, session: str) -> TestClient:
-    settings = AiAssistantSettings(_env_file=None, llm_enabled=False)  # type: ignore[call-arg]
+def client(kb: KnowledgeBase, session: str, *, single_reviewer: bool = False) -> TestClient:
+    """A signed-in browser. Two-person review unless ``single_reviewer`` (the POC setting,
+    D-076, which defaults to on): these tests prove the two-person rule unchanged."""
+
+    settings = AiAssistantSettings(  # type: ignore[call-arg]
+        _env_file=None, llm_enabled=False, knowledge_single_reviewer=single_reviewer
+    )
     app = create_app(
         settings, clm_transport=httpx.MockTransport(handler), chat_model=FakeModel(), knowledge=kb
     )
@@ -125,16 +130,24 @@ def not_helpful(kb: KnowledgeBase, note: str = "No proof list.") -> int:
     return int(reply.json()["feedback_id"])
 
 
+def fix(note: str = "Client confirmed ACRA is current.") -> dict[str, Any]:
+    """A Director's fix for a request, written as a past resolution."""
+
+    return {"kind": "resolution", "title": "Proof list for moved offices", "body": f"Fix: {note}"}
+
+
 def drafted(
     kb: KnowledgeBase,
     note: str = "Client confirmed ACRA is current.",
     session: str = "drafter-session",
 ) -> str:
-    """A draft past resolution pending review: an RM's enhancement request that a Director
-    (by default director-drew) resolves by drafting knowledge. Returns the draft's entry id."""
+    """A past resolution pending review: an RM's enhancement request for which a Director
+    (by default director-drew) writes the fix. Returns the entry id."""
 
     feedback_id = not_helpful(kb, note)
-    reply = client(kb, session).post(f"/assistant/knowledge/feedback/{feedback_id}/draft")
+    reply = client(kb, session).post(
+        f"/assistant/knowledge/feedback/{feedback_id}/draft", json=fix(note)
+    )
     assert reply.status_code == 200, reply.text
     return str(reply.json()["entry_id"])
 
@@ -212,22 +225,31 @@ def test_feedback_no_longer_takes_the_conversation(kb: KnowledgeBase) -> None:
     assert kb.store.feedback() == []
 
 
-def test_drafting_from_a_request_makes_a_redacted_draft_another_reviewer_approves(
+def test_a_directors_fix_is_a_redacted_draft_another_reviewer_approves(
     kb: KnowledgeBase,
 ) -> None:
-    feedback_id = not_helpful(
-        kb, "Called Maya Lim at maya@bank.com; GARDEN BUSINESS needs a proof list."
+    feedback_id = not_helpful(kb, "It did not list the proof to ask for.")
+    written = {
+        "kind": "resolution",
+        "title": "Proof list for GARDEN BUSINESS",
+        "body": "Asked Lim Choon Huat at ubo@client.example; GARDEN BUSINESS sent the lease.",
+        "follow_ups": ["What about UEN 11111999A?"],
+    }
+    reply = client(kb, "drafter-session").post(
+        f"/assistant/knowledge/feedback/{feedback_id}/draft", json=written
     )
-    reply = client(kb, "drafter-session").post(f"/assistant/knowledge/feedback/{feedback_id}/draft")
     assert reply.status_code == 200
     draft = reply.json()
     assert draft["status"] == "pending_review" and draft["kind"] == "resolution"
     assert draft["author"] == "director-drew" and draft["visibility"]["teams"] == ["TEAM_A"]
     assert draft["source_ref"] == f"Enhancement request {feedback_id}"
-    text = draft["title"] + draft["body"]
-    for secret in ("GARDEN BUSINESS", "maya@bank.com", "Maya Lim"):
+    # The Director's text is redacted against the request's case, then by pattern.
+    text = draft["title"] + draft["body"] + " ".join(draft["follow_ups"])
+    for secret in ("GARDEN BUSINESS", "ubo@client.example", "Lim Choon Huat", "11111999A"):
         assert secret not in text
-    assert "[COMPANY]" in draft["body"] and "[EMAIL]" in draft["body"]
+    for placeholder in ("[COMPANY]", "[EMAIL]", "[PERSON]"):
+        assert placeholder in draft["body"]
+    assert draft["follow_ups"] == ["What about UEN [UEN]?"]
     assert "DOCUMENT_SOURCE_CONFLICT" in draft["blocker_codes"]
     assert kb.index.keys(EntryKind.RESOLUTION) == set()  # not searchable until approved
     # The request is linked to the draft and leaves the open list.
@@ -264,7 +286,9 @@ def test_rejecting_the_draft_opens_its_request_again(kb: KnowledgeBase, version:
     gaps = client(kb, "director-session").get("/assistant/knowledge/reviews").json()["gaps"]
     assert [gap["id"] for gap in gaps] == [row["id"]]
     # It can be drafted again, as a new entry.
-    again = client(kb, "director-session").post(f"/assistant/knowledge/feedback/{row['id']}/draft")
+    again = client(kb, "director-session").post(
+        f"/assistant/knowledge/feedback/{row['id']}/draft", json=fix()
+    )
     assert again.status_code == 200 and again.json()["entry_id"] != entry_id
 
 
@@ -290,7 +314,7 @@ def test_only_an_open_request_can_be_drafted_or_closed(kb: KnowledgeBase) -> Non
     entry_id = drafted(kb)
     pending = next(row["id"] for row in kb.store.feedback() if row["entry_id"] == entry_id)
     for feedback_id in (closed, pending):
-        for action, body in (("draft", None), ("close", {"reason": "Again."})):
+        for action, body in (("draft", fix()), ("close", {"reason": "Again."})):
             reply = director.post(
                 f"/assistant/knowledge/feedback/{feedback_id}/{action}", json=body
             )
@@ -312,7 +336,7 @@ def test_a_helpful_rating_or_a_missing_request_is_not_an_enhancement_request(
     rating = kb.store.feedback()[0]["id"]
     director = client(kb, "director-session")
     for feedback_id in (rating, 999):
-        for action, body in (("draft", None), ("close", {"reason": "Not needed."})):
+        for action, body in (("draft", fix()), ("close", {"reason": "Not needed."})):
             reply = director.post(
                 f"/assistant/knowledge/feedback/{feedback_id}/{action}", json=body
             )
@@ -321,11 +345,13 @@ def test_a_helpful_rating_or_a_missing_request_is_not_an_enhancement_request(
     assert kb.store.feedback()[0]["close_reason"] is None and resolutions(kb) == []
 
 
-def test_only_a_reviewer_handles_enhancement_requests(kb: KnowledgeBase) -> None:
+def test_only_a_director_handles_enhancement_requests(kb: KnowledgeBase) -> None:
+    # HR has no case access: it neither writes the fix nor closes a request.
     feedback_id = not_helpful(kb)
     for session in ("rm-session", "hr-session"):
         c = client(kb, session)
-        assert c.post(f"/assistant/knowledge/feedback/{feedback_id}/draft").status_code == 403
+        drafting = c.post(f"/assistant/knowledge/feedback/{feedback_id}/draft", json=fix())
+        assert drafting.status_code == 403
         closed = c.post(f"/assistant/knowledge/feedback/{feedback_id}/close", json={"reason": "x"})
         assert closed.status_code == 403
     assert kb.store.feedback()[0]["status"] == "open" and resolutions(kb) == []
@@ -472,7 +498,9 @@ def test_a_director_from_another_team_sees_and_decides_nothing_of_team_a(
     gap_id = own["gaps"][0]["id"]
     closing = other.post(f"/assistant/knowledge/feedback/{gap_id}/close", json={"reason": "x"})
     assert closing.status_code == 404
-    assert other.post(f"/assistant/knowledge/feedback/{gap_id}/draft").status_code == 404
+    assert (
+        other.post(f"/assistant/knowledge/feedback/{gap_id}/draft", json=fix()).status_code == 404
+    )
     assert kb.store.feedback(status="open")[0]["id"] == gap_id
     # Once approved, the resolution is searchable for TEAM_A only.
     decide(kb, "director-session", entry_id, 1)
@@ -748,6 +776,7 @@ def test_directors_can_retire_with_two_people_and_see_stats(kb: KnowledgeBase) -
         "user_id": "director-dan",
         "can_review": True,
         "can_edit_guidance": False,
+        "single_reviewer": False,
     }
 
 
@@ -803,13 +832,37 @@ V3_FEEDBACK = (
 )
 
 
+# The reviews table of schema v2 and v3: no single-reviewer mark.
+V3_REVIEWS = (
+    "CREATE TABLE reviews (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT NOT NULL,"
+    " version INTEGER NOT NULL, reviewer TEXT NOT NULL, decision TEXT NOT NULL"
+    " CHECK (decision IN ('approve', 'reject', 'retire', 'edit')), notes TEXT NOT NULL,"
+    " created_at TEXT NOT NULL,"
+    " FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version));"
+)
+
+
 def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Path) -> None:
     import sqlite3
 
     path = tmp_path / "v3.sqlite3"
-    KnowledgeStore(path)
+    seeded = KnowledgeStore(path)
+    rule = seeded.add_version(
+        Entry(
+            entry_id="guidance.rule",
+            kind=EntryKind.GUIDANCE,
+            title="Rule",
+            body="A rule for the demo.",
+            author="hr-hana",
+        )
+    )
+    seeded.decide(rule.entry_id, 1, reviewer="director-dan", approve=True)
     with sqlite3.connect(path) as db:
         db.executescript(
+            "ALTER TABLE reviews RENAME TO reviews_v4;"
+            + V3_REVIEWS
+            + "INSERT INTO reviews SELECT id, entry_id, version, reviewer, decision, notes,"
+            " created_at FROM reviews_v4; DROP TABLE reviews_v4;"
             "DROP TABLE feedback;"
             + V3_FEEDBACK
             + "UPDATE meta SET value = '3' WHERE key = 'schema_version';"
@@ -831,8 +884,13 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
             db.execute("SELECT name FROM sqlite_master WHERE name = 'feedback_v3'").fetchone()
             is None
         )
-    # Every row keeps its values; none has a close reason.
+    # Every row keeps its values; none has a close reason, and no earlier decision was a
+    # single-reviewer one.
     assert after == [(*row, None) for row in before]
+    assert [(r["decision"], r["single_reviewer"]) for r in store.reviews("guidance.rule")] == [
+        ("approve", False)
+    ]
+    assert store.single_reviewer_approvals() == set()
     # The open request can now be closed with a reason; new rows continue the ids.
     store.close_feedback(2, by="director-dan", reason="Covered by guidance.")
     assert store.feedback(status="closed", helpful=False)[0]["close_reason"] == (

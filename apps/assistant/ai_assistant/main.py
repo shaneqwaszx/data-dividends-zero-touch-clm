@@ -366,7 +366,11 @@ def create_app(
 
         app.include_router(
             knowledge_router(
-                kb=knowledge, backend=backend, check_origin=check_origin, load_case=load_case
+                kb=knowledge,
+                backend=backend,
+                check_origin=check_origin,
+                load_case=load_case,
+                single_reviewer=config.knowledge_single_reviewer,
             )
         )
 

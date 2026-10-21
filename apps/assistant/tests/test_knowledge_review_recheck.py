@@ -122,7 +122,9 @@ class Backend:
         return review.handler(request)
 
     def client(self, kb: KnowledgeBase) -> TestClient:  # noqa: F811
-        settings = AiAssistantSettings(_env_file=None, llm_enabled=False)  # type: ignore[call-arg]
+        settings = AiAssistantSettings(  # type: ignore[call-arg]
+            _env_file=None, llm_enabled=False, knowledge_single_reviewer=False
+        )
         app = create_app(
             settings, clm_transport=httpx.MockTransport(self), chat_model=FakeModel(), knowledge=kb
         )
@@ -179,7 +181,7 @@ def _draft_from_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
     )
     assert reply.status_code == 200
     gap = kb.store.feedback(status="open")[0]["id"]
-    return "director-session", f"/assistant/knowledge/feedback/{gap}/draft", None
+    return "director-session", f"/assistant/knowledge/feedback/{gap}/draft", review.fix()
 
 
 def _reindex(kb: KnowledgeBase) -> Mutation:  # noqa: F811
@@ -245,7 +247,12 @@ def test_a_caller_revoked_during_the_request_changes_nothing(
     # Nothing written: no new version, review, retire request, index task or vector; the
     # draft is still pending and the gap still open.
     assert _state(quiet_kb, tmp_path / "knowledge.sqlite3") == before
-    assert backend.me_calls == 2
+    # The route's own check, the in-transaction recheck, and for the fix to a request also
+    # the case load between them (which already fails for a revoked session or a down backend).
+    loads_case = mutation == "draft-from-gap" and revoked in {"capability", "another-user"}
+    assert backend.me_calls == (3 if loads_case else 2)
+    if loads_case:
+        assert backend.locked == [False, True]  # the refusal came from inside the write
 
 
 @pytest.mark.parametrize("mutation", ["edit", "decision", "close-gap", "draft-from-gap"])
@@ -274,8 +281,11 @@ def test_the_caller_is_reloaded_while_the_write_lock_is_held(
     )
     reply = backend.client(quiet_kb).post(path, json=body)
     assert reply.status_code == 200, reply.text
-    # Reindex checks once before it removes any vector, then again inside its write.
-    assert backend.locked == ([False, True] if mutation == "reindex" else [True])
+    # Reindex checks once before it removes any vector, then again inside its write. Writing
+    # the fix for a request first loads the request's case (to redact the fix against it)
+    # with the caller's session, outside the write; the recheck still runs inside it.
+    unlocked_first = mutation in {"reindex", "draft-from-gap"}
+    assert backend.locked == ([False, True] if unlocked_first else [True])
 
 
 class Refused(Exception):

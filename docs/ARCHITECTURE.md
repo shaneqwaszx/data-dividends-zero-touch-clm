@@ -972,11 +972,15 @@ knowledge the user may see adds lines only as verbatim, tagged sentences that pa
 sentence-level checks against the case facts, with titles and follow-up questions under the
 same checks; the owner accepted this extension on 2026-10-21 (D-074). Two-person approval is
 the primary control for knowledge content and the checks are a best-effort filter. RM
-feedback (D-076, proposed, needs the owner's acceptance): "Yes, helpful" only records a
-rating with the case context, counted per blocker code in the reviewer's stats; "Not
-helpful" needs a note and becomes an enhancement request, which a reviewer resolves by
-drafting a past resolution from it (a different reviewer approves it) or closes with a
-reason, both rechecked inside the SQLite write transaction (schema v4). The
+feedback (D-076, proposed): "Yes, helpful" only records a rating with the case context,
+counted per blocker code in the reviewer's stats; "Not helpful" needs a note and becomes an
+enhancement request, which a Director handles end to end: writes the fix (a past case or a
+guidance change, redacted against the request's case) or closes it with a reason, both
+rechecked inside the SQLite write transaction (schema v4). D-076's POC single-reviewer mode
+(`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER`, default true; the synthetic users have one
+Director) relaxes D-074's two-person control: a reviewer may publish their own entry after
+seeing its final text and confirming, recorded as single-reviewer; it needs the owner's
+explicit acceptance before merge. Retirement still takes two reviewers. The
 2026-10-06 read-only description above stays current main until PR #99 is accepted and
 merged.
 

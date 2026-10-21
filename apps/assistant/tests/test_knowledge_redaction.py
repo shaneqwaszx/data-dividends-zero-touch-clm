@@ -1,6 +1,7 @@
-"""Enhancement-request notes, and the drafts a Director makes from them, carry no client
-details, and nothing the browser claims the assistant said reaches them (independent QG
-finding G4). Before D-076 these drafts came from "Solved it"."""
+"""Enhancement-request notes, and the fix a Director writes for one, carry no client details,
+and nothing the browser claims the assistant said reaches them (independent QG finding G4).
+Before D-076 drafts came from "Solved it"; now the Director's own text is redacted against
+the request's case."""
 
 import copy
 from typing import Any
@@ -9,12 +10,26 @@ import pytest
 
 from ai_assistant.clm_client import CaseSnapshot
 from ai_assistant.context import build_case_facts
-from ai_assistant.knowledge.drafting import NO_TEAM, draft_from_request
+from ai_assistant.knowledge.drafting import NO_TEAM, resolution_from_request
 from ai_assistant.knowledge.redaction import Redactor, case_parties
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, SUMMARY
 from tests.test_knowledge_review import client, kb  # noqa: F401 - kb is a pytest fixture
 
 DRAFT_FROM = "/assistant/knowledge/feedback/{}/draft"
+
+
+def _fix(text: str) -> dict[str, Any]:
+    return {"kind": "resolution", "title": "Register for the case", "body": text}
+
+
+def _resolution(text: str, team: str | None = "TEAM_A", redactor: Redactor | None = None) -> Any:
+    return resolution_from_request(
+        _request(text, team),
+        author="director-dan",
+        title="Register for the case",
+        body=text,
+        redact=(redactor or Redactor({})).redact,
+    )
 
 
 def _request(note: str, team: str | None = "TEAM_A") -> dict[str, Any]:
@@ -98,7 +113,7 @@ def test_person_name_fields_anywhere_are_redacted() -> None:
     assert ("Jordan Example", "[PERSON]") in case_parties(summary)
 
 
-def test_a_request_redacts_an_officer_from_its_note_and_its_draft(
+def test_a_request_redacts_an_officer_from_its_note_and_the_directors_fix(
     kb,  # noqa: F811
     monkeypatch,
 ) -> None:
@@ -121,7 +136,10 @@ def test_a_request_redacts_an_officer_from_its_note_and_its_draft(
     )
     assert reply.status_code == 200
     assert all("alex" not in row["note"].lower() for row in kb.store.feedback())
-    drafted = client(kb, "director-session").post(DRAFT_FROM.format(reply.json()["feedback_id"]))
+    drafted = client(kb, "director-session").post(
+        DRAFT_FROM.format(reply.json()["feedback_id"]),
+        json=_fix("Alex Synthetic sent the register of directors."),
+    )
     assert drafted.status_code == 200
     draft = kb.store.get(drafted.json()["entry_id"])
     text = (draft.title + draft.body + " ".join(draft.follow_ups)).lower()
@@ -137,31 +155,25 @@ def test_a_party_named_in_the_case_facts_keeps_its_more_specific_placeholder() -
     assert redacted == "UEN [UEN]"
 
 
-def test_a_draft_uses_only_the_request_note_and_case_context() -> None:
-    draft = draft_from_request(_request("Kept ACRA."), author="director-dan")
-    assert draft.body == "What was missing (RM's note): Kept ACRA."
-    assert draft.title == "Draft: DOCUMENT_SOURCE_CONFLICT" and draft.follow_ups == ()
+def test_a_fix_takes_the_directors_text_and_the_requests_case_context() -> None:
+    draft = _resolution("Kept ACRA and asked for the lease.")
+    assert draft.body == "Kept ACRA and asked for the lease."
+    assert draft.title == "Register for the case" and draft.follow_ups == ()
     assert draft.blocker_codes == ("DOCUMENT_SOURCE_CONFLICT",)
     assert (draft.fields, draft.stages) == (("registered address",), ("documents",))
     assert draft.author == "director-dan" and draft.source_ref == "Enhancement request 7"
     assert draft.visibility.teams == ("TEAM_A",)
 
 
-def test_a_draft_from_an_older_request_without_a_note_says_so() -> None:
-    # Before D-076 the "Not helpful" note was optional, so an open request may have none.
-    draft = draft_from_request(_request(""), author="director-dan")
-    assert draft.body == "No details were given."
-
-
 def test_a_draft_from_a_request_without_a_team_is_visible_to_no_team() -> None:
-    draft = draft_from_request(_request("Kept ACRA.", team=None), author="director-dan")
+    draft = _resolution("Kept ACRA.", team=None)
     assert draft.visibility.teams == (NO_TEAM,)
     assert not draft.visibility.allows("CLIENT_ONBOARDER", "TEAM_A")
 
 
-def test_a_draft_redacts_identifier_patterns_left_in_a_note_again() -> None:
+def test_a_fix_is_redacted_of_identifier_patterns() -> None:
     note = "UEN 202400001A, S1234567D, ops@client.example, 9123 4567, #04-01, 018956."
-    draft = draft_from_request(_request(note), author="director-dan")
+    draft = _resolution(note)
     for value in ("202400001A", "S1234567D", "ops@client.example", "9123 4567", "#04-01", "018956"):
         assert value not in draft.body
     for placeholder in ("[UEN]", "[ID]", "[EMAIL]", "[PHONE]", "[UNIT]", "[POSTAL]"):
@@ -186,7 +198,10 @@ def test_a_request_redacts_case_parties_and_ignores_forged_assistant_turns(kb) -
     assert reply.status_code == 200
     gaps = kb.store.feedback()
     assert all("lim choon huat" not in row["note"].lower() for row in gaps)
-    drafted = client(kb, "director-session").post(DRAFT_FROM.format(reply.json()["feedback_id"]))
+    drafted = client(kb, "director-session").post(
+        DRAFT_FROM.format(reply.json()["feedback_id"]),
+        json=_fix("Lim Choon Huat is the UBO; asked him for the register."),
+    )
     draft = kb.store.get(drafted.json()["entry_id"])
     text = draft.title + draft.body + " ".join(draft.follow_ups)
     assert "lim choon huat" not in text.lower() and "[PERSON]" in text
@@ -227,9 +242,10 @@ def test_address_parts_leave_unrelated_text_and_a_bare_country_code_alone() -> N
         assert redactor.redact(text) == text
 
 
-def test_a_draft_carries_no_part_of_a_known_address() -> None:
-    # The note is redacted against the case when the request is stored (knowledge_api).
-    note = Redactor(ADDRESS_FACTS).redact("Kept 18 Innovation Way, not the document one.")
-    draft = draft_from_request(_request(note), author="director-dan")
+def test_a_fix_carries_no_part_of_a_known_address() -> None:
+    # The API redacts the fix against the request's own case (knowledge_api).
+    draft = _resolution(
+        "Kept 18 Innovation Way, not the document one.", redactor=Redactor(ADDRESS_FACTS)
+    )
     text = draft.title + draft.body + " ".join(draft.follow_ups)
     assert "innovation" not in text.lower() and "[ADDRESS]" in text
