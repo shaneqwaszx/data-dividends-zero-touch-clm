@@ -274,6 +274,148 @@ def test_guard_retires_complete_text_and_never_reparses_it() -> None:
     assert guard.finish() == allowed
 
 
+def test_guard_never_shows_an_unfinished_line() -> None:
+    from ai_assistant.guardrails import allowed_guidance
+
+    first, second = allowed_guidance({})[:2]
+    guard = StreamingGuard({})
+    assert guard.feed(first[:10]) is None
+    assert guard.feed(first[10:] + "\n" + second) == first
+    # A failure now keeps only the finished line; the normal end looks up the last one too.
+    assert guard.validation().text == first
+    assert guard.finish() == first + "\n" + second
+
+
+def _allowed_line() -> str:
+    from ai_assistant.guardrails import allowed_guidance
+
+    return allowed_guidance({})[0]
+
+
+# 64 KiB shapes: whitespace runs (QG on 79621fe), long tokens before a claim word and the
+# other slow paths of the sentence checks (QG on 97612a1, probe_g5). Model text is only split
+# into lines and looked up, so every shape must stay fast.
+LONG_SHAPES = {
+    "spaces then text": " " * (63 * 1024) + "x",
+    "tabs then text": "\t" * (63 * 1024) + "x",
+    "nbsp then text": "\u00a0" * (31 * 1024) + "x.",
+    "marker then spaces": "1." + " " * (63 * 1024) + "Open the case page.",
+    "spaces then an allowed line": " " * (60 * 1024) + _allowed_line() + "\n",
+    "long token then a claim word": "a" * (63 * 1024) + " confirmed.",
+    "long underscores then a claim word": "_" * (63 * 1024) + " confirmed.",
+    "long hyphens then a claim word": "-" * (63 * 1024) + " confirmed.",
+    "long slashes then a claim": "/" * (63 * 1024) + " the ubos are verified.",
+    "long apostrophes then a claim word": "'" * (63 * 1024) + " confirmed.",
+    "or chain then a claim": "x or " * (12 * 1024) + "y z kyc approval.",
+    "empty parentheses": " ()" * (21 * 1024) + " y.",
+    "negated actions": "cannot resend, " * (4 * 1024) + ".",
+    "many short lines": "Open it.\n" * (7 * 1024),
+    "allowed line repeated": (_allowed_line() + "\n") * (60 * 1024 // 90),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(LONG_SHAPES))
+@pytest.mark.parametrize("chunk", [1, 7, 64 * 1024])
+def test_guard_stays_linear_on_64_kib_of_any_shape(shape: str, chunk: int) -> None:
+    """The whole stream and every single feed stay within a small budget, and the result
+    equals the batch check of the whole text."""
+
+    from ai_assistant.guardrails import MAX_MODEL_TEXT_BYTES, validate_answer
+
+    text = LONG_SHAPES[shape]
+    assert len(text.encode()) <= MAX_MODEL_TEXT_BYTES
+    guard = StreamingGuard({})
+    worst = 0.0
+    started = time.perf_counter()
+    for start in range(0, len(text), chunk):
+        call = time.perf_counter()
+        guard.feed(text[start : start + chunk])
+        worst = max(worst, time.perf_counter() - call)
+    call = time.perf_counter()
+    final = guard.finish()
+    worst = max(worst, time.perf_counter() - call)
+    total = time.perf_counter() - started
+    assert total < 5.0, f"{shape}: {total:.2f}s in total"
+    assert worst < 0.5, f"{shape}: one feed call took {worst:.2f}s"
+    whole_started = time.perf_counter()
+    whole = validate_answer(text, {})
+    assert time.perf_counter() - whole_started < 1.0
+    assert (final, guard.validation().left_out) == (whole.text, whole.left_out)
+
+
+def _tiny_sentence_bodies() -> list[tuple[str, str]]:
+    """QG_PR99_c2c391c K4: six approved 4,000-character entries of tiny distinct sentences."""
+
+    import itertools
+    import string
+
+    words = ("".join(p).capitalize() for p in itertools.product(string.ascii_lowercase, repeat=3))
+    bodies = []
+    for tag in ("G1", "G2", "G3", "P1", "P2", "P3"):
+        body = ""
+        while len(body) < 3990:
+            body += next(words) + ". "
+        bodies.append((tag, body[:4000].rsplit(" ", 1)[0]))
+    return bodies
+
+
+@pytest.mark.parametrize("shape", ["tiny sentences", "long sentences"])
+def test_knowledge_offered_in_one_answer_and_its_stream_are_bounded(shape: str) -> None:
+    from ai_assistant.guardrails import (
+        MAX_KNOWLEDGE_BYTES,
+        MAX_KNOWLEDGE_LINES,
+        MAX_LINES_PER_ENTRY,
+        allowed_guidance,
+        knowledge_lines,
+    )
+    from tests.test_grounding import FACTS
+
+    bodies = (
+        _tiny_sentence_bodies()
+        if shape == "tiny sentences"
+        else [
+            (tag, "Open the case page " + "and read it " * 330 + ".")
+            for tag, _ in _tiny_sentence_bodies()
+        ]
+    )
+    lines = knowledge_lines(FACTS, bodies)
+    assert 0 < len(lines) <= MAX_KNOWLEDGE_LINES  # 4,788 lines were offered at c2c391c
+    assert sum(len(line.encode()) + 1 for line in lines) <= MAX_KNOWLEDGE_BYTES
+    for tag, _ in bodies:
+        assert len([line for line in lines if line.endswith(f" [{tag}]")]) <= MAX_LINES_PER_ENTRY
+    # A model that emits every allowed line in 1-byte pieces: about 126 MB of text events
+    # at c2c391c, now bounded by (allowed lines) x (allowed text).
+    text = "\n".join([*allowed_guidance(FACTS), *lines]) + "\n"
+    guard = StreamingGuard(FACTS, knowledge_lines=lines)
+    events = sent = 0
+    for character in text:
+        shown = guard.feed(character)
+        if shown is not None:
+            events += 1
+            sent += len(json.dumps({"type": "text", "text": shown}, ensure_ascii=False))
+    assert guard.finish() == text.strip()
+    assert sent < 512 * 1024, f"{events} text events, {sent} bytes"
+
+
+def test_streamed_and_whole_answer_checks_agree() -> None:
+    from ai_assistant.guardrails import allowed_guidance, validate_answer
+
+    first, second, third = allowed_guidance({})[:3]
+    answer = (
+        f"Here is what to do:\r\n{first}\r\n\r\n  {second}  \n{first}\nApprove the case.\u2028"
+        f"{third}\x85- {second}\n{third}"
+    )
+    whole = validate_answer(answer, {})
+    assert whole.text == "\n".join([first, second, third])
+    assert whole.left_out == 3
+    for size in (1, 2, 5, 13, len(answer)):
+        guard = StreamingGuard({})
+        for start in range(0, len(answer), size):
+            guard.feed(answer[start : start + size])
+        assert guard.finish() == whole.text
+        assert guard.validation() == whole
+
+
 def test_pending_read_cancellation_closes_source_without_completion() -> None:
     async def run() -> None:
         closed = asyncio.Event()

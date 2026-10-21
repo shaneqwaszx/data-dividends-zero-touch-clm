@@ -78,6 +78,17 @@ class ClmBackendClient:
             headers={"Accept": "application/json"},
         )
 
+    def load_actor(self, session_token: str | None) -> dict[str, Any]:
+        """Who is signed in (role, team, capabilities), as the backend reports it."""
+
+        with self._client(session_token) as client:
+            actor = self._get(client, "/api/auth/me")
+        if not isinstance(actor, dict) or not isinstance(actor.get("profile"), dict):
+            raise ClmBackendError(
+                502, "CLM_BACKEND_ERROR", "The onboarding app returned an unexpected reply."
+            )
+        return actor
+
     def load_case(self, case_id: UUID, session_token: str | None) -> CaseSnapshot:
         with self._client(session_token) as client:
             actor = self._get(client, "/api/auth/me")

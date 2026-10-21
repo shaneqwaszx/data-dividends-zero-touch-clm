@@ -33,5 +33,25 @@ class AiAssistantSettings(BaseSettings):
     llm_warm_up: bool = True
     llm_warm_up_interval_seconds: float = Field(default=120.0, ge=0, le=3600)
 
+    # Reviewed knowledge (official guidance + approved past resolutions), stored locally in
+    # SQLite and ChromaDB under knowledge_data_dir (relative to apps/assistant; not in Git).
+    knowledge_enabled: bool = True
+    knowledge_data_dir: str = "data/knowledge"
+    # Local embedding model for knowledge search (Ollama's own API, not the /v1 path).
+    embed_base_url: str = "http://127.0.0.1:11434"
+    embed_model: str = "nomic-embed-text"
+    embed_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+
+    # Retrieval: how the final score is made (weights) and how good a match must be.
+    # Tuned on the labelled set (scripts/evaluate_retrieval.py), not assumed.
+    retrieval_weight_semantic: float = Field(default=0.45, ge=0, le=1)
+    retrieval_weight_keyword: float = Field(default=0.2, ge=0, le=1)
+    retrieval_weight_context: float = Field(default=0.3, ge=0, le=1)
+    retrieval_weight_recency: float = Field(default=0.05, ge=0, le=1)
+    retrieval_min_score_guidance: float = Field(default=0.3, ge=0, le=1)
+    retrieval_min_score_resolution: float = Field(default=0.4, ge=0, le=1)
+    retrieval_max_guidance: int = Field(default=3, ge=0, le=10)
+    retrieval_max_resolutions: int = Field(default=3, ge=0, le=10)
+
     max_history_messages: int = Field(default=8, ge=0, le=20)
     max_question_chars: int = Field(default=600, ge=20, le=4000)

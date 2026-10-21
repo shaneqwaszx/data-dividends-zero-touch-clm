@@ -8,6 +8,30 @@ import AiAssistantPanel from "./AiAssistantPanel";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// jsdom has no ResizeObserver (assistant-ui uses it to keep the newest message in view).
+class TestResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as unknown as { ResizeObserver: typeof TestResizeObserver }).ResizeObserver ??= TestResizeObserver;
+// jsdom elements cannot scroll either.
+Element.prototype.scrollTo ??= function scrollTo() {};
+
+type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/** Answers the review-permission check, and passes every other request to the test's fetch. */
+function stubFetch(impl: FetchImpl, access = { user_id: "maya-lim", can_review: false, can_edit_guidance: false }): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/api/assistant/knowledge/me")
+        ? Promise.resolve(new Response(JSON.stringify(access), { status: 200, headers: { "Content-Type": "application/json" } }))
+        : impl(input, init),
+    ),
+  );
+}
+
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
@@ -73,7 +97,7 @@ describe("AiAssistantPanel", () => {
   it("shows the answer while it is being written, then the final answer", async () => {
     const stream = ndjsonStream();
     const sent: unknown[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    stubFetch(vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
       if (url.endsWith("/chat/stream")) {
@@ -149,7 +173,7 @@ describe("AiAssistantPanel", () => {
       }
       return json({}, 404);
     });
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     const view = render("case-1");
     await flush();
@@ -176,7 +200,7 @@ describe("AiAssistantPanel", () => {
       if (url === "/api/assistant/cases/case-2/brief") return json(brief("MERLION", "About Merlion."));
       return json({}, 404);
     });
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
 
     const view = render("case-1");
     click(view.querySelector(".ai-assistant-launcher"));
@@ -204,7 +228,7 @@ describe("AiAssistantPanel", () => {
 
   it("asks the RM to open a case when none has been opened", async () => {
     const fetchMock = vi.fn(async () => json({}, 404));
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     const onOpenCases = vi.fn();
 
     const view = render(null, onOpenCases);
@@ -220,7 +244,7 @@ describe("AiAssistantPanel", () => {
 
   it("asks for the company details on New onboarding before the case exists", async () => {
     const fetchMock = vi.fn(async () => json({}, 404));
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetch(fetchMock);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -234,7 +258,7 @@ describe("AiAssistantPanel", () => {
   });
 
   it("explains when the AI assistant service is not running", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => {
+    stubFetch(vi.fn(async () => {
       throw new TypeError("Failed to fetch");
     }));
 
@@ -248,7 +272,7 @@ describe("AiAssistantPanel", () => {
 
   it("removes retained case conversation when the backend says the case is inaccessible", async () => {
     let count = 0;
-    vi.stubGlobal("fetch", vi.fn(async () => {
+    stubFetch(vi.fn(async () => {
       count += 1;
       return count === 1 ? json(brief("OLD CASE", "Previously accessible case summary."))
         : json({ detail: { message: "This case was not found." } }, 404);
@@ -266,7 +290,7 @@ describe("AiAssistantPanel", () => {
 
   it("does not publish an aborted earlier brief over the current evidence refresh", async () => {
     const pending: ((response: Response) => void)[] = [];
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve))));
+    stubFetch(vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve))));
     const view = render("case-1");
     click(view.querySelector(".ai-assistant-launcher"));
     await flush();
@@ -284,7 +308,7 @@ describe("AiAssistantPanel", () => {
     const briefs: { resolve: (response: Response) => void; signal: AbortSignal }[] = [];
     let chat: { resolve: (response: Response) => void; signal: AbortSignal } | undefined;
     let briefCount = 0;
-    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    stubFetch(vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith("/brief")) {
         briefCount += 1;
         if (briefCount === 1) return Promise.resolve(json(brief("OLD CASE", "Previously accessible summary.")));
@@ -321,5 +345,93 @@ describe("AiAssistantPanel", () => {
     await flush();
     expect(view.textContent).toContain("Fresh authorized summary.");
     expect(view.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("shows cited sources and sends Yes, helpful with the conversation, never the summary", async () => {
+    const sent: unknown[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        return new Response(
+          `${JSON.stringify({
+            type: "done",
+            answer: "Only Keep registry value is offered [G1].",
+            answered_by: "model",
+            model: "m",
+            notice: null,
+            suggested_questions: [],
+            sources: [
+              { tag: "G1", kind: "guidance", version: 1, title: "Registered address differs from ACRA", approved_at: null, illustrative: false, fallback: false, cited: true },
+              { tag: "P1", kind: "resolution", version: 1, title: "Not cited", approved_at: null, illustrative: true, fallback: false, cited: false },
+            ],
+          })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      if (url.endsWith("/feedback")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ feedback_id: 1, draft_entry_id: "resolution.abc", message: "Thanks for your feedback." });
+      }
+      return json({}, 404);
+    });
+
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+
+    const sources = view.querySelector('[aria-label="Sources"]');
+    expect(sources?.textContent).toContain("G1");
+    expect(sources?.textContent).toContain("Registered address differs from ACRA");
+    expect(sources?.textContent).not.toContain("Not cited");
+
+    // One click: an RM is not asked to write anything when the answer helped.
+    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Yes, helpful"));
+    await flush();
+    expect(view.querySelector(".ai-assistant-feedback-form")).toBeNull();
+
+    expect(sent).toEqual([
+      {
+        helpful: true,
+        note: "",
+        turns: [
+          { role: "user", content: "Why is this case blocked?" },
+          { role: "assistant", content: "Only Keep registry value is offered [G1]." },
+        ],
+      },
+    ]);
+    expect(view.textContent).toContain("Thanks for your feedback.");
+    // The opening summary has no feedback buttons.
+    expect([...view.querySelectorAll(".ai-assistant-feedback-button")]).toHaveLength(0);
+  });
+
+  it("offers Knowledge review only to someone the backend allows to review", async () => {
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary."));
+      if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [] });
+      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 0, helpful: 0, not_helpful: 0, helpful_rate: null, open_gaps: 0 } });
+      if (url.includes("/knowledge/entries")) return json([]);
+      return json({}, 404);
+    }, { user_id: "director-dan", can_review: true, can_edit_guidance: false });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-review-open"));
+    await flush();
+    expect(view.querySelector('[role="dialog"]')?.textContent).toContain("Knowledge review");
+    expect(view.textContent).toContain("Nothing to review.");
+  });
+
+  it("hides Knowledge review from an RM", async () => {
+    stubFetch(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/brief") ? json(brief("GARDEN BUSINESS", "Summary.")) : json({}, 404),
+    );
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expect(view.querySelector(".ai-assistant-review-open")).toBeNull();
   });
 });

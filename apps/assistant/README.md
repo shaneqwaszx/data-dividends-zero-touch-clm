@@ -10,9 +10,11 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
 ```
 
 - **The backend stays the authority.** Blockers, owners, next steps and allowed actions are
-  copied from what the CLM backend already computed. The model selects exact reviewed guidance statements grounded in the current actions.
-  Arbitrary generated prose is replaced with a deterministic case-data answer. Access is still decided by the backend, because the RM's own session is
-  forwarded.
+  copied from what the CLM backend already computed. The model only selects exact allowed
+  lines: reviewed statements grounded in the current actions, and approved knowledge
+  sentences that pass the checks (see Output policy). Anything else is withheld; if nothing
+  is left, a deterministic case-data answer is shown. Access is still decided by the backend,
+  because the RM's own session is forwarded.
 - **Read-only.** Only `GET` requests are made to the CLM backend.
 - **No-AI fallback.** The opening summary is built straight from the case data, so it is
   instant. If the model is off, missing or slow, chat answers come from the case data and
@@ -20,9 +22,9 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
 - **Swappable model.** Explicit questions use an OpenAI-compatible endpoint, such as
   Ollama (default) or LM Studio. Configuring an endpoint does not establish approved
   data handling. Remote/cloud deployment authorization remains a separate policy boundary.
-- **Document text is data.** Document values never extend the allowed output catalog.
-  Streaming validates complete catalog lines before displaying them. Unknown lines are
-  dropped; if no verified line remains, the service uses the case-data answer.
+- **Document text is data.** Document values never extend the allowed lines. Streaming
+  checks each complete line before displaying it. Unknown lines are dropped; if no allowed
+  line remains, the service uses the case-data answer.
 - **Truthful completion.** The model adapter requires `[DONE]` or a supported terminal
   `finish_reason` (`stop` or `length`). EOF without a terminal marker is a failure.
   Already verified partial text is retained with a cut-short notice; malformed provider
@@ -49,7 +51,8 @@ Settings are in `.env.example` (copy to `.env` to change them).
 ## Changing how the AI Assistant behaves
 
 The model instructions live in `ai_assistant/instructions/`. The code-owned output policy in
-`guardrails.py` remains authoritative: editing prose cannot extend the allowed guidance catalog.
+`guardrails.py` remains authoritative: editing the rules cannot add an allowed line, so it
+cannot allow an action, value or claim.
 
 | File | What it controls |
 |---|---|
@@ -75,18 +78,160 @@ case being onboarded on **New onboarding** (once it has been created). Its butto
 page for easy access; elsewhere it asks the RM to open or start a case. It keeps a separate
 conversation per case and requests nothing until it is opened.
 
+## Knowledge loop (reviewed guidance and past resolutions)
+
+The AI Assistant learns from reviewed knowledge by **retrieving** it at question time, never by
+retraining the model. There are two kinds of entry:
+
+- **Official guidance**: the rulebook, written from recorded decisions (`knowledge/guidance/*.md`,
+  each citing its source). HR (`POLICY_MUTATE`) can propose new guidance through
+  `POST /api/assistant/knowledge/guidance`; there is no in-app UI for it.
+- **Approved past resolutions**: worked examples drafted from an RM's "Yes, helpful" feedback and
+  approved by a manager (Director, `POLICY_APPROVE`). The demo seed
+  (`seed/synthetic_resolutions.json`) is made up and labelled illustrative.
+
+```
+RM asks ─► case context (blocker codes, fields, stage)
+        ─► search: approved, current versions the RM may see ─► top guidance [G1..] + resolutions [P1..]
+        ─► prompt (rules → facts → history → KNOWLEDGE → question) ─► guardrails ─► answer + source chips
+RM clicks "Yes, helpful" ─► redacted draft ─► Director edits / approves ─► searchable for the next RM
+RM clicks "Not helpful" ─► gap for the Director to handle
+```
+
+| Part (`ai_assistant/knowledge/`) | What it does |
+|---|---|
+| `models.py` | An entry: kind, version, status, blocker codes, fields, stages, who may see it, follow-up questions |
+| `store.py` | SQLite: every version, every review and edit, feedback, keyword index (FTS5), index to-do list |
+| `vector_index.py` + `embeddings.py` | ChromaDB vectors of approved current versions only; local embeddings through Ollama (`nomic-embed-text`) |
+| `service.py` | Propose, decide, retire; keeps SQLite and ChromaDB in step; retries; rebuild |
+| `retrieval.py` | Hybrid search with permission filters (below) |
+| `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from feedback |
+| `ingest.py` | Loads the guidance files (an app-approved edit is not overwritten by its file) |
+| `evaluation.py` | Recall and "correctly found nothing" on a labelled question set |
+| `../knowledge_answers.py` | Tags hits, keeps only approved entries the user may see, checks every knowledge text the RM can see (lines, titles, follow-up questions), lists the allowed lines in the KNOWLEDGE prompt part, works out cited sources |
+| `../knowledge_api.py` | Feedback and review endpoints |
+
+**Rules.** Versions are never overwritten. The author of an entry can never approve it. Approving a
+version retires the previous one (and any entry it replaces), so only one version is searched.
+Rejected and retired versions are never searched. Official guidance outranks past cases, and the
+case facts outrank both.
+
+**How search ranks entries.** Only approved, current entries the RM may see (by role and team, from
+`/api/auth/me`) are considered. A past resolution must share a blocker code or field with the case.
+Each entry then gets a score:
+
+| Signal | Weight | Meaning |
+|---|---|---|
+| Meaning (semantic) | 0.45 | Vector similarity between question and entry |
+| Keywords | 0.2 | FTS5 match, squashed so one long entry does not dominate |
+| Case context | 0.3 | Same blocker code (0.6), field (0.3), stage (0.1) |
+| Recency | ×0.05 | Tie-breaker: newer approvals rank slightly higher (half-life 180 days) |
+
+Guidance needs 0.3 and resolutions 0.4 to be used; at most 3 of each. If Ollama embeddings are down,
+search falls back to keywords and context only. All weights are `AI_ASSISTANT_RETRIEVAL_*` settings.
+
+**Follow-up questions.** An approved resolution can carry follow-up questions; when it is used,
+they are offered as suggestions after the top three.
+
+Set it up (needs `ollama pull nomic-embed-text`):
+
+```
+cd apps/assistant
+../../.venv/bin/python -m pip install -e ".[dev]"
+../../.venv/bin/python scripts/ingest_knowledge.py --with-synthetic-resolutions
+../../.venv/bin/python scripts/evaluate_retrieval.py --show-misses
+```
+
+Run the ingest again any time: unchanged guidance is skipped, edited files become new versions,
+removed files are retired. If Ollama is not running, entries are saved and indexed later. Data
+lives in `apps/assistant/data/knowledge/` (not in Git).
+
+### Knowledge API
+
+| Method | Path | Who | What it does |
+|---|---|---|---|
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (drafts a resolution) or "Not helpful" (records a gap) |
+| GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance |
+| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open gaps |
+| GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
+| GET | `/assistant/knowledge/entries/{id}` | Director (every team), HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
+| POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
+| POST | `/assistant/knowledge/feedback/{id}/close` | Director | Mark a gap as handled |
+| POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
+| POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
+| GET | `/assistant/knowledge/stats` | Director | Entry counts and how helpful answers were |
+
+### In the app
+
+The panel is built on `@assistant-ui/react`. Each answer shows the guidance and past cases it
+cited as chips (G1, P1 …) and has **Yes, helpful** (one click, no note) and **Not helpful**
+(with an optional note) buttons. Users who can review
+see a **Review** button that opens the Knowledge review window.
+
+### Demo script
+
+1. Sign in as an RM, open a case blocked by a document/ACRA address conflict, open the AI Assistant.
+2. Ask "Can I use the document address?" The answer cites guidance [G1] and an illustrative past
+   case [P1], shown as chips.
+3. Click **Yes, helpful** (one click; only **Not helpful** asks for a note).
+4. Sign in as a Director (not the same user), open **Review**: the draft has the client's name
+   replaced with `[COMPANY]`. Edit if needed, then **Approve**.
+5. Back as an RM on a similar case, ask again: the new resolution is now cited.
+
+## Output policy
+
+The model's answer is never shown as written. Code (`ai_assistant/guardrails.py`) shows only
+whole lines that exactly equal an allowed line, also while streaming; every other line is
+left out, the answer's notice says how many, and the reply's `checks.removed` is
+`["not_an_allowed_line"]`. The allowed lines are:
+
+1. **The catalog** (`allowed_guidance`): fixed statements filled only from the backend's case
+   facts (offered actions, readiness items with their section, rule explanations, the
+   standing disclaimers).
+2. **Knowledge lines** (ADR-012 section C, accepted by the owner on 2026-10-21, D-074): each
+   sentence of a retrieved, approved entry the user may see, exactly as approved and
+   followed by its tag (`... [G1]`), but only if it passes these checks against this case's
+   facts. At most 20 lines per entry and 48 lines (8 KiB) per answer are offered.
+
+The same checks apply to the other knowledge text in chat replies: an entry title on a
+source chip or in the no-model answer is replaced by a neutral label ("Guidance G1", "Past
+case P1") if it fails, and a follow-up question that fails is not suggested. Source objects
+carry the tag, kind, version, that title, the approval time and the illustrative, fallback
+and cited flags, not the entry id or the free-text source reference.
+
+For knowledge, two-person approval is the real control. The checks are a best-effort filter:
+they catch the listed phrasings and shapes only, not deliberate evasion (ADR-012 lists what
+they miss).
+
+| Check | The text is not offered when |
+|---|---|
+| Factual claims | a UEN (including the T/S/R format), NRIC/FIN, postal code, unit number, decimal or number of three or more digits is not in the case facts; "N of M steps" does not match the case. Short numbers and percentages are not checked |
+| Labels and places | a quoted button or label, a listed contact phrase ("support team", "your manager" …), an e-mail address, a web address starting with `http://`, `https://` or `www.`, or a "(section: ...)" is not in the case facts; the text carries a citation tag of its own. People's names, bare domains and other schemes are not recognised |
+| Action permissions | it uses one of the listed phrasings for an action this case does not offer the RM (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve/authorize the case, submit or resend to GoldTier). Saying an action is not available is fine |
+| Authority | it uses one of the listed phrasings for something only people or other systems can decide: legal UBO verification, KYC/regulatory approval, official verification, or one source always overriding the other |
+| Disclosures | it calls a mock/sandbox system live or production in one of the listed ways, or presents a document value that differs from ACRA as confirmed |
+| Characters | it contains anything other than printable ASCII and typographic quotes, dashes, ellipsis or bullet (a tab, a non-breaking or invisible space, a look-alike letter from another script) |
+
+Free model prose, paraphrases and earlier chat turns never become allowed lines. When an
+answer uses registry data from a registry that is not live, a notice says so (for example
+"Registry data in this case comes from ACRA (MOCK) …"). If no allowed line is left, the
+answer comes from the case data instead, with the notice "The model response could not be
+verified".
+
 ## Speed
 
 A small model on a laptop is slow, so the AI Assistant keeps the model's work small:
 
 | What | Why it helps |
 |---|---|
-| **Short case view for the model** (`prompts.py`) | Selected facts plus the current allowed guidance catalog. The full facts support deterministic no-AI answers. |
+| **Short case view for the model** (`prompts.py`) | About 35% fewer characters than the full fact sheet. The full facts are still used for the guardrails and the no-AI answers. |
 | **Glossary only when asked** | A page label's meaning is added only if the question mentions it (a small keyword retrieval step). |
 | **Cache-friendly order** | Rules, then case facts, then history, then the question. The start stays the same, so Ollama reuses what it already read. |
 | **History budget** | The opening summary is not sent back (it repeats the facts), and only recent turns that fit about 2,400 characters are sent. The RM still sees the whole chat. |
 | **Pre-warming** | Optional background reading of rules and case facts is restricted to literal loopback model URLs. Remote and ambiguous destinations are skipped even when enabled. |
-| **Streaming** | The answer appears one complete catalog line at a time. Exact validation happens before display. |
+| **Streaming** | The answer appears line by line. Each complete line is looked up in the allowed lines before it is shown. |
 | **Length safety limit** | `AI_ASSISTANT_LLM_MAX_ANSWER_TOKENS` (600) only stops a runaway answer; if reached, the RM is told it was cut short. Answers are asked to be concise but complete. |
 
 `AI_ASSISTANT_LLM_WARM_UP=true` retains local warm-up for literal loopback IPv4
@@ -103,9 +248,9 @@ authorization remain separate and unchanged. A brief still comes from backend ca
 Streaming resource limits are enforced independently of the model's requested token
 budget (600 by default, at most 4,000 in settings). The adapter accepts at most 64 KiB
 per SSE frame/line and 1 MiB of raw response bytes, including comments and empty-delta
-frames. The server guard accepts at most 64 KiB of UTF-8 model text, retains only the
-pending line and distinct approved lines, and processes completed lines once. These
-fixed safety ceilings leave generous room for the approved concise catalog answers;
+frames. The server guard accepts at most 64 KiB of UTF-8 model text; if the stream fails,
+only allowed lines completed before the failure are kept. These fixed safety ceilings leave
+generous room for concise answers;
 provider compliance with `max_tokens` is never assumed.
 
 The configured model timeout bounds the complete network request, from connection and

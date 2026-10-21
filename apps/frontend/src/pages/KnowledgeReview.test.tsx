@@ -1,0 +1,301 @@
+// @vitest-environment jsdom
+
+import { act, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import KnowledgeReview from "./KnowledgeReview";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root | null = null;
+let container: HTMLDivElement | null = null;
+
+afterEach(() => {
+  if (root) act(() => root?.unmount());
+  container?.remove();
+  root = null;
+  container = null;
+  vi.unstubAllGlobals();
+});
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+async function flush(): Promise<void> {
+  for (let i = 0; i < 6; i += 1) await act(async () => { await Promise.resolve(); });
+}
+
+const PENDING = {
+  entry_id: "resolution.abc",
+  key: "resolution.abc@v1",
+  version: 1,
+  kind: "resolution",
+  status: "pending_review",
+  title: "Draft: Document or reconciliation review required",
+  body: "Problem: the [COMPANY] address differs from ACRA.",
+  blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"],
+  fields: ["registered_address"],
+  stages: [],
+  follow_ups: ["What about ownership?"],
+  visibility: { roles: [], teams: [] },
+  replaces: null,
+  revises: null,
+  author: "maya-lim",
+  approver: null,
+  approved_at: null,
+  created_at: null,
+  source_ref: "RM feedback",
+  illustrative: false,
+  content_hash: "a".repeat(64),
+};
+
+function backend(calls: { url: string; body: unknown }[], decision = () => json({ ...PENDING, status: "approved" })) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (init?.method === "POST") calls.push({ url, body: JSON.parse(String(init.body)) });
+    if (url.endsWith("/knowledge/reviews")) return json({ pending: [PENDING], gaps: [{ id: 7, note: "No proof list.", blocker_codes: [], fields: [], stages: [], created_at: "" }] });
+    if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 3, helpful: 2, not_helpful: 1, helpful_rate: 0.667, open_gaps: 1 } });
+    if (url.includes("/knowledge/entries?kind=resolution")) return json([]);
+    if (url.endsWith("/edit")) return json(PENDING);
+    if (url.endsWith("/decision")) return decision();
+    if (url.endsWith("/close")) return json({ status: "closed" });
+    return json({}, 404);
+  });
+}
+
+function render(): HTMLDivElement {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() => root?.render(<KnowledgeReview onClose={() => undefined} />));
+  return container;
+}
+
+function type(element: Element | null, value: string): void {
+  const field = element as HTMLInputElement | HTMLTextAreaElement;
+  const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  act(() => {
+    Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function choose(element: Element | null, value: string): void {
+  const select = element as HTMLSelectElement;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function button(view: HTMLElement, text: string): HTMLButtonElement {
+  const found = [...view.querySelectorAll("button")].find((b) => b.textContent === text);
+  if (!found) throw new Error(`no button ${text}`);
+  return found;
+}
+
+describe("KnowledgeReview", () => {
+  it("shows the queue, gaps and stats, and approves exactly the content shown", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    const view = render();
+    await flush();
+    expect(view.textContent).toContain("Waiting for review (1)");
+    expect(view.textContent).toContain("3 feedback · 2 solved · 1 not helpful · 67% helpful");
+    expect(view.textContent).toContain("No proof list.");
+
+    act(() => button(view, "Approve").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual([
+      "/knowledge/entries/resolution.abc/versions/1/decision",
+    ]);
+    expect(calls[0].body).toEqual({ approve: true, content_hash: "a".repeat(64), notes: "" });
+    expect(view.textContent).toContain("Approved: it can now help answer similar questions.");
+  });
+
+  it("saves the Director's edits as a new version for another reviewer instead of approving", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    const view = render();
+    await flush();
+
+    type(view.querySelector("article input"), "Address differs from ACRA after an office move");
+    expect(() => button(view, "Approve")).toThrow();
+    act(() => button(view, "Save changes for another reviewer").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual([
+      "/knowledge/entries/resolution.abc/versions/1/edit",
+    ]);
+    expect(calls[0].body).toMatchObject({
+      content_hash: "a".repeat(64),
+      title: "Address differs from ACRA after an office move",
+    });
+    expect(view.textContent).toContain("Changes saved as a new version. Another reviewer must approve it.");
+  });
+
+  // PR #99 review on 9cae747: leaving out "replaces" kept the old target, so approving still
+  // retired it.
+  it("sends replaces: null when the reviewer chooses Does not replace one", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const older = { ...PENDING, entry_id: "resolution.old", key: "resolution.old@v1", status: "approved", title: "Older resolution" };
+    const replacing = { ...PENDING, replaces: "resolution.old" };
+    const rest = backend(calls);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/knowledge/reviews")) return json({ pending: [replacing], gaps: [] });
+        if (url.includes("/knowledge/entries?kind=resolution")) return json([older]);
+        return rest(input, init);
+      }),
+    );
+    const view = render();
+    await flush();
+    const select = view.querySelector("article select") as HTMLSelectElement;
+    expect(select.value).toBe("resolution.old");
+
+    choose(select, "");
+    act(() => button(view, "Save changes for another reviewer").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual([
+      "/knowledge/entries/resolution.abc/versions/1/edit",
+    ]);
+    expect(calls[0].body).toHaveProperty("replaces", null);
+  });
+
+  it("discarding changes brings back Approve and Reject", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = render();
+    await flush();
+    type(view.querySelector("article input"), "Something else entirely");
+    act(() => button(view, "Discard changes").click());
+    expect(button(view, "Approve")).toBeTruthy();
+    expect(button(view, "Reject")).toBeTruthy();
+  });
+
+  it("rejects without editing and shows the backend's reason when a decision is refused", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      backend(calls, () =>
+        json({ detail: { message: "You cannot approve or reject an entry you wrote or edited." } }, 403),
+      ),
+    );
+    const view = render();
+    await flush();
+    act(() => button(view, "Reject").click());
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body).toEqual({ approve: false, content_hash: "a".repeat(64), notes: "" });
+    expect(view.querySelector("[role=alert]")?.textContent).toBe(
+      "You cannot approve or reject an entry you wrote or edited.",
+    );
+  });
+
+  it("closes a gap", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    const view = render();
+    await flush();
+    act(() => button(view, "Mark as handled").click());
+    await flush();
+    expect(calls[0].url).toContain("/knowledge/feedback/7/close");
+  });
+});
+
+// PR #99 panel evidence D5: the aria-modal dialog takes focus, closes on Escape, keeps Tab
+// inside and gives focus back to what opened it.
+function Opener() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Review
+      </button>
+      {open && <KnowledgeReview onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+async function openFromButton(): Promise<HTMLDivElement> {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() => root?.render(<Opener />));
+  const opener = button(container, "Review");
+  opener.focus();
+  act(() => opener.click());
+  await flush();
+  return container;
+}
+
+function press(key: string, shiftKey = false): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key, shiftKey, bubbles: true, cancelable: true });
+  act(() => {
+    (document.activeElement ?? document.body).dispatchEvent(event);
+  });
+  return event;
+}
+
+function dialogControls(view: HTMLElement): HTMLElement[] {
+  const dialog = view.querySelector("[role=dialog]");
+  return [...(dialog?.querySelectorAll<HTMLElement>("button, input, select, textarea") ?? [])].filter(
+    (control) => !control.hasAttribute("disabled"),
+  );
+}
+
+describe("KnowledgeReview dialog focus", () => {
+  it("moves focus into the dialog when it opens", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const dialog = view.querySelector("[role=dialog]");
+    expect(document.activeElement?.textContent).toBe("Knowledge review");
+    expect(dialog?.contains(document.activeElement)).toBe(true);
+  });
+
+  it("closes on Escape and returns focus to the button that opened it", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const event = press("Escape");
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.querySelector("[role=dialog]")).toBeNull();
+    expect(document.activeElement).toBe(button(view, "Review"));
+  });
+
+  it("returns focus to the button that opened it when closed with the close button", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const close = view.querySelector<HTMLButtonElement>("[aria-label='Close knowledge review']");
+    close?.focus();
+    act(() => close?.click());
+    expect(view.querySelector("[role=dialog]")).toBeNull();
+    expect(document.activeElement).toBe(button(view, "Review"));
+  });
+
+  it("wraps Tab and Shift+Tab around the dialog's controls", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    const view = await openFromButton();
+    const controls = dialogControls(view);
+    const [first, last] = [controls[0], controls[controls.length - 1]];
+    expect(first.getAttribute("aria-label")).toBe("Close knowledge review");
+    expect(last.textContent).toBe("Mark as handled");
+
+    // Shift+Tab from the heading (where focus starts) goes to the last control, not out.
+    expect(press("Tab", true).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+    // Tab from the last control wraps to the first; Shift+Tab from the first to the last.
+    expect(press("Tab").defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    expect(press("Tab", true).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+    // Between the ends the browser moves focus as usual.
+    controls[1].focus();
+    expect(press("Tab").defaultPrevented).toBe(false);
+    expect(press("Tab", true).defaultPrevented).toBe(false);
+    // Focus that fell out of the dialog (a removed or disabled control) comes back in.
+    (document.activeElement as HTMLElement).blur();
+    expect(press("Tab").defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+  });
+});

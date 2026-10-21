@@ -102,6 +102,19 @@ CASE_PAGE_SECTIONS = (
     "Final review & send",
 )
 
+# Blocker codes the backend handles as ONE issue (apps/backend/app/services/
+# blocker_decision_policy.py groups them under one rule), so the RM is told about it once.
+SAME_ISSUE: tuple[frozenset[str], ...] = (
+    frozenset({"DOCUMENT_SOURCE_CONFLICT", "SOURCE_CONFLICT_REQUIRES_POLICY"}),
+)
+
+# Where a blocker is handled when READINESS_NEEDS has no entry for its code. Checked
+# against apps/frontend/src/pages/CaseDetail.tsx: the source-decision panel
+# (BlockerDecisionReview) sits inside the Document verification stage.
+BLOCKER_SECTIONS: dict[str, str] = {
+    "DOCUMENT_SOURCE_CONFLICT": "Document verification",
+}
+
 # The backend readiness check's open items (ClmBlockerCode), re-worded, with the case
 # page section where each one is handled.
 READINESS_NEEDS: dict[str, tuple[str, str]] = {

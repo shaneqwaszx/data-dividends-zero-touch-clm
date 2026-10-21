@@ -955,6 +955,26 @@ restore it. Read-only wording copies backend pending-step labels and uses curren
 Submission readiness / GoldTier submission package section names.
 No new schema/mapping/provider status or Live claim follows from this integration.
 
+## AI Assistant knowledge loop candidate — 2026-10-21 (proposed; output policy accepted)
+
+PR #99 proposes that the AI Assistant service keep its own reviewed knowledge store
+(SQLite source of truth plus a rebuildable ChromaDB index under the git-ignored
+`apps/assistant/data/`). Towards the CLM backend it remains GET-only, and backend RBAC and
+team scope remain authoritative. Knowledge versions are append-only. An edit is a new
+version by its editor, nobody in an edit chain may decide it, and decisions are bound to the
+reviewed content hash. Review queues and approved resolutions are team-scoped (Directors,
+whom the CLM backend scopes globally, review every team's queue). ChromaDB
+telemetry is off and embeddings are loopback-only. The panel uses `@assistant-ui/react`
+presentation primitives over the existing client. See ADR-012 (proposed, section C
+accepted), D-073 and D-074. By the owner's G6 direction the PR89 exact-line catalog stays the
+mandatory output gate: model text is shown only as whole allowed lines. Approved, retrieved
+knowledge the user may see adds lines only as verbatim, tagged sentences that pass
+sentence-level checks against the case facts, with titles and follow-up questions under the
+same checks; the owner accepted this extension on 2026-10-21 (D-074). Two-person approval is
+the primary control for knowledge content and the checks are a best-effort filter. The
+2026-10-06 read-only description above stays current main until PR #99 is accepted and
+merged.
+
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 
 Originally assigned from main `529efea`, OnboardingService now supports both definitive

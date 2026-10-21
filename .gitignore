@@ -51,6 +51,9 @@ tmp/
 temp/
 .runtime/
 
+# AI Assistant local knowledge store (SQLite + ChromaDB)
+apps/assistant/data/
+
 # Claude Code local state (the shared .claude/settings.json and .claude/skills/ stay tracked)
 .claude/settings.local.json
 .claude/worktrees/

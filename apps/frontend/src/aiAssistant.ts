@@ -21,12 +21,30 @@ export interface AiAssistantTurn {
   content: string;
 }
 
+/** A retrieved knowledge entry the answer could use; `cited` = the answer names its tag. */
+export interface AiAssistantSource {
+  tag: string;
+  kind: "guidance" | "resolution";
+  version: number;
+  /** The checked entry title, or a neutral label such as "Guidance G1". */
+  title: string;
+  approved_at: string | null;
+  illustrative: boolean;
+  fallback: boolean;
+  cited: boolean;
+}
+
 export interface AiAssistantAnswer {
   answer: string;
   answered_by: "model" | "case_data";
   model: string | null;
   notice: string | null;
   suggested_questions: string[];
+  /** Model answers only: why sentences were left out (reason codes) and disclosures added. */
+  checks?: { removed: string[]; disclosures: string[] } | null;
+  /** Retrieved guidance [G] and past cases [P]. */
+  sources?: AiAssistantSource[];
+  knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
 }
 
 export class AiAssistantError extends Error {
@@ -86,6 +104,12 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The onboarding app could not provide this case.",
   "The onboarding app returned an unreadable reply.",
   "The onboarding app returned an unexpected reply.",
+  // Fixed knowledge-review messages (apps/assistant/ai_assistant/knowledge_api.py).
+  "You are not allowed to do this.",
+  "No such entry.",
+  "You cannot approve or reject an entry you wrote or edited.",
+  "This entry has changed or was already decided. Refresh and try again.",
+  "This change is not allowed.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -256,3 +280,108 @@ export async function askAiAssistantStreaming(
     reader.releaseLock();
   }
 }
+
+// --- Knowledge loop: RM feedback and Director review --------------------------------------
+// Permissions are decided by the backend on every call; these only carry the request.
+
+export interface AiAssistantFeedbackResult {
+  feedback_id: number;
+  draft_entry_id: string | null;
+  message: string;
+}
+
+export function sendAiAssistantFeedback(
+  caseId: string,
+  feedback: { helpful: boolean; note: string; turns: AiAssistantTurn[] },
+  signal?: AbortSignal,
+): Promise<AiAssistantFeedbackResult> {
+  return request<AiAssistantFeedbackResult>(`/cases/${encodeURIComponent(caseId)}/feedback`, feedback, signal);
+}
+
+export interface KnowledgeAccess {
+  user_id: string | null;
+  can_review: boolean;
+  can_edit_guidance: boolean;
+}
+
+export interface KnowledgeEntry {
+  entry_id: string;
+  key: string;
+  version: number;
+  kind: "guidance" | "resolution";
+  status: "draft" | "pending_review" | "approved" | "rejected" | "retired";
+  title: string;
+  body: string;
+  blocker_codes: string[];
+  fields: string[];
+  stages: string[];
+  follow_ups: string[];
+  visibility: { roles: string[]; teams: string[] };
+  replaces: string | null;
+  /** The version a reviewer's edit was made from (null for an original). */
+  revises: number | null;
+  author: string;
+  approver: string | null;
+  approved_at: string | null;
+  created_at: string | null;
+  source_ref: string | null;
+  illustrative: boolean;
+  /** What this version says; edits and decisions send it back so they apply to it only. */
+  content_hash: string;
+}
+
+export interface KnowledgeGap {
+  id: number;
+  note: string;
+  blocker_codes: string[];
+  fields: string[];
+  stages: string[];
+  created_at: string;
+}
+
+export interface KnowledgeReviewQueue {
+  pending: KnowledgeEntry[];
+  gaps: KnowledgeGap[];
+}
+
+export interface KnowledgeStats {
+  entries: Record<string, number>;
+  feedback: {
+    total: number;
+    helpful: number;
+    not_helpful: number;
+    helpful_rate: number | null;
+    open_gaps: number;
+  };
+}
+
+/** A reviewer's edit; `replaces: null` clears what the version replaces, leaving it out keeps it. */
+export type KnowledgeEdit = Partial<
+  Pick<KnowledgeEntry, "title" | "body" | "follow_ups" | "replaces"> & { visibility: KnowledgeEntry["visibility"] }
+>;
+
+const entryPath = (entryId: string, version: number) =>
+  `/knowledge/entries/${encodeURIComponent(entryId)}/versions/${version}`;
+
+export const fetchKnowledgeAccess = (signal?: AbortSignal) =>
+  request<KnowledgeAccess>("/knowledge/me", undefined, signal);
+export const fetchKnowledgeReviews = (signal?: AbortSignal) =>
+  request<KnowledgeReviewQueue>("/knowledge/reviews", undefined, signal);
+export const fetchKnowledgeStats = (signal?: AbortSignal) =>
+  request<KnowledgeStats>("/knowledge/stats", undefined, signal);
+export const fetchApprovedResolutions = (signal?: AbortSignal) =>
+  request<KnowledgeEntry[]>("/knowledge/entries?kind=resolution", undefined, signal);
+// An edit is saved as a new version that a different reviewer must approve.
+export const editKnowledgeEntry = (entry: KnowledgeEntry, edit: KnowledgeEdit) =>
+  request<KnowledgeEntry>(`${entryPath(entry.entry_id, entry.version)}/edit`, {
+    content_hash: entry.content_hash,
+    ...edit,
+  });
+export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, notes: string) =>
+  request<KnowledgeEntry>(`${entryPath(entry.entry_id, entry.version)}/decision`, {
+    approve,
+    content_hash: entry.content_hash,
+    notes,
+  });
+export const closeKnowledgeGap = (feedbackId: number) =>
+  request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, {});

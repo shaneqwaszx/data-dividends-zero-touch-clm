@@ -23,4 +23,37 @@ describe("AiAssistantText", () => {
 
     expect(html).toContain("<ol><li>First &lt;b&gt;x&lt;/b&gt;</li><li>Second</li></ol>");
   });
+
+  it("keeps counting when an explanation sits between numbered steps", () => {
+    const indented = renderToStaticMarkup(
+      <AiAssistantText text={"Two things are missing:\n\n1. **Address decision**\n\n   The document differs from ACRA.\n\n2. **Ownership evidence**\n\n   Upload a register."} />,
+    );
+    expect(indented).toContain(
+      '<ol><li>Address decision<p class="ai-assistant-item-detail">The document differs from ACRA.</p></li><li>Ownership evidence<p class="ai-assistant-item-detail">Upload a register.</p></li></ol>'
+        .replace("Address decision", "<strong>Address decision</strong>")
+        .replace("Ownership evidence", "<strong>Ownership evidence</strong>"),
+    );
+
+    const flat = renderToStaticMarkup(<AiAssistantText text={"1. First\n\nWhy it matters.\n\n2. Second"} />);
+    expect(flat).toContain('<ol start="2"><li>Second</li></ol>');
+  });
+
+  it("links a named section only when that stage is on the page", () => {
+    const answer = "Upload it (section: Document verification).";
+    expect(renderToStaticMarkup(<AiAssistantText text={answer} onSection={() => undefined} />)).not.toContain("<button");
+
+    const stage = document.createElement("section");
+    stage.className = "stage-disclosure";
+    stage.innerHTML = '<h2><button type="button"><span>Document verification</span><span>+</span></button></h2>';
+    document.body.appendChild(stage);
+    try {
+      const html = renderToStaticMarkup(<AiAssistantText text={answer} onSection={() => undefined} />);
+      expect(html).toContain('aria-label="Go to Document verification on the case page"');
+      expect(html).toContain("(section: <button");
+      // Without a handler (e.g. the opening summary) it stays plain text.
+      expect(renderToStaticMarkup(<AiAssistantText text={answer} />)).not.toContain("<button");
+    } finally {
+      stage.remove();
+    }
+  });
 });

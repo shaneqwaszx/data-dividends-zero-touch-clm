@@ -6,7 +6,7 @@ when the model is switched off, not installed, or too slow.
 
 from typing import Any
 
-from .guide import SCREEN_TERMS, sentence_case
+from .guide import SAME_ISSUE, SCREEN_TERMS, sentence_case
 
 
 def _difference_lines(blocker: dict[str, Any]) -> list[str]:
@@ -48,6 +48,21 @@ def _need_lines(needs: list[dict[str, str]]) -> list[str]:
         where = need.get("where_on_the_case_page")
         lines.append(f"- {need['what']}" + (f" (section: {where})" if where else ""))
     return lines
+
+
+def _needs_beyond_blockers(facts: dict[str, Any]) -> list[dict[str, str]]:
+    """Readiness items that are not the same issue as an open blocker (told once only)."""
+
+    codes = {str(blocker.get("code")) for blocker in facts["blockers"]}
+    same = set(codes)
+    for group in SAME_ISSUE:
+        if group & codes:
+            same |= group
+    return [
+        need
+        for need in facts.get("still_needed_before_goldtier") or []
+        if need.get("code") not in same
+    ]
 
 
 def _still_needed_answer(facts: dict[str, Any]) -> str:
@@ -94,7 +109,10 @@ def opening_message(facts: dict[str, Any]) -> str:
         noun = "issue" if count == 1 else "issues"
         lines.append(f"I found {count} {noun} stopping the onboarding of {company}:")
         for number, blocker in enumerate(blockers, start=1):
-            lines.append(f"{number}. {_blocker_line(blocker)}")
+            where = blocker.get("where_on_the_case_page")
+            lines.append(
+                f"{number}. {_blocker_line(blocker)}" + (f" (section: {where})" if where else "")
+            )
             lines.extend(_difference_lines(blocker))
             lines.extend(_next_step_lines(blocker))
         review = facts.get("document_field_review")
@@ -110,10 +128,15 @@ def opening_message(facts: dict[str, Any]) -> str:
                 f"   You can also check what was read from the document ({fields}) under "
                 f'"Review extracted document fields": {labels}.'
             )
+        later = _needs_beyond_blockers(facts)
+        if later:
+            lines.append("")
+            lines.append("Also still needed before GoldTier submission:")
+            lines.extend(_need_lines(later))
         lines.append("")
         lines.append(
             "I can explain any of these in more detail."
-            if count > 1
+            if count + len(later) > 1
             else "I can explain this in more detail."
         )
     elif problem:

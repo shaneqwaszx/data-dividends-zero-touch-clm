@@ -292,3 +292,59 @@ SPONSOR_DEMO_FINAL_QUALITY_GATE.md for the expanded frozen content. Offline XPI 
 simulations do not establish real Sandbox interoperability; real Sandbox UAT is
 NOT_VERIFIED. No new provider status, sponsor mapping/policy, schema or publication
 authority is introduced.
+
+## D-073 - proposed AI Assistant knowledge loop (proposed, not accepted)
+
+PR #99 proposes a reviewed knowledge loop inside the separate AI Assistant service:
+SQLite plus a rebuildable ChromaDB index, append-only versions, maker-checker over each
+edit chain, decisions bound to the reviewed content hash, two-person retirement,
+team-scoped review and
+resolutions, redacted drafts without browser-supplied assistant text, telemetry off and
+loopback-only embeddings, and an `@assistant-ui/react` panel over the existing client.
+[ADR-012](ADR-012_AI_ASSISTANT_KNOWLEDGE_LOOP.md) records the design. Status: proposed,
+not accepted. Owner direction (G6): the PR89 exact-line output catalog keeps its
+deterministic guarantees and stays mandatory; sentence-level checks are an additional
+safeguard. ADR-012 section C proposes adding approved knowledge only as verbatim, tagged
+sentences that pass those checks, with entry titles and follow-up questions under the
+same checks; that extension requires explicit owner acceptance. For knowledge content,
+two-person approval is the primary control and the checks are a best-effort filter
+with documented limits. Accepting the unlocked chromadb Python footprint (62 transitive
+packages) is proposed and requires owner acceptance. Reusing POLICY_APPROVE and
+POLICY_MUTATE for knowledge review is PROJECT_DEFINED_PROVISIONAL; review authority
+stays UNKNOWN_BLOCKED (Q-014). No CLM backend write, schema, provider status or Live
+claim follows.
+
+## D-074 - owner-accepted ADR-012 section C output policy
+
+On 2026-10-21 the repository owner accepted ADR-012 section C option 1, verbatim: "I accept
+ADR-012 section C option 1: the exact-line catalog stays mandatory and approved knowledge
+sentences are added as exact [Gn]/[Pn] lines, with two-person approval as the primary
+control." The PR89 exact-line catalog stays the mandatory gate for model text, in whole
+answers and while streaming. A sentence of a retrieved, approved entry the user may see is
+offered only verbatim as `<sentence> [Gn]` or `[Pn]` and only if it passes the sentence
+checks; entry titles and follow-up questions stay under the same checks. Two-person approval
+bound to the reviewed content hash is the primary control for knowledge content; the
+sentence checks remain a best-effort filter with the limits and residual risks recorded in
+ADR-012 section C (`KNOWLEDGE_FILTER_LIMITS`). The independent architecture review of
+`8457f02` (PROCEED, conditional on this acceptance and on the chromadb footprint) reviewed
+the same section C. This accepts section C only and supersedes only D-073's statement that
+the extension requires explicit owner acceptance. Still open: section A's unlocked chromadb
+footprint (acceptance or a pinning policy), section B as proposed with PR #99, and the
+real-embedding retrieval evaluation (or a waiver). Unchanged: the POLICY_APPROVE and
+POLICY_MUTATE mapping stays PROJECT_DEFINED_PROVISIONAL and review authority stays
+UNKNOWN_BLOCKED (Q-014). PR #99 stays Draft until the open items are settled.
+`USER_AUTHORIZED_POC`; not sponsor review policy, and no CLM backend write, schema,
+provider status or Live claim follows.
+
+## D-075 - owner direction for PR #99 merge readiness
+
+Owner direction 2026-10-21 for PR #99 merge readiness: keep ADR-012 option 1 and D-074 as
+accepted; retain the SQLite plus ChromaDB implementation with the current direct ChromaDB
+version pin (`chromadb==1.5.9`), with no new dependency management system or broad
+dependency upgrade; the real-model embedding evaluation is
+`NOT_EXECUTED — MODEL NOT INSTALLED / OWNER-DEFERRED` to a later validation phase, an
+accepted scope limitation for the local POC and not a passing test or proof of semantic
+retrieval quality; the local synthetic and mock embedding tests remain the functional
+retrieval evidence. Q-014 review authority stays UNKNOWN_BLOCKED and no sponsor approval or
+production readiness is claimed. Cycle 9 aligns the knowledge-review scope of Directors with
+the CLM backend's global Director scope (a defect fix, not a new authority).
