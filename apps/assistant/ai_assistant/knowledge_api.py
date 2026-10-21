@@ -331,9 +331,24 @@ def knowledge_router(
             }
         # Anyone else sees only the versions they wrote: not a reviewer's edited version or
         # anyone's review notes.
-        own = [v for v in versions if v.author == profile.get("user_id")]
+        user = profile.get("user_id")
+        own = [v for v in versions if v.author == user]
         if own:
-            return {"versions": [entry_view(v) for v in own], "reviews": []}
+            # A store from before schema v3 edited a pending version in place: it kept the
+            # author and only an 'edit' row shows that someone else changed it. Since v3 an
+            # edit is a new version that revises the old one, which stays as written.
+            revised = {v.revises for v in versions}
+            edited_in_place = {
+                row["version"]
+                for row in kb.store.reviews(entry_id)
+                if row["decision"] == "edit"
+                and row["reviewer"] != user
+                and row["version"] not in revised
+            }
+            return {
+                "versions": [entry_view(v) for v in own if v.version not in edited_in_place],
+                "reviews": [],
+            }
         require(profile, APPROVE, MUTATE)
         raise not_found()
 

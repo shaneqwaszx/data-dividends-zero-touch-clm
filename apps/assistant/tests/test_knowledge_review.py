@@ -357,10 +357,55 @@ def test_hr_proposes_guidance_and_a_director_approves_it(kb: KnowledgeBase) -> N
     assert kb.store.current("guidance.address-mismatch").version == 2
 
 
+def test_the_author_view_leaves_out_a_version_a_reviewer_edited_in_place(
+    tmp_path: Path,
+) -> None:
+    """QG_PR99_6399814 K7: under schema v2 (ad4661c) a Director's edit changed the RM's pending
+    version in place and kept the RM as its author; only an 'edit' row records it."""
+
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "knowledge.sqlite3") as db:
+        db.executescript(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+            "INSERT INTO meta VALUES ('schema_version', '2');"
+            "CREATE TABLE entries (entry_id TEXT NOT NULL, version INTEGER NOT NULL,"
+            " kind TEXT NOT NULL, status TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,"
+            " blocker_codes TEXT NOT NULL, fields TEXT NOT NULL, stages TEXT NOT NULL,"
+            " visibility TEXT NOT NULL, follow_ups TEXT NOT NULL, effective_from TEXT,"
+            " replaces TEXT, author TEXT NOT NULL, approver TEXT, approved_at TEXT,"
+            " source_ref TEXT, illustrative INTEGER NOT NULL, content_hash TEXT NOT NULL,"
+            " created_at TEXT NOT NULL, PRIMARY KEY (entry_id, version));"
+            "CREATE TABLE reviews (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " entry_id TEXT NOT NULL, version INTEGER NOT NULL, reviewer TEXT NOT NULL,"
+            " decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject', 'retire', 'edit')),"
+            " notes TEXT NOT NULL, created_at TEXT NOT NULL,"
+            " FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version));"
+            # The RM's draft as ad4661c's in-place edit left it: the Director's title and body,
+            # the RM still the author, and an 'edit' row by the Director.
+            "INSERT INTO entries VALUES ('resolution.legacy', 1, 'resolution', 'pending_review',"
+            " 'Director title LEGACYEDITMARK', 'Director body LEGACYBODYMARK.', '[]', '[]',"
+            " '[]', '{\"roles\": [], \"teams\": [\"TEAM_A\"]}', '[]', NULL, NULL, 'maya-lim',"
+            " NULL, NULL, 'RM feedback', 0, 'x', '2026-10-01T00:00:00+00:00');"
+            "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at)"
+            " VALUES ('resolution.legacy', 1, 'director-dan', 'edit', 'body, title',"
+            " '2026-10-01T00:05:00+00:00');"
+        )
+    kb = _kb(tmp_path)  # opening the store migrates it to schema v3
+    legacy = kb.store.get("resolution.legacy", 1)
+    assert legacy is not None and legacy.author == "maya-lim" and legacy.revises is None
+    own = client(kb, "rm-session").get("/assistant/knowledge/entries/resolution.legacy")
+    assert own.status_code == 200 and own.json() == {"versions": [], "reviews": []}
+    assert "LEGACY" not in own.text and "Director" not in own.text
+    # The Director, in the entry's team, still sees the full record.
+    full = client(kb, "director-2-session").get("/assistant/knowledge/entries/resolution.legacy")
+    assert "LEGACYEDITMARK" in full.text and full.json()["reviews"][0]["decision"] == "edit"
+
+
 @pytest.mark.parametrize(
     ("title", "expected"),
     [
-        ("\u0410pprove \u00fcn\u00efcode title", "guidance.pprove-n-code-title"),
+        ("Аpprove ünïcode title", "guidance.pprove-n-code-title"),
         ("Registered address: a new rule!", "guidance.registered-address-a-new-rule"),
     ],
 )

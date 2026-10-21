@@ -153,7 +153,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance |
 | GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open gaps |
 | GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
-| GET | `/assistant/knowledge/entries/{id}` | Director, HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote, without review notes |
+| GET | `/assistant/knowledge/entries/{id}` | Director, HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded) |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
@@ -196,7 +196,8 @@ left out, the answer's notice says how many, and the reply's `checks.removed` is
 The same checks apply to the other knowledge text in chat replies: an entry title on a
 source chip or in the no-model answer is replaced by a neutral label ("Guidance G1", "Past
 case P1") if it fails, and a follow-up question that fails is not suggested. Source objects
-do not carry the entry id or the free-text source reference.
+carry the tag, kind, version, that title, the approval time and the illustrative, fallback
+and cited flags, not the entry id or the free-text source reference.
 
 For knowledge, two-person approval is the real control. The checks are a best-effort filter:
 they catch the listed phrasings and shapes only, not deliberate evasion (ADR-012 lists what

@@ -109,13 +109,17 @@ replacement. Do not silently remove mandatory checks."
   shown only if it passes, otherwise a neutral label ("Guidance G1", "Past case P1") is
   shown; a follow-up question (suggested questions) is dropped unless it passes; titles and
   follow-ups longer than 200 characters never pass. A source object carries only the tag,
-  kind, version, that title, the approval time and the illustrative and fallback flags: the
-  entry id and the free-text source reference are not sent to the RM's browser or put in the
-  prompt. Guidance ids derived from a title use ASCII letters and digits only.
+  kind, version, that title, the approval time and the illustrative, fallback and cited
+  flags: the entry id and the free-text source reference are not sent to the RM's browser
+  or put in the prompt. Guidance ids derived from a title use ASCII letters and digits only.
 - Outside chat replies, the author of a draft (an RM without review capabilities) can read
   only the versions they wrote through `GET /assistant/knowledge/entries/{id}`, without
-  reviewers' edited versions or review notes. Reviewers in the entry's team see the full
-  history; the review screens are reviewer-only and show unfiltered entries by design.
+  reviewers' edited versions or review notes. That includes a store migrated from schema
+  v2, where a reviewer's edit changed the RM's pending version in place and kept the RM as
+  its author: a version with another person's 'edit' row and no later version revising it
+  is left out. Directors and HR in the entry's team see the full history (including
+  Directors' review notes on the team's RM drafts); the review screens are for them only and
+  show unfiltered entries by design.
 - Controls for knowledge content: **two-person approval of every version is the primary,
   robust control** (two different identities, a decision bound to the content hash,
   team-scoped). The sentence checks are a **secondary, best-effort filter** with documented
@@ -225,7 +229,8 @@ embedding model (Ollama); without it, index tasks wait and keyword search still 
 SQLite schema v3 adds `entries.revises` (nullable) and a `retire_requests` table; v1 and v2
 stores are migrated in place on open. A reviewer who edited a pending version in place under
 schema v2 has only an 'edit' review row on it; that row counts as editing, so they stay barred
-from deciding it after the migration. No credentials are stored. Redaction is a first pass: names that appear nowhere in
+from deciding it after the migration, and the version is left out of the RM author's own
+view of the entry. No credentials are stored. Redaction is a first pass: names that appear nowhere in
 the case data are not recognised, so Director review remains required before approval.
 
 ## Migration and retirement implications
