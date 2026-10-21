@@ -298,3 +298,19 @@ it("returns focus from print-expanded content before restoring a collapsed paren
     expect(visible(document.activeElement!)).toBe(true);
   } finally { await f.dispose(); }
 });
+
+describe("completed sections", () => {
+  it.each([
+    ["done", "false"], ["attention", "true"], ["current", "true"], ["pending", "true"],
+  ] as const)("a %s section starts with aria-expanded=%s, and navigation can still reveal it", async (tone, expanded) => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<StageDisclosure title="Document verification" scopeKey="case-a"
+      status={{ tone, label: tone }} main={<p id="main">Evidence</p>} />));
+    const button = host.querySelector<HTMLButtonElement>("button[data-stage-toggle]")!;
+    expect(button.getAttribute("aria-expanded")).toBe(expanded);
+    await act(async () => revealStage(host.querySelector("#main")!));
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => root.unmount()); host.remove();
+  });
+});

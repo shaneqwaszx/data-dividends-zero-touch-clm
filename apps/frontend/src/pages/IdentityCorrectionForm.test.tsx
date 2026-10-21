@@ -60,10 +60,11 @@ describe("IdentityCorrectionForm", () => {
       } as unknown as OnboardingCase,
       documentCandidates: [{ uen: "11111997C", documentId: "garden-doc", eventCount: 8 }],
     });
-    expect(view.textContent).toContain("Original entered UEN: 11111998B");
-    expect(view.textContent).toContain("Current corrected UEN: 11111999A");
-    expect(view.textContent).toContain("Document-detected UEN: 11111997C");
-    act(() => Array.from(view.querySelectorAll("button")).find((item) => item.textContent === "Use entered UEN")!.click());
+    // One choice card: entered (with its original UEN noted), document, or another UEN.
+    expect(view.textContent).toContain("Originally entered: 11111998B");
+    expect(view.querySelector('input[name="uen-choice"][value="ENTERED"]')!.closest("label")!.textContent).toContain("11111999A");
+    expect(view.querySelector('input[name="uen-choice"][value="garden-doc"]')!.closest("label")!.textContent).toContain("11111997C");
+    pickAndConfirm(view, "ENTERED");
     expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ registration_number: "11111999A", choice: "ENTERED" }));
   });
   it("rejects an invalid UEN inline without submitting an identity mutation", () => {
@@ -78,21 +79,23 @@ describe("IdentityCorrectionForm", () => {
       registryRecovery: true,
       documentCandidates: [{ uen: "202400009I", documentId: "synthetic-doc", eventCount: 8 }],
     });
-    const button = (label: string) => Array.from(view.querySelectorAll("button")).find(
-      (item) => item.textContent === label,
-    )!;
     expect(view.textContent).toContain("Entity identity requires confirmation");
-    act(() => button("Use entered UEN").click());
+    const confirm = () => Array.from(view.querySelectorAll("button")).find((item) => item.textContent === "Confirm UEN and resume")!;
+    expect(view.querySelectorAll("button")).toHaveLength(1);
+    expect(confirm().disabled).toBe(true);
+    pickAndConfirm(view, "ENTERED");
     expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({
       registration_number: "202400001A", choice: "ENTERED",
     }));
-    act(() => button("Use document UEN").click());
+    pickAndConfirm(view, "synthetic-doc");
     expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({
       registration_number: "202400009I", choice: "DOCUMENT",
       document_id: "synthetic-doc", expected_document_event_count: 8,
     }));
-    act(() => button("Enter another UEN").click());
-    expect(view.querySelector("#identity-registration-number")).not.toBeNull();
+    const other = view.querySelector("#identity-registration-number") as HTMLInputElement;
+    act(() => { enter(other, "202400777Z"); });
+    act(() => { view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ registration_number: "202400777Z", choice: "OTHER" }));
   });
   it("collects legal name and UEN, fixes country to SG, and states the evidence boundary", () => {
     const { view } = render();
@@ -162,3 +165,9 @@ describe("identity Search recheck integration", () => {
     expect(remove.mock.calls.every(([filters]) => JSON.stringify(filters?.queryKey).includes("case-user"))).toBe(true);
   });
 });
+
+function pickAndConfirm(view: HTMLElement, value: string): void {
+  const radio = view.querySelector<HTMLInputElement>(`input[name="uen-choice"][value="${value}"]`)!;
+  act(() => radio.click());
+  act(() => { view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+}

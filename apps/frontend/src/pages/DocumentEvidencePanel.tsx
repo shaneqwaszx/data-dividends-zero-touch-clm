@@ -1,3 +1,4 @@
+import { displayTimestamp } from "../shared";
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import type {
@@ -93,10 +94,22 @@ function correctionStillRequiresReplacement(field: DocumentField, summary: ZeroT
   return Number.isFinite(threshold) && field.confidence < threshold;
 }
 
-export function documentStatusLabel(document: DocumentProcessingRecord): string {
+/**
+ * The document record can keep stale "review required / pending field" flags after the case
+ * has moved past documents (e.g. fields were compared before a registry repair). The case is
+ * authoritative: documents READY and no active document-stage issue means no review is needed.
+ */
+export function isDocumentReviewSettled(document: DocumentProcessingRecord, summary: ZeroTouchCaseSummary): boolean {
+  return document.state === "REVIEW_REQUIRED" && !document.semantic_completion && isCurrentDocument(document)
+    && summary.clm?.readiness?.document?.status === "READY"
+    && !(summary.active_exceptions ?? []).some(item => item.stage === "DOCUMENT");
+}
+
+export function documentStatusLabel(document: DocumentProcessingRecord, settled = false): string {
   if (document.state === "FAILED") return "Document processing failed";
   if (document.state === "UPLOADED") return "Document uploaded";
   if (document.state === "PROCESSING") return "Processing document";
+  if (settled) return "Document complete";
   if (document.state === "REVIEW_REQUIRED" && !document.semantic_completion) return "Document review required";
   const verified = document.state === "REVIEWED" && document.fields.length > 0
     && document.fields.every((field) => field.review_status === "ACCEPTED" && field.comparison_status === "MATCH");
@@ -122,6 +135,7 @@ function DocumentCard({
   mutationBlocked,
   reviewInWorkspace = false,
   presentation = "full",
+  hideFields = false,
   onReview,
   onReplace,
   onRetry,
@@ -133,6 +147,8 @@ function DocumentCard({
   mutationBlocked: boolean;
   reviewInWorkspace?: boolean;
   presentation?: "full" | "main" | "more";
+  /** The combined card already shows the field comparison; keep only the file summary. */
+  hideFields?: boolean;
   onReview: (document: DocumentProcessingRecord, request: DocumentReviewRequest, repair: boolean) => void;
   onReplace: (document: DocumentProcessingRecord, file: File) => void;
   onRetry: (document: DocumentProcessingRecord, file: File) => void;
@@ -145,7 +161,8 @@ function DocumentCard({
   const [validationError, setValidationError] = useState<string | null>(null);
   const correctionInput = useRef<HTMLInputElement>(null);
   const correctionTrigger = useRef<HTMLButtonElement | null>(null);
-  const pendingCount = document.fields.filter((field) => field.review_status === "PENDING").length;
+  const settled = isDocumentReviewSettled(document, summary);
+  const pendingCount = settled ? 0 : document.fields.filter((field) => field.review_status === "PENDING").length;
   const finalCount = document.fields.length - pendingCount;
   const controlsDisabled = busy || mutationBlocked || summary.evidence_decision_authorized !== true
     || Boolean(summary.case.target_dispatch_confirmation || summary.case.goldtier_result || summary.clm?.submission
@@ -202,10 +219,10 @@ function DocumentCard({
           <p className="card-kicker">{historical ? "Historical evidence" : "Current evidence"}</p>
           <h5>{document.display_name}</h5>
         </div>
-        <span className="tag tag-neutral">{documentStatusLabel(document)}</span>
+        <span className="tag tag-neutral">{documentStatusLabel(document, settled)}</span>
       </header>
       <p className="control-help">
-        {document.provider_environment ?? "Provider unavailable"} · {finalCount} {document.semantic_completion ? "source field reviews final" : "final"} / {document.fields.length} fields
+        {document.provider_environment ?? "Provider unavailable"} · {settled ? `${document.fields.length} fields · no review needed` : <>{finalCount} {document.semantic_completion ? "source field reviews final" : "final"} / {document.fields.length} fields</>}
         {document.supersedes_document_id ? ` · replaces ${document.supersedes_document_id}` : ""}
         {document.superseded_by_document_id ? ` · replaced by ${document.superseded_by_document_id}` : ""}
       </p>
@@ -220,6 +237,7 @@ function DocumentCard({
       {(essential || historical) && document.error && <div className="ds-banner ds-banner-warn"><strong>{document.error.code}</strong><span>{document.error.message}</span></div>}
 
       {/* The main case view reads as one table: headings once, one aligned row per field. */}
+      {!hideFields && <>
       {presentation === "main" && <div className="document-fields__head" aria-hidden="true">
         <span>Field</span><span>Suggestion</span><span>Canonical</span><span>Source agreement</span><span>Verification state</span><span>Final value</span>
       </div>}
@@ -229,7 +247,9 @@ function DocumentCard({
           const headingId = `${document.document_id}-${field.field_key}${presentation === "full" ? "" : `-${presentation}`}`;
           const autoConfirmed = document.events.some((event) => event.code === "DOCUMENT_FIELD_AUTO_CONFIRMED" && event.field_key === field.field_key)
             && !document.events.some((event) => event.field_key === field.field_key && ["DOCUMENT_FIELD_ACCEPTED", "DOCUMENT_FIELD_REJECTED", "DOCUMENT_FIELD_CORRECTED"].includes(event.event_type));
-          const isPending = field.review_status === "PENDING";
+          const isPending = field.review_status === "PENDING" && !settled;
+          const staleComparison = settled && field.comparison_status !== "MATCH"
+            && ["MATCHED", "RESOLVED"].includes(summary.reconciliation?.status ?? "");
           const currentCandidateContext = presentation === "main" && isPending && !document.semantic_completion;
           const CandidateContainer = currentCandidateContext ? "section" : "details";
           const canDecide = essential && !reviewInWorkspace && !document.semantic_completion && !historical && isCurrentDocument(document) && document.state === "REVIEW_REQUIRED" && isPending;
@@ -239,7 +259,7 @@ function DocumentCard({
             <section className="document-field" key={field.field_key} aria-labelledby={headingId}>
               {presentation === "more" && !historical ? <h5 id={headingId}>{label} — retained field evidence</h5> : <div className="document-field__heading">
                 <h6 id={headingId}>{label}</h6>
-                <span className="tag tag-neutral">{document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status.replaceAll("_", " ")}</span>
+                <span className="tag tag-neutral">{settled && field.review_status === "PENDING" ? "NO REVIEW NEEDED" : document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status.replaceAll("_", " ")}</span>
               </div>}
               {presentation === "main" && <p className="control-help">Extraction quality: {field.extraction_quality ?? "UNKNOWN"}.
                 {field.original_extracted_value === null ? " Missing extracted evidence; replacement may still be required."
@@ -247,12 +267,13 @@ function DocumentCard({
               </p>}
               <dl className="document-field__evidence">
                 <div><dt>Suggestion</dt><dd>{evidenceValue(field.original_extracted_value)}</dd></div>
-                <div><dt>Canonical</dt><dd>{evidenceValue(field.canonical_value)}</dd></div>
-                <div><dt>Source agreement</dt><dd><span className="document-field__status">{field.comparison_status.replaceAll("_", " ")}</span></dd></div>
-                <div><dt>Verification state</dt><dd><span className="document-field__status">{document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status === "ACCEPTED" ? "HUMAN ACCEPTED" : field.review_status}</span></dd></div>
+                {/* A settled stale field's comparison predates the registry repair; the current reconciliation is authoritative. */}
+                <div><dt>Canonical</dt><dd>{settled && field.canonical_value == null ? "Checked in reconciliation" : evidenceValue(field.canonical_value)}</dd></div>
+                <div><dt>Source agreement</dt><dd><span className="document-field__status">{staleComparison ? `${summary.reconciliation!.status} (RECONCILED)` : field.comparison_status.replaceAll("_", " ")}</span></dd></div>
+                <div><dt>Verification state</dt><dd><span className="document-field__status">{settled && field.review_status === "PENDING" ? "NO REVIEW NEEDED" : document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status === "ACCEPTED" ? "HUMAN ACCEPTED" : field.review_status}</span></dd></div>
                 {presentation === "full" && <><ExtractionDetails metadata={field} score={field.confidence} />
                 <div><dt>Provenance</dt><dd>{field.provenance.provider} {field.provenance.environment} · {field.provenance.source_reference} · page {field.provenance.page_number ?? "UNKNOWN"}</dd></div></>}
-                {!isPending && <div><dt>Final value</dt><dd>{field.review_status === "CORRECTED" ? evidenceValue(field.reviewed_value) : field.review_status}</dd></div>}
+                {!isPending && <div><dt>Final value</dt><dd>{settled && field.review_status === "PENDING" ? "No review needed" : field.review_status === "CORRECTED" ? evidenceValue(field.reviewed_value) : field.review_status}</dd></div>}
                 {field.review_note && <div><dt>Review note</dt><dd>{field.review_note}</dd></div>}
               </dl>
               {(supporting || currentCandidateContext) && !!field.candidates?.length && <CandidateContainer className="evidence-details">
@@ -294,6 +315,7 @@ function DocumentCard({
           );
         })}
       </div>
+      </>}
 
       {presentation === "full" && !!document.pages?.length && <details className="evidence-details"><summary>Page extraction provenance ({document.pages.length})</summary>
         {document.pages.map((page) => <dl className="document-field__evidence" key={page.page_number}>
@@ -356,9 +378,9 @@ function DocumentTechnicalEvidence({ documents, readNotice, readConfirmed }: {
         <div><dt>Reconciliation version</dt><dd>{document.reconciliation_version ?? "Not recorded"}</dd></div>
         <div><dt>Document reference</dt><dd>{document.document_id}</dd></div>
         <div><dt>Replaces / replaced by</dt><dd>{document.supersedes_document_id ?? "None"} / {document.superseded_by_document_id ?? "None"}</dd></div>
-        <div><dt>Uploaded at — original ISO UTC</dt><dd>{document.created_at}</dd></div>
-        <div><dt>Processed at — original ISO UTC</dt><dd>{document.processed_at ?? "Not recorded"}</dd></div>
-        <div><dt>Reviewed at — original ISO UTC</dt><dd>{document.reviewed_at ?? "Not recorded"}</dd></div>
+        <div><dt>Uploaded at</dt><dd>{displayTimestamp(document.created_at)}</dd></div>
+        <div><dt>Processed at</dt><dd>{displayTimestamp(document.processed_at)}</dd></div>
+        <div><dt>Reviewed at</dt><dd>{displayTimestamp(document.reviewed_at)}</dd></div>
       </dl>
       {document.fields.map(field => <section key={field.field_key}>
         <h5>{fieldLabel(field.field_key)}</h5>
@@ -366,7 +388,7 @@ function DocumentTechnicalEvidence({ documents, readNotice, readConfirmed }: {
           <ExtractionDetails metadata={field} score={field.confidence} />
           <div><dt>Provenance</dt><dd>{field.provenance.provider} {field.provenance.environment} · {field.provenance.source_reference} · page {field.provenance.page_number ?? "UNKNOWN"}</dd></div>
           <div><dt>Comparison / review state</dt><dd>{field.comparison_status} / {field.review_status}</dd></div>
-          <div><dt>Field reviewed at — original ISO UTC</dt><dd>{field.reviewed_at ?? "Not recorded"}</dd></div>
+          <div><dt>Field reviewed at</dt><dd>{displayTimestamp(field.reviewed_at)}</dd></div>
         </dl>
         {field.candidates?.map((candidate, index) => <dl className="document-field__evidence" key={`${candidate.source_reference}:${index}`}>
           <div><dt>Candidate source</dt><dd>Page {candidate.page_number} · {candidate.source_reference}</dd></div>
@@ -385,6 +407,15 @@ function DocumentTechnicalEvidence({ documents, readNotice, readConfirmed }: {
   </section>;
 }
 
+/** Say why no document is on the case: intake stops at registry review before documents are sent. */
+function emptyDocumentMessage(summary: ZeroTouchCaseSummary): string {
+  if (summary.current_stage === "REGISTRY" || summary.current_stage === "GOLDTIER_SEARCH") {
+    return "No document uploaded yet — this case stopped before documents could be sent. Fix the issue in the earlier section (for example, complete the company details in Registry verification), then upload documents here.";
+  }
+  if (summary.status === "PENDING_INPUTS") return "No document uploaded yet — use Upload required document to add one.";
+  return "No document uploaded";
+}
+
 export default function DocumentEvidencePanel({
   summary,
   documents,
@@ -393,6 +424,8 @@ export default function DocumentEvidencePanel({
   mutationBlocked,
   reviewInWorkspace = false,
   presentation = "full",
+  embedded = false,
+  hideFieldRows = false,
   loading = false,
   loadFailed = false,
   onReview,
@@ -409,6 +442,10 @@ export default function DocumentEvidencePanel({
   mutationBlocked: boolean;
   reviewInWorkspace?: boolean;
   presentation?: "full" | "main" | "more" | "technical";
+  /** Inside the combined document card, which supplies the heading. */
+  embedded?: boolean;
+  /** Field rows repeat the comparison table shown above in the combined card. */
+  hideFieldRows?: boolean;
   onReview: (document: DocumentProcessingRecord, request: DocumentReviewRequest, repair: boolean) => void;
   onReplace: (document: DocumentProcessingRecord, file: File) => void;
   onRetry: (document: DocumentProcessingRecord, file: File) => void;
@@ -446,15 +483,16 @@ export default function DocumentEvidencePanel({
   </section>;
 
   return (
-    <section className="evidence-section-block document-evidence-panel" aria-labelledby="documents-heading" aria-busy={busy || loading}>
-      <div className="document-evidence-panel__title"><div><p className="card-kicker">Local/Mock evidence · not approval</p><h4 id="documents-heading">Document evidence and review</h4></div>{busyLabel && <span role="status">{busyLabel}</span>}</div>
+    <section className={`evidence-section-block document-evidence-panel${embedded ? " document-evidence-panel--embedded" : ""}`} aria-labelledby={embedded ? "document-combined-heading" : "documents-heading"} aria-busy={busy || loading}>
+      {embedded ? busyLabel && <span role="status">{busyLabel}</span>
+        : <div className="document-evidence-panel__title"><div><p className="card-kicker">Local/Mock evidence · not approval</p><h4 id="documents-heading">Document evidence and review</h4></div>{busyLabel && <span role="status">{busyLabel}</span>}</div>}
       {summary.evidence_decision_authorized !== true && <p className="control-help">Evidence decisions are read-only for this viewer. The backend authorizes the case creator before applying any decision.</p>}
       {mutationBlocked && <div className="ds-banner ds-banner-warn"><strong>Evidence reload could not be confirmed.</strong><span>Last-confirmed information remains visible. Refresh before attempting another case mutation.</span><button type="button" className="btn btn-secondary" disabled={busy} onClick={onRefresh}>Refresh case evidence</button></div>}
       {summary.document_refresh_recovery && <div id="case-document-refresh-recovery" className="ds-banner ds-banner-warn"><strong>Replacement saved; evidence refresh needs recovery.</strong><span>Your replacement and original history are retained. Resume the evidence refresh without uploading again. Target submission remains subject to fresh review.</span><button type="button" className="btn btn-primary" disabled={busy || loading || loadFailed || mutationBlocked || !summary.document_refresh_recovery.can_resume || !onRecoverRefresh} onClick={onRecoverRefresh}>Resume document evidence refresh</button></div>}
       {loadFailed && <p className="ds-banner ds-banner-warn" role="alert">Document information could not be loaded. {documents.length > 0 && "Last-confirmed document information remains visible."}</p>}
       {loading && !loadFailed && <p className="text-muted" role="status">Loading document information…</p>}
-      {!loading && !loadFailed && current.length === 0 && <p className="text-muted">{history.length > 0 ? presentation === "main" ? "No current document is retained; superseded evidence is in More details." : "No current document is retained; historical evidence is shown below." : "No document uploaded"}</p>}
-      {current.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} presentation={presentation} reviewInWorkspace={reviewInWorkspace} busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}
+      {!loading && !loadFailed && current.length === 0 && <p className="text-muted">{history.length > 0 ? presentation === "main" ? "No current document is retained; superseded evidence is in More details." : "No current document is retained; historical evidence is shown below." : emptyDocumentMessage(summary)}</p>}
+      {current.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} presentation={presentation} reviewInWorkspace={reviewInWorkspace} hideFields={hideFieldRows} busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}
       {canContinue && <div id="case-document-intake-continue" className="ds-banner"><strong>Recovered intake is ready to be re-evaluated.</strong><span>The replacement lineage is current and the case remains at the document intake checkpoint.</span><button type="button" className="btn btn-primary" disabled={busy || mutationBlocked || summary.evidence_decision_authorized !== true} onClick={onContinue}>Continue recovered intake</button></div>}
       {presentation === "full" && history.length > 0 && <details className="evidence-history"><summary>Evidence history ({history.length})</summary>{history.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}</details>}
     </section>

@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { ProcessingNode, ZeroTouchCaseSummary } from "../types";
+import type {
+  DocumentProcessingRecord, ProcessingNode, ZeroTouchCaseSummary } from "../types";
 import {
   CompletedOverview,
   ConfirmDetailsPanel,
@@ -96,7 +97,7 @@ describe("OnboardingProgressPanel", () => {
   });
   it("renders the backend order, current text, and accessible bounded progress before terminal state", () => {
     const summary = summaryWithPipeline([
-      processingNode("INITIAL_IDENTITY", "Initial identity", "COMPLETE"),
+      processingNode("CASE_CREATED", "Case created", "COMPLETE"),
       processingNode("GOLDTIER_SEARCH", "GoldTier search", "IN_PROGRESS"),
       processingNode("ACRA_REGISTRY", "ACRA registry", "NOT_REACHED"),
       processingNode("DOCUMENT_IDP", "Document and IDP", "NOT_REACHED"),
@@ -112,7 +113,7 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain("1 of 4 stages complete or skipped");
     expect(markup).toContain("current: GoldTier search — In progress");
     const stagesMarkup = markup.slice(markup.indexOf('aria-label="Onboarding stages"'));
-    expect(stagesMarkup.indexOf("Initial identity")).toBeLessThan(stagesMarkup.indexOf("GoldTier search"));
+    expect(stagesMarkup.indexOf("Case created")).toBeLessThan(stagesMarkup.indexOf("GoldTier search"));
     expect(stagesMarkup.indexOf("GoldTier search")).toBeLessThan(stagesMarkup.indexOf("ACRA registry"));
     expect(markup).toContain("Last updated:");
   });
@@ -184,7 +185,7 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).not.toContain("Resolve");
   });
 
-  it("derives one actionable legacy identity tile from the retained blocker when the pipeline omitted it", () => {
+  it("does not show an Initial identity stage, even when identity is incomplete", () => {
     const summary = summaryWithPipeline([processingNode("DOCUMENT_IDP", "Document and IDP", "NOT_REACHED")]);
     summary.active_exceptions = [{
       exception_id: "legacy-identity",
@@ -199,8 +200,7 @@ describe("OnboardingProgressPanel", () => {
       />,
     );
 
-    expect(markup).toContain("Initial identity");
-    expect(markup).toContain('aria-label="Open details for Initial identity"');
+    expect(markup).not.toContain("Initial identity");
     expect(markup.match(/INITIAL_IDENTITY_INCOMPLETE/g) ?? []).toHaveLength(0);
   });
 
@@ -652,4 +652,31 @@ it("retains reconciliation status and safe lineage in Technical after the docume
   expect(technical).toContain("event count 3"); expect(technical).toContain("CONFLICT");
   expect(technical).not.toMatch(/<details|<button|<input|<select/);
   expect(renderToStaticMarkup(<ConfirmDetailsPanel summary={summary} />)).toBe("");
+});
+
+it("compares registry value, document value with confidence, and the reviewer's choice in plain words", () => {
+  const summary = summaryWithPipeline([]);
+  summary.current_stage = "DOCUMENT";
+  const observation = (field: string, kind: string, value: string | null) => ({ observation_id: `${field}-${kind}`, field_name: field, source_kind: kind, normalized_value: value, validity: value ? "VALID" : "MISSING", confidence: null });
+  summary.reconciliation = { reconciliation_id: "r", version: 1, status: "REVIEW_REQUIRED", source_document_ids: ["doc"], source_document_event_counts: [1], updated_at: "2026-10-15T12:00:00Z",
+    fields: ["legal_name", "registration_identifier", "registered_address"].map(field => ({ field_name: field, outcome: "MISSING_IN_SOURCE",
+      observations: [observation(field, "REGISTRY", "REG"), observation(field, "DOCUMENT_IDP", null)], discrepancy_id: null })),
+    discrepancies: [] } as unknown as NonNullable<ZeroTouchCaseSummary["reconciliation"]>;
+  const doc = { document_id: "doc", superseded_by_document_id: null, fields: [
+    { field_key: "legal_name", review_status: "REJECTED", original_extracted_value: "DOC NAME", reviewed_value: null, confidence: 0.97 },
+    { field_key: "registration_number", review_status: "CORRECTED", original_extracted_value: "11111998B", reviewed_value: "11111999A", confidence: 0.9 },
+    { field_key: "registered_address", review_status: "ACCEPTED", original_extracted_value: "1 DOC ROAD", reviewed_value: "1 DOC ROAD", confidence: 0.8 },
+  ] } as unknown as DocumentProcessingRecord;
+  const markup = renderToStaticMarkup(<ConfirmDetailsPanel presentation="main" summary={summary} documents={[doc]} />);
+  for (const header of ["Registry value", "Document value", "Your choice"]) expect(markup).toContain(header);
+  // The document's own value stays visible even when the comparison saw none.
+  expect(markup).toContain("DOC NAME"); expect(markup).toContain("97% confidence");
+  expect(markup).toContain("Manual input: 11111999A");
+  expect(markup).toContain(">Document value<");
+  expect(markup).not.toContain("rejected");
+  // The chosen value's cell is highlighted: registry for the rejected (registry-chosen) name, document for the address, manual in Your choice.
+  expect(markup.match(/is-chosen/g)).toHaveLength(3);
+  expect(markup).toMatch(/data-label="Registry value" class="is-chosen"/);
+  expect(markup).toMatch(/data-label="Document value" class="is-chosen"/);
+  expect(markup).toMatch(/data-label="Your choice" class="is-chosen"/);
 });

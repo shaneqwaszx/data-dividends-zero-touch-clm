@@ -208,7 +208,7 @@ test("Blocker simulation draft isolation and same-team/cross-team authorization"
   const draft = page.locator('input[data-review-field][value="REJECTED"]').first();
   const mutations: string[] = [];
   const listener = (request: import("@playwright/test").Request) => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); };
-  page.on("request", listener); await page.getByRole("button", { name: "Reject all undecided suggestions", exact: true }).click();
+  page.on("request", listener); await page.getByRole("button", { name: "Use registry value for all undecided", exact: true }).click();
   await expect(draft).toBeChecked();
   await page.getByRole("button", { name: "Save draft in this tab", exact: true }).click();
   await expect(page.getByText("Draft saved in this tab", { exact: false })).toBeVisible();

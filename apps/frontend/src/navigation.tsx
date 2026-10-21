@@ -178,7 +178,7 @@ function NewOnboardingLanding({ retainedCaseId, render }: {
   render: () => ReactNode;
 }) {
   return retainedCaseId
-    ? <Navigate to={paths.retainedIntake(retainedCaseId)} replace />
+    ? <Navigate to={paths.caseDetail(retainedCaseId)} replace />
     : render();
 }
 
@@ -204,7 +204,7 @@ export function WorkspaceTabs({
               className={({ isActive }) => isActive ? "nav-tab nav-tab--active" : "nav-tab"}
               end={item.end}
               to={item.tab === "home" && retainedIntakeCaseId
-                ? paths.retainedIntake(retainedIntakeCaseId)
+                ? paths.caseDetail(retainedIntakeCaseId)
                 : item.path}
             >
               {item.label}

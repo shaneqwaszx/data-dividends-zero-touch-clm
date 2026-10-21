@@ -362,7 +362,8 @@ button.tag {
 .case-attention ul { list-style: none; margin: 0; padding: 0; }
 .case-attention .btn { display: block; width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; padding: 8px 0; }
 @media (min-width: 901px) {
-  .case-pipeline-panel { position: sticky; top: 12px; align-self: flex-start; max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: auto; scrollbar-gutter: stable; }
+  /* Fill the full window height even when the panel content is short. */
+  .case-pipeline-panel { position: sticky; top: 0; align-self: flex-start; height: 100dvh; max-height: 100dvh; box-sizing: border-box; overflow-y: auto; overscroll-behavior: auto; scrollbar-gutter: stable; }
 }
 .ds-stage-marker { display: flex; flex-direction: column; align-items: center; }
 .ds-stage-copy { padding-bottom: 14px; font-size: 12.5px; }
@@ -1135,3 +1136,12 @@ button.tag {
 .ds-root .document-evidence-panel .document-fields__head + .document-fields--table { margin-top: -10px; }
 /* The read-only explanation is identical per field: show it once, keep each field's retry link. */
 .ds-root .document-evidence-panel .document-fields--table > .document-field:not(:first-child) .document-checkpoint-repair .control-help { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+/* Sticky section headers: the header band and its status pill stay pinned, with a gap
+   below the top of the viewport. Header and pill share grid row 1 so both can stick. */
+.ds-root .stage-disclosure { --sticky-gap: 12px; display: grid; grid-template-columns: minmax(0, 1fr); }
+.ds-root .stage-disclosure > h2 { grid-row: 1; grid-column: 1; position: sticky; top: var(--sticky-gap); z-index: 6; }
+.ds-root .stage-disclosure > .stage-disclosure__status {
+  grid-row: 1; grid-column: 1; position: sticky; top: calc(var(--sticky-gap) + 26px); z-index: 7;
+  justify-self: end; align-self: start; margin: 26px 60px 0 0;
+}

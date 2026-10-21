@@ -11,9 +11,9 @@ import { openStage } from "./stage-disclosures";
 const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
   "../../backend/tests/fixtures/uat/clean-company-profile.pdf");
 const stageNames = [
-  "Case created", "Initial identity", "Jurisdiction", "Existing-customer search",
+  "Case created", "Jurisdiction", "Existing-customer search",
   "Registry verification", "Document verification", "Data reconciliation", "Ownership & UBO",
-  "Risk assessment", "Submission readiness", "GoldTier submission package", "Final review & send",
+  "Risk assessment", "GoldTier Details & Status", "Final review & send",
 ];
 let violations: string[];
 let holdCreation: Promise<void> | null;

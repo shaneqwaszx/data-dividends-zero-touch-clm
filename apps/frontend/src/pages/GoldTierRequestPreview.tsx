@@ -1,3 +1,4 @@
+import { formatTimestamp, isIsoTimestamp } from "../shared";
 import type { GoldTierRequestPreviewData } from "../types";
 
 function label(value: string): string {
@@ -22,7 +23,8 @@ export default function GoldTierRequestPreview({ preview }: {
               <div key={field.target_field}>
                 <dt>{field.target_field}</dt>
                 <dd>
-                  {field.missing ? "Missing" : field.value}
+                  {/* Timestamps read in the page format; the exact sent value stays on the <time> element. */}
+                  {field.missing ? "Missing" : isIsoTimestamp(field.value) ? <time dateTime={field.value}>{formatTimestamp(field.value)}</time> : field.value}
                   {" · "}{label(field.provenance)} · {label(field.authority)}
                 </dd>
               </div>

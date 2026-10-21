@@ -35,7 +35,7 @@ async function createGarden(page: Page, customDocument?: { name: string; mimeTyp
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   for (const name of ["KYC customer type", "Client segment"]) {
     const control = page.getByLabel(name, { exact: true });
     const value = await control.locator("option").evaluateAll((options) => options.map((item) => (item as HTMLOptionElement).value).find(Boolean));

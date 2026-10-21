@@ -1938,10 +1938,10 @@ export default function App({
 
     const processDocumentIntake = async (
       intakeCase: LiveIntakeOperation & { caseId: string },
-    ) => {
+    ): Promise<boolean> => {
       const failures: string[] = [];
       for (const [index, file] of intakeCase.files.entries()) {
-        if (!isCurrentIntakeOperation(intakeCase)) return;
+        if (!isCurrentIntakeOperation(intakeCase)) return false;
         setIntakeProgress(`Uploading document ${index + 1} of ${intakeCase.files.length}…`);
         const key = intakeFileKey(file);
         if (successfulIntakeFilesRef.current.has(key)) continue;
@@ -1950,7 +1950,7 @@ export default function App({
           const record = failedDocumentId
             ? await retryZeroTouchIntakeDocument(intakeCase.caseId, failedDocumentId, file, intakeCase.demo)
             : await intakeZeroTouchDocument(intakeCase.caseId, file, intakeCase.demo);
-          if (!isCurrentIntakeOperation(intakeCase)) return;
+          if (!isCurrentIntakeOperation(intakeCase)) return false;
           if (record.state === "FAILED") {
             failedIntakeDocumentsRef.current.set(key, record.document_id);
             failures.push(`${file.name}: ${record.error?.message ?? "processing failed"}`);
@@ -1959,19 +1959,19 @@ export default function App({
             successfulIntakeFilesRef.current.add(key);
           }
         } catch (uploadError) {
-          if (!isCurrentIntakeOperation(intakeCase)) return;
+          if (!isCurrentIntakeOperation(intakeCase)) return false;
           if (uploadError instanceof ApiError && uploadError.detail?.document_id) {
             failedIntakeDocumentsRef.current.set(key, uploadError.detail.document_id);
           }
           failures.push(`${file.name}: ${uploadError instanceof Error ? uploadError.message : "upload failed"}`);
         }
       }
-      if (!isCurrentIntakeOperation(intakeCase)) return;
+      if (!isCurrentIntakeOperation(intakeCase)) return false;
       if (failures.length > 0) {
         const failurePresentation = targetedIntakeFailurePresentation(intakeCase.caseId, failures);
         setIntakeProgress(failurePresentation.progress);
         setRequestError(failurePresentation.message);
-        return;
+        return false;
       }
       setIntakeProgress("Completing intake…");
       const completed = await completeZeroTouchIntake(
@@ -1979,16 +1979,18 @@ export default function App({
         intakeCase.files.length,
         intakeCase.demo,
       );
-      if (!isCurrentIntakeOperation(intakeCase)) return;
+      if (!isCurrentIntakeOperation(intakeCase)) return false;
       setSummary(completed);
       await caseSupportingMutationEffect(queryClient, actor.user_id, completed);
-      if (!isCurrentIntakeOperation(intakeCase)) return;
+      if (!isCurrentIntakeOperation(intakeCase)) return false;
       setIntakeProgress(completed.status === "COMPLETED" ? "Completed" : "Processing case…");
+      return true;
     };
 
     try {
       if (!operation.caseId) {
         let retainedOperation: (LiveIntakeOperation & { caseId: string }) | null = null;
+        let intakeCompleted = false;
         await createRetainedCaseBeforeDocumentIntake({
           createCase: () => createZeroTouchCase(
             uen,
@@ -2009,7 +2011,7 @@ export default function App({
             setSummary(created);
             setRetainedCreatedSummary(created);
             if (locationPathname.current === paths.newOnboarding) {
-              navigate(paths.retainedIntake(created.case.case_id), { replace: true });
+              navigate(paths.caseDetail(created.case.case_id), { replace: true });
             }
           },
           onRegistryStop: (created) => {
@@ -2020,13 +2022,18 @@ export default function App({
           },
           onDocumentIntake: async () => {
             if (retainedOperation && isCurrentIntakeOperation(retainedOperation)) {
-              await processDocumentIntake(retainedOperation);
+              intakeCompleted = await processDocumentIntake(retainedOperation);
             }
           },
         });
+        // Once every selected document is in, the case page owns the case and New onboarding
+        // returns to a blank form. Otherwise (registry stop, failed upload) the files stay
+        // pending so the case page can offer "Upload now" after the issue is fixed.
+        if (isCurrentIntakeOperation(operation) && (intakeCompleted || operation.files.length === 0)) resetOnboardingForm();
         return;
       }
-      await processDocumentIntake({ ...operation, caseId: operation.caseId });
+      const retryCompleted = await processDocumentIntake({ ...operation, caseId: operation.caseId });
+      if (isCurrentIntakeOperation(operation) && retryCompleted) resetOnboardingForm();
     } catch (error) {
       if (!isCurrentIntakeOperation(operation)) return;
       const retainedCase = intakeCaseRef.current?.caseId;
@@ -2168,6 +2175,11 @@ export default function App({
   }
 
   function handleStartNewCase() {
+    resetOnboardingForm();
+    navigate(paths.newOnboarding, { replace: true });
+  }
+
+  function resetOnboardingForm() {
     journeyGeneration.current += 1;
     resolutionActive.current = false;
     intakePending.current = null;
@@ -2192,7 +2204,6 @@ export default function App({
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
-    navigate(paths.newOnboarding, { replace: true });
   }
 
   async function handleDeleteCurrentCase() {
@@ -2349,6 +2360,14 @@ export default function App({
               onViewAudit={(auditCaseId) => navigate(paths.auditCase(auditCaseId))}
               registryProviderMode={simulationProfile?.registry_provider_mode}
               initialFocusNodeId={new URLSearchParams(location.search).get("focus") ?? undefined}
+              pendingDocuments={caseId === retainedIntakeCaseId && documentFiles.length > 0 ? {
+                fileNames: documentFiles.map(file => file.name),
+                busy: isSubmitting,
+                progress: intakeProgress,
+                error: requestError,
+                onUpload: () => void beginJourney(),
+                onDiscard: resetOnboardingForm,
+              } : undefined}
             />
           )}
           onboarded={<OnboardedClients actor={actor} />}
