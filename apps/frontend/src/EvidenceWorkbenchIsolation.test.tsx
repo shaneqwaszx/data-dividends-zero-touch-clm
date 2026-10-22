@@ -783,6 +783,19 @@ describe("Evidence workbench integration isolation", () => {
     // Rail navigation to the GoldTier stage lands in its own section.
     act(() => container!.querySelector<HTMLButtonElement>('.ds-stage[data-node-id="GOLDTIER_TARGET"] button')!.click());
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("case-target-blocker"));
+    // Settled stages still open their own section instead of reporting missing details.
+    await act(async () => {
+      client.setQueryData(key, { ...client.getQueryData<ZeroTouchCaseSummary>(key)!, version: current.version + 1, processing_pipeline: [
+        { node_id: "READINESS", label: "Submission readiness", status: "COMPLETE", children: [] },
+        { node_id: "GOLDTIER_TARGET", label: "GoldTier submission package", status: "COMPLETE", children: [] },
+      ] } as ZeroTouchCaseSummary);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    act(() => (document.activeElement as HTMLElement).blur());
+    expect(document.activeElement?.id).not.toBe("case-target-blocker");
+    act(() => container!.querySelector<HTMLButtonElement>('.ds-stage[data-node-id="GOLDTIER_TARGET"] button')!.click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe("case-target-blocker"));
+    expect(container!.textContent).not.toContain("details are not available for this case");
   });
 });
 

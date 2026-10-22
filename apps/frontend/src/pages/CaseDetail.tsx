@@ -1088,7 +1088,9 @@ export default function CaseDetail({
       focusSearch(undefined, true); return;
     }
     if (node.node_id.startsWith("GOLDTIER_") && document.getElementById("case-target-recovery")) { focusActionControl("case-target-recovery"); return; }
-    const targetId = processingNodeFocusTarget(node);
+    // A settled readiness or GoldTier stage has no single action; open its own section.
+    const targetId = processingNodeFocusTarget(node)
+      ?? (node.node_id === "READINESS" ? "case-readiness-status" : node.node_id === "GOLDTIER_TARGET" ? "case-target-blocker" : null);
     const section = targetId ? document.getElementById(targetId) : null;
     if (!section) {
       setEvidenceFocusNotice({
@@ -1608,7 +1610,7 @@ export default function CaseDetail({
         />
         <StageDisclosure title="Submission readiness" status={stageStatusFor(summary, ["READINESS"])} summary={`${headerReadSummary("readiness", detailHeaderQueries)}Readiness checkpoint: ${summary.status.replaceAll("_", " ")}. ${summary.clm.readiness.blockers.length} retained blockers. ${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration." : "Review required inputs and configuration."}`} scopeKey={disclosureIdentity} main={<>
           {readinessReadNotice}
-          <section className="goldtier-status" aria-label="Submission readiness status">
+          <section id="case-readiness-status" className="goldtier-status evidence-focus-target" tabIndex={-1} aria-label="Submission readiness status">
             <ul className="goldtier-status__grid" aria-label="Readiness by area">
               {([
                 ["Registry", summary.clm.readiness.registry.status],
