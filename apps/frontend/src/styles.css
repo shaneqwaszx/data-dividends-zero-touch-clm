@@ -4207,6 +4207,7 @@ dd {
 .pending-documents h3, .pending-documents p { margin: 0; }
 .pending-documents__error { color: #8c3a2e; }
 .pending-documents__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pending-documents__actions .btn { min-height: 44px; min-width: 44px; }
 /* Document verification: comparison + uploaded file in one card */
 .ds-root .document-combined { display: grid; gap: 12px; margin-bottom: 16px; }
 .ds-root .document-combined .document-combined__header { display: grid; gap: 4px; }

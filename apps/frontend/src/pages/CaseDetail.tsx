@@ -151,11 +151,15 @@ export interface PendingDocuments {
   onDiscard: () => void;
 }
 
-function PendingDocumentsBanner({ pending }: { pending: PendingDocuments }) {
+export function PendingDocumentsBanner({ pending }: { pending: PendingDocuments }) {
   const count = pending.fileNames.length;
   return (
     <section className="ds-banner pending-documents" aria-labelledby="pending-documents-title" role="status">
-      {pending.error ? <>
+      {/* An upload in progress has not stopped or failed; show only its progress. */}
+      {pending.busy ? <>
+        <h3 id="pending-documents-title">{count === 1 ? "1 document is being uploaded" : `${count} documents are being uploaded`}</h3>
+        {pending.progress && <p className="control-help">{pending.progress}</p>}
+      </> : pending.error ? <>
         {/* The upload reached the backend and was refused; say so instead of implying it never ran. */}
         <h3 id="pending-documents-title">{count === 1 ? "Your document couldn't be uploaded" : `${count} documents couldn't be uploaded`}</h3>
         <p>{pending.fileNames.join(", ")} — the upload was rejected. Fix the cause below, then try again.</p>
@@ -165,10 +169,10 @@ function PendingDocumentsBanner({ pending }: { pending: PendingDocuments }) {
         <p>{pending.fileNames.join(", ")} — not uploaded yet because the case stopped before document intake. Fix the issue above (for example, complete the company details), then upload.</p>
         {pending.progress && <p className="control-help">{pending.progress}</p>}
       </>}
-      <div className="pending-documents__actions">
-        <button type="button" className="btn btn-primary" disabled={pending.busy} onClick={pending.onUpload}>{pending.error ? "Try upload again" : "Upload now"}</button>
-        <button type="button" className="btn btn-ghost" disabled={pending.busy} onClick={pending.onDiscard}>Discard</button>
-      </div>
+      {!pending.busy && <div className="pending-documents__actions">
+        <button type="button" className="btn btn-primary" onClick={pending.onUpload}>{pending.error ? "Try upload again" : "Upload now"}</button>
+        <button type="button" className="btn btn-ghost" onClick={pending.onDiscard}>Discard</button>
+      </div>}
     </section>
   );
 }
@@ -1309,11 +1313,6 @@ export default function CaseDetail({
     && item.authorized_actions.length > 0
     && item.authorized_actions.every(action => (action.action === "KEEP_REGISTRY_VALUE" || action.action === "USE_DOCUMENT_VALUE")
       && reviewPanelSourceIds.has(item.intervention_id));
-  // A UEN mismatch reopens registry identity review even though the backend registry step completed.
-  const registryStageStatus = identityConflict ? { tone: "attention" as const, label: "Review required" } : stageStatusFor(summary, ["ACRA_REGISTRY"]);
-  const displaySummary = identityConflict ? { ...summary, processing_pipeline: summary.processing_pipeline?.map(node => (
-    node.node_id === "ACRA_REGISTRY" ? { ...node, status: "REVIEW_REQUIRED" as const, safe_result: "Entered UEN and document UEN differ — confirm which to use." } : node
-  )) } : summary;
 
   // The backend projection owns placement; endpoint eligibility stays with the
   // existing predicate above. A genuine Registry correction keeps the one editor.
@@ -1369,7 +1368,7 @@ export default function CaseDetail({
       <div className="side-panel case-pipeline-panel">
         <button type="button" className="btn btn-ghost" onClick={onBack} style={{ paddingLeft: 0 }}>← Back to Cases</button>
         {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
-        <CasePipelineAttention summary={displaySummary} onNavigate={focusAttention} onStageActivate={focusProcessingNode} />
+        <CasePipelineAttention summary={summary} onNavigate={focusAttention} onStageActivate={focusProcessingNode} />
         {(targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" || summary.current_stage !== "MOCK_GOLDTIER" || summary.technical_failure?.code !== "CLM_TARGET_OUTCOME_UNCERTAIN") && !preflightUnavailable && summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
         <hr className="hr" />
         <div className="text-muted" style={{ fontSize: 11.5 }}>
@@ -1383,11 +1382,15 @@ export default function CaseDetail({
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
 
         <OnboardingProgressPanel
-          summary={displaySummary}
+          summary={summary}
           onStageActivate={focusProcessingNode}
           availableFocusTargets={availableFocusTargets}
           initialFocusNodeId={initialFocusNodeId}
         />
+        {/* The stage rail keeps the backend's registry status; a UEN mismatch is flagged separately. */}
+        {identityConflict && <p className="ds-banner ds-banner-warn uen-conflict-indicator" role="status">
+          <strong>UEN conflict — review required.</strong> Entered UEN and document UEN differ — confirm which to use in Registry verification.
+        </p>}
         {pendingDocuments && <PendingDocumentsBanner pending={pendingDocuments} />}
 
 
@@ -1434,7 +1437,7 @@ export default function CaseDetail({
           </>}
         />
         </div>
-        <StageDisclosure title="Registry verification" status={registryStageStatus} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
+        <StageDisclosure title="Registry verification" status={stageStatusFor(summary, ["ACRA_REGISTRY"])} active={identityConflict || undefined} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
           main={<>
             {renderInterventions(["REGISTRY"])}
             {!identityInSearch && identityEditor}

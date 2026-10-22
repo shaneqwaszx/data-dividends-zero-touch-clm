@@ -164,6 +164,13 @@ test("Phase24 entered UEN choice resolves current identity conflict without sile
   await attachConflict(page, headers, caseId, false);
   await page.goto(`/cases/${caseId}`);
   await expect(page.getByRole("heading", { name: "Entity identity requires confirmation" })).toBeVisible();
+  // The stage rail shows the backend's registry status unchanged; the conflict has its own indicator.
+  const conflictIndicator = page.locator(".uen-conflict-indicator");
+  await expect(conflictIndicator).toHaveText("UEN conflict — review required. Entered UEN and document UEN differ — confirm which to use in Registry verification.");
+  const projected = await (await page.request.get(`/api/clm/zero-touch/cases/${caseId}`)).json();
+  const registryNode = projected.processing_pipeline.find((node: any) => node.node_id === "ACRA_REGISTRY");
+  expect(registryNode.status).toBe("COMPLETE");
+  await expect(page.locator('.ds-stage[data-node-id="ACRA_REGISTRY"]')).toHaveAttribute("data-status", registryNode.status);
   const corrected = await chooseConflict(page, caseId, "Entered UEN");
   expect(corrected.case.requested_uen).toBe("202400001A");
   expect(corrected.case.identity_corrections.at(-1).choice).toBe("ENTERED");
@@ -173,6 +180,7 @@ test("Phase24 entered UEN choice resolves current identity conflict without sile
   )).toBe(true);
   expect(corrected.active_exceptions.some((item: any) => item.stage === "DOCUMENT")).toBe(false);
   await expect(page.getByRole("heading", { name: "Entity identity requires confirmation" })).toHaveCount(0);
+  await expect(conflictIndicator).toHaveCount(0);
 });
 
 for (const choice of ["DOCUMENT", "OTHER"] as const) {

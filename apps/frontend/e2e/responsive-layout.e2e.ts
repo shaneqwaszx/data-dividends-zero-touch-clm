@@ -427,6 +427,63 @@ test("starting a fresh onboarding after a retained case binds the new case route
   expect(secondCaseId).not.toBe(firstCaseId);
 });
 
+test("pending documents show upload progress, then 44px retry actions with visible keyboard focus", async ({ page }) => {
+  test.setTimeout(240_000);
+  // Hold the first document upload, then refuse it, so the case page keeps the file pending.
+  let releaseUpload!: () => void;
+  const uploadHeld = new Promise<void>((resolve) => { releaseUpload = resolve; });
+  let refused = false;
+  await page.route("**/api/clm/zero-touch/cases/*/intake/documents", async (route) => {
+    if (refused || route.request().method() !== "POST") { await route.fallback(); return; }
+    refused = true;
+    await uploadHeld;
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Synthetic intake unavailable." }) });
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await login(page);
+  await openWorkspaceTab(page, "New onboarding");
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Company Legal Name").fill("MERLION CIRCULAR LABS PTE. LTD.");
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i, { timeout: 30_000 });
+
+  const banner = page.locator(".pending-documents");
+  // While the upload is in flight the banner reports progress only: no stopped reason, no actions.
+  await expect(banner.locator("#pending-documents-title")).toHaveText("1 document is being uploaded", { timeout: 30_000 });
+  await expect(banner).not.toContainText("stopped before document intake");
+  await expect(banner.getByRole("button")).toHaveCount(0);
+  releaseUpload();
+  await expect(banner.locator("#pending-documents-title")).toHaveText("Your document couldn't be uploaded", { timeout: 30_000 });
+
+  const actions = ["Try upload again", "Discard"].map((name) => banner.getByRole("button", { name, exact: true }));
+  for (const width of [320, 390, 768, 1440] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const action of actions) {
+      const box = await action.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+    }
+    // Keyboard only: Tab from the banner heading reaches each action with a visible focus outline.
+    await banner.locator("#pending-documents-title").evaluate((heading) => {
+      heading.setAttribute("tabindex", "-1"); (heading as HTMLElement).focus(); heading.removeAttribute("tabindex");
+    });
+    for (const action of actions) {
+      await page.keyboard.press("Tab");
+      await expect(action).toBeFocused();
+      const focus = await action.evaluate((button) => {
+        const style = getComputedStyle(button);
+        return { visible: button.matches(":focus-visible"), outline: style.outlineStyle, width: parseFloat(style.outlineWidth) };
+      });
+      expect(focus.visible).toBe(true);
+      expect(focus.outline).not.toBe("none");
+      expect(focus.width).toBeGreaterThanOrEqual(2);
+    }
+  }
+});
+
 test("responsive review case exposes only supported authoritative review controls", async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 360, height: 900 });
