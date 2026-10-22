@@ -97,8 +97,7 @@ CASE_PAGE_SECTIONS = (
     "Registry verification",
     "Document verification",
     "Ownership & UBO",
-    "Submission readiness",
-    "GoldTier submission package",
+    "GoldTier Details & Status",
     "Final review & send",
 )
 
@@ -165,7 +164,7 @@ READINESS_NEEDS: dict[str, tuple[str, str]] = {
     "GOLDTIER_CLASSIFICATION_REQUIRED": (
         "The GoldTier customer classification (KYC customer type and client segment) "
         "must be chosen.",
-        "Submission readiness",
+        "GoldTier Details & Status",
     ),
 }
 
