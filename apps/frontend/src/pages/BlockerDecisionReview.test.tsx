@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { DocumentProcessingRecord, ZeroTouchCaseSummary } from "../types";
-import BlockerDecisionReview, { followUpSourceDecisions } from "./BlockerDecisionReview";
+import BlockerDecisionReview from "./BlockerDecisionReview";
 import { clearSessionQueries, createSessionQueryClient } from "../queryClient";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -323,9 +323,12 @@ it("a rejected suggestion is sent as REJECTED (also without an extracted value) 
   for (const field of ["legal_name", "registration_number", "registered_address", "country_of_incorporation"]) expect(radio(field, "REJECTED").checked).toBe(true);
   act(() => button("Confirm decisions & continue onboarding").click());
   expect(confirm.mock.calls[0][0].documents[0].decisions.map((item: { decision: string }) => item.decision)).toEqual(["REJECTED", "REJECTED", "REJECTED", "REJECTED"]);
-  const stepTwo = { ...caseSummary, version: 2, active_exceptions: [{ exception_id: "reject-name" }], reconciliation: { version: 2, discrepancies: [
-    { discrepancy_id: "reject-name", field_name: "legal_name", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "r".repeat(64) }] } } as unknown as ZeroTouchCaseSummary;
-  expect(followUpSourceDecisions(stepTwo)).toBeNull();
+  const stepTwo = { ...caseSummary, version: 2, active_exceptions: [{ exception_id: "reject-name" }], reconciliation: { reconciliation_id: "rr", version: 2,
+    source_document_ids: ["synthetic-doc"], source_document_event_counts: [1], discrepancies: [
+    { discrepancy_id: "reject-name", field_name: "legal_name", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "r".repeat(64), observations: [] }] } } as unknown as ZeroTouchCaseSummary;
+  act(() => root!.render(<BlockerDecisionReview key="reject-two" summary={stepTwo} documents={missing} busy={false} onConfirm={confirm} />));
+  expect(sourceValue()).toBe("");
+  expect(container.textContent).not.toContain("Pre-selected from your choice in the previous step");
 });
 
 it("a registry choice is sent as an accepted field, then pre-selects keep-registry in the next step for confirmation", () => {
@@ -362,26 +365,33 @@ it("registry-vs-document cards still list manual input, unavailable with a reaso
   expect(onReplace).toHaveBeenCalledOnce(); expect(confirm).not.toHaveBeenCalled();
 });
 
-it("one Confirm can finish both steps: choices map to the follow-up registry-vs-document decisions only when all are permitted", () => {
+it("one Confirm submits only the field review; the registry-vs-document step is pre-filled where permitted and confirmed explicitly", () => {
   const confirm = mount();
   const caseSummary = { ...summary, case: { ...summary.case, case_id: "follow-up-case" } } as unknown as ZeroTouchCaseSummary;
   act(() => root!.render(<BlockerDecisionReview key="follow-one" summary={caseSummary} documents={documents} busy={false} onConfirm={confirm} />));
   pick("legal_name", "REGISTRY"); pick("registered_address", "ACCEPTED");
   pick("registration_number", "ACCEPTED"); pick("country_of_incorporation", "ACCEPTED");
   act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(confirm.mock.calls[0][0].reconciliation).toBeUndefined();
   const refreshed = (allowAddressDocument: boolean) => ({ ...caseSummary, version: 2,
     active_exceptions: [{ exception_id: "name" }, { exception_id: "address" }],
-    reconciliation: { version: 5, discrepancies: [
-      { discrepancy_id: "name", field_name: "legal_name", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "n".repeat(64) },
-      { discrepancy_id: "address", field_name: "registered_address", status: "OPEN", allowed_actions: allowAddressDocument ? ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"] : ["KEEP_REGISTRY_VALUE"], evidence_fingerprint: "a".repeat(64) },
+    reconciliation: { reconciliation_id: "follow", version: 5, source_document_ids: ["synthetic-doc"], source_document_event_counts: [1], discrepancies: [
+      { discrepancy_id: "name", field_name: "legal_name", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "n".repeat(64), observations: [] },
+      { discrepancy_id: "address", field_name: "registered_address", status: "OPEN", allowed_actions: allowAddressDocument ? ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"] : ["KEEP_REGISTRY_VALUE"], evidence_fingerprint: "a".repeat(64), observations: [] },
     ] } } as unknown as ZeroTouchCaseSummary);
-  expect(followUpSourceDecisions(refreshed(true))).toEqual({ expected_automation_version: 2, expected_case_event_count: 1, expected_reconciliation_version: 5,
-    reconciliation: [
-      { discrepancy_id: "name", action: "KEEP_REGISTRY_VALUE", evidence_fingerprint: "n".repeat(64) },
-      { discrepancy_id: "address", action: "USE_DOCUMENT_VALUE", evidence_fingerprint: "a".repeat(64) },
-    ] });
-  // A choice the backend does not permit for a field leaves the panel for the reviewer instead.
-  expect(followUpSourceDecisions(refreshed(false))).toBeNull();
+  const chosen = (id: string) => container.querySelector<HTMLInputElement>(`input[data-discrepancy-id="${id}"]:checked`)?.value ?? "";
+  act(() => root!.render(<BlockerDecisionReview key="follow-two" summary={refreshed(true)} documents={documents} busy={false} onConfirm={confirm} />));
+  expect(chosen("name")).toBe("KEEP_REGISTRY_VALUE");
+  expect(chosen("address")).toBe("USE_DOCUMENT_VALUE");
+  expect(confirm).toHaveBeenCalledTimes(1);
+  // A choice the backend does not permit for a field is not pre-selected; the reviewer decides it.
+  act(() => root!.render(<BlockerDecisionReview key="follow-three" summary={refreshed(false)} documents={documents} busy={false} onConfirm={confirm} />));
+  expect(chosen("name")).toBe("KEEP_REGISTRY_VALUE");
+  expect(chosen("address")).toBe("");
+  expect(container.textContent).toContain("doesn't allow it here");
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm).toHaveBeenCalledTimes(1);
 });
 
 it("a remembered source choice does not survive a session boundary (logout, 401 or a different login)", () => {
@@ -395,7 +405,6 @@ it("a remembered source choice does not survive a session boundary (logout, 401 
   const stepTwo = { ...caseSummary, version: 2, active_exceptions: [{ exception_id: "boundary-name" }], reconciliation: { reconciliation_id: "rb", version: 2,
     source_document_ids: ["synthetic-doc"], source_document_event_counts: [1], discrepancies: [{ discrepancy_id: "boundary-name", field_name: "legal_name", status: "OPEN",
       allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "c".repeat(64), observations: [] }] } } as unknown as ZeroTouchCaseSummary;
-  expect(followUpSourceDecisions(stepTwo)).toBeNull();
   act(() => root!.render(<BlockerDecisionReview key="boundary-two" summary={stepTwo} documents={documents} busy={false} onConfirm={confirm} />));
   expect(sourceValue()).toBe("");
   expect(container.textContent).not.toContain("Pre-selected from your choice in the previous step");

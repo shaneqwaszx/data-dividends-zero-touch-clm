@@ -42,28 +42,6 @@ function intentAction(intent: SourceIntent | undefined): ReconciliationDecisionA
   return intent === "REGISTRY" ? "KEEP_REGISTRY_VALUE" : intent === "DOCUMENT" ? "USE_DOCUMENT_VALUE" : null;
 }
 
-/**
- * After a confirmed field review, the registry-vs-document step applies the same choices the
- * reviewer already made, so one Confirm finishes both steps. Returns null (the panel stays,
- * pre-filled) unless every open decision maps to a choice the backend permits.
- */
-export function followUpSourceDecisions(summary: ZeroTouchCaseSummary): ReviewDecisionBatch | null {
-  const intents = intentsFor(summary.case.case_id);
-  const reconciliation = summary.reconciliation;
-  if (!intents.size || !reconciliation) return null;
-  const active = new Set(summary.active_exceptions.map(item => item.exception_id));
-  const open = reconciliation.discrepancies.filter(item => item.status === "OPEN" && item.allowed_actions.length > 0 && active.has(item.discrepancy_id));
-  if (!open.length) return null;
-  const choices = open.map(item => {
-    const action = intentAction(intents.get(documentFieldKeyFor(item.field_name)));
-    return action && item.allowed_actions.includes(action)
-      ? { discrepancy_id: item.discrepancy_id, action, evidence_fingerprint: item.evidence_fingerprint } : null;
-  });
-  if (choices.some(choice => choice === null)) return null;
-  return { expected_automation_version: summary.version, expected_case_event_count: summary.case.events.length,
-    expected_reconciliation_version: reconciliation.version,
-    reconciliation: choices as NonNullable<ReviewDecisionBatch["reconciliation"]> };
-}
 
 // Every field and discrepancy needs an explicit reviewer choice; only a remembered registry choice is pre-selected.
 // Submitted values stay the backend ReviewDecision / ReconciliationDecisionAction enums.

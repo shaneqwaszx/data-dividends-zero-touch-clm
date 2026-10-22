@@ -1,5 +1,5 @@
 import { CasePipelineAttention, type AttentionDestination } from "./CaseAttentionSummary";
-import BlockerDecisionReview, { clearSourceIntents, followUpSourceDecisions, reviewableSourceDiscrepancies, type ReviewDraftHandle } from "./BlockerDecisionReview";
+import BlockerDecisionReview, { reviewableSourceDiscrepancies, type ReviewDraftHandle } from "./BlockerDecisionReview";
 import type { ReviewDecisionBatch } from "../types";
 import { confirmReviewDecisions } from "../api";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -1499,17 +1499,10 @@ export default function CaseDetail({
           key={`${evidenceIdentity}:${actor.role}:${actor.team_id}:${summary.evidence_decision_authorized}:${summary.version}:${summary.case.events.length}:${documents.map(doc => `${doc.document_id}:${doc.events.length}:${doc.review_source_fingerprint}`).join("|")}`}
           ref={batchReviewRef} summary={summary} documents={documents} busy={isBusy || mutationBlocked}
           onReplaceDocument={() => document.querySelector<HTMLInputElement>(`#${EVIDENCE_TARGET_IDS.documents} .document-upload-input:not([disabled])`)?.click()}
-          onConfirm={(batch: ReviewDecisionBatch) => void settleEvidenceMutation(async () => {
-            // One Confirm: apply the field review, then the registry-vs-document step with the same
-            // choices when the refreshed case allows every one of them. Otherwise the panel stays pre-filled.
-            const reviewed = await confirmReviewDecisions(caseId, batch);
-            if (!batch.documents) return reviewed;
-            const followUp = followUpSourceDecisions(reviewed);
-            if (!followUp) return reviewed;
-            const finished = await confirmReviewDecisions(caseId, followUp);
-            clearSourceIntents(caseId);
-            return finished;
-          }, "Applying confirmed review decisions…", "Review confirmation could not be completed.")}
+          // Each Confirm submits only the selected decision family; the registry-vs-document step
+          // is then pre-filled from the reviewer's choices and needs its own explicit Confirm.
+          onConfirm={(batch: ReviewDecisionBatch) => void settleEvidenceMutation(
+            () => confirmReviewDecisions(caseId, batch), "Applying confirmed review decisions…", "Review confirmation could not be completed.")}
         />
         {/* One card: the registry-vs-document comparison, then the uploaded file's status. */}
         <section className="card document-combined" aria-labelledby="document-combined-heading">

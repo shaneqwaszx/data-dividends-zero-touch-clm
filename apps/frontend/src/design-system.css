@@ -362,8 +362,8 @@ button.tag {
 .case-attention ul { list-style: none; margin: 0; padding: 0; }
 .case-attention .btn { display: block; width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; padding: 8px 0; }
 @media (min-width: 901px) {
-  /* Fill the full window height even when the panel content is short. */
-  .case-pipeline-panel { position: sticky; top: 0; align-self: flex-start; height: 100dvh; max-height: 100dvh; box-sizing: border-box; overflow-y: auto; overscroll-behavior: auto; scrollbar-gutter: stable; }
+  /* Fill the window height, kept 12px inside the viewport, and scroll internally when content is taller. */
+  .case-pipeline-panel { position: sticky; top: 12px; align-self: flex-start; height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: auto; scrollbar-gutter: stable; }
 }
 .ds-stage-marker { display: flex; flex-direction: column; align-items: center; }
 .ds-stage-copy { padding-bottom: 14px; font-size: 12.5px; }
