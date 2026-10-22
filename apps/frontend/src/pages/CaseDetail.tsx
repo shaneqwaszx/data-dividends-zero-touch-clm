@@ -65,8 +65,6 @@ import {
   CompletedOverview,
   ConfirmDetailsPanel,
   stageStatusFor,
-  GOLDTIER_DETAILS_STAGE_LABEL,
-  goldTierDetailsStageNames,
   DetailedProcessingInspector,
   findProcessingNode,
   OnboardingProgressPanel,
@@ -139,6 +137,14 @@ function titleCaseWords(value: string): string {
 function readinessTone(status: ReadinessStageStatus): "done" | "attention" | "pending" {
   if (status === "READY" || status === "SUBMITTED") return "done";
   if (status === "MISSING" || status === "BLOCKED" || status === "FAILED" || status === "REVIEW_REQUIRED") return "attention";
+  return "pending";
+}
+
+type TargetSubmissionState = NonNullable<ZeroTouchCaseSummary["target_submission"]>["state"];
+
+function targetSubmissionTone(state: TargetSubmissionState | undefined): "done" | "attention" | "pending" {
+  if (state === "SUBMISSION_CONFIRMED") return "done";
+  if (state === "SUBMISSION_FAILED" || state === "SUBMISSION_OUTCOME_UNCERTAIN" || state === "FINALIZATION_PENDING") return "attention";
   return "pending";
 }
 
@@ -1149,6 +1155,7 @@ export default function CaseDetail({
   const readinessReadUnconfirmed = detailQuery.isPending || detailQuery.isFetching || detailQuery.isError;
   const ownershipReadNotice = readNotice("Ownership", ownershipQuery.isPending, ownershipQuery.isFetching || detailQuery.isFetching, ownershipQuery.isError || detailQuery.isError, ownershipQuery.data !== undefined);
   const readinessReadNotice = readNotice("Readiness", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
+  const targetReadNotice = readNotice("Target", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
   const finalReadNotice = readNotice("Final review", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
   const confirmedOwnershipEmpty = !ownershipReadUnconfirmed && ownership === null;
   const loadError = detailQuery.error ?? documentQuery.error ?? ownershipQuery.error;
@@ -1599,14 +1606,9 @@ export default function CaseDetail({
           moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" /></>}
           technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" /></>}
         />
-        {/* An uncertain outcome or pending safe recovery needs the reviewer: the section opens on load and shows the blocked final step. */}
-        <StageDisclosure title={GOLDTIER_DETAILS_STAGE_LABEL} active={targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || safeContinuation || summary.status === "RECOVERY_PENDING" ? true : undefined}
-          status={stageStatusFor(summary, targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" ? ["READINESS", "GOLDTIER_TARGET", "FINAL_REVIEW_SEND"] : ["READINESS", "GOLDTIER_TARGET"])}
-          summary={`${targetHeaderFreshness}${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration. " : ""}${targetHeaderStatus} · ${titleCaseWords(summary.clm.submission_plan.environment)} · Stages: ${goldTierDetailsStageNames(summary.processing_pipeline ?? []).join(" and ")}`} scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="Submission readiness" status={stageStatusFor(summary, ["READINESS"])} summary={`${headerReadSummary("readiness", detailHeaderQueries)}Readiness checkpoint: ${summary.status.replaceAll("_", " ")}. ${summary.clm.readiness.blockers.length} retained blockers. ${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration." : "Review required inputs and configuration."}`} scopeKey={disclosureIdentity} main={<>
           {readinessReadNotice}
-          {/* Focus anchors for "Resolve issue" / "Review outstanding" navigation into this section. */}
-          <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target" tabIndex={-1}>
-          <section id="case-target-blocker" className="goldtier-status evidence-focus-target" tabIndex={-1} aria-label="GoldTier readiness and submission status">
+          <section className="goldtier-status" aria-label="Submission readiness status">
             <ul className="goldtier-status__grid" aria-label="Readiness by area">
               {([
                 ["Registry", summary.clm.readiness.registry.status],
@@ -1622,7 +1624,6 @@ export default function CaseDetail({
             </ul>
             <p className="control-help goldtier-status__note">Shows whether the case is ready to send to GoldTier. GoldTier KYC and four-eye approval happen separately.</p>
           </section>
-          </div>
           {renderInterventions(["READINESS"])}
         {summary.case.policy_rebind && (
           <PolicyRebindPanel
@@ -1667,6 +1668,45 @@ export default function CaseDetail({
           </div>
         )}
 
+        </>}
+          moreDetails={<>
+            {readinessReadNotice}
+            <p>Readiness prepares the current case for submission. It does not establish GoldTier KYC verification or four-eye approval.</p>
+            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="more" />}
+            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="more" />}
+          </>}
+          technicalDetails={<>
+            {readinessReadNotice}
+            <p>Readiness policy version: {summary.clm.readiness.policy_version ?? "Not recorded"} · evaluated at: {displayTimestamp(summary.clm.readiness.evaluated_at)} · CLM version: {summary.clm.version ?? "Not recorded"}</p>
+            {summary.clm.readiness.blockers.length > 0 && <><h4>Readiness blocker codes</h4><ul>{summary.clm.readiness.blockers.map((blocker, index) => <li key={`blocker-${index}`}>{blocker}</li>)}</ul></>}
+            {summary.clm.readiness.warnings.length > 0 && <><h4>Readiness warning codes</h4><ul>{summary.clm.readiness.warnings.map((warning, index) => <li key={`warning-${index}`}>{warning}</li>)}</ul></>}
+            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="technical" />}
+            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
+          </>}
+        />
+        {/* An uncertain outcome or pending safe recovery needs the reviewer: the section opens on load. */}
+        <StageDisclosure title="GoldTier submission package" active={targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || safeContinuation || summary.status === "RECOVERY_PENDING" ? true : undefined}
+          status={stageStatusFor(summary, ["GOLDTIER_TARGET"])}
+          summary={`${targetHeaderFreshness}${targetHeaderStatus} · ${titleCaseWords(summary.clm.submission_plan.environment)}`} scopeKey={disclosureIdentity} main={<>
+          {targetReadNotice}
+          {/* Focus anchor for GoldTier target navigation into this section. */}
+          <section id="case-target-blocker" className="goldtier-package evidence-focus-target" tabIndex={-1} aria-label="GoldTier submission status">
+            <ul className="goldtier-status__grid" aria-label="Submission details">
+              <li className="goldtier-status__tile" data-tone={targetSubmissionTone(targetSubmission?.state)}>
+                <span className="goldtier-status__label">Submission</span>
+                <span className="goldtier-status__value">{targetSubmission ? titleCaseWords(targetSubmission.state) : "Not available"}</span>
+              </li>
+              <li className="goldtier-status__tile">
+                <span className="goldtier-status__label">Environment</span>
+                <span className="goldtier-status__value">{titleCaseWords(summary.clm.submission_plan.environment)}</span>
+              </li>
+              <li className="goldtier-status__tile">
+                <span className="goldtier-status__label">GoldTier party ID</span>
+                <span className="goldtier-status__value">{summary.case.goldtier_result?.party_id ?? "Not created"}</span>
+              </li>
+            </ul>
+          </section>
+
         {preflightUnavailable && <section className="ds-banner ds-banner-warn" aria-labelledby="target-preflight-title">
           <h3 id="target-preflight-title">GoldTier availability check needed</h3>
           <p>GoldTier could not be checked safely before sending. No target write was attempted. Your case data is preserved; check again when GoldTier is available.</p>
@@ -1699,28 +1739,20 @@ export default function CaseDetail({
           && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
 
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
-        {/* Why the case is in its current state, with navigation to the evidence behind it. */}
-        <div key={`${evidenceIdentity}:explanation`} className="evidence-workbench-column">
+        {/* Why the case is in its current state; also the "Review outstanding" focus anchor. */}
+        <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
           <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />
         </div>
         </>}
           moreDetails={<>
-            {readinessReadNotice}
-            <p>Readiness prepares the current case for submission. It does not establish GoldTier KYC verification or four-eye approval.</p>
-            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="more" />}
-            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="more" />}
+            {targetReadNotice}
             <h3>Retained operation summaries</h3>
             <ul>{summary.target_operations.map(item => <li key={item.operation}>{item.operation}: {item.status}</li>)}</ul>
             <OperationalTiming summary={summary} />
           </>}
           technicalDetails={<>
-            {readinessReadNotice}
-            <p>Readiness policy version: {summary.clm.readiness.policy_version ?? "Not recorded"} · evaluated at: {displayTimestamp(summary.clm.readiness.evaluated_at)} · CLM version: {summary.clm.version ?? "Not recorded"}</p>
+            {targetReadNotice}
             <p>Backend submission state: {targetSubmission?.state ?? "Not available in retained evidence"}</p>
-            {summary.clm.readiness.blockers.length > 0 && <><h4>Readiness blocker codes</h4><ul>{summary.clm.readiness.blockers.map((blocker, index) => <li key={`blocker-${index}`}>{blocker}</li>)}</ul></>}
-            {summary.clm.readiness.warnings.length > 0 && <><h4>Readiness warning codes</h4><ul>{summary.clm.readiness.warnings.map((warning, index) => <li key={`warning-${index}`}>{warning}</li>)}</ul></>}
-            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="technical" />}
-            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
             <TargetRecoveryDetails summary={summary} result={currentTargetStatusCheck?.result ?? null} />
             {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && <dl>
               <div><dt>Submission ID</dt><dd>{targetSubmission?.submission_id ?? "Not retained"}</dd></div>

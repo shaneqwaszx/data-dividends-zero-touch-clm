@@ -57,20 +57,9 @@ function pipelineRailState(status: ProcessingNodeStatus): "done" | "now" | "atte
   return "";
 }
 
-export const GOLDTIER_DETAILS_STAGE_LABEL = "GoldTier Details & Status";
-const GOLDTIER_DETAILS_NODE_IDS = ["READINESS", "GOLDTIER_TARGET"];
-
-/**
- * Presentation: all twelve backend stages stay visible, each with its own name and status.
- * The case page groups READINESS and GOLDTIER_TARGET into one section, labelled with both stage names.
- */
+/** Presentation: all twelve backend stages stay visible, each with its own name and status. */
 export function businessStagePipeline(backendPipeline: ProcessingNode[]): ProcessingNode[] {
   return backendPipeline;
-}
-
-/** The stage names the grouped "GoldTier Details & Status" case section covers, in pipeline order. */
-export function goldTierDetailsStageNames(backendPipeline: ProcessingNode[]): string[] {
-  return backendPipeline.filter(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id)).map(node => node.label);
 }
 
 export interface StageStatus { tone: "attention" | "current" | "done" | "pending"; label: string }

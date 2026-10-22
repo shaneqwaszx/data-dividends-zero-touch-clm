@@ -62,7 +62,7 @@ def test_ai_assistant_reads_conflict_fresh_review_and_later_invalidation_without
                 return answer.json()["answer"]
 
             blocked = read_and_check()
-            assert "GoldTier Details & Status" in blocked
+            assert "Submission readiness" in blocked
             assert "classification" in blocked.lower()
             assert not current["target_classification"]["current"]
             response = save(backend, current)
@@ -82,7 +82,7 @@ def test_ai_assistant_reads_conflict_fresh_review_and_later_invalidation_without
             upload(backend, reviewed, COMPANIES[0].target_profile)
             changed = backend.get(f"/api/clm/zero-touch/cases/{cid}").json()
             assert not changed["target_classification"]["current"]
-            assert "GoldTier Details & Status" in read_and_check()
+            assert "Submission readiness" in read_and_check()
             assert ai_assistant.post(path + "/target-confirmation").status_code == 404
             assert ai_assistant.put(path + "/target-classification").status_code == 404
         assert set(reads) == {

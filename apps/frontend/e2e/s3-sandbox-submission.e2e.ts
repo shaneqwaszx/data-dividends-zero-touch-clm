@@ -132,7 +132,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
       expect(confirmed.current_stage).toBe("OWNERSHIP");
     }
   }
-  await openStage(page, "GoldTier Details & Status");
+  await openStage(page, "Submission readiness");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const classification = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().endsWith("/target-classification"));
@@ -284,7 +284,7 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await expect(panel.getByRole("button", { name: /Resolve/ })).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Check GoldTier status", exact: true })).toBeEnabled();
   await expect(page.locator(".case-technical-failure")).toHaveCount(0);
-  const targetTechnical = page.getByText("Technical details — GoldTier Details & Status", { exact: true }).locator("..");
+  const targetTechnical = page.getByText("Technical details — GoldTier submission package", { exact: true }).locator("..");
   await expect(targetTechnical).not.toHaveAttribute("open", "");
   await targetTechnical.locator(":scope > summary").focus();
   await page.keyboard.press("Enter");
@@ -300,8 +300,8 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await switchUser(page, "olivia-koh", caseId);
   const check = panel.getByRole("button", { name: "Check GoldTier status", exact: true });
   await expect(check).toBeEnabled();
-  await page.getByRole("region", { name: "GoldTier Details & Status", exact: true }).locator(":scope > h2 > button").click();
-  const targetHeader = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
+  await page.getByRole("region", { name: "GoldTier submission package", exact: true }).locator(":scope > h2 > button").click();
+  const targetHeader = page.getByRole("region", { name: "GoldTier submission package", exact: true });
   const targetDescription = targetHeader.locator(":scope > .stage-disclosure__summary");
   await expect(targetDescription).toBeVisible();
   await expect(targetDescription).toContainText("Submission outcome uncertain — verification required");
@@ -428,7 +428,7 @@ async function runLostConfirmationResponse(
     await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Verify submission outcome", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
-    const target = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
+    const target = page.getByRole("region", { name: "GoldTier submission package", exact: true });
     const toggle = target.locator(":scope > h2 > button");
     await toggle.focus(); await page.keyboard.press("Enter");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -525,7 +525,7 @@ test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership
   expect(ownership.source_classification).toBe("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
   expect(ownership.manual_review_receipt).toBeNull();
   expect(ownership.candidates.find((item: any) => item.party.display_name === "ABCD123").aggregated_ownership_percent).toMatch(/^51\.136363750*$/);
-  await openStage(page, "GoldTier Details & Status");
+  await openStage(page, "Submission readiness");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   await page.getByRole("button", { name: "Save target classification", exact: true }).click();

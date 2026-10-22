@@ -748,15 +748,41 @@ describe("Evidence workbench integration isolation", () => {
     const sections = Array.from(container!.querySelectorAll(".stage-disclosure"));
     expect(sections.map((section) => section.querySelector(":scope > h2 button span")?.textContent ?? section.querySelector(":scope > h2")?.textContent)).toEqual([
       "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
-      "GoldTier Details & Status",
+      "Submission readiness", "GoldTier submission package",
       "Final review & send", "Historical / resolved issues",
     ]);
     expect(sections[2].querySelector(":scope > h2 button")).not.toBeNull();
     expect([...sections[2].querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
-    expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-    expect(sections[5].querySelector(":scope > h2 button")).not.toBeNull();
-    expect(sections[5].textContent).toContain("Not yet available");
-    expect(sections[5].querySelector(".review-and-send")).toBeNull();
+    expect(sections[7].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(sections[6].querySelector(":scope > h2 button")).not.toBeNull();
+    expect(sections[6].textContent).toContain("Not yet available");
+    expect(sections[6].querySelector(".review-and-send")).toBeNull();
+  });
+
+  it("gives Submission readiness and GoldTier submission package their own backend status and navigation", async () => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-a", "a");
+    const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
+    const current = client.getQueryData<ZeroTouchCaseSummary>(key)!;
+    client.setQueryData(key, { ...current, processing_pipeline: [
+      { node_id: "READINESS", label: "Submission readiness", status: "BLOCKED", children: [] },
+      { node_id: "GOLDTIER_TARGET", label: "GoldTier submission package", status: "FAILED", children: [] },
+    ] } as ZeroTouchCaseSummary);
+    renderCase(client, actorA, CASE_A);
+    const region = (title: string) => [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")]
+      .find(item => item.querySelector(":scope > h2")?.textContent === title)!;
+    const readiness = region("Submission readiness"); const target = region("GoldTier submission package");
+    expect(readiness.querySelector(".stage-disclosure__status")?.textContent).toBe("Blocked");
+    expect(target.querySelector(".stage-disclosure__status")?.textContent).toBe("Failed");
+    expect(readiness.querySelector('[aria-label="Readiness by area"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Readiness by area"]')).toBeNull();
+    expect(target.querySelector('[aria-label="Submission details"]')).not.toBeNull();
+    expect(readiness.querySelector("#case-target-blocker, #case-evidence-recovery")).toBeNull();
+    expect(target.querySelector("#case-target-blocker")).not.toBeNull();
+    expect(target.querySelector("#case-evidence-recovery")).not.toBeNull();
+    // Rail navigation to the GoldTier stage lands in its own section.
+    act(() => container!.querySelector<HTMLButtonElement>('.ds-stage[data-node-id="GOLDTIER_TARGET"] button')!.click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe("case-target-blocker"));
   });
 });
 
@@ -867,7 +893,7 @@ describe("Case attention corrective navigation", () => {
       evidence_actions: [], no_action_reason: "No authorized POC risk decision is available." }];
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
-    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "GoldTier Details & Status")!;
+    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Submission readiness")!;
     act(() => stage.querySelector<HTMLButtonElement>("h2 button")!.click());
     expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
     act(() => attentionButton("Blocker: Retained risk review").click());
@@ -1345,7 +1371,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
   });
   it("keeps readiness blockers, rebind and vocabulary-bound classification forms in Main", () => {
     const client = setup(); const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
-    const { main, support, region } = partitions("GoldTier Details & Status");
+    const { main, support, region } = partitions("Submission readiness");
     expect(support.every(item => !item.open)).toBe(true);
     expect(main.textContent).toContain("RegistryReady");
     expect(main.querySelector("#policy-rebind-rationale")).not.toBeNull();
@@ -1360,7 +1386,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
   });
   it("preserves all three drafts and path selection through support toggles and harmless refresh", async () => {
     const client = setup(); const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
-    const owner = partitions("Ownership & UBO"); const readiness = partitions("GoldTier Details & Status");
+    const owner = partitions("Ownership & UBO"); const readiness = partitions("Submission readiness");
     const note = owner.main.querySelector<HTMLTextAreaElement>('[name="rationale"]')!;
     const rationale = readiness.main.querySelector<HTMLTextAreaElement>("#policy-rebind-rationale")!;
     const select = readiness.main.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!;
@@ -1379,7 +1405,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
     const client = setup(); seedCase(client, actorB, CASE_A, "analysis-b", "b"); seedCase(client, actorA, CASE_B, "analysis-b", "b");
     client.setQueryData(caseQueryKeys.detail(actorB.user_id, CASE_A), editableSummary());
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_B), { ...editableSummary(), case: { ...editableSummary().case, case_id: CASE_B } });
-    renderCase(client, actorA, CASE_A); const { main } = partitions("GoldTier Details & Status");
+    renderCase(client, actorA, CASE_A); const { main } = partitions("Submission readiness");
     const rationale = main.querySelector<HTMLTextAreaElement>("#policy-rebind-rationale")!;
     const select = main.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!;
     act(() => { input(rationale, "Old case policy rationale"); select.value = "Government"; select.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -1389,7 +1415,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
       if (change === "fingerprint") next.target_classification = { ...next.target_classification!, evidence_fingerprint: "fingerprint-new" };
       else next.case.policy_rebind = { ...next.case.policy_rebind!, revision: 2 };
       client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), next); await new Promise(resolve => setTimeout(resolve, 0)); });
-    const next = partitions("GoldTier Details & Status").main;
+    const next = partitions("Submission readiness").main;
     if (change !== "fingerprint") expect(next.querySelector<HTMLTextAreaElement>("#policy-rebind-rationale")!.value).toBe("");
     if (change !== "policy revision") expect(next.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!.value).toBe("");
   });
@@ -1440,7 +1466,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
     await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); if (state !== "pending-retained") await refresh; });
     if (state === "recovery") { fetch.mockImplementation(async () => response(editableSummary())); await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); }
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-    const { main, support } = partitions("GoldTier Details & Status");
+    const { main, support } = partitions("Submission readiness");
     for (const panel of [main, ...support]) {
       if (panel instanceof HTMLDetailsElement) act(() => { panel.open = true; });
       if (state === "recovery") expect(panel.textContent).not.toContain("could not be loaded");
@@ -1483,7 +1509,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
     summary.clm.readiness.ownership.status = "BLOCKED";
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
-    const { main, support } = partitions("GoldTier Details & Status");
+    const { main, support } = partitions("Submission readiness");
     expect(main.textContent).toContain("RegistryMissing"); expect(main.textContent).toContain("OwnershipBlocked");
     expect(main.querySelector("#case-policy-rebind")).toBeNull();
     expect(main.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!.value).toBe("");
@@ -1502,7 +1528,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
     await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }, { cancelRefetch: true, throwOnError: true }); });
     await act(async () => { release(new Response("", { status: 503 })); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(signal?.aborted).toBe(true); expect(client.getQueryState(key)?.status).toBe("success");
-    const { main, support } = partitions(resource === "ownership" ? "Ownership & UBO" : "GoldTier Details & Status");
+    const { main, support } = partitions(resource === "ownership" ? "Ownership & UBO" : "Submission readiness");
     for (const panel of [main, ...support]) {
       if (panel instanceof HTMLDetailsElement) act(() => { panel.open = true; });
       expect(panel.textContent).not.toContain("information could not be loaded");
@@ -1523,7 +1549,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
     await act(async () => { release(response(late)); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
     expect(container!.textContent).not.toContain("LATE_OLD");
-    for (const name of ["Ownership & UBO", "GoldTier Details & Status"]) {
+    for (const name of ["Ownership & UBO", "Submission readiness"]) {
       const { main, support } = partitions(name);
       for (const panel of [main, ...support]) { if (panel instanceof HTMLDetailsElement) act(() => { panel.open = true; }); expect(panel.textContent).not.toContain("LATE_OLD"); }
     }
@@ -1535,7 +1561,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
     summary.target_classification = { ...summary.target_classification, evidence_state: "CONFLICT", current: false,
       evidence_values: { kyc_customer_type: ["Company - Private", "Partnership - Unregulated"], client_segment: ["Corporate"] } };
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
-    renderCase(client, actorA, CASE_A); const { main, support } = partitions("GoldTier Details & Status");
+    renderCase(client, actorA, CASE_A); const { main, support } = partitions("Submission readiness");
     expect(support.every(item => !item.open)).toBe(true);
     // Unresolved conflicting evidence stays beside the Main choices; More details keeps its copy.
     expect(main.querySelector('[aria-label="Current trusted classification values"]')?.textContent).toContain("Company - Private; Partnership - Unregulated");
@@ -1581,7 +1607,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     renderCase(client, profile, CASE_A); return client;
   }
   function collapsedTargetHeader() {
-    const { region, main } = partitions("GoldTier Details & Status");
+    const { region, main } = partitions("GoldTier submission package");
     const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
     if (toggle.getAttribute("aria-expanded") === "true") act(() => toggle.click());
     expect(main.hidden).toBe(true);
@@ -1689,7 +1715,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary, { ...actorA, capabilities: authorized ? ["CASE_ACCESS"] : [] });
     expect(collapsedTargetHeader()).toContain("Attention required — GoldTier availability check needed");
     expect(collapsedTargetHeader()).not.toContain("available.");
-    expect([...partitions("GoldTier Details & Status").main.querySelectorAll("button")].some(item => item.textContent === "Check GoldTier availability")).toBe(authorized);
+    expect([...partitions("GoldTier submission package").main.querySelectorAll("button")].some(item => item.textContent === "Check GoldTier availability")).toBe(authorized);
     expect(fetch).not.toHaveBeenCalled(); client.clear();
   });
   it.each([true, false])("collapsed target header retains projection-only intervention with action authorized=%s", authorized => {
@@ -1698,7 +1724,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary);
     expect(collapsedTargetHeader()).toContain("Target intervention requires review");
     expect(collapsedTargetHeader()).not.toContain("available");
-    expect(partitions("GoldTier Details & Status").main.querySelector(".intervention-card button")).toBeNull();
+    expect(partitions("GoldTier submission package").main.querySelector(".intervention-card button")).toBeNull();
     expect(fetch).not.toHaveBeenCalled(); client.clear();
   });
   it.each(["NOT_SUBMITTED", "SUBMISSION_CONFIRMED", "SUBMISSION_OUTCOME_UNCERTAIN", "SENDING"] as const)("collapsed target header prioritizes intervention and uncertainty over routine %s", state => {
@@ -1737,17 +1763,17 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     expect(collapsedTargetHeader()).toContain("Submission not started");
     const next = targetSummary("SUBMISSION_CONFIRMED"); next.version += 1; next.active_exceptions = [];
     await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), next); await new Promise(resolve => setTimeout(resolve, 0)); });
-    expect(partitions("GoldTier Details & Status").region.querySelector(":scope > h2 button")!.getAttribute("aria-expanded")).toBe("false");
+    expect(partitions("GoldTier submission package").region.querySelector(":scope > h2 button")!.getAttribute("aria-expanded")).toBe("false");
     expect(collapsedTargetHeader()).toContain("Submission confirmed");
     expect([...container!.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
-    const toggle = partitions("GoldTier Details & Status").region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    const toggle = partitions("GoldTier submission package").region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
     act(() => { toggle.click(); toggle.click(); });
     expect(fetch).not.toHaveBeenCalled(); client.clear();
   });
   it.each(["NOT_SUBMITTED", "SENDING", "SUBMISSION_CONFIRMED", "SUBMISSION_FAILED", "SUBMISSION_OUTCOME_UNCERTAIN", "FINALIZATION_PENDING"] as const)(
     "keeps %s target/review state and one authorized action owner visible with support closed", state => {
       const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => response({ submission_id: "00000000-0000-4000-8000-00000000f001", result: "CHECK_FAILED", message: "Synthetic read-only observation unavailable", checked_at: NOW })); const client = setup(targetSummary(state));
-      const target = partitions("GoldTier Details & Status"); const review = partitions("Final review & send");
+      const target = partitions("GoldTier submission package"); const review = partitions("Final review & send");
       for (const { region, main, support } of [target, review]) {
         expect(main.hidden).toBe(false); expect(support.every(item => !item.open)).toBe(true);
         for (const panel of support) expect(panel.querySelector("button, input, select, textarea, details")).toBeNull();
@@ -1774,7 +1800,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
   );
   it("retains Director recovery attestation in Main and ledger diagnostics in Technical", () => {
     const client = setup(targetSummary("SUBMISSION_OUTCOME_UNCERTAIN"), { ...actorA, capabilities: [...actorA.capabilities, "TARGET_RECOVERY"] });
-    const { main, support } = partitions("GoldTier Details & Status");
+    const { main, support } = partitions("GoldTier submission package");
     expect(main.textContent).toContain("I verified this exact candidate");
     expect(main.querySelector('input[type="checkbox"]')).not.toBeNull();
     expect(main.querySelector("#case-target-recovery details")).toBeNull();
@@ -1803,7 +1829,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); if (state !== "pending-retained") await refresh; });
     if (state === "recovery") { fetch.mockImplementation(async () => response(summary)); await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); }
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-    for (const name of ["GoldTier Details & Status", "Final review & send"]) {
+    for (const name of ["GoldTier submission package", "Final review & send"]) {
       const { main, support } = partitions(name);
       for (const panel of [main, ...support]) {
         if (state === "recovery") expect(panel.textContent).not.toContain("Last-confirmed");
@@ -1818,14 +1844,14 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     summary.case.initial_identity = { legal_name: "Synthetic preflight identity", registration_number: "202400001A", country_of_incorporation: "SG" };
     summary.clm.target_search_checkpoint = { status: "FAILED", disposition: "FAILED" } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
     summary.clm.submission_plan.request_preview!.dispatch_ready = false;
-    const client = setup(summary); let target = partitions("GoldTier Details & Status");
+    const client = setup(summary); let target = partitions("GoldTier submission package");
     expect(target.main.textContent).toContain("GoldTier availability check needed");
     expect(target.main.textContent).toContain("No target write was attempted");
     expect(target.main.querySelector("#target-preflight-title")).not.toBeNull();
     expect(button("Check GoldTier availability").closest("details")).toBeNull();
     const continued = targetSummary("FINALIZATION_PENDING"); continued.status = "RECOVERY_PENDING";
     act(() => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), continued); }); renderCase(client, actorA, CASE_A);
-    target = partitions("GoldTier Details & Status");
+    target = partitions("GoldTier submission package");
     expect(target.main.querySelector("#target-continuation-title")).not.toBeNull();
     expect(target.main.querySelector("#case-evidence-recovery")).not.toBeNull();
     expect(button("Complete safe recovery").closest("details")).toBeNull();
@@ -1845,11 +1871,11 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }, { cancelRefetch: true, throwOnError: true }); });
     await act(async () => { release(new Response("", { status: 503 })); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(signal?.aborted).toBe(true); expect(client.getQueryState(key)?.status).toBe("success");
-    for (const name of ["GoldTier Details & Status", "Final review & send"]) {
+    for (const name of ["GoldTier submission package", "Final review & send"]) {
       const { main, support } = partitions(name);
       for (const panel of [main, ...support]) { expect(panel.textContent).not.toContain("information could not be loaded"); expect(panel.textContent).not.toContain("Last-confirmed"); }
     }
-    expect(partitions("GoldTier Details & Status").support.at(-1)!.textContent).toContain("SUBMISSION_CONFIRMED");
+    expect(partitions("GoldTier submission package").support.at(-1)!.textContent).toContain("SUBMISSION_CONFIRMED");
     const target = document.getElementById("submission-state-title")!;
     expect(target).toBeInstanceOf(HTMLElement);
     expect(frames.size).toBe(1);
@@ -1875,16 +1901,16 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     await act(async () => { release(response(late)); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
     expect(container!.textContent).not.toContain("LATE_OLD");
-    for (const name of ["GoldTier Details & Status", "Final review & send"]) expect(partitions(name).support.every(item => !item.open)).toBe(true);
+    for (const name of ["GoldTier submission package", "Final review & send"]) expect(partitions(name).support.every(item => !item.open)).toBe(true);
     expect(collapsedTargetHeader()).toContain("Submission not started");
-    expect(partitions("GoldTier Details & Status").support.at(-1)!.textContent).toContain("NOT_SUBMITTED"); client.clear();
+    expect(partitions("GoldTier submission package").support.at(-1)!.textContent).toContain("NOT_SUBMITTED"); client.clear();
   });
 
 });
 
 
 describe("Round3 collapsed header read truthfulness", () => {
-  const titles = ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "GoldTier Details & Status", "Final review & send"];
+  const titles = ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package", "Final review & send"];
   function header(title: string, collapse = true) {
     const region = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === title)!;
     expect(region).toBeTruthy(); const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;

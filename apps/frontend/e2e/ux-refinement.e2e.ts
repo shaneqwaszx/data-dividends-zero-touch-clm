@@ -67,7 +67,7 @@ test("UX refinement attention identity, sticky twelve-stage rail and mobile keyb
   await expect(registry.getByRole("button", { name: "Verify UEN and resume", exact: true })).toBeVisible();
   await expect(registry.getByRole("button", { name: "Verify UEN and resume", exact: true })).toBeDisabled();
   // Open retained sections to make the page tall, then scroll main content independently.
-  await openStage(page, "Ownership & UBO"); await openStage(page, "GoldTier Details & Status");
+  await openStage(page, "Ownership & UBO"); await openStage(page, "GoldTier submission package");
   await page.evaluate(() => window.scrollTo(0, 500));
   await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
   const rail = page.locator(".case-pipeline-panel");

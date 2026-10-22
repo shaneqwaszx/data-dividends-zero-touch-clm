@@ -467,7 +467,7 @@ describe("Lost confirmation response", () => {
     await mount(readyToConfirm());
     const send = [...host!.querySelectorAll("button")].find(item => item.textContent === "Confirm and send to GoldTier sandbox")!;
     await act(async () => send.click()); await settle();
-    const stage = [...host!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector("h2")?.textContent === "GoldTier Details & Status")!;
+    const stage = [...host!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector("h2")?.textContent === "GoldTier submission package")!;
     const toggle = stage.querySelector<HTMLButtonElement>(":scope > h2 button")!;
     await act(async () => { if (toggle.getAttribute("aria-expanded") === "true") toggle.click(); });
     expect(stage.querySelector<HTMLElement>(":scope > div")!.hidden).toBe(true);

@@ -79,7 +79,7 @@ async function create(page: Page, company: typeof garden, fresh = false) {
 async function complete(page: Page, caseId: string) {
   await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("COMPLETED");
-  await openStage(page, "GoldTier Details & Status");
+  await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   const done = await summary(page, caseId);
   expect(done.active_exceptions).toEqual([]);
