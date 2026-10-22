@@ -2,7 +2,7 @@ import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { openStage, fieldVerificationStates } from "./stage-disclosures";
 import { reviewSourceChoices } from "./blocker-decisions";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 
@@ -68,10 +68,9 @@ async function create(page: Page, garden: boolean, conflict = false) {
     });
   }
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
-  await page.getByRole("button", { name: "Open full case" }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
   return caseId;
@@ -128,7 +127,7 @@ test("Zero-touch Golden STP normal UI has zero exception interventions", async (
   await capture(page, info, "before");
   await expect(page.locator(".intervention-card")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Accept .* suggestion$/ })).toHaveCount(0);
-  await expect(page.locator(".document-field .tag", { hasText: "AUTO CONFIRMED" })).toHaveCount(4);
+  await expect(fieldVerificationStates(page, "AUTO CONFIRMED")).toHaveCount(4);
   expect((await summary(page, caseId)).metrics.human_interventions).toBe(0);
   const ready = await summary(page, caseId);
   const search = ready.processing_pipeline.find((item: any) => item.node_id === "GOLDTIER_SEARCH");
@@ -171,7 +170,7 @@ for (const conflict of [false, true]) {
       await expect(page.locator("input[data-reconciliation-field]")).toHaveCount(0);
       measure();
     } else {
-      await expect(page.locator(".document-field .tag", { hasText: "AUTO CONFIRMED" })).toHaveCount(4);
+      await expect(fieldVerificationStates(page, "AUTO CONFIRMED")).toHaveCount(4);
       await expect(page.getByRole("button", { name: /^Accept .* suggestion$/ })).toHaveCount(0);
       expect((await summary(page, caseId)).metrics.human_interventions).toBe(0);
     }

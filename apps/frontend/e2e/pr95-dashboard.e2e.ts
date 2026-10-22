@@ -99,8 +99,7 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   await page.getByLabel("Registration ID / UEN", { exact: true }).fill("202400001A");
   await page.locator("#home-document").setInputFiles(fixture);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Open full case", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const confirmation = page.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
   await expect(confirmation).toBeEnabled();
   const completed = page.waitForResponse(response => response.request().method() === "POST"

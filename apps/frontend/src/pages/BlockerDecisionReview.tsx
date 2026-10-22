@@ -34,6 +34,10 @@ export function registryChoiceFields(caseId: string): ReadonlySet<string> {
 export function clearSourceIntents(caseId: string): void {
   sourceIntents.delete(caseId);
 }
+/** Remembered choices belong to the reviewer's session: forget all of them at a session boundary. */
+export function clearAllSourceIntents(): void {
+  sourceIntents.clear();
+}
 function intentAction(intent: SourceIntent | undefined): ReconciliationDecisionAction | null {
   return intent === "REGISTRY" ? "KEEP_REGISTRY_VALUE" : intent === "DOCUMENT" ? "USE_DOCUMENT_VALUE" : null;
 }
@@ -74,7 +78,7 @@ function unavailableReason(action: ReconciliationDecisionAction, hasValue: boole
 }
 
 const DECISION_NAMES: Record<string, string> = {
-  ACCEPTED: "Document suggestion", REGISTRY: "Registry value", REJECTED: "Registry value", CORRECTED: "Manual input",
+  ACCEPTED: "Document suggestion", REGISTRY: "Registry value", REJECTED: "Suggestion rejected", CORRECTED: "Manual input",
   KEEP_REGISTRY_VALUE: "Registry value", USE_DOCUMENT_VALUE: "Document value",
 };
 const EMPTY_DRAFT: Draft = { decision: "", correction: "", note: "" };
@@ -104,13 +108,16 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
   const sources = reviewableSourceDiscrepancies(summary, documents);
   // Stale "pending" field flags can remain after the case has moved past documents; the
   // backend's active document-stage exception is what actually requires these decisions.
-  const documentReviewActive = summary.active_exceptions.some(item => item.stage === "DOCUMENT");
+  // Field reviews stay available up to and including the document stage (they may precede it).
+  const documentReviewActive = ["REGISTRY", "GOLDTIER_SEARCH", "DOCUMENT"].includes(summary.current_stage ?? "")
+    || summary.active_exceptions.some(item => item.stage === "DOCUMENT");
   const reviewable = !documentReviewActive ? [] : documents.filter(doc => doc.superseded_by_document_id == null
     && doc.state === "REVIEW_REQUIRED" && !doc.semantic_completion && doc.review_source_fingerprint);
   const fields = reviewable.flatMap(doc => doc.fields.filter(field => field.review_status === "PENDING")
     .map(field => ({ doc, field, id: `${doc.document_id}:${field.field_key}` })));
-  // No group switcher: document field reviews come first; registry-vs-document decisions follow once they are done.
-  const family: "document" | "source" = fields.length ? "document" : "source";
+  // Document field reviews come first; the reviewer (or navigation) can switch to registry-vs-document decisions.
+  const [familyChoice, setFamily] = useState<"document" | "source">(fields.length ? "document" : "source");
+  const family: "document" | "source" = !fields.length || (familyChoice === "source" && sources.length) ? "source" : "document";
   const bindings: Record<string, string> = Object.fromEntries([
     ...fields.map(({ id, doc }) => [id, JSON.stringify([doc.review_source_fingerprint, doc.events.length, doc.document_version])]),
     ...sources.map(item => [item.discrepancy_id, JSON.stringify([reconciliation?.reconciliation_id, reconciliation?.version, item.evidence_fingerprint, item.allowed_actions])]),
@@ -147,7 +154,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
     setSaved(false);
   }
   // Fill only undecided eligible fields; existing choices, corrections and notes are kept.
-  function fillUndecided(decision: "ACCEPTED" | "REGISTRY") {
+  function fillUndecided(decision: "ACCEPTED" | "REGISTRY" | "REJECTED") {
     if (disabled || family !== "document") return;
     setDraftState(current => {
       const choices = { ...current.choices };
@@ -156,7 +163,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
       for (const { id, field } of fields) {
         const draft = choices[id];
         if (draft?.decision || draft?.correction.trim()
-          || field.original_extracted_value == null
+          || (decision !== "REJECTED" && field.original_extracted_value == null)
           || (decision === "REGISTRY" && field.canonical_value == null)) {
           skipped += 1;
         } else {
@@ -171,12 +178,17 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
   }
   useImperativeHandle(ref, () => ({
     openDecision(destination) {
-      if (destination.discrepancyId && family === "source" && sources.some(item => item.discrepancy_id === destination.discrepancyId)) return true;
-      if (family === "document" && fields.some(item => item.doc.document_id === destination.documentId && item.field.field_key === destination.fieldKey)) return true;
+      if (destination.discrepancyId && sources.some(item => item.discrepancy_id === destination.discrepancyId)) {
+        setFamily("source"); return true;
+      }
+      if (fields.some(item => item.doc.document_id === destination.documentId && item.field.field_key === destination.fieldKey)) {
+        setFamily("document"); return true;
+      }
       return false;
     },
     selectSourceDecision(id, action) {
-      if (disabled || family !== "source" || !sources.some(item => item.discrepancy_id === id && item.allowed_actions.includes(action))) return false;
+      if (disabled || !sources.some(item => item.discrepancy_id === id && item.allowed_actions.includes(action))) return false;
+      setFamily("source");
       change(id, { decision: action });
       return true;
     },
@@ -194,8 +206,9 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
       clearSourceIntents(summary.case.case_id);
     } else {
       // Remember each choice for the registry-vs-document step: registry, or the document's (or manual) value.
-      sourceIntents.set(summary.case.case_id, new Map(fields.map(({ id, field }) => [field.field_key,
-        drafts[id].decision === "REGISTRY" ? "REGISTRY" as const : "DOCUMENT" as const])));
+      // A rejected suggestion implies neither source, so that step stays an explicit reviewer decision.
+      sourceIntents.set(summary.case.case_id, new Map(fields.filter(({ id }) => drafts[id].decision !== "REJECTED")
+        .map(({ id, field }) => [field.field_key, drafts[id].decision === "REGISTRY" ? "REGISTRY" as const : "DOCUMENT" as const])));
       onConfirm({ ...base, documents: reviewable.filter(doc => fields.some(item => item.doc.document_id === doc.document_id)).map(doc => ({
         document_id: doc.document_id, expected_event_count: doc.events.length, source_fingerprint: doc.review_source_fingerprint!,
         decisions: fields.filter(item => item.doc.document_id === doc.document_id).map(({ id, field }) => ({
@@ -216,11 +229,18 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
         <p className="blocker-review__lede">Select all choices, review them, then confirm. Selecting a choice does not process the case.</p>
       </div>
     </header>
+    {fields.length > 0 && sources.length > 0 && <label className="blocker-review__group">Decision group
+      <select aria-label="Decision group" value={family} disabled={disabled} onChange={event => { setFamily(event.target.value as typeof family); setSaved(false); setDraftState(current => ({ ...current, bulkResult: null })); }}>
+        <option value="source">Compare registry and document values</option>
+        <option value="document">Review extracted document fields</option>
+      </select>
+    </label>}
     {family === "document" && <div className="blocker-review__bulk">
       <p>Fill undecided eligible document drafts only. Existing choices, corrections and notes are kept; Confirm is still required.</p>
       <div className="document-card__actions">
         <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => fillUndecided("ACCEPTED")}>Use document suggestion for all undecided</button>
         <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => fillUndecided("REGISTRY")}>Use registry value for all undecided</button>
+        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => fillUndecided("REJECTED")}>Reject all undecided suggestions</button>
       </div>
       {draftState.bulkResult && <p role="status">{draftState.bulkResult.filled} filled · {draftState.bulkResult.skipped} skipped · {draftState.bulkResult.remaining} remaining</p>}
     </div>}
@@ -242,7 +262,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
           <span className={`review-pill${decision ? " review-pill--done" : ""}`}>{decision ? DECISION_NAMES[decision] : "Decision needed"}</span>
           {weak && field.original_extracted_value !== null && <span className="review-pill review-pill--warn">Low confidence</span>}
         </div>
-        {/* Three choices: registry value, document suggestion, or manual input. */}
+        {/* Choices: registry value, document suggestion, reject the suggestion, or manual input. */}
         <div className="review-options" role="radiogroup" aria-label={`Decision for ${label}`}>
           <label className={`review-option${decision === "REGISTRY" ? " is-chosen" : ""}${field.canonical_value == null || field.original_extracted_value == null ? " is-unavailable" : ""}`}>
             <input {...option("REGISTRY", "Use registry value")} disabled={disabled || field.canonical_value == null || field.original_extracted_value == null} />
@@ -254,6 +274,10 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
             <input {...option("ACCEPTED", "Use document suggestion")} disabled={disabled || field.original_extracted_value == null} />
             <span className="review-option__label">Use document suggestion</span>
             {field.original_extracted_value == null ? <span className="review-option__missing">Not found in document</span> : <strong className="review-option__value">{field.original_extracted_value}</strong>}
+          </label>
+          <label className={`review-option${decision === "REJECTED" ? " is-chosen" : ""}`}>
+            <input {...option("REJECTED", "Reject document suggestion")} />
+            <span className="review-option__label">Reject document suggestion</span>
           </label>
           <div className={`review-option review-option--manual${decision === "CORRECTED" ? " is-chosen" : ""}`}
             onClick={event => { if (disabled || (event.target as HTMLInputElement).type === "text") return; change(id, { decision: "CORRECTED" }); event.currentTarget.querySelector<HTMLInputElement>("input[type=text]")?.focus(); }}>

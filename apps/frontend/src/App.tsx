@@ -2360,6 +2360,8 @@ export default function App({
               onViewAudit={(auditCaseId) => navigate(paths.auditCase(auditCaseId))}
               registryProviderMode={simulationProfile?.registry_provider_mode}
               initialFocusNodeId={new URLSearchParams(location.search).get("focus") ?? undefined}
+              // Deleting the case New onboarding is still holding returns New onboarding to a blank form.
+              onDeleted={(deletedCaseId) => { if (deletedCaseId === retainedIntakeCaseId) resetOnboardingForm(); }}
               pendingDocuments={caseId === retainedIntakeCaseId && documentFiles.length > 0 ? {
                 fileNames: documentFiles.map(file => file.name),
                 busy: isSubmitting,

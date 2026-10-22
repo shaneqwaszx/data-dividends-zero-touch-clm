@@ -65,12 +65,12 @@ export default function RegistryProvenancePanel({ acquisition, binding, entityTy
   </>;
   const audit = <dl>
     {acquisition && <>
-      <div><dt>Acquisition retrieved at</dt><dd><AuditTime value={acquisition.retrieved_at} /></dd></div>
-      {acquisition.operation_results.filter(result => result.provenance).map(result => <div key={result.operation}><dt>{result.operation} retrieved at</dt><dd><AuditTime value={result.provenance!.retrieved_at} /></dd></div>)}
+      <div><dt>Acquisition retrieved at — original ISO UTC</dt><dd><AuditTime value={acquisition.retrieved_at} /></dd></div>
+      {acquisition.operation_results.filter(result => result.provenance).map(result => <div key={result.operation}><dt>{result.operation} retrieved at — original ISO UTC</dt><dd><AuditTime value={result.provenance!.retrieved_at} /></dd></div>)}
     </>}
     {binding && <>
-      <div><dt>Bound to this case at</dt><dd><AuditTime value={binding.bound_to_case_at} /></dd></div>
-      <div><dt>Valid-at-use expiry</dt><dd><AuditTime value={binding.expires_at} /></dd></div>
+      <div><dt>Bound to this case at — original ISO UTC</dt><dd><AuditTime value={binding.bound_to_case_at} /></dd></div>
+      <div><dt>Valid-at-use expiry — original ISO UTC</dt><dd><AuditTime value={binding.expires_at} /></dd></div>
     </>}
   </dl>;
   const headingId = part === "all" || part === "main" ? "registry-provenance-heading" : `registry-provenance-${part}-heading`;
@@ -81,12 +81,12 @@ export default function RegistryProvenancePanel({ acquisition, binding, entityTy
     {(part === "all" || part === "more") && more}
     {(part === "all" || part === "technical") && technical}
     {part === "technical" && audit}
-    {part === "all" && (acquisition || binding) && <details className="evidence-details"><summary>Technical timestamps</summary>{audit}</details>}
+    {part === "all" && (acquisition || binding) && <details className="evidence-details"><summary>Technical timestamps (original ISO UTC)</summary>{audit}</details>}
   </section>;
 }
 
-/** Readable SGT time; the exact original UTC value stays inspectable in the dateTime attribute. */
+/** Audit evidence shows the exact retained value (readable SGT times are in the Main and More views). */
 function AuditTime({ value }: { value: string | null | undefined }) {
-  const text = formatRegistryTimestamp(value);
-  return value && registryTimestampIsUsable(value) ? <time dateTime={value}>{text}</time> : <>{text}</>;
+  if (!value) return <>Not recorded</>;
+  return registryTimestampIsUsable(value) ? <time dateTime={value}>{value}</time> : <>{value}</>;
 }

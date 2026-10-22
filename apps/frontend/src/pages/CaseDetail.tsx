@@ -66,6 +66,7 @@ import {
   ConfirmDetailsPanel,
   stageStatusFor,
   GOLDTIER_DETAILS_STAGE_LABEL,
+  goldTierDetailsStageNames,
   DetailedProcessingInspector,
   findProcessingNode,
   OnboardingProgressPanel,
@@ -74,7 +75,7 @@ import {
   ProcessingBlockerPanels,
   RegistryStatePanel,
 } from "./CaseStatePanels";
-import { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
+import CaseStateExplanationPanel, { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
 import PriorityControl from "./PriorityControl";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import DocumentEvidencePanel, {
@@ -185,6 +186,7 @@ export default function CaseDetail({
   registryProviderMode,
   initialFocusNodeId,
   pendingDocuments,
+  onDeleted,
 }: {
   caseId: string;
   actor: AuthenticatedProfile;
@@ -195,6 +197,8 @@ export default function CaseDetail({
   initialFocusNodeId?: string;
   /** Documents chosen at Create onboarding that are not uploaded yet (e.g. the registry step stopped first). */
   pendingDocuments?: PendingDocuments;
+  /** Called after the backend confirms this case was deleted, before returning to Cases. */
+  onDeleted?: (caseId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const batchReviewRef = useRef<ReviewDraftHandle>(null);
@@ -1117,6 +1121,7 @@ export default function CaseDetail({
       });
       if (!isCurrentCaseAction(action)) return;
       setDeleteDialogOpen(null);
+      onDeleted?.(action.caseId);
       onBack();
     } catch (deleteError) {
       if (isCurrentCaseAction(action)) throw deleteError;
@@ -1301,6 +1306,7 @@ export default function CaseDetail({
   const reviewPanelSourceIds = new Set(reviewableSourceDiscrepancies(summary, documents).map(item => item.discrepancy_id));
   const coveredByReviewPanel = (item: HumanInterventionProjection) => item.owning_stage === "DOCUMENT"
     && (item.evidence_actions ?? []).every(action => action.target === "DOCUMENTS")
+    && item.authorized_actions.length > 0
     && item.authorized_actions.every(action => (action.action === "KEEP_REGISTRY_VALUE" || action.action === "USE_DOCUMENT_VALUE")
       && reviewPanelSourceIds.has(item.intervention_id));
   // A UEN mismatch reopens registry identity review even though the backend registry step completed.
@@ -1597,7 +1603,10 @@ export default function CaseDetail({
           moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" /></>}
           technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" /></>}
         />
-        <StageDisclosure title={GOLDTIER_DETAILS_STAGE_LABEL} status={stageStatusFor(summary, ["READINESS", "GOLDTIER_TARGET"])} summary={`${targetHeaderFreshness}${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration. " : ""}${targetHeaderStatus} · ${titleCaseWords(summary.clm.submission_plan.environment)}`} scopeKey={disclosureIdentity} main={<>
+        {/* An uncertain outcome or pending safe recovery needs the reviewer: the section opens on load and shows the blocked final step. */}
+        <StageDisclosure title={GOLDTIER_DETAILS_STAGE_LABEL} active={targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || safeContinuation || summary.status === "RECOVERY_PENDING" ? true : undefined}
+          status={stageStatusFor(summary, targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" ? ["READINESS", "GOLDTIER_TARGET", "FINAL_REVIEW_SEND"] : ["READINESS", "GOLDTIER_TARGET"])}
+          summary={`${targetHeaderFreshness}${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration. " : ""}${targetHeaderStatus} · ${titleCaseWords(summary.clm.submission_plan.environment)} · Stages: ${goldTierDetailsStageNames(summary.processing_pipeline ?? []).join(" and ")}`} scopeKey={disclosureIdentity} main={<>
           {readinessReadNotice}
           {/* Focus anchors for "Resolve issue" / "Review outstanding" navigation into this section. */}
           <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target" tabIndex={-1}>
@@ -1694,6 +1703,10 @@ export default function CaseDetail({
           && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
 
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
+        {/* Why the case is in its current state, with navigation to the evidence behind it. */}
+        <div key={`${evidenceIdentity}:explanation`} className="evidence-workbench-column">
+          <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />
+        </div>
         </>}
           moreDetails={<>
             {readinessReadNotice}

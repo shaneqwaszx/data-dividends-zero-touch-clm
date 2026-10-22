@@ -414,10 +414,13 @@ describe("Evidence workbench integration isolation", () => {
     const pending = new Promise<Response>(resolve => { release = resolve; });
     const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending);
     renderCase(client, actorA, CASE_A);
-    // The "Documents / reconciliation" card is not shown; the review controls themselves wait for current documents.
-    expect([...container!.querySelectorAll("button")].some(item => item.textContent === "Open current review")).toBe(false);
+    // A blocker card with no authorized decision still explains itself; its evidence action waits for current documents.
+    expect(button("Open current review").disabled).toBe(true);
     await act(async () => { release(response([documentFixture(CASE_A)])); });
     await vi.waitFor(() => expect(container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"]')?.disabled).toBe(false));
+    await vi.waitFor(() => expect(button("Open current review").disabled).toBe(false));
+    click("Open current review");
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
     expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
   });
 
@@ -1534,10 +1537,11 @@ describe("Ownership and Readiness persistent disclosure", () => {
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
     renderCase(client, actorA, CASE_A); const { main, support } = partitions("GoldTier Details & Status");
     expect(support.every(item => !item.open)).toBe(true);
-    expect(main.querySelector('[aria-label="Current trusted classification values"]')).toBeNull();
+    // Unresolved conflicting evidence stays beside the Main choices; More details keeps its copy.
+    expect(main.querySelector('[aria-label="Current trusted classification values"]')?.textContent).toContain("Company - Private; Partnership - Unregulated");
     expect(support[0].querySelector('[aria-label="Current trusted classification values"]')?.textContent).toContain("Company - Private; Partnership - Unregulated");
     expect(main.querySelector('select[aria-label="KYC customer type"]')).not.toBeNull();
-    expect(container!.querySelectorAll('[aria-label="Current trusted classification values"]')).toHaveLength(1);
+    expect(container!.querySelectorAll('[aria-label="Current trusted classification values"]')).toHaveLength(2);
   });
 
 });

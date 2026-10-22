@@ -81,6 +81,19 @@ async function choose(page: Page, caseId: string, label: string) {
   return result.json();
 }
 
+/** UEN conflict: pick one option in the "UEN to verify" choice, then confirm it. */
+async function chooseConflict(page: Page, caseId: string, option: "Entered UEN" | "Document UEN" | "Another UEN") {
+  const response = page.waitForResponse((result) => result.request().method() === "POST"
+    && result.url().endsWith(`/cases/${caseId}/registry-identity`));
+  const radio = page.getByRole("radio", { name: new RegExp(`^${option}`) });
+  if (option !== "Another UEN") await radio.check();
+  await expect(radio).toBeChecked();
+  await page.getByRole("button", { name: "Confirm UEN and resume", exact: true }).click();
+  const result = await response;
+  expect(result.status()).toBe(200);
+  return result.json();
+}
+
 test("Phase24 invalid registry identity corrects the same case and keeps final review last", async ({ page }) => {
   const headers = await login(page);
   const created = await create(page, headers, "99999999Z");
@@ -151,7 +164,7 @@ test("Phase24 entered UEN choice resolves current identity conflict without sile
   await attachConflict(page, headers, caseId, false);
   await page.goto(`/cases/${caseId}`);
   await expect(page.getByRole("heading", { name: "Entity identity requires confirmation" })).toBeVisible();
-  const corrected = await choose(page, caseId, "Use entered UEN");
+  const corrected = await chooseConflict(page, caseId, "Entered UEN");
   expect(corrected.case.requested_uen).toBe("202400001A");
   expect(corrected.case.identity_corrections.at(-1).choice).toBe("ENTERED");
   expect(corrected.reconciliation.discrepancies.some((item: any) =>
@@ -176,11 +189,11 @@ for (const choice of ["DOCUMENT", "OTHER"] as const) {
     await attachConflict(page, headers, caseId, true);
     await page.goto(`/cases/${caseId}`);
     let corrected;
-    if (choice === "DOCUMENT") corrected = await choose(page, caseId, "Use document UEN");
+    if (choice === "DOCUMENT") corrected = await chooseConflict(page, caseId, "Document UEN");
     else {
-      await page.getByRole("button", { name: "Enter another UEN" }).click();
+      // Typing another UEN selects the "Another UEN" option.
       await page.getByLabel("Singapore UEN").fill("202400009I");
-      corrected = await choose(page, caseId, "Verify UEN and resume");
+      corrected = await chooseConflict(page, caseId, "Another UEN");
     }
     expect(corrected.case.case_id).toBe(caseId);
     expect(corrected.case.entity.registration_number).toBe("202400009I");

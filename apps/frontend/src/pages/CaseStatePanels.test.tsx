@@ -185,7 +185,7 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).not.toContain("Resolve");
   });
 
-  it("does not show an Initial identity stage, even when identity is incomplete", () => {
+  it("derives one actionable Initial identity stage from the retained blocker when the pipeline omitted it", () => {
     const summary = summaryWithPipeline([processingNode("DOCUMENT_IDP", "Document and IDP", "NOT_REACHED")]);
     summary.active_exceptions = [{
       exception_id: "legacy-identity",
@@ -200,8 +200,8 @@ describe("OnboardingProgressPanel", () => {
       />,
     );
 
-    expect(markup).not.toContain("Initial identity");
-    expect(markup.match(/INITIAL_IDENTITY_INCOMPLETE/g) ?? []).toHaveLength(0);
+    expect(markup).toContain("Initial identity");
+    expect(markup).toContain('aria-label="Open details for Initial identity"');
   });
 
   it("maps only actionable stable backend nodes to specific existing panels", () => {
@@ -673,10 +673,11 @@ it("compares registry value, document value with confidence, and the reviewer's 
   expect(markup).toContain("DOC NAME"); expect(markup).toContain("97% confidence");
   expect(markup).toContain("Manual input: 11111999A");
   expect(markup).toContain(">Document value<");
-  expect(markup).not.toContain("rejected");
-  // The chosen value's cell is highlighted: registry for the rejected (registry-chosen) name, document for the address, manual in Your choice.
-  expect(markup.match(/is-chosen/g)).toHaveLength(3);
-  expect(markup).toMatch(/data-label="Registry value" class="is-chosen"/);
+  // A rejected suggestion is shown as such; it records no registry or document choice, so nothing is highlighted for it.
+  expect(markup).toContain("Suggestion rejected");
+  // The chosen value's cell is highlighted: document for the address, manual in Your choice.
+  expect(markup.match(/is-chosen/g)).toHaveLength(2);
+  expect(markup).not.toMatch(/data-label="Registry value" class="is-chosen"/);
   expect(markup).toMatch(/data-label="Document value" class="is-chosen"/);
   expect(markup).toMatch(/data-label="Your choice" class="is-chosen"/);
 });

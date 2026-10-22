@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
+import { showAllIssues } from "./attention";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const fixtures = path.join(root, "apps/backend/tests/fixtures/uat");
@@ -59,10 +60,9 @@ async function create(page: Page, file: string | ReturnType<typeof textProfile> 
   await page.getByLabel("Registration ID / UEN").fill(uen);
   await page.locator("#home-document").setInputFiles(typeof file === "string" ? path.join(fixtures, file) : file);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await summary(page, caseId)).status).toBe(status);
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card")).toHaveCount(1);
   return caseId;
@@ -277,7 +277,8 @@ async function resolveDiscrepancy(page: Page, file: string | ReturnType<typeof t
     const before = await summary(page, caseId);
     const codes = before.active_exceptions.filter((item: any) => item.stage === "DOCUMENT").map((item: any) => item.blocker_code);
     expect(codes.length).toBeGreaterThan(0);
-    await page.locator(".intervention-card").getByRole("button", { name: "Keep registry value", exact: true }).first().click();
+    // The duplicate document blocker card is hidden by design; the attention list is the blocker affordance.
+    await showAllIssues(page); await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker:/ }).first().click();
     await expect(page.locator("input[data-reconciliation-field]:not([disabled])").first()).toBeFocused();
     await expect(page.getByRole("button", { name: /Confirm and send/ })).toHaveCount(0);
     await reviewSourceChoices(page);

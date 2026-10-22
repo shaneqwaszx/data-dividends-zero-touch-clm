@@ -62,12 +62,11 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
     )),
   } : syntheticDocument);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   recoveryMilestone("RECOVERY_CASE_CREATED");
   await expect.poll(async () => (await readSummary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
   recoveryMilestone("RECOVERY_WAITING_FOR_REVIEW");
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
   recoveryMilestone("RECOVERY_DOCUMENT_VISIBLE");
@@ -497,11 +496,11 @@ test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership
   const uploadResponse = page.waitForResponse((response) =>
     response.request().method() === "POST" && response.url().endsWith("/intake/documents"));
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await readSummary(page, caseId)).current_stage).toBe("GOLDTIER_SEARCH");
   expect((await uploadResponse).status()).toBe(201);
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   await openStage(page, "Document verification");
   const documents = await (await page.request.get(`/api/onboarding/cases/${caseId}/documents`)).json();
   expect(documents).toHaveLength(1);

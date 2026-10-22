@@ -32,8 +32,11 @@ function checkpoint(summary: any, analysis: any) {
     targetOperations: summary.target_operations, targetConfirmed: summary.case.target_dispatch_confirmation !== null };
 }
 async function create(page: Page, fresh = false) {
-  await page.getByRole("link", { name: "New onboarding", exact: true }).click();
-  if (fresh) await page.getByRole("button", { name: "Start a new case", exact: true }).click();
+  const newOnboarding = page.getByRole("link", { name: "New onboarding", exact: true });
+  // A completed intake resets the draft, so New onboarding opens a blank form directly.
+  if (fresh) await expect(newOnboarding).toHaveAttribute("href", "/new-onboarding", { timeout: 60_000 });
+  await newOnboarding.click();
+  if (fresh) await expect(page.getByLabel("Company Legal Name", { exact: true })).toHaveValue("");
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await page.getByLabel("Company Legal Name", { exact: true }).fill(company.name);
   await page.getByLabel("Registration ID / UEN").fill(company.uen);
@@ -42,8 +45,8 @@ async function create(page: Page, fresh = false) {
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
   expect((await intake).status()).toBe(200);
   expect((await intake).request().postDataJSON()).toEqual({ expected_document_count: 1 });
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await openStage(page, "GoldTier Details & Status");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
@@ -176,8 +179,8 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   await page.locator("#home-document").setInputFiles({ name: "synthetic-review-with-missing-address.txt", mimeType: "text/plain", buffer: Buffer.from(synthetic) });
   const intake = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith("/intake/complete"));
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click(); expect((await intake).status()).toBe(200);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const before = await read(page, caseId);
   const documentsBeforeResponse = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
   expect(documentsBeforeResponse.status()).toBe(200);
@@ -222,7 +225,7 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   }
   expect(businessWrites).toEqual([]);
   const unchanged = await read(page, caseId); expect(unchanged.version).toBe(before.version);
-  await review.getByRole("button", { name: "Use registry value for all undecided", exact: true }).click();
+  await review.getByRole("button", { name: "Reject all undecided suggestions", exact: true }).click();
   await expect(review.locator('input[data-review-field="registered_address"][value="REJECTED"]')).toBeChecked();
   await expect(review.getByLabel("Optional note for legal name", { exact: true })).toHaveValue("Reviewed synthetic field deliberately.");
   expect(businessWrites).toEqual([]);
@@ -264,6 +267,7 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 1000 });
     for (const [name, stage] of [["GoldTier Details & Status", target], ["Final review & send", final]] as const) {
+      await openStage(page, name); // completed sections start collapsed
       await expect(stage.locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
       await expect(stage.locator(":scope > div").first()).toBeVisible();
       const more = stage.locator(":scope > details").nth(0), technical = stage.locator(":scope > details").nth(1);

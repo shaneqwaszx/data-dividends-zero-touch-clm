@@ -236,6 +236,18 @@ function DocumentCard({
       )}
       {(essential || historical) && document.error && <div className="ds-banner ds-banner-warn"><strong>{document.error.code}</strong><span>{document.error.message}</span></div>}
 
+      {/* With field rows hidden (the comparison table shows values), keep the evidence-quality notes visible. */}
+      {hideFields && presentation === "main" && document.fields.some((field) => field.original_extracted_value === null
+        || field.confidence < Number(summary.case.policy_snapshot?.idp_review_confidence_threshold)) && <ul className="control-help document-evidence-notes">
+        {document.fields.filter((field) => field.original_extracted_value === null
+          || field.confidence < Number(summary.case.policy_snapshot?.idp_review_confidence_threshold)).map((field) => <li key={field.field_key}>
+          {fieldLabel(field.field_key)}: Extraction quality: {field.extraction_quality ?? "UNKNOWN"}.
+          {field.original_extracted_value === null ? " Missing extracted evidence; replacement may still be required." : " Low evidence score; replacement may still be required."}
+        </li>)}
+      </ul>}
+      {hideFields && presentation === "main" && essential && document.fields.filter((field) => correctionStillRequiresReplacement(field, summary)).map((field) => (
+        <p key={field.field_key} className="ds-banner ds-banner-warn">{fieldLabel(field.field_key)}: Correction retained, but replacement evidence is still required because the original suggestion was missing or below the case-bound evidence-score threshold.</p>
+      ))}
       {/* The main case view reads as one table: headings once, one aligned row per field. */}
       {!hideFields && <>
       {presentation === "main" && <div className="document-fields__head" aria-hidden="true">

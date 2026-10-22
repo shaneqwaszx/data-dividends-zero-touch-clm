@@ -158,11 +158,11 @@ it("renders Singapore rollover timestamps with separately inspectable original U
   expect(row.textContent).toContain("14 Oct 2026");
   expect(row.textContent).toContain("SGT");
   expect(row.textContent).not.toContain(source.retrieved_at);
-  const detail = Array.from(view.querySelectorAll("details")).find(item => item.querySelector("summary")?.textContent === "Technical timestamps")!;
+  const detail = Array.from(view.querySelectorAll("details")).find(item => item.querySelector("summary")?.textContent?.includes("original ISO UTC"))!;
   expect(detail).toBeTruthy();
+  // Audit evidence shows the exact retained value, on a machine-readable <time> element.
   for (const iso of [source.retrieved_at, binding.bound_to_case_at, binding.expires_at]) {
-    expect(detail.querySelector(`time[datetime="${iso}"]`)).not.toBeNull();
-    expect(detail.textContent).not.toContain(iso);
+    expect(detail.querySelector(`time[datetime="${iso}"]`)?.textContent).toBe(iso);
   }
 });
 

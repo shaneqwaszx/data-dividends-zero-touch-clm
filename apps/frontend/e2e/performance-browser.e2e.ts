@@ -49,8 +49,7 @@ async function measure(page: Page, width: number) {
     await page.getByLabel("Registration ID / UEN", { exact: true }).fill("202400001A");
     await page.locator('input[type="file"]').first().setInputFiles(fixture);
     await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Open full case", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Open full case", exact: true }).click();
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     await ready(page);
     const casePath = new URL(page.url()).pathname;
     await page.waitForTimeout(500); // untimed settling, same protocol in both arms

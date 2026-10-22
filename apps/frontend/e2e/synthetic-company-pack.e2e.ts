@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { openStage, fieldVerificationStates } from "./stage-disclosures";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat/zero-touch-database");
@@ -39,14 +39,13 @@ for (const company of companies) {
     await page.getByLabel("Registration ID / UEN").fill(company.uen);
     await page.locator("#home-document").setInputFiles(path.join(fixtures, company.pdf));
     await page.getByRole("button", { name: "Create onboarding" }).click();
-    await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     const caseId = page.url().split("/").at(-1)!;
     await expect.poll(async () => (await summary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
-    await page.getByRole("button", { name: "Open full case" }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
     await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
     await openStage(page, "Document verification");
-    await expect(page.locator(".document-field .tag", { hasText: "AUTO CONFIRMED" })).toHaveCount(4);
+    await expect(fieldVerificationStates(page, "AUTO CONFIRMED")).toHaveCount(4);
     const initial = await summary(page, caseId);
     expect(initial.case.entity.registration_number).toBe(company.uen);
     expect(initial.clm.target_search_checkpoint.disposition).toBe("NO_MATCH");

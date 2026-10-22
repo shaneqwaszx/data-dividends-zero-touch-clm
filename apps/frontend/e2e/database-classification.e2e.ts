@@ -30,13 +30,12 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
     await page.getByLabel("Registration ID / UEN").fill(fixture.uen);
     await page.locator("#home-document").setInputFiles(path.resolve("../backend/tests/fixtures/uat/zero-touch-database", fixture.document));
     await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-    await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     const caseId = page.url().split("/").at(-1)!;
     const read = async (): Promise<ZeroTouchCaseSummary> => (await page.request.get(`/api/clm/zero-touch/cases/${caseId}`)).json();
     if (fixture.label === "Government") {
       await expect.poll(async () => (await read()).target_classification.kyc_customer_type.selected_value).toBe("Government");
     } else await expect.poll(async () => (await read()).active_exceptions.map((item) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
-    await page.getByRole("button", { name: "Open full case", exact: true }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
     const summary = await read();
     expect(summary.clm.target_search_checkpoint?.disposition).toBe("NO_MATCH");
@@ -152,10 +151,10 @@ test("database classification conflict prior USER then explicit current review",
   await page.reload();
   await openStage(page, "GoldTier Details & Status");
   await expect(page.getByRole("heading", { name: "Target classification — conflicting evidence", exact: true })).toBeVisible();
-  await expect(page.getByText("Company - Private; Partnership - Unregulated", { exact: false })).toBeVisible();
+  await expect(page.getByText("Company - Private; Partnership - Unregulated", { exact: false }).filter({ visible: true })).toBeVisible();
   await openStage(page, "Historical / resolved issues");
   const packageNode = page.locator(".processing-pipeline__node").filter({
-    has: page.locator(".processing-pipeline__node-title").filter({ hasText: /^GoldTier Details & Status$/ }),
+    has: page.locator(".processing-pipeline__node-title").filter({ hasText: /^GoldTier submission package$/ }),
   });
   await expect(packageNode).not.toContainText("Prepared target plan retained");
   const blocked = await read();

@@ -777,8 +777,8 @@ describe("Phase 15C case-bound action lifetime", () => {
     // The decision is offered once, in Review blocker decisions; the duplicate intervention card is hidden.
     expect(Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .filter((button) => button.textContent === "Keep registry value")).toHaveLength(0);
-    // No group dropdown: pending document field reviews come first; this decision follows in the same panel.
-    expect(container?.querySelector('select[aria-label="Decision group"]')).toBeNull();
+    // Pending document field reviews come first; the group switch keeps this decision reachable in the same panel.
+    expect(container?.querySelector<HTMLSelectElement>('select[aria-label="Decision group"]')?.value).toBe("document");
     expect(container?.querySelector("input[data-review-field]")).not.toBeNull();
     expect(container?.textContent).not.toContain("Document or reconciliation review required");
   });

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
-import { expectDisclosureContrast, openStage } from "./stage-disclosures";
+import { expectDisclosureContrast, openStage, fieldVerificationStates } from "./stage-disclosures";
 
 const fields = ["legal_name", "registration_number", "registered_address", "country_of_incorporation"];
 const content = Buffer.from([
@@ -36,7 +36,7 @@ async function runPerformanceGroup(page: Page, group: number) {
       expect(uploaded.status()).toBe(201);
       expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/complete`, { headers, data: { expected_document_count: 1 } })).status()).toBe(200);
       await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
-      await expect(page.locator(".document-field .tag").filter({ hasText: "PENDING" })).toHaveCount(4);
+      await expect(fieldVerificationStates(page, "PENDING")).toHaveCount(4);
       const batch = await page.locator("#case-blocker-review").count() > 0;
       if (batch) {
         const warning = page.locator(".intervention-card").filter({ has: page.getByRole("heading", {

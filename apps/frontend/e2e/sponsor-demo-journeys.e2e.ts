@@ -67,12 +67,11 @@ async function create(page: Page, company: Company, upload: Upload, enteredUen =
   await page.locator("#home-document").setInputFiles(upload);
   console.log("SPONSOR_DEMO_STAGE", company.code, "intake-filled");
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const cid = page.url().split("/").at(-1)!;
   const createdState = await summary(page, cid);
   console.log("SPONSOR_DEMO_STAGE", company.code, "case-created", createdState.status, createdState.current_stage, createdState.active_exceptions.map((e: any) => e.blocker_code));
   await expect.poll(async () => (await summary(page, cid)).status).toBe("WAITING_FOR_REVIEW");
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${cid}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
   return cid;
@@ -232,9 +231,12 @@ function blockerJourney(company: typeof blocked[number]) {
     if (company.code === "merlion") {
       await openStage(page, "Registry verification");
       const corrected = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith("/registry-identity"));
-      const documentChoice = page.getByRole("button", { name: "Use document UEN", exact: true });
-      if (await documentChoice.count()) await documentChoice.click();
-      else {
+      // UEN conflict: choose the document UEN in the "UEN to verify" choice, then confirm.
+      const documentChoice = page.getByRole("radio", { name: /^Document UEN/ });
+      if (await documentChoice.count()) {
+        await documentChoice.check();
+        await page.getByRole("button", { name: "Confirm UEN and resume", exact: true }).click();
+      } else {
         await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
         await page.locator("#identity-registration-number").fill(company.uen);
         await page.getByRole("button", { name: "Verify UEN and resume", exact: true }).click();

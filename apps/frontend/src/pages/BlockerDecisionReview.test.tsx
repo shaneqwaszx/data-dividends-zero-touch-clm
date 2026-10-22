@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { DocumentProcessingRecord, ZeroTouchCaseSummary } from "../types";
 import BlockerDecisionReview, { followUpSourceDecisions } from "./BlockerDecisionReview";
+import { clearSessionQueries, createSessionQueryClient } from "../queryClient";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
@@ -219,11 +220,12 @@ it.each(["busy", "unauthorized"])("bulk cannot fill or confirm in %s state", sta
   expect(container.textContent).toContain("0 selected / 4 required"); expect(confirm).not.toHaveBeenCalled();
 });
 
-it("with both decision kinds pending, shows only document field reviews (no group dropdown) and keeps notes", () => {
+it("with both decision kinds pending, defaults to document field reviews, keeps notes, and can switch to source decisions", () => {
   const confirm = mount();
   const mixed = { ...summary, active_exceptions: [...summary.active_exceptions, { exception_id: "source-one" }], reconciliation: { version: 3, source_document_ids: ["synthetic-doc"], source_document_event_counts: [1], discrepancies: [{ discrepancy_id: "source-one", field_name: "registration_identifier", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE"], evidence_fingerprint: "a".repeat(64), observations: [] }] } } as unknown as ZeroTouchCaseSummary;
   act(() => root!.render(<BlockerDecisionReview key="mixed" summary={mixed} documents={documents} busy={false} onConfirm={confirm} />));
-  expect(container.querySelector('select[aria-label="Decision group"]')).toBeNull();
+  const group = container.querySelector<HTMLSelectElement>('select[aria-label="Decision group"]')!;
+  expect(group.value).toBe("document");
   expect(container.querySelector("input[data-discrepancy-id]")).toBeNull();
   note("legal name", "Retained optional synthetic note");
   act(() => button("Use document suggestion for all undecided").click());
@@ -232,6 +234,9 @@ it("with both decision kinds pending, shows only document field reviews (no grou
   act(() => button("Confirm decisions & continue onboarding").click());
   expect(confirm.mock.calls[0][0].documents[0].decisions[0].note).toBe("Retained optional synthetic note");
   expect(confirm.mock.calls[0][0].reconciliation).toBeUndefined();
+  // The registry-vs-document decision stays reachable while field reviews are pending.
+  act(() => { group.value = "source"; group.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(container.querySelector('input[data-discrepancy-id="source-one"]')).not.toBeNull();
 });
 
 it("invalidates only replaced evidence drafts and confirms with current version bindings", () => {
@@ -300,11 +305,27 @@ it("hides stale pending field decisions once no document-stage issue is active",
   expect(container!.textContent).not.toContain("Confirm decisions & continue onboarding");
 });
 
-it("offers exactly three choices per document field: registry value, document suggestion, manual input", () => {
+it("offers four choices per document field: registry value, document suggestion, reject suggestion, manual input", () => {
   mount();
   const card = container!.querySelector("fieldset.review-item")!;
   expect([...card.querySelectorAll(".review-option__label")].map(item => item.textContent!.trim()))
-    .toEqual(["Use registry value", "Use document suggestion", "Enter manually"]);
+    .toEqual(["Use registry value", "Use document suggestion", "Reject document suggestion", "Enter manually"]);
+});
+
+it("a rejected suggestion is sent as REJECTED (also without an extracted value) and never implies a source decision", () => {
+  const confirm = mount();
+  const caseSummary = { ...summary, case: { ...summary.case, case_id: "reject-case" } } as unknown as ZeroTouchCaseSummary;
+  const missing = [{ ...documents[0], fields: documents[0].fields.map(field => field.field_key === "country_of_incorporation"
+    ? { ...field, original_extracted_value: null } : field) }] as unknown as DocumentProcessingRecord[];
+  act(() => root!.render(<BlockerDecisionReview key="reject" summary={caseSummary} documents={missing} busy={false} onConfirm={confirm} />));
+  expect(radio("country_of_incorporation", "REJECTED").disabled).toBe(false);
+  act(() => button("Reject all undecided suggestions").click());
+  for (const field of ["legal_name", "registration_number", "registered_address", "country_of_incorporation"]) expect(radio(field, "REJECTED").checked).toBe(true);
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm.mock.calls[0][0].documents[0].decisions.map((item: { decision: string }) => item.decision)).toEqual(["REJECTED", "REJECTED", "REJECTED", "REJECTED"]);
+  const stepTwo = { ...caseSummary, version: 2, active_exceptions: [{ exception_id: "reject-name" }], reconciliation: { version: 2, discrepancies: [
+    { discrepancy_id: "reject-name", field_name: "legal_name", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "r".repeat(64) }] } } as unknown as ZeroTouchCaseSummary;
+  expect(followUpSourceDecisions(stepTwo)).toBeNull();
 });
 
 it("a registry choice is sent as an accepted field, then pre-selects keep-registry in the next step for confirmation", () => {
@@ -361,4 +382,21 @@ it("one Confirm can finish both steps: choices map to the follow-up registry-vs-
     ] });
   // A choice the backend does not permit for a field leaves the panel for the reviewer instead.
   expect(followUpSourceDecisions(refreshed(false))).toBeNull();
+});
+
+it("a remembered source choice does not survive a session boundary (logout, 401 or a different login)", () => {
+  const confirm = mount();
+  const caseSummary = { ...summary, case: { ...summary.case, case_id: "session-boundary-case" } } as unknown as ZeroTouchCaseSummary;
+  act(() => root!.render(<BlockerDecisionReview key="boundary-one" summary={caseSummary} documents={documents} busy={false} onConfirm={confirm} />));
+  pick("legal_name", "REGISTRY");
+  for (const field of ["registration_number", "registered_address", "country_of_incorporation"]) pick(field, "ACCEPTED");
+  act(() => button("Confirm decisions & continue onboarding").click());
+  clearSessionQueries(createSessionQueryClient());
+  const stepTwo = { ...caseSummary, version: 2, active_exceptions: [{ exception_id: "boundary-name" }], reconciliation: { reconciliation_id: "rb", version: 2,
+    source_document_ids: ["synthetic-doc"], source_document_event_counts: [1], discrepancies: [{ discrepancy_id: "boundary-name", field_name: "legal_name", status: "OPEN",
+      allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "c".repeat(64), observations: [] }] } } as unknown as ZeroTouchCaseSummary;
+  expect(followUpSourceDecisions(stepTwo)).toBeNull();
+  act(() => root!.render(<BlockerDecisionReview key="boundary-two" summary={stepTwo} documents={documents} busy={false} onConfirm={confirm} />));
+  expect(sourceValue()).toBe("");
+  expect(container.textContent).not.toContain("Pre-selected from your choice in the previous step");
 });

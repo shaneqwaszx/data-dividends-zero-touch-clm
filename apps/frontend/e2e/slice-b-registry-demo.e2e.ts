@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
+import { focusPipelineAction, openStage, openStageSupport, fieldVerificationStates } from "./stage-disclosures";
 import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
@@ -40,10 +40,13 @@ async function counts(page: Page) {
   return result.calls;
 }
 async function create(page: Page, company: typeof garden, fresh = false) {
-  await page.getByRole("link", { name: "New onboarding", exact: true }).click();
+  const newOnboarding = page.getByRole("link", { name: "New onboarding", exact: true });
+  // A completed intake resets the draft, so New onboarding opens a blank form directly.
+  if (fresh) await expect(newOnboarding).toHaveAttribute("href", "/new-onboarding", { timeout: 60_000 });
+  await newOnboarding.click();
   if (fresh) {
-    await page.getByRole("button", { name: "Start a new case", exact: true }).click();
     await expect(page).toHaveURL(/\/new-onboarding$/);
+    await expect(page.getByLabel("Company Legal Name", { exact: true })).toHaveValue("");
   }
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await page.getByLabel("Company Legal Name", { exact: true }).fill(company.name);
@@ -64,14 +67,13 @@ async function create(page: Page, company: typeof garden, fresh = false) {
     await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   await page.unroute("**/api/clm/zero-touch/cases");
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
-  await page.getByRole("button", { name: "Open full case" }).click();
   await expect(page).toHaveURL("/cases/" + caseId);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
-  await expect(page.locator(".document-field .tag", { hasText: "AUTO CONFIRMED" })).toHaveCount(4);
+  await expect(fieldVerificationStates(page, "AUTO CONFIRMED")).toHaveCount(4);
   return caseId;
 }
 async function complete(page: Page, caseId: string) {
@@ -194,11 +196,11 @@ test("Slice F ambiguous target match pauses without mutation", { tag: "@slice-f-
   await page.getByLabel("Registration ID / UEN").fill(merlion.uen);
   await page.locator("#home-document").setInputFiles(path.join(fixtures, merlion.pdf));
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   expect((await intakeCompleted).status()).toBe(200);
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const paused = await summary(page, caseId);
   expect(paused.clm.target_search_checkpoint.provider_outcome).toBe("MULTIPLE_MATCHES");
   await focusPipelineAction(page, "GOLDTIER_SEARCH", page.getByLabel("Singapore UEN", { exact: true }));

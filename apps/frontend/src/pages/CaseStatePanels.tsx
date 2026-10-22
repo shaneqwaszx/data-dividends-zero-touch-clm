@@ -61,28 +61,16 @@ export const GOLDTIER_DETAILS_STAGE_LABEL = "GoldTier Details & Status";
 const GOLDTIER_DETAILS_NODE_IDS = ["READINESS", "GOLDTIER_TARGET"];
 
 /**
- * Presentation-only: hide the Initial identity stage, and show the backend READINESS
- * and GOLDTIER_TARGET nodes as one step. The step keeps the node id and status of whichever node needs the user
- * most, so stage navigation still routes to that node's evidence.
+ * Presentation: all twelve backend stages stay visible, each with its own name and status.
+ * The case page groups READINESS and GOLDTIER_TARGET into one section, labelled with both stage names.
  */
 export function businessStagePipeline(backendPipeline: ProcessingNode[]): ProcessingNode[] {
-  const pipeline = backendPipeline.filter(node => node.node_id !== "INITIAL_IDENTITY");
-  const grouped = pipeline.filter(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id));
-  if (grouped.length < 2) return pipeline;
-  const lead = grouped.find(node => pipelineRailState(node.status) === "attention")
-    ?? grouped.find(node => node.status === "IN_PROGRESS")
-    ?? grouped.find(node => pipelineRailState(node.status) !== "done")
-    ?? grouped[0];
-  const merged: ProcessingNode = {
-    ...lead,
-    label: GOLDTIER_DETAILS_STAGE_LABEL,
-    safe_result: grouped.map(node => node.safe_result).filter(Boolean).join(" · ") || lead.safe_result,
-    children: grouped.flatMap(node => node.children),
-  };
-  const firstIndex = pipeline.findIndex(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id));
-  return pipeline.flatMap((node, index) => (
-    !GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id) ? [node] : index === firstIndex ? [merged] : []
-  ));
+  return backendPipeline;
+}
+
+/** The stage names the grouped "GoldTier Details & Status" case section covers, in pipeline order. */
+export function goldTierDetailsStageNames(backendPipeline: ProcessingNode[]): string[] {
+  return backendPipeline.filter(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id)).map(node => node.label);
 }
 
 export interface StageStatus { tone: "attention" | "current" | "done" | "pending"; label: string }
@@ -395,8 +383,29 @@ export function OnboardingProgressPanel({
   useEffect(() => {
     if (initialFocusNodeId) setInspected({ caseId: summary.case.case_id, nodeId: initialFocusNodeId });
   }, [initialFocusNodeId, summary.case.case_id]);
-  // Initial identity is not shown as a stage; identity correction is reached via Next action and issues.
-  const pipeline: ProcessingNode[] = retainedPipeline;
+  const identityIncomplete = summary.active_exceptions.some(
+    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
+  );
+  const hasTopLevelIdentity = retainedPipeline.some((node) => node.node_id === "INITIAL_IDENTITY");
+  const identityCorrectionNode: ProcessingNode = {
+        node_id: "INITIAL_IDENTITY",
+        label: "Initial identity",
+        status: "REVIEW_REQUIRED",
+        backend_stage: null,
+        timestamp: summary.updated_at,
+        safe_result: "Complete legal name, Singapore UEN, and jurisdiction before Search resumes.",
+        blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
+        children: [],
+      };
+  const pipeline: ProcessingNode[] = identityIncomplete
+    ? hasTopLevelIdentity
+      ? retainedPipeline.map((node) => (
+          node.node_id === "INITIAL_IDENTITY"
+            ? { ...node, ...identityCorrectionNode }
+            : node
+        ))
+      : [identityCorrectionNode, ...retainedPipeline]
+    : retainedPipeline;
   const inspectedNode = inspected?.caseId === summary.case.case_id
     ? findProcessingNode(pipeline, inspected.nodeId) ?? findProcessingNode(backendPipeline, inspected.nodeId)
     : null;
@@ -1095,7 +1104,7 @@ function currentDocumentField(records: DocumentProcessingRecord[], reconciliatio
 
 /**
  * What the reviewer selected, in their terms: registry value, document value, or manual input.
- * A backend REJECTED field review was selected through the earlier "Use registry value" label.
+ * A backend REJECTED field review is shown as the rejected suggestion it is.
  */
 function reviewerChoice(
   documentField: DocumentProcessingRecord["fields"][number] | undefined,
@@ -1106,7 +1115,7 @@ function reviewerChoice(
   if (decided === "USE_DOCUMENT_VALUE") return "Document value";
   if (!documentField) return "—";
   if (documentField.review_status === "CORRECTED") return `Manual input: ${documentField.reviewed_value ?? "—"}`;
-  if (documentField.review_status === "REJECTED") return "Registry value";
+  if (documentField.review_status === "REJECTED") return "Suggestion rejected";
   if (documentField.review_status === "ACCEPTED") return registryIntent ? "Registry value" : "Document value";
   return "Not chosen yet";
 }

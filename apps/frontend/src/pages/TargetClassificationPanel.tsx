@@ -82,7 +82,10 @@ export default function TargetClassificationPanel({
       </p>
       {reviewRequested && <p className="control-help">Review the current values explicitly. The backend checks the selected vocabulary and current document evidence again before preparing a new submission.</p>}
 
-      {/* Main view shows the dropdowns only; trusted values and source live in More details. */}
+      {/* Main view shows the dropdowns only; trusted values and source live in More details, */}
+      {/* except that conflicting evidence stays visible while the reviewer must choose between it. */}
+      {presentation !== "full" && classification.evidence_state === "CONFLICT" && classification.current === false
+        && <ClassificationEvidenceValues classification={classification} />}
       {presentation === "full" && <>
         <ClassificationEvidenceValues classification={classification} />
         <div aria-label="Classification source">
