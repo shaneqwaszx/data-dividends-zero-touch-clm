@@ -1602,7 +1602,7 @@ def test_real_mongo_schema_v7_restart_preserves_identity_repair_and_pending_conf
         assert retained.onboarding.target_dispatch_confirmation is None
         assert retained.automation.active_exceptions[0].decisions
         raw = store._collection.find_one({"_id": str(case_id)})  # noqa: SLF001
-        assert raw is not None and raw["schema_version"] == 12
+        assert raw is not None and raw["schema_version"] == 13
     finally:
         store.close()
 

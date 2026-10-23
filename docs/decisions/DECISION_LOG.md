@@ -433,3 +433,43 @@ An incomplete replacement still requires review. No runtime behavior changed.
 
 Authority: `USER_AUTHORIZED_POC`. Not sponsor-confirmed reviewer authority (Q-014), legal
 UBO policy (Q-004) or Marketplace ownership capability (Q-012).
+
+## D-079 - owner-authorized official shareholder evidence without an entity profile (candidate)
+
+The 2026-10-24 owner assignment (Sim Lim official ACRA shareholder acquisition) approved
+proposal P1. It applies only in the official ACRA API Marketplace Mock composition, to an
+identified corporate holder that:
+- is not a scenario-overlay issuer;
+- has a verified Singapore UEN discovered from its parent;
+- has an entity-basic profile that is a definitive NOT_FOUND.
+
+Such a holder gets one additional bounded `coShareholdersDetails` read through the existing
+connector, and the existing strict decoder binds the returned UEN to the request. This is
+an exception to the accepted rule that the company-shareholder operation dispatches only
+for a recognized COMPANY legal form.
+
+The rows are retained beside the graph as `official_shareholders` on the issuer's
+discovery record, with official Marketplace Mock operation provenance. The record carries
+outcome `PROVIDER_PARTIAL`, reason `OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE` and a
+fetched or cache-reused lookup. Under these rules:
+- no canonical identity, legal form, verification, graph party, edge or percentage is
+  created;
+- only explicitly Active rows are current interests, and withdrawn rows remain history;
+- corporate holders are not recursed without a supplied verified UEN;
+- without a same-entity authoritative denominator the branch stays unresolved, an
+  `OWNERSHIP_DENOMINATOR_REQUIRED` issue is added and the case stays REVIEW_REQUIRED, so
+  readiness and GoldTier remain blocked;
+- an empty result keeps `NOT_FOUND` (reason `OFFICIAL_SHAREHOLDERS_EMPTY`), and failures
+  stop safely and are never cached.
+
+The single registry coordinator caches the evidence in the existing cache under contract
+key `MARKETPLACE_SHAREHOLDERS_V1` (registry cache schema 3). COMPLETE evidence follows the
+freshness policy and EMPTY evidence the negative TTL. Case envelope schema 13; v1..v12
+readers reject the new fields. Retaining `shareType`/`currency` is deferred. The unchanged frontend does not render the rows. Its discovery table shows the issuer's
+outcome label ("Incomplete registry evidence") with the reason code, and the issue list
+shows the new message.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. Not ACRA ownership, Live or production evidence, legal
+UBO policy (Q-004), Marketplace denominator or relationship capability (Q-012), or person
+identity authority (Q-019).

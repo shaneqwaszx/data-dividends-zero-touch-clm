@@ -1062,3 +1062,15 @@ Each corporate holder is still acquired through `acquire_subsidiary_registry_evi
 official answer, as LOCAL_SYNTHETIC_RELATIONSHIP links, and the analysis always stays
 review-required. Case envelope schema 12. The default official-lane composition, the
 local Mock lane and historical cases are unchanged.
+
+D-079 candidate (2026-10-24): in the official Marketplace lane, a non-overlay corporate
+holder whose entity-basic profile is a definitive NOT_FOUND gets one more cache-first
+read. The call chain is:
+1. `acquire_subsidiary_shareholder_evidence()`;
+2. `RegistryAcquisitionCoordinator.acquire_shareholder_evidence()` (registry cache schema 3,
+   contract `MARKETPLACE_SHAREHOLDERS_V1`);
+3. `AcraRegistryProviderAdapter.retrieve_shareholder_evidence()`.
+
+The rows stay on the discovery record outside the graph, with official operation
+provenance. No identity, edge or percentage is created and review stays required. Case
+envelope schema 13.

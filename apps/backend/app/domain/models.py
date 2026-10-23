@@ -445,6 +445,49 @@ class RegistryAcquisitionBundle(BaseModel):
         return self
 
 
+# Cache identity for issuer shareholder evidence read without an entity profile (D-079).
+SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: Literal["MARKETPLACE_SHAREHOLDERS_V1"] = (
+    "MARKETPLACE_SHAREHOLDERS_V1"
+)
+
+
+class RegistryShareholderEvidence(BaseModel):
+    """One issuer's own official shareholder operation, read without an entity profile.
+
+    D-079 partial evidence for an identified corporate holder whose entity-basic profile
+    is a definitive NOT_FOUND. It carries no canonical identity, legal form, percentage
+    or relationship; withdrawn rows are retained with their source status.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    requested_identifier: str = Field(min_length=1, max_length=32)
+    operation_result: RegistryOperationResult
+    ownership_parties: tuple[RegistryOwnershipParty, ...] = Field(default=(), max_length=64)
+
+    @model_validator(mode="after")
+    def validate_shareholder_evidence(self) -> "RegistryShareholderEvidence":
+        result = self.operation_result
+        if result.operation != RegistryOperation.OWNERSHIP_PARTIES or result.status not in {
+            RegistryOperationStatus.COMPLETE,
+            RegistryOperationStatus.EMPTY,
+            RegistryOperationStatus.FAILED,
+        }:
+            raise ValueError("shareholder evidence requires one attempted shareholder operation")
+        if result.record_count != len(self.ownership_parties):
+            raise ValueError("shareholder evidence count disagrees with its rows")
+        if len({item.party_id for item in self.ownership_parties}) != len(
+            self.ownership_parties
+        ):
+            raise ValueError("shareholder evidence rows must be unique")
+        if any(
+            item.provenance != result.provenance or item.ownership_percentage is not None
+            for item in self.ownership_parties
+        ):
+            raise ValueError("shareholder rows require operation provenance and no percentage")
+        return self
+
+
 class RegistryEvidenceDisposition(StrEnum):
     """Truthful reason a complete shared snapshot was bound to one case."""
 
@@ -525,12 +568,14 @@ class RegistrySnapshotEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    cache_schema_version: Literal[1, 2] = 1
+    cache_schema_version: Literal[1, 2, 3] = 1
     cache_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     key: RegistryCacheKey
     revision: int = Field(ge=0)
     acquisition: RegistryAcquisitionBundle | None
     negative_result: Literal["NOT_FOUND"] | None = None
+    # Schema 3 only: D-079 shareholder evidence under its own contract key.
+    shareholder_evidence: RegistryShareholderEvidence | None = None
     freshness_anchor: datetime
     provider_effective_at: datetime | None = None
     written_at: datetime
@@ -556,6 +601,38 @@ class RegistrySnapshotEntry(BaseModel):
             and self.cache_schema_version == 2
         ):
             raise ValueError("operation and negative cache require explicit Mock identity")
+        identity = self.key.provider_identity
+        shareholder_key = (
+            identity.acquisition_contract_version == SHAREHOLDER_EVIDENCE_CONTRACT_VERSION
+        )
+        if (
+            shareholder_key
+            or self.shareholder_evidence is not None
+            or self.cache_schema_version == 3
+        ):
+            evidence = self.shareholder_evidence
+            if (
+                not shareholder_key
+                or evidence is None
+                or self.cache_schema_version != 3
+                or self.acquisition is not None
+                or self.negative_result is not None
+                or self.provider_effective_at is not None
+                or identity.environment != SourceEnvironment.MOCK
+            ):
+                raise ValueError("shareholder cache entries hold only Mock shareholder evidence")
+            provenance = evidence.operation_result.provenance
+            if (
+                evidence.operation_result.status == RegistryOperationStatus.FAILED
+                or provenance is None
+                or evidence.requested_identifier != self.key.normalized_identifier
+                or provenance.provider != identity.provider
+                or provenance.environment != identity.environment
+                or self.freshness_anchor != provenance.retrieved_at
+                or self.written_at < provenance.retrieved_at
+            ):
+                raise ValueError("shareholder cache evidence disagrees with its key")
+            return self
         if self.negative_result is not None:
             if (
                 self.cache_schema_version != 2

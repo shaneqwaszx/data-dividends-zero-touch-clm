@@ -350,6 +350,65 @@ OwnershipSourceClassification = Literal[
 ]
 
 
+OfficialShareholderLookup = Literal["SHAREHOLDERS_FETCHED", "SHAREHOLDERS_CACHE_REUSED"]
+# D-079 discovery reason codes for an issuer whose entity-basic profile is NOT_FOUND.
+OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE = "OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE"
+OFFICIAL_SHAREHOLDERS_EMPTY = "OFFICIAL_SHAREHOLDERS_EMPTY"
+
+
+class OfficialShareholderObservation(BaseModel):
+    """One official Marketplace Mock shareholder row kept beside the graph (D-079).
+
+    Retained for a corporate holder whose entity-basic profile is a definitive NOT_FOUND.
+    It is never a graph party, edge, identity, legal-form or percentage claim. Only an
+    explicitly Active row is a current interest; withdrawn rows remain history.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    source_party_id: SafePartyId
+    display_name: SafePartyName
+    party_type: PartyType
+    source_category: SafeOptionalIdentifier | None = None
+    source_status: SafeOptionalIdentifier | None = None
+    share_allotted: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6
+    )
+    current_interest: bool
+    registration_identifier: SafeOptionalIdentifier | None = None
+    provider: Literal["ACRA_REGISTRY_ACQUISITION"] = "ACRA_REGISTRY_ACQUISITION"
+    environment: Literal["MOCK"] = "MOCK"
+    dataset_namespace: Literal["ACRA_API_MARKETPLACE_MOCK_V1"] = "ACRA_API_MARKETPLACE_MOCK_V1"
+    source_operation: Literal["OWNERSHIP_PARTIES"] = "OWNERSHIP_PARTIES"
+    retrieved_at: datetime
+    evidence_reference: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    )
+
+    @field_validator("share_allotted", mode="before")
+    @classmethod
+    def exact_share_units(cls, value: object) -> object:
+        if isinstance(value, (float, bool)):
+            raise ValueError("share units must be exact")
+        return value
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def retrieved_at_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("official shareholder evidence time must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def only_active_rows_are_current(self) -> "OfficialShareholderObservation":
+        active = (
+            self.source_status is not None and self.source_status.strip().casefold() == "active"
+        )
+        if self.current_interest != active:
+            raise ValueError("only an explicitly Active row is a current interest")
+        return self
+
+
 class OwnershipDiscoveryRecord(BaseModel):
     """One corporate owner's discovery decision with its root-equivalent exposure.
 
@@ -373,6 +432,32 @@ class OwnershipDiscoveryRecord(BaseModel):
     )
     official_entity_lookup: OfficialEntityLookup | None = None
     official_legal_form: RegistryLegalForm | None = None
+    # D-079 only: official shareholder rows retained without an entity profile.
+    official_shareholders: tuple[OfficialShareholderObservation, ...] = Field(
+        default=(), max_length=64
+    )
+    official_shareholder_lookup: OfficialShareholderLookup | None = None
+
+    @model_validator(mode="after")
+    def official_shareholders_are_explicit(self) -> "OwnershipDiscoveryRecord":
+        retained = (
+            self.outcome == OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
+            and self.reason_code == OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE
+        )
+        if retained != bool(self.official_shareholders) or retained != (
+            self.official_shareholder_lookup is not None
+        ):
+            raise ValueError("official shareholder rows require their partial outcome and lookup")
+        if len({item.source_party_id for item in self.official_shareholders}) != len(
+            self.official_shareholders
+        ):
+            raise ValueError("official shareholder rows must be unique")
+        if (
+            self.reason_code == OFFICIAL_SHAREHOLDERS_EMPTY
+            and self.outcome != OwnershipDiscoveryOutcome.NOT_FOUND
+        ):
+            raise ValueError("empty official shareholders keep the NOT_FOUND outcome")
+        return self
 
     @model_validator(mode="after")
     def overlay_identity_is_explicit(self) -> "OwnershipDiscoveryRecord":

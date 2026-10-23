@@ -79,3 +79,17 @@ reports a fresh definitive NOT_FOUND cache hit as zero provider calls and whethe
 incomplete result reused a cached entity profile. Case envelope schema 12 records the new
 optional fields; v1..v11 readers reject them. Retire with the overlay when an authorized
 provider exposes issuer relationships and denominators.
+
+## Amendment — D-079 official shareholder evidence without an entity profile (candidate, 2026-10-24)
+
+The discovery coordinator stays the single scheduler.
+- After a non-overlay issuer's definitive entity-basic NOT_FOUND, it asks the same reader
+  for `acquire_subsidiary_shareholder_evidence()`.
+- That method answers only in the official Marketplace composition. It goes through the
+  existing adapter (`retrieve_shareholder_evidence`) and the single registry coordinator
+  (schema 3 entries under contract `MARKETPLACE_SHAREHOLDERS_V1`).
+- The rows are kept on the discovery record outside the graph. The engine, path arithmetic
+  and threshold classification are unchanged, and the branch stays unresolved.
+- Case envelope schema 13 records the new optional fields; v1..v12 readers reject them.
+
+Retire when an authorized provider supplies an issuer profile and same-entity denominators.

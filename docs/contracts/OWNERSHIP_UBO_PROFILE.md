@@ -373,3 +373,27 @@ with persons ALEX TAN 20% (root), BEATRICE LIM 37.5% (L2), CHARLES ONG 50% (L4B)
 DIANA KOH 62.5% and EDWARD NG 37.5% (L5). Exact path products: 20, 30, 10,
 DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
 11.25 + 3.75 = 15. See `docs/demo/FIVE_LAYER_ACRA_HYBRID_DEMO.md`.
+
+## Official shareholder evidence without an entity profile — D-079 candidate, 2026-10-24
+
+- **Scope.** The official Marketplace Mock lane, for an identified corporate holder that is
+  not a scenario-overlay issuer, has a verified Singapore UEN, and whose entity-basic
+  profile is a definitive NOT_FOUND. It gets one additional cache-first shareholder read,
+  within the same issuer lookup.
+- **Retained.** `official_shareholders` on the discovery record (`PROVIDER_PARTIAL`, reason
+  `OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE`, lookup
+  `SHAREHOLDERS_FETCHED`/`SHAREHOLDERS_CACHE_REUSED`). Each row keeps:
+  - source id, name, party type, category and status;
+  - exact units;
+  - `current_interest` (explicitly Active only);
+  - official operation provenance
+    (`ACRA_REGISTRY_ACQUISITION`/MOCK/`ACRA_API_MARKETPLACE_MOCK_V1`/`OWNERSHIP_PARTIES`).
+- **Not created.** Identity, legal form, verification, graph party, edge or percentage.
+  Withdrawn rows are history only. Corporate holders are not recursed without a supplied
+  verified UEN.
+- **Review.** The branch stays unresolved with the same bound. An
+  `OWNERSHIP_DENOMINATOR_REQUIRED` issue names the issuer, and the analysis stays
+  REVIEW_REQUIRED. Empty results keep NOT_FOUND (`OFFICIAL_SHAREHOLDERS_EMPTY`). Failures
+  record a provider or cache outcome with nothing retained.
+- **Persistence.** Case envelope schema 13; registry cache schema 3. The unchanged UI does
+  not render the rows. Its discovery table shows the outcome label and reason code.

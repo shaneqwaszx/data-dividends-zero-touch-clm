@@ -11,8 +11,10 @@ from app.connectors.acra import (
     AcraConnector,
     AcraOfficersPayload,
     AcraOwnershipPartiesPayload,
+    AcraOwnershipPartyPayload,
     AcraRelationshipsPayload,
 )
+from app.connectors.acra_api_marketplace_mock import AcraApiMarketplaceMockConnector
 from app.connectors.errors import (
     AcraMalformedResponseError,
     AcraMappingError,
@@ -45,6 +47,7 @@ from app.domain.models import (
     RegistryProviderIdentity,
     RegistryRelationship,
     RegistryRelationshipType,
+    RegistryShareholderEvidence,
     SourceEnvironment,
     SourceSystem,
 )
@@ -63,6 +66,23 @@ NormalizedRecord = TypeVar(
 )
 
 
+def _normalize_ownership_party(
+    item: AcraOwnershipPartyPayload, provenance: RegistryEvidenceProvenance
+) -> RegistryOwnershipParty:
+    return RegistryOwnershipParty(
+        party_id=item.party_id,
+        party_type=RegistryPartyType(item.party_type),
+        name=item.name,
+        registration_identifier=item.registration_identifier,
+        country=item.country.upper() if item.country is not None else None,
+        ownership_percentage=item.ownership_percentage,
+        source_category=item.source_category,
+        source_status=item.source_status,
+        share_allotted=item.share_allotted,
+        provenance=provenance,
+    )
+
+
 class RegistryProvider(Protocol):
     """Return normalized registry evidence without leaking provider DTOs."""
 
@@ -77,6 +97,18 @@ class RegistryProvider(Protocol):
         reuse_operations: frozenset[RegistryOperation] = frozenset(),
     ) -> RegistryAcquisitionBundle | None:
         """Run the bounded acquisition sequence for one registration identifier."""
+
+
+class ShareholderEvidenceProvider(Protocol):
+    """D-079 capability: one issuer's shareholder operation without an entity profile."""
+
+    cache_identity: RegistryProviderIdentity | None
+
+    @property
+    def supports_shareholder_evidence(self) -> bool: ...
+
+    def retrieve_shareholder_evidence(self, identifier: str) -> RegistryShareholderEvidence:
+        """Read only the shareholder operation for one registration identifier."""
 
 
 class AcraIdentifierNotEligibleError(ValueError):
@@ -126,6 +158,39 @@ class AcraRegistryProviderAdapter:
             raise AcraMappingError(exc) from None
         except Exception as exc:
             raise AcraUnexpectedMappingError(exc) from None
+
+    @property
+    def supports_shareholder_evidence(self) -> bool:
+        """Only the official Marketplace Mock composition reads shareholders alone."""
+        return self._company_shareholders_only and isinstance(
+            self._connector, AcraApiMarketplaceMockConnector
+        )
+
+    def retrieve_shareholder_evidence(self, identifier: str) -> RegistryShareholderEvidence:
+        """Read only an issuer's own shareholder operation, never its entity profile.
+
+        D-079: used after a definitive entity-basic NOT_FOUND for an identified corporate
+        holder. The shared collection path binds the returned UEN, records operation
+        provenance and maps failures safely; no identity, legal form or percentage is
+        derived, and no other operation is dispatched.
+        """
+        normalized_identifier = self._require_eligible_identifier(identifier)
+        if not self.supports_shareholder_evidence:
+            raise AcraOperationUnsupportedError
+        parties, result = self._retrieve_collection(
+            identifier=normalized_identifier,
+            operation=RegistryOperation.OWNERSHIP_PARTIES,
+            fetch=self._connector.fetch_ownership_parties,
+            payload_type=AcraOwnershipPartiesPayload,
+            collection_name="ownership_parties",
+            normalize=_normalize_ownership_party,
+            environment=SourceEnvironment.MOCK,
+        )
+        return RegistryShareholderEvidence(
+            requested_identifier=normalized_identifier,
+            operation_result=result,
+            ownership_parties=parties,
+        )
 
     @staticmethod
     def _unsupported_ownership(identifier: str) -> AcraOwnershipPartiesPayload:
@@ -224,18 +289,7 @@ class AcraRegistryProviderAdapter:
             ),
             payload_type=AcraOwnershipPartiesPayload,
             collection_name="ownership_parties",
-            normalize=lambda item, provenance: RegistryOwnershipParty(
-                party_id=item.party_id,
-                party_type=RegistryPartyType(item.party_type),
-                name=item.name,
-                registration_identifier=item.registration_identifier,
-                country=item.country.upper() if item.country is not None else None,
-                ownership_percentage=item.ownership_percentage,
-                source_category=item.source_category,
-                source_status=item.source_status,
-                share_allotted=item.share_allotted,
-                provenance=provenance,
-            ),
+            normalize=_normalize_ownership_party,
             environment=entity.source.environment,
         )
         results.append(ownership_result)

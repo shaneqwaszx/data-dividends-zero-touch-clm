@@ -205,8 +205,13 @@ counts/flags. Its `evidence_class` is derived from the recorded receipts:
 With `hybrid_direct_overlay`, Garden `11111999A` keeps its official Marketplace Mock
 entity/people facts. The owner-supplied Garden body becomes a direct-only overlay: SIM
 LIM 5000 / LIM CHOON HUAT 3000 of 8000 = 62.5% / 37.5%. SIM LIM `111111111M` receives
-its own official cache-first lookup. A historically empty profile becomes `NOT_FOUND`,
-so the branch stays unresolved. LIM CHOON HUAT's synthetic-basis comparison is MET
+its own official cache-first lookup. Its entity profile is empty in the Marketplace Mock.
+Under D-079, returned official `coShareholdersDetails` rows are kept beside the graph as
+`official_shareholders`. The record shows outcome `PROVIDER_PARTIAL`, reason
+`OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE`, and an `OWNERSHIP_DENOMINATOR_REQUIRED`
+issue is added. An empty shareholder result stays `NOT_FOUND`
+(`OFFICIAL_SHAREHOLDERS_EMPTY`). Either way no percentage is inferred and the branch stays
+unresolved. LIM CHOON HUAT's synthetic-basis comparison is MET
 (37.5%), and no 900/100/100 subtree is attached under any label. The default
 `garden_legacy_supplement` keeps the accepted flattened Garden result (ABCD123
 51.13636375%).

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import Lock, RLock
-from typing import Literal, Never, Protocol, TypeVar
+from typing import Literal, Never, Protocol, TypeVar, cast
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -34,6 +34,7 @@ from app.connectors.registry import (
     AcraRegistryProviderAdapter,
     RegistryProvider,
     RegistryProviderRouter,
+    ShareholderEvidenceProvider,
 )
 from app.domain.access import CasePriority, TeamId
 from app.domain.jurisdiction import (
@@ -125,6 +126,7 @@ from app.services.registry_acquisition import (
     RegistryAcquisitionCoordinator,
     RegistryCacheError,
     SubsidiaryRegistryEvidence,
+    SubsidiaryShareholderEvidence,
 )
 from app.services.repository import OnboardingCaseRepository
 from app.services.target_execution_repository import (
@@ -1972,6 +1974,54 @@ class OnboardingService:
             provider_backed=not (cache_hit or result.negative_cache_hit),
             negative_cache_hit=result.negative_cache_hit,
             entity_profile_reused=cache_hit or result.entity_profile_reused,
+        )
+
+    def acquire_subsidiary_shareholder_evidence(
+        self,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None,
+        policy_version: int,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> SubsidiaryShareholderEvidence | None:
+        """D-079: one corporate holder's shareholder operation without an entity profile.
+
+        Returns `None` without any call unless the routed provider is the official
+        Marketplace Mock composition. It reuses the single registry coordinator under
+        its own contract key and never touches a case.
+        """
+
+        normalized = identifier.strip().upper()
+        if not is_eligible_singapore_uen(normalized):
+            raise AcraIdentifierNotEligibleError
+        _, provider = self._registry_router.route(
+            JurisdictionCode.SINGAPORE, decided_at=self._clock()
+        )
+        if provider is None:
+            raise AcraIdentifierNotEligibleError
+        if not getattr(provider, "supports_shareholder_evidence", False):
+            return None
+        shareholder_provider = cast(ShareholderEvidenceProvider, provider)
+        coordinator = self._registry_acquisition_coordinator
+        if coordinator is None:
+            if cancelled is not None and cancelled():
+                raise RegistryAcquisitionBusyError
+            return SubsidiaryShareholderEvidence(
+                identifier=normalized,
+                evidence=shareholder_provider.retrieve_shareholder_evidence(normalized),
+                provider_backed=True,
+            )
+        result = coordinator.acquire_shareholder_evidence(
+            shareholder_provider,
+            normalized,
+            case_policy=case_policy,
+            policy_version=policy_version,
+            cancelled=cancelled,
+        )
+        return SubsidiaryShareholderEvidence(
+            identifier=normalized,
+            evidence=result.evidence,
+            provider_backed=not result.cache_hit,
         )
 
     def _acquire_required_registry_evidence(
