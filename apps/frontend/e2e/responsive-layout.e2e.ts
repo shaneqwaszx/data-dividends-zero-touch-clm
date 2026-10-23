@@ -218,14 +218,13 @@ async function openNewCase(page: Page, fixture: string): Promise<string> {
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(fixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i, {
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i, {
     timeout: 30_000,
   });
   return page.url().split("/").at(-1)!;
 }
 
 async function confirmMockTarget(page: Page) {
-  await page.getByRole("button", { name: "Open full case" }).click();
   await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const confirmation = page.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
   await expect(confirmation).toBeEnabled({ timeout: 120_000 });
@@ -299,7 +298,7 @@ async function expectAuthoritativeReviewReady(page: Page, caseId: string) {
     field.review_status === "PENDING" && field.original_extracted_value === null
       && field.extraction_quality === "AMBIGUOUS" && field.candidates.length === 2
   ))).toBe(true);
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept legal name suggestion" })).toHaveCount(0);
   await expect(page.locator('input[data-review-field="legal_name"][value="REJECTED"]')).toBeVisible();
   await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
@@ -360,7 +359,7 @@ test("responsive cases and representative routes preserve tables, priorities, an
       ["Dashboard", "/dashboard", "Dashboard"],
       ["New onboarding", "/new-onboarding", ""],
       ["Cases", "/cases", "Cases"],
-      [`/cases/${completedCaseId}`, `/cases/${completedCaseId}`, "Document evidence and review"],
+      [`/cases/${completedCaseId}`, `/cases/${completedCaseId}`, "Document evidence"],
       ["Onboarded", "/onboarded", "Onboarded"],
       [`/onboarded/${completedCaseId}`, `/onboarded/${completedCaseId}`, ""],
       ["Audit", "/audit", "Case activity"],
@@ -409,34 +408,80 @@ test("starting a fresh onboarding after a retained case binds the new case route
   await login(page);
   const firstCaseId = await openNewCase(page, cleanFixture);
 
-  await openWorkspaceTab(page, "New onboarding");
-  const startFresh = page.getByRole("button", { name: "Start a new case" });
-  await expect(startFresh).toBeVisible();
-  const [buttonBox, sidebarBox] = await Promise.all([
-    startFresh.boundingBox(),
-    page.locator(".side-panel").boundingBox(),
-  ]);
-  expect(buttonBox).not.toBeNull();
-  expect(sidebarBox).not.toBeNull();
-  expect(buttonBox!.height).toBeGreaterThanOrEqual(44);
-  expect(buttonBox!.width).toBeGreaterThanOrEqual(sidebarBox!.width - 56);
-  await startFresh.focus();
-  await expect(startFresh).toBeFocused();
-  expect(await startFresh.evaluate((element) => getComputedStyle(element).outlineStyle))
-    .not.toBe("none");
-  await startFresh.click();
+  // The completed intake resets the draft, so New onboarding opens a blank form directly.
+  // ("Start a new case" is no longer rendered in this flow; its touch-target checks retired.)
+  const newOnboarding = page.getByRole("link", { name: "New onboarding", exact: true });
+  await expect(newOnboarding).toHaveAttribute("href", "/new-onboarding", { timeout: 60_000 });
+  await newOnboarding.click();
   await expect(page).toHaveURL(/\/new-onboarding$/);
-
+  await expect(page.getByLabel("Company Legal Name")).toHaveValue("");
   await page.getByLabel("Jurisdiction").selectOption("SG");
   await page.getByLabel("Company Legal Name").fill("MERLION CIRCULAR LABS PTE. LTD.");
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i, {
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i, {
     timeout: 30_000,
   });
   const secondCaseId = page.url().split("/").at(-1)!;
   expect(secondCaseId).not.toBe(firstCaseId);
+});
+
+test("pending documents show upload progress, then 44px retry actions with visible keyboard focus", async ({ page }) => {
+  test.setTimeout(240_000);
+  // Hold the first document upload, then refuse it, so the case page keeps the file pending.
+  let releaseUpload!: () => void;
+  const uploadHeld = new Promise<void>((resolve) => { releaseUpload = resolve; });
+  let refused = false;
+  await page.route("**/api/clm/zero-touch/cases/*/intake/documents", async (route) => {
+    if (refused || route.request().method() !== "POST") { await route.fallback(); return; }
+    refused = true;
+    await uploadHeld;
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Synthetic intake unavailable." }) });
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await login(page);
+  await openWorkspaceTab(page, "New onboarding");
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Company Legal Name").fill("MERLION CIRCULAR LABS PTE. LTD.");
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i, { timeout: 30_000 });
+
+  const banner = page.locator(".pending-documents");
+  // While the upload is in flight the banner reports progress only: no stopped reason, no actions.
+  await expect(banner.locator("#pending-documents-title")).toHaveText("1 document is being uploaded", { timeout: 30_000 });
+  await expect(banner).not.toContainText("stopped before document intake");
+  await expect(banner.getByRole("button")).toHaveCount(0);
+  releaseUpload();
+  await expect(banner.locator("#pending-documents-title")).toHaveText("Your document couldn't be uploaded", { timeout: 30_000 });
+
+  const actions = ["Try upload again", "Discard"].map((name) => banner.getByRole("button", { name, exact: true }));
+  for (const width of [320, 390, 768, 1440] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const action of actions) {
+      const box = await action.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+    }
+    // Keyboard only: Tab from the banner heading reaches each action with a visible focus outline.
+    await banner.locator("#pending-documents-title").evaluate((heading) => {
+      heading.setAttribute("tabindex", "-1"); (heading as HTMLElement).focus(); heading.removeAttribute("tabindex");
+    });
+    for (const action of actions) {
+      await page.keyboard.press("Tab");
+      await expect(action).toBeFocused();
+      const focus = await action.evaluate((button) => {
+        const style = getComputedStyle(button);
+        return { visible: button.matches(":focus-visible"), outline: style.outlineStyle, width: parseFloat(style.outlineWidth) };
+      });
+      expect(focus.visible).toBe(true);
+      expect(focus.outline).not.toBe("none");
+      expect(focus.width).toBeGreaterThanOrEqual(2);
+    }
+  }
 });
 
 test("responsive review case exposes only supported authoritative review controls", async ({ page }) => {
@@ -780,16 +825,17 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   await page.screenshot({ path: path.join(comparison, `${label}-case-sections.png`), fullPage: true });
   expect(await page.locator(".stage-disclosure > h2").evaluateAll(items => items.map(item => item.querySelector("button > span")?.textContent ?? item.textContent))).toEqual([
     "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
-    "Submission readiness", "GoldTier submission package", "Historical / resolved issues", "Final review & send",
+    "GoldTier Details & Status", "Final review & send", "Historical / resolved issues",
   ]);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package"]) {
+    for (const name of ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "GoldTier Details & Status"]) {
       const section = page.getByRole("region", { name, exact: true });
       const more = section.locator(":scope > details").filter({ has: page.getByText(`More details — ${name}`, { exact: true }) });
       const technical = section.locator(":scope > details").filter({ has: page.getByText(`Technical details — ${name}`, { exact: true }) });
       await expect(section.getByRole("heading", { name, exact: true })).toBeVisible();
       const parent = section.locator(":scope > h2 > button");
+      await openStage(page, name); // completed sections start collapsed
       await expect(parent).toHaveAttribute("aria-expanded", "true");
       const describedBy = await parent.getAttribute("aria-describedby");
       expect(describedBy).toBeTruthy();
@@ -802,7 +848,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
       await expect(section.locator(":scope > div").first()).toBeVisible();
       if (name === "Document verification") {
         await expect(section.locator("#case-blocker-review")).toBeVisible();
-        await expect(section.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true })).toBeVisible();
+        await expect(section.getByRole("button", { name: "Use document suggestion for all undecided", exact: true })).toBeVisible();
         await expect(section.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeVisible();
         await expect(section.locator("#case-evidence-documents input[type=file]")).toBeEnabled();
         await expect(section.locator("#case-evidence-reconciliation")).toBeVisible();
@@ -825,8 +871,8 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         }
         await expect(section.getByText("Technical calculations and retained paths", { exact: true })).toHaveCount(0);
       }
-      if (name === "Submission readiness") {
-        await expect(section.getByLabel("Backend-projected readiness", { exact: true })).toBeVisible();
+      if (name === "GoldTier Details & Status") {
+        await expect(section.getByLabel("Readiness by area", { exact: true })).toBeVisible(); // backend-projected readiness statuses
         await expect(section.getByText("System-set Singapore values", { exact: true })).toBeVisible();
       }
       await expect(more).not.toHaveAttribute("open", "");
@@ -855,7 +901,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         await expect(more.locator("button, input, select, textarea")).toHaveCount(0);
         await expect(section.locator('input[data-review-field][value="REJECTED"]').first()).toBeChecked();
       }
-      if (["Ownership & UBO", "Submission readiness", "GoldTier submission package"].includes(name)) {
+      if (["Ownership & UBO", "GoldTier Details & Status"].includes(name)) {
         await expect(technical.locator("details, button, input, select, textarea")).toHaveCount(0);
         await expect(more.locator("details, button, input, select, textarea")).toHaveCount(0);
         const ids = await section.locator("[id]").evaluateAll(elements => elements.map(element => element.id));

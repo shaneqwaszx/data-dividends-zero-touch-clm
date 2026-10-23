@@ -1,5 +1,8 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
+
+/** Longest a pointer press keeps sticky-header alignment off when its end is never delivered. */
+const POINTER_PRESS_FALLBACK_MS = 1000;
 
 export function revealStage(target: Element): void {
   let ancestor = target.parentElement;
@@ -63,9 +66,11 @@ export default function StageDisclosure(props: Parameters<typeof LegacyStageDisc
   return "scopeKey" in props ? <PersistentStageDisclosure {...props} /> : <LegacyStageDisclosure {...props} />;
 }
 
-function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails, scopeKey, active = true, final = false, summary, status }: PersistentStageProps) {
+function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails, scopeKey, active, final = false, summary, status }: PersistentStageProps) {
   const id = useId();
-  const [open, setOpen] = useState(active);
+  // Completed sections start collapsed unless the caller decides; navigation can still reveal them.
+  const initiallyOpen = active ?? status?.tone !== "done";
+  const [open, setOpen] = useState(initiallyOpen);
   const toggle = useRef<HTMLButtonElement>(null);
   const section = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -73,6 +78,8 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   const technical = useRef<HTMLDetailsElement>(null);
   const previousScope = useRef(scopeKey);
   const sectionHasFocus = useRef(false);
+  const pointerPressed = useRef(false);
+  const endPointerPress = useRef<(() => void) | null>(null);
   const printedState = useRef<boolean[] | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
@@ -84,7 +91,7 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
       // A keyed scope remount can remove the active control before this effect.
       if (section.current?.contains(focused) || (sectionHasFocus.current && focused === document.body)) heading.current?.focus();
       for (const element of [more.current, technical.current]) if (element) element.open = false;
-      setOpen(active);
+      setOpen(initiallyOpen);
       printedState.current = null;
     }
     // Same-scope removal may not emit blur: retire history against the current DOM.
@@ -96,6 +103,22 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
     const reveal = () => flushSync(() => setOpen(true));
     element?.addEventListener("reveal-stage", reveal);
     return () => element?.removeEventListener("reveal-stage", reveal);
+  }, []);
+
+  // A press still in progress when the section unmounts releases its window listeners.
+  useEffect(() => () => endPointerPress.current?.(), []);
+
+  // Focus scrolling stops below the sticky header at whatever height its title wraps to.
+  useLayoutEffect(() => {
+    const element = section.current;
+    const header = heading.current;
+    if (!element || !header) return;
+    const measure = () => element.style.setProperty("--stage-header-height", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -123,11 +146,40 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
     };
   }, [final]);
 
+  // Browsers scroll a newly focused control only when it is outside the viewport, so moving focus
+  // back up can leave it under this section's sticky header; align it just below the header instead
+  // ("start" honours its scroll margin, "nearest" does not move an in-viewport control).
+  // Focus that a pointer press or tap gives a control is left alone: scrolling before the click
+  // would move the control from under the pointer and lose the click. (Focus that a label passes
+  // on during its click is not part of the press and is still aligned.)
+  const keepFocusBelowHeader = (target: EventTarget) => {
+    const header = heading.current;
+    if (pointerPressed.current || !(target instanceof HTMLElement) || !header || header.contains(target)) return;
+    if (target.getBoundingClientRect().top < header.getBoundingClientRect().bottom) target.scrollIntoView?.({ block: "start" });
+  };
+  const trackPointerPress = (event: ReactPointerEvent) => {
+    endPointerPress.current?.();
+    pointerPressed.current = true;
+    // A mouse moves focus while pressed; touch and pen move it with the compatibility mousedown that
+    // follows pointerup, so their press lasts until the tap's click. The press may end outside the
+    // section; a cancel or the bounded fallback (a release that never arrives) also ends it.
+    const ends = event.pointerType === "mouse" ? ["pointerup", "pointercancel"] : ["click", "pointercancel"];
+    const release = () => {
+      pointerPressed.current = false;
+      window.clearTimeout(fallback);
+      for (const type of ends) window.removeEventListener(type, release, true);
+      endPointerPress.current = null;
+    };
+    const fallback = window.setTimeout(release, POINTER_PRESS_FALLBACK_MS);
+    for (const type of ends) window.addEventListener(type, release, true);
+    endPointerPress.current = release;
+  };
   const restoreFocus = (element: HTMLDetailsElement) => {
     if (!element.open && element.contains(document.activeElement)) element.querySelector("summary")?.focus();
   };
   return <section ref={section} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} data-tone={status?.tone} aria-labelledby={`${id}-title`}
-    onFocusCapture={() => { sectionHasFocus.current = true; }}
+    onPointerDownCapture={trackPointerPress}
+    onFocusCapture={(event) => { sectionHasFocus.current = true; keepFocusBelowHeader(event.target); }}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) sectionHasFocus.current = false; }}>
     <h2 ref={heading} id={`${id}-title`} tabIndex={-1}>
       <button ref={toggle} type="button" data-stage-toggle aria-expanded={open}

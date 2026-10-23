@@ -87,7 +87,7 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
     {record.state !== "ANALYZED" && <p className="ds-banner ds-banner-warn">Partial or disputed ownership evidence — review required.</p>}
     <div className="ownership-structure__layout">
       <div className="ownership-structure__rows" tabIndex={0} role="table" aria-label="Ownership hierarchy">
-        <div className="ownership-structure__row ownership-structure__head" role="row"><span role="columnheader">Holder</span><span role="columnheader">Type</span><span role="columnheader">Country</span><span role="columnheader">Direct %</span><span role="columnheader">Effective on path %</span><span role="columnheader">Evidence source</span></div>
+        <div className="ownership-structure__row ownership-structure__head" role="row"><span role="columnheader">Holder</span><span role="columnheader">Type</span><span role="columnheader">Country</span><span role="columnheader">Direct/Indirect %</span><span role="columnheader">Effective on path %</span><span role="columnheader">Evidence source</span></div>
         {visibleRows.map(row => {
           const party = partyById.get(row.partyId) ?? record.candidates.find(item => item.party.party_id === row.partyId)?.party;
           const result = record.candidates.find(item => item.party.party_id === row.partyId);
@@ -117,7 +117,7 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
             </div>
             <span role="cell" data-label="Type">{person ? "Individual" : party?.party_type === "LEGAL_ENTITY" ? "Company" : "Unknown"}</span>
             <span role="cell" data-label="Country">{party?.country ?? "Not supplied"}</span>
-            <span role="cell" data-label="Direct">{row.path.length ? formatOwnershipPercent(row.path[row.path.length - 1].ownership_percent) : "—"}</span>
+            <span role="cell" data-label="Direct/Indirect">{row.path.length ? formatOwnershipPercent(row.path[row.path.length - 1].ownership_percent) : "—"}</span>
             <span role="cell" data-label="Effective">{pathPercent(record, row) !== null ? formatOwnershipPercent(pathPercent(record, row)) : "Not retained"}</span>
             <span role="cell" data-label="Source">{row.path.length ? `${row.path[row.path.length - 1].provenance.provider} · ${row.path[row.path.length - 1].provenance.environment}` : `${record.provider_name ?? "Not supplied"} · ${record.provider_environment ?? "Not supplied"}`}</span>
           </div>;

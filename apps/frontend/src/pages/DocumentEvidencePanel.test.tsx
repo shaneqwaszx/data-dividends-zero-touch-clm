@@ -198,6 +198,18 @@ describe("DocumentEvidencePanel", () => {
     }, false);
   });
 
+  it("shows a document as complete when the case has moved past documents despite stale pending fields", () => {
+    const stale = documentFixture();
+    const moved = { ...summary(), current_stage: "READINESS", active_exceptions: [],
+      clm: { readiness: { document: { status: "READY" } } }, reconciliation: { status: "MATCHED", discrepancies: [] } } as unknown as ZeroTouchCaseSummary;
+    const { container: view } = renderPanel([stale], vi.fn(), moved);
+    expect(view.textContent).toContain("Document complete");
+    expect(view.textContent).toContain("no review needed");
+    expect(view.textContent).not.toContain("Document review required");
+    expect(view.textContent).not.toContain("remain for review");
+    expect(view.textContent).not.toContain("remains for review");
+  });
+
   it("shows dynamic partial-review counts and retains independent-blocker wording", () => {
     const partial = documentFixture({
       fields: [

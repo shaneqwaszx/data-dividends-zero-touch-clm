@@ -32,8 +32,11 @@ function checkpoint(summary: any, analysis: any) {
     targetOperations: summary.target_operations, targetConfirmed: summary.case.target_dispatch_confirmation !== null };
 }
 async function create(page: Page, fresh = false) {
-  await page.getByRole("link", { name: "New onboarding", exact: true }).click();
-  if (fresh) await page.getByRole("button", { name: "Start a new case", exact: true }).click();
+  const newOnboarding = page.getByRole("link", { name: "New onboarding", exact: true });
+  // A completed intake resets the draft, so New onboarding opens a blank form directly.
+  if (fresh) await expect(newOnboarding).toHaveAttribute("href", "/new-onboarding", { timeout: 60_000 });
+  await newOnboarding.click();
+  if (fresh) await expect(page.getByLabel("Company Legal Name", { exact: true })).toHaveValue("");
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await page.getByLabel("Company Legal Name", { exact: true }).fill(company.name);
   await page.getByLabel("Registration ID / UEN").fill(company.uen);
@@ -42,9 +45,9 @@ async function create(page: Page, fresh = false) {
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
   expect((await intake).status()).toBe(200);
   expect((await intake).request().postDataJSON()).toEqual({ expected_document_count: 1 });
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const classified = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));
@@ -176,8 +179,8 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   await page.locator("#home-document").setInputFiles({ name: "synthetic-review-with-missing-address.txt", mimeType: "text/plain", buffer: Buffer.from(synthetic) });
   const intake = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith("/intake/complete"));
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click(); expect((await intake).status()).toBe(200);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const before = await read(page, caseId);
   const documentsBeforeResponse = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
   expect(documentsBeforeResponse.status()).toBe(200);
@@ -207,7 +210,7 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
     .map(node => node.getAttribute("data-review-field")).filter(key => key !== "legal_name"));
   const businessWrites: string[] = [];
   page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) businessWrites.push(new URL(request.url()).pathname); });
-  await review.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true }).click();
+  await review.getByRole("button", { name: "Use document suggestion for all undecided", exact: true }).click();
   await expect(name).toBeChecked();
   for (const key of eligible) await expect(review.locator(`input[data-review-field="${key}"][value="ACCEPTED"]`)).toBeChecked();
   await expect(review.locator('input[data-review-field="registered_address"]:checked')).toHaveCount(0);
@@ -247,7 +250,7 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   expect(after.active_exceptions.length).toBeGreaterThan(0);
   await expect.poll(async () => (await read(page, caseId)).active_exceptions.length).toBeGreaterThan(0);
   await page.reload(); await openStage(page, "Document verification");
-  await expect(page.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Use document suggestion for all undecided", exact: true })).toHaveCount(0);
   expect((await read(page, caseId)).target_submission.attempted_operations).toEqual([]);
   expect(violations).toEqual([]);
   await writeFile(path.join(evidence, "receipt.json"), JSON.stringify({ caseId, widths: [1440, 900, 360], eligible, payload, status: after.status, blockers: after.active_exceptions.map((item: any) => item.blocker_code), businessWrites }, null, 2));
@@ -259,11 +262,12 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
   const mutations: string[] = [];
   page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); });
   const final = page.locator(".stage-disclosure--final");
-  const target = page.locator(".stage-disclosure").filter({ has: page.locator("h2").filter({ hasText: /^GoldTier submission package$/ }) });
+  const target = page.locator(".stage-disclosure").filter({ has: page.locator("h2").filter({ hasText: /^GoldTier Details & Status$/ }) });
   const confirm = final.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true, includeHidden: true });
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const [name, stage] of [["GoldTier submission package", target], ["Final review & send", final]] as const) {
+    for (const [name, stage] of [["GoldTier Details & Status", target], ["Final review & send", final]] as const) {
+      await openStage(page, name); // completed sections start collapsed
       await expect(stage.locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
       await expect(stage.locator(":scope > div").first()).toBeVisible();
       const more = stage.locator(":scope > details").nth(0), technical = stage.locator(":scope > details").nth(1);
@@ -294,8 +298,10 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
     await expect(final.getByRole("heading", { name: "What will be sent", exact: true })).toBeVisible();
     const fields = retained.clm.submission_plan.request_preview.operations.flatMap((operation: any) => operation.fields);
     expect(await final.locator(".review-and-send__operation dt").count()).toBe(fields.length);
-    expect(await final.locator(".review-and-send__operation dd").allTextContents()).toEqual(fields.map((field: any) => field.value ?? "Not provided"));
-    await expect(target).toContainText("Submission environment: MOCK"); await expect(target).toContainText("Backend submission state: NOT_SUBMITTED");
+    // Timestamp values display formatted; their exact sent value is the <time dateTime> attribute.
+    expect(await final.locator(".review-and-send__operation dd").evaluateAll(items => items.map(item => item.querySelector("time")?.getAttribute("datetime") ?? item.textContent)))
+      .toEqual(fields.map((field: any) => field.value ?? "Not provided"));
+    await expect(target.locator(".goldtier-status")).toBeVisible(); await expect(target).not.toContainText("Submission environment");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
   const supports = final.locator(":scope > details");

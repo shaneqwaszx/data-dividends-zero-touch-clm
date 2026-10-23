@@ -39,7 +39,7 @@ test("S1 wrong UEN retains uploaded document and resumes the real onboarding jou
   const documents = await documentsResponse.json();
   expect(documents).toHaveLength(1);
   const documentId = documents[0].document_id;
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const registry = page.locator(".stage-disclosure").filter({ has: page.getByRole("heading", { name: "Registry verification", exact: true }) });
   const search = page.getByRole("region", { name: "Existing-customer search", exact: true });
   await expect(page.locator("#case-identity-correction")).toHaveCount(1);
@@ -90,7 +90,9 @@ test("S1 wrong UEN retains uploaded document and resumes the real onboarding jou
   await page.getByLabel("Singapore UEN").fill("202400001A");
   const correctedResponse = page.waitForResponse((response) => response.request().method() === "POST"
     && response.url().endsWith(`/cases/${caseId}/registry-identity`));
-  await page.getByRole("button", { name: "Verify UEN and resume", exact: true }).click();
+  // UEN conflict: typing another UEN selects "Another UEN"; one confirm verifies it.
+  await expect(page.getByRole("radio", { name: /^Another UEN/ })).toBeChecked();
+  await page.getByRole("button", { name: "Confirm UEN and resume", exact: true }).click();
   const corrected = await (await correctedResponse).json();
   expect(corrected.case.case_id).toBe(caseId);
   expect(corrected.case.entity.registration_number).toBe("202400001A");

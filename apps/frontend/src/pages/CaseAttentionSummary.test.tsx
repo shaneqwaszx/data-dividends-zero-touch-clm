@@ -11,7 +11,7 @@ const identity = projections.identityOnly.interventions[0] as HumanInterventionP
 const documentProjection = projections.identityAndDocument.interventions[1] as HumanInterventionProjection;
 const documentException = projections.identityAndDocument.active_exceptions[0] as ZeroTouchException;
 function summary(interventions = [identity], active_exceptions: ZeroTouchException[] = []): ZeroTouchCaseSummary {
-  return { interventions, active_exceptions, technical_failure: null, status: "WAITING_FOR_REVIEW", current_stage: "REGISTRY" } as ZeroTouchCaseSummary;
+  return { case: { error: null }, interventions, active_exceptions, technical_failure: null, status: "WAITING_FOR_REVIEW", current_stage: "REGISTRY" } as unknown as ZeroTouchCaseSummary;
 }
 let root: Root | null = null; let host: HTMLDivElement | null = null;
 afterEach(() => { act(() => root?.unmount()); host?.remove(); root = null; host = null; vi.restoreAllMocks(); });
@@ -121,6 +121,20 @@ describe("pipeline-grouped attention", () => {
     act(() => all.click());
     expect([...view.querySelectorAll<HTMLElement>(".stage-attention__list")].every(list => list.hidden)).toBe(true);
     expect(value).toEqual(snapshot);
+  });
+  it("places readiness and package attention on the grouped GoldTier Details & Status step", () => {
+    const readinessItem = { ...documentProjection, intervention_id: "readiness-item", owning_stage: "READINESS" as const, title: "Readiness item" };
+    const packageItem = { ...documentProjection, intervention_id: "package-item", owning_stage: "MOCK_GOLDTIER" as const, title: "Package item" };
+    host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<CasePipelineAttention onNavigate={vi.fn()} summary={{ ...summary([readinessItem, packageItem], []), processing_pipeline: [
+      { node_id: "READINESS", label: "Submission readiness", status: "REVIEW_REQUIRED", backend_stage: "READINESS", children: [] },
+      { node_id: "GOLDTIER_TARGET", label: "GoldTier submission package", status: "BLOCKED", backend_stage: "MOCK_GOLDTIER", children: [] },
+    ] } as ZeroTouchCaseSummary} />));
+    expect(host.querySelectorAll(".ds-stage")).toHaveLength(1);
+    const step = stage(host, "GOLDTIER_DETAILS");
+    expect(step.querySelector(".stage-attention__toggle")!.textContent).toBe("2 blockers");
+    expect(step.textContent).toContain("Readiness item");
+    expect(step.textContent).toContain("Package item");
   });
   it("keeps a technical failure visible at the top and hides the toggle when nothing is grouped", () => {
     const value = summary([], []); value.status = "TECHNICAL_FAILURE"; value.technical_failure = { code: "SAFE_FAILURE", message: "Safe diagnostic" };

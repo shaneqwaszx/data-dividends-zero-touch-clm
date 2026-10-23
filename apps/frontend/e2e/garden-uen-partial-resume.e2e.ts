@@ -44,28 +44,33 @@ for (const choice of ["manual", "entered"] as const) {
     const intake = page.waitForResponse((item) => item.request().method() === "POST"
       && item.url().endsWith("/intake/complete"));
     await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-    await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     expect((await intake).status()).toBe(200);
     const id = page.url().split("/").at(-1)!;
     const before = await summary(page, id);
     expect(before.current_stage).toBe("REGISTRY");
     const docs = await (await page.request.get(`/api/onboarding/cases/${id}/documents`)).json();
     expect(docs).toHaveLength(1);
-    await page.getByRole("button", { name: "Open full case", exact: true }).click();
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     await openStage(page, "Registry verification");
+    // UEN conflict: one "UEN to verify" choice (Entered / Document / Another) and one confirm.
+    const option = (label: string) => page.locator(".identity-choice__option").filter({ hasText: label });
     if (choice === "manual") {
-      await expect(page.getByText("Document-detected UEN:")).toContainText("11111999A");
-      await page.getByRole("button", { name: "Enter another UEN", exact: true }).click();
+      await expect(option("Document UEN")).toContainText("11111999A");
     } else {
       await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
     }
     await page.getByLabel("Singapore UEN", { exact: true }).fill("11111999A");
-    let corrected = await choose(page, id, "Verify UEN and resume");
+    if (choice === "manual") await expect(page.getByRole("radio", { name: /^Another UEN/ })).toBeChecked();
+    let corrected = await choose(page, id, choice === "manual" ? "Confirm UEN and resume" : "Verify UEN and resume");
     if (choice === "entered") {
-      await expect(page.getByText("Original entered UEN:")).toContainText("11111998B");
-      await expect(page.getByText("Current corrected UEN:")).toContainText("11111999A");
-      await expect(page.getByText("Document-detected UEN:")).toContainText("11111998B");
-      corrected = await choose(page, id, "Use entered UEN");
+      // The correction rebinds registry evidence, so the Registry section re-collapses; reopen it.
+      await openStage(page, "Registry verification");
+      await expect(option("Entered UEN")).toContainText("11111999A");
+      await expect(option("Entered UEN")).toContainText("Originally entered: 11111998B");
+      await expect(option("Document UEN")).toContainText("11111998B");
+      await page.getByRole("radio", { name: /^Entered UEN/ }).check();
+      corrected = await choose(page, id, "Confirm UEN and resume");
       expect(corrected.case.identity_corrections.at(-1).choice).toBe("ENTERED");
     }
     expect(corrected.case.case_id).toBe(id);

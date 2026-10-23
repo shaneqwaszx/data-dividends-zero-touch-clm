@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
+import { showAllIssues } from "./attention";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const fixtures = path.join(root, "apps/backend/tests/fixtures/uat");
@@ -59,10 +60,9 @@ async function create(page: Page, file: string | ReturnType<typeof textProfile> 
   await page.getByLabel("Registration ID / UEN").fill(uen);
   await page.locator("#home-document").setInputFiles(typeof file === "string" ? path.join(fixtures, file) : file);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await summary(page, caseId)).status).toBe(status);
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card")).toHaveCount(1);
   return caseId;
@@ -85,7 +85,7 @@ async function classify(page: Page, caseId: string) {
     await navigateAction(page, caseId, "CLASSIFICATION");
     await expect(page.getByLabel("KYC customer type", { exact: true })).toBeFocused();
   }
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const response = page.waitForResponse((result) => result.request().method() === "PUT"
@@ -128,8 +128,20 @@ test("Slice C optional Amend and NO_MATCH complete with neutral progress", { tag
   await expect(page.getByText("No existing customer found. Continuing as a new customer.", { exact: true }).first()).toBeVisible();
   await classify(page, caseId);
   const before = await summary(page, caseId);
-  const completed = before.processing_pipeline.filter((node: any) => ["COMPLETE", "SKIPPED"].includes(node.status)).length;
-  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(Math.round(completed / before.processing_pipeline.length * 100)));
+  // Progress counts business steps: Initial identity only while it needs attention, and
+  // READINESS + GOLDTIER_TARGET as one step that is done only when both are.
+  const stepDone = (node: any) => ["COMPLETE", "EMPTY", "SKIPPED"].includes(node.status);
+  const identityCode = (code: string | null | undefined) => code?.startsWith("INITIAL_IDENTITY_") === true;
+  const identityIssue = [...before.active_exceptions, ...(before.interventions ?? [])].some((item: any) => identityCode(item.blocker_code))
+    || identityCode(before.case.error?.code);
+  const grouped = before.processing_pipeline.filter((node: any) => ["READINESS", "GOLDTIER_TARGET"].includes(node.node_id));
+  const steps = before.processing_pipeline.filter((node: any) => !["READINESS", "GOLDTIER_TARGET"].includes(node.node_id)
+    && !(node.node_id === "INITIAL_IDENTITY" && stepDone(node) && !identityIssue));
+  const total = steps.length + (grouped.length ? 1 : 0);
+  const completed = steps.filter(stepDone).length + (grouped.length && grouped.every(stepDone) ? 1 : 0);
+  expect(before.processing_pipeline).toHaveLength(12);
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(Math.round(completed / total * 100)));
+  await expect(page.locator(".onboarding-progress__percent")).toContainText(`${completed} of ${total} stages done`);
   await confirm(page, caseId, true);
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("COMPLETED");
   const done = await summary(page, caseId);
@@ -146,14 +158,14 @@ test("Slice C stale policy rebind preserves selection and resumes", { tag: "@sli
   await classify(page, caseId);
   const before = await summary(page, caseId);
   expect(before.case.policy_rebind.configuration_status).toBe("REQUIRES_REBIND");
-  await openStage(page, "Submission readiness");
-  await focusPipelineAction(page, "READINESS", page.getByLabel("Rebind rationale", { exact: true }));
+  await openStage(page, "GoldTier Details & Status");
+  await focusPipelineAction(page, "GOLDTIER_DETAILS", page.getByLabel("Rebind rationale", { exact: true }));
   await page.getByLabel("Rebind rationale", { exact: true }).fill("Replace synthetic retained legacy target configuration.");
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/policy-rebind"));
   await page.getByRole("button", { name: "Update system-set Singapore values", exact: true }).click();
   expect((await response).status()).toBe(200);
-  await openStageSupport(page, "Submission readiness", "Technical");
+  await openStageSupport(page, "GoldTier Details & Status", "Technical");
   await expect(page.getByLabel("Latest policy rebind receipt", { exact: true })).toBeVisible();
   const rebound = await summary(page, caseId);
   expect(rebound.case.policy_snapshot_revision).toBe(2);
@@ -178,8 +190,8 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   await openStage(page, "Final review & send");
   await expect(page.getByText("Retained target operations are resolved. Backend recovery can finish the approved submission without repeating them.", { exact: true })).toBeVisible();
   expect(resumeCalls).toBe(0);
-  await openStage(page, "GoldTier submission package");
-  const pendingTarget = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  await openStage(page, "GoldTier Details & Status");
+  const pendingTarget = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
   const pendingToggle = pendingTarget.locator(":scope > h2 > button");
   await pendingToggle.focus(); await page.keyboard.press("Enter");
   await expect(pendingToggle).toHaveAttribute("aria-expanded", "false");
@@ -198,10 +210,10 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   expect((await resumed.json()).status).toBe("COMPLETED");
   expect(resumeCalls).toBe(1);
   // Completion remains visible in persistent Main; optional supports stay closed.
-  const targetStage = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  const targetStage = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
   await expect(targetStage.locator(":scope > h2")).toBeVisible();
   await expect(targetStage.locator(":scope > details[open]")).toHaveCount(0);
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   expect((await metadata(page)).operations).toEqual(before.operations);
   expect((await summary(page, caseId)).active_exceptions).toEqual([]);
@@ -228,7 +240,7 @@ test("Slice C failed Search exposes bounded read-only recheck", { tag: "@slice-c
   page.on("request", navigationListener);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    const target = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+    const target = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
     const toggle = target.locator(":scope > h2 > button");
     await toggle.focus(); await page.keyboard.press("Enter");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -277,7 +289,8 @@ async function resolveDiscrepancy(page: Page, file: string | ReturnType<typeof t
     const before = await summary(page, caseId);
     const codes = before.active_exceptions.filter((item: any) => item.stage === "DOCUMENT").map((item: any) => item.blocker_code);
     expect(codes.length).toBeGreaterThan(0);
-    await page.locator(".intervention-card").getByRole("button", { name: "Keep registry value", exact: true }).first().click();
+    // The duplicate document blocker card is hidden by design; the attention list is the blocker affordance.
+    await showAllIssues(page); await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker:/ }).first().click();
     await expect(page.locator("input[data-reconciliation-field]:not([disabled])").first()).toBeFocused();
     await expect(page.getByRole("button", { name: /Confirm and send/ })).toHaveCount(0);
     await reviewSourceChoices(page);

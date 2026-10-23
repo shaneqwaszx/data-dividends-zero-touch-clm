@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openStage, openStageSupport } from "./stage-disclosures";
+import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { reviewPendingFields } from "./blocker-decisions";
 import type { OwnershipAnalysisRecord, PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
@@ -151,10 +151,7 @@ async function openFreshOnboarding(page: Page) {
 }
 
 async function confirmMockTarget(page: Page) {
-  if (new URL(page.url()).pathname.startsWith("/new-onboarding/")) {
-    await page.getByRole("button", { name: "Open full case" }).click();
-    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
-  }
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const confirmation = page.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
   await expect(confirmation).toBeEnabled({ timeout: 120_000 });
   const response = page.waitForResponse((result) => (
@@ -333,15 +330,13 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await caseLink.click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
-  const identityInterventionDetails = page.locator(".intervention-card .evidence-details")
-    .filter({ hasText: "INITIAL_IDENTITY_INCOMPLETE" });
-  await expect(identityInterventionDetails).toHaveCount(1);
-  await identityInterventionDetails.getByText("Why is this blocked?", { exact: true }).click();
-  await expect(identityInterventionDetails.locator(":scope > code")).toHaveText("INITIAL_IDENTITY_INCOMPLETE");
-  await expect(identityInterventionDetails.locator(":scope > code")).toBeVisible();
-  const identityStage = page.locator(".onboarding-progress__stage--actionable > button").filter({
-    hasText: "Initial identity",
-  });
+  // Incomplete identity is a one-line card; the fix is the Complete company details form.
+  const identityCard = page.locator(".intervention-card--one-line").filter({ hasText: "Initial identity incomplete" });
+  await expect(identityCard).toHaveCount(1);
+  await expect(identityCard).toContainText("Complete company details");
+  await expect(identityCard.getByRole("button")).toHaveCount(0);
+  // Initial identity is shown while it is incomplete and routes to the identity correction.
+  const identityStage = page.locator(".onboarding-progress__stage--actionable > button").filter({ hasText: "Initial identity" });
   await expect(identityStage).toBeVisible();
   await identityStage.click();
   const identityCorrection = page.locator("#identity-registration-number");
@@ -370,10 +365,12 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   expect(mutationRequests.slice(navigationStart)).toEqual([]);
   await expect(page.getByRole("heading", { name: "Complete company details" })).toBeVisible();
 
-  const actionableStage = identityStage;
+  const actionableStage = page.locator(".onboarding-progress__stage--actionable > button").filter({
+    hasText: "Existing-customer search",
+  });
   await expect(actionableStage).toBeVisible();
   await expect(actionableStage.locator(".onboarding-progress__stage-label")).toHaveText(
-    "Initial identity",
+    "Existing-customer search",
   );
   for (const width of [320, 360] as const) {
     await page.setViewportSize({ width, height: 900 });
@@ -422,7 +419,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await page.reload();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.getByText("INITIAL_IDENTITY_INCOMPLETE", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible();
 
   await reviewPendingFields(page, { legal_name: legalNameForUen("202400001A") });
 
@@ -436,7 +433,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   expect((await replacementResponse).status()).toBe(200);
 
   const classification = page.getByRole("heading", { name: "Target classification" });
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   await expect(classification).toBeVisible({ timeout: 120_000 });
   const kyc = page.getByLabel("KYC customer type");
   const segment = page.getByLabel("Client segment");
@@ -563,9 +560,9 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(page.getByRole("region", { name: "Registry verification", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#identity-registration-number")).toBeFocused();
   await expect(page.locator("#case-identity-correction").getByRole("heading", { name: "Registry identity" })).toBeVisible();
-  await page.getByRole("region", { name: "Submission readiness", exact: true }).locator(":scope > h2 > button").click();
+  await page.getByRole("region", { name: "GoldTier Details & Status", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit classification" }).click();
-  await expect(page.getByRole("region", { name: "Submission readiness", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("region", { name: "GoldTier Details & Status", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByLabel("KYC customer type", { exact: true })).toBeFocused();
   await page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit documents" }).click();
@@ -669,7 +666,7 @@ test("authorized manual ownership action focuses the real evidence form and next
   await page.getByLabel("Registration ID / UEN").fill("202400006F");
   await page.locator("#home-document").setInputFiles(ownershipCycleFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => {
     const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
@@ -763,7 +760,7 @@ test("onboarding progress is visible while backend-authored stages advance", asy
   await page.getByRole("button", { name: "Create onboarding" }).click();
 
   const progress = page.getByRole("region", { name: "Onboarding progress" });
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   await expect(progress).toBeVisible();
   await expect(progress.getByRole("progressbar")).toHaveAttribute("aria-valuenow");
   await testInfo.attach("progress-immediately-after-case-start", {
@@ -783,7 +780,7 @@ test("onboarding progress is visible while backend-authored stages advance", asy
   await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(2);
   showObservedProgress = false;
   await confirmMockTarget(page);
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await testInfo.attach("progress-completed-endpoint", {
     body: await page.screenshot(),
@@ -813,10 +810,13 @@ test("Director explicitly selects either team and journey or actor reset clears 
   ));
   await create.click();
   expect((await alphaResponse).request().postDataJSON()).toMatchObject({ team_id: "TEAM_A" });
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   await expect(page.getByRole("button", { name: "Delete case" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Start a new case" }).click();
+  // Intake completion resets the draft: the New onboarding tab stops pointing at the case.
+  const newOnboarding = page.getByRole("link", { name: "New onboarding", exact: true });
+  await expect(newOnboarding).toHaveAttribute("href", "/new-onboarding", { timeout: 60_000 });
+  await newOnboarding.click();
   await expect(page).toHaveURL("/new-onboarding");
   await expect(team).toHaveValue("");
   await expect(create).toBeDisabled();
@@ -832,7 +832,7 @@ test("Director explicitly selects either team and journey or actor reset clears 
   ));
   await create.click();
   expect((await betaResponse).request().postDataJSON()).toMatchObject({ team_id: "TEAM_B" });
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
 
   const deleteResponse = page.waitForResponse((response) => (
     response.request().method() === "DELETE"
@@ -841,6 +841,10 @@ test("Director explicitly selects either team and journey or actor reset clears 
   await page.getByRole("button", { name: "Delete case" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete case" }).click();
   expect((await deleteResponse).status()).toBe(204);
+  // The case page returns to Cases after deletion; the onboarding draft stays reset.
+  await expect(page).toHaveURL("/cases");
+  await expect(newOnboarding).toHaveAttribute("href", "/new-onboarding");
+  await newOnboarding.click();
   await expect(page).toHaveURL("/new-onboarding");
   await expect(team).toHaveValue("");
   await expect(create).toBeDisabled();
@@ -866,8 +870,8 @@ test("problem pipeline stages focus authorized inputs and explain unavailable co
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
-  const caseId = /\/new-onboarding\/([0-9a-f-]{36})$/i.exec(page.url())?.[1];
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
+  const caseId = /\/cases\/([0-9a-f-]{36})$/i.exec(page.url())?.[1];
   expect(caseId).toBeTruthy();
   await page.emulateMedia({ reducedMotion: "reduce" });
   let interceptedDetailReads = 0;
@@ -932,7 +936,7 @@ test("problem pipeline stages focus authorized inputs and explain unavailable co
   await expect(page.locator("#case-target-classification")).toBeFocused();
   await expect(page.getByText("No corrective input is currently authorized here. Review the retained reason and required evidence.", { exact: true })).toBeVisible();
 
-  const targetStage = page.getByRole("button", { name: "Open details for GoldTier submission package" });
+  const targetStage = page.getByRole("button", { name: "Open details for GoldTier Details & Status" });
   await targetStage.focus();
   await page.keyboard.press("Space");
   await expect(page.locator("#case-target-blocker")).toBeFocused();
@@ -941,7 +945,9 @@ test("problem pipeline stages focus authorized inputs and explain unavailable co
   await approvalStage.focus();
   await page.keyboard.press("Enter");
   await expect(approvalStage).toBeFocused();
-  await expect(page.getByRole("region", { name: "Final review & send details", exact: true }))
+  // Stage details are a collapsed panel for the inspected stage; its facts are present without moving focus.
+  const approvalDetails = page.locator('details#processing-stage-details[aria-label="Final review & send details"]');
+  await expect(approvalDetails)
     .toContainText("Final review awaits authoritative readiness");
   await expect(page.locator("#case-review-and-send")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Confirm and send to/ })).toHaveCount(0);
@@ -1048,7 +1054,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
 
-  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i);
   const caseId = page.url().split("/").at(-1)!;
   await confirmMockTarget(page);
   await expect.poll(async () => {
@@ -1070,9 +1076,9 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(ownershipRecord.candidates.length).toBeGreaterThan(0);
   const expectedCandidate = ownershipRecord.candidates[0];
   expect(expectedCandidate.paths.length).toBeGreaterThan(0);
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
-  await openStageSupport(page, "GoldTier submission package", "More");
+  await openStageSupport(page, "GoldTier Details & Status", "More");
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
   await expect(operationalTiming).toBeVisible();
   await expect(operationalTiming.getByText(/^Timing observed at /)).toHaveCount(1);
@@ -1118,8 +1124,8 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(page.getByText("Case evidence binding not recorded.")).toHaveCount(0);
   await openStage(page, "Ownership & UBO");
   await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
-  await openStageSupport(page, "GoldTier submission package", "Technical");
-  await expect(page.getByRole("heading", { name: "Why this case is in its current state" })).toBeVisible();
+  await openStageSupport(page, "GoldTier Details & Status", "Technical");
+  await expect(page.locator(".goldtier-status")).toBeVisible();
 
   const interactionRequestBaseline = caseRequests.length;
   const storageBefore = await page.evaluate(() => JSON.stringify({
@@ -1156,8 +1162,6 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     await expect(ownershipStructure).toContainText(expectedCandidate.paths[0].calculation);
     await expect(ownershipStructure).toContainText(expectedCandidate.paths[0].effective_ownership_percent);
   }
-  await page.getByRole("button", { name: "Focus registry evidence" }).click();
-  await expect(page.locator("#case-evidence-registry")).toBeFocused();
   await page.waitForTimeout(250);
   expect(caseRequests.slice(interactionRequestBaseline)).toEqual([]);
   expect(await page.evaluate(() => JSON.stringify({
@@ -1168,7 +1172,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await page.setViewportSize({ width: 480, height: 900 });
   await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Why this case is in its current state" })).toBeVisible();
+  await expect(page.locator(".goldtier-status")).toBeVisible();
   const horizontalLayout = await page.evaluate(() => ({
     rootClientWidth: document.documentElement.clientWidth,
     rootScrollWidth: document.documentElement.scrollWidth,
@@ -1251,7 +1255,7 @@ test("review-ready actions render after authoritative current document evidence 
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(singleValueReviewFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => {
     const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
@@ -1283,7 +1287,7 @@ test("review-ready actions render after authoritative current document evidence 
   expect(pendingField?.comparison_status).toBe("MATCH");
   expect(pendingField?.confidence).toBe(0.9);
   expect(currentDocument?.fields.every((field) => field.original_extracted_value !== null)).toBe(true);
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible();
   await expect(page.locator("input[data-review-field]").first()).toBeVisible();
 });
 
@@ -1308,7 +1312,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   const initialIntakeResponse = page.waitForResponse((response) =>
     response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/intake/complete"));
   await page.getByRole("button", { name: "Create onboarding" }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i);
   const caseId = page.url().split("/").at(-1)!;
   expect((await initialUploadResponse).status()).toBe(201);
   const initialIntake = await initialIntakeResponse;
@@ -1322,12 +1326,11 @@ test("current document review progresses authoritatively and keeps superseded hi
 
   await page.goto(`/cases/${caseId}`);
   await openStage(page, "Document verification");
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible({ timeout: 30_000 });
   const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
-  await openStage(page, "GoldTier submission package");
-  await openStageSupport(page, "GoldTier submission package", "Technical");
-  await page.getByRole("button", { name: "Focus documents evidence" }).click();
-  await expect(page.locator("#case-blocker-review input[data-review-field]:not([disabled]), #case-blocker-review input[data-reconciliation-field]:not([disabled]), #case-evidence-documents input[type=file]").first()).toBeFocused();
+  // The rail's Document verification step reaches the current document decision (the removed
+  // case-explanation panel used the same documents focus route).
+  await focusPipelineAction(page, "DOCUMENT_IDP", page.locator("#case-blocker-review input[data-review-field]:not([disabled]), #case-blocker-review input[data-reconciliation-field]:not([disabled]), #case-evidence-documents input[type=file]").first());
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
   await expect(page.getByText("3 final / 4 fields")).toBeVisible();
   await expect(page.getByText(/1 field remains for review/)).toBeVisible();
@@ -1400,7 +1403,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await replacementInput.setInputFiles(cleanFixture);
   expect((await replacementResponse).status()).toBe(200);
   await confirmMockTarget(page);
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
@@ -1422,7 +1425,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await page.reload();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await openStage(page, "Document verification");
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible({
     timeout: 30_000,
   });
   await openStageSupport(page, "Document verification", "More");
@@ -1430,8 +1433,8 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(reloadedHistory).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".document-card--history")).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
-  await openStage(page, "GoldTier submission package");
-  await openStageSupport(page, "GoldTier submission package", "Technical");
+  await openStage(page, "GoldTier Details & Status");
+  await openStageSupport(page, "GoldTier Details & Status", "Technical");
   await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
   expect(resumeRequests).toHaveLength(0);
 });
@@ -1447,7 +1450,7 @@ test("Cases filters exact open business-exception types without hiding other att
     await page.getByLabel("Registration ID / UEN").fill(uen);
     await page.locator("#home-document").setInputFiles(fixture);
     await page.getByRole("button", { name: "Create onboarding" }).click();
-    await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i, {
+    await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i, {
       timeout: 30_000,
     });
     const caseId = page.url().split("/").at(-1)!;
@@ -1558,11 +1561,9 @@ test("Cases filters exact open business-exception types without hiding other att
   await expect(openLink).toHaveAttribute("href", `/cases/${ownershipCycleCaseId}`);
   await openLink.click();
   await expect(page).toHaveURL(`/cases/${ownershipCycleCaseId}`);
-  await openStage(page, "GoldTier submission package");
-  await openStageSupport(page, "GoldTier submission package", "Technical");
-  await expect(
-    page.getByRole("heading", { name: "Why this case is in its current state" }),
-  ).toBeVisible();
+  await openStage(page, "GoldTier Details & Status");
+  await openStageSupport(page, "GoldTier Details & Status", "Technical");
+  await expect(page.locator(".goldtier-status")).toBeVisible();
   expect(lowConfidenceCaseId).not.toBe(ownershipCycleCaseId);
 });
 

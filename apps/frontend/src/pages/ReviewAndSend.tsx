@@ -1,3 +1,4 @@
+import { formatTimestamp, isIsoTimestamp } from "../shared";
 import UboSummary from "./UboSummary";
 import { useEffect, useRef, type ReactNode } from "react";
 import StageDisclosure from "./StageDisclosure";
@@ -426,7 +427,7 @@ export default function ReviewAndSend({
               {operation.fields.map((field) => (
                 <div key={`${operation.operation}:${field.target_field}`}>
                   <dt>{label(field.target_field)}</dt>
-                  <dd>{displayValue(field.value)}</dd>
+                  <dd>{isIsoTimestamp(field.value) ? <time dateTime={field.value}>{formatTimestamp(field.value)}</time> : displayValue(field.value)}</dd>
                 </div>
               ))}
             </dl>

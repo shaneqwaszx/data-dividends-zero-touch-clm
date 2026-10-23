@@ -41,7 +41,7 @@ def test_r1_search_destination(code: str) -> None:
     data = build_case_facts(CaseSnapshot(summary, [], ME))
     answer = fallback_answer("What more do I need to do?", data)
     assert "(section: Existing-customer search)" in answer
-    assert len(data["case_page_sections"]) == 7
+    assert len(data["case_page_sections"]) == 6
 
 
 @pytest.mark.parametrize("text", ["", "partial", "A complete sentence. "])
@@ -306,12 +306,30 @@ def test_r1_stage_inventory_matches_accepted_case_ui() -> None:
 
     from ai_assistant.guide import CASE_PAGE_SECTIONS
 
-    source = (Path(__file__).resolve().parents[2] / "frontend/src/pages/CaseDetail.tsx").read_text(
-        encoding="utf-8"
+    pages = Path(__file__).resolve().parents[2] / "frontend/src/pages"
+    source = (pages / "CaseDetail.tsx").read_text(encoding="utf-8")
+    # A title may be a constant shared with the progress panel; resolve it, never skip it.
+    constants = dict(
+        re.findall(
+            r'export const ([A-Z_]+) = "([^"]+)";',
+            (pages / "CaseStatePanels.tsx").read_text(encoding="utf-8"),
+        )
     )
-    titles = re.findall(r'<StageDisclosure title="([^"]+)"', source)
+    titles = [
+        literal or constants[name]
+        for literal, name in re.findall(
+            r'<StageDisclosure title=(?:"([^"]+)"|\{([A-Z_]+)\})', source
+        )
+    ]
     assert list(CASE_PAGE_SECTIONS) == [x for x in titles if x != "Historical / resolved issues"]
     assert "Reconciliation" not in CASE_PAGE_SECTIONS
+
+
+def test_r1_every_blocker_location_is_a_case_page_section() -> None:
+    from ai_assistant.guide import BLOCKER_SECTIONS, CASE_PAGE_SECTIONS, READINESS_NEEDS
+
+    locations = {where for _, where in READINESS_NEEDS.values()} | set(BLOCKER_SECTIONS.values())
+    assert locations <= set(CASE_PAGE_SECTIONS)
 
 
 def test_r4_mock_result_preserves_local_approval_and_qualifies_external_approval() -> None:

@@ -1,11 +1,15 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { ProcessingNode, ZeroTouchCaseSummary } from "../types";
+import type {
+  DocumentProcessingRecord, ProcessingNode, ZeroTouchCaseSummary } from "../types";
 import {
+  businessStageMembers,
+  businessStagePipeline,
   CompletedOverview,
   ConfirmDetailsPanel,
   DetailedProcessingInspector,
+  GOLDTIER_DETAILS_STEP_ID,
   OnboardingProgressPanel,
   PipelineRail,
   ProcessingBlockerPanels,
@@ -96,7 +100,7 @@ describe("OnboardingProgressPanel", () => {
   });
   it("renders the backend order, current text, and accessible bounded progress before terminal state", () => {
     const summary = summaryWithPipeline([
-      processingNode("INITIAL_IDENTITY", "Initial identity", "COMPLETE"),
+      processingNode("CASE_CREATED", "Case created", "COMPLETE"),
       processingNode("GOLDTIER_SEARCH", "GoldTier search", "IN_PROGRESS"),
       processingNode("ACRA_REGISTRY", "ACRA registry", "NOT_REACHED"),
       processingNode("DOCUMENT_IDP", "Document and IDP", "NOT_REACHED"),
@@ -112,7 +116,7 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain("1 of 4 stages complete or skipped");
     expect(markup).toContain("current: GoldTier search — In progress");
     const stagesMarkup = markup.slice(markup.indexOf('aria-label="Onboarding stages"'));
-    expect(stagesMarkup.indexOf("Initial identity")).toBeLessThan(stagesMarkup.indexOf("GoldTier search"));
+    expect(stagesMarkup.indexOf("Case created")).toBeLessThan(stagesMarkup.indexOf("GoldTier search"));
     expect(stagesMarkup.indexOf("GoldTier search")).toBeLessThan(stagesMarkup.indexOf("ACRA registry"));
     expect(markup).toContain("Last updated:");
   });
@@ -184,7 +188,7 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).not.toContain("Resolve");
   });
 
-  it("derives one actionable legacy identity tile from the retained blocker when the pipeline omitted it", () => {
+  it("derives one actionable Initial identity stage from the retained blocker when the pipeline omitted it", () => {
     const summary = summaryWithPipeline([processingNode("DOCUMENT_IDP", "Document and IDP", "NOT_REACHED")]);
     summary.active_exceptions = [{
       exception_id: "legacy-identity",
@@ -201,7 +205,6 @@ describe("OnboardingProgressPanel", () => {
 
     expect(markup).toContain("Initial identity");
     expect(markup).toContain('aria-label="Open details for Initial identity"');
-    expect(markup.match(/INITIAL_IDENTITY_INCOMPLETE/g) ?? []).toHaveLength(0);
   });
 
   it("maps only actionable stable backend nodes to specific existing panels", () => {
@@ -288,15 +291,76 @@ describe("OnboardingProgressPanel", () => {
 describe("backend-authored stage ordering", () => {
   it("renders the v2 rail in the exact backend order", () => {
     const summary = summaryWithPipeline([
-      processingNode("INITIAL_IDENTITY", "Initial identity", "COMPLETE"),
+      processingNode("INITIAL_IDENTITY", "Initial identity", "REVIEW_REQUIRED"),
       processingNode("GOLDTIER_SEARCH", "GoldTier search", "COMPLETE"),
       processingNode("ACRA_REGISTRY", "ACRA registry", "IN_PROGRESS"),
     ]);
 
     const markup = renderToStaticMarkup(<PipelineRail summary={summary} />);
 
+    expect(markup.indexOf("Initial identity")).toBeGreaterThanOrEqual(0);
     expect(markup.indexOf("Initial identity")).toBeLessThan(markup.indexOf("GoldTier search"));
     expect(markup.indexOf("GoldTier search")).toBeLessThan(markup.indexOf("ACRA registry"));
+  });
+});
+
+describe("ten business steps over the twelve backend stages", () => {
+  const backend = (overrides: Partial<Record<string, ProcessingNode["status"]>> = {}) => [
+    ["CASE_START", "Case created"], ["INITIAL_IDENTITY", "Initial identity"], ["JURISDICTION", "Jurisdiction"],
+    ["GOLDTIER_SEARCH", "Existing-customer search"], ["ACRA_REGISTRY", "Registry verification"],
+    ["DOCUMENT_IDP", "Document verification"], ["RECONCILIATION", "Data reconciliation"],
+    ["OWNERSHIP_UBO", "Ownership & UBO"], ["ADVISORY", "Risk assessment"], ["READINESS", "Submission readiness"],
+    ["GOLDTIER_TARGET", "GoldTier submission package"], ["FINAL_REVIEW_SEND", "Final review & send"],
+  ].map(([id, label]) => processingNode(id, label, overrides[id] ?? "COMPLETE"));
+
+  it("maps twelve backend stages to ten steps, grouping readiness and the package", () => {
+    const steps = businessStagePipeline(backend());
+    expect(steps.map(step => step.label)).toEqual([
+      "Case created", "Jurisdiction", "Existing-customer search", "Registry verification", "Document verification",
+      "Data reconciliation", "Ownership & UBO", "Risk assessment", "GoldTier Details & Status", "Final review & send",
+    ]);
+    const grouped = steps.find(step => step.node_id === GOLDTIER_DETAILS_STEP_ID)!;
+    expect(businessStageMembers(backend(), grouped).map(member => member.node_id)).toEqual(["READINESS", "GOLDTIER_TARGET"]);
+    expect(processingNodeFocusTarget(grouped)).toBe("case-target-blocker");
+  });
+
+  it.each(["REVIEW_REQUIRED", "BLOCKED", "FAILED", "IN_PROGRESS", "NOT_REACHED"] as const)(
+    "shows Initial identity while it is %s", (status) => {
+      expect(businessStagePipeline(backend({ INITIAL_IDENTITY: status })).map(step => step.node_id)).toContain("INITIAL_IDENTITY");
+    },
+  );
+
+  it("keeps a completed Initial identity visible while an identity blocker is retained", () => {
+    const summary = summaryWithPipeline(backend());
+    expect(renderToStaticMarkup(<PipelineRail summary={summary} />)).not.toContain("Initial identity");
+    summary.active_exceptions = [{ exception_id: "ineligible", blocker_code: "INITIAL_IDENTITY_NOT_ELIGIBLE" }] as ZeroTouchCaseSummary["active_exceptions"];
+    expect(renderToStaticMarkup(<PipelineRail summary={summary} />)).toContain('data-node-id="INITIAL_IDENTITY"');
+    expect(renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />)).toContain("of 11 stages done");
+  });
+
+  it.each([
+    [{ READINESS: "COMPLETE", GOLDTIER_TARGET: "COMPLETE" }, "COMPLETE"],
+    [{ READINESS: "COMPLETE", GOLDTIER_TARGET: "NOT_REACHED" }, "NOT_REACHED"],
+    [{ READINESS: "IN_PROGRESS", GOLDTIER_TARGET: "NOT_REACHED" }, "IN_PROGRESS"],
+    [{ READINESS: "COMPLETE", GOLDTIER_TARGET: "FAILED" }, "FAILED"],
+    [{ READINESS: "BLOCKED", GOLDTIER_TARGET: "IN_PROGRESS" }, "BLOCKED"],
+  ] as const)("marks the grouped step %j as %s, never done before both members", (overrides, expected) => {
+    const grouped = businessStagePipeline(backend(overrides)).find(step => step.node_id === GOLDTIER_DETAILS_STEP_ID)!;
+    expect(grouped.status).toBe(expected);
+  });
+
+  it("counts business steps and names each member status when they differ", () => {
+    const summary = summaryWithPipeline(backend({ GOLDTIER_TARGET: "NOT_REACHED", FINAL_REVIEW_SEND: "NOT_REACHED" }));
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
+    expect(markup).toContain("8 of 10 stages done");
+    expect(markup).toContain("Submission readiness: Complete · GoldTier submission package: Not reached");
+    expect(markup).not.toContain("100%");
+    // Readiness needing attention while the package is complete: the grouped step is not done.
+    const differing = renderToStaticMarkup(<OnboardingProgressPanel summary={summaryWithPipeline(backend({ READINESS: "FAILED" }))} />);
+    expect(differing).toContain("9 of 10 stages done");
+    expect(differing).toContain("Submission readiness: Failed · GoldTier submission package: Complete");
+    const identity = summaryWithPipeline(backend({ INITIAL_IDENTITY: "REVIEW_REQUIRED" }));
+    expect(renderToStaticMarkup(<OnboardingProgressPanel summary={identity} />)).toContain("10 of 11 stages done");
   });
 
   it("preserves the backend v1 order instead of projecting the v2 sequence", () => {
@@ -652,4 +716,32 @@ it("retains reconciliation status and safe lineage in Technical after the docume
   expect(technical).toContain("event count 3"); expect(technical).toContain("CONFLICT");
   expect(technical).not.toMatch(/<details|<button|<input|<select/);
   expect(renderToStaticMarkup(<ConfirmDetailsPanel summary={summary} />)).toBe("");
+});
+
+it("compares registry value, document value with confidence, and the reviewer's choice in plain words", () => {
+  const summary = summaryWithPipeline([]);
+  summary.current_stage = "DOCUMENT";
+  const observation = (field: string, kind: string, value: string | null) => ({ observation_id: `${field}-${kind}`, field_name: field, source_kind: kind, normalized_value: value, validity: value ? "VALID" : "MISSING", confidence: null });
+  summary.reconciliation = { reconciliation_id: "r", version: 1, status: "REVIEW_REQUIRED", source_document_ids: ["doc"], source_document_event_counts: [1], updated_at: "2026-10-15T12:00:00Z",
+    fields: ["legal_name", "registration_identifier", "registered_address"].map(field => ({ field_name: field, outcome: "MISSING_IN_SOURCE",
+      observations: [observation(field, "REGISTRY", "REG"), observation(field, "DOCUMENT_IDP", null)], discrepancy_id: null })),
+    discrepancies: [] } as unknown as NonNullable<ZeroTouchCaseSummary["reconciliation"]>;
+  const doc = { document_id: "doc", superseded_by_document_id: null, fields: [
+    { field_key: "legal_name", review_status: "REJECTED", original_extracted_value: "DOC NAME", reviewed_value: null, confidence: 0.97 },
+    { field_key: "registration_number", review_status: "CORRECTED", original_extracted_value: "11111998B", reviewed_value: "11111999A", confidence: 0.9 },
+    { field_key: "registered_address", review_status: "ACCEPTED", original_extracted_value: "1 DOC ROAD", reviewed_value: "1 DOC ROAD", confidence: 0.8 },
+  ] } as unknown as DocumentProcessingRecord;
+  const markup = renderToStaticMarkup(<ConfirmDetailsPanel presentation="main" summary={summary} documents={[doc]} />);
+  for (const header of ["Registry value", "Document value", "Your choice"]) expect(markup).toContain(header);
+  // The document's own value stays visible even when the comparison saw none.
+  expect(markup).toContain("DOC NAME"); expect(markup).toContain("97% confidence");
+  expect(markup).toContain("Manual input: 11111999A");
+  expect(markup).toContain(">Document value<");
+  // A rejected suggestion is shown as such; it records no registry or document choice, so nothing is highlighted for it.
+  expect(markup).toContain("Suggestion rejected");
+  // The chosen value's cell is highlighted: document for the address, manual in Your choice.
+  expect(markup.match(/is-chosen/g)).toHaveLength(2);
+  expect(markup).not.toMatch(/data-label="Registry value" class="is-chosen"/);
+  expect(markup).toMatch(/data-label="Document value" class="is-chosen"/);
+  expect(markup).toMatch(/data-label="Your choice" class="is-chosen"/);
 });

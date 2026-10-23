@@ -35,7 +35,33 @@ inspection. Technical actions and the actual UBO summary remain.
 The existing CaseDetail/design-system layout owns desktop stickiness. Above 900px,
 the pipeline sidebar stays 12px inside the viewport and can scroll vertically when
 its content exceeds the available height. The existing stacked layout remains at
-900px and below. All twelve backend pipeline stages remain present.
+900px and below.
+
+The twelve authoritative backend pipeline stages, their statuses and lifecycle are
+unchanged; the pipeline rail and progress panel present them as business steps
+(`businessStagePipeline` in `CaseStatePanels.tsx`, display-only). Normally ten steps show:
+Initial identity is omitted while it is done and no `INITIAL_IDENTITY_*` blocker or case
+error is retained, and is shown, with its own status and identity-correction route,
+whenever either holds. READINESS and GOLDTIER_TARGET form one "GoldTier Details & Status"
+step whose marker takes the member needing the user most (attention, then in progress,
+then not done), so it counts as done only when both are. Its details list each member's
+own status, outcome and time, and its status line names both statuses when they differ.
+Progress counts the steps shown, so 100% requires every backend stage to be done.
+Attention items owned by either member appear on the grouped step. Navigation from that
+step routes to a single member needing attention; when both do, to the member with a
+specific authorized control (readiness inputs or GoldTier recovery), otherwise to the
+section's status tiles; settled stages open the section rather than reporting details
+unavailable. The case page renders the two stages in the single "GoldTier Details &
+Status" section of the accepted redesign; the AI Assistant names the same section.
+Focus scrolling stops below each sticky section header at its measured height, and a
+control focused while partly under its section's sticky header is aligned just below it.
+
+Because Create onboarding now opens the case page while the new case is still processing,
+`performance-browser.e2e.ts` (method revision `settled-resource-precondition-v1`) starts
+measuring only after read-only polling observes the ingested document and the ownership and
+intelligence resources (30 s deadline, diagnostic failure). Warm-up/sample counts, both
+measurement kinds, strict response checks and exports are unchanged; results are not
+comparable with earlier method hashes without a controlled comparison.
 
 CaseAttentionSummary derives its current entries from the loaded summary's OPEN active
 exceptions and unmatched intervention projections, technical failure and pending document

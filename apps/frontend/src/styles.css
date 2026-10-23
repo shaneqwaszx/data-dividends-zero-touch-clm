@@ -3945,6 +3945,49 @@ dd {
 .stage-disclosure--final { border-color: #147653; }
 .stage-disclosure .table-card { overflow-x: auto; max-width: 100%; }
 .stage-disclosure .kv-value, .stage-disclosure p { overflow-wrap: anywhere; }
+/* GoldTier Details & Status: readiness tiles + submission facts */
+.goldtier-status { display: grid; gap: 14px; margin-bottom: 16px; }
+.goldtier-status__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.goldtier-status__tile {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-divider, #d6ded9);
+  border-left: 4px solid var(--tile-tone, #9aa39e);
+  border-radius: 8px;
+  background: #fff;
+  min-width: 0;
+}
+.goldtier-status__tile[data-tone="done"] { --tile-tone: #147653; }
+.goldtier-status__tile[data-tone="attention"] { --tile-tone: #b0503f; background: #fdf7f5; }
+.goldtier-status__label { font-size: 11.5px; letter-spacing: 0.02em; color: var(--color-neutral-700, #55605a); }
+.goldtier-status__value { font-size: 14px; font-weight: 600; color: #12291f; }
+.goldtier-status__note { margin: 0; }
+/* Target classification form: two aligned fields, action below on the left */
+/* Global `form` is centered; this form spans the card and stays left-aligned. */
+.classification-form { display: grid; gap: 14px; align-self: stretch; width: 100%; justify-items: start; }
+.classification-form__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 320px));
+  gap: 16px;
+  align-items: start;
+  justify-content: start;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .classification-form__fields { grid-template-columns: minmax(0, 1fr); }
+}
+.classification-form__field { display: grid; gap: 6px; margin: 0; min-width: 0; }
+.classification-form__field select { margin: 0; }
+.classification-form__hint { color: var(--color-neutral-700, #55605a); font-size: 11.5px; font-weight: 400; }
+.classification-form__actions { display: flex; justify-content: flex-start; }
 @media (max-width: 540px) {
   .stage-disclosure > h2 > button { padding: 14px; }
   .stage-disclosure > div:not([hidden]) { padding: 0 12px 14px; }
@@ -4158,3 +4201,41 @@ dd {
 .stage-disclosure__indicator::after { content: "+"; }
 .stage-disclosure__indicator[data-open="true"]::after { content: "−"; }
 .stage-disclosure > details[hidden] { display: none; }
+.classification-saved { width: 100%; max-width: 760px; }
+.classification-saved .table { font-size: 12.5px; }
+.pending-documents { display: grid; gap: 8px; margin: 16px 0; }
+.pending-documents h3, .pending-documents p { margin: 0; }
+.pending-documents__error { color: #8c3a2e; }
+.pending-documents__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pending-documents__actions .btn { min-height: 44px; min-width: 44px; }
+/* Document verification: comparison + uploaded file in one card */
+.ds-root .document-combined { display: grid; gap: 12px; margin-bottom: 16px; }
+.ds-root .document-combined .document-combined__header { display: grid; gap: 4px; }
+.ds-root .document-combined .document-combined__header > * { margin: 0; }
+/* Embedded parts drop their own card chrome so the combined card has one tight layout. */
+.ds-root .document-combined .confirm-details--embedded,
+.ds-root .document-combined .document-evidence-panel--embedded { margin: 0; padding: 0; border: 0; box-shadow: none; background: transparent; }
+.ds-root .document-combined .confirm-details--embedded > .state-composition__header { margin: 0 0 8px; }
+/* Registry identity: UEN mismatch as one choice with one action */
+.identity-choice { display: grid; gap: 12px; align-self: stretch; width: 100%; }
+.identity-choice h3, .identity-choice p { margin: 0; }
+.identity-choice__options { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.identity-choice__option {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; margin: 0;
+  padding: 12px 14px; border: 1px solid var(--color-divider, #d6ded9); border-radius: 8px; background: #fff;
+  font-weight: 400; cursor: pointer; min-width: 0;
+}
+.identity-choice__option.is-chosen { border-color: #147653; box-shadow: inset 0 0 0 1px #147653; }
+.identity-choice__option > input[type="radio"] { grid-row: span 2; margin: 0; }
+.identity-choice__label { font-size: 11.5px; letter-spacing: .02em; color: var(--color-neutral-700, #55605a); }
+.identity-choice__value { font-size: 15px; }
+.identity-choice__option > .input, .identity-choice__option > small { grid-column: 2; margin: 0; }
+.identity-choice__name { display: grid; gap: 6px; max-width: 420px; }
+.identity-choice__name label { margin: 0; }
+.identity-choice__actions { display: flex; justify-content: flex-start; }
+.ds-root .document-combined .document-combined__action { display: grid; gap: 6px; justify-items: start; margin: 0; }
+.ds-root .onboarding-progress .stage-details > summary { cursor: pointer; font-weight: 600; }
+.ds-root .onboarding-progress .stage-details[open] > summary { margin-bottom: 8px; }
+/* Comparison table: the reviewer's chosen value is highlighted */
+.ds-root .confirm-table [role="cell"].is-chosen { background: #e7f3ec; box-shadow: inset 3px 0 0 #147653; border-radius: 4px; }
+.ds-root .confirm-table [role="cell"].is-chosen::after { content: "✓ Chosen"; display: block; margin-top: 2px; color: #147653; font-size: 11px; font-weight: 600; }

@@ -74,10 +74,11 @@ describe("RegistryProvenancePanel", () => {
     const view = render(binding);
     expect(view.textContent).toContain("Reused fresh registry evidence — no ACRA request required.");
     expect(view.textContent).toContain("CACHE_HIT");
-    expect(view.textContent).toContain("2026-09-20T00:00:01.123456Z");
-    expect(view.textContent).toContain("2026-09-20T00:00:02.654321Z");
-    expect(view.textContent).toContain("2026-09-20T00:05:00.000001Z");
-    expect(view.textContent).toContain("2026-12-19T00:00:01.123456Z");
+    // Exact original UTC stays inspectable on the <time> element; text shows the readable format.
+    expect(view.querySelector('time[datetime="2026-09-20T00:00:01.123456Z"]')).not.toBeNull();
+    expect(view.querySelector('time[datetime="2026-09-20T00:00:02.654321Z"]')).not.toBeNull();
+    expect(view.querySelector('time[datetime="2026-09-20T00:05:00.000001Z"]')).not.toBeNull();
+    expect(view.querySelector('time[datetime="2026-12-19T00:00:01.123456Z"]')).not.toBeNull();
     expect(view.textContent).toContain("7776000 seconds");
     expect(view.textContent).toContain("Provisional Mock POC policy");
     expect(view.textContent).toContain("EVALUATION_NOW_LT_EXPIRES_AT");
@@ -159,9 +160,10 @@ it("renders Singapore rollover timestamps with separately inspectable original U
   expect(row.textContent).not.toContain(source.retrieved_at);
   const detail = Array.from(view.querySelectorAll("details")).find(item => item.querySelector("summary")?.textContent?.includes("original ISO UTC"))!;
   expect(detail).toBeTruthy();
-  expect(detail.textContent).toContain(source.retrieved_at);
-  expect(detail.textContent).toContain(binding.bound_to_case_at);
-  expect(detail.textContent).toContain(binding.expires_at);
+  // Audit evidence shows the exact retained value, on a machine-readable <time> element.
+  for (const iso of [source.retrieved_at, binding.bound_to_case_at, binding.expires_at]) {
+    expect(detail.querySelector(`time[datetime="${iso}"]`)?.textContent).toBe(iso);
+  }
 });
 
 it.each([null, undefined, "", "malformed", "2026-02-30T00:00:00Z"])("does not present missing/invalid registry time %s as usable", value => {
@@ -191,7 +193,7 @@ it("exposes safe Main, business and audit subsets without nested technical contr
   expect(container.textContent).not.toContain("EVALUATION_NOW_LT_EXPIRES_AT");
   show("technical");
   expect(container.textContent).toContain("7776000 seconds");
-  expect(container.textContent).toContain("2026-09-20T00:00:01.123456Z");
+  expect(container.querySelector('time[datetime="2026-09-20T00:00:01.123456Z"]')).not.toBeNull();
   expect(container.textContent).toContain("EVALUATION_NOW_LT_EXPIRES_AT");
   expect(container.querySelector("details")).toBeNull();
 });

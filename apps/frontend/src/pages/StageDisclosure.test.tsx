@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -297,4 +297,90 @@ it("returns focus from print-expanded content before restoring a collapsed paren
     expect(document.activeElement).toBe(parent);
     expect(visible(document.activeElement!)).toBe(true);
   } finally { await f.dispose(); }
+});
+
+describe("completed sections", () => {
+  it.each([
+    ["done", "false"], ["attention", "true"], ["current", "true"], ["pending", "true"],
+  ] as const)("a %s section starts with aria-expanded=%s, and navigation can still reveal it", async (tone, expanded) => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<StageDisclosure title="Document verification" scopeKey="case-a"
+      status={{ tone, label: tone }} main={<p id="main">Evidence</p>} />));
+    const button = host.querySelector<HTMLButtonElement>("button[data-stage-toggle]")!;
+    expect(button.getAttribute("aria-expanded")).toBe(expanded);
+    await act(async () => revealStage(host.querySelector("#main")!));
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => root.unmount()); host.remove();
+  });
+});
+
+describe("sticky header focus clearance", () => {
+  it("aligns a control focused under the sticky header just below it and leaves visible controls alone", async () => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    await act(async () => root.render(<StageDisclosure title="Document verification" scopeKey="case-a" active
+      main={<><input id="covered" aria-label="Covered" /><input id="clear" aria-label="Clear" /></>} />));
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 10, width: 10, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    host.querySelector("h2")!.getBoundingClientRect = () => rect(12, 83);
+    const covered = host.querySelector<HTMLInputElement>("#covered")!; const clear = host.querySelector<HTMLInputElement>("#clear")!;
+    covered.getBoundingClientRect = () => rect(23, 130); clear.getBoundingClientRect = () => rect(200, 230);
+    const scrolled: Array<[string, ScrollIntoViewOptions | boolean | undefined]> = [];
+    covered.scrollIntoView = (options) => { scrolled.push(["covered", options]); };
+    clear.scrollIntoView = (options) => { scrolled.push(["clear", options]); };
+    act(() => covered.focus()); act(() => clear.focus());
+    expect(scrolled).toEqual([["covered", { block: "start" }]]);
+    await act(async () => root.unmount()); host.remove();
+  });
+
+  async function renderCovered() {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    await act(async () => root.render(<StageDisclosure title="Document verification" scopeKey="case-a" active
+      main={<><input id="covered" aria-label="Covered" /><input id="other" aria-label="Other" /></>} />));
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 10, width: 10, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    host.querySelector("h2")!.getBoundingClientRect = () => rect(12, 83);
+    const covered = host.querySelector<HTMLInputElement>("#covered")!; const other = host.querySelector<HTMLInputElement>("#other")!;
+    covered.getBoundingClientRect = () => rect(23, 130); other.getBoundingClientRect = () => rect(200, 230);
+    const scroll = { count: 0 };
+    covered.scrollIntoView = () => { scroll.count++; };
+    const press = (pointerType: string) => {
+      const event = new Event("pointerdown", { bubbles: true }); Object.defineProperty(event, "pointerType", { value: pointerType });
+      covered.dispatchEvent(event);
+    };
+    const refocus = () => { other.focus(); covered.focus(); };
+    return { root, host, covered, scroll, press, refocus };
+  }
+
+  it("leaves focus from a mouse press in place and aligns again once the press ends", async () => {
+    const { root, host, covered, scroll, press, refocus } = await renderCovered();
+    act(() => { press("mouse"); covered.focus(); });
+    expect(scroll.count).toBe(0);
+    act(() => { window.dispatchEvent(new Event("pointerup")); refocus(); });
+    expect(scroll.count).toBe(1);
+    await act(async () => root.unmount()); host.remove();
+  });
+
+  it.each(["touch", "pen"])("keeps a %s tap's focus in place until its click, which focus after pointerup follows", async (pointerType) => {
+    const { root, host, covered, scroll, press, refocus } = await renderCovered();
+    // Touch/pen order: pointerdown, pointerup, then the compatibility mousedown moves focus, then click.
+    act(() => { press(pointerType); window.dispatchEvent(new Event("pointerup")); covered.focus(); });
+    expect(scroll.count).toBe(0);
+    act(() => { window.dispatchEvent(new Event("click")); refocus(); });
+    expect(scroll.count).toBe(1);
+    await act(async () => root.unmount()); host.remove();
+  });
+
+  it("ends a press whose release never arrives after the bounded fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      const { root, host, scroll, press, refocus } = await renderCovered();
+      act(() => press("touch"));
+      act(() => { vi.advanceTimersByTime(999); refocus(); });
+      expect(scroll.count).toBe(0);
+      act(() => { vi.advanceTimersByTime(1); refocus(); });
+      expect(scroll.count).toBe(1);
+      await act(async () => root.unmount()); host.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

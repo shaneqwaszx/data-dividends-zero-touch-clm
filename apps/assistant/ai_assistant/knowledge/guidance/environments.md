@@ -1,7 +1,7 @@
 ---
 id: guidance.environments
 title: Mock, Local, Sandbox and Live data
-stages: Registry verification, GoldTier submission package
+stages: Registry verification, GoldTier submission package, GoldTier Details & Status
 source: AGENTS.md, docs/PROJECT_STATE.md
 illustrative: false
 ---

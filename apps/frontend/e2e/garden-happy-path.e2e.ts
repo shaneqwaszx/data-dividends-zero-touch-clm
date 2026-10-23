@@ -78,7 +78,7 @@ async function startGarden(page: Page, conflicting: boolean): Promise<string> {
   await page.locator("#home-document").setInputFiles(path.join(fixtureRoot, name));
   await measured("create/start case", async () => {
     await page.getByRole("button", { name: "Create onboarding" }).click();
-    await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   });
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await summary(page, caseId)).status, { timeout: 90_000 })
@@ -102,16 +102,17 @@ async function openGardenDocuments(page: Page, conflicting: boolean): Promise<vo
   // Wait for that query-driven presentation before explicitly inspecting Documents.
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
   if (conflicting) {
-    await expect(page.getByRole("button", { name: "Use document UEN", exact: true })).toBeVisible();
+    // The UEN choice sits in Registry verification, which may have mounted collapsed before the conflict was known.
+    await openStage(page, "Registry verification");
+    await expect(page.getByRole("radio", { name: /^Document UEN/ })).toBeVisible();
   }
   await openStage(page, "Document verification");
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible();
 }
 
 async function createGarden(page: Page, conflicting: boolean): Promise<string> {
   const caseId = await startGarden(page, conflicting);
   await measured("open case", async () => {
-    await page.getByRole("button", { name: "Open full case" }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
     await openGardenDocuments(page, conflicting);
   });
@@ -119,7 +120,7 @@ async function createGarden(page: Page, conflicting: boolean): Promise<string> {
 }
 
 async function selectClassification(page: Page) {
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   const kyc = page.getByLabel("KYC customer type", { exact: true });
   const segment = page.getByLabel("Client segment", { exact: true });
   await expect(kyc).toBeEnabled();
@@ -192,7 +193,7 @@ test("Garden late preconfirmation detail GET cannot replace completed case", asy
     await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
     expect((await confirmation).status()).toBe(200);
     const overview = page.getByText("Completed POC workflow", { exact: true });
-    await openStage(page, "GoldTier submission package");
+    await openStage(page, "GoldTier Details & Status");
     await expect(overview).toBeVisible();
     release();
     await finished;
@@ -268,17 +269,15 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   await testInfo.attach("Garden-200-percent-content-zoom", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
   const focusBaseline = requests.length;
-  await openStage(page, "GoldTier submission package");
-  await openStageSupport(page, "GoldTier submission package", "Technical");
-  await page.getByRole("button", { name: "Focus registry evidence" }).click();
-  await expect(page.locator("#case-evidence-registry")).toBeFocused();
+  await openStage(page, "GoldTier Details & Status");
+  await openStageSupport(page, "GoldTier Details & Status", "Technical");
   await expect(page.getByRole("heading", { name: "Registry data incomplete" })).toHaveCount(0);
   expect(requests.length).toBe(focusBaseline);
   const confirmation = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/target-confirmation"), { timeout: 15_000 });
   await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   expect((await confirmation).status()).toBe(200);
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 90_000 });
   const completed = await summary(page, caseId);
   expect(completed.status).toBe("COMPLETED");
@@ -325,7 +324,6 @@ test("Garden delayed current document rendering cannot skip required field revie
   });
   try {
     const caseId = await startGarden(page, true);
-    await page.getByRole("button", { name: "Open full case" }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
     await expect.poll(() => delayed).toBe(true);
     // Reproduce the former verifier's instantaneous optional-control check while
@@ -372,23 +370,23 @@ test("Garden document arrival settles identity focus before explicit Documents i
   });
   try {
     const caseId = await startGarden(page, true);
-    await page.getByRole("button", { name: "Open full case" }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
     await openStage(page, "Document verification");
     const documents = page.getByRole("region", { name: "Document verification", exact: true });
     await expect(documents.locator(":scope > div").first()).toBeVisible();
     await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
     release();
-    await expect(page.getByRole("button", { name: "Use document UEN", exact: true })).toBeVisible();
+    await openStage(page, "Registry verification");
+    await expect(page.getByRole("radio", { name: /^Document UEN/ })).toBeVisible();
     await expect(documents.locator(":scope > div").first()).toBeVisible();
     await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
-    expect(await page.locator("#documents-heading").count()).toBe(1);
+    expect(await page.locator("#document-combined-heading").count()).toBe(1); // main-view heading (renamed)
     // The original createGarden heading assertion failed here for 15 seconds:
     // the panel is mounted, but the query-derived active-stage change hid it.
     await openGardenDocuments(page, true);
     await expect(documents.locator(":scope > div").first()).toBeVisible();
     await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible();
     expect((await summary(page, caseId)).current_stage).toBe("DOCUMENT");
   } finally {
     release();

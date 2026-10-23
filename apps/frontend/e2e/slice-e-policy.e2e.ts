@@ -54,7 +54,7 @@ async function createFrozenCase(page:Page) {
  await page.getByLabel("Registration ID / UEN").fill("202400001A");
  await page.locator("#home-document").setInputFiles(path.resolve("../backend/tests/fixtures/uat/clean-company-profile.pdf"));
  await page.getByRole("button",{name:"Create onboarding",exact:true}).click();
- await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+ await expect(page).toHaveURL(/\/cases\/([0-9a-f-]{36})$/i);
  const id=page.url().split("/").at(-1)!;
  const response=await page.request.get(`/api/clm/zero-touch/cases/${id}`);
  expect(response.status()).toBe(200);

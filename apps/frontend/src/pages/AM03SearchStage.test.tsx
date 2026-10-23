@@ -163,9 +163,10 @@ describe("AM-03 Search workspace ownership", () => {
     expect(stage("Registry verification").querySelector("#case-evidence-registry")).not.toBeNull();
     expect(stage("Existing-customer search").querySelector("#case-intervention-REGISTRY")).toBeNull();
   });
-  it("retains both stages' actions with exactly one mutable identity editor", () => {
+  it("keeps the Search action and exactly one mutable identity editor", () => {
     const value = searchFixture(); value.interventions = [projection("REGISTRY"), projection("GOLDTIER_SEARCH")]; seed(value); render();
-    expect(button("REGISTRY identity action", stage("Registry verification"))).toBeTruthy();
+    // The incomplete-identity card is a one-line summary; the identity form below is the only editor.
+    expect([...stage("Registry verification").querySelectorAll("button")].some(item => item.textContent === "REGISTRY identity action")).toBe(false);
     expect(button("GOLDTIER_SEARCH identity action", stage("Existing-customer search"))).toBeTruthy();
     expect(container.querySelectorAll("#case-identity-correction")).toHaveLength(1);
     expect(stage("Registry verification").querySelector("#case-identity-correction")).not.toBeNull();
