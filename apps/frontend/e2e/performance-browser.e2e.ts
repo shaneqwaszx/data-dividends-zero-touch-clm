@@ -11,8 +11,44 @@ const fixture = path.resolve(directory, "../../backend/tests/fixtures/uat/clean-
 const method = createHash("sha256").update(fs.readFileSync(fileURLToPath(import.meta.url))).digest("hex");
 
 async function ready(page: Page) {
-  await expect(page.locator(".onboarding-progress__stage-label")).toHaveCount(12);
+  // Ten business steps over the twelve backend stages for a clean case.
+  await expect(page.locator(".onboarding-progress__stage-label")).toHaveCount(10);
   await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible();
+}
+
+// Methodology revision: the case page now opens while the new case is still processing, so the
+// measurement starts only once its document is ingested and its ownership and intelligence evidence
+// exist. Observed through the read endpoints (untimed, read-only, finite deadline); results are not
+// comparable with earlier method hashes without a controlled comparison.
+const METHOD_REVISION = "settled-resource-precondition-v1";
+const SETTLE_DEADLINE_MS = 30_000;
+const SETTLE_POLL_MS = 250;
+
+async function awaitSettledResources(page: Page, casePath: string) {
+  const started = Date.now();
+  let polls = 0;
+  for (;;) {
+    polls++;
+    const [summary, documents, ownership, intelligence] = await Promise.all([
+      page.request.get(`/api/clm/zero-touch${casePath}`),
+      page.request.get(`/api/onboarding${casePath}/documents`),
+      page.request.get(`/api/onboarding${casePath}/ownership`),
+      page.request.get(`/api/clm/zero-touch${casePath}/intelligence`),
+    ]);
+    const observed = {
+      case_status: summary.ok() ? (await summary.json()).status : `HTTP ${summary.status()}`,
+      documents: documents.ok() ? (await documents.json() as unknown[]).length : `HTTP ${documents.status()}`,
+      ownership: ownership.status(),
+      intelligence: intelligence.status(),
+    };
+    if (typeof observed.documents === "number" && observed.documents >= 1 && observed.ownership === 200 && observed.intelligence === 200) {
+      return { ...observed, polls, waited_ms: Date.now() - started };
+    }
+    if (Date.now() - started >= SETTLE_DEADLINE_MS) {
+      throw new Error(`Settled-resource precondition not met within ${SETTLE_DEADLINE_MS} ms after ${polls} polls: ${JSON.stringify(observed)}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, SETTLE_POLL_MS));
+  }
 }
 
 async function measure(page: Page, width: number) {
@@ -52,6 +88,11 @@ async function measure(page: Page, width: number) {
     await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     await ready(page);
     const casePath = new URL(page.url()).pathname;
+    // Untimed structure check: the normal presentation has no Initial identity step, and the
+    // backend still reports all twelve authoritative stages.
+    await expect(page.locator(".onboarding-progress__stage-label").filter({ hasText: /^Initial identity$/ })).toHaveCount(0);
+    expect((await (await page.request.get(`/api/clm/zero-touch${casePath}`)).json()).processing_pipeline).toHaveLength(12);
+    const precondition = await awaitSettledResources(page, casePath);
     await page.waitForTimeout(500); // untimed settling, same protocol in both arms
     const samples: object[] = [];
     for (let index = 0; index < 22; index++) {
@@ -90,7 +131,7 @@ async function measure(page: Page, width: number) {
     expect(samples).toHaveLength(40);
     const raw = path.join(root, ".runtime/performance-optimization");
     fs.mkdirSync(raw, { recursive: true });
-    fs.writeFileSync(path.join(raw, `browser-${width}.json`), JSON.stringify({ claim: "DEVELOPMENT_MEASUREMENT", method_sha256: method, width, seeded_cases: 105, portfolio_page_limit: 50, measured_each_kind: 20, warmup_each_kind: 2, assets_cache: "HTTP cache disabled by Playwright routing", cold_scope: "query cache reset by page reload, same authenticated browser/session", warm_scope: "Cases -> same case within same loaded session", accounting_tail_ms: 500, render_work: "not separately instrumented", target_confirmation_requests: targetWrites, samples }, null, 2) + "\n");
+    fs.writeFileSync(path.join(raw, `browser-${width}.json`), JSON.stringify({ claim: "DEVELOPMENT_MEASUREMENT", method_sha256: method, method_revision: METHOD_REVISION, precondition, width, seeded_cases: 105, portfolio_page_limit: 50, measured_each_kind: 20, warmup_each_kind: 2, assets_cache: "HTTP cache disabled by Playwright routing", cold_scope: "query cache reset by page reload, same authenticated browser/session", warm_scope: "Cases -> same case within same loaded session", accounting_tail_ms: 500, render_work: "not separately instrumented", target_confirmation_requests: targetWrites, samples }, null, 2) + "\n");
  }
 
 test("Performance browser cache measurement width1440", async ({ page }) => measure(page, 1440));

@@ -138,11 +138,19 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
     };
   }, [final]);
 
+  // Browsers scroll a newly focused control only when it is outside the viewport, so moving focus
+  // back up can leave it under this section's sticky header; align it just below the header instead
+  // ("start" honours its scroll margin, "nearest" does not move an in-viewport control).
+  const keepFocusBelowHeader = (target: EventTarget) => {
+    const header = heading.current;
+    if (!(target instanceof HTMLElement) || !header || header.contains(target)) return;
+    if (target.getBoundingClientRect().top < header.getBoundingClientRect().bottom) target.scrollIntoView?.({ block: "start" });
+  };
   const restoreFocus = (element: HTMLDetailsElement) => {
     if (!element.open && element.contains(document.activeElement)) element.querySelector("summary")?.focus();
   };
   return <section ref={section} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} data-tone={status?.tone} aria-labelledby={`${id}-title`}
-    onFocusCapture={() => { sectionHasFocus.current = true; }}
+    onFocusCapture={(event) => { sectionHasFocus.current = true; keepFocusBelowHeader(event.target); }}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) sectionHasFocus.current = false; }}>
     <h2 ref={heading} id={`${id}-title`} tabIndex={-1}>
       <button ref={toggle} type="button" data-stage-toggle aria-expanded={open}

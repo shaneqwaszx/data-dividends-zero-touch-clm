@@ -355,6 +355,10 @@ describe("ten business steps over the twelve backend stages", () => {
     expect(markup).toContain("8 of 10 stages done");
     expect(markup).toContain("Submission readiness: Complete · GoldTier submission package: Not reached");
     expect(markup).not.toContain("100%");
+    // Readiness needing attention while the package is complete: the grouped step is not done.
+    const differing = renderToStaticMarkup(<OnboardingProgressPanel summary={summaryWithPipeline(backend({ READINESS: "FAILED" }))} />);
+    expect(differing).toContain("9 of 10 stages done");
+    expect(differing).toContain("Submission readiness: Failed · GoldTier submission package: Complete");
     const identity = summaryWithPipeline(backend({ INITIAL_IDENTITY: "REVIEW_REQUIRED" }));
     expect(renderToStaticMarkup(<OnboardingProgressPanel summary={identity} />)).toContain("10 of 11 stages done");
   });

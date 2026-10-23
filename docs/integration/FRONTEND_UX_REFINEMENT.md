@@ -53,7 +53,15 @@ specific authorized control (readiness inputs or GoldTier recovery), otherwise t
 section's status tiles; settled stages open the section rather than reporting details
 unavailable. The case page renders the two stages in the single "GoldTier Details &
 Status" section of the accepted redesign; the AI Assistant names the same section.
-Focus scrolling stops below each sticky section header at its measured height.
+Focus scrolling stops below each sticky section header at its measured height, and a
+control focused while partly under its section's sticky header is aligned just below it.
+
+Because Create onboarding now opens the case page while the new case is still processing,
+`performance-browser.e2e.ts` (method revision `settled-resource-precondition-v1`) starts
+measuring only after read-only polling observes the ingested document and the ownership and
+intelligence resources (30 s deadline, diagnostic failure). Warm-up/sample counts, both
+measurement kinds, strict response checks and exports are unchanged; results are not
+comparable with earlier method hashes without a controlled comparison.
 
 CaseAttentionSummary derives its current entries from the loaded summary's OPEN active
 exceptions and unmatched intervention projections, technical failure and pending document

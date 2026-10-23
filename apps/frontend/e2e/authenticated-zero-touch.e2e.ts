@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openStage, openStageSupport } from "./stage-disclosures";
+import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { reviewPendingFields } from "./blocker-decisions";
 import type { OwnershipAnalysisRecord, PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
@@ -1328,10 +1328,9 @@ test("current document review progresses authoritatively and keeps superseded hi
   await openStage(page, "Document verification");
   await expect(page.getByRole("heading", { name: "Document evidence", exact: true })).toBeVisible({ timeout: 30_000 });
   const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
-  await openStage(page, "GoldTier Details & Status");
-  await openStageSupport(page, "GoldTier Details & Status", "Technical");
-  await page.getByRole("button", { name: "Focus documents evidence" }).click();
-  await expect(page.locator("#case-blocker-review input[data-review-field]:not([disabled]), #case-blocker-review input[data-reconciliation-field]:not([disabled]), #case-evidence-documents input[type=file]").first()).toBeFocused();
+  // The rail's Document verification step reaches the current document decision (the removed
+  // case-explanation panel used the same documents focus route).
+  await focusPipelineAction(page, "DOCUMENT_IDP", page.locator("#case-blocker-review input[data-review-field]:not([disabled]), #case-blocker-review input[data-reconciliation-field]:not([disabled]), #case-evidence-documents input[type=file]").first());
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
   await expect(page.getByText("3 final / 4 fields")).toBeVisible();
   await expect(page.getByText(/1 field remains for review/)).toBeVisible();

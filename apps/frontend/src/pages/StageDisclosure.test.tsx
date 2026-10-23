@@ -314,3 +314,21 @@ describe("completed sections", () => {
     await act(async () => root.unmount()); host.remove();
   });
 });
+
+describe("sticky header focus clearance", () => {
+  it("aligns a control focused under the sticky header just below it and leaves visible controls alone", async () => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    await act(async () => root.render(<StageDisclosure title="Document verification" scopeKey="case-a" active
+      main={<><input id="covered" aria-label="Covered" /><input id="clear" aria-label="Clear" /></>} />));
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 10, width: 10, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    host.querySelector("h2")!.getBoundingClientRect = () => rect(12, 83);
+    const covered = host.querySelector<HTMLInputElement>("#covered")!; const clear = host.querySelector<HTMLInputElement>("#clear")!;
+    covered.getBoundingClientRect = () => rect(23, 130); clear.getBoundingClientRect = () => rect(200, 230);
+    const scrolled: Array<[string, ScrollIntoViewOptions | boolean | undefined]> = [];
+    covered.scrollIntoView = (options) => { scrolled.push(["covered", options]); };
+    clear.scrollIntoView = (options) => { scrolled.push(["clear", options]); };
+    act(() => covered.focus()); act(() => clear.focus());
+    expect(scrolled).toEqual([["covered", { block: "start" }]]);
+    await act(async () => root.unmount()); host.remove();
+  });
+});

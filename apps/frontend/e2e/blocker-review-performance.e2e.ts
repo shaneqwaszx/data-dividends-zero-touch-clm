@@ -13,6 +13,22 @@ const content = Buffer.from([
   "Country: SG", "Country: MY",
 ].join("\r\n"));
 
+// WCAG 2.2 SC 2.4.11: the focused element is inside the viewport and nothing covers its centre.
+function focusVisibility(page: Page) {
+  return page.evaluate(() => {
+    const element = document.activeElement!;
+    const r = element.getBoundingClientRect();
+    const { clientWidth, clientHeight } = document.documentElement;
+    // Layout rects are fractional; painting snaps them to whole pixels.
+    const [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom].map(Math.round);
+    if (top < 0 || left < 0 || bottom > clientHeight || right > clientWidth) {
+      return `outside the ${clientWidth}x${clientHeight} viewport at ${[left, top, right, bottom].join(",")}`;
+    }
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit === element || (hit !== null && element.contains(hit)) ? "unobscured" : `covered by ${hit?.closest("[class]")?.className ?? "nothing"}`;
+  });
+}
+
 async function runPerformanceGroup(page: Page, group: number) {
     const evidence = retainedEvidencePath("blocker-regression");
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -179,18 +195,7 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
       if (focused === null) break;
       visited.push(focused);
       // WCAG 2.2 SC 2.4.11: the focused review control is inside the viewport and nothing covers its centre.
-      await expect.poll(() => page.evaluate(() => {
-        const element = document.activeElement!;
-        const r = element.getBoundingClientRect();
-        const { clientWidth, clientHeight } = document.documentElement;
-        // Layout rects are fractional; painting snaps them to whole pixels.
-        const [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom].map(Math.round);
-        if (top < 0 || left < 0 || bottom > clientHeight || right > clientWidth) {
-          return `outside the ${clientWidth}x${clientHeight} viewport at ${[left, top, right, bottom].join(",")}`;
-        }
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return hit === element || (hit !== null && element.contains(hit)) ? "unobscured" : `covered by ${hit?.closest("[class]")?.className ?? "nothing"}`;
-      }), `${focused} at ${viewport.width}x${viewport.height}`).toBe("unobscured");
+      await expect.poll(() => focusVisibility(page), `${focused} at ${viewport.width}x${viewport.height}`).toBe("unobscured");
       await page.keyboard.press("Tab");
     }
     expect(await page.evaluate(() => document.activeElement?.closest("#case-blocker-review") == null)).toBe(true);
@@ -199,6 +204,25 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
     expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
     expect(visited).toContain("Use registry value for all undecided");
     expect(visited).toContain("How drafts work");
+  }
+  // Moving back up (Shift+Tab) must also keep every focused review control clear of the sticky section header.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1024, height: 768 }, { width: 1280, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    await page.locator("#case-blocker-review").locator("input:enabled, select:enabled, button:enabled, summary").last().focus();
+    const visited: string[] = [];
+    for (let stop = 0; stop < 60; stop++) {
+      const focused = await page.evaluate(() => {
+        const element = document.activeElement;
+        return element?.closest("#case-blocker-review") ? element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.tagName : null;
+      });
+      if (focused === null) break;
+      visited.push(focused);
+      await expect.poll(() => focusVisibility(page), `${focused} backwards at ${viewport.width}x${viewport.height}`).toBe("unobscured");
+      await page.keyboard.press("Shift+Tab");
+    }
+    expect(visited.filter(name => name.startsWith("Correction for "))).toHaveLength(fields.length);
+    expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
   }
   // WCAG 2.2 SC 1.4.4: the footer status, hint and "How drafts work" keep a readable column at every review width.
   for (const viewport of [{ width: 360, height: 780 }, { width: 768, height: 1024 }, { width: 960, height: 800 }, { width: 1024, height: 768 }, { width: 1280, height: 800 }, { width: 1440, height: 900 }]) {

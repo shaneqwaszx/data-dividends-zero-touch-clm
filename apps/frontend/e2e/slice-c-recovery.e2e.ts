@@ -128,8 +128,20 @@ test("Slice C optional Amend and NO_MATCH complete with neutral progress", { tag
   await expect(page.getByText("No existing customer found. Continuing as a new customer.", { exact: true }).first()).toBeVisible();
   await classify(page, caseId);
   const before = await summary(page, caseId);
-  const completed = before.processing_pipeline.filter((node: any) => ["COMPLETE", "SKIPPED"].includes(node.status)).length;
-  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(Math.round(completed / before.processing_pipeline.length * 100)));
+  // Progress counts business steps: Initial identity only while it needs attention, and
+  // READINESS + GOLDTIER_TARGET as one step that is done only when both are.
+  const stepDone = (node: any) => ["COMPLETE", "EMPTY", "SKIPPED"].includes(node.status);
+  const identityCode = (code: string | null | undefined) => code?.startsWith("INITIAL_IDENTITY_") === true;
+  const identityIssue = [...before.active_exceptions, ...(before.interventions ?? [])].some((item: any) => identityCode(item.blocker_code))
+    || identityCode(before.case.error?.code);
+  const grouped = before.processing_pipeline.filter((node: any) => ["READINESS", "GOLDTIER_TARGET"].includes(node.node_id));
+  const steps = before.processing_pipeline.filter((node: any) => !["READINESS", "GOLDTIER_TARGET"].includes(node.node_id)
+    && !(node.node_id === "INITIAL_IDENTITY" && stepDone(node) && !identityIssue));
+  const total = steps.length + (grouped.length ? 1 : 0);
+  const completed = steps.filter(stepDone).length + (grouped.length && grouped.every(stepDone) ? 1 : 0);
+  expect(before.processing_pipeline).toHaveLength(12);
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(Math.round(completed / total * 100)));
+  await expect(page.locator(".onboarding-progress__percent")).toContainText(`${completed} of ${total} stages done`);
   await confirm(page, caseId, true);
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("COMPLETED");
   const done = await summary(page, caseId);
