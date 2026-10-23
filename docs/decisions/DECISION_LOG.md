@@ -406,3 +406,30 @@ acceptance and independent gate. Not ACRA ownership, Live or production evidence
 UBO policy (Q-004), Marketplace relationship/denominator capability (Q-012), person
 identity authority (Q-019) or GoldTier hierarchy writes (Q-002). No live Marketplace
 probe was run in the implementing session (credential access was not permitted).
+
+## D-078 - owner decision on manual replacement of D-077 hybrid analyses
+
+Owner decision 2026-10-24, A1 of the Garden/OPQ REVIEW_REQUIRED investigation: option 1,
+keep current behavior. The existing creator source decisions from the PR #69 contract
+(`USER_SUPPLIED_DECLARATION`, `CURRENT_EVIDENCE`, `DOCUMENT_OBSERVATIONS`), each subject
+to its existing conditions, may replace a D-077 hybrid analysis with no new restriction.
+That includes `CURRENT_EVIDENCE` retention of its `LOCAL_SYNTHETIC_RELATIONSHIP` graph.
+
+The replacement is a `MANUAL_DECLARATION_POC`/`LOCAL` creator declaration. It drops
+`SYNTHETIC_OWNERSHIP_EVIDENCE` and, because manual sources carry no registry legal form,
+`OWNERSHIP_METHOD_UNSUPPORTED`. It is never ACRA, Mock or Live evidence, and never a legal
+UBO determination. The creator remains accountable through three existing safeguards:
+- the review receipt (actor, time, source selection, replaced analysis and version);
+- the retained prior hybrid analysis, with its source classification,
+  `SYNTHETIC_OWNERSHIP_EVIDENCE` and synthetic links. Retention is bounded to the latest
+  four prior analyses. After four further snapshot-creating changes (manual replacements
+  or document/identity reloads), the hybrid snapshot is no longer in the ownership record.
+  The hybrid analysis itself carries no receipt. The `CURRENT_EVIDENCE` receipt that names
+  it is held by the next analysis and drops out one change later;
+- the separate target-dispatch confirmation required before any GoldTier target mutation.
+  GoldTier Search runs earlier and is read-only.
+
+An incomplete replacement still requires review. No runtime behavior changed.
+
+Authority: `USER_AUTHORIZED_POC`. Not sponsor-confirmed reviewer authority (Q-014), legal
+UBO policy (Q-004) or Marketplace ownership capability (Q-012).

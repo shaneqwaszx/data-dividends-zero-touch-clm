@@ -337,8 +337,10 @@ Marketplace Mock lane). The default keeps the accepted flattened Garden suppleme
 - **Declared basis.** Each issuer declares active same-class units and a complete active
   denominator that must equal their sum; withdrawn rows never become edges; float,
   group/member, non-ordinary or unverified-UEN rows fail closed. The D-046 six-decimal
-  rule derives each direct percentage. Original units are retained as
-  `supplemental_evidence`, outside arithmetic.
+  rule derives each direct percentage. The root's original units are retained as
+  `supplemental_evidence`, outside arithmetic. Corporate issuers' declared units are not
+  retained separately; only their derived direct percentages appear on the links, and
+  the whitelisted catalogue remains their source.
 - **Provenance.** Links are `LOCAL_SYNTHETIC_RELATIONSHIP` / `LOCAL`. Entity identity is
   official only when the official lookup returned the same-UEN profile.
 - **Root.** Applied only to fresh, successful, same-UEN official Marketplace evidence.
@@ -357,6 +359,13 @@ Marketplace Mock lane). The default keeps the accepted flattened Garden suppleme
   same inclusive comparator on the declared basis: MET survives unresolved branches,
   NOT_MET needs complete topology or a sound bound; cycles, limits, person ambiguity or
   contradictions give INDETERMINATE. It is never a classification or readiness input.
+- **Manual replacement (D-078).** The existing creator source decisions may replace a
+  hybrid analysis, including `CURRENT_EVIDENCE` retention of its synthetic graph. The
+  result is a `MANUAL_DECLARATION_POC` declaration without `SYNTHETIC_OWNERSHIP_EVIDENCE`
+  or `OWNERSHIP_METHOD_UNSUPPORTED` (manual sources carry no registry legal form). The
+  receipt records the selection, and the prior hybrid analysis stays in the bounded
+  `prior_analyses` (latest four only). Target-dispatch confirmation is still required.
+  It is not ACRA verification or a legal UBO determination.
 
 Five-layer declared topology (fictional): `201511222D` -> `200811111M` 80% ->
 `201688888A` 62.5% -> `200811111K` 60% / `199801111H` 40% -> `111111111K` 100% / 50%,
