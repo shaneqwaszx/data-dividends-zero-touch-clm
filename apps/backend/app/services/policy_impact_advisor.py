@@ -408,7 +408,11 @@ class PolicyImpactAdvisor:
             stage: Stage = (
                 selected[0].stage
                 if selected
-                else ("READINESS" if identity.startswith("MOCK_RISK") else "INTELLIGENCE")
+                else "READINESS"
+                if identity.startswith("MOCK_RISK")
+                else "OWNERSHIP"
+                if identity.startswith("OWNERSHIP_")
+                else "INTELLIGENCE"
             )
             coupled = (
                 CLASSIFIER_IDS

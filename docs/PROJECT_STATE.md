@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 10,
+  "case_envelope_schema_version": 11,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -140,8 +140,9 @@ main behavior changes without a closeout refresh, not merely when a feature comm
 created. A later documentation-only closeout commit does not replace the inspected
 behavioral baseline. `schema_version` versions this metadata format;
 `case_envelope_schema_version` is independently checked against the canonical
-persistence constant. Inspected main uses case envelope v10 and strictly reads valid
-legacy v1..v9 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
+persistence constant. The D-076 candidate source uses case envelope v11 (optional
+frozen ownership-discovery policy and discovery audit) and strictly reads valid legacy
+v1..v10 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
 in `apps/backend/app/persistence/models.py` and the version-specific decoders in
 `apps/backend/app/persistence/mongo_case_store.py`. This documents existing compatibility;
 no migration or persistence behavior is changed by this refresh. Historical tests and
@@ -554,8 +555,8 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v10) owns durable case
-  state. Strict legacy v1..v9 reads preserve absent historical fields, including v4
+- One schema-versioned case envelope (current schema v11) owns durable case
+  state. Strict legacy v1..v10 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
   while newly authored records use v2. A safe non-terminal v1 continuation is rebased in

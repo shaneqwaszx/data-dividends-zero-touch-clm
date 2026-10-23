@@ -348,3 +348,25 @@ retrieval quality; the local synthetic and mock embedding tests remain the funct
 retrieval evidence. Q-014 review authority stays UNKNOWN_BLOCKED and no sponsor approval or
 production readiness is claimed. Cycle 9 aligns the knowledge-review scope of Directors with
 the CLM backend's global Director scope (a defect fix, not a new authority).
+
+## D-076 - owner-authorized registry-driven recursive ownership discovery (candidate)
+
+The 2026-10-23 owner assignment (Master Assignment v4) authorizes bounded Singapore Mock
+recursive corporate-owner discovery: each verified-UEN corporate owner is acquired from
+its own registry record through the existing coordinator, cache-first, and attached to
+the one Decimal graph ([ADR-013](ADR-013_REGISTRY_DRIVEN_CORPORATE_OWNERSHIP_DISCOVERY.md)).
+Garden `11111999A` and SIM LIM `111111111M` become separate synthetic Mock issuers using
+the owner-supplied Garden shareholder body; D-046 equal-unit derivation stays inside
+these two fixtures and the accepted Garden UBO percentages are unchanged. The local
+dataset namespace becomes `MOCK_ACRA_SYNTHETIC_V2`; the official Marketplace Mock keeps
+its labelled Garden supplement because it has no separate SIM LIM ownership operation.
+
+New editable rules: trace threshold 10% (never above the D-062 UBO threshold; retrieval
+priority only), corporate depth 5 (1-7), business call budget disabled (max 10, 1-32).
+Fixed technical caps: 32 issuer lookups, 60 s, sequential. Unresolved branches, deferred
+branches and repeated cross-issuer person identifiers keep review required. Authority:
+`USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated acceptance and
+independent gate. Not legal UBO policy (Q-004), real ACRA subsidiary capability (Q-012),
+person identity or traversal authority (Q-019), cross-lane cache sharing or GoldTier
+hierarchy writes (Q-002). A 0% UBO threshold can no longer be activated because the
+positive trace threshold may not exceed it.

@@ -30,6 +30,7 @@ from app.connectors.goldtier_models import (
 from app.connectors.goldtier_xpi import observed_goldtier_xpi_search_status
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.connectors.registry import (
+    AcraIdentifierNotEligibleError,
     AcraRegistryProviderAdapter,
     RegistryProvider,
     RegistryProviderRouter,
@@ -56,6 +57,7 @@ from app.domain.models import (
     RegistryAcquisitionBundle,
     RegistryAcquisitionStatus,
     RegistryEvidenceBinding,
+    RegistryEvidenceDisposition,
     RegistryOperationStatus,
     SafeError,
     TargetDispatchConfirmation,
@@ -81,6 +83,7 @@ from app.domain.policy import (
     GoldTierTargetPolicySnapshot,
     IntelligencePolicySnapshot,
     PolicyAuthority,
+    RegistryPolicySnapshot,
     legacy_phase13_policy_snapshot,
 )
 from app.domain.reconciliation import ReconciliationField
@@ -118,8 +121,10 @@ from app.services.errors import (
     TargetProviderContextMismatchError,
 )
 from app.services.registry_acquisition import (
+    RegistryAcquisitionBusyError,
     RegistryAcquisitionCoordinator,
     RegistryCacheError,
+    SubsidiaryRegistryEvidence,
 )
 from app.services.repository import OnboardingCaseRepository
 from app.services.target_execution_repository import (
@@ -1915,6 +1920,55 @@ class OnboardingService:
             )
         return self._acquire_required_registry_evidence(
             case, registry_provider, normalised_uen
+        )
+
+    def acquire_subsidiary_registry_evidence(
+        self,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None,
+        policy_version: int,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> SubsidiaryRegistryEvidence:
+        """Read one corporate owner's own registry evidence without touching any case.
+
+        This narrow interface reuses the closed Singapore route and the single registry
+        coordinator: a fresh eligible snapshot is a zero-call cache hit; a miss or stale
+        entry uses the configured provider once under the existing per-key single-flight.
+        It never replaces a case acquisition, binding, lock or event history.
+        """
+
+        normalized = identifier.strip().upper()
+        if not is_eligible_singapore_uen(normalized):
+            raise AcraIdentifierNotEligibleError
+        _, provider = self._registry_router.route(
+            JurisdictionCode.SINGAPORE, decided_at=self._clock()
+        )
+        if provider is None:
+            raise AcraIdentifierNotEligibleError
+        coordinator = self._registry_acquisition_coordinator
+        if coordinator is None:
+            if cancelled is not None and cancelled():
+                raise RegistryAcquisitionBusyError
+            return SubsidiaryRegistryEvidence(
+                identifier=normalized,
+                acquisition=provider.retrieve_acquisition(normalized),
+                disposition=None,
+                provider_backed=True,
+            )
+        result = coordinator.acquire(
+            provider,
+            normalized,
+            case_policy=case_policy,
+            policy_version=policy_version,
+            cancelled=cancelled,
+        )
+        disposition = result.binding.disposition if result.binding is not None else None
+        return SubsidiaryRegistryEvidence(
+            identifier=normalized,
+            acquisition=result.acquisition,
+            disposition=disposition,
+            provider_backed=disposition != RegistryEvidenceDisposition.CACHE_HIT,
         )
 
     def _acquire_required_registry_evidence(

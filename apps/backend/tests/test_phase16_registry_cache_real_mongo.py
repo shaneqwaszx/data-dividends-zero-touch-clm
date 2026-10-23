@@ -299,7 +299,7 @@ def test_exact_key_dataset_isolation_is_a_miss(isolated_settings: Settings) -> N
         coordinator.acquire(_provider(connector, clock), VALID_UEN)
         adjacent_key = RegistryCacheKey(
             provider_identity=_identity().model_copy(
-                update={"dataset_namespace": "MOCK_ACRA_SYNTHETIC_V2"}
+                update={"dataset_namespace": "MOCK_ACRA_SYNTHETIC_V3"}
             ),
             normalized_identifier=VALID_UEN,
         )

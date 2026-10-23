@@ -56,6 +56,10 @@ export function policyExplanation(rule: PolicyRule): { formula: string; affects:
   if (id.startsWith("EVIDENCE_")) return { formula: "Semantic score = kind weight × recognized kind + binding weight × identifier present + confidence weight × source confidence; recognized evidence requires score ≥ threshold", affects: "New analyses: deterministic semantic labels; ownership arithmetic and legal findings remain separate" };
   if (id === "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD") return { formula: "Provisional document continuation when field confidence ≥ threshold", affects: "New cases: document review and reconciliation" };
   if (id.startsWith("OWNERSHIP_UBO_")) return { formula: "Numeric UBO candidate when aggregated Decimal ownership percent ≥ threshold", affects: "New cases: ownership candidates; unresolved control and contradiction still require review" };
+  if (id === "OWNERSHIP_TRACE_THRESHOLD_PERCENT") return { formula: "Acquire a corporate owner first when its root-equivalent share ≥ threshold (e.g. 50% × 20% = 10%); smaller branches are deferred only when a bound shows no UBO result can change", affects: "New cases: retrieval priority only; a deferred branch keeps ownership under review and never marks anyone non-UBO" };
+  if (id === "OWNERSHIP_DISCOVERY_MAX_CORPORATE_DEPTH") return { formula: "Onboarding company is level 0; corporate owners at levels 1 to this value are acquired from their own registry record", affects: "New cases: deeper corporate owners stay unresolved for review; the 8-edge calculation limit is unchanged" };
+  if (id === "OWNERSHIP_REGISTRY_CALL_BUDGET_ENABLED") return { formula: "When on, stop new provider-backed corporate-owner acquisitions once the registry call budget is reached", affects: "New cases: off means no business cap; fixed technical safeguards still bound every analysis" };
+  if (id === "OWNERSHIP_REGISTRY_CALL_BUDGET_MAX") return { formula: "Counts provider-backed corporate-owner acquisitions per analysis; fresh cache hits do not count", affects: "New cases, only while the budget is enabled; remaining corporate owners stay unresolved for review" };
   if (id.startsWith("ENTITY_RESOLUTION_")) return { formula: "Resolution score = Σ(feature similarity × approved feature weight); thresholds and ambiguity margin determine match or review", affects: "New cases: advisory entity resolution" };
   if (id.startsWith("UBO_ADVISORY_")) return { formula: "Advisory score is compared with likely and unlikely thresholds", affects: "New cases: advisory classification; never a legal UBO decision" };
   if (id.startsWith("MOCK_RISK_")) return { formula: "Mock risk score is compared with medium/high thresholds; blocking applies only when enabled", affects: "New cases: mock advisory risk and readiness" };
@@ -70,7 +74,7 @@ export function policyCategory(rule: PolicyRule): string {
 }
 
 // Presentation-only helpers: they format values and filter the view; they never change what is proposed or saved.
-const POLICY_UNITS: Record<string, string> = { REGISTRY_FRESHNESS_DAYS: "days", REGISTRY_NOT_FOUND_TTL_SECONDS: "seconds", OWNERSHIP_UBO_THRESHOLD_PERCENT: "%" };
+const POLICY_UNITS: Record<string, string> = { REGISTRY_FRESHNESS_DAYS: "days", REGISTRY_NOT_FOUND_TTL_SECONDS: "seconds", OWNERSHIP_UBO_THRESHOLD_PERCENT: "%", OWNERSHIP_TRACE_THRESHOLD_PERCENT: "%", OWNERSHIP_DISCOVERY_MAX_CORPORATE_DEPTH: "levels", OWNERSHIP_REGISTRY_CALL_BUDGET_MAX: "acquisitions" };
 export function formatPolicyValue(rule: PolicyRule, value: PolicyValue): string {
   const unit = POLICY_UNITS[rule.policy_id];
   const text = displayPolicyValue(value);

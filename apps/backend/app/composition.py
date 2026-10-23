@@ -84,6 +84,7 @@ from app.services.document_repository import (
 from app.services.onboarding import EntityResolver, OnboardingService
 from app.services.onboarding_intelligence import OnboardingIntelligenceService
 from app.services.ownership_analysis import OwnershipAnalysisService
+from app.services.ownership_discovery import OwnershipDiscoveryCoordinator
 from app.services.ownership_repository import (
     InMemoryOwnershipAnalysisRepository,
     OwnershipAnalysisRepository,
@@ -372,6 +373,9 @@ def build_ownership_analysis_service(
         ),
         documents=documents,
         garden_supplement_enabled=settings.acra_connector_mode == "api_marketplace_mock",
+        # Corporate owners are acquired separately through the same registry owner;
+        # only cases with a frozen discovery policy use it.
+        discovery=OwnershipDiscoveryCoordinator(onboarding_service),
         repository=repository or InMemoryOwnershipAnalysisRepository(),
         threshold_percent=settings.ubo_ownership_threshold_percent,
         max_parties=settings.ownership_max_parties,

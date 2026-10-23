@@ -443,13 +443,14 @@ def test_nested_registry_percentages_keep_actual_owned_entity_bindings() -> None
     from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
 
     cases = build_onboarding_service(settings=Settings(_env_file=None))
-    case = cases.create_case("11111999A")
+    # A single flattened multi-level bundle; Garden is now a direct-only issuer (D-076).
+    case = cases.create_case("202400009I")
     result = RegistryAcquisitionOwnershipProvider(cases).load(OwnershipProviderRequest(
-        case_id=case.case_id, registration_number="11111999A", display_name="Synthetic"
+        case_id=case.case_id, registration_number="202400009I", display_name="Synthetic"
     ))
     parties = {party.party_id: party for party in result.parties}
     nested = [edge for edge in result.relationships if edge.parent_party_id != result.root_party_id]
-    assert len(nested) == 3
+    assert len(nested) == 2
     for edge in result.relationships:
         assert any(item.party_id == edge.child_party_id and
                    item.numeric_value == edge.ownership_percent and

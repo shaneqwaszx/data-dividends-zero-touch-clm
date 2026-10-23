@@ -120,6 +120,10 @@ def test_default_catalogue_is_exact_and_snapshot_is_typed() -> None:
         "EVIDENCE_BINDING_WEIGHT",
         "EVIDENCE_CONFIDENCE_WEIGHT",
         "EVIDENCE_CLASSIFICATION_THRESHOLD",
+        "OWNERSHIP_TRACE_THRESHOLD_PERCENT",
+        "OWNERSHIP_DISCOVERY_MAX_CORPORATE_DEPTH",
+        "OWNERSHIP_REGISTRY_CALL_BUDGET_ENABLED",
+        "OWNERSHIP_REGISTRY_CALL_BUDGET_MAX",
     ]
     snapshot = service.case_snapshot()
     assert str(snapshot.idp_review_confidence_threshold) == "0.85"
@@ -202,7 +206,7 @@ def test_exact_legacy_policy_catalogue_is_upgraded_once_with_an_audit_event() ->
     first = PolicyManagementService(repository, clock=lambda: now).catalogue()
     second = PolicyManagementService(repository, clock=lambda: now).catalogue()
 
-    assert len(first.rules) == 35
+    assert len(first.rules) == 39
     assert first.version == 2
     assert first.audit_events[-1].action == "POLICY_CATALOGUE_MIGRATED"
     assert second == first
@@ -329,7 +333,7 @@ def test_all_authenticated_roles_can_read_policy_catalogue(user_id: str) -> None
     client, _ = _client_for(user_id)
     response = client.get("/api/policies")
     assert response.status_code == 200
-    assert len(response.json()["rules"]) == 35
+    assert len(response.json()["rules"]) == 39
 
 
 def test_target_policy_api_exposes_fixed_sponsor_documented_authority() -> None:
