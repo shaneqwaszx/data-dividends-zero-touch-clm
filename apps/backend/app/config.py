@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     local_ocr_executable: str | None = Field(default=None, max_length=512)
     local_ocr_timeout_seconds: float = Field(default=12.0, gt=0, le=20.0)
     garden_supplement_enabled: bool = False
+    # Official Marketplace Mock ownership composition: the accepted flattened Garden
+    # LOCAL fixture, or the whitelisted D-077 hybrid direct-holder overlays.
+    acra_marketplace_ownership_overlay: Literal[
+        "garden_legacy_supplement", "hybrid_direct_overlay"
+    ] = "garden_legacy_supplement"
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
@@ -129,6 +134,13 @@ class Settings(BaseSettings):
         if self.garden_supplement_enabled and self.acra_connector_mode != "api_marketplace_mock":
             raise ValueError(
                 "Garden supplement requires the explicit official Marketplace Mock lane."
+            )
+        if (
+            self.acra_marketplace_ownership_overlay == "hybrid_direct_overlay"
+            and self.acra_connector_mode != "api_marketplace_mock"
+        ):
+            raise ValueError(
+                "Hybrid ownership overlays require the explicit official Marketplace Mock lane."
             )
         return self
 

@@ -1049,3 +1049,16 @@ shares. Durable additions: optional case-frozen `ownership_discovery` policy and
 ownership `discovery` audit (case envelope schema 11), and catalogue schema 3 `MIGRATED`
 activation. Garden/SIM LIM are separate local Mock issuers (`MOCK_ACRA_SYNTHETIC_V2`);
 the official Marketplace Mock lane keeps its labelled Garden supplement.
+
+## Hybrid Marketplace overlay - unmerged candidate, 2026-10-23
+
+D-077 extends the D-076 owners without a new service, repository or calculator. The
+opt-in official-lane composition `hybrid_direct_overlay` wires a whitelisted
+`HybridOwnershipOverlayCatalogue` (connector fixture boundary) into
+`OwnershipAnalysisService`, which applies the root's declared direct holders after
+eligible official evidence and passes the scenario to `OwnershipDiscoveryCoordinator`.
+Each corporate holder is still acquired through `acquire_subsidiary_registry_evidence()`
+(official namespace, cache first); declared holders attach only after a definitive
+official answer, as LOCAL_SYNTHETIC_RELATIONSHIP links, and the analysis always stays
+review-required. Case envelope schema 12. The default official-lane composition, the
+local Mock lane and historical cases are unchanged.

@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 11,
+  "case_envelope_schema_version": 12,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -140,9 +140,11 @@ main behavior changes without a closeout refresh, not merely when a feature comm
 created. A later documentation-only closeout commit does not replace the inspected
 behavioral baseline. `schema_version` versions this metadata format;
 `case_envelope_schema_version` is independently checked against the canonical
-persistence constant. The D-076 candidate source uses case envelope v11 (optional
-frozen ownership-discovery policy and discovery audit) and strictly reads valid legacy
-v1..v10 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
+persistence constant. The D-076 source introduced case envelope v11 (optional frozen
+ownership-discovery policy and discovery audit). The D-077 candidate uses v12 (optional
+hybrid overlay classification, per-issuer official lookup/identity basis, evidence
+separation and labelled synthetic-basis comparison) and strictly reads valid legacy
+v1..v11 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
 in `apps/backend/app/persistence/models.py` and the version-specific decoders in
 `apps/backend/app/persistence/mongo_case_store.py`. This documents existing compatibility;
 no migration or persistence behavior is changed by this refresh. Historical tests and
@@ -555,8 +557,8 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v11) owns durable case
-  state. Strict legacy v1..v10 reads preserve absent historical fields, including v4
+- One schema-versioned case envelope (current schema v12) owns durable case
+  state. Strict legacy v1..v11 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
   while newly authored records use v2. A safe non-terminal v1 continuation is rebased in
@@ -972,3 +974,15 @@ mapping, ownership policy, authorization owner or target-ledger change is introd
 Accepted replacement/retry503, failed siblings, original A01-A07/B01-B12 and root-ID
 selection remain regression requirements. Historical PASS does not accept changed bytes;
 publication depends on the separately assigned fresh PR83 P1 independent gate and checks.
+
+## Five-layer hybrid Marketplace overlay - unmerged candidate, 2026-10-23
+
+Candidate D-077 on `feat/acra-marketplace-hybrid-five-layer-ubo-20261023` from main
+`24c3de385ba5cda099a3dc3b1b266fdf93aa4738`: explicit official-lane setting
+`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay` (default unchanged), whitelisted
+Garden-direct and five-layer scenarios, cache-first official issuer lookups,
+LOCAL_SYNTHETIC_RELATIONSHIP links, always REVIEW_REQUIRED, schema 12, and the uploadable
+`five-layer-marketplace-hybrid-client.pdf`. Provider classifications are unchanged; the
+hybrid lane is not Live. Its offline browser/API evidence uses an allowlisted protocol
+transport (AUTOMATED_OFFLINE_SIMULATION). No live Marketplace Mock probe ran in the
+implementing session (NOT_RUN_CREDENTIALS). See `demo/FIVE_LAYER_ACRA_HYBRID_DEMO.md`.

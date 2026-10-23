@@ -1964,11 +1964,14 @@ class OnboardingService:
             cancelled=cancelled,
         )
         disposition = result.binding.disposition if result.binding is not None else None
+        cache_hit = disposition == RegistryEvidenceDisposition.CACHE_HIT
         return SubsidiaryRegistryEvidence(
             identifier=normalized,
             acquisition=result.acquisition,
             disposition=disposition,
-            provider_backed=disposition != RegistryEvidenceDisposition.CACHE_HIT,
+            provider_backed=not (cache_hit or result.negative_cache_hit),
+            negative_cache_hit=result.negative_cache_hit,
+            entity_profile_reused=cache_hit or result.entity_profile_reused,
         )
 
     def _acquire_required_registry_evidence(

@@ -371,6 +371,11 @@ def _quantized_share(units: Decimal, total: Decimal) -> Decimal:
     return (units * Decimal("100") / total).quantize(_SIX_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
 
 
+def quantized_unit_share(units: Decimal, total: Decimal) -> Decimal:
+    """The same six-decimal equal-unit rule, for explicitly whitelisted fixtures only."""
+    return _quantized_share(units, total)
+
+
 def _active_shareholders(
     values: Sequence[Mapping[str, object] | GardenShareholderFixture],
 ) -> tuple[GardenShareholderFixture, ...]:

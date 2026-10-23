@@ -65,3 +65,11 @@ evidence was retained/tagged/analyzed in process memory by the candidate's curre
 canonical owners; only the sanitized result above is retained. Offline synthetic
 compatible denominator tests prove arithmetic without claiming network UBOs.
 The discovery script remains an explicit opt-in task tool, outside runtime composition.
+
+## D-077 five-layer probe lane (2026-10-23)
+
+`scripts/phase24_acra_mock_discovery.py --lane five-layer-hybrid` is the bounded
+owner-run probe for the eight D-077 sample UENs (at most 16 reads; one diagnostic
+`111111111M` shareholder read labelled `UNBOUND_NOT_CANONICAL`). The implementing session
+did not run it: credential access was not permitted there (`NOT_RUN_CREDENTIALS`), so no
+new network observation is recorded and the table above remains the latest observation.
