@@ -100,6 +100,19 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
     return () => element?.removeEventListener("reveal-stage", reveal);
   }, []);
 
+  // Focus scrolling stops below the sticky header at whatever height its title wraps to.
+  useLayoutEffect(() => {
+    const element = section.current;
+    const header = heading.current;
+    if (!element || !header) return;
+    const measure = () => element.style.setProperty("--stage-header-height", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const beforePrint = () => {
       if (!final || printedState.current) return;

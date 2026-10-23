@@ -47,7 +47,7 @@ async function create(page: Page, fresh = false) {
   expect((await intake).request().postDataJSON()).toEqual({ expected_document_count: 1 });
   await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const classified = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));
@@ -262,11 +262,11 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
   const mutations: string[] = [];
   page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); });
   const final = page.locator(".stage-disclosure--final");
-  const target = page.locator(".stage-disclosure").filter({ has: page.locator("h2").filter({ hasText: /^GoldTier submission package$/ }) });
+  const target = page.locator(".stage-disclosure").filter({ has: page.locator("h2").filter({ hasText: /^GoldTier Details & Status$/ }) });
   const confirm = final.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true, includeHidden: true });
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const [name, stage] of [["GoldTier submission package", target], ["Final review & send", final]] as const) {
+    for (const [name, stage] of [["GoldTier Details & Status", target], ["Final review & send", final]] as const) {
       await openStage(page, name); // completed sections start collapsed
       await expect(stage.locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
       await expect(stage.locator(":scope > div").first()).toBeVisible();
@@ -301,7 +301,7 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
     // Timestamp values display formatted; their exact sent value is the <time dateTime> attribute.
     expect(await final.locator(".review-and-send__operation dd").evaluateAll(items => items.map(item => item.querySelector("time")?.getAttribute("datetime") ?? item.textContent)))
       .toEqual(fields.map((field: any) => field.value ?? "Not provided"));
-    await expect(target.getByLabel("Submission details", { exact: true })).toBeVisible(); await expect(target).not.toContainText("Submission environment");
+    await expect(target.locator(".goldtier-status")).toBeVisible(); await expect(target).not.toContainText("Submission environment");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
   const supports = final.locator(":scope > details");

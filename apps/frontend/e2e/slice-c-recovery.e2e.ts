@@ -85,7 +85,7 @@ async function classify(page: Page, caseId: string) {
     await navigateAction(page, caseId, "CLASSIFICATION");
     await expect(page.getByLabel("KYC customer type", { exact: true })).toBeFocused();
   }
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const response = page.waitForResponse((result) => result.request().method() === "PUT"
@@ -146,14 +146,14 @@ test("Slice C stale policy rebind preserves selection and resumes", { tag: "@sli
   await classify(page, caseId);
   const before = await summary(page, caseId);
   expect(before.case.policy_rebind.configuration_status).toBe("REQUIRES_REBIND");
-  await openStage(page, "Submission readiness");
-  await focusPipelineAction(page, "READINESS", page.getByLabel("Rebind rationale", { exact: true }));
+  await openStage(page, "GoldTier Details & Status");
+  await focusPipelineAction(page, "GOLDTIER_DETAILS", page.getByLabel("Rebind rationale", { exact: true }));
   await page.getByLabel("Rebind rationale", { exact: true }).fill("Replace synthetic retained legacy target configuration.");
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/policy-rebind"));
   await page.getByRole("button", { name: "Update system-set Singapore values", exact: true }).click();
   expect((await response).status()).toBe(200);
-  await openStageSupport(page, "Submission readiness", "Technical");
+  await openStageSupport(page, "GoldTier Details & Status", "Technical");
   await expect(page.getByLabel("Latest policy rebind receipt", { exact: true })).toBeVisible();
   const rebound = await summary(page, caseId);
   expect(rebound.case.policy_snapshot_revision).toBe(2);
@@ -178,8 +178,8 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   await openStage(page, "Final review & send");
   await expect(page.getByText("Retained target operations are resolved. Backend recovery can finish the approved submission without repeating them.", { exact: true })).toBeVisible();
   expect(resumeCalls).toBe(0);
-  await openStage(page, "GoldTier submission package");
-  const pendingTarget = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  await openStage(page, "GoldTier Details & Status");
+  const pendingTarget = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
   const pendingToggle = pendingTarget.locator(":scope > h2 > button");
   await pendingToggle.focus(); await page.keyboard.press("Enter");
   await expect(pendingToggle).toHaveAttribute("aria-expanded", "false");
@@ -198,10 +198,10 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   expect((await resumed.json()).status).toBe("COMPLETED");
   expect(resumeCalls).toBe(1);
   // Completion remains visible in persistent Main; optional supports stay closed.
-  const targetStage = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  const targetStage = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
   await expect(targetStage.locator(":scope > h2")).toBeVisible();
   await expect(targetStage.locator(":scope > details[open]")).toHaveCount(0);
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   expect((await metadata(page)).operations).toEqual(before.operations);
   expect((await summary(page, caseId)).active_exceptions).toEqual([]);
@@ -228,7 +228,7 @@ test("Slice C failed Search exposes bounded read-only recheck", { tag: "@slice-c
   page.on("request", navigationListener);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    const target = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+    const target = page.getByRole("region", { name: "GoldTier Details & Status", exact: true });
     const toggle = target.locator(":scope > h2 > button");
     await toggle.focus(); await page.keyboard.press("Enter");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");

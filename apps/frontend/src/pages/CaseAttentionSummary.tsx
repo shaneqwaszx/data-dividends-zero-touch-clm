@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 
 import type { HumanInterventionProjection, ProcessingNode, ZeroTouchCaseSummary, ZeroTouchException } from "../types";
-import { PipelineRail } from "./CaseStatePanels";
+import { businessStageIdFor, PipelineRail } from "./CaseStatePanels";
 
 export type AttentionDestination =
   | { kind: "exception"; exception: ZeroTouchException }
@@ -109,10 +109,12 @@ export function CasePipelineAttention({ summary, onNavigate, onStageActivate }: 
   const listId = useId();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const pipeline = summary.processing_pipeline ?? [];
-  // Place each item on the first step owning its backend stage, preferring a step that needs attention.
+  // Place each item on the first step owning its backend stage, preferring a step that needs attention;
+  // a backend stage shown inside a grouped business step places its items on that step.
   function nodeFor(stage: string | undefined) {
     const owners = pipeline.filter(node => node.backend_stage === stage);
-    return (owners.find(node => ["REVIEW_REQUIRED", "BLOCKED", "FAILED"].includes(node.status)) ?? owners[0])?.node_id;
+    const owner = (owners.find(node => ["REVIEW_REQUIRED", "BLOCKED", "FAILED"].includes(node.status)) ?? owners[0])?.node_id;
+    return owner && businessStageIdFor(owner);
   }
   const grouped = new Map<string, AttentionItem[]>();
   const general: AttentionItem[] = [];

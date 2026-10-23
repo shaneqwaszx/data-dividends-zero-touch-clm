@@ -1,7 +1,7 @@
 ---
 id: guidance.review-and-send
 title: Human review and the final Review & Send step
-stages: Final review & send, Submission readiness
+stages: Final review & send, Submission readiness, GoldTier Details & Status
 source: docs/decisions/DECISION_LOG.md#D-009, docs/decisions/DECISION_LOG.md#D-062
 illustrative: false
 ---

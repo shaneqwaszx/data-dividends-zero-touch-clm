@@ -57,9 +57,81 @@ function pipelineRailState(status: ProcessingNodeStatus): "done" | "now" | "atte
   return "";
 }
 
-/** Presentation: all twelve backend stages stay visible, each with its own name and status. */
-export function businessStagePipeline(backendPipeline: ProcessingNode[]): ProcessingNode[] {
-  return backendPipeline;
+export const GOLDTIER_DETAILS_STAGE_LABEL = "GoldTier Details & Status";
+/** Presentation-only id of the visual step that groups the two backend stages below. */
+export const GOLDTIER_DETAILS_STEP_ID = "GOLDTIER_DETAILS";
+const GOLDTIER_DETAILS_NODE_IDS = ["READINESS", "GOLDTIER_TARGET"];
+
+/**
+ * Presentation-only mapping of the twelve backend stages to the business steps shown.
+ * Initial identity is shown while it is not done or an identity issue is retained, so it is never hidden.
+ * READINESS and GOLDTIER_TARGET appear as one step: its marker uses the member that needs the
+ * user most, so the step is done only when both are; each member keeps its own status and details.
+ */
+export function businessStagePipeline(backendPipeline: ProcessingNode[], identityIssue = false): ProcessingNode[] {
+  const pipeline = backendPipeline.filter(node => node.node_id !== "INITIAL_IDENTITY" || identityIssue || pipelineRailState(node.status) !== "done");
+  const grouped = pipeline.filter(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id));
+  if (grouped.length < 2) return pipeline;
+  const lead = grouped.find(node => pipelineRailState(node.status) === "attention")
+    ?? grouped.find(node => node.status === "IN_PROGRESS")
+    ?? grouped.find(node => pipelineRailState(node.status) !== "done")
+    ?? grouped[0];
+  const step: ProcessingNode = {
+    node_id: GOLDTIER_DETAILS_STEP_ID,
+    label: GOLDTIER_DETAILS_STAGE_LABEL,
+    status: lead.status,
+    backend_stage: null,
+    timestamp: lead.timestamp,
+    children: [],
+  };
+  const firstIndex = pipeline.findIndex(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id));
+  return pipeline.flatMap((node, index) => (
+    !GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id) ? [node] : index === firstIndex ? [step] : []
+  ));
+}
+
+/** The backend stages behind one business step: both members for the grouped step, else the node itself. */
+export function businessStageMembers(backendPipeline: ProcessingNode[], node: ProcessingNode): ProcessingNode[] {
+  return node.node_id === GOLDTIER_DETAILS_STEP_ID
+    ? backendPipeline.filter(item => GOLDTIER_DETAILS_NODE_IDS.includes(item.node_id))
+    : [node];
+}
+
+/** Resolve a business step or backend stage id, such as a stage-focus request from another page. */
+export function findBusinessStage(backendPipeline: ProcessingNode[], nodeId: string): ProcessingNode | null {
+  return businessStagePipeline(backendPipeline).find(node => node.node_id === nodeId) ?? findProcessingNode(backendPipeline, nodeId);
+}
+
+/** True while the backend retains an Initial identity blocker or error, even for a completed identity stage. */
+export function identityIssueRetained(summary: ZeroTouchCaseSummary): boolean {
+  const identityCode = (code: string | null | undefined) => code?.startsWith("INITIAL_IDENTITY_") === true;
+  return summary.active_exceptions.some(item => identityCode(item.blocker_code))
+    || summary.interventions?.some(item => identityCode(item.blocker_code)) === true
+    || identityCode(summary.case.error?.code);
+}
+
+/** Business-step id that shows a backend stage on the rail. */
+export function businessStageIdFor(nodeId: string): string {
+  return GOLDTIER_DETAILS_NODE_IDS.includes(nodeId) ? GOLDTIER_DETAILS_STEP_ID : nodeId;
+}
+
+/** Status text for a step; a grouped step names each member's status when they differ. */
+function stageStatusText(members: ProcessingNode[], node: ProcessingNode): string {
+  const labels = new Set(members.map(member => PROGRESS_STATUS_LABELS[member.status]));
+  return labels.size > 1
+    ? members.map(member => `${member.label}: ${PROGRESS_STATUS_LABELS[member.status]}`).join(" · ")
+    : PROGRESS_STATUS_LABELS[node.status];
+}
+
+/** Stage facts for a step; a grouped step lists each backend stage separately. */
+function BusinessStageFacts({ node, members, nextAction }: {
+  node: ProcessingNode; members: ProcessingNode[]; nextAction?: (member: ProcessingNode) => string | undefined;
+}) {
+  if (members.length === 1 && members[0] === node) return <ProcessingStageFacts node={node} nextAction={nextAction?.(node)} />;
+  return <>{members.map(member => <div key={member.node_id} className="stage-facts__member" data-node-id={member.node_id}>
+    <h4>{member.label}</h4>
+    <ProcessingStageFacts node={member} nextAction={nextAction?.(member)} />
+  </div>)}</>;
 }
 
 export interface StageStatus { tone: "attention" | "current" | "done" | "pending"; label: string }
@@ -81,11 +153,13 @@ export function PipelineRail({ summary, onStageActivate, renderAttention }: {
   /** Optional per-step content, rendered after the step status. */
   renderAttention?: (node: ProcessingNode) => ReactNode;
 }) {
-  const pipeline = businessStagePipeline(summary.processing_pipeline ?? []);
+  const backendPipeline = identityCorrectedPipeline(summary);
+  const pipeline = businessStagePipeline(backendPipeline, identityIssueRetained(summary));
   return (
     <div className="ds-stage-rail" aria-label="Backend workflow stages">
       {pipeline.map((node, index) => {
         const state = pipelineRailState(node.status);
+        const members = businessStageMembers(backendPipeline, node);
         return (
           <div className="ds-stage" key={node.node_id} data-node-id={node.node_id} data-status={node.status}>
             <div className="ds-stage-marker">
@@ -99,11 +173,11 @@ export function PipelineRail({ summary, onStageActivate, renderAttention }: {
             <div className="ds-stage-copy">
               <details>
                 <summary>{node.label}</summary>
-                <ProcessingStageFacts node={node} />
+                <BusinessStageFacts node={node} members={members} />
                 {onStageActivate && <button type="button" className="btn btn-ghost" onClick={() => onStageActivate(node)}>Open case stage details</button>}
               </details>
               {node.node_id === "ADVISORY" && <p className="control-help">Bounded POC advisory</p>}
-              <div className="text-muted">{PROGRESS_STATUS_LABELS[node.status]}</div>
+              <div className="text-muted">{stageStatusText(members, node)}</div>
               {renderAttention?.(node)}
             </div>
           </div>
@@ -268,6 +342,8 @@ const NAVIGABLE_PROCESSING_STATUSES = new Set<ProcessingNodeStatus>([
 export function processingNodeFocusTarget(node: ProcessingNode): string | null {
   const nodeId = node.node_id;
   if (nodeId === "INITIAL_IDENTITY") return "case-identity-correction";
+  // The grouped step always opens its section; the case page routes an attention member further.
+  if (nodeId === GOLDTIER_DETAILS_STEP_ID) return "case-target-blocker";
   if (!NAVIGABLE_PROCESSING_STATUSES.has(node.status)) return null;
   if (nodeId === "ACRA_REGISTRY" || nodeId.startsWith("ACRA_")) return "case-evidence-registry";
   if (nodeId === "DOCUMENT_IDP") return "case-evidence-documents";
@@ -355,6 +431,28 @@ export function ProcessingBlockerPanels({ summary, stage, searchPart = "all" }: 
   );
 }
 
+/** Backend stages, with Initial identity marked for correction while its blocker is active. */
+function identityCorrectedPipeline(summary: ZeroTouchCaseSummary): ProcessingNode[] {
+  const backendPipeline = summary.processing_pipeline ?? [];
+  const identityIncomplete = summary.active_exceptions.some(
+    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
+  );
+  if (!identityIncomplete) return backendPipeline;
+  const identityCorrectionNode: ProcessingNode = {
+    node_id: "INITIAL_IDENTITY",
+    label: "Initial identity",
+    status: "REVIEW_REQUIRED",
+    backend_stage: null,
+    timestamp: summary.updated_at,
+    safe_result: "Complete legal name, Singapore UEN, and jurisdiction before Search resumes.",
+    blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
+    children: [],
+  };
+  return backendPipeline.some((node) => node.node_id === "INITIAL_IDENTITY")
+    ? backendPipeline.map((node) => (node.node_id === "INITIAL_IDENTITY" ? { ...node, ...identityCorrectionNode } : node))
+    : [identityCorrectionNode, ...backendPipeline];
+}
+
 export function OnboardingProgressPanel({
   summary,
   onStageActivate,
@@ -367,37 +465,23 @@ export function OnboardingProgressPanel({
   initialFocusNodeId?: string;
 }) {
   const backendPipeline = summary.processing_pipeline ?? [];
-  const retainedPipeline = businessStagePipeline(backendPipeline);
   const [inspected, setInspected] = useState<{ caseId: string; nodeId: string } | null>(null);
   useEffect(() => {
     if (initialFocusNodeId) setInspected({ caseId: summary.case.case_id, nodeId: initialFocusNodeId });
   }, [initialFocusNodeId, summary.case.case_id]);
-  const identityIncomplete = summary.active_exceptions.some(
-    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
-  );
-  const hasTopLevelIdentity = retainedPipeline.some((node) => node.node_id === "INITIAL_IDENTITY");
-  const identityCorrectionNode: ProcessingNode = {
-        node_id: "INITIAL_IDENTITY",
-        label: "Initial identity",
-        status: "REVIEW_REQUIRED",
-        backend_stage: null,
-        timestamp: summary.updated_at,
-        safe_result: "Complete legal name, Singapore UEN, and jurisdiction before Search resumes.",
-        blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
-        children: [],
-      };
-  const pipeline: ProcessingNode[] = identityIncomplete
-    ? hasTopLevelIdentity
-      ? retainedPipeline.map((node) => (
-          node.node_id === "INITIAL_IDENTITY"
-            ? { ...node, ...identityCorrectionNode }
-            : node
-        ))
-      : [identityCorrectionNode, ...retainedPipeline]
-    : retainedPipeline;
+  const stagePipeline = identityCorrectedPipeline(summary);
+  // Counts and percentages use the business steps shown; a hidden stage is always done.
+  const pipeline = businessStagePipeline(stagePipeline, identityIssueRetained(summary));
   const inspectedNode = inspected?.caseId === summary.case.case_id
     ? findProcessingNode(pipeline, inspected.nodeId) ?? findProcessingNode(backendPipeline, inspected.nodeId)
     : null;
+  const inspectedMembers = inspectedNode ? businessStageMembers(stagePipeline, inspectedNode) : [];
+  const nextActionFor = (member: ProcessingNode) => summary.interventions?.find((item) => (
+    NAVIGABLE_PROCESSING_STATUSES.has(member.status) && (
+      (member.blocker_code && item.blocker_code === member.blocker_code)
+      || (member.backend_stage && item.owning_stage === member.backend_stage)
+    )
+  ))?.expected_next_step;
   const completed = pipeline.filter((node) =>
     node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED"
   ).length;
@@ -419,7 +503,7 @@ export function OnboardingProgressPanel({
             : "Review the stopped stage.")
           : "Wait for the current backend stage.");
   const currentText = current
-    ? `${current.label} — ${PROGRESS_STATUS_LABELS[current.status]}`
+    ? `${current.label} — ${stageStatusText(businessStageMembers(stagePipeline, current), current)}`
     : "Waiting for backend processing state";
 
   return (
@@ -467,7 +551,7 @@ export function OnboardingProgressPanel({
                 <span className="onboarding-progress__symbol" aria-hidden="true">{PROGRESS_STATUS_SYMBOLS[node.status]}</span>
                 <span className="onboarding-progress__stage-label">{node.label}</span>
               </span>
-              <span className="onboarding-progress__stage-status">{PROGRESS_STATUS_LABELS[node.status]}</span>
+              <span className="onboarding-progress__stage-status">{stageStatusText(businessStageMembers(stagePipeline, node), node)}</span>
               {node.node_id === "ADVISORY" && <span className="control-help">Bounded POC advisory</span>}
               <span className="onboarding-progress__stage-action">{navigable && node.status === "REVIEW_REQUIRED" ? "Review" : navigable && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
             </>;
@@ -493,13 +577,8 @@ export function OnboardingProgressPanel({
       {/* Collapsed by default; a new stage starts collapsed again (keyed by node). */}
       {inspectedNode && <details key={inspectedNode.node_id} id="processing-stage-details" className="card evidence-focus-target stage-details" tabIndex={-1} aria-label={`${inspectedNode.label} details`}>
         <summary>Stage details — {inspectedNode.label}</summary>
-        <ProcessingStageFacts node={inspectedNode} nextAction={summary.interventions?.find((item) => (
-          NAVIGABLE_PROCESSING_STATUSES.has(inspectedNode.status) && (
-            (inspectedNode.blocker_code && item.blocker_code === inspectedNode.blocker_code)
-            || (inspectedNode.backend_stage && item.owning_stage === inspectedNode.backend_stage)
-          )
-        ))?.expected_next_step} />
-        {inspectedNode.children.length > 0 && <ol>{inspectedNode.children.map((child) => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
+        <BusinessStageFacts node={inspectedNode} members={inspectedMembers} nextAction={nextActionFor} />
+        {inspectedMembers.flatMap(member => member.children).length > 0 && <ol>{inspectedMembers.flatMap(member => member.children).map((child) => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
       </details>}
       <p className="onboarding-progress__updated"><strong>Last updated:</strong> {formatTimestamp(summary.updated_at)}</p>
     </section>

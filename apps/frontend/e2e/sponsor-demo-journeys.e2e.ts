@@ -89,7 +89,7 @@ async function currentKnownReview(page: Page, cid: string, checkpoints: any[]) {
     checkpoints.push({ stage: current.current_stage, blockers: current.active_exceptions.map((e: any) => e.blocker_code), version: current.version });
   }
   if (current.active_exceptions.some((e: any) => e.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED")) {
-    await openStage(page, "Submission readiness");
+    await openStage(page, "GoldTier Details & Status");
     await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
     await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
     const saved = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));
@@ -129,7 +129,7 @@ async function finish(page: Page, company: Company, cid: string, headers: Record
   const send = page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true }); await expect(send).toBeEnabled();
   fs.mkdirSync(evidence, { recursive: true });
   await page.screenshot({ path: path.join(evidence, `${company.code}-final-review.png`), fullPage: true });
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   const preview = current.clm.submission_plan.request_preview;
   expect(preview.dispatch_ready).toBe(true);
   await openStage(page, "Final review & send");
@@ -152,7 +152,7 @@ async function finish(page: Page, company: Company, cid: string, headers: Record
   });
   expect(frozenClassification.status()).toBe(409);
   receipt.frozen_replacement_status = frozenReplacement.status(); receipt.frozen_classification_status = frozenClassification.status();
-  await page.reload(); await openStage(page, "GoldTier submission package");
+  await page.reload(); await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   expect((await counts(page)).calls).toEqual(completedCounts.calls);
   expect((await summary(page, cid)).target_operations).toEqual(done.target_operations);
@@ -276,7 +276,7 @@ function blockerJourney(company: typeof blocked[number]) {
       console.log("SPONSOR_DEMO_STAGE", company.code, "source-group-confirmed", resolved.current_stage, resolved.active_exceptions.map((e: any) => e.blocker_code));
       if (company.code === "garden") { expect(resolved.case.registry_acquisition.status).toBe("PARTIAL"); expect(resolved.case.registry_acquisition.relationships).toEqual([]); }
       if (resolved.active_exceptions.some((e: any) => e.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED")) {
-        await openStage(page, "Submission readiness");
+        await openStage(page, "GoldTier Details & Status");
         await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
         await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
         const classified = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));

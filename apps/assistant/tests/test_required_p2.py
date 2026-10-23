@@ -41,7 +41,7 @@ def test_r1_search_destination(code: str) -> None:
     data = build_case_facts(CaseSnapshot(summary, [], ME))
     answer = fallback_answer("What more do I need to do?", data)
     assert "(section: Existing-customer search)" in answer
-    assert len(data["case_page_sections"]) == 7
+    assert len(data["case_page_sections"]) == 6
 
 
 @pytest.mark.parametrize("text", ["", "partial", "A complete sentence. "])

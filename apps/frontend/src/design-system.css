@@ -1143,8 +1143,9 @@ button.tag {
    below the top of the viewport. Header and pill share grid row 1 so both can stick. */
 .ds-root .stage-disclosure { --sticky-gap: 12px; display: grid; grid-template-columns: minmax(0, 1fr); }
 .ds-root .stage-disclosure > h2 { grid-row: 1; grid-column: 1; position: sticky; top: var(--sticky-gap); z-index: 6; }
-/* Focus and scroll-into-view stop below the sticky header, so a focused control is never covered by it. */
-.ds-root .stage-disclosure :is(input, select, textarea, button, summary, a[href], [tabindex]) { scroll-margin-top: 120px; }
+/* Focus and scroll-into-view stop below the sticky header, so a focused control is never covered by it.
+   StageDisclosure measures its header (it grows when the title wraps on narrow screens). */
+.ds-root .stage-disclosure :is(input, select, textarea, button, summary, a[href], [tabindex]) { scroll-margin-top: calc(var(--sticky-gap) + var(--stage-header-height, 108px) + 12px); }
 .ds-root .stage-disclosure > .stage-disclosure__status {
   grid-row: 1; grid-column: 1; position: sticky; top: calc(var(--sticky-gap) + 26px); z-index: 7;
   justify-self: end; align-self: start; margin: 26px 60px 0 0;

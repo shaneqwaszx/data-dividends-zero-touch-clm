@@ -4,9 +4,12 @@ import { describe, expect, it } from "vitest";
 import type {
   DocumentProcessingRecord, ProcessingNode, ZeroTouchCaseSummary } from "../types";
 import {
+  businessStageMembers,
+  businessStagePipeline,
   CompletedOverview,
   ConfirmDetailsPanel,
   DetailedProcessingInspector,
+  GOLDTIER_DETAILS_STEP_ID,
   OnboardingProgressPanel,
   PipelineRail,
   ProcessingBlockerPanels,
@@ -288,15 +291,72 @@ describe("OnboardingProgressPanel", () => {
 describe("backend-authored stage ordering", () => {
   it("renders the v2 rail in the exact backend order", () => {
     const summary = summaryWithPipeline([
-      processingNode("INITIAL_IDENTITY", "Initial identity", "COMPLETE"),
+      processingNode("INITIAL_IDENTITY", "Initial identity", "REVIEW_REQUIRED"),
       processingNode("GOLDTIER_SEARCH", "GoldTier search", "COMPLETE"),
       processingNode("ACRA_REGISTRY", "ACRA registry", "IN_PROGRESS"),
     ]);
 
     const markup = renderToStaticMarkup(<PipelineRail summary={summary} />);
 
+    expect(markup.indexOf("Initial identity")).toBeGreaterThanOrEqual(0);
     expect(markup.indexOf("Initial identity")).toBeLessThan(markup.indexOf("GoldTier search"));
     expect(markup.indexOf("GoldTier search")).toBeLessThan(markup.indexOf("ACRA registry"));
+  });
+});
+
+describe("ten business steps over the twelve backend stages", () => {
+  const backend = (overrides: Partial<Record<string, ProcessingNode["status"]>> = {}) => [
+    ["CASE_START", "Case created"], ["INITIAL_IDENTITY", "Initial identity"], ["JURISDICTION", "Jurisdiction"],
+    ["GOLDTIER_SEARCH", "Existing-customer search"], ["ACRA_REGISTRY", "Registry verification"],
+    ["DOCUMENT_IDP", "Document verification"], ["RECONCILIATION", "Data reconciliation"],
+    ["OWNERSHIP_UBO", "Ownership & UBO"], ["ADVISORY", "Risk assessment"], ["READINESS", "Submission readiness"],
+    ["GOLDTIER_TARGET", "GoldTier submission package"], ["FINAL_REVIEW_SEND", "Final review & send"],
+  ].map(([id, label]) => processingNode(id, label, overrides[id] ?? "COMPLETE"));
+
+  it("maps twelve backend stages to ten steps, grouping readiness and the package", () => {
+    const steps = businessStagePipeline(backend());
+    expect(steps.map(step => step.label)).toEqual([
+      "Case created", "Jurisdiction", "Existing-customer search", "Registry verification", "Document verification",
+      "Data reconciliation", "Ownership & UBO", "Risk assessment", "GoldTier Details & Status", "Final review & send",
+    ]);
+    const grouped = steps.find(step => step.node_id === GOLDTIER_DETAILS_STEP_ID)!;
+    expect(businessStageMembers(backend(), grouped).map(member => member.node_id)).toEqual(["READINESS", "GOLDTIER_TARGET"]);
+    expect(processingNodeFocusTarget(grouped)).toBe("case-target-blocker");
+  });
+
+  it.each(["REVIEW_REQUIRED", "BLOCKED", "FAILED", "IN_PROGRESS", "NOT_REACHED"] as const)(
+    "shows Initial identity while it is %s", (status) => {
+      expect(businessStagePipeline(backend({ INITIAL_IDENTITY: status })).map(step => step.node_id)).toContain("INITIAL_IDENTITY");
+    },
+  );
+
+  it("keeps a completed Initial identity visible while an identity blocker is retained", () => {
+    const summary = summaryWithPipeline(backend());
+    expect(renderToStaticMarkup(<PipelineRail summary={summary} />)).not.toContain("Initial identity");
+    summary.active_exceptions = [{ exception_id: "ineligible", blocker_code: "INITIAL_IDENTITY_NOT_ELIGIBLE" }] as ZeroTouchCaseSummary["active_exceptions"];
+    expect(renderToStaticMarkup(<PipelineRail summary={summary} />)).toContain('data-node-id="INITIAL_IDENTITY"');
+    expect(renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />)).toContain("of 11 stages done");
+  });
+
+  it.each([
+    [{ READINESS: "COMPLETE", GOLDTIER_TARGET: "COMPLETE" }, "COMPLETE"],
+    [{ READINESS: "COMPLETE", GOLDTIER_TARGET: "NOT_REACHED" }, "NOT_REACHED"],
+    [{ READINESS: "IN_PROGRESS", GOLDTIER_TARGET: "NOT_REACHED" }, "IN_PROGRESS"],
+    [{ READINESS: "COMPLETE", GOLDTIER_TARGET: "FAILED" }, "FAILED"],
+    [{ READINESS: "BLOCKED", GOLDTIER_TARGET: "IN_PROGRESS" }, "BLOCKED"],
+  ] as const)("marks the grouped step %j as %s, never done before both members", (overrides, expected) => {
+    const grouped = businessStagePipeline(backend(overrides)).find(step => step.node_id === GOLDTIER_DETAILS_STEP_ID)!;
+    expect(grouped.status).toBe(expected);
+  });
+
+  it("counts business steps and names each member status when they differ", () => {
+    const summary = summaryWithPipeline(backend({ GOLDTIER_TARGET: "NOT_REACHED", FINAL_REVIEW_SEND: "NOT_REACHED" }));
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
+    expect(markup).toContain("8 of 10 stages done");
+    expect(markup).toContain("Submission readiness: Complete · GoldTier submission package: Not reached");
+    expect(markup).not.toContain("100%");
+    const identity = summaryWithPipeline(backend({ INITIAL_IDENTITY: "REVIEW_REQUIRED" }));
+    expect(renderToStaticMarkup(<OnboardingProgressPanel summary={identity} />)).toContain("10 of 11 stages done");
   });
 
   it("preserves the backend v1 order instead of projecting the v2 sequence", () => {

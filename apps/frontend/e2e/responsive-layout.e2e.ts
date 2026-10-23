@@ -825,11 +825,11 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   await page.screenshot({ path: path.join(comparison, `${label}-case-sections.png`), fullPage: true });
   expect(await page.locator(".stage-disclosure > h2").evaluateAll(items => items.map(item => item.querySelector("button > span")?.textContent ?? item.textContent))).toEqual([
     "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
-    "Submission readiness", "GoldTier submission package", "Final review & send", "Historical / resolved issues",
+    "GoldTier Details & Status", "Final review & send", "Historical / resolved issues",
   ]);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package"]) {
+    for (const name of ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "GoldTier Details & Status"]) {
       const section = page.getByRole("region", { name, exact: true });
       const more = section.locator(":scope > details").filter({ has: page.getByText(`More details — ${name}`, { exact: true }) });
       const technical = section.locator(":scope > details").filter({ has: page.getByText(`Technical details — ${name}`, { exact: true }) });
@@ -871,7 +871,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         }
         await expect(section.getByText("Technical calculations and retained paths", { exact: true })).toHaveCount(0);
       }
-      if (name === "Submission readiness") {
+      if (name === "GoldTier Details & Status") {
         await expect(section.getByLabel("Readiness by area", { exact: true })).toBeVisible(); // backend-projected readiness statuses
         await expect(section.getByText("System-set Singapore values", { exact: true })).toBeVisible();
       }
@@ -901,7 +901,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         await expect(more.locator("button, input, select, textarea")).toHaveCount(0);
         await expect(section.locator('input[data-review-field][value="REJECTED"]').first()).toBeChecked();
       }
-      if (["Ownership & UBO", "Submission readiness", "GoldTier submission package"].includes(name)) {
+      if (["Ownership & UBO", "GoldTier Details & Status"].includes(name)) {
         await expect(technical.locator("details, button, input, select, textarea")).toHaveCount(0);
         await expect(more.locator("details, button, input, select, textarea")).toHaveCount(0);
         const ids = await section.locator("[id]").evaluateAll(elements => elements.map(element => element.id));

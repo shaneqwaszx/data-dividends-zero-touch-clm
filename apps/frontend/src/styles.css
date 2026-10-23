@@ -3945,8 +3945,8 @@ dd {
 .stage-disclosure--final { border-color: #147653; }
 .stage-disclosure .table-card { overflow-x: auto; max-width: 100%; }
 .stage-disclosure .kv-value, .stage-disclosure p { overflow-wrap: anywhere; }
-/* Submission readiness tiles and GoldTier submission package facts */
-.goldtier-status, .goldtier-package { display: grid; gap: 14px; margin-bottom: 16px; }
+/* GoldTier Details & Status: readiness tiles + submission facts */
+.goldtier-status { display: grid; gap: 14px; margin-bottom: 16px; }
 .goldtier-status__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
