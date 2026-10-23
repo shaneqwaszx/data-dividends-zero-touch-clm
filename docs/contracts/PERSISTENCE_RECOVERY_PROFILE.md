@@ -256,3 +256,16 @@ capture are omitted; a later deletion does not rewrite the already captured requ
 snapshot, and the next request observes absence. This is the existing live-read POC
 consistency limitation, not a transactional snapshot or new access grant. Other repository
 consumers retain their established list/get behavior; startup strictness is unchanged.
+
+## Schema11 recursive ownership discovery candidate - 2026-10-23
+
+D-076 case writes use schema11, adding an optional case-frozen `ownership_discovery`
+policy and an optional ownership/prior-analysis `discovery` audit. Schemas 1..10 read
+into the current type in memory without rewrite and keep these fields absent, meaning
+root-only legacy ownership semantics; like the Phase24C parameter rule, a non-null value
+in an older envelope fails closed. The registry snapshot collection is unchanged; the
+local Mock namespace advances to `MOCK_ACRA_SYNTHETIC_V2` so earlier flattened entries
+are never reused. The policy singleton may reach schema3 through one audited additive
+`MIGRATED` activation that retains the replaced ACTIVE rules as a superseded version and
+keeps proposals/audit history. Insert-only/update-only CAS, no resurrection, no target
+replay and explicit memory/Mongo modes are unchanged.

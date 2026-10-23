@@ -1,0 +1,643 @@
+"""Bounded registry-driven corporate-owner discovery for the ownership boundary.
+
+The coordinator schedules separate issuer acquisitions through the existing registry
+owner and attaches each issuer's own normalized direct-ownership record to one shared
+graph. It never classifies candidates: every path product comes from the authoritative
+ownership engine, and threshold classification stays in OwnershipAnalysisService.
+"""
+
+from __future__ import annotations
+
+from collections import deque
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from decimal import Decimal
+from hashlib import sha256
+from re import compile as compile_pattern
+from time import monotonic
+from typing import Protocol
+
+from pydantic import ValidationError
+
+from app.connectors.errors import ConnectorError
+from app.connectors.ownership import OwnershipSourceResult
+from app.connectors.registry_ownership import acquisition_ownership_source
+from app.domain.jurisdiction import is_eligible_singapore_uen
+from app.domain.models import (
+    OnboardingCase,
+    RegistryAcquisitionBundle,
+    RegistryAcquisitionStatus,
+    RegistryOperation,
+    RegistryOperationStatus,
+    SourceEnvironment,
+)
+from app.domain.ownership import (
+    RESOLVED_DISCOVERY_OUTCOMES,
+    OwnershipDiscoveryAudit,
+    OwnershipDiscoveryOutcome,
+    OwnershipDiscoveryRecord,
+    OwnershipIssueCode,
+    OwnershipProvenance,
+    OwnershipRelationship,
+    Party,
+    PartyType,
+)
+from app.domain.ownership_evidence import OwnershipEvidence
+from app.domain.policy import OwnershipDiscoveryPolicySnapshot, RegistryPolicySnapshot
+from app.domain.registry_legal_form import RegistryLegalForm, classify_registry_legal_form
+from app.services.ownership_analysis import (
+    DiscoveryLimits,
+    OwnershipGraph,
+    OwnershipGraphError,
+    PathCalculation,
+    aggregate_ownership_paths,
+    build_ownership_graph,
+    calculate_ownership_paths,
+    validate_ownership_graph,
+)
+from app.services.registry_acquisition import (
+    RegistryAcquisitionBusyError,
+    RegistryCacheError,
+    SubsidiaryRegistryEvidence,
+)
+
+# Non-editable technical safeguards; they remain effective when the business budget
+# is disabled. Acquisition is sequential, so concurrency per discovery run is one.
+TECHNICAL_MAX_ISSUER_LOOKUPS = 32
+TECHNICAL_DEADLINE_SECONDS = 60.0
+TECHNICAL_MAX_EVIDENCE = 256
+_SAFE_SCOPED_ID = compile_pattern(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_BOUND_INVALIDATING_ISSUES = frozenset(
+    {
+        OwnershipIssueCode.CYCLE_DETECTED,
+        OwnershipIssueCode.MAXIMUM_DEPTH_EXCEEDED,
+        OwnershipIssueCode.PATH_LIMIT_EXCEEDED,
+    }
+)
+
+
+class SubsidiaryRegistryReader(Protocol):
+    def acquire_subsidiary_registry_evidence(
+        self,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None,
+        policy_version: int,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> SubsidiaryRegistryEvidence: ...
+
+
+@dataclass(frozen=True)
+class VerifiedPersonBinding:
+    """Explicit accepted person identity binding across issuer records.
+
+    No current provider or reviewer flow supplies these bindings; without one, equal
+    source identifiers in different issuer records stay distinct and require review.
+    """
+
+    issuer_registration_number: str
+    source_party_id: str
+    person_key: str
+
+
+class OwnershipDiscoveryCoordinator:
+    """Schedule bounded issuer retrieval; never a second ownership calculator."""
+
+    def __init__(
+        self,
+        reader: SubsidiaryRegistryReader,
+        *,
+        max_issuer_lookups: int = TECHNICAL_MAX_ISSUER_LOOKUPS,
+        deadline_seconds: float = TECHNICAL_DEADLINE_SECONDS,
+        clock: Callable[[], float] = monotonic,
+        verified_person_bindings: Iterable[VerifiedPersonBinding] = (),
+    ) -> None:
+        if not 1 <= max_issuer_lookups <= TECHNICAL_MAX_ISSUER_LOOKUPS or not (
+            0 < deadline_seconds <= TECHNICAL_DEADLINE_SECONDS
+        ):
+            raise ValueError("ownership discovery technical bounds are invalid")
+        bindings: dict[tuple[str, str], str] = {}
+        for item in verified_person_bindings:
+            key = (item.issuer_registration_number.strip().upper(), item.source_party_id)
+            if key in bindings or not item.person_key.strip():
+                raise ValueError("verified person bindings must be unique and non-blank")
+            bindings[key] = item.person_key.strip()
+        self._reader = reader
+        self._max_issuer_lookups = max_issuer_lookups
+        self._deadline_seconds = deadline_seconds
+        self._clock = clock
+        self._bindings = bindings
+
+    def expand(
+        self,
+        source: OwnershipSourceResult,
+        *,
+        parent: OnboardingCase,
+        policy: OwnershipDiscoveryPolicySnapshot,
+        ubo_threshold_percent: Decimal,
+        limits: DiscoveryLimits,
+    ) -> tuple[OwnershipSourceResult, OwnershipDiscoveryAudit]:
+        return _DiscoveryRun(
+            coordinator=self,
+            source=source,
+            parent=parent,
+            policy=policy,
+            ubo_threshold=ubo_threshold_percent,
+            limits=limits,
+        ).run()
+
+
+class _DiscoveryRun:
+    def __init__(
+        self,
+        *,
+        coordinator: OwnershipDiscoveryCoordinator,
+        source: OwnershipSourceResult,
+        parent: OnboardingCase,
+        policy: OwnershipDiscoveryPolicySnapshot,
+        ubo_threshold: Decimal,
+        limits: DiscoveryLimits,
+    ) -> None:
+        if parent.entity is None:
+            raise OwnershipGraphError
+        self._reader = coordinator._reader
+        self._bindings = coordinator._bindings
+        self._max_lookups = coordinator._max_issuer_lookups
+        self._clock = coordinator._clock
+        self._deadline = coordinator._clock() + coordinator._deadline_seconds
+        self._parent = parent
+        self._policy = policy
+        self._ubo = ubo_threshold
+        self._limits = limits
+        self._source = source
+        self._root = source.root_party_id
+        self._root_uen = parent.entity.registration_number.strip().upper()
+        self._parties: dict[str, Party] = {
+            item.party_id: item.model_copy(deep=True) for item in source.parties
+        }
+        self._relationships = [item.model_copy(deep=True) for item in source.relationships]
+        self._evidence = list(source.evidence)
+        self._issuer_nodes: dict[str, str] = {self._root_uen: self._root}
+        self._duplicate_issuer_nodes: set[str] = set()
+        for party in source.parties:
+            uen = _verified_uen(party)
+            if uen is None or party.party_id == self._root:
+                continue
+            if uen in self._issuer_nodes:
+                self._duplicate_issuer_nodes.add(party.party_id)
+            else:
+                self._issuer_nodes[uen] = party.party_id
+        self._person_sources: dict[str, tuple[str, str]] = {}
+        self._person_nodes: dict[str, str] = {}
+        for party in source.parties:
+            if party.party_type == PartyType.NATURAL_PERSON:
+                self._register_person(party.party_id, self._root_uen, party.party_id)
+        self._records: dict[str, OwnershipDiscoveryRecord] = {}
+        self._looked_up: set[str] = set()
+        self._lookups = 0
+        self._provider_backed = 0
+        self._cache_hits = 0
+
+    def run(self) -> tuple[OwnershipSourceResult, OwnershipDiscoveryAudit]:
+        # Each round finalizes or attaches at least one frontier issuer, so the round
+        # count is bounded by lookups plus unresolved leaves; this cap is a backstop.
+        for _ in range(2 * self._max_lookups + self._limits.max_parties):
+            graph, calculation = self._calculate()
+            frontier = self._frontier(graph)
+            if not frontier:
+                break
+            depths = _depths(graph)
+            shares = calculation.unresolved_entity_shares
+            candidates: list[str] = []
+            for node in frontier:
+                reason = self._ineligible(node, depths[node])
+                if reason is None:
+                    candidates.append(node)
+                else:
+                    self._finalize(node, reason[0], depths[node], shares, reason[1])
+            if not candidates:
+                continue
+            valid, could_change, _ = self._bound(graph, calculation)
+            trace = self._policy.trace_threshold_percent
+            selected = [node for node in candidates if shares.get(node, Decimal("0")) >= trace]
+            if not selected and (not valid or could_change):
+                # A deferral cannot be proved safe, so prefer bounded extra expansion.
+                selected = list(candidates)
+            if not selected:
+                for node in candidates:
+                    self._finalize(
+                        node,
+                        OwnershipDiscoveryOutcome.DEFERRED_BELOW_TRACE_THRESHOLD,
+                        depths[node],
+                        shares,
+                    )
+                continue
+            selected.sort(key=lambda node: (-shares.get(node, Decimal("0")), self._uen(node)))
+            for node in selected:
+                self._acquire(node, depths[node], shares)
+        graph, calculation = self._calculate()
+        depths = _depths(graph)
+        for node in self._frontier(graph):
+            self._finalize(
+                node,
+                OwnershipDiscoveryOutcome.HARD_LIMIT,
+                depths[node],
+                calculation.unresolved_entity_shares,
+                "DISCOVERY_ROUND_LIMIT",
+            )
+        valid, could_change, upper_bound = self._bound(graph, calculation)
+        records = tuple(
+            sorted(
+                self._records.values(),
+                key=lambda item: (item.depth, item.registration_number or "", item.party_id),
+            )
+        )
+        complete = all(item.outcome in RESOLVED_DISCOVERY_OUTCOMES for item in records)
+        ambiguous = self._ambiguous_persons()
+        certainty = (
+            "COMPLETE"
+            if complete and valid
+            else "BOUNDED_NO_THRESHOLD_CHANGE"
+            if not complete and valid and not could_change
+            else "UNCERTAIN"
+        )
+        audit = OwnershipDiscoveryAudit(
+            trace_threshold_percent=self._policy.trace_threshold_percent,
+            ubo_threshold_percent=self._ubo,
+            max_corporate_depth=self._policy.max_corporate_depth,
+            call_budget_enabled=self._policy.call_budget_enabled,
+            call_budget_max=self._policy.call_budget_max,
+            graph_complete=complete,
+            classification_certainty=certainty,
+            unresolved_upper_bound_percent=upper_bound if valid else None,
+            registry_lookups=self._lookups,
+            provider_backed_lookups=self._provider_backed,
+            cache_hits=self._cache_hits,
+            records=records,
+            unresolved_person_party_ids=ambiguous[:32],
+        )
+        expanded = OwnershipSourceResult(
+            root_party_id=self._root,
+            parties=list(self._parties.values()),
+            relationships=self._relationships,
+            evidence=tuple(self._evidence),
+            legal_form=self._source.legal_form,
+        )
+        return expanded, audit
+
+    def _calculate(self) -> tuple[OwnershipGraph, PathCalculation]:
+        graph = build_ownership_graph(
+            OwnershipSourceResult(
+                root_party_id=self._root,
+                parties=list(self._parties.values()),
+                relationships=self._relationships,
+            )
+        )
+        return graph, calculate_ownership_paths(
+            graph,
+            max_depth=self._limits.max_depth,
+            max_paths_per_candidate=self._limits.max_paths_per_candidate,
+            max_total_paths=self._limits.max_total_paths,
+        )
+
+    def _frontier(self, graph: OwnershipGraph) -> list[str]:
+        reachable = _depths(graph)
+        return sorted(
+            (
+                party_id
+                for party_id, party in self._parties.items()
+                if party_id != self._root
+                and party_id in reachable
+                and party.party_type == PartyType.LEGAL_ENTITY
+                and not graph.adjacency.get(party_id)
+                and party_id not in self._records
+            ),
+            key=lambda node: (self._uen(node), node),
+        )
+
+    def _ineligible(
+        self, node: str, depth: int
+    ) -> tuple[OwnershipDiscoveryOutcome, str | None] | None:
+        party = self._parties[node]
+        uen = _verified_uen(party)
+        if party.country not in {None, "SG"}:
+            return OwnershipDiscoveryOutcome.FOREIGN_UNSUPPORTED, None
+        if uen is None:
+            return OwnershipDiscoveryOutcome.UNVERIFIED_UEN, None
+        if node in self._duplicate_issuer_nodes or self._issuer_nodes.get(uen) != node:
+            return OwnershipDiscoveryOutcome.UNVERIFIED_UEN, "DUPLICATE_ISSUER_IDENTITY"
+        if uen in self._looked_up:
+            return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_ALREADY_ACQUIRED"
+        if depth > self._policy.max_corporate_depth:
+            return OwnershipDiscoveryOutcome.DEPTH_LIMIT, None
+        return None
+
+    def _acquire(self, node: str, depth: int, shares: dict[str, Decimal]) -> None:
+        if self._clock() >= self._deadline:
+            self._finalize(
+                node, OwnershipDiscoveryOutcome.HARD_LIMIT, depth, shares, "DISCOVERY_DEADLINE"
+            )
+            return
+        if self._lookups >= self._max_lookups:
+            self._finalize(
+                node, OwnershipDiscoveryOutcome.HARD_LIMIT, depth, shares, "ISSUER_LOOKUP_LIMIT"
+            )
+            return
+        if (
+            self._policy.call_budget_enabled
+            and self._provider_backed >= self._policy.call_budget_max
+        ):
+            self._finalize(node, OwnershipDiscoveryOutcome.BUSINESS_BUDGET, depth, shares)
+            return
+        uen = self._uen(node)
+        self._looked_up.add(uen)
+        self._lookups += 1
+        provider_backed = True
+        outcome: OwnershipDiscoveryOutcome
+        reason: str | None
+        try:
+            evidence = self._reader.acquire_subsidiary_registry_evidence(
+                uen,
+                case_policy=self._parent.policy_snapshot.registry,
+                policy_version=self._parent.policy_snapshot.catalogue_version,
+                cancelled=lambda: self._clock() >= self._deadline,
+            )
+            provider_backed = evidence.provider_backed
+        except RegistryAcquisitionBusyError:
+            # Uncertain provider activity counts against the budget conservatively.
+            outcome, reason = OwnershipDiscoveryOutcome.HARD_LIMIT, "REGISTRY_ACQUISITION_BUSY"
+        except RegistryCacheError as error:
+            outcome, reason = OwnershipDiscoveryOutcome.CACHE_FAILURE, error.code
+        except (ConnectorError, ValueError):
+            outcome, reason = OwnershipDiscoveryOutcome.PROVIDER_FAILED, "REGISTRY_PROVIDER_FAILED"
+        except Exception:
+            outcome = OwnershipDiscoveryOutcome.PROVIDER_FAILED
+            reason = "REGISTRY_UNEXPECTED_FAILURE"
+        else:
+            rejected, reason = self._classify(uen, evidence.acquisition)
+            if rejected is None:
+                outcome, reason = self._attach(node, uen, evidence, provider_backed)
+            else:
+                outcome = rejected
+        if provider_backed:
+            self._provider_backed += 1
+        else:
+            self._cache_hits += 1
+        self._finalize(node, outcome, depth, shares, reason)
+
+    def _classify(
+        self, uen: str, bundle: RegistryAcquisitionBundle | None
+    ) -> tuple[OwnershipDiscoveryOutcome | None, str | None]:
+        if bundle is None:
+            return OwnershipDiscoveryOutcome.NOT_FOUND, None
+        if (
+            bundle.requested_identifier.strip().upper() != uen
+            or bundle.entity_profile.registration_number.strip().upper() != uen
+        ):
+            return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_IDENTITY_MISMATCH"
+        if bundle.entity_profile.source.environment != SourceEnvironment.MOCK:
+            return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "PROVIDER_ENVIRONMENT_MISMATCH"
+        if bundle.status == RegistryAcquisitionStatus.FAILED:
+            return OwnershipDiscoveryOutcome.PROVIDER_FAILED, (
+                bundle.issues[0].code if bundle.issues else None
+            )
+        if bundle.status != RegistryAcquisitionStatus.COMPLETE:
+            unsupported = any(
+                item.operation
+                in {RegistryOperation.OWNERSHIP_PARTIES, RegistryOperation.RELATIONSHIPS}
+                and item.status == RegistryOperationStatus.UNSUPPORTED
+                for item in bundle.operation_results
+            )
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_UNSUPPORTED
+                if unsupported
+                else OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
+            ), None
+        if classify_registry_legal_form(bundle.entity_profile.party_type) != (
+            RegistryLegalForm.COMPANY
+        ):
+            return OwnershipDiscoveryOutcome.UNSUPPORTED_LEGAL_FORM, None
+        return None, None
+
+    def _attach(
+        self,
+        node: str,
+        uen: str,
+        evidence: SubsidiaryRegistryEvidence,
+        provider_backed: bool,
+    ) -> tuple[OwnershipDiscoveryOutcome, str | None]:
+        bundle = evidence.acquisition
+        if bundle is None:
+            return OwnershipDiscoveryOutcome.NOT_FOUND, None
+        try:
+            issuer = acquisition_ownership_source(
+                bundle,
+                root_display_name=self._parties[node].display_name,
+                root_registration_number=uen,
+                evidence_version=max(1, len(self._parent.events)),
+            )
+            validate_ownership_graph(build_ownership_graph(issuer))
+        except (ValidationError, OwnershipGraphError, ValueError, KeyError):
+            return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_RECORD_INVALID"
+        # Officer roles are descriptive issuer evidence, not quantitative ownership.
+        # Ownership-like roles would need review, so that issuer is not attached.
+        if any(
+            item.kind == "ROLE"
+            and item.raw_value.strip().upper() in {"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"}
+            for item in issuer.evidence
+        ):
+            return OwnershipDiscoveryOutcome.PROVIDER_PARTIAL, "UNRESOLVED_ROLE_EVIDENCE"
+        mapping = {issuer.root_party_id: node}
+        new_parties: list[Party] = []
+        new_issuers: dict[str, str] = {}
+        new_people: dict[str, str] = {}
+        new_sources: dict[str, tuple[str, str]] = {}
+        for party in issuer.parties:
+            if party.party_id == issuer.root_party_id:
+                continue
+            owner_uen = _verified_uen(party)
+            known = None if owner_uen is None else self._issuer_nodes.get(owner_uen)
+            if known is None and owner_uen is not None:
+                known = new_issuers.get(owner_uen)
+            if known is not None:
+                mapping[party.party_id] = known
+                continue
+            person_key = (
+                self._bindings.get((uen, party.party_id))
+                if party.party_type == PartyType.NATURAL_PERSON
+                else None
+            )
+            bound = None if person_key is None else (
+                self._person_nodes.get(person_key) or new_people.get(person_key)
+            )
+            if bound is not None:
+                mapping[party.party_id] = bound
+                continue
+            scoped = _scoped_id(uen, party.party_id)
+            if scoped in self._parties or scoped in mapping.values():
+                return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "SCOPED_IDENTITY_COLLISION"
+            mapping[party.party_id] = scoped
+            new_parties.append(Party.model_validate({**party.model_dump(), "party_id": scoped}))
+            if owner_uen is not None:
+                new_issuers[owner_uen] = scoped
+            if person_key is not None:
+                new_people[person_key] = scoped
+            if party.party_type == PartyType.NATURAL_PERSON:
+                new_sources[scoped] = (uen, party.party_id)
+        known_relationships = {item.relationship_id for item in self._relationships}
+        new_relationships: list[OwnershipRelationship] = []
+        for edge in issuer.relationships:
+            scoped = _scoped_id(uen, edge.relationship_id)
+            parent_id, child_id = mapping[edge.parent_party_id], mapping[edge.child_party_id]
+            if scoped in known_relationships or parent_id == child_id:
+                return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_RECORD_INVALID"
+            new_relationships.append(
+                OwnershipRelationship(
+                    relationship_id=scoped,
+                    parent_party_id=parent_id,
+                    child_party_id=child_id,
+                    ownership_percent=edge.ownership_percent,
+                    relationship_type=edge.relationship_type,
+                    basis=edge.basis,
+                    provenance=OwnershipProvenance(
+                        provider=edge.provenance.provider,
+                        environment=edge.provenance.environment,
+                        source_reference=f"ACRA_REGISTRY_{scoped}",
+                        sourced_at=edge.provenance.sourced_at,
+                    ),
+                )
+            )
+        new_evidence = [
+            OwnershipEvidence.model_validate(
+                {
+                    **item.model_dump(),
+                    "evidence_id": "e-"
+                    + sha256(f"{uen}:{item.evidence_id}".encode()).hexdigest()[:48],
+                    "party_id": mapping.get(item.party_id, _scoped_id(uen, item.party_id)),
+                }
+            )
+            for item in issuer.evidence
+            if item.kind != "ROLE"
+        ]
+        if (
+            len(self._parties) + len(new_parties) > self._limits.max_parties
+            or len(self._relationships) + len(new_relationships)
+            > self._limits.max_relationships
+            or len(self._evidence) + len(new_evidence) > TECHNICAL_MAX_EVIDENCE
+        ):
+            return OwnershipDiscoveryOutcome.HARD_LIMIT, "GRAPH_SIZE_LIMIT"
+        for party in new_parties:
+            self._parties[party.party_id] = party
+        self._relationships.extend(new_relationships)
+        self._evidence.extend(new_evidence)
+        self._issuer_nodes.update(new_issuers)
+        self._person_nodes.update(new_people)
+        for scoped, (issuer_uen, source_id) in new_sources.items():
+            self._register_person(scoped, issuer_uen, source_id)
+        return (
+            OwnershipDiscoveryOutcome.FETCHED
+            if provider_backed
+            else OwnershipDiscoveryOutcome.CACHE_HIT
+        ), None
+
+    def _register_person(self, node: str, issuer_uen: str, source_id: str) -> None:
+        self._person_sources[node] = (issuer_uen, source_id)
+        key = self._bindings.get((issuer_uen, source_id))
+        if key is not None:
+            self._person_nodes.setdefault(key, node)
+
+    def _ambiguous_persons(self) -> tuple[str, ...]:
+        """Distinct person nodes sharing a source identifier across issuer records."""
+        groups: dict[str, set[str]] = {}
+        for node, (_, source_id) in self._person_sources.items():
+            if node in self._parties:
+                groups.setdefault(source_id.strip().upper(), set()).add(node)
+        return tuple(
+            sorted(node for nodes in groups.values() if len(nodes) > 1 for node in nodes)
+        )
+
+    def _bound(
+        self, graph: OwnershipGraph, calculation: PathCalculation
+    ) -> tuple[bool, bool, Decimal]:
+        """Sound global bound over every unresolved corporate branch, or invalid.
+
+        Assumes each unresolved issuer's own holders total at most 100%. Cycles,
+        traversal limits, over-allocated resolved issuers or unresolved person identity
+        invalidate the bound instead of permitting a deferral.
+        """
+        valid = not any(item.code in _BOUND_INVALIDATING_ISSUES for item in calculation.issues)
+        for edges in graph.adjacency.values():
+            if sum((edge.ownership_percent for edge in edges), Decimal("0")) > Decimal("100"):
+                valid = False
+        if self._ambiguous_persons():
+            valid = False
+        upper = sum(
+            (
+                share
+                for party_id, share in calculation.unresolved_entity_shares.items()
+                if party_id != self._root
+            ),
+            Decimal("0"),
+        )
+        try:
+            totals = aggregate_ownership_paths(calculation)
+        except OwnershipGraphError:
+            return False, True, upper
+        if upper > Decimal("100"):
+            return False, True, upper
+        could_change = upper >= self._ubo or any(
+            total < self._ubo <= total + upper for _, _, total in totals.values()
+        )
+        return valid, could_change, upper
+
+    def _finalize(
+        self,
+        node: str,
+        outcome: OwnershipDiscoveryOutcome,
+        depth: int,
+        shares: dict[str, Decimal],
+        reason: str | None = None,
+    ) -> None:
+        party = self._parties[node]
+        share = shares.get(node)
+        self._records[node] = OwnershipDiscoveryRecord(
+            party_id=node,
+            display_name=party.display_name,
+            registration_number=party.registration_number,
+            depth=min(depth, 64),
+            outcome=outcome,
+            max_effective_percent=share if share is not None and share <= 100 else None,
+            reason_code=reason,
+        )
+
+    def _uen(self, node: str) -> str:
+        return _verified_uen(self._parties[node]) or ""
+
+
+def _verified_uen(party: Party) -> str | None:
+    if party.party_type != PartyType.LEGAL_ENTITY or party.registration_number is None:
+        return None
+    candidate = party.registration_number.strip().upper()
+    return candidate if is_eligible_singapore_uen(candidate) else None
+
+
+def _depths(graph: OwnershipGraph) -> dict[str, int]:
+    """Minimum edge count from the root; unreachable parties are omitted."""
+    depths = {graph.root_party_id: 0}
+    queue = deque([graph.root_party_id])
+    while queue:
+        current = queue.popleft()
+        for edge in graph.adjacency.get(current, ()):
+            if edge.child_party_id not in depths:
+                depths[edge.child_party_id] = depths[current] + 1
+                queue.append(edge.child_party_id)
+    return depths
+
+
+def _scoped_id(issuer_uen: str, source_id: str) -> str:
+    """Deterministic issuer-namespaced identifier; hashed when too long or unsafe."""
+    candidate = f"{issuer_uen}.{source_id}"
+    if _SAFE_SCOPED_ID.fullmatch(candidate):
+        return candidate
+    digest = sha256(f"{issuer_uen}\x00{source_id}".encode()).hexdigest()[:40]
+    return f"{issuer_uen}.h{digest}"

@@ -143,6 +143,16 @@ alongside GoldTier? Where is the handoff point, which state and evidence transfe
 owns the target-side continuation, and what production identity and audit implications
 apply?
 
+### Q-019 - Recursive corporate ownership traversal and person identity authority
+
+Which authorized registry operation returns a corporate owner's own direct shareholders
+with a complete comparable denominator? Which identifier and privacy authority may bind
+the same natural person across separate issuer records? What tracing threshold, corporate
+depth and registry call limits apply in production, and how are nominee or trustee
+holdings, foreign corporate owners and non-share interests represented? D-076 uses only
+project-defined Mock defaults, never merges persons across issuers without an explicit
+verified binding, and keeps every unresolved branch under human review.
+
 ## ACRA SANDBOX BINDING AND ACCESS
 
 ### Q-012 - Authoritative ACRA Business Profile API contract and access

@@ -3,7 +3,7 @@
 from collections import defaultdict, deque
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
@@ -22,12 +22,14 @@ from app.connectors.ownership import (
 from app.domain.documents import DocumentOwnershipObservation, DocumentProcessingRecord
 from app.domain.models import EventOutcome, OnboardingCase, SafeError
 from app.domain.ownership import (
+    RESOLVED_DISCOVERY_OUTCOMES,
     ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
     OwnershipAnalysisState,
     OwnershipCandidate,
     OwnershipCandidateClassification,
+    OwnershipDiscoveryAudit,
     OwnershipDocumentBinding,
     OwnershipEnvironment,
     OwnershipEventType,
@@ -44,6 +46,7 @@ from app.domain.ownership import (
     PriorOwnershipAnalysisSnapshot,
 )
 from app.domain.ownership_evidence import OwnershipEvidence
+from app.domain.policy import OwnershipDiscoveryPolicySnapshot
 from app.domain.registry_legal_form import RegistryLegalForm
 from app.services.document_ownership import compare_document_ownership, current_document_inputs
 from app.services.ownership_errors import (
@@ -214,6 +217,31 @@ class OnboardingCaseReader(Protocol):
     def get_case(self, case_id: UUID) -> OnboardingCase | None: ...
 
 
+@dataclass(frozen=True)
+class DiscoveryLimits:
+    """Existing service graph/path limits applied while scheduling retrieval."""
+
+    max_parties: int
+    max_relationships: int
+    max_depth: int
+    max_paths_per_candidate: int
+    max_total_paths: int
+
+
+class OwnershipDiscoveryExpander(Protocol):
+    """Schedules separate issuer acquisition; never calculates or classifies owners."""
+
+    def expand(
+        self,
+        source: OwnershipSourceResult,
+        *,
+        parent: OnboardingCase,
+        policy: OwnershipDiscoveryPolicySnapshot,
+        ubo_threshold_percent: Decimal,
+        limits: DiscoveryLimits,
+    ) -> tuple[OwnershipSourceResult, OwnershipDiscoveryAudit]: ...
+
+
 class OwnershipDocumentReader(Protocol):
     def list_documents(self, *, case_id: UUID) -> list[DocumentProcessingRecord]: ...
 
@@ -233,6 +261,8 @@ class OwnershipGraph:
 class PathCalculation:
     paths_by_party: dict[str, tuple[OwnershipPathEvidence, ...]]
     issues: tuple[OwnershipAnalysisIssue, ...]
+    # Exact unrounded sum of path products reaching each legal entity without owners.
+    unresolved_entity_shares: dict[str, Decimal] = field(default_factory=dict)
 
 
 def build_ownership_graph(source: OwnershipSourceResult) -> OwnershipGraph:
@@ -299,6 +329,7 @@ def calculate_ownership_paths(
     total_paths = 0
     explored_path_states = 0
     traversal_limit_reached = False
+    entity_shares: dict[str, Decimal] = defaultdict(Decimal)
 
     def add_issue(code: OwnershipIssueCode, message: str, party_ids: tuple[str, ...]) -> None:
         key = (code, party_ids)
@@ -321,6 +352,7 @@ def calculate_ownership_paths(
                 "A reachable legal-entity ownership chain has no disclosed owners.",
                 (current_id,),
             )
+            entity_shares[current_id] += current_fraction * Decimal("100")
             continue
 
         for relationship in reversed(outgoing):
@@ -407,6 +439,7 @@ def calculate_ownership_paths(
                 key=lambda issue: (issue.code.value, tuple(issue.affected_party_ids)),
             )
         ),
+        unresolved_entity_shares=dict(sorted(entity_shares.items())),
     )
 
 
@@ -484,6 +517,7 @@ class OwnershipAnalysisService:
         threshold_percent: Decimal,
         documents: OwnershipDocumentReader | None = None,
         garden_supplement_enabled: bool = False,
+        discovery: OwnershipDiscoveryExpander | None = None,
         max_parties: int,
         max_relationships: int,
         max_depth: int,
@@ -514,6 +548,7 @@ class OwnershipAnalysisService:
         self._repository = repository
         self._documents = documents
         self._garden_supplement_enabled = garden_supplement_enabled
+        self._discovery = discovery
         self.threshold_percent = validated_threshold
         self.max_parties = max_parties
         self.max_relationships = max_relationships
@@ -870,6 +905,42 @@ class OwnershipAnalysisService:
                 )
                 source = self._merge_garden_supplement(source, metadata, parent)
                 record.source_classification = "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+            discovery_policy = parent.policy_snapshot.ownership_discovery
+            if (
+                self._discovery is not None
+                and discovery_policy is not None
+                and metadata.provider_name == "ACRA_REGISTRY_ACQUISITION"
+                # The official-Mock lane's local supplement is never a lookup source.
+                and record.source_classification == "SINGLE_SOURCE"
+                and source.relationships
+            ):
+                # Each corporate owner is acquired as its own issuer, outside the root
+                # case acquisition; the case lock is held and currentness is rechecked.
+                source, record.discovery = self._discovery.expand(
+                    source,
+                    parent=parent,
+                    policy=discovery_policy,
+                    ubo_threshold_percent=parent.policy_snapshot.ubo_threshold_percent,
+                    limits=DiscoveryLimits(
+                        max_parties=self.max_parties,
+                        max_relationships=self.max_relationships,
+                        max_depth=self.max_depth,
+                        max_paths_per_candidate=self.max_paths_per_candidate,
+                        max_total_paths=self.max_total_paths,
+                    ),
+                )
+                self._validate_source(source, metadata, parent.entity.registration_number)
+                latest = self._cases.get_case(case_id)
+                if (
+                    latest is None
+                    or latest.goldtier_result is not None
+                    or not ownership_is_current(record, latest)
+                ):
+                    self._raise_terminal_failure(
+                        record,
+                        code="OWNERSHIP_SOURCE_STALE",
+                        message="The case changed while corporate ownership was acquired.",
+                    )
             source = quantify_ownership_evidence(source)
             record.provider_name = metadata.provider_name
             record.provider_environment = metadata.environment
@@ -996,6 +1067,42 @@ class OwnershipAnalysisService:
             )
             aggregated = aggregate_ownership_paths(calculation)
             record.issues = list(calculation.issues)
+            discovery = record.discovery
+            if discovery is not None and not discovery.graph_complete:
+                unresolved = [
+                    item
+                    for item in discovery.records
+                    if item.outcome not in RESOLVED_DISCOVERY_OUTCOMES
+                ]
+                bound = discovery.unresolved_upper_bound_percent
+                record.issues.append(
+                    OwnershipAnalysisIssue(
+                        code=OwnershipIssueCode.CORPORATE_OWNERSHIP_UNRESOLVED,
+                        message=(
+                            f"{len(unresolved)} corporate ownership branch(es) remain "
+                            "unresolved; "
+                            + (
+                                f"up to {_format_decimal(bound)}% root-equivalent interest "
+                                "is undisclosed."
+                                if bound is not None
+                                else "the undisclosed root-equivalent interest is not bounded."
+                            )
+                        ),
+                        affected_party_ids=[item.party_id for item in unresolved][:16],
+                    )
+                )
+            if discovery is not None and discovery.unresolved_person_party_ids:
+                record.issues.append(
+                    OwnershipAnalysisIssue(
+                        code=OwnershipIssueCode.PERSON_IDENTITY_UNRESOLVED,
+                        message=(
+                            "A source person identifier repeats across separate issuer "
+                            "records without a verified identity binding; no aggregation "
+                            "is assumed."
+                        ),
+                        affected_party_ids=list(discovery.unresolved_person_party_ids[:16]),
+                    )
+                )
             if any(
                 item.verification_state == "REVIEW_REQUIRED"
                 for item in record.document_discrepancies
@@ -1587,6 +1694,7 @@ def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipA
         identity_registration_number=record.identity_registration_number,
         identity_correction_version=record.identity_correction_version,
         legal_form=record.legal_form,
+        discovery=record.discovery,
         analysis_id=record.analysis_id,
         correlation_id=record.correlation_id,
         root_party_id=record.root_party_id,

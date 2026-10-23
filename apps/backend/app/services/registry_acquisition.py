@@ -83,6 +83,21 @@ class RegistryAcquisitionResult:
     binding: RegistryEvidenceBinding | None
 
 
+@dataclass(frozen=True)
+class SubsidiaryRegistryEvidence:
+    """Read-only issuer evidence for ownership discovery; never bound to a case.
+
+    `provider_backed` is false only for a committed fresh cache hit (including the
+    approved local seed). A miss, stale entry, uncached lane or incomplete result
+    used the configured provider and counts toward any business call budget.
+    """
+
+    identifier: str
+    acquisition: RegistryAcquisitionBundle | None
+    disposition: RegistryEvidenceDisposition | None
+    provider_backed: bool
+
+
 @dataclass
 class _KeyLockState:
     lock: RLock
@@ -168,7 +183,7 @@ class RegistryAcquisitionCoordinator:
             and identity.acquisition_contract_version
             == self._local_seed_identity.acquisition_contract_version
             and identity.dataset_namespace
-            in {"MOCK_ACRA_SYNTHETIC_V1", "ACRA_API_MARKETPLACE_MOCK_V1"}
+            in {"MOCK_ACRA_SYNTHETIC_V2", "ACRA_API_MARKETPLACE_MOCK_V1"}
         ):
             seed_key = RegistryCacheKey(
                 provider_identity=self._local_seed_identity,

@@ -260,3 +260,19 @@ The browser binding adds nullable synthetic_seed_namespace, allowlisted only to
 LOCAL_SYNTHETIC_UAT_V1 when the full retained identity equals the approved local seed
 identity. Private keys, arbitrary namespaces, endpoints and contract identifiers remain
 private. Original evidence references and provider configuration are not relabelled.
+
+## Corporate-owner issuer reuse - D-076 candidate, 2026-10-23
+
+Recursive ownership discovery reads each corporate owner's own registry evidence through
+the same coordinator, exact key and case-frozen freshness/negative policy, via the
+read-only `OnboardingService.acquire_subsidiary_registry_evidence()`. A fresh COMPLETE
+snapshot (including the approved local seed) is a CACHE_HIT with zero provider calls; a
+miss or stale entry uses the configured provider once and is saved under the existing
+insert/CAS rules. The result is never bound to, or written onto, any case; only the
+derived ownership graph records it. Read/write/CAS/invalid cache failures leave that
+corporate branch unresolved for review rather than serving or overwriting evidence.
+
+The local synthetic namespace advances to `MOCK_ACRA_SYNTHETIC_V2` because Garden's
+record changed shape (direct owners only). Existing V1 entries are not deleted,
+reinterpreted or reused; historical cases keep their bound V1 evidence. The seed lookup
+is admitted for `MOCK_ACRA_SYNTHETIC_V2` and `ACRA_API_MARKETPLACE_MOCK_V1` only.

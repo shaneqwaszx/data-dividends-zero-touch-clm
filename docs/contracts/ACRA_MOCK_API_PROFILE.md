@@ -317,7 +317,8 @@ test fault scenarios.
 | `202400011K` | Missing expected ownership evidence | Partial/review required |
 | `202400012L` | Malformed later relationship response | Failed safely |
 | `202400013M` | Later relationship provider failure | Failed safely |
-| `11111999A` | Garden Business bounded recursive synthetic ownership demo | Complete |
+| `11111999A` | Garden Business bounded recursive synthetic ownership demo (direct owners only) | Complete |
+| `111111111M` | SIM LIM corporate owner of Garden; its own direct holders (D-076) | Complete |
 
 All names, identifiers, dates, addresses, officers, owners, and relationships are
 fictional. They are not sponsor-approved golden cases.
@@ -325,13 +326,22 @@ fictional. They are not sponsor-approved golden cases.
 ### Garden Business bounded synthetic profile
 
 `11111999A` is a project-defined Mock fixture only. Its entity profile is `GARDEN
-BUSINESS`, its officer operation is validly empty, and its ownership operations contain
-the following exact synthetic graph:
+BUSINESS`, its officer operation is validly empty, and since D-076 its ownership
+operations contain only Garden's own direct holders, decoded from the owner-supplied
+synthetic `coShareholdersDetails`-shaped body (the corporate row is nested under
+`individual` and classified by `shareholderCategory`):
 
 - `SIM LIM PTE. LTD.` (`111111111M`), Corporate, 5,000 active units → `62.500000%`;
-- `LIM CHOON HUAT` (`S9988776F`), Individual, 3,000 active units → `37.500000%`;
-- beneath SIM LIM, active counts `900 / 100 / 100` derive `81.818182% / 9.090909% /
-  9.090909%`; the explicitly withdrawn holder is excluded.
+- `LIM CHOON HUAT` (`S9988776F`), Individual, 3,000 active units → `37.500000%`.
+
+`111111111M` is a separate synthetic issuer (`PRIVATE_COMPANY_LIMITED_BY_SHARES`, empty
+officers) whose own ownership operations hold active counts `900 / 100 / 100` deriving
+`81.818182% / 9.090909% / 9.090909%`; its explicitly withdrawn holder is excluded. Each
+operation echoes and validates the requested UEN. Both bodies pass the existing strict
+official-Mock decoder plus a stricter fixture model (one `Ordinary` share class, explicit
+Active/Withdrawn status, positive exact units, empty grouping) before derivation. The
+local synthetic dataset namespace is `MOCK_ACRA_SYNTHETIC_V2`; V1 cache entries held
+the earlier flattened Garden response and are isolated as an adjacent miss.
 
 The exact `shareAllotted / active total` derivation exists only inside this fixture. It
 does not define legal ownership, voting rights, controller status, or generic ACRA

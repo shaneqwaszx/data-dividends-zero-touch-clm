@@ -80,6 +80,7 @@ from app.domain.ownership import (
     OwnershipAnalysisState,
     OwnershipBasis,
     OwnershipCandidate,
+    OwnershipDiscoveryAudit,
     OwnershipDocumentBinding,
     OwnershipDocumentDiscrepancy,
     OwnershipEnvironment,
@@ -542,6 +543,9 @@ class OwnershipAnalysisResponse(BaseModel):
     supplemental_evidence: tuple[OwnershipEvidence, ...] = ()
     tagging: OwnershipTaggingResult | None = None
     legal_form: RegistryLegalForm | None = None
+    # Optional reviewer-safe corporate discovery audit: issuer identities, outcomes,
+    # bounded root-equivalent exposure and lookup counts; never raw provider data.
+    discovery: OwnershipDiscoveryAudit | None = None
     version: int
     analysis_id: UUID
     correlation_id: UUID

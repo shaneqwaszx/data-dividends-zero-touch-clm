@@ -20,7 +20,10 @@ from app.connectors.garden_business import (
     GARDEN_BUSINESS_ADDRESS,
     GARDEN_BUSINESS_NAME,
     GARDEN_BUSINESS_UEN,
-    derive_garden_ownership,
+    SIM_LIM_ADDRESS,
+    SIM_LIM_NAME,
+    SIM_LIM_UEN,
+    derive_issuer_direct_ownership,
 )
 from app.demo.scenarios import (
     GOLDTIER_FAILURE_UEN,
@@ -36,7 +39,9 @@ EMPTY_OFFICERS_UEN = "202400010J"
 MISSING_OWNERSHIP_UEN = "202400011K"
 MALFORMED_RELATIONSHIPS_UEN = "202400012L"
 FAILED_RELATIONSHIPS_UEN = "202400013M"
-MOCK_ACRA_DATASET_NAMESPACE = "MOCK_ACRA_SYNTHETIC_V1"
+# V2: Garden and SIM LIM became separate direct-only issuers. V1 cache entries held the
+# flattened Garden graph and are deliberately isolated as an adjacent namespace miss.
+MOCK_ACRA_DATASET_NAMESPACE = "MOCK_ACRA_SYNTHETIC_V2"
 
 
 def _address(street: str, postal_code: str, unit: str) -> AcraAddressPayload:
@@ -111,6 +116,10 @@ class MockAcraConnector:
                 GARDEN_BUSINESS_NAME,
                 _address(*GARDEN_BUSINESS_ADDRESS),
             ),
+            SIM_LIM_UEN: (
+                SIM_LIM_NAME,
+                _address(*SIM_LIM_ADDRESS),
+            ),
         }
         fixture = fixtures.get(normalised_uen)
         if fixture is None:
@@ -129,6 +138,8 @@ class MockAcraConnector:
             registration_date=(
                 date(2018, 3, 10)
                 if normalised_uen == GARDEN_BUSINESS_UEN
+                else date(2016, 5, 20)
+                if normalised_uen == SIM_LIM_UEN
                 else date(2024, 1, 2)
             ),
             entity_status="LIVE",
@@ -141,7 +152,7 @@ class MockAcraConnector:
     def fetch_officers(self, uen: str) -> AcraOfficersPayload:
         normalised_uen = uen.strip().upper()
         officers: tuple[AcraOfficerPayload, ...]
-        if normalised_uen in {EMPTY_OFFICERS_UEN, GARDEN_BUSINESS_UEN}:
+        if normalised_uen in {EMPTY_OFFICERS_UEN, GARDEN_BUSINESS_UEN, SIM_LIM_UEN}:
             officers = ()
         else:
             officers = (
@@ -164,8 +175,9 @@ class MockAcraConnector:
     def fetch_ownership_parties(self, uen: str) -> AcraOwnershipPartiesPayload:
         normalised_uen = uen.strip().upper()
         parties: tuple[AcraOwnershipPartyPayload, ...]
-        if normalised_uen == GARDEN_BUSINESS_UEN:
-            parties, _ = derive_garden_ownership()
+        issuer = derive_issuer_direct_ownership(normalised_uen)
+        if issuer is not None:
+            parties = issuer[0]
         elif normalised_uen == MISSING_OWNERSHIP_UEN:
             parties = ()
         elif normalised_uen == "202400006F":
@@ -214,8 +226,9 @@ class MockAcraConnector:
             )
         root = f"ENTITY_{normalised_uen}"
         relationships: tuple[AcraRelationshipPayload, ...]
-        if normalised_uen == GARDEN_BUSINESS_UEN:
-            _, relationships = derive_garden_ownership()
+        issuer = derive_issuer_direct_ownership(normalised_uen)
+        if issuer is not None:
+            relationships = issuer[1]
         elif normalised_uen == MISSING_OWNERSHIP_UEN:
             relationships = ()
         elif normalised_uen == "202400006F":

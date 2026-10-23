@@ -86,7 +86,7 @@ class PolicyCatalogueResponse(BaseModel):
     version: int
     active_version: int
     active_identity: str
-    active_origin: Literal["DEFAULT", "APPROVED"]
+    active_origin: Literal["DEFAULT", "APPROVED", "MIGRATED"]
     active_effective_at: datetime | None
     proposals: tuple[PolicyProposal, ...]
     superseded_versions: tuple[PolicyVersionRecord, ...]

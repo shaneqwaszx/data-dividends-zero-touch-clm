@@ -14,6 +14,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from app.domain.documents import DocumentOwnershipObservation
@@ -174,6 +175,8 @@ class OwnershipIssueCode(StrEnum):
     INCOMPLETE_LEGAL_ENTITY = "INCOMPLETE_LEGAL_ENTITY"
     MAXIMUM_DEPTH_EXCEEDED = "MAXIMUM_DEPTH_EXCEEDED"
     PATH_LIMIT_EXCEEDED = "PATH_LIMIT_EXCEEDED"
+    CORPORATE_OWNERSHIP_UNRESOLVED = "CORPORATE_OWNERSHIP_UNRESOLVED"
+    PERSON_IDENTITY_UNRESOLVED = "PERSON_IDENTITY_UNRESOLVED"
 
 
 class OwnershipThresholdResult(StrEnum):
@@ -291,6 +294,93 @@ class OwnershipCandidate(BaseModel):
     paths: list[OwnershipPathEvidence]
 
 
+class OwnershipDiscoveryOutcome(StrEnum):
+    """Bounded per-corporate-owner retrieval outcome; never a legal finding."""
+
+    CACHE_HIT = "CACHE_HIT"
+    FETCHED = "FETCHED"
+    DEFERRED_BELOW_TRACE_THRESHOLD = "DEFERRED_BELOW_TRACE_THRESHOLD"
+    DEPTH_LIMIT = "DEPTH_LIMIT"
+    BUSINESS_BUDGET = "BUSINESS_BUDGET"
+    HARD_LIMIT = "HARD_LIMIT"
+    UNVERIFIED_UEN = "UNVERIFIED_UEN"
+    FOREIGN_UNSUPPORTED = "FOREIGN_UNSUPPORTED"
+    UNSUPPORTED_LEGAL_FORM = "UNSUPPORTED_LEGAL_FORM"
+    NOT_FOUND = "NOT_FOUND"
+    PROVIDER_UNSUPPORTED = "PROVIDER_UNSUPPORTED"
+    PROVIDER_PARTIAL = "PROVIDER_PARTIAL"
+    PROVIDER_FAILED = "PROVIDER_FAILED"
+    PROVIDER_INVALID = "PROVIDER_INVALID"
+    CACHE_FAILURE = "CACHE_FAILURE"
+
+
+RESOLVED_DISCOVERY_OUTCOMES = frozenset(
+    {OwnershipDiscoveryOutcome.CACHE_HIT, OwnershipDiscoveryOutcome.FETCHED}
+)
+
+
+class OwnershipDiscoveryRecord(BaseModel):
+    """One corporate owner's discovery decision with its root-equivalent exposure.
+
+    `max_effective_percent` is the exact sum of current path products reaching the
+    corporate owner when it was decided: the most root-equivalent interest that an
+    unresolved branch could still hide.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    party_id: SafePartyId
+    display_name: SafePartyName
+    registration_number: SafeOptionalIdentifier | None = None
+    depth: int = Field(ge=1, le=64)
+    outcome: OwnershipDiscoveryOutcome
+    max_effective_percent: CalculatedPercent | None = None
+    reason_code: SafeProviderName | None = None
+
+
+class OwnershipDiscoveryAudit(BaseModel):
+    """Reviewer-safe corporate discovery audit kept beside the authoritative graph.
+
+    `graph_complete` describes evidence completeness; `classification_certainty`
+    describes what the bound can say despite omissions. Neither relaxes the existing
+    review rule for an incomplete graph.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    method: Literal["REGISTRY_CORPORATE_DISCOVERY_V1"] = "REGISTRY_CORPORATE_DISCOVERY_V1"
+    trace_threshold_percent: OwnershipPercent
+    ubo_threshold_percent: OwnershipPercent
+    max_corporate_depth: int = Field(ge=1, le=7)
+    call_budget_enabled: bool
+    call_budget_max: int = Field(ge=1, le=32)
+    graph_complete: bool
+    classification_certainty: Literal["COMPLETE", "BOUNDED_NO_THRESHOLD_CHANGE", "UNCERTAIN"]
+    unresolved_upper_bound_percent: CalculatedPercent | None = None
+    registry_lookups: int = Field(ge=0, le=64)
+    provider_backed_lookups: int = Field(ge=0, le=64)
+    cache_hits: int = Field(ge=0, le=64)
+    records: tuple[OwnershipDiscoveryRecord, ...] = Field(default=(), max_length=100)
+    unresolved_person_party_ids: tuple[SafePartyId, ...] = Field(default=(), max_length=32)
+
+    @model_validator(mode="after")
+    def consistent_audit(self) -> "OwnershipDiscoveryAudit":
+        if self.provider_backed_lookups + self.cache_hits != self.registry_lookups:
+            raise ValueError("discovery lookup counts are inconsistent")
+        if len({item.party_id for item in self.records}) != len(self.records):
+            raise ValueError("discovery records must be unique per party")
+        complete = all(item.outcome in RESOLVED_DISCOVERY_OUTCOMES for item in self.records)
+        if self.graph_complete != complete:
+            raise ValueError("graph completeness disagrees with discovery records")
+        if self.classification_certainty == "COMPLETE" and (
+            not self.graph_complete or self.unresolved_person_party_ids
+        ):
+            raise ValueError("complete certainty requires a complete unambiguous graph")
+        if self.trace_threshold_percent > self.ubo_threshold_percent:
+            raise ValueError("trace threshold cannot exceed the UBO threshold")
+        return self
+
+
 class OwnershipWorkflowEvent(BaseModel):
     """Audit-safe lifecycle event containing counts and identifiers, not graph data."""
 
@@ -403,6 +493,7 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
     identity_correction_version: int | None = Field(default=None, ge=0)
     tagging: OwnershipTaggingResult | None = None
     legal_form: RegistryLegalForm | None = None
+    discovery: OwnershipDiscoveryAudit | None = None
     analysis_id: UUID
     correlation_id: UUID
     root_party_id: SafePartyId | None = None
@@ -449,6 +540,7 @@ class OwnershipAnalysisRecord(BaseModel):
     )
     tagging: OwnershipTaggingResult | None = None
     legal_form: RegistryLegalForm | None = None
+    discovery: OwnershipDiscoveryAudit | None = None
     version: int = Field(default=0, ge=0)
     analysis_id: UUID
     correlation_id: UUID

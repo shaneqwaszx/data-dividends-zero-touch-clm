@@ -36,7 +36,11 @@ units, withdrawn holders are excluded, and relationship percentages are quantize
 six decimal places. Missing, binary-float, zero, negative, duplicate-identity, or
 malformed fixture data fails closed.
 
-The graph then follows the ordinary ownership contract. In particular, the path
+Since D-076 the local Mock serves Garden and SIM LIM as two separate issuer records:
+Garden's record names only SIM LIM (Corporate, 5000 units) and LIM CHOON HUAT (3000
+units); SIM LIM's holders come only from SIM LIM's own record (see the recursive
+discovery section below). The graph then follows the ordinary ownership contract. In
+particular, the path
 `11111999A -> 111111111M (62.500000%) -> S123AC1234E (81.818182%)` produces
 `51.13636375%`, approximately `51.136364%` at six-decimal presentation. LIM CHOON HUAT
 retains direct `37.500000%`; the two `9.090909%` SIM LIM holders each have effective
@@ -272,3 +276,51 @@ document and independent user decisions are outside this retirement category.
 Recovery rebinds partial CLM projection from retained Search, preserves cancelled
 history, and recomputes reconciliation/ownership/readiness without provider replay.
 Submission freeze, authorization and stale-writer protections remain authoritative.
+
+## Registry-driven recursive corporate discovery — D-076 candidate, 2026-10-23
+
+`OwnershipDiscoveryCoordinator` (ADR-013) runs inside the ownership load, under the case
+lock, only for registry-sourced graphs of cases whose frozen snapshot carries
+`ownership_discovery`. Historical snapshots without it keep root-only semantics.
+
+- **Trigger.** A legal-entity leaf (no disclosed owners in the current graph) with a
+  verified Singapore UEN is acquired as its own issuer through
+  `OnboardingService.acquire_subsidiary_registry_evidence()`: fresh compatible cache
+  first (zero provider calls), configured provider on miss/stale, never a case rewrite.
+  Names never link entities. Non-SG or unverified identifiers are never sent to ACRA.
+- **Acceptance.** Requested/returned UEN, entity profile, MOCK environment, COMPLETE
+  status and COMPANY legal form must agree; the issuer record must itself be a valid
+  ownership graph. Officer roles stay descriptive; ownership-like roles keep review.
+  NOT_FOUND, unsupported, partial, failed, invalid and cache failures are distinct
+  unresolved outcomes, never success.
+- **Identity.** Issuer nodes deduplicate by verified UEN (diamonds share one acquisition;
+  a holder pointing back to an ancestor becomes the engine's `CYCLE_DETECTED`). Holders
+  from an issuer record use `<issuer UEN>.<source id>` identifiers (hashed when unsafe or
+  long), so source-local IDs never collide. Equal source person identifiers in different
+  issuer records stay distinct and raise `PERSON_IDENTITY_UNRESOLVED`; only an explicit
+  verified binding merges them, and no current provider supplies one.
+- **Tracing.** A frontier issuer whose exact root-equivalent share is at least the frozen
+  trace threshold is acquired first. Smaller branches are deferred only when a sound
+  global bound proves no known or unknown person can cross the UBO threshold; the bound
+  assumes each unresolved issuer's holders total at most 100% and is void on cycles,
+  traversal limits, over-allocated resolved issuers or unresolved person identity.
+  Otherwise deferred branches are expanded. A deferral is never a non-UBO finding.
+- **Limits.** Corporate depth (root level 0) is case policy; deeper owners are
+  `DEPTH_LIMIT`. The optional business budget counts provider-backed issuer
+  acquisitions (cache hits do not count; uncertain busy/cache failures count
+  conservatively). Fixed technical caps always apply: 32 issuer lookups, 60 s deadline,
+  sequential acquisition, existing 100-party/200-relationship/256-evidence limits. The
+  8-edge calculation depth and path limits are unchanged.
+- **Status.** The audit records `graph_complete` and `classification_certainty`
+  (`COMPLETE`, `BOUNDED_NO_THRESHOLD_CHANGE`, `UNCERTAIN`) with per-issuer outcome,
+  depth, root-equivalent exposure and lookup counts. Any unresolved branch adds
+  `CORPORATE_OWNERSHIP_UNRESOLVED` beside the engine's `INCOMPLETE_LEGAL_ENTITY`, so the
+  existing rule keeps every candidate `REVIEW_REQUIRED`/`INDETERMINATE`; the graph never
+  becomes ownership-ready while a branch is unresolved.
+- **Currentness.** After acquisition the case is re-read; a changed identity or retained
+  target result fails the load as `OWNERSHIP_SOURCE_STALE` with no derived analysis.
+
+Garden through this path: Garden direct edges `111111111M` 62.500000% and LIM CHOON HUAT
+37.500000%, then SIM LIM's own holders 81.818182/9.090909/9.090909% (withdrawn holder
+excluded), giving ABCD123 `51.13636375%`, LIM CHOON HUAT `37.500000%` and two
+`5.681818125%` holders — identical to the accepted D-046 result.

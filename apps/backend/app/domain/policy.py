@@ -19,6 +19,20 @@ MAX_POLICY_RULES = 64
 MAX_POLICY_AUDIT_EVENTS = 256
 IDP_POLICY_ID = "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD"
 UBO_POLICY_ID = "OWNERSHIP_UBO_THRESHOLD_PERCENT"
+OWNERSHIP_TRACE_THRESHOLD_ID = "OWNERSHIP_TRACE_THRESHOLD_PERCENT"
+OWNERSHIP_DISCOVERY_MAX_DEPTH_ID = "OWNERSHIP_DISCOVERY_MAX_CORPORATE_DEPTH"
+OWNERSHIP_CALL_BUDGET_ENABLED_ID = "OWNERSHIP_REGISTRY_CALL_BUDGET_ENABLED"
+OWNERSHIP_CALL_BUDGET_MAX_ID = "OWNERSHIP_REGISTRY_CALL_BUDGET_MAX"
+OWNERSHIP_DISCOVERY_POLICY_IDS = (
+    OWNERSHIP_TRACE_THRESHOLD_ID,
+    OWNERSHIP_DISCOVERY_MAX_DEPTH_ID,
+    OWNERSHIP_CALL_BUDGET_ENABLED_ID,
+    OWNERSHIP_CALL_BUDGET_MAX_ID,
+)
+# Corporate depth is bounded below the unchanged 8-edge calculation ceiling so the
+# owners of the deepest acquired issuer remain calculable.
+OWNERSHIP_DISCOVERY_MAX_DEPTH_CEILING = 7
+OWNERSHIP_CALL_BUDGET_CEILING = 32
 ENTITY_RESOLUTION_AUTO_MATCH_THRESHOLD_ID = "ENTITY_RESOLUTION_AUTO_MATCH_THRESHOLD"
 ENTITY_RESOLUTION_REVIEW_THRESHOLD_ID = "ENTITY_RESOLUTION_REVIEW_THRESHOLD"
 ENTITY_RESOLUTION_AMBIGUITY_MARGIN_ID = "ENTITY_RESOLUTION_AMBIGUITY_MARGIN"
@@ -292,6 +306,24 @@ class RegistryPolicySnapshot(BaseModel):
     negative_seconds: Annotated[int, Field(strict=True, ge=1, le=3_600)] = 600
 
 
+class OwnershipDiscoveryPolicySnapshot(BaseModel):
+    """Case-frozen corporate-owner discovery parameters (project-defined POC).
+
+    The trace threshold only prioritizes retrieval; it never declares anyone non-UBO.
+    A disabled business budget means no business cap, not unbounded technical work.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    trace_threshold_percent: Annotated[
+        Decimal, Field(gt=Decimal("0"), le=Decimal("100"), decimal_places=6)
+    ]
+    max_corporate_depth: Annotated[
+        int, Field(strict=True, ge=1, le=OWNERSHIP_DISCOVERY_MAX_DEPTH_CEILING)
+    ]
+    call_budget_enabled: Annotated[bool, Field(strict=True)]
+    call_budget_max: Annotated[int, Field(strict=True, ge=1, le=OWNERSHIP_CALL_BUDGET_CEILING)]
+
+
 class EvidenceClassifierPolicy(BaseModel):
     """POC semantic scoring only; never ownership arithmetic or legal findings."""
 
@@ -385,9 +417,11 @@ class PolicyVersionRecord(BaseModel):
 class PolicyCatalogue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    catalogue_schema_version: Literal[1, 2] = 2
+    # Schema 3 may carry a MIGRATED activation: an audited additive bootstrap version
+    # that appends new default rules and retains the replaced active rules as history.
+    catalogue_schema_version: Literal[1, 2, 3] = 2
     active_version: Annotated[int, Field(strict=True, ge=1)] = 1
-    active_origin: Literal["DEFAULT", "APPROVED"] = "DEFAULT"
+    active_origin: Literal["DEFAULT", "APPROVED", "MIGRATED"] = "DEFAULT"
     active_effective_at: datetime | None = None
     proposals: Annotated[tuple[PolicyProposal, ...], Field(max_length=64)] = ()
     superseded_versions: Annotated[tuple[PolicyVersionRecord, ...], Field(max_length=64)] = ()
@@ -481,6 +515,17 @@ class PolicyCatalogue(BaseModel):
             raise ValueError("active effective timestamp differs from approval")
         if self.active_origin == "DEFAULT" and (approved or self.superseded_versions):
             raise ValueError("baseline cannot contain activation history")
+        if self.active_origin == "MIGRATED":
+            if self.catalogue_schema_version != 3 or not self.superseded_versions:
+                raise ValueError("migrated activation requires its retained predecessor")
+            predecessor = {rule.policy_id: rule for rule in self.superseded_versions[-1].rules}
+            active_ids = {rule.policy_id for rule in self.rules}
+            if not set(predecessor) < active_ids or any(
+                rule != predecessor[rule.policy_id]
+                for rule in self.rules
+                if rule.policy_id in predecessor
+            ):
+                raise ValueError("migrated activation may only add rules to its predecessor")
         ids = [rule.policy_id for rule in self.rules]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate policy ID")
@@ -655,6 +700,8 @@ class CasePolicySnapshot(BaseModel):
     goldtier_target: GoldTierTargetPolicySnapshot | None = None
     registry: RegistryPolicySnapshot | None = None
     evidence_classifier: EvidenceClassifierPolicy | None = None
+    # Absent on historical snapshots: those cases keep root-only ownership semantics.
+    ownership_discovery: OwnershipDiscoveryPolicySnapshot | None = None
     policy_identity: Annotated[str | None, Field(pattern=r"^[0-9a-f]{64}$")] = None
     bound_at: datetime
 
@@ -665,6 +712,12 @@ class CasePolicySnapshot(BaseModel):
             not all(value is not None for value in fields) or self.catalogue_version < 1
         ):
             raise ValueError("approved case policy requires complete versioned parameters")
+        discovery = self.ownership_discovery
+        if discovery is not None and (
+            self.registry is None
+            or discovery.trace_threshold_percent > self.ubo_threshold_percent
+        ):
+            raise ValueError("ownership discovery requires an approved consistent snapshot")
         if self.bound_at.tzinfo is None or self.bound_at.utcoffset() != UTC.utcoffset(
             self.bound_at
         ):

@@ -108,6 +108,7 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
             "test_slice_d_real_mongo.py",
             "test_slice_e_real_mongo.py",
             "test_s3_submission_real_mongo.py",
+            "test_recursive_ownership_real_mongo.py",
         ):
             with self.subTest(suite=name):
                 self.assertIn(name, names)

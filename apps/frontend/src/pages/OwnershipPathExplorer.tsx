@@ -9,6 +9,56 @@ import UboSummary from "./UboSummary";
 
 const PAGE_SIZE = 20;
 const VISUAL_EDGE_LIMIT = 11;
+const PARTIAL_ISSUE_CODES: string[] = [
+  "CYCLE_DETECTED",
+  "INCOMPLETE_LEGAL_ENTITY",
+  "MAXIMUM_DEPTH_EXCEEDED",
+  "PATH_LIMIT_EXCEEDED",
+  "CORPORATE_OWNERSHIP_UNRESOLVED",
+  "PERSON_IDENTITY_UNRESOLVED",
+];
+const DISCOVERY_OUTCOME_LABELS: Record<string, string> = {
+  CACHE_HIT: "Reused fresh registry evidence",
+  FETCHED: "Acquired from its own registry record",
+  DEFERRED_BELOW_TRACE_THRESHOLD: "Deferred below tracing priority",
+  DEPTH_LIMIT: "Beyond the discovery depth limit",
+  BUSINESS_BUDGET: "Registry call budget reached",
+  HARD_LIMIT: "Technical safeguard reached",
+  UNVERIFIED_UEN: "No verified Singapore UEN",
+  FOREIGN_UNSUPPORTED: "Foreign company not supported",
+  UNSUPPORTED_LEGAL_FORM: "Legal form not supported",
+  NOT_FOUND: "Not found in the registry",
+  PROVIDER_UNSUPPORTED: "Ownership not supported by provider",
+  PROVIDER_PARTIAL: "Incomplete registry evidence",
+  PROVIDER_FAILED: "Registry lookup failed",
+  PROVIDER_INVALID: "Registry evidence rejected",
+  CACHE_FAILURE: "Stored evidence could not be used",
+};
+
+/** Read-only corporate discovery audit: backend Decimal strings are never recalculated. */
+function CorporateDiscoverySummary({ record }: { record: OwnershipAnalysisRecord }) {
+  const audit = record.discovery;
+  if (!audit) return null;
+  const certainty = audit.classification_certainty === "COMPLETE"
+    ? "complete"
+    : audit.classification_certainty === "BOUNDED_NO_THRESHOLD_CHANGE" ? "partial; bound shows no threshold change" : "partial; outcome uncertain";
+  return <details className="evidence-details ownership-discovery">
+    <summary>Corporate owners from separate registry records ({audit.records.length})</summary>
+    <p className="control-help">
+      Graph {audit.graph_complete ? "complete" : "partial"} · {certainty} · {audit.registry_lookups} registry lookup{audit.registry_lookups === 1 ? "" : "s"} ({audit.provider_backed_lookups} provider-backed, {audit.cache_hits} reused from cache).
+      {audit.unresolved_upper_bound_percent != null && !audit.graph_complete && <> Up to {formatOwnershipPercent(audit.unresolved_upper_bound_percent)} root-equivalent interest remains undisclosed.</>}
+    </p>
+    <div className="table-scroll" tabIndex={0}><table>
+      <caption>Each corporate owner is resolved from its own synthetic Mock registry record; unresolved branches keep ownership under review</caption>
+      <thead><tr><th>Corporate owner</th><th>UEN</th><th>Level</th><th>Outcome</th><th>Root-equivalent interest</th></tr></thead>
+      <tbody>{audit.records.map(item => <tr key={item.party_id}>
+        <td>{item.display_name}</td><td>{item.registration_number ?? "Not verified"}</td><td>{item.depth}</td>
+        <td>{DISCOVERY_OUTCOME_LABELS[item.outcome] ?? item.outcome}{item.reason_code ? ` · ${item.reason_code}` : ""}</td>
+        <td>{item.max_effective_percent != null ? formatOwnershipPercent(item.max_effective_percent) : "Not available"}</td>
+      </tr>)}</tbody>
+    </table></div>
+  </details>;
+}
 
 function visualEdges(path: OwnershipPath) {
   if (path.edges.length <= VISUAL_EDGE_LIMIT) return { prefix: path.edges, suffix: [] as typeof path.edges, hidden: 0 };
@@ -63,12 +113,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
     setPage((current) => Math.min(current, maxPage));
   }, [record?.analysis_id, candidate?.party.party_id, candidate?.paths.length]);
 
-  const partialIssues = record?.issues.filter((issue) => [
-    "CYCLE_DETECTED",
-    "INCOMPLETE_LEGAL_ENTITY",
-    "MAXIMUM_DEPTH_EXCEEDED",
-    "PATH_LIMIT_EXCEEDED",
-  ].includes(issue.code)) ?? [];
+  const partialIssues = record?.issues.filter((issue) => PARTIAL_ISSUE_CODES.includes(issue.code)) ?? [];
   const totalPages = Math.max(1, Math.ceil((candidate?.paths.length ?? 0) / PAGE_SIZE));
   const visiblePaths = useMemo(
     () => candidate?.paths.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) ?? [],
@@ -161,6 +206,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
       {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
       <UboSummary record={record} />
       <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); if (candidate?.party.party_id !== partyId) setInspectionOpen(false); }} />
+      <CorporateDiscoverySummary key={`discovery:${record.analysis_id}`} record={record} />
       {presentation === "main" ? <>
         {partialIssues.length > 0 && <div className="ds-banner ds-banner-warn" role="note"><strong>Non-definitive partial ownership view.</strong>{partialIssues.map(issue => <p key={`${issue.code}-${issue.message}`}>{issue.code}: {issue.message}</p>)}</div>}
         {record.error && !primaryBlockerVisible && <p role="alert">{record.error.code}: {record.error.message}</p>}
@@ -204,12 +250,7 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
   if (!record) return null;
   const Disclosure = presentation === "full" ? "details" : "section";
   const Label = presentation === "full" ? "summary" : "h5";
-  const partialIssues = record?.issues.filter((issue) => [
-    "CYCLE_DETECTED",
-    "INCOMPLETE_LEGAL_ENTITY",
-    "MAXIMUM_DEPTH_EXCEEDED",
-    "PATH_LIMIT_EXCEEDED",
-  ].includes(issue.code)) ?? [];
+  const partialIssues = record?.issues.filter((issue) => PARTIAL_ISSUE_CODES.includes(issue.code)) ?? [];
   return <section ref={panel} className="ownership-support-panel">
     {presentation !== "more" && <>
       {presentation === "technical" && <>

@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[10] = 10
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[11] = 11
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -101,7 +101,7 @@ class DurableCaseSnapshotV1(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -165,7 +165,7 @@ class DurableCaseSnapshotV2(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -227,7 +227,7 @@ class DurableCaseSnapshotV3(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -277,7 +277,7 @@ class DurableCaseSnapshotV4(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -327,7 +327,7 @@ class DurableCaseSnapshotV5(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -415,7 +415,7 @@ class DurableCaseSnapshotV6(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -465,7 +465,7 @@ class DurableCaseSnapshotV7(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -559,19 +559,59 @@ class DurableCaseSnapshotV9(BaseModel):
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
-        return DurableCaseSnapshot.model_validate({**self.model_dump(), "schema_version": 10})
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
 
     @model_validator(mode="after")
     def validate_case_bindings(self) -> "DurableCaseSnapshotV9":
         _validate_case_bindings(self)
         return self
 
+
+class DurableCaseSnapshotV10(BaseModel):
+    """Exact schema-10 envelope: no frozen discovery policy or discovery audit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[10] = 10
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_ownership_discovery_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV10":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[10] = 10
+    schema_version: Literal[11] = 11
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -606,6 +646,28 @@ def reject_classification_legacy_fields(value: Any) -> None:
         "classification_observations" in _explicit_fields(doc) for doc in raw.get("documents", ())
     ):
         raise ValueError("Historical schema cannot contain classification observations")
+
+
+def reject_ownership_discovery_legacy_fields(value: Any) -> None:
+    """Schema <= 10 envelopes cannot carry a frozen discovery policy or audit.
+
+    Like the Phase24C policy-parameter rule, an explicit null is the legacy meaning.
+    """
+    raw = _explicit_fields(value)
+    onboarding = _explicit_fields(raw.get("onboarding"))
+    snapshots = (
+        onboarding.get("policy_snapshot"),
+        *(
+            _explicit_fields(item).get("previous_snapshot")
+            for item in onboarding.get("policy_rebind_history", ())
+        ),
+    )
+    if any(_explicit_fields(item).get("ownership_discovery") is not None for item in snapshots):
+        raise ValueError("Historical schema cannot contain ownership discovery policy.")
+    ownership = _explicit_fields(raw.get("ownership"))
+    for record in (ownership, *ownership.get("prior_analyses", ())):
+        if _explicit_fields(record).get("discovery") is not None:
+            raise ValueError("Historical schema cannot contain ownership discovery audit.")
 
 
 def reject_session2_legacy_fields(value: Any) -> None:

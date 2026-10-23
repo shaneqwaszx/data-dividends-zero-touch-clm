@@ -40,6 +40,12 @@ from app.domain.policy import (
     MOCK_RISK_BLOCKS_READINESS_ID,
     MOCK_RISK_HIGH_THRESHOLD_ID,
     MOCK_RISK_MEDIUM_THRESHOLD_ID,
+    OWNERSHIP_CALL_BUDGET_CEILING,
+    OWNERSHIP_CALL_BUDGET_ENABLED_ID,
+    OWNERSHIP_CALL_BUDGET_MAX_ID,
+    OWNERSHIP_DISCOVERY_MAX_DEPTH_CEILING,
+    OWNERSHIP_DISCOVERY_MAX_DEPTH_ID,
+    OWNERSHIP_TRACE_THRESHOLD_ID,
     UBO_ADVISORY_LIKELY_THRESHOLD_ID,
     UBO_ADVISORY_UNLIKELY_THRESHOLD_ID,
     UBO_POLICY_ID,
@@ -52,6 +58,7 @@ from app.domain.policy import (
     GoldTierTargetPolicySnapshot,
     IntegerPolicyValue,
     IntelligencePolicySnapshot,
+    OwnershipDiscoveryPolicySnapshot,
     PolicyAuditEvent,
     PolicyAuthority,
     PolicyCatalogue,
@@ -118,7 +125,7 @@ class PolicyManagementService:
         legacy_count = next(
             (
                 count
-                for count in (29, 21, 8)
+                for count in (35, 29, 21, 8)
                 if current_ids[:count] == required_ids[:count]
                 and all(
                     rule.enforcement == PolicyEnforcement.DISPLAY_SHOWCASE_ONLY
@@ -132,6 +139,128 @@ class PolicyManagementService:
             raise PolicyValidationError
         now = self._clock()
         next_version = current.version + 1
+        rules, seeded = self._seed_trace_within_ubo(
+            (
+                *current.rules[:legacy_count],
+                *defaults.rules[legacy_count:],
+                *current.rules[legacy_count:],
+            )
+        )
+        history = bool(current.proposals or current.superseded_versions) or (
+            current.active_origin != "DEFAULT"
+        )
+        if not history:
+            # Nothing but the active rules exists, so the historical rebuild loses nothing.
+            event = PolicyAuditEvent(
+                event_id=new_event_id(),
+                action="POLICY_CATALOGUE_MIGRATED",
+                actor_user_id="system-bootstrap",
+                target_id=current.catalogue_id,
+                timestamp=now,
+                resulting_version=next_version,
+                metadata={
+                    "added_rule_count": len(defaults.rules) - legacy_count,
+                    **({"trace_threshold_seeded_from_ubo": True} if seeded else {}),
+                },
+            )
+            candidate = PolicyCatalogue(
+                catalogue_id=current.catalogue_id,
+                version=next_version,
+                active_version=next_version,
+                active_effective_at=now,
+                rules=rules,
+                created_at=current.created_at,
+                updated_at=now,
+                updated_by="system-bootstrap",
+                audit_events=(*current.audit_events, event),
+            )
+        else:
+            candidate = self._additive_migration(current, rules, now, next_version, seeded)
+        # The migrated rules must already satisfy the trace <= UBO rule before any write.
+        try:
+            self._ownership_discovery_snapshot(candidate)
+        except (ValidationError, ValueError, TypeError):
+            raise PolicyValidationError from None
+        self._repository.update(candidate, expected_version=current.version)
+
+    @staticmethod
+    def _seed_trace_within_ubo(
+        rules: tuple[PolicyRule, ...],
+    ) -> tuple[tuple[PolicyRule, ...], bool]:
+        """Start a newly added trace threshold no higher than the active UBO threshold.
+
+        A positive UBO threshold below the 10% default seeds the trace threshold at that
+        value; a 0% UBO threshold admits no positive trace threshold and fails closed.
+        """
+        by_id = {rule.policy_id: rule for rule in rules}
+        ubo = by_id.get(UBO_POLICY_ID)
+        trace = by_id.get(OWNERSHIP_TRACE_THRESHOLD_ID)
+        if (
+            ubo is None
+            or trace is None
+            or not isinstance(ubo.value, DecimalPolicyValue)
+            or not isinstance(trace.value, DecimalPolicyValue)
+        ):
+            raise PolicyValidationError
+        active_ubo = Decimal(ubo.value.value)
+        if Decimal(trace.value.value) <= active_ubo:
+            return rules, False
+        if active_ubo <= 0:
+            raise PolicyValidationError
+        try:
+            seeded = PolicyRule.model_validate(
+                {**trace.model_dump(), "value": {"type": "DECIMAL", "value": ubo.value.value}}
+            )
+        except (ValidationError, ValueError, TypeError):
+            raise PolicyValidationError from None
+        return (
+            tuple(
+                seeded if rule.policy_id == OWNERSHIP_TRACE_THRESHOLD_ID else rule
+                for rule in rules
+            ),
+            True,
+        )
+
+    def _additive_migration(
+        self,
+        current: PolicyCatalogue,
+        rules: tuple[PolicyRule, ...],
+        now: datetime,
+        next_version: int,
+        seeded: bool,
+    ) -> PolicyCatalogue:
+        """Append new default rules without losing approvals, proposals or history.
+
+        Existing active values are kept unchanged; the replaced active rules become a
+        retained superseded version. Undecided proposals on that base are rebased by
+        adding only the new default rules, so their proposed changes stay identical.
+        Decided or already-stale proposals are retained exactly as they were.
+        """
+
+        if len(current.superseded_versions) >= 64:
+            raise PolicyValidationError
+        rule_ids = [rule.policy_id for rule in rules]
+        proposals: list[PolicyProposal] = []
+        rebased = 0
+        for proposal in current.proposals:
+            proposed = {rule.policy_id: rule for rule in proposal.rules}
+            if (
+                proposal.status in {"DRAFT", "PENDING_APPROVAL"}
+                and proposal.base_active_version == current.active_version
+                and set(proposed) <= set(rule_ids)
+            ):
+                rebased += 1
+                proposal = PolicyProposal.model_validate(
+                    proposal.model_copy(
+                        update={
+                            "rules": tuple(proposed.get(rule.policy_id, rule) for rule in rules),
+                            "base_active_version": next_version,
+                            "version": proposal.version + 1,
+                            "updated_at": now,
+                        }
+                    ).model_dump()
+                )
+            proposals.append(proposal)
         event = PolicyAuditEvent(
             event_id=new_event_id(),
             action="POLICY_CATALOGUE_MIGRATED",
@@ -139,24 +268,36 @@ class PolicyManagementService:
             target_id=current.catalogue_id,
             timestamp=now,
             resulting_version=next_version,
-            metadata={"added_rule_count": len(defaults.rules) - legacy_count},
+            metadata={
+                "added_rule_count": len(rules) - len(current.rules),
+                "rebased_proposal_count": rebased,
+                "superseded_active_version": current.active_version,
+                **({"trace_threshold_seeded_from_ubo": True} if seeded else {}),
+            },
         )
-        candidate = PolicyCatalogue(
-            catalogue_id=current.catalogue_id,
-            version=next_version,
-            active_version=next_version,
-            active_effective_at=now,
-            rules=(
-                *current.rules[:legacy_count],
-                *defaults.rules[legacy_count:],
-                *current.rules[legacy_count:],
-            ),
-            created_at=current.created_at,
-            updated_at=now,
-            updated_by="system-bootstrap",
-            audit_events=(*current.audit_events, event),
-        )
-        self._repository.update(candidate, expected_version=current.version)
+        try:
+            return PolicyCatalogue(
+                catalogue_schema_version=3,
+                catalogue_id=current.catalogue_id,
+                version=next_version,
+                active_version=next_version,
+                active_origin="MIGRATED",
+                active_effective_at=now,
+                proposals=tuple(proposals),
+                superseded_versions=(
+                    *current.superseded_versions,
+                    PolicyVersionRecord(
+                        version=current.active_version, rules=current.rules, superseded_at=now
+                    ),
+                ),
+                rules=rules,
+                created_at=current.created_at,
+                updated_at=now,
+                updated_by="system-bootstrap",
+                audit_events=(*current.audit_events, event),
+            )
+        except (ValidationError, ValueError):
+            raise PolicyValidationError from None
 
     def catalogue(self) -> PolicyCatalogue:
         value = self._repository.get()
@@ -451,7 +592,9 @@ class PolicyManagementService:
                     update={"rules": historical.rules, "active_version": historical.version}
                 )
             proposed = base.model_copy(update={"rules": proposal.rules})
-            self._validate_runtime(proposed)
+            # The read-only preview evaluates no discovery parameter; their consistency
+            # with the UBO threshold is enforced on submission, approval and snapshots.
+            self._validate_runtime(proposed, include_discovery=False)
 
             def snapshot(catalogue: PolicyCatalogue, version: int) -> ImpactPolicy:
                 return ImpactPolicy(
@@ -525,7 +668,7 @@ class PolicyManagementService:
             current.model_copy(
                 update={
                     **changes,
-                    "catalogue_schema_version": 2,
+                    "catalogue_schema_version": max(2, current.catalogue_schema_version),
                     "version": version,
                     "updated_at": now,
                     "updated_by": actor.profile.user_id,
@@ -535,14 +678,41 @@ class PolicyManagementService:
         )
         return self._repository.update(candidate, expected_version=current.version)
 
-    def _validate_runtime(self, catalogue: PolicyCatalogue) -> None:
+    def _validate_runtime(
+        self, catalogue: PolicyCatalogue, *, include_discovery: bool = True
+    ) -> None:
         try:
             self._intelligence_snapshot(catalogue)
             self._goldtier_target_snapshot(catalogue)
             self._registry_snapshot(catalogue)
             self._classifier_snapshot(catalogue)
+            if include_discovery:
+                self._ownership_discovery_snapshot(catalogue)
         except (ValidationError, ValueError, TypeError):
             raise PolicyValidationError from None
+
+    @classmethod
+    def _ownership_discovery_snapshot(
+        cls, catalogue: PolicyCatalogue
+    ) -> OwnershipDiscoveryPolicySnapshot:
+        """Validate the discovery rules together with the effective UBO threshold."""
+        enabled = catalogue.rule(OWNERSHIP_CALL_BUDGET_ENABLED_ID)
+        if (
+            enabled is None
+            or not isinstance(enabled.value, BooleanPolicyValue)
+            or enabled.enforcement != PolicyEnforcement.RUNTIME_ENFORCED
+        ):
+            raise PolicyValidationError
+        trace = cls._runtime_decimal(catalogue, OWNERSHIP_TRACE_THRESHOLD_ID)
+        # Tracing only prioritizes retrieval, so it can never exceed the UBO threshold.
+        if trace > cls._runtime_decimal(catalogue, UBO_POLICY_ID):
+            raise PolicyValidationError
+        return OwnershipDiscoveryPolicySnapshot(
+            trace_threshold_percent=trace,
+            max_corporate_depth=cls._runtime_integer(catalogue, OWNERSHIP_DISCOVERY_MAX_DEPTH_ID),
+            call_budget_enabled=enabled.value.value,
+            call_budget_max=cls._runtime_integer(catalogue, OWNERSHIP_CALL_BUDGET_MAX_ID),
+        )
 
     @classmethod
     def _registry_snapshot(cls, catalogue: PolicyCatalogue) -> RegistryPolicySnapshot:
@@ -581,6 +751,7 @@ class PolicyManagementService:
             policy_identity=catalogue.active_identity,
             registry=self._registry_snapshot(catalogue),
             evidence_classifier=self._classifier_snapshot(catalogue),
+            ownership_discovery=self._ownership_discovery_snapshot(catalogue),
             idp_review_confidence_threshold=Decimal(idp.value.value),
             ubo_threshold_percent=Decimal(ubo.value.value),
             intelligence=intelligence,
@@ -1167,6 +1338,50 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
             "0.50",
             "0",
             "1",
+        ),
+    )
+    # Project-defined corporate discovery rules; appended so earlier rule positions
+    # remain the legacy migration prefixes.
+    rules = (
+        *rules,
+        decimal_rule(
+            OWNERSHIP_TRACE_THRESHOLD_ID,
+            "Ownership",
+            "Corporate tracing priority threshold",
+            "Corporate owners holding at least this root-equivalent percent are acquired "
+            "first. Smaller branches are deferred only under a proved bound and always "
+            "keep the graph under review; never a non-UBO finding.",
+            "10.000000",
+            "0.000001",
+            "100",
+        ),
+        integer_rule(
+            OWNERSHIP_DISCOVERY_MAX_DEPTH_ID,
+            "Ownership",
+            "Maximum corporate discovery depth",
+            "Deepest corporate-owner level acquired from its own registry record (onboarding "
+            "company is level 0). Deeper corporate owners stay unresolved for review.",
+            5,
+            1,
+            OWNERSHIP_DISCOVERY_MAX_DEPTH_CEILING,
+        ),
+        boolean_rule(
+            OWNERSHIP_CALL_BUDGET_ENABLED_ID,
+            "Ownership",
+            "Registry call budget enabled",
+            "Caps provider-backed corporate-owner acquisitions per analysis when enabled; "
+            "fixed technical safeguards apply either way.",
+            False,
+        ),
+        integer_rule(
+            OWNERSHIP_CALL_BUDGET_MAX_ID,
+            "Ownership",
+            "Registry call budget",
+            "Maximum provider-backed corporate-owner acquisitions per analysis while the "
+            "budget is enabled; fresh cache hits do not count.",
+            10,
+            1,
+            OWNERSHIP_CALL_BUDGET_CEILING,
         ),
     )
     return PolicyCatalogue(

@@ -1029,3 +1029,23 @@ source-precedence rule, ownership engine or target path is introduced. Four sepa
 native sponsor PDFs use the existing explicit LOCAL seed manager and parser. Their
 informational registry annex does not become independently asserted ownership evidence.
 Expanded acceptance belongs to SPONSOR_DEMO_FINAL_QUALITY_GATE.md.
+
+## Recursive corporate ownership discovery - unmerged candidate, 2026-10-23
+
+D-076/ADR-013 add one scheduling owner, `services/ownership_discovery.py`
+(`OwnershipDiscoveryCoordinator`). `OwnershipAnalysisService` calls it during load, under
+the case lock, for registry-sourced graphs of cases with a frozen discovery policy. It
+reads corporate owners only through the new read-only
+`OnboardingService.acquire_subsidiary_registry_evidence()`, which reuses the existing
+Singapore router, ACRA adapter and `RegistryAcquisitionCoordinator`/snapshot repository
+(cache first; no case acquisition, binding or event is touched). Each issuer bundle is
+normalized by the extracted `acquisition_ownership_source()` used for the root.
+
+Dependency direction: ownership service -> coordinator protocol; coordinator -> engine
+functions, registry-ownership normalization and the subsidiary reader. The coordinator
+holds no cache, repository or classification; `calculate_ownership_paths()` remains the
+sole Decimal calculator and only additionally reports exact unresolved legal-entity
+shares. Durable additions: optional case-frozen `ownership_discovery` policy and
+ownership `discovery` audit (case envelope schema 11), and catalogue schema 3 `MIGRATED`
+activation. Garden/SIM LIM are separate local Mock issuers (`MOCK_ACRA_SYNTHETIC_V2`);
+the official Marketplace Mock lane keeps its labelled Garden supplement.

@@ -27,10 +27,17 @@ from app.domain.clm import GoldTierSearchDisposition
 from app.domain.documents import DocumentFieldKey, DocumentProfile
 from app.domain.models import RegistryAcquisitionStatus
 from app.domain.ownership import OwnershipAnalysisState, OwnershipCandidateClassification
+from app.domain.policy import (
+    CasePolicySnapshot,
+    EvidenceClassifierPolicy,
+    OwnershipDiscoveryPolicySnapshot,
+    RegistryPolicySnapshot,
+)
 from app.domain.zero_touch import AutomationStage, AutomationStatus
 from app.main import create_app
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
+from app.services.ownership_discovery import OwnershipDiscoveryCoordinator
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
 from app.services.repository import InMemoryOnboardingCaseRepository
 
@@ -69,6 +76,22 @@ def _service() -> OnboardingService:
         goldtier=MockGoldTierConnector(),
         repository=InMemoryOnboardingCaseRepository(),
         clock=lambda: NOW,
+        policy_snapshot_provider=lambda: CasePolicySnapshot(
+            snapshot_label="SYNTHETIC_GARDEN_DISCOVERY",
+            catalogue_version=1,
+            idp_review_confidence_threshold=Decimal("0.85"),
+            ubo_threshold_percent=Decimal("25.000000"),
+            registry=RegistryPolicySnapshot(),
+            evidence_classifier=EvidenceClassifierPolicy(),
+            ownership_discovery=OwnershipDiscoveryPolicySnapshot(
+                trace_threshold_percent=Decimal("10"),
+                max_corporate_depth=5,
+                call_budget_enabled=False,
+                call_budget_max=10,
+            ),
+            policy_identity="b" * 64,
+            bound_at=NOW,
+        ),
     )
 
 
@@ -164,17 +187,16 @@ def test_garden_mock_acquisition_feeds_the_existing_decimal_engine() -> None:
     assert acquisition is not None
     assert acquisition.status == RegistryAcquisitionStatus.COMPLETE
     assert acquisition.officers == ()
+    # Garden's own record holds only its direct owners; SIM LIM is a separate issuer.
     assert [party.party_id for party in acquisition.ownership_parties] == [
         SIM_LIM_UEN,
         "S9988776F",
-        "S123AC1234E",
-        "S2222222E",
-        "S23BT2997U",
     ]
 
     ownership = OwnershipAnalysisService(
         cases=service,
         provider=RegistryAcquisitionOwnershipProvider(service),
+        discovery=OwnershipDiscoveryCoordinator(service),
         repository=InMemoryOwnershipAnalysisRepository(),
         threshold_percent=Decimal("25"),
         max_parties=100,
@@ -190,6 +212,8 @@ def test_garden_mock_acquisition_feeds_the_existing_decimal_engine() -> None:
 
     assert analyzed.state == OwnershipAnalysisState.ANALYZED
     assert by_party["S9988776F"].direct_ownership_percent == Decimal("37.500000")
+    # SIM LIM's holders come from SIM LIM's own record, namespaced by that issuer.
+    by_party = {key.removeprefix(f"{SIM_LIM_UEN}."): value for key, value in by_party.items()}
     assert by_party["S123AC1234E"].aggregated_ownership_percent == Decimal("51.13636375")
     assert by_party["S2222222E"].aggregated_ownership_percent == Decimal("5.681818125")
     assert by_party["S23BT2997U"].aggregated_ownership_percent == Decimal("5.681818125")
