@@ -1167,6 +1167,26 @@ class OwnershipAnalysisService:
                         affected_party_ids=[item.party_id for item in unresolved][:16],
                     )
                 )
+            # D-079 rows sit beside the graph: units without a same-entity authoritative
+            # denominator stay quantities, never percentages.
+            retained = [
+                item
+                for item in (discovery.records if discovery is not None else ())
+                if item.official_shareholders
+            ]
+            if retained:
+                record.issues.append(
+                    OwnershipAnalysisIssue(
+                        code=OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED,
+                        message=(
+                            f"{sum(len(item.official_shareholders) for item in retained)} "
+                            "official Marketplace Mock shareholder row(s) are retained without "
+                            "an entity profile; no authoritative denominator exists, so no "
+                            "percentage is inferred."
+                        ),
+                        affected_party_ids=[item.party_id for item in retained][:16],
+                    )
+                )
             if discovery is not None and discovery.unresolved_person_party_ids:
                 record.issues.append(
                     OwnershipAnalysisIssue(

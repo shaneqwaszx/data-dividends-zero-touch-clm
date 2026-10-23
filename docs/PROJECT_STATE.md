@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 12,
+  "case_envelope_schema_version": 13,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -141,10 +141,11 @@ created. A later documentation-only closeout commit does not replace the inspect
 behavioral baseline. `schema_version` versions this metadata format;
 `case_envelope_schema_version` is independently checked against the canonical
 persistence constant. The D-076 source introduced case envelope v11 (optional frozen
-ownership-discovery policy and discovery audit). The D-077 candidate uses v12 (optional
-hybrid overlay classification, per-issuer official lookup/identity basis, evidence
-separation and labelled synthetic-basis comparison) and strictly reads valid legacy
-v1..v11 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
+ownership-discovery policy and discovery audit). D-077 introduced v12 (optional hybrid
+overlay classification, per-issuer official lookup/identity basis, evidence separation and
+labelled synthetic-basis comparison). The D-079 candidate uses v13 (optional official
+shareholder rows retained without an entity profile) and strictly reads valid legacy
+v1..v12 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
 in `apps/backend/app/persistence/models.py` and the version-specific decoders in
 `apps/backend/app/persistence/mongo_case_store.py`. This documents existing compatibility;
 no migration or persistence behavior is changed by this refresh. Historical tests and
@@ -986,3 +987,17 @@ LOCAL_SYNTHETIC_RELATIONSHIP links, always REVIEW_REQUIRED, schema 12, and the u
 hybrid lane is not Live. Its offline browser/API evidence uses an allowlisted protocol
 transport (AUTOMATED_OFFLINE_SIMULATION). No live Marketplace Mock probe ran in the
 implementing session (NOT_RUN_CREDENTIALS). See `demo/FIVE_LAYER_ACRA_HYBRID_DEMO.md`.
+
+## Official shareholder evidence without an entity profile - unmerged candidate, 2026-10-24
+
+Candidate D-079 on `feat/sim-lim-official-shareholder-evidence-20261024`, from main
+`2d8b84af46f2ac0f1d94965ca638e1cd7a1c7e54`.
+- **Behaviour:** in the official Marketplace lane, a non-overlay corporate holder with an
+  empty entity-basic profile keeps its official `coShareholdersDetails` rows as
+  `official_shareholders` beside the graph, without identity, legal form or percentages.
+  The example is SIM LIM `111111111M`, from Garden's direct overlay. The case stays
+  REVIEW_REQUIRED.
+- **Persistence:** registry cache schema 3; case envelope schema 13.
+- **Providers:** classifications are unchanged.
+- **Evidence:** offline only (AUTOMATED_OFFLINE_SIMULATION). No live Marketplace call was
+  made in the implementing session.

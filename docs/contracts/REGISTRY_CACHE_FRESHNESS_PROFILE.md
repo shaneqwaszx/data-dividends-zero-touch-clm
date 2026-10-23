@@ -208,6 +208,18 @@ exclusive at exact expiry and rechecked at actual binding after acquisition. Exp
 crossing during acquisition fails safely without committing/binding stale evidence.
 Only definitive absence is negative; timeout/TLS/malformed/uncertain failures are not.
 
+Schema3 (D-079 candidate) holds only shareholder evidence read without an entity profile.
+- **Key:** the same provider identity, with acquisition contract
+  `MARKETPLACE_SHAREHOLDERS_V1`.
+- **Contents:** no acquisition and no negative result. The anchor equals the operation
+  retrieval time.
+- **Freshness:** COMPLETE evidence follows the case freshness policy and EMPTY evidence the
+  definitive negative TTL. A FAILED operation is never written.
+- **Unchanged:** the same exact-key locks, CAS revisions and strict decoding apply, and
+  schema1/schema2 keys and meanings are unchanged.
+- **Rollback:** schema1/schema2 documents written by this version serialize
+  `shareholder_evidence` as null, so an earlier version reading them fails closed.
+
 One process-local exact-key owner suppresses active same-key calls, with max256 keys,
 max64 registered users per key and max45s waiter deadline (bounded test seams). Cancellation
 before/post acquisition commits no result; locks retire after the last user. Error or

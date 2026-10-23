@@ -209,7 +209,7 @@ def test_schema9_codec_preserves_originals_metadata_decisions_and_prior_receipts
     raw = codec._encode(original)  # noqa: SLF001 - owning durable representation
     restored = codec._decode(raw)  # noqa: SLF001
     assert restored == original
-    assert raw["schema_version"] == 12
+    assert raw["schema_version"] == 13
     assert restored.onboarding.created_by_actor_id == "maya-lim"
     document = restored.documents[0]
     assert document.document_version == 1
@@ -263,7 +263,7 @@ def test_exact_legacy_reads_keep_creator_and_extraction_metadata_unknown(version
     before = deepcopy(raw)
     restored = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
     assert raw == before
-    assert restored.schema_version == 12
+    assert restored.schema_version == 13
     assert restored.onboarding.created_by_actor_id is None
     assert restored.documents[0].document_version is None
     assert restored.documents[0].pages == ()

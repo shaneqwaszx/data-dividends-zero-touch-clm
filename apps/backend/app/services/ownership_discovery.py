@@ -40,9 +40,13 @@ from app.domain.models import (
     SourceEnvironment,
 )
 from app.domain.ownership import (
+    OFFICIAL_SHAREHOLDERS_EMPTY,
+    OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE,
     RESOLVED_DISCOVERY_OUTCOMES,
     TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES,
     OfficialEntityLookup,
+    OfficialShareholderLookup,
+    OfficialShareholderObservation,
     OwnershipDiscoveryAudit,
     OwnershipDiscoveryOutcome,
     OwnershipDiscoveryRecord,
@@ -69,6 +73,7 @@ from app.services.registry_acquisition import (
     RegistryAcquisitionBusyError,
     RegistryCacheError,
     SubsidiaryRegistryEvidence,
+    SubsidiaryShareholderEvidence,
 )
 
 # Non-editable technical safeguards; they remain effective when the business budget
@@ -402,6 +407,8 @@ class _DiscoveryRun:
         outcome: OwnershipDiscoveryOutcome
         reason: str | None
         identity: _OverlayIdentity | None = None
+        shareholders: tuple[OfficialShareholderObservation, ...] = ()
+        shareholder_lookup: OfficialShareholderLookup | None = None
         try:
             evidence = self._reader.acquire_subsidiary_registry_evidence(
                 uen,
@@ -430,13 +437,119 @@ class _DiscoveryRun:
                 rejected, reason = self._classify(uen, evidence.acquisition)
                 if rejected is None:
                     outcome, reason = self._attach(node, uen, evidence, provider_backed)
+                elif rejected == OwnershipDiscoveryOutcome.NOT_FOUND:
+                    (
+                        outcome,
+                        reason,
+                        shareholders,
+                        shareholder_lookup,
+                        shareholder_backed,
+                    ) = self._official_shareholders(uen)
+                    provider_backed = provider_backed or shareholder_backed
                 else:
                     outcome = rejected
         if provider_backed:
             self._provider_backed += 1
         else:
             self._cache_hits += 1
-        self._finalize(node, outcome, depth, shares, reason, identity)
+        self._finalize(
+            node, outcome, depth, shares, reason, identity, shareholders, shareholder_lookup
+        )
+
+    def _official_shareholders(self, uen: str) -> tuple[
+        OwnershipDiscoveryOutcome,
+        str | None,
+        tuple[OfficialShareholderObservation, ...],
+        OfficialShareholderLookup | None,
+        bool,
+    ]:
+        """D-079: keep a NOT_FOUND issuer's official shareholder rows beside the graph.
+
+        Only the official Marketplace lane answers. Rows never become parties, edges,
+        identity or percentages, so the branch stays unresolved; any failure stops safely
+        with nothing retained. The read belongs to the same issuer lookup.
+        """
+        not_found = (OwnershipDiscoveryOutcome.NOT_FOUND, None, (), None, False)
+        reader = getattr(self._reader, "acquire_subsidiary_shareholder_evidence", None)
+        if reader is None:
+            return not_found
+        try:
+            result: SubsidiaryShareholderEvidence | None = reader(
+                uen,
+                case_policy=self._parent.policy_snapshot.registry,
+                policy_version=self._parent.policy_snapshot.catalogue_version,
+                cancelled=lambda: self._clock() >= self._deadline,
+            )
+        except RegistryAcquisitionBusyError:
+            return (
+                OwnershipDiscoveryOutcome.HARD_LIMIT, "REGISTRY_ACQUISITION_BUSY", (), None, True
+            )
+        except RegistryCacheError as error:
+            return OwnershipDiscoveryOutcome.CACHE_FAILURE, error.code, (), None, True
+        except (ConnectorError, ValueError):
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_FAILED, "SHAREHOLDER_PROVIDER_FAILED", (), None,
+                True,
+            )
+        except Exception:
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_FAILED, "SHAREHOLDER_UNEXPECTED_FAILURE", (),
+                None, True,
+            )
+        if result is None:
+            return not_found
+        backed = result.provider_backed
+        evidence = result.evidence
+        operation = evidence.operation_result
+        if evidence.requested_identifier != uen:
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_IDENTITY_MISMATCH", (), None,
+                backed,
+            )
+        if operation.status == RegistryOperationStatus.FAILED:
+            code = operation.error.code if operation.error is not None else None
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_FAILED,
+                code or "SHAREHOLDER_PROVIDER_FAILED",
+                (),
+                None,
+                backed,
+            )
+        if operation.status == RegistryOperationStatus.EMPTY:
+            return (
+                OwnershipDiscoveryOutcome.NOT_FOUND, OFFICIAL_SHAREHOLDERS_EMPTY, (), None, backed
+            )
+        try:
+            rows = tuple(
+                OfficialShareholderObservation(
+                    source_party_id=item.party_id,
+                    display_name=item.name,
+                    party_type=PartyType(item.party_type.value),
+                    source_category=item.source_category,
+                    source_status=item.source_status,
+                    share_allotted=item.share_allotted,
+                    current_interest=(
+                        item.source_status is not None
+                        and item.source_status.strip().casefold() == "active"
+                    ),
+                    registration_identifier=item.registration_identifier,
+                    retrieved_at=item.provenance.retrieved_at,
+                    evidence_reference=item.provenance.evidence_reference,
+                )
+                for item in evidence.ownership_parties
+            )
+        except ValidationError:
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_INVALID, "SHAREHOLDER_RECORD_INVALID", (), None,
+                backed,
+            )
+        return (
+            OwnershipDiscoveryOutcome.PROVIDER_PARTIAL,
+            OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE,
+            rows,
+            "SHAREHOLDERS_FETCHED" if backed else "SHAREHOLDERS_CACHE_REUSED",
+            backed,
+        )
 
     def _classify(
         self, uen: str, bundle: RegistryAcquisitionBundle | None
@@ -758,6 +871,8 @@ class _DiscoveryRun:
         shares: dict[str, Decimal],
         reason: str | None = None,
         identity: _OverlayIdentity | None = None,
+        shareholders: tuple[OfficialShareholderObservation, ...] = (),
+        shareholder_lookup: OfficialShareholderLookup | None = None,
     ) -> None:
         party = self._parties[node]
         share = shares.get(node)
@@ -774,6 +889,8 @@ class _DiscoveryRun:
                 identity.official_entity_lookup if identity is not None else None
             ),
             official_legal_form=identity.official_legal_form if identity is not None else None,
+            official_shareholders=shareholders,
+            official_shareholder_lookup=shareholder_lookup,
         )
 
     def _uen(self, node: str) -> str:

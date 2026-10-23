@@ -361,6 +361,17 @@ supported shareholder collection is rejected, rather than reported as empty owne
 an explicitly empty `entities` collection still retains its accepted EMPTY meaning.
 Synthetic Garden semantics and its bounded fixture exception remain unchanged.
 
+D-079 candidate exception (2026-10-24): the official API Marketplace Mock composition may
+dispatch the company-shareholder operation alone for one UEN. All of these must hold:
+- the holder is an identified corporate holder;
+- it is not a scenario-overlay issuer;
+- it has a verified Singapore UEN;
+- its entity-basic profile is a definitive NOT_FOUND.
+
+The same strict decoder, response bounds, identity binding and safe errors apply. Rows
+remain source evidence without a percentage, identity or legal form. No other operation is
+dispatched, and the local synthetic composition never does this.
+
 The October 1-2 bounded read-only discovery receipt is recorded in
 `docs/development/PHASE_24_ACRA_DISCOVERY.md`. It established useful Garden role
 evidence but no quantitative official sample. The private seven-page sample catalogue

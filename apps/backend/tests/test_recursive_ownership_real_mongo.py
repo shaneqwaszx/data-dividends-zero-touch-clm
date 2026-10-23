@@ -111,7 +111,7 @@ def test_garden_discovery_survives_restart_with_issuer_cache_and_current_envelop
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(case.case_id)}
         )
-        assert raw is not None and raw["schema_version"] == 12
+        assert raw is not None and raw["schema_version"] == 13
         identity = RegistryProviderIdentity(
             provider=SourceSystem.ACRA,
             environment=SourceEnvironment.MOCK,
@@ -203,7 +203,7 @@ def test_hybrid_five_layer_record_survives_restart_and_rejects_schema_eleven(phy
         assert second.ownership.get_for_case(case.case_id) == record
         collection = client[hybrid.mongo_database][hybrid.mongo_case_collection]
         raw = collection.find_one({"_id": str(case.case_id)})
-        assert raw is not None and raw["schema_version"] == 12
+        assert raw is not None and raw["schema_version"] == 13
         assert raw["ownership"]["discovery"]["overlay_scenario_id"] == (
             "FIVE_LAYER_MARKETPLACE_HYBRID_V1"
         )
@@ -215,6 +215,109 @@ def test_hybrid_five_layer_record_survives_restart_and_rejects_schema_eleven(phy
         assert reused.discovery is not None and reused.discovery.cache_hits == 5
         # An exact schema-11 envelope can never carry hybrid evidence: fail closed.
         collection.update_one({"_id": str(case.case_id)}, {"$set": {"schema_version": 11}})
+        with pytest.raises(PersistenceDataInvalidError):
+            second.onboarding.get(case.case_id)
+    finally:
+        second.close()
+
+
+def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelve(
+    physical_settings,
+):
+    settings, client = physical_settings
+    hybrid = settings.model_copy(
+        update={
+            "acra_connector_mode": "api_marketplace_mock",
+            "acra_marketplace_ownership_overlay": "hybrid_direct_overlay",
+            "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),
+            "acra_api_marketplace_mock_secret_key": SecretStr("synthetic-offline-key"),
+        }
+    )
+    transport = OfflineFiveLayerProtocolTransport()
+    transport.shareholders[SIM_LIM_UEN] = {
+        "entities": [
+            {
+                "uen": SIM_LIM_UEN,
+                "name": "SIM LIM PTE. LTD.",
+                "shareholders": {
+                    "individual": [
+                        {
+                            "shareholderCategory": category,
+                            "shareholderId": identifier,
+                            "shareholderName": name,
+                            "shareAllotted": units,
+                            "status": status,
+                        }
+                        for category, identifier, name, units, status in (
+                            ("Corporate", "SYN-SL-C1", "SYNTHETIC CORPORATE, INC.", 500, "Active"),
+                            ("Individual", "SYN-SL-3", "SYNTHETIC HOLDER", 100, "Withdrawn"),
+                        )
+                    ],
+                    "grouping": [],
+                },
+            }
+        ]
+    }
+
+    def services(bundle: Any) -> tuple[Any, Any]:
+        policy = PolicyManagementService(bundle.policies)
+        cases = build_onboarding_service(
+            settings=hybrid,
+            acra_transport=transport,
+            acra_marketplace_token_transport=transport,
+            repository=bundle.onboarding,
+            target_execution_repository=bundle.target_executions,
+            registry_snapshot_repository=bundle.registry_snapshots,
+            policy_snapshot_provider=policy.case_snapshot,
+        )
+        return cases, build_ownership_analysis_service(cases, hybrid, repository=bundle.ownership)
+
+    def sim_lim(record: Any) -> Any:
+        assert record.discovery is not None
+        return next(
+            item for item in record.discovery.records if item.registration_number == SIM_LIM_UEN
+        )
+
+    first = build_persistence_bundle(hybrid)
+    try:
+        cases, ownership = services(first)
+        case = cases.create_staged_case(GARDEN_BUSINESS_UEN)
+        ownership.load(case_id=case.case_id)
+        record = ownership.analyze(case_id=case.case_id)
+        assert record.state == OwnershipAnalysisState.REVIEW_REQUIRED
+        assert sim_lim(record).outcome == OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
+        assert [item.current_interest for item in sim_lim(record).official_shareholders] == [
+            True,
+            False,
+        ]
+        calls = dict(transport.calls)
+    finally:
+        first.close()
+
+    second = build_persistence_bundle(hybrid)
+    try:
+        cases, ownership = services(second)
+        assert second.ownership.get_for_case(case.case_id) == record
+        database = client[hybrid.mongo_database]
+        collection = database[hybrid.mongo_case_collection]
+        raw = collection.find_one({"_id": str(case.case_id)})
+        assert raw is not None and raw["schema_version"] == 13
+        cache = database[hybrid.mongo_registry_cache_collection]
+        assert (
+            cache.count_documents(
+                {"cache_schema_version": 3, "key.normalized_identifier": SIM_LIM_UEN}
+            )
+            == 1
+        )
+        # Durable shareholder evidence survives restart and is reused with zero calls.
+        again = cases.create_staged_case(GARDEN_BUSINESS_UEN)
+        ownership.load(case_id=again.case_id)
+        reused = ownership.analyze(case_id=again.case_id)
+        assert dict(transport.calls) == calls
+        assert sim_lim(reused).official_shareholder_lookup == "SHAREHOLDERS_CACHE_REUSED"
+        assert sim_lim(reused).official_shareholders == sim_lim(record).official_shareholders
+        # An exact schema-12 envelope can never carry this evidence: fail closed.
+        collection.update_one({"_id": str(case.case_id)}, {"$set": {"schema_version": 12}})
         with pytest.raises(PersistenceDataInvalidError):
             second.onboarding.get(case.case_id)
     finally:
