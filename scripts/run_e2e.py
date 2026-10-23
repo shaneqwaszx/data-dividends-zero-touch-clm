@@ -446,7 +446,7 @@ def _selectors_from_listing(
                 tags = [tag.removeprefix("@") for tag in tags]
                 garden = "garden-protocol" in tags or selector.startswith("e2e/garden-happy-path.e2e.ts:")
                 registry_modes = [
-                    mode for mode in ("garden-partnership", "synthetic-cache", "synthetic-seed")
+                    mode for mode in ("garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed")
                     if f"slice-b-{mode}" in tags
                 ]
                 for suffix in ("ambiguity", "reuse"):
@@ -590,7 +590,7 @@ def run(
         raise ValueError("Unknown isolated Sandbox fixture")
     if sandbox_demo and (not (grep or selection) or garden_protocol or registry_demo or recovery_demo):
         raise ValueError("Sandbox fixture requires focused selection and separate composition")
-    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
+    if registry_demo not in {None, "garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
         raise ValueError("Unknown Slice-B registry fixture")
     if registry_demo is not None and (not (grep or selection) or garden_protocol):
         raise ValueError("Slice-B registry fixture requires a focused grep and separate composition")
@@ -1119,7 +1119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Use strict offline synthetic ACRA protocol evidence for focused Garden tests.",
     )
     parser.add_argument(
-        "--registry-demo", choices=("garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"),
+        "--registry-demo", choices=("garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"),
         help="Isolated Slice-B fixture; requires focused --grep, never normal configuration.",
     )
     parser.add_argument(

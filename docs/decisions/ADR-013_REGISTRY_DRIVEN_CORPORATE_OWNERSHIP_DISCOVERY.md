@@ -65,3 +65,17 @@ orchestration.
 `derive_garden_ownership()` and `build_garden_supplement()` remain only for the official
 Marketplace Mock lane, which has no relationship operation or verified SIM LIM issuer
 record. Retire them when an authorized provider exposes separate issuer ownership.
+
+## Amendment — D-077 hybrid direct overlay (candidate, 2026-10-23)
+
+The narrow `SINGLE_SOURCE` discovery gate also admits
+`OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY` (never the flattened legacy supplement). The
+coordinator gains no cache, repository or classification: for a whitelisted scenario
+issuer it still performs the official cache-first lookup and only then attaches declared
+direct holders through the same issuer-scoped merge, recording the official lookup
+observation and identity basis. The overlay catalogue is a fixture boundary in
+`connectors/`; the service validates its LOCAL provenance. `SubsidiaryRegistryEvidence`
+reports a fresh definitive NOT_FOUND cache hit as zero provider calls and whether an
+incomplete result reused a cached entity profile. Case envelope schema 12 records the new
+optional fields; v1..v11 readers reject them. Retire with the overlay when an authorized
+provider exposes issuer relationships and denominators.

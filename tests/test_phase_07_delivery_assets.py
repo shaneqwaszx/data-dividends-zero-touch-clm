@@ -45,6 +45,7 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
             "garden-business-conflicting-onboarding-profile.pdf",
             "garden-partnership-reviewed-client.pdf",
             "multiple-owner-demo-client.pdf",
+            "five-layer-marketplace-hybrid-client.pdf",
             "zero-touch-database/orion-synthetic-technologies-client.pdf",
             "zero-touch-database/pacific-synthetic-ledger-client.pdf",
             "zero-touch-database/straits-synthetic-holdings-client.pdf",

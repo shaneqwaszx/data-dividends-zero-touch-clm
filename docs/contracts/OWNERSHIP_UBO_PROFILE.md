@@ -324,3 +324,43 @@ Garden through this path: Garden direct edges `111111111M` 62.500000% and LIM CH
 37.500000%, then SIM LIM's own holders 81.818182/9.090909/9.090909% (withdrawn holder
 excluded), giving ABCD123 `51.13636375%`, LIM CHOON HUAT `37.500000%` and two
 `5.681818125%` holders — identical to the accepted D-046 result.
+
+## Hybrid official-Mock plus local direct overlay — D-077 candidate, 2026-10-23
+
+Opt-in only (`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay`, official
+Marketplace Mock lane). The default keeps the accepted flattened Garden supplement above.
+
+- **Scope.** Only whitelisted scenarios in `connectors/hybrid_ownership_overlay.py`:
+  `GARDEN_DIRECT_OVERLAY_V1` (owner-supplied Garden body, direct rows only; SIM LIM's
+  own holders are never attached locally) and `FIVE_LAYER_MARKETPLACE_HYBRID_V1`. No
+  calculator, service or router branches on these UENs.
+- **Declared basis.** Each issuer declares active same-class units and a complete active
+  denominator that must equal their sum; withdrawn rows never become edges; float,
+  group/member, non-ordinary or unverified-UEN rows fail closed. The D-046 six-decimal
+  rule derives each direct percentage. Original units are retained as
+  `supplemental_evidence`, outside arithmetic.
+- **Provenance.** Links are `LOCAL_SYNTHETIC_RELATIONSHIP` / `LOCAL`. Entity identity is
+  official only when the official lookup returned the same-UEN profile.
+- **Root.** Applied only to fresh, successful, same-UEN official Marketplace evidence.
+  If the official root ever carries quantitative ownership, the declaration is retained
+  beside it and the existing comparison requires review; it never replaces it.
+- **Issuers.** The D-076 coordinator performs each corporate holder's cache-first official
+  lookup. A definitive NOT_FOUND (identity `LOCAL_SYNTHETIC_IDENTITY`) or an official
+  profile without shareholder rows (`OFFICIAL_MOCK_ENTITY_PROFILE`) attaches the
+  scenario's declared holders as `LOCAL_SYNTHETIC_OVERLAY`. Failure, mismatch, another
+  lane or official shareholder rows (`OFFICIAL_QUANTITY_PRECLUDES_OVERLAY`) leave the
+  branch unresolved.
+- **Review.** `SYNTHETIC_OWNERSHIP_EVIDENCE` is always raised, so analyses stay
+  REVIEW_REQUIRED and candidates REVIEW_REQUIRED/INDETERMINATE. The discovery audit adds
+  `topology_complete`, `official_identity_complete`, `quantitative_evidence_complete`
+  (always false) and certainty `UNCERTAIN`. `synthetic_basis_threshold_result` is the
+  same inclusive comparator on the declared basis: MET survives unresolved branches,
+  NOT_MET needs complete topology or a sound bound; cycles, limits, person ambiguity or
+  contradictions give INDETERMINATE. It is never a classification or readiness input.
+
+Five-layer declared topology (fictional): `201511222D` -> `200811111M` 80% ->
+`201688888A` 62.5% -> `200811111K` 60% / `199801111H` 40% -> `111111111K` 100% / 50%,
+with persons ALEX TAN 20% (root), BEATRICE LIM 37.5% (L2), CHARLES ONG 50% (L4B),
+DIANA KOH 62.5% and EDWARD NG 37.5% (L5). Exact path products: 20, 30, 10,
+DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
+11.25 + 3.75 = 15. See `docs/demo/FIVE_LAYER_ACRA_HYBRID_DEMO.md`.

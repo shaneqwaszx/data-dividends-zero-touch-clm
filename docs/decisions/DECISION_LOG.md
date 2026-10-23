@@ -370,3 +370,39 @@ independent gate. Not legal UBO policy (Q-004), real ACRA subsidiary capability 
 person identity or traversal authority (Q-019), cross-lane cache sharing or GoldTier
 hierarchy writes (Q-002). A 0% UBO threshold can no longer be activated because the
 positive trace threshold may not exceed it.
+
+## D-077 - owner-authorized hybrid Marketplace Mock plus local direct overlay (candidate)
+
+The 2026-10-23 owner assignment (Master Assignment V5) authorizes an explicitly opt-in
+non-production composition for the official ACRA API Marketplace Mock lane:
+`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay` (default
+`garden_legacy_supplement` keeps the accepted flattened Garden fixture unchanged). A
+whitelisted catalogue (`connectors/hybrid_ownership_overlay.py`) declares per-issuer
+*direct* holders only for two named scenarios: `GARDEN_DIRECT_OVERLAY_V1` (the
+owner-supplied Garden body, direct rows only) and `FIVE_LAYER_MARKETPLACE_HYBRID_V1`
+(root `201511222D` OPQ PTE. LTD. plus sample-catalogue UENs `200811111M`, `201688888A`,
+`200811111K`, `199801111H`, `111111111K`). Declared units use a locally declared
+complete same-class active denominator and the D-046 six-decimal rule; links are
+`LOCAL_SYNTHETIC_RELATIONSHIP`/`LOCAL`, never ACRA or Mock provenance.
+
+The root overlay applies only to fresh successful same-UEN official Marketplace evidence;
+failure, staleness or another lane never selects it. The source classification
+`OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY` may enter the existing D-076 discovery
+coordinator (the flattened legacy supplement still may not). Each corporate holder gets
+its own cache-first official lookup; only a definitive NOT_FOUND or an official entity
+profile without quantitative rows lets the scenario attach that issuer's declared
+holders (`LOCAL_SYNTHETIC_OVERLAY`, identity `LOCAL_SYNTHETIC_IDENTITY` or
+`OFFICIAL_MOCK_ENTITY_PROFILE`). Provider/cache failure, identity or lane mismatch and
+official shareholder rows leave the branch unresolved. Every hybrid analysis carries
+`SYNTHETIC_OWNERSHIP_EVIDENCE`, so it is always REVIEW_REQUIRED with
+REVIEW_REQUIRED/INDETERMINATE candidates; a separately labelled
+`synthetic_basis_threshold_result` applies the same inclusive comparator to the declared
+basis for demonstration only. Topology, official identity and quantitative evidence
+completeness are recorded separately. A fresh definitive NOT_FOUND cache hit now counts
+as a cache hit (zero provider calls) in discovery counters. Case envelope schema 12.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. Not ACRA ownership, Live or production evidence, legal
+UBO policy (Q-004), Marketplace relationship/denominator capability (Q-012), person
+identity authority (Q-019) or GoldTier hierarchy writes (Q-002). No live Marketplace
+probe was run in the implementing session (credential access was not permitted).

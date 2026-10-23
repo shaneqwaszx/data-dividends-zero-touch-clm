@@ -85,6 +85,7 @@ from app.domain.ownership import (
     OwnershipDocumentDiscrepancy,
     OwnershipEnvironment,
     OwnershipRelationshipType,
+    OwnershipSourceClassification,
     OwnershipWorkflowEvent,
     Party,
 )
@@ -534,9 +535,7 @@ class OwnershipAnalysisResponse(BaseModel):
     document_observations: tuple[DocumentOwnershipObservation, ...] = ()
     document_bindings: tuple[OwnershipDocumentBinding, ...] = ()
     document_discrepancies: tuple[OwnershipDocumentDiscrepancy, ...] = ()
-    source_classification: Literal[
-        "SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
-    ] = "SINGLE_SOURCE"
+    source_classification: OwnershipSourceClassification = "SINGLE_SOURCE"
     prior_analyses: tuple["BrowserPriorOwnershipSnapshot", ...] = ()
     supplemental_parties: tuple[Party, ...] = ()
     supplemental_relationships: tuple["BrowserOwnershipRelationship", ...] = ()
@@ -614,9 +613,7 @@ class BrowserPriorOwnershipSnapshot(BaseModel):
     document_observations: tuple[DocumentOwnershipObservation, ...] = ()
     document_bindings: tuple[OwnershipDocumentBinding, ...] = ()
     document_discrepancies: tuple[OwnershipDocumentDiscrepancy, ...] = ()
-    source_classification: Literal[
-        "SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
-    ] = "SINGLE_SOURCE"
+    source_classification: OwnershipSourceClassification = "SINGLE_SOURCE"
     manual_review_receipt: ManualOwnershipReviewReceipt | None = None
     supplemental_parties: tuple[Party, ...] = ()
     supplemental_relationships: tuple[BrowserOwnershipRelationship, ...] = ()

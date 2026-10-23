@@ -70,13 +70,15 @@ from app.persistence.models import (
     DurableCaseSnapshotV8,
     DurableCaseSnapshotV9,
     DurableCaseSnapshotV10,
+    DurableCaseSnapshotV11,
     _validate_case_bindings,
     reject_classification_legacy_fields,
+    reject_hybrid_overlay_legacy_fields,
     reject_ownership_discovery_legacy_fields,
     reject_session2_legacy_fields,
 )
 
-_SUPPORTED_SCHEMA_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, CASE_SNAPSHOT_SCHEMA_VERSION]
+_SUPPORTED_SCHEMA_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, CASE_SNAPSHOT_SCHEMA_VERSION]
 
 
 class CapturedCaseBatch:
@@ -590,7 +592,7 @@ class MongoCaseStore:
             raise PersistenceDataInvalidError
         automation_value = value.get("automation")
         if (
-            schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, CASE_SNAPSHOT_SCHEMA_VERSION}
+            schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, CASE_SNAPSHOT_SCHEMA_VERSION}
             and isinstance(automation_value, dict)
             and "stage_order_version" not in automation_value
         ):
@@ -599,6 +601,8 @@ class MongoCaseStore:
                 "stage_order_version": LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
             }
         try:
+            if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}:
+                reject_hybrid_overlay_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
                 reject_ownership_discovery_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
@@ -647,6 +651,10 @@ class MongoCaseStore:
                 legacy_v10 = DurableCaseSnapshotV10.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v10)
                 snapshot = legacy_v10.to_current()
+            elif schema_version == 11:
+                legacy_v11 = DurableCaseSnapshotV11.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v11)
+                snapshot = legacy_v11.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)
@@ -681,7 +689,7 @@ class MongoCaseStore:
             revision = raw["revision"]
             if type(schema_version) is not int or type(revision) is not int or revision < 0:
                 raise PersistenceDataInvalidError
-            if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, CASE_SNAPSHOT_SCHEMA_VERSION}:
+            if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
                 raise PersistenceSchemaUnsupportedError
             envelope_id = _canonical_uuid(raw["_id"])
             if _canonical_uuid(raw["case_id"]) != envelope_id:

@@ -77,15 +77,19 @@ def field_names(value: object) -> list[str]:
 
 
 class RecordedReads(HttpxAcraTransport):
-    def __init__(self, receipts: list[dict[str, object]]) -> None:
+    def __init__(self, receipts: list[dict[str, object]], *, limit: int = 10) -> None:
         super().__init__(ssl_context=ssl.create_default_context(), trust_env=False)
         self.receipts = receipts
+        self.limit = limit
 
     def get(
         self, url: str, *, headers: Mapping[str, str], timeout_seconds: float
     ) -> AcraHttpResponse:
         # Fixed connector URLs only; no production or arbitrary URL input.
-        if not url.startswith(ACRA_API_MARKETPLACE_MOCK_BASE_URL) or len(self.receipts) >= 10:
+        if (
+            not url.startswith(ACRA_API_MARKETPLACE_MOCK_BASE_URL)
+            or len(self.receipts) >= self.limit
+        ):
             raise ValueError("Mock acceptance bound rejected")
         parsed = urlsplit(url)
         receipt: dict[str, object] = {
@@ -190,11 +194,32 @@ def normalized_sample(connector: AcraApiMarketplaceMockConnector, uen: str) -> d
     }
 
 
+def evidence_class(receipts: list[dict[str, object]]) -> str:
+    """Classify only what the recorded receipts prove; never assume success.
+
+    MOCK_INTEROPERABILITY_OBSERVED requires at least one official data read answered
+    with HTTP 200: live HTTPS access to the ACRA API Marketplace Mock environment, never
+    ACRA production or Live-registry verification.
+    """
+    reads = [
+        item for item in receipts
+        if item.get("classification") == "OFFICIAL_ACRA_MARKETPLACE_MOCK_READ"
+    ]
+    if any(item.get("http_status") == 200 for item in reads):
+        return "MOCK_INTEROPERABILITY_OBSERVED"
+    if any(item.get("http_status") in {401, 403} for item in receipts):
+        return "AUTHENTICATION_FAILED"
+    if any("transport" in item for item in receipts):
+        return "TRANSPORT_FAILURE"
+    return "NO_SUCCESSFUL_READ"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-env-path", type=Path, required=True)
     parser.add_argument("--lane", choices=("discovery", "unbound-shareholders",
-                                           "documented-basic", "garden-normalized"),
+                                           "documented-basic", "garden-normalized",
+                                           "five-layer-hybrid"),
                         default="discovery")
     arguments = parser.parse_args()
     names = ("ACRA_API_MARKETPLACE_MOCK_CLIENT_ID", "ACRA_API_MARKETPLACE_MOCK_SECRET_KEY")
@@ -217,7 +242,10 @@ def main() -> int:
     )
     connector = AcraApiMarketplaceMockConnector(
         connection=AcraApiMarketplaceMockConnection(timeout_seconds=10),
-        transport=RecordedReads(receipts),
+        # One token receipt plus at most 16 reads for the D-077 lane; 10 otherwise.
+        transport=RecordedReads(
+            receipts, limit=17 if arguments.lane == "five-layer-hybrid" else 10
+        ),
         authorizer=AcraApiMarketplaceMockRequestAuthorizer(token),
     )
     candidate_uens = {
@@ -226,6 +254,9 @@ def main() -> int:
         "documented-basic": ("201511222D", "T13FC1122A", "T15LL1111W", "T17LP1111A",
                              "T19PF1111A", "111111111K"),
         "garden-normalized": ("11111999A",),
+        # D-077 shortlist from the seven-page sample catalogue: 8 UENs, at most 16 GETs.
+        "five-layer-hybrid": ("11111999A", "201511222D", "111111111M", "200811111M",
+                              "201688888A", "200811111K", "199801111H", "111111111K"),
     }[arguments.lane]
     for uen in candidate_uens:
         sample: dict[str, object] = {
@@ -255,6 +286,15 @@ def main() -> int:
             entity = connector.fetch_company(uen)
             if entity is None:
                 sample["identity"] = "EMPTY"
+                if arguments.lane == "five-layer-hybrid" and uen == "111111111M":
+                    # Diagnostic only: never a canonical issuer or COMPLETE identity.
+                    ownership = connector.fetch_ownership_parties(uen)
+                    sample["diagnostic_shareholders"] = "UNBOUND_NOT_CANONICAL"
+                    sample["ownership_party_count"] = len(ownership.ownership_parties)
+                    sample["withdrawn_count"] = sum(
+                        (item.source_status or "").upper() == "WITHDRAWN"
+                        for item in ownership.ownership_parties
+                    )
                 continue
             sample["identity"] = "SAME_UEN_VERIFIED"
             legal_form = classify_registry_legal_form(entity.entity_type)
@@ -279,6 +319,12 @@ def main() -> int:
                 item.ownership_percentage is not None for item in ownership.ownership_parties
             )
             sample["denominator_operation"] = "CONTRACT_UNAVAILABLE"
+            if arguments.lane == "five-layer-hybrid":
+                sample["withdrawn_count"] = sum(
+                    (item.source_status or "").upper() == "WITHDRAWN"
+                    for item in ownership.ownership_parties
+                )
+                continue
             if sample["provider_percentage"]:
                 sample["quantitative_sample"] = "PROVIDER_PERCENTAGE"
                 break
@@ -295,6 +341,11 @@ def main() -> int:
         json.dumps(
             {
                 "status": "BOUNDED_DISCOVERY_RECORDED",
+                **(
+                    {"evidence_class": evidence_class(receipts)}
+                    if arguments.lane == "five-layer-hybrid"
+                    else {}
+                ),
                 "actual_call_count": len(receipts),
                 "receipts": receipts,
                 "samples": samples,

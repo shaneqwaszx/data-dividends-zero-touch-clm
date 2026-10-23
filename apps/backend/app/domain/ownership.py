@@ -177,6 +177,7 @@ class OwnershipIssueCode(StrEnum):
     PATH_LIMIT_EXCEEDED = "PATH_LIMIT_EXCEEDED"
     CORPORATE_OWNERSHIP_UNRESOLVED = "CORPORATE_OWNERSHIP_UNRESOLVED"
     PERSON_IDENTITY_UNRESOLVED = "PERSON_IDENTITY_UNRESOLVED"
+    SYNTHETIC_OWNERSHIP_EVIDENCE = "SYNTHETIC_OWNERSHIP_EVIDENCE"
 
 
 class OwnershipThresholdResult(StrEnum):
@@ -292,6 +293,18 @@ class OwnershipCandidate(BaseModel):
     threshold_result: OwnershipThresholdResult
     classification: OwnershipCandidateClassification
     paths: list[OwnershipPathEvidence]
+    # Hybrid demonstration only: the same inclusive comparator applied to the declared
+    # local synthetic basis. It never replaces the review classification above.
+    synthetic_basis_threshold_result: OwnershipThresholdResult | None = None
+
+    @model_validator(mode="after")
+    def synthetic_basis_stays_under_review(self) -> "OwnershipCandidate":
+        if self.synthetic_basis_threshold_result is not None and self.classification not in {
+            OwnershipCandidateClassification.REVIEW_REQUIRED,
+            OwnershipCandidateClassification.INDETERMINATE,
+        }:
+            raise ValueError("a synthetic-basis comparison requires a review classification")
+        return self
 
 
 class OwnershipDiscoveryOutcome(StrEnum):
@@ -312,11 +325,29 @@ class OwnershipDiscoveryOutcome(StrEnum):
     PROVIDER_FAILED = "PROVIDER_FAILED"
     PROVIDER_INVALID = "PROVIDER_INVALID"
     CACHE_FAILURE = "CACHE_FAILURE"
+    # Topology attached from an explicitly whitelisted local synthetic overlay after a
+    # definitive official lookup; evidentially unresolved, never a registry result.
+    LOCAL_SYNTHETIC_OVERLAY = "LOCAL_SYNTHETIC_OVERLAY"
 
 
 RESOLVED_DISCOVERY_OUTCOMES = frozenset(
     {OwnershipDiscoveryOutcome.CACHE_HIT, OwnershipDiscoveryOutcome.FETCHED}
 )
+# Branches whose holders are attached, whatever the evidence basis.
+TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES = RESOLVED_DISCOVERY_OUTCOMES | {
+    OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
+}
+OfficialEntityLookup = Literal[
+    "ENTITY_PROFILE_FETCHED",
+    "ENTITY_PROFILE_CACHE_REUSED",
+    "NOT_FOUND",
+    "NOT_FOUND_CACHE_REUSED",
+]
+OwnershipSourceClassification = Literal[
+    "SINGLE_SOURCE",
+    "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT",
+    "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY",
+]
 
 
 class OwnershipDiscoveryRecord(BaseModel):
@@ -324,7 +355,8 @@ class OwnershipDiscoveryRecord(BaseModel):
 
     `max_effective_percent` is the exact sum of current path products reaching the
     corporate owner when it was decided: the most root-equivalent interest that an
-    unresolved branch could still hide.
+    unresolved branch could still hide. Overlay records also keep the separate official
+    entity lookup observation and the resulting identity basis.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
@@ -336,6 +368,31 @@ class OwnershipDiscoveryRecord(BaseModel):
     outcome: OwnershipDiscoveryOutcome
     max_effective_percent: CalculatedPercent | None = None
     reason_code: SafeProviderName | None = None
+    identity_basis: Literal["OFFICIAL_MOCK_ENTITY_PROFILE", "LOCAL_SYNTHETIC_IDENTITY"] | None = (
+        None
+    )
+    official_entity_lookup: OfficialEntityLookup | None = None
+    official_legal_form: RegistryLegalForm | None = None
+
+    @model_validator(mode="after")
+    def overlay_identity_is_explicit(self) -> "OwnershipDiscoveryRecord":
+        overlay = self.outcome == OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
+        if overlay != (self.identity_basis is not None) or overlay != (
+            self.official_entity_lookup is not None
+        ):
+            raise ValueError("overlay records require an explicit official lookup and identity")
+        if overlay:
+            official = self.official_entity_lookup in {
+                "ENTITY_PROFILE_FETCHED",
+                "ENTITY_PROFILE_CACHE_REUSED",
+            }
+            if official != (self.identity_basis == "OFFICIAL_MOCK_ENTITY_PROFILE") or official != (
+                self.official_legal_form is not None
+            ):
+                raise ValueError("overlay identity basis disagrees with the official lookup")
+        elif self.official_legal_form is not None:
+            raise ValueError("official legal form is retained only for overlay records")
+        return self
 
 
 class OwnershipDiscoveryAudit(BaseModel):
@@ -362,6 +419,12 @@ class OwnershipDiscoveryAudit(BaseModel):
     cache_hits: int = Field(ge=0, le=64)
     records: tuple[OwnershipDiscoveryRecord, ...] = Field(default=(), max_length=100)
     unresolved_person_party_ids: tuple[SafePartyId, ...] = Field(default=(), max_length=32)
+    # Hybrid official-Mock plus local direct overlay only. Topology, official identity
+    # and quantitative evidence completeness stay separate from certainty/readiness.
+    overlay_scenario_id: SafeProviderName | None = None
+    topology_complete: bool | None = None
+    official_identity_complete: bool | None = None
+    quantitative_evidence_complete: bool | None = None
 
     @model_validator(mode="after")
     def consistent_audit(self) -> "OwnershipDiscoveryAudit":
@@ -378,6 +441,38 @@ class OwnershipDiscoveryAudit(BaseModel):
             raise ValueError("complete certainty requires a complete unambiguous graph")
         if self.trace_threshold_percent > self.ubo_threshold_percent:
             raise ValueError("trace threshold cannot exceed the UBO threshold")
+        separated = (
+            self.topology_complete,
+            self.official_identity_complete,
+            self.quantitative_evidence_complete,
+        )
+        overlay_records = [
+            item
+            for item in self.records
+            if item.outcome == OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
+        ]
+        if self.overlay_scenario_id is None:
+            if any(value is not None for value in separated) or overlay_records:
+                raise ValueError("evidence separation is retained only for hybrid overlays")
+            return self
+        if any(value is None for value in separated):
+            raise ValueError("hybrid overlays require explicit evidence separation")
+        topology = all(
+            item.outcome in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES for item in self.records
+        )
+        official = all(
+            item.outcome in RESOLVED_DISCOVERY_OUTCOMES
+            or item.identity_basis == "OFFICIAL_MOCK_ENTITY_PROFILE"
+            for item in self.records
+        )
+        if (
+            self.topology_complete != topology
+            or self.official_identity_complete != official
+            # The root's own direct holders always come from the local overlay.
+            or self.quantitative_evidence_complete is not False
+            or self.classification_certainty == "COMPLETE"
+        ):
+            raise ValueError("hybrid evidence separation disagrees with discovery records")
         return self
 
 
@@ -486,9 +581,7 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
         default=(), max_length=200
     )
     supplemental_evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
-    source_classification: Literal["SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"] = (
-        "SINGLE_SOURCE"
-    )
+    source_classification: OwnershipSourceClassification = "SINGLE_SOURCE"
     identity_registration_number: SafeOptionalIdentifier | None = None
     identity_correction_version: int | None = Field(default=None, ge=0)
     tagging: OwnershipTaggingResult | None = None
@@ -535,9 +628,7 @@ class OwnershipAnalysisRecord(BaseModel):
         default=(), max_length=200
     )
     supplemental_evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
-    source_classification: Literal["SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"] = (
-        "SINGLE_SOURCE"
-    )
+    source_classification: OwnershipSourceClassification = "SINGLE_SOURCE"
     tagging: OwnershipTaggingResult | None = None
     legal_form: RegistryLegalForm | None = None
     discovery: OwnershipDiscoveryAudit | None = None

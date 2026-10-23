@@ -7,11 +7,17 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
-from typing import Never, Protocol
+from typing import Final, Never, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from app.connectors.hybrid_ownership_overlay import (
+    OVERLAY_RELATIONSHIP_PROVIDER,
+    HybridOverlayScenario,
+    HybridOwnershipOverlayCatalogue,
+    overlay_component,
+)
 from app.connectors.ownership import (
     OwnershipProvider,
     OwnershipProviderError,
@@ -22,7 +28,7 @@ from app.connectors.ownership import (
 from app.domain.documents import DocumentOwnershipObservation, DocumentProcessingRecord
 from app.domain.models import EventOutcome, OnboardingCase, SafeError
 from app.domain.ownership import (
-    RESOLVED_DISCOVERY_OUTCOMES,
+    TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES,
     ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
@@ -30,6 +36,7 @@ from app.domain.ownership import (
     OwnershipCandidate,
     OwnershipCandidateClassification,
     OwnershipDiscoveryAudit,
+    OwnershipDiscoveryOutcome,
     OwnershipDocumentBinding,
     OwnershipEnvironment,
     OwnershipEventType,
@@ -239,7 +246,54 @@ class OwnershipDiscoveryExpander(Protocol):
         policy: OwnershipDiscoveryPolicySnapshot,
         ubo_threshold_percent: Decimal,
         limits: DiscoveryLimits,
+        overlay: HybridOverlayScenario | None = None,
     ) -> tuple[OwnershipSourceResult, OwnershipDiscoveryAudit]: ...
+
+
+HYBRID_SOURCE_CLASSIFICATION: Final = "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY"
+# The flattened legacy Garden supplement is never a lookup source; a hybrid direct
+# overlay is, because each corporate holder remains a verified-format issuer UEN.
+_DISCOVERY_SOURCE_CLASSIFICATIONS = frozenset({"SINGLE_SOURCE", HYBRID_SOURCE_CLASSIFICATION})
+_SYNTHETIC_BASIS_BLOCKING_ISSUES = frozenset(
+    {
+        OwnershipIssueCode.CYCLE_DETECTED,
+        OwnershipIssueCode.MAXIMUM_DEPTH_EXCEEDED,
+        OwnershipIssueCode.PATH_LIMIT_EXCEEDED,
+        OwnershipIssueCode.PERSON_IDENTITY_UNRESOLVED,
+        OwnershipIssueCode.CONTRADICTORY_OWNERSHIP_EVIDENCE,
+    }
+)
+
+
+def synthetic_basis_threshold_results(
+    aggregated: dict[str, tuple[Decimal, Decimal, Decimal]],
+    issues: list[OwnershipAnalysisIssue],
+    *,
+    threshold_percent: Decimal,
+    unresolved_upper_bound_percent: Decimal | None,
+) -> dict[str, OwnershipThresholdResult]:
+    """The existing inclusive comparator over a declared synthetic basis, labelled apart.
+
+    Known paths are a lower bound, so MET survives unresolved branches; NOT_MET needs a
+    topologically complete graph or a sound bound. Never a candidate classification.
+    """
+
+    codes = {issue.code for issue in issues}
+    unresolved = OwnershipIssueCode.INCOMPLETE_LEGAL_ENTITY in codes
+    results: dict[str, OwnershipThresholdResult] = {}
+    for party_id, (_, _, total) in aggregated.items():
+        if codes & _SYNTHETIC_BASIS_BLOCKING_ISSUES:
+            results[party_id] = OwnershipThresholdResult.INDETERMINATE
+        elif total >= threshold_percent:
+            results[party_id] = OwnershipThresholdResult.MET
+        elif not unresolved or (
+            unresolved_upper_bound_percent is not None
+            and total + unresolved_upper_bound_percent < threshold_percent
+        ):
+            results[party_id] = OwnershipThresholdResult.NOT_MET
+        else:
+            results[party_id] = OwnershipThresholdResult.INDETERMINATE
+    return results
 
 
 class OwnershipDocumentReader(Protocol):
@@ -518,6 +572,7 @@ class OwnershipAnalysisService:
         documents: OwnershipDocumentReader | None = None,
         garden_supplement_enabled: bool = False,
         discovery: OwnershipDiscoveryExpander | None = None,
+        hybrid_overlay: HybridOwnershipOverlayCatalogue | None = None,
         max_parties: int,
         max_relationships: int,
         max_depth: int,
@@ -547,8 +602,11 @@ class OwnershipAnalysisService:
         self._provider = provider
         self._repository = repository
         self._documents = documents
+        if garden_supplement_enabled and hybrid_overlay is not None:
+            raise ValueError("the legacy Garden supplement and hybrid overlays are exclusive")
         self._garden_supplement_enabled = garden_supplement_enabled
         self._discovery = discovery
+        self._hybrid_overlay = hybrid_overlay
         self.threshold_percent = validated_threshold
         self.max_parties = max_parties
         self.max_relationships = max_relationships
@@ -896,6 +954,7 @@ class OwnershipAnalysisService:
                     message="Ownership source data could not be validated safely.",
                 )
             self._validate_source(source, metadata, parent.entity.registration_number)
+            overlay: HybridOverlayScenario | None = None
             if source.garden_supplement is not None:
                 record.supplemental_parties = tuple(source.garden_supplement.parties)
                 record.supplemental_relationships = tuple(source.garden_supplement.relationships)
@@ -905,13 +964,22 @@ class OwnershipAnalysisService:
                 )
                 source = self._merge_garden_supplement(source, metadata, parent)
                 record.source_classification = "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+            elif (
+                self._hybrid_overlay is not None
+                and metadata.provider_name == "ACRA_REGISTRY_ACQUISITION"
+                and metadata.environment == OwnershipEnvironment.MOCK
+            ):
+                overlay = self._hybrid_overlay.root_scenario(parent, self._clock())
+                if overlay is not None:
+                    source = self._apply_hybrid_root_overlay(source, record, parent, overlay)
+                    record.source_classification = HYBRID_SOURCE_CLASSIFICATION
             discovery_policy = parent.policy_snapshot.ownership_discovery
             if (
                 self._discovery is not None
                 and discovery_policy is not None
                 and metadata.provider_name == "ACRA_REGISTRY_ACQUISITION"
-                # The official-Mock lane's local supplement is never a lookup source.
-                and record.source_classification == "SINGLE_SOURCE"
+                # The legacy flattened Garden supplement is never a lookup source.
+                and record.source_classification in _DISCOVERY_SOURCE_CLASSIFICATIONS
                 and source.relationships
             ):
                 # Each corporate owner is acquired as its own issuer, outside the root
@@ -928,8 +996,14 @@ class OwnershipAnalysisService:
                         max_paths_per_candidate=self.max_paths_per_candidate,
                         max_total_paths=self.max_total_paths,
                     ),
+                    overlay=overlay,
                 )
-                self._validate_source(source, metadata, parent.entity.registration_number)
+                self._validate_source(
+                    source,
+                    metadata,
+                    parent.entity.registration_number,
+                    local_overlay=overlay is not None,
+                )
                 latest = self._cases.get_case(case_id)
                 if (
                     latest is None
@@ -1068,12 +1142,14 @@ class OwnershipAnalysisService:
             aggregated = aggregate_ownership_paths(calculation)
             record.issues = list(calculation.issues)
             discovery = record.discovery
-            if discovery is not None and not discovery.graph_complete:
-                unresolved = [
-                    item
-                    for item in discovery.records
-                    if item.outcome not in RESOLVED_DISCOVERY_OUTCOMES
-                ]
+            # Overlay-attached branches are topologically resolved; their synthetic
+            # evidence basis is reported separately below.
+            unresolved = [
+                item
+                for item in (discovery.records if discovery is not None else ())
+                if item.outcome not in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES
+            ]
+            if discovery is not None and unresolved:
                 bound = discovery.unresolved_upper_bound_percent
                 record.issues.append(
                     OwnershipAnalysisIssue(
@@ -1101,6 +1177,27 @@ class OwnershipAnalysisService:
                             "is assumed."
                         ),
                         affected_party_ids=list(discovery.unresolved_person_party_ids[:16]),
+                    )
+                )
+            if record.source_classification == HYBRID_SOURCE_CLASSIFICATION:
+                overlay_nodes = [
+                    item.party_id
+                    for item in (discovery.records if discovery is not None else ())
+                    if item.outcome == OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
+                ]
+                record.issues.append(
+                    OwnershipAnalysisIssue(
+                        code=OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
+                        message=(
+                            "Ownership links are LOCAL_SYNTHETIC_RELATIONSHIP demonstration "
+                            "declarations, not ACRA-returned ownership; unverified issuers keep "
+                            "LOCAL_SYNTHETIC_IDENTITY."
+                        ),
+                        affected_party_ids=[
+                            item
+                            for item in (record.root_party_id, *overlay_nodes)
+                            if item is not None
+                        ][:16],
                     )
                 )
             if any(
@@ -1284,6 +1381,24 @@ class OwnershipAnalysisService:
                 aggregated,
                 threshold_percent=record.threshold_percent,
             )
+            if record.source_classification == HYBRID_SOURCE_CLASSIFICATION:
+                basis = synthetic_basis_threshold_results(
+                    aggregated,
+                    record.issues,
+                    threshold_percent=record.threshold_percent,
+                    unresolved_upper_bound_percent=(
+                        discovery.unresolved_upper_bound_percent if discovery is not None else None
+                    ),
+                )
+                record.candidates = [
+                    OwnershipCandidate.model_validate(
+                        {
+                            **item.model_dump(),
+                            "synthetic_basis_threshold_result": basis[item.party.party_id],
+                        }
+                    )
+                    for item in record.candidates
+                ]
             record.analyzed_at = self._clock()
             if record.issues:
                 record = self._record(
@@ -1534,11 +1649,56 @@ class OwnershipAnalysisService:
         lock_factory = getattr(self._cases, "case_lock", None)
         return lock_factory(case_id) if callable(lock_factory) else nullcontext()
 
+    def _apply_hybrid_root_overlay(
+        self,
+        source: OwnershipSourceResult,
+        record: OwnershipAnalysisRecord,
+        parent: OnboardingCase,
+        overlay: HybridOverlayScenario,
+    ) -> OwnershipSourceResult:
+        """Add the root's declared direct holders as separately labelled local links."""
+
+        issuer = overlay.issuer(overlay.root_uen)
+        if issuer is None or parent.entity is None:
+            raise OwnershipGraphError
+        root = next(party for party in source.parties if party.party_id == source.root_party_id)
+        component = overlay_component(overlay, issuer, issuer_party=root, sourced_at=self._clock())
+        record.supplemental_evidence = component.share_evidence
+        if source.relationships or any(
+            item.kind in {"DIRECT_PERCENTAGE", "SHARE_UNITS"} for item in source.evidence
+        ):
+            # Official quantity stays the graph; the declaration is retained beside it
+            # outside arithmetic, and the existing comparison requires review.
+            record.supplemental_parties = component.parties
+            record.supplemental_relationships = component.relationships
+            return source
+        known = {party.party_id for party in source.parties}
+        if any(party.party_id in known for party in component.parties[1:]):
+            raise OwnershipGraphError
+        merged = OwnershipSourceResult(
+            root_party_id=source.root_party_id,
+            parties=[*source.parties, *component.parties[1:]],
+            relationships=list(component.relationships),
+            evidence=source.evidence,
+            legal_form=source.legal_form,
+        )
+        self._validate_source(
+            merged,
+            OwnershipProviderMetadata(
+                provider_name="ACRA_REGISTRY_ACQUISITION", environment=OwnershipEnvironment.MOCK
+            ),
+            parent.entity.registration_number,
+            local_overlay=True,
+        )
+        return merged
+
     def _validate_source(
         self,
         source: OwnershipSourceResult,
         metadata: OwnershipProviderMetadata,
         registration_number: str,
+        *,
+        local_overlay: bool = False,
     ) -> None:
         if (
             len(source.parties) > self.max_parties
@@ -1550,6 +1710,11 @@ class OwnershipAnalysisService:
             raise OwnershipGraphError
         for relationship in source.relationships:
             provenance = relationship.provenance
+            if local_overlay and (provenance.provider, provenance.environment) == (
+                OVERLAY_RELATIONSHIP_PROVIDER,
+                OwnershipEnvironment.LOCAL,
+            ):
+                continue
             if (
                 provenance.provider != metadata.provider_name
                 or provenance.environment != metadata.environment

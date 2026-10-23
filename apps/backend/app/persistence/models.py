@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[11] = 11
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[12] = 12
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -556,6 +556,7 @@ class DurableCaseSnapshotV9(BaseModel):
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
         reject_classification_legacy_fields(value)
+        reject_hybrid_overlay_legacy_fields(value)
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
@@ -593,6 +594,7 @@ class DurableCaseSnapshotV10(BaseModel):
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
         reject_ownership_discovery_legacy_fields(value)
+        reject_hybrid_overlay_legacy_fields(value)
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
@@ -606,12 +608,49 @@ class DurableCaseSnapshotV10(BaseModel):
         return self
 
 
+class DurableCaseSnapshotV11(BaseModel):
+    """Exact schema-11 envelope: no hybrid official-Mock plus local overlay evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[11] = 11
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_hybrid_overlay_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV11":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[11] = 11
+    schema_version: Literal[12] = 12
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -670,9 +709,47 @@ def reject_ownership_discovery_legacy_fields(value: Any) -> None:
             raise ValueError("Historical schema cannot contain ownership discovery audit.")
 
 
+_HYBRID_AUDIT_FIELDS = (
+    "overlay_scenario_id",
+    "topology_complete",
+    "official_identity_complete",
+    "quantitative_evidence_complete",
+)
+_HYBRID_RECORD_FIELDS = ("identity_basis", "official_entity_lookup", "official_legal_form")
+
+
+def reject_hybrid_overlay_legacy_fields(value: Any) -> None:
+    """Schema <= 11 envelopes cannot carry hybrid official-Mock plus local overlay evidence.
+
+    As for the discovery audit, an explicit null keeps the legacy meaning.
+    """
+    raw = _explicit_fields(value)
+    ownership = _explicit_fields(raw.get("ownership"))
+    for record in (ownership, *ownership.get("prior_analyses", ())):
+        fields = _explicit_fields(record)
+        if str(fields.get("source_classification")) == "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY":
+            raise ValueError("Historical schema cannot contain hybrid overlay ownership.")
+        audit = _explicit_fields(fields.get("discovery"))
+        if any(audit.get(name) is not None for name in _HYBRID_AUDIT_FIELDS) or any(
+            str(_explicit_fields(item).get("outcome")) == "LOCAL_SYNTHETIC_OVERLAY"
+            or any(_explicit_fields(item).get(name) is not None for name in _HYBRID_RECORD_FIELDS)
+            for item in audit.get("records", ())
+        ):
+            raise ValueError("Historical schema cannot contain hybrid overlay discovery.")
+        if any(
+            _explicit_fields(item).get("synthetic_basis_threshold_result") is not None
+            for item in fields.get("candidates", ())
+        ) or any(
+            str(_explicit_fields(item).get("code")) == "SYNTHETIC_OWNERSHIP_EVIDENCE"
+            for item in fields.get("issues", ())
+        ):
+            raise ValueError("Historical schema cannot contain hybrid overlay analysis.")
+
+
 def reject_session2_legacy_fields(value: Any) -> None:
     """Reject later evidence in exact historical envelope versions, even if null."""
     reject_classification_legacy_fields(value)
+    reject_hybrid_overlay_legacy_fields(value)
     raw = _explicit_fields(value)
     reconciliation = _explicit_fields(raw.get("reconciliation"))
     for result in (*reconciliation.get("fields", ()), *reconciliation.get("discrepancies", ())):

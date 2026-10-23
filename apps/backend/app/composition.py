@@ -39,6 +39,7 @@ from app.connectors.goldtier_xpi import (
     GoldTierXpiSandboxConnector,
     HttpxGoldTierXpiTransport,
 )
+from app.connectors.hybrid_ownership_overlay import HybridOwnershipOverlayCatalogue
 from app.connectors.local_ocr import TesseractOcrAdapter
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MOCK_ACRA_DATASET_NAMESPACE, MockAcraConnector
@@ -365,14 +366,21 @@ def build_ownership_analysis_service(
 ) -> OwnershipAnalysisService:
     """Compose the credential-free provider-neutral ownership boundary."""
 
+    official_lane = settings.acra_connector_mode == "api_marketplace_mock"
+    # Exclusive official-lane compositions: the accepted flattened Garden fixture, or
+    # the whitelisted D-077 hybrid direct-holder overlays. Never a provider fallback.
+    hybrid = (
+        official_lane and settings.acra_marketplace_ownership_overlay == "hybrid_direct_overlay"
+    )
     return OwnershipAnalysisService(
         cases=onboarding_service,
         provider=RegistryAcquisitionOwnershipProvider(
             onboarding_service,
-            garden_supplement_enabled=settings.acra_connector_mode == "api_marketplace_mock",
+            garden_supplement_enabled=official_lane and not hybrid,
         ),
         documents=documents,
-        garden_supplement_enabled=settings.acra_connector_mode == "api_marketplace_mock",
+        garden_supplement_enabled=official_lane and not hybrid,
+        hybrid_overlay=HybridOwnershipOverlayCatalogue() if hybrid else None,
         # Corporate owners are acquired separately through the same registry owner;
         # only cases with a frozen discovery policy use it.
         discovery=OwnershipDiscoveryCoordinator(onboarding_service),

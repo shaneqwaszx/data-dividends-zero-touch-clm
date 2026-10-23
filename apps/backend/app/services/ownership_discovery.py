@@ -11,15 +11,23 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from re import compile as compile_pattern
 from time import monotonic
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import ValidationError
 
 from app.connectors.errors import ConnectorError
+from app.connectors.hybrid_ownership_overlay import (
+    OFFICIAL_MARKETPLACE_PROFILE_REFERENCE,
+    OVERLAY_RELATIONSHIP_PROVIDER,
+    HybridOverlayScenario,
+    OverlayIssuer,
+    overlay_component,
+)
 from app.connectors.ownership import OwnershipSourceResult
 from app.connectors.registry_ownership import acquisition_ownership_source
 from app.domain.jurisdiction import is_eligible_singapore_uen
@@ -33,6 +41,8 @@ from app.domain.models import (
 )
 from app.domain.ownership import (
     RESOLVED_DISCOVERY_OUTCOMES,
+    TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES,
+    OfficialEntityLookup,
     OwnershipDiscoveryAudit,
     OwnershipDiscoveryOutcome,
     OwnershipDiscoveryRecord,
@@ -100,6 +110,13 @@ class VerifiedPersonBinding:
     person_key: str
 
 
+@dataclass(frozen=True)
+class _OverlayIdentity:
+    identity_basis: Literal["OFFICIAL_MOCK_ENTITY_PROFILE", "LOCAL_SYNTHETIC_IDENTITY"]
+    official_entity_lookup: OfficialEntityLookup
+    official_legal_form: RegistryLegalForm | None
+
+
 class OwnershipDiscoveryCoordinator:
     """Schedule bounded issuer retrieval; never a second ownership calculator."""
 
@@ -110,6 +127,7 @@ class OwnershipDiscoveryCoordinator:
         max_issuer_lookups: int = TECHNICAL_MAX_ISSUER_LOOKUPS,
         deadline_seconds: float = TECHNICAL_DEADLINE_SECONDS,
         clock: Callable[[], float] = monotonic,
+        utc_clock: Callable[[], datetime] | None = None,
         verified_person_bindings: Iterable[VerifiedPersonBinding] = (),
     ) -> None:
         if not 1 <= max_issuer_lookups <= TECHNICAL_MAX_ISSUER_LOOKUPS or not (
@@ -126,6 +144,7 @@ class OwnershipDiscoveryCoordinator:
         self._max_issuer_lookups = max_issuer_lookups
         self._deadline_seconds = deadline_seconds
         self._clock = clock
+        self._utc_clock = utc_clock or (lambda: datetime.now(UTC))
         self._bindings = bindings
 
     def expand(
@@ -136,6 +155,7 @@ class OwnershipDiscoveryCoordinator:
         policy: OwnershipDiscoveryPolicySnapshot,
         ubo_threshold_percent: Decimal,
         limits: DiscoveryLimits,
+        overlay: HybridOverlayScenario | None = None,
     ) -> tuple[OwnershipSourceResult, OwnershipDiscoveryAudit]:
         return _DiscoveryRun(
             coordinator=self,
@@ -144,6 +164,7 @@ class OwnershipDiscoveryCoordinator:
             policy=policy,
             ubo_threshold=ubo_threshold_percent,
             limits=limits,
+            overlay=overlay,
         ).run()
 
 
@@ -157,13 +178,18 @@ class _DiscoveryRun:
         policy: OwnershipDiscoveryPolicySnapshot,
         ubo_threshold: Decimal,
         limits: DiscoveryLimits,
+        overlay: HybridOverlayScenario | None = None,
     ) -> None:
         if parent.entity is None:
             raise OwnershipGraphError
+        # A whitelisted scenario may supply declared direct holders only for its own
+        # issuers, and only after a definitive official lookup for that issuer.
+        self._overlay = overlay
         self._reader = coordinator._reader
         self._bindings = coordinator._bindings
         self._max_lookups = coordinator._max_issuer_lookups
         self._clock = coordinator._clock
+        self._utc_clock = coordinator._utc_clock
         self._deadline = coordinator._clock() + coordinator._deadline_seconds
         self._parent = parent
         self._policy = policy
@@ -254,8 +280,12 @@ class _DiscoveryRun:
         )
         complete = all(item.outcome in RESOLVED_DISCOVERY_OUTCOMES for item in records)
         ambiguous = self._ambiguous_persons()
+        hybrid = self._overlay is not None
         certainty = (
-            "COMPLETE"
+            # Declared synthetic links can never certify a classification outcome.
+            "UNCERTAIN"
+            if hybrid
+            else "COMPLETE"
             if complete and valid
             else "BOUNDED_NO_THRESHOLD_CHANGE"
             if not complete and valid and not could_change
@@ -275,6 +305,22 @@ class _DiscoveryRun:
             cache_hits=self._cache_hits,
             records=records,
             unresolved_person_party_ids=ambiguous[:32],
+            overlay_scenario_id=self._overlay.scenario_id if self._overlay is not None else None,
+            topology_complete=(
+                all(item.outcome in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES for item in records)
+                if hybrid
+                else None
+            ),
+            official_identity_complete=(
+                all(
+                    item.outcome in RESOLVED_DISCOVERY_OUTCOMES
+                    or item.identity_basis == "OFFICIAL_MOCK_ENTITY_PROFILE"
+                    for item in records
+                )
+                if hybrid
+                else None
+            ),
+            quantitative_evidence_complete=False if hybrid else None,
         )
         expanded = OwnershipSourceResult(
             root_party_id=self._root,
@@ -355,6 +401,7 @@ class _DiscoveryRun:
         provider_backed = True
         outcome: OwnershipDiscoveryOutcome
         reason: str | None
+        identity: _OverlayIdentity | None = None
         try:
             evidence = self._reader.acquire_subsidiary_registry_evidence(
                 uen,
@@ -374,16 +421,22 @@ class _DiscoveryRun:
             outcome = OwnershipDiscoveryOutcome.PROVIDER_FAILED
             reason = "REGISTRY_UNEXPECTED_FAILURE"
         else:
-            rejected, reason = self._classify(uen, evidence.acquisition)
-            if rejected is None:
-                outcome, reason = self._attach(node, uen, evidence, provider_backed)
+            issuer_overlay = self._overlay.issuer(uen) if self._overlay is not None else None
+            if issuer_overlay is not None:
+                outcome, reason, identity = self._attach_overlay(
+                    node, uen, evidence, issuer_overlay
+                )
             else:
-                outcome = rejected
+                rejected, reason = self._classify(uen, evidence.acquisition)
+                if rejected is None:
+                    outcome, reason = self._attach(node, uen, evidence, provider_backed)
+                else:
+                    outcome = rejected
         if provider_backed:
             self._provider_backed += 1
         else:
             self._cache_hits += 1
-        self._finalize(node, outcome, depth, shares, reason)
+        self._finalize(node, outcome, depth, shares, reason, identity)
 
     def _classify(
         self, uen: str, bundle: RegistryAcquisitionBundle | None
@@ -447,6 +500,113 @@ class _DiscoveryRun:
             for item in issuer.evidence
         ):
             return OwnershipDiscoveryOutcome.PROVIDER_PARTIAL, "UNRESOLVED_ROLE_EVIDENCE"
+        failure = self._merge(node, uen, issuer)
+        if failure is not None:
+            return failure
+        return (
+            OwnershipDiscoveryOutcome.FETCHED
+            if provider_backed
+            else OwnershipDiscoveryOutcome.CACHE_HIT
+        ), None
+
+    def _attach_overlay(
+        self,
+        node: str,
+        uen: str,
+        evidence: SubsidiaryRegistryEvidence,
+        issuer: OverlayIssuer,
+    ) -> tuple[OwnershipDiscoveryOutcome, str | None, _OverlayIdentity | None]:
+        """Attach declared direct holders after a definitive official entity lookup.
+
+        Provider failure, identity/lane mismatch or official quantitative evidence never
+        selects the overlay: the branch stays unresolved rather than locally overridden.
+        """
+        assert self._overlay is not None
+        bundle = evidence.acquisition
+        if bundle is None:
+            identity = _OverlayIdentity(
+                "LOCAL_SYNTHETIC_IDENTITY",
+                "NOT_FOUND_CACHE_REUSED" if evidence.negative_cache_hit else "NOT_FOUND",
+                None,
+            )
+            name = issuer.local_display_name
+        else:
+            if (
+                bundle.requested_identifier.strip().upper() != uen
+                or bundle.entity_profile.registration_number.strip().upper() != uen
+            ):
+                return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_IDENTITY_MISMATCH", None
+            if (
+                bundle.entity_profile.source.environment != SourceEnvironment.MOCK
+                or bundle.entity_profile.source.registry_source_link
+                != OFFICIAL_MARKETPLACE_PROFILE_REFERENCE
+            ):
+                return (
+                    OwnershipDiscoveryOutcome.PROVIDER_INVALID,
+                    "OVERLAY_REQUIRES_OFFICIAL_LOOKUP",
+                    None,
+                )
+            if (
+                bundle.status == RegistryAcquisitionStatus.FAILED
+                or bundle.operation_results[0].status != RegistryOperationStatus.COMPLETE
+                or any(
+                    item.status == RegistryOperationStatus.FAILED
+                    for item in bundle.operation_results
+                )
+            ):
+                return (
+                    OwnershipDiscoveryOutcome.PROVIDER_FAILED,
+                    bundle.issues[0].code if bundle.issues else None,
+                    None,
+                )
+            if bundle.ownership_parties or bundle.relationships:
+                # Official quantity is retained in its own snapshot, never overridden.
+                return (
+                    OwnershipDiscoveryOutcome.PROVIDER_PARTIAL,
+                    "OFFICIAL_QUANTITY_PRECLUDES_OVERLAY",
+                    None,
+                )
+            identity = _OverlayIdentity(
+                "OFFICIAL_MOCK_ENTITY_PROFILE",
+                "ENTITY_PROFILE_CACHE_REUSED"
+                if evidence.entity_profile_reused
+                else "ENTITY_PROFILE_FETCHED",
+                classify_registry_legal_form(bundle.entity_profile.party_type),
+            )
+            name = bundle.entity_profile.legal_name or self._parties[node].display_name
+        # The node's identity name follows its identity source; links stay local.
+        renamed = Party.model_validate({**self._parties[node].model_dump(), "display_name": name})
+        component = overlay_component(
+            self._overlay,
+            issuer,
+            issuer_party=Party(
+                party_id=f"ENTITY_{uen}",
+                display_name=name,
+                party_type=PartyType.LEGAL_ENTITY,
+                registration_number=uen,
+                country="SG",
+            ),
+            sourced_at=self._utc_clock(),
+        )
+        try:
+            source = OwnershipSourceResult(
+                root_party_id=component.root_party_id,
+                parties=list(component.parties),
+                relationships=list(component.relationships),
+            )
+            validate_ownership_graph(build_ownership_graph(source))
+        except (ValidationError, OwnershipGraphError, ValueError, KeyError):
+            return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "OVERLAY_RECORD_INVALID", None
+        failure = self._merge(node, uen, source)
+        if failure is not None:
+            return (*failure, None)
+        self._parties[node] = renamed
+        return OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY, None, identity
+
+    def _merge(
+        self, node: str, uen: str, issuer: OwnershipSourceResult
+    ) -> tuple[OwnershipDiscoveryOutcome, str] | None:
+        """Attach one issuer record's direct holders under issuer-scoped identifiers."""
         mapping = {issuer.root_party_id: node}
         new_parties: list[Party] = []
         new_issuers: dict[str, str] = {}
@@ -502,7 +662,11 @@ class _DiscoveryRun:
                     provenance=OwnershipProvenance(
                         provider=edge.provenance.provider,
                         environment=edge.provenance.environment,
-                        source_reference=f"ACRA_REGISTRY_{scoped}",
+                        source_reference=(
+                            f"HYBRID_OVERLAY_{scoped}"
+                            if edge.provenance.provider == OVERLAY_RELATIONSHIP_PROVIDER
+                            else f"ACRA_REGISTRY_{scoped}"
+                        ),
                         sourced_at=edge.provenance.sourced_at,
                     ),
                 )
@@ -534,11 +698,7 @@ class _DiscoveryRun:
         self._person_nodes.update(new_people)
         for scoped, (issuer_uen, source_id) in new_sources.items():
             self._register_person(scoped, issuer_uen, source_id)
-        return (
-            OwnershipDiscoveryOutcome.FETCHED
-            if provider_backed
-            else OwnershipDiscoveryOutcome.CACHE_HIT
-        ), None
+        return None
 
     def _register_person(self, node: str, issuer_uen: str, source_id: str) -> None:
         self._person_sources[node] = (issuer_uen, source_id)
@@ -597,6 +757,7 @@ class _DiscoveryRun:
         depth: int,
         shares: dict[str, Decimal],
         reason: str | None = None,
+        identity: _OverlayIdentity | None = None,
     ) -> None:
         party = self._parties[node]
         share = shares.get(node)
@@ -608,6 +769,11 @@ class _DiscoveryRun:
             outcome=outcome,
             max_effective_percent=share if share is not None and share <= 100 else None,
             reason_code=reason,
+            identity_basis=identity.identity_basis if identity is not None else None,
+            official_entity_lookup=(
+                identity.official_entity_lookup if identity is not None else None
+            ),
+            official_legal_form=identity.official_legal_form if identity is not None else None,
         )
 
     def _uen(self, node: str) -> str:

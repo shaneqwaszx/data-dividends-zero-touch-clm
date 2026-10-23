@@ -81,6 +81,10 @@ class RegistryAcquisitionBusyError(RegistryCacheError):
 class RegistryAcquisitionResult:
     acquisition: RegistryAcquisitionBundle | None
     binding: RegistryEvidenceBinding | None
+    # In-memory observations only: a fresh definitive NOT_FOUND served from the cache,
+    # or an incomplete result whose entity profile came from a fresh cached prefix.
+    negative_cache_hit: bool = False
+    entity_profile_reused: bool = False
 
 
 @dataclass(frozen=True)
@@ -88,14 +92,17 @@ class SubsidiaryRegistryEvidence:
     """Read-only issuer evidence for ownership discovery; never bound to a case.
 
     `provider_backed` is false only for a committed fresh cache hit (including the
-    approved local seed). A miss, stale entry, uncached lane or incomplete result
-    used the configured provider and counts toward any business call budget.
+    approved local seed and a fresh definitive NOT_FOUND). A miss, stale entry,
+    uncached lane or incomplete result used the configured provider and counts toward
+    any business call budget, even when its entity profile came from a cached prefix.
     """
 
     identifier: str
     acquisition: RegistryAcquisitionBundle | None
     disposition: RegistryEvidenceDisposition | None
     provider_backed: bool
+    negative_cache_hit: bool = False
+    entity_profile_reused: bool = False
 
 
 @dataclass
@@ -261,7 +268,9 @@ class RegistryAcquisitionCoordinator:
             self._validate_entry_for_use(entry, key, now)
             if entry.negative_result == "NOT_FOUND":
                 if registry_negative_cache_is_fresh(entry.freshness_anchor, now, negative_seconds):
-                    return RegistryAcquisitionResult(acquisition=None, binding=None)
+                    return RegistryAcquisitionResult(
+                        acquisition=None, binding=None, negative_cache_hit=True
+                    )
             elif entry.acquisition is not None:
                 reuse = entry.acquisition
                 if (
@@ -353,7 +362,9 @@ class RegistryAcquisitionCoordinator:
         persisted = self._write(candidate, current=entry)
         if acquisition.status != RegistryAcquisitionStatus.COMPLETE:
             return RegistryAcquisitionResult(
-                acquisition=acquisition.model_copy(deep=True), binding=None
+                acquisition=acquisition.model_copy(deep=True),
+                binding=None,
+                entity_profile_reused=RegistryOperation.ENTITY_PROFILE in reusable,
             )
         return self._bound_result(
             persisted,
