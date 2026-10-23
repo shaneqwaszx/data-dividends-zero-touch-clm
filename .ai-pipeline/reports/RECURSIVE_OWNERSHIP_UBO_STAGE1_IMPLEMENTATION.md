@@ -82,6 +82,19 @@ matrix on the frozen commit; this is implementer evidence only):
 Not run in Stage 1 (Stage 2 scope): full backend pytest, full root tests, frontend build,
 unfiltered E2E.
 
+## Stage 1 remediation R1 (after Stage 2 FAIL on `512a424`)
+
+- F1 (candidate defect): `scripts/slice_c_recovery_fixture.py` built its legacy stale-policy
+  snapshot from a current snapshot without clearing the new `ownership_discovery`, which
+  the snapshot validator correctly rejects. The fixture now sets it to `None`, matching
+  legacy semantics. Evidence: root `tests/test_slice_c_e2e_fixture_routing.py` 16/16;
+  backend `test_slice_c_blocker_recovery.py` 9/9; selector
+  `e2e/slice-c-recovery.e2e.ts:156` passed via the PR #102 runner.
+- Stage 2 observation: the new physical suite is now in `PHYSICAL_SUITES`
+  (`scripts/run_physical_mongo_tests.py`) with the existing inclusion assertion, so the
+  hosted physical job selects it. Tooling tests 46/46 with the Slice C routing file; Ruff clean.
+- F2-F4 were classified by Stage 2 as environment/pre-existing on base and are unchanged.
+
 ## Known limitations and risks
 
 - Share units stay in the fixture source; the normalized local Mock operation keeps the
