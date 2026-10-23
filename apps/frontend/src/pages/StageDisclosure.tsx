@@ -75,6 +75,7 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   const technical = useRef<HTMLDetailsElement>(null);
   const previousScope = useRef(scopeKey);
   const sectionHasFocus = useRef(false);
+  const pointerPressed = useRef(false);
   const printedState = useRef<boolean[] | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
@@ -141,15 +142,29 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   // Browsers scroll a newly focused control only when it is outside the viewport, so moving focus
   // back up can leave it under this section's sticky header; align it just below the header instead
   // ("start" honours its scroll margin, "nearest" does not move an in-viewport control).
+  // Focus from a pointer press is left alone: scrolling between press and release would move the
+  // control from under the pointer and lose the click.
   const keepFocusBelowHeader = (target: EventTarget) => {
     const header = heading.current;
-    if (!(target instanceof HTMLElement) || !header || header.contains(target)) return;
+    if (pointerPressed.current || !(target instanceof HTMLElement) || !header || header.contains(target)) return;
     if (target.getBoundingClientRect().top < header.getBoundingClientRect().bottom) target.scrollIntoView?.({ block: "start" });
+  };
+  const trackPointerPress = () => {
+    pointerPressed.current = true;
+    // The press may end outside the section; any end of it clears the mark.
+    const release = () => {
+      pointerPressed.current = false;
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
   };
   const restoreFocus = (element: HTMLDetailsElement) => {
     if (!element.open && element.contains(document.activeElement)) element.querySelector("summary")?.focus();
   };
   return <section ref={section} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} data-tone={status?.tone} aria-labelledby={`${id}-title`}
+    onPointerDownCapture={trackPointerPress}
     onFocusCapture={(event) => { sectionHasFocus.current = true; keepFocusBelowHeader(event.target); }}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) sectionHasFocus.current = false; }}>
     <h2 ref={heading} id={`${id}-title`} tabIndex={-1}>

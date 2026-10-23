@@ -331,4 +331,21 @@ describe("sticky header focus clearance", () => {
     expect(scrolled).toEqual([["covered", { block: "start" }]]);
     await act(async () => root.unmount()); host.remove();
   });
+
+  it("leaves focus from a pointer press in place and aligns again once the press ends", async () => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    await act(async () => root.render(<StageDisclosure title="Document verification" scopeKey="case-a" active
+      main={<><input id="covered" aria-label="Covered" /><input id="other" aria-label="Other" /></>} />));
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 10, width: 10, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    host.querySelector("h2")!.getBoundingClientRect = () => rect(12, 83);
+    const covered = host.querySelector<HTMLInputElement>("#covered")!; const other = host.querySelector<HTMLInputElement>("#other")!;
+    covered.getBoundingClientRect = () => rect(23, 130); other.getBoundingClientRect = () => rect(200, 230);
+    let scrolls = 0;
+    covered.scrollIntoView = () => { scrolls++; };
+    act(() => { covered.dispatchEvent(new Event("pointerdown", { bubbles: true })); covered.focus(); });
+    expect(scrolls).toBe(0);
+    act(() => { window.dispatchEvent(new Event("pointerup")); other.focus(); covered.focus(); });
+    expect(scrolls).toBe(1);
+    await act(async () => root.unmount()); host.remove();
+  });
 });

@@ -224,6 +224,25 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
     expect(visited.filter(name => name.startsWith("Correction for "))).toHaveLength(fields.length);
     expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
   }
+  // A click on the visible sliver of an option under the stuck header lands without moving the page.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    const option = page.locator('#case-blocker-review input[data-review-field="registration_number"][value="REJECTED"]');
+    await expect(option).not.toBeChecked();
+    const placement = await option.evaluate(element => {
+      const header = element.closest(".stage-disclosure")!.querySelector(":scope > h2")!;
+      scrollBy(0, element.getBoundingClientRect().top - 40);
+      // Leave 10px of the option visible below the stuck header.
+      scrollBy(0, element.getBoundingClientRect().bottom - (header.getBoundingClientRect().bottom + 10));
+      const option = element.getBoundingClientRect(); const stuck = header.getBoundingClientRect();
+      return { x: option.left + option.width / 2, y: stuck.bottom + 5, scrollY, covered: option.top < stuck.bottom };
+    });
+    expect(placement.covered, `option under the header at ${viewport.width}x${viewport.height}`).toBe(true);
+    await page.mouse.click(placement.x, placement.y);
+    await expect(option, `sliver click at ${viewport.width}x${viewport.height}`).toBeChecked();
+    expect(await page.evaluate(() => scrollY)).toBe(placement.scrollY);
+  }
   // WCAG 2.2 SC 1.4.4: the footer status, hint and "How drafts work" keep a readable column at every review width.
   for (const viewport of [{ width: 360, height: 780 }, { width: 768, height: 1024 }, { width: 960, height: 800 }, { width: 1024, height: 768 }, { width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport);
