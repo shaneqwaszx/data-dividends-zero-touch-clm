@@ -584,6 +584,94 @@ def test_garden_hybrid_uses_direct_holders_only_and_looks_up_sim_lim_officially(
     assert record.discovery.overlay_scenario_id == GARDEN_DIRECT_OVERLAY_SCENARIO_ID
 
 
+def sim_lim_unit_rows() -> dict[str, object]:
+    def row(identifier: str, name: str, units: int, status: str) -> dict[str, object]:
+        return {
+            "shareholderCategory": "Individual",
+            "shareholderId": identifier,
+            "shareholderName": name,
+            "shareAllotted": units,
+            "shareType": "Ordinary",
+            "currency": "SINGAPORE DOLLAR",
+            "appointmentDate": "2020-01-01",
+            "status": status,
+        }
+
+    return {
+        "entities": [
+            {
+                "uen": "111111111M",
+                "name": "SIM LIM PTE. LTD.",
+                "shareholders": {
+                    "individual": [
+                        row("SYN-SL-1", "OFFICIAL HOLDER ONE (SYNTHETIC)", 600, "Active"),
+                        row("SYN-SL-2", "OFFICIAL HOLDER TWO (SYNTHETIC)", 400, "Active"),
+                        row("SYN-SL-3", "OFFICIAL HOLDER THREE (SYNTHETIC)", 100, "Withdrawn"),
+                    ],
+                    "grouping": [],
+                },
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize("unit_rows", [False, True])
+def test_an_officially_found_non_scenario_issuer_stays_unresolved(unit_rows: bool) -> None:
+    # The Marketplace Mock lane has no relationships operation and no authoritative
+    # denominator (Q-012), so an official SIM LIM profile, with or without unit-only
+    # rows, never resolves the branch: no overlay, no local fixture, no inferred percent.
+    transport = OfflineFiveLayerProtocolTransport()
+    transport.profiles["111111111M"] = company_profile(
+        "111111111M", "SIM LIM PTE. LTD.", "PRIVATE COMPANY LIMITED BY SHARES"
+    )
+    if unit_rows:
+        transport.shareholders["111111111M"] = sim_lim_unit_rows()
+    onboarding, ownership, _ = build(transport)
+    record = analyze(onboarding, ownership, "11111999A")
+
+    assert record.state == OwnershipAnalysisState.REVIEW_REQUIRED
+    sim_lim = records(record)["111111111M"]
+    assert (sim_lim.outcome, sim_lim.identity_basis, sim_lim.official_entity_lookup) == (
+        OwnershipDiscoveryOutcome.PROVIDER_UNSUPPORTED,
+        None,
+        None,
+    )
+    assert sim_lim.max_effective_percent == Decimal("62.5")
+    assert {edge.provenance.provider for edge in record.relationships} == {
+        OVERLAY_RELATIONSHIP_PROVIDER
+    }
+    assert {party.display_name for party in record.parties} == {
+        "GARDEN BUSINESS",
+        "SIM LIM PTE. LTD.",
+        "LIM CHOON HUAT",
+    }
+    assert record.discovery is not None
+    assert (
+        record.discovery.graph_complete,
+        record.discovery.topology_complete,
+        record.discovery.official_identity_complete,
+        record.discovery.unresolved_upper_bound_percent,
+    ) == (False, False, False, Decimal("62.5"))
+    assert {
+        OwnershipIssueCode.INCOMPLETE_LEGAL_ENTITY,
+        OwnershipIssueCode.CORPORATE_OWNERSHIP_UNRESOLVED,
+        OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
+    } <= codes(record)
+    lim = by_name(record)["LIM CHOON HUAT"]
+    assert (
+        lim.aggregated_ownership_percent,
+        lim.threshold_result,
+        lim.classification,
+        lim.synthetic_basis_threshold_result,
+    ) == (
+        Decimal("37.5"),
+        OwnershipThresholdResult.INDETERMINATE,
+        OwnershipCandidateClassification.REVIEW_REQUIRED,
+        OwnershipThresholdResult.MET,
+    )
+    assert transport.calls[("SHAREHOLDERS", "111111111M")] == 1
+
+
 def test_default_official_lane_keeps_the_accepted_flattened_garden_supplement() -> None:
     onboarding, ownership, transport = build(overlay="garden_legacy_supplement")
     record = analyze(onboarding, ownership, "11111999A")
