@@ -139,10 +139,12 @@ class PolicyManagementService:
             raise PolicyValidationError
         now = self._clock()
         next_version = current.version + 1
-        rules = (
-            *current.rules[:legacy_count],
-            *defaults.rules[legacy_count:],
-            *current.rules[legacy_count:],
+        rules, seeded = self._seed_trace_within_ubo(
+            (
+                *current.rules[:legacy_count],
+                *defaults.rules[legacy_count:],
+                *current.rules[legacy_count:],
+            )
         )
         history = bool(current.proposals or current.superseded_versions) or (
             current.active_origin != "DEFAULT"
@@ -156,7 +158,10 @@ class PolicyManagementService:
                 target_id=current.catalogue_id,
                 timestamp=now,
                 resulting_version=next_version,
-                metadata={"added_rule_count": len(defaults.rules) - legacy_count},
+                metadata={
+                    "added_rule_count": len(defaults.rules) - legacy_count,
+                    **({"trace_threshold_seeded_from_ubo": True} if seeded else {}),
+                },
             )
             candidate = PolicyCatalogue(
                 catalogue_id=current.catalogue_id,
@@ -170,8 +175,51 @@ class PolicyManagementService:
                 audit_events=(*current.audit_events, event),
             )
         else:
-            candidate = self._additive_migration(current, rules, now, next_version)
+            candidate = self._additive_migration(current, rules, now, next_version, seeded)
+        # The migrated rules must already satisfy the trace <= UBO rule before any write.
+        try:
+            self._ownership_discovery_snapshot(candidate)
+        except (ValidationError, ValueError, TypeError):
+            raise PolicyValidationError from None
         self._repository.update(candidate, expected_version=current.version)
+
+    @staticmethod
+    def _seed_trace_within_ubo(
+        rules: tuple[PolicyRule, ...],
+    ) -> tuple[tuple[PolicyRule, ...], bool]:
+        """Start a newly added trace threshold no higher than the active UBO threshold.
+
+        A positive UBO threshold below the 10% default seeds the trace threshold at that
+        value; a 0% UBO threshold admits no positive trace threshold and fails closed.
+        """
+        by_id = {rule.policy_id: rule for rule in rules}
+        ubo = by_id.get(UBO_POLICY_ID)
+        trace = by_id.get(OWNERSHIP_TRACE_THRESHOLD_ID)
+        if (
+            ubo is None
+            or trace is None
+            or not isinstance(ubo.value, DecimalPolicyValue)
+            or not isinstance(trace.value, DecimalPolicyValue)
+        ):
+            raise PolicyValidationError
+        active_ubo = Decimal(ubo.value.value)
+        if Decimal(trace.value.value) <= active_ubo:
+            return rules, False
+        if active_ubo <= 0:
+            raise PolicyValidationError
+        try:
+            seeded = PolicyRule.model_validate(
+                {**trace.model_dump(), "value": {"type": "DECIMAL", "value": ubo.value.value}}
+            )
+        except (ValidationError, ValueError, TypeError):
+            raise PolicyValidationError from None
+        return (
+            tuple(
+                seeded if rule.policy_id == OWNERSHIP_TRACE_THRESHOLD_ID else rule
+                for rule in rules
+            ),
+            True,
+        )
 
     def _additive_migration(
         self,
@@ -179,6 +227,7 @@ class PolicyManagementService:
         rules: tuple[PolicyRule, ...],
         now: datetime,
         next_version: int,
+        seeded: bool,
     ) -> PolicyCatalogue:
         """Append new default rules without losing approvals, proposals or history.
 
@@ -223,6 +272,7 @@ class PolicyManagementService:
                 "added_rule_count": len(rules) - len(current.rules),
                 "rebased_proposal_count": rebased,
                 "superseded_active_version": current.active_version,
+                **({"trace_threshold_seeded_from_ubo": True} if seeded else {}),
             },
         )
         try:

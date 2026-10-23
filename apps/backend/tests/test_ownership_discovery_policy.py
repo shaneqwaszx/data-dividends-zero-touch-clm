@@ -197,7 +197,13 @@ def _legacy_catalogue_with_history() -> PolicyCatalogue:
         expected_proposal_version=rejected.version,
         reason="Independent synthetic rejection",
     )
-    current = s.catalogue()
+    legacy = _as_legacy_35(s.catalogue())
+    assert legacy.active_origin == "APPROVED"
+    return legacy
+
+
+def _as_legacy_35(current: PolicyCatalogue) -> PolicyCatalogue:
+    """Remove the discovery rules everywhere, as a pre-D-076 catalogue stored them."""
     legacy = PolicyCatalogue.model_validate(
         current.model_copy(
             update={
@@ -213,8 +219,72 @@ def _legacy_catalogue_with_history() -> PolicyCatalogue:
             }
         ).model_dump()
     )
-    assert len(legacy.rules) == 35 and legacy.active_origin == "APPROVED"
+    assert len(legacy.rules) == 35
     return legacy
+
+
+def _with_ubo(rules: tuple, value: str) -> tuple:  # type: ignore[type-arg]
+    return tuple(
+        rule.model_copy(update={"value": DecimalPolicyValue(value=value)})
+        if rule.policy_id == UBO_POLICY_ID
+        else rule
+        for rule in rules
+    )
+
+
+@pytest.mark.parametrize("count", (35, 29))
+def test_migration_seeds_trace_at_a_positive_ubo_below_ten_percent(count: int) -> None:
+    repository = InMemoryPolicyRepository()
+    current = default_policy_catalogue(NOW)
+    repository.create(
+        current.model_copy(update={"rules": _with_ubo(current.rules[:count], "8.000000")})
+    )
+
+    service = PolicyManagementService(repository, clock=lambda: LATER)
+    migrated = service.catalogue()
+
+    assert migrated.rule(UBO_POLICY_ID).value == DecimalPolicyValue(value="8.000000")  # type: ignore[union-attr]
+    assert migrated.rule(OWNERSHIP_TRACE_THRESHOLD_ID).value == (  # type: ignore[union-attr]
+        DecimalPolicyValue(value="8.000000")
+    )
+    assert migrated.audit_events[-1].metadata["trace_threshold_seeded_from_ubo"] is True
+    snapshot = service.case_snapshot().ownership_discovery
+    assert snapshot is not None and snapshot.trace_threshold_percent == Decimal("8")
+
+
+@pytest.mark.parametrize("count", (35, 29))
+def test_migration_fails_closed_for_a_zero_ubo_threshold(count: int) -> None:
+    repository = InMemoryPolicyRepository()
+    current = default_policy_catalogue(NOW)
+    stored = repository.create(
+        current.model_copy(update={"rules": _with_ubo(current.rules[:count], "0")})
+    )
+
+    with pytest.raises(PolicyValidationError):
+        PolicyManagementService(repository, clock=lambda: LATER)
+
+    assert repository.get() == stored
+
+
+def test_history_bearing_migration_seeds_trace_at_an_approved_five_percent_ubo() -> None:
+    s = service()
+    approve_business_change(s, OWNERSHIP_TRACE_THRESHOLD_ID, DecimalPolicyValue(value="5"))
+    approve_business_change(s, UBO_POLICY_ID, DecimalPolicyValue(value="5"))
+    legacy = _as_legacy_35(s.catalogue())
+    repository = InMemoryPolicyRepository()
+    repository.create(legacy)
+
+    migrated_service = PolicyManagementService(repository, clock=lambda: LATER)
+    migrated = migrated_service.catalogue()
+
+    assert migrated.active_origin == "MIGRATED"
+    assert migrated.rules[:35] == legacy.rules
+    assert migrated.rule(OWNERSHIP_TRACE_THRESHOLD_ID).value == DecimalPolicyValue(value="5")  # type: ignore[union-attr]
+    assert migrated.audit_events[-1].metadata["trace_threshold_seeded_from_ubo"] is True
+    snapshot = migrated_service.case_snapshot()
+    assert snapshot.ubo_threshold_percent == Decimal("5")
+    assert snapshot.ownership_discovery is not None
+    assert snapshot.ownership_discovery.trace_threshold_percent == Decimal("5")
 
 
 def test_history_bearing_35_rule_catalogue_migrates_additively_without_loss() -> None:

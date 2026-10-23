@@ -162,8 +162,9 @@ Four project-defined, editable, runtime-enforced Ownership rules are appended (3
 active UBO threshold), `OWNERSHIP_DISCOVERY_MAX_CORPORATE_DEPTH` (5, range 1-7, below the
 unchanged 8-edge calculation ceiling), `OWNERSHIP_REGISTRY_CALL_BUDGET_ENABLED` (false)
 and `OWNERSHIP_REGISTRY_CALL_BUDGET_MAX` (10, range 1-32; counts provider-backed corporate
-issuer acquisitions, not cache hits). Submission, approval, impact and case snapshots
-reject a trace threshold above the effective UBO threshold. New case snapshots freeze
+issuer acquisitions, not cache hits). Submission, approval, catalogue migration and case
+snapshots reject a trace threshold above the effective UBO threshold; the read-only impact
+preview evaluates no discovery parameter and does not apply this check. New case snapshots freeze
 these values as `ownership_discovery`; historical snapshots without it keep root-only
 ownership semantics and never acquire subsidiaries.
 
@@ -173,3 +174,8 @@ catalogue schema 3 records an audited `MIGRATED` activation: active values are k
 replaced active rules become a retained superseded version, decided or already-stale
 proposals are retained unchanged, and undecided proposals on the replaced base are
 rebased by adding only the new default rules. No new value is approved automatically.
+Every migration path (8/21/29/35 seeds) checks the discovery rules against the active
+UBO threshold before writing. If that threshold is positive but below 10%, the added trace
+threshold starts at the active UBO value (audit `trace_threshold_seeded_from_ubo`);
+an active 0% UBO threshold admits no positive trace threshold, so startup fails closed and
+leaves the stored catalogue unchanged for owner correction.

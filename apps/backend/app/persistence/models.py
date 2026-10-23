@@ -568,6 +568,7 @@ class DurableCaseSnapshotV9(BaseModel):
         _validate_case_bindings(self)
         return self
 
+
 class DurableCaseSnapshotV10(BaseModel):
     """Exact schema-10 envelope: no frozen discovery policy or discovery audit."""
 

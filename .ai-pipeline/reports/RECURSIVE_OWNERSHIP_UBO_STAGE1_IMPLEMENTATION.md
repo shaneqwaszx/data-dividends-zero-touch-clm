@@ -95,6 +95,23 @@ unfiltered E2E.
   hosted physical job selects it. Tooling tests 46/46 with the Slice C routing file; Ruff clean.
 - F2-F4 were classified by Stage 2 as environment/pre-existing on base and are unchanged.
 
+## Stage 1 remediation R2 (after Stage 3 PASS WITH MINOR FIXES on `08f8a24`)
+
+- M1: every catalogue migration path now checks the discovery rules against the active
+  UBO threshold before writing (`policy_management.py` `_seed_trace_within_ubo` plus a
+  pre-write `_ownership_discovery_snapshot`). A positive UBO below 10% seeds the added
+  trace threshold at that UBO value (audit `trace_threshold_seeded_from_ubo`); a 0% UBO
+  fails closed at startup and leaves the stored catalogue unchanged. New tests cover 35-
+  and 29-seed catalogues at 8% and 0% and a history-bearing approved 5% UBO.
+- L1: the policy contract no longer claims the read-only impact preview applies the
+  trace <= UBO check, and records the migration seeding/fail-closed rule.
+- Cosmetic: restored the two blank lines before `DurableCaseSnapshotV10`.
+- Evidence (pre-commit tree): discovery policy suite 26/26; policy/persistence suites
+  (phase14_5, phase24c, slice_e, policy recovery, phase12 persistence, slice_a legacy)
+  all passed; physical Mongo (recursive ownership, phase24c, phase14_5, policy recovery)
+  15/15 on a fresh disposable container; Ruff, mypy, policy-authority, project-state and
+  architecture checkers pass.
+
 ## Known limitations and risks
 
 - Share units stay in the fixture source; the normalized local Mock operation keeps the
