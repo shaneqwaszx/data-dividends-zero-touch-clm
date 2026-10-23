@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -332,7 +332,7 @@ describe("sticky header focus clearance", () => {
     await act(async () => root.unmount()); host.remove();
   });
 
-  it("leaves focus from a pointer press in place and aligns again once the press ends", async () => {
+  async function renderCovered() {
     const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
     await act(async () => root.render(<StageDisclosure title="Document verification" scopeKey="case-a" active
       main={<><input id="covered" aria-label="Covered" /><input id="other" aria-label="Other" /></>} />));
@@ -340,12 +340,47 @@ describe("sticky header focus clearance", () => {
     host.querySelector("h2")!.getBoundingClientRect = () => rect(12, 83);
     const covered = host.querySelector<HTMLInputElement>("#covered")!; const other = host.querySelector<HTMLInputElement>("#other")!;
     covered.getBoundingClientRect = () => rect(23, 130); other.getBoundingClientRect = () => rect(200, 230);
-    let scrolls = 0;
-    covered.scrollIntoView = () => { scrolls++; };
-    act(() => { covered.dispatchEvent(new Event("pointerdown", { bubbles: true })); covered.focus(); });
-    expect(scrolls).toBe(0);
-    act(() => { window.dispatchEvent(new Event("pointerup")); other.focus(); covered.focus(); });
-    expect(scrolls).toBe(1);
+    const scroll = { count: 0 };
+    covered.scrollIntoView = () => { scroll.count++; };
+    const press = (pointerType: string) => {
+      const event = new Event("pointerdown", { bubbles: true }); Object.defineProperty(event, "pointerType", { value: pointerType });
+      covered.dispatchEvent(event);
+    };
+    const refocus = () => { other.focus(); covered.focus(); };
+    return { root, host, covered, scroll, press, refocus };
+  }
+
+  it("leaves focus from a mouse press in place and aligns again once the press ends", async () => {
+    const { root, host, covered, scroll, press, refocus } = await renderCovered();
+    act(() => { press("mouse"); covered.focus(); });
+    expect(scroll.count).toBe(0);
+    act(() => { window.dispatchEvent(new Event("pointerup")); refocus(); });
+    expect(scroll.count).toBe(1);
     await act(async () => root.unmount()); host.remove();
+  });
+
+  it.each(["touch", "pen"])("keeps a %s tap's focus in place until its click, which focus after pointerup follows", async (pointerType) => {
+    const { root, host, covered, scroll, press, refocus } = await renderCovered();
+    // Touch/pen order: pointerdown, pointerup, then the compatibility mousedown moves focus, then click.
+    act(() => { press(pointerType); window.dispatchEvent(new Event("pointerup")); covered.focus(); });
+    expect(scroll.count).toBe(0);
+    act(() => { window.dispatchEvent(new Event("click")); refocus(); });
+    expect(scroll.count).toBe(1);
+    await act(async () => root.unmount()); host.remove();
+  });
+
+  it("ends a press whose release never arrives after the bounded fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      const { root, host, scroll, press, refocus } = await renderCovered();
+      act(() => press("touch"));
+      act(() => { vi.advanceTimersByTime(999); refocus(); });
+      expect(scroll.count).toBe(0);
+      act(() => { vi.advanceTimersByTime(1); refocus(); });
+      expect(scroll.count).toBe(1);
+      await act(async () => root.unmount()); host.remove();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

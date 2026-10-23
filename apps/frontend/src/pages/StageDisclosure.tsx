@@ -1,5 +1,8 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
+
+/** Longest a pointer press keeps sticky-header alignment off when its end is never delivered. */
+const POINTER_PRESS_FALLBACK_MS = 1000;
 
 export function revealStage(target: Element): void {
   let ancestor = target.parentElement;
@@ -76,6 +79,7 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   const previousScope = useRef(scopeKey);
   const sectionHasFocus = useRef(false);
   const pointerPressed = useRef(false);
+  const endPointerPress = useRef<(() => void) | null>(null);
   const printedState = useRef<boolean[] | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
@@ -100,6 +104,9 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
     element?.addEventListener("reveal-stage", reveal);
     return () => element?.removeEventListener("reveal-stage", reveal);
   }, []);
+
+  // A press still in progress when the section unmounts releases its window listeners.
+  useEffect(() => () => endPointerPress.current?.(), []);
 
   // Focus scrolling stops below the sticky header at whatever height its title wraps to.
   useLayoutEffect(() => {
@@ -142,23 +149,30 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   // Browsers scroll a newly focused control only when it is outside the viewport, so moving focus
   // back up can leave it under this section's sticky header; align it just below the header instead
   // ("start" honours its scroll margin, "nearest" does not move an in-viewport control).
-  // Focus from a pointer press is left alone: scrolling between press and release would move the
-  // control from under the pointer and lose the click.
+  // Focus that a pointer press or tap gives a control is left alone: scrolling before the click
+  // would move the control from under the pointer and lose the click. (Focus that a label passes
+  // on during its click is not part of the press and is still aligned.)
   const keepFocusBelowHeader = (target: EventTarget) => {
     const header = heading.current;
     if (pointerPressed.current || !(target instanceof HTMLElement) || !header || header.contains(target)) return;
     if (target.getBoundingClientRect().top < header.getBoundingClientRect().bottom) target.scrollIntoView?.({ block: "start" });
   };
-  const trackPointerPress = () => {
+  const trackPointerPress = (event: ReactPointerEvent) => {
+    endPointerPress.current?.();
     pointerPressed.current = true;
-    // The press may end outside the section; any end of it clears the mark.
+    // A mouse moves focus while pressed; touch and pen move it with the compatibility mousedown that
+    // follows pointerup, so their press lasts until the tap's click. The press may end outside the
+    // section; a cancel or the bounded fallback (a release that never arrives) also ends it.
+    const ends = event.pointerType === "mouse" ? ["pointerup", "pointercancel"] : ["click", "pointercancel"];
     const release = () => {
       pointerPressed.current = false;
-      window.removeEventListener("pointerup", release, true);
-      window.removeEventListener("pointercancel", release, true);
+      window.clearTimeout(fallback);
+      for (const type of ends) window.removeEventListener(type, release, true);
+      endPointerPress.current = null;
     };
-    window.addEventListener("pointerup", release, true);
-    window.addEventListener("pointercancel", release, true);
+    const fallback = window.setTimeout(release, POINTER_PRESS_FALLBACK_MS);
+    for (const type of ends) window.addEventListener(type, release, true);
+    endPointerPress.current = release;
   };
   const restoreFocus = (element: HTMLDetailsElement) => {
     if (!element.open && element.contains(document.activeElement)) element.querySelector("summary")?.focus();

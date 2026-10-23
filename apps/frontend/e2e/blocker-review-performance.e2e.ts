@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { expectDisclosureContrast, openStage, fieldVerificationStates } from "./stage-disclosures";
 
@@ -26,6 +26,17 @@ function focusVisibility(page: Page) {
     }
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return hit === element || (hit !== null && element.contains(hit)) ? "unobscured" : `covered by ${hit?.closest("[class]")?.className ?? "nothing"}`;
+  });
+}
+
+// Scrolls so only a 10px sliver of the option shows below its section's stuck header; returns a point on it.
+function placeUnderStuckHeader(option: Locator) {
+  return option.evaluate(element => {
+    const header = element.closest(".stage-disclosure")!.querySelector(":scope > h2")!;
+    scrollBy(0, element.getBoundingClientRect().top - 40);
+    scrollBy(0, element.getBoundingClientRect().bottom - (header.getBoundingClientRect().bottom + 10));
+    const option = element.getBoundingClientRect(); const stuck = header.getBoundingClientRect();
+    return { x: option.left + option.width / 2, y: stuck.bottom + 5, scrollY, covered: option.top < stuck.bottom };
   });
 }
 
@@ -230,14 +241,7 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
     await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
     const option = page.locator('#case-blocker-review input[data-review-field="registration_number"][value="REJECTED"]');
     await expect(option).not.toBeChecked();
-    const placement = await option.evaluate(element => {
-      const header = element.closest(".stage-disclosure")!.querySelector(":scope > h2")!;
-      scrollBy(0, element.getBoundingClientRect().top - 40);
-      // Leave 10px of the option visible below the stuck header.
-      scrollBy(0, element.getBoundingClientRect().bottom - (header.getBoundingClientRect().bottom + 10));
-      const option = element.getBoundingClientRect(); const stuck = header.getBoundingClientRect();
-      return { x: option.left + option.width / 2, y: stuck.bottom + 5, scrollY, covered: option.top < stuck.bottom };
-    });
+    const placement = await placeUnderStuckHeader(option);
     expect(placement.covered, `option under the header at ${viewport.width}x${viewport.height}`).toBe(true);
     await page.mouse.click(placement.x, placement.y);
     await expect(option, `sliver click at ${viewport.width}x${viewport.height}`).toBeChecked();
@@ -274,4 +278,37 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
     }
   }
   expect(violations).toEqual([]);
+});
+
+test.describe("touch input", () => {
+  test.use({ hasTouch: true });
+
+  test("Blocker decision review sliver tap under the sticky header selects without moving the page", async ({ page }) => {
+    const violations: string[] = [];
+    const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
+    await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
+    await page.goto("/");
+    const loginResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+    await page.getByLabel("User ID").fill("maya-lim"); await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    const headers = { "X-CSRF-Token": (await (await loginResponse).json()).csrf_token };
+    await expect(page.getByRole("link", { name: "New onboarding", exact: true })).toBeVisible();
+    const created = await page.request.post("/api/clm/zero-touch/cases", { headers, data: { uen: "202400001A", legal_name: "MERLION CIRCULAR LABS PTE. LTD.", country_of_incorporation: "SG" } });
+    expect(created.status()).toBe(201); const cid = (await created.json()).case.case_id;
+    const uploaded = await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/documents`, { headers: { ...headers, "Content-Type": "text/plain", "X-Document-Name": "synthetic-ambiguous.txt" }, data: content });
+    expect(uploaded.status()).toBe(201);
+    expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/complete`, { headers, data: { expected_document_count: 1 } })).status()).toBe(200);
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+      const option = page.locator('#case-blocker-review input[data-review-field="registration_number"][value="REJECTED"]');
+      await expect(option).not.toBeChecked();
+      const placement = await placeUnderStuckHeader(option);
+      expect(placement.covered, `option under the header at ${viewport.width}x${viewport.height}`).toBe(true);
+      await page.touchscreen.tap(placement.x, placement.y);
+      await expect(option, `sliver tap at ${viewport.width}x${viewport.height}`).toBeChecked();
+      expect(await page.evaluate(() => scrollY)).toBe(placement.scrollY);
+    }
+    expect(violations).toEqual([]);
+  });
 });
