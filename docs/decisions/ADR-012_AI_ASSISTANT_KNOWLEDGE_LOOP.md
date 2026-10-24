@@ -285,3 +285,121 @@ proposal to show model text that is not an allowed line.
 
 `docs/contracts/POLICY_AUTHORITY_MATRIX.md` (review authority, reviewer separation); Q-014;
 D-073 and D-074 in `DECISION_LOG.md`; the 2026-10-06 read-only AI Assistant entry in `ARCHITECTURE.md`.
+
+## Amendment 1 - answer records, request lifecycle and document upload (PROPOSED, D-081)
+
+Status: PROPOSED by the project team on 2026-10-25. Not accepted; nothing in this amendment
+is built. Each of decisions D1 to D6 in D-081 needs the repository owner's (Shane's)
+explicit acceptance before code. The amendment builds on D-080 (proposed with the feedback
+PR: "Not helpful" with a note starts an enhancement request, and a Director writes the fix
+or closes the request with a reason). If D-080 is not accepted, this amendment is revisited
+with it.
+
+Scope. All three parts stay inside the AI Assistant service and its local knowledge store
+(section A). The assistant stays read-only towards the CLM backend. Existence check: the
+knowledge store in `apps/assistant` already owns entries, versions, reviews and enhancement
+requests, so it is extended rather than a new owner added; the CLM backend's document
+pipeline is not reused for the first upload step because Markdown and text need no parser
+(D3). No new service, provider, dependency direction or library. Schema v5 of the knowledge
+store adds the new tables and request states.
+
+### Answer records
+
+- The server stores one record per answer and sends the browser only an `answer_id` with
+  the reply. The browser never sends answer text back.
+- "Not helpful" sends the `answer_id` with the note. The server checks that the record
+  belongs to the same user and the same case, and refuses an unknown, expired or foreign
+  id; it then links the record to the new enhancement request.
+- A record holds:
+  - the question exactly as typed;
+  - the ids of the earlier answers in that chat (each has its own record);
+  - the case snapshot: blocker codes, stage, steps done and a hash of the case facts;
+  - the knowledge used: entry tags, ids, versions, search scores, retrieval confidence
+    (high, low or none) and whether search was degraded;
+  - the allowed lines the model could choose from;
+  - the lines the model chose, and the lines it wrote that were dropped (redacted and
+    size-capped before storage);
+  - the result: notices, fallback reason, model name and timing.
+- Only Directors (`POLICY_APPROVE`) and the RM who asked can view a record. Every view is
+  logged. HR cannot view records.
+- Records stay in the assistant's local store. They are never sent to the model again and
+  never copied into knowledge automatically; anything a Director copies into a fix is
+  redacted, as D-080 redacts a Director's fix.
+- Proposed retention (D2): an unrated record is deleted after 7 days; a record linked to a
+  request is deleted 30 days after the request closes.
+
+### Request lifecycle
+
+- States: New → In progress (one owner) → Fix waiting → Resolved, or Closed with a required
+  reason. New and In progress requests can be closed; a request whose fix is waiting needs
+  that fix approved or rejected first.
+- A rejected fix sends the request back to In progress, keeping its owner and history.
+- One fix can resolve several requests: when it is approved, every request linked to it
+  becomes Resolved.
+- The queue is grouped by blocker type, with counts, and filtered by state, owner, team and
+  age, oldest open first.
+- Before publishing, the request page shows a red/green diff of what the fix changes.
+- Every action (take, write the fix, close) is rechecked inside the database write, as
+  today.
+
+### Document upload
+
+- Directors only (D4). Markdown and plain text first (D3 option a), with no new library.
+- The upload is checked: allowed file types only, a size limit matching the CLM backend's
+  `IDP_MAX_UPLOAD_BYTES` (5 MB), valid text. Document text is data, never instructions, and
+  is never rendered as HTML.
+- The text is split at headings into proposed entries of at most 20 sentences each (the
+  catalog's `MAX_LINES_PER_ENTRY`).
+- The Director previews every proposed entry, can rename, edit, delete, merge and tag it,
+  and sees each sentence marked used or not used with the reason (the sentence checks, for
+  example a UEN, contact or web address that is not in the case facts).
+- Entries are saved as drafts that cite the file name and the section heading (Markdown has
+  no pages), with the file's fingerprint, and follow the normal review rule (D6): two
+  people, or the POC single-reviewer mode if D-080 is accepted.
+- Uploading a file with the same name proposes new versions of its entries, shown as a
+  diff, and retirement of entries whose sections no longer exist. Removing a file retires
+  all its entries; retirement takes two reviewers in both modes, as today.
+- Synthetic or public documents only for the POC (D5). Real sponsor documents need the
+  sponsor's and the owner's agreement first; AGENTS.md forbids tracking confidential sponsor
+  material.
+- PDF and Word come later, through D3 option (b) or (c), by a later decision. Either one
+  would be a new boundary needing its own architecture review.
+
+### Alternatives considered
+
+- Answer context sent back by the browser: rejected. PR #99's review showed browser-sent
+  assistant text can be faked, which is why D-080 stopped sending the conversation.
+- No answer records: keeps the store smaller, but the Director cannot see why the AI said
+  what it said, so most requests cannot be diagnosed.
+- Answer records in the CLM backend: rejected; it would add assistant writes to the case
+  backend and make the CLM persistence owner hold assistant data (as in section A).
+- An external tracing tool (for example Langfuse): rejected for the POC; it adds a
+  dependency and moves answer data off the assistant's machine.
+- Keep the current request states (open, drafted, closed): no owner and no Resolved state,
+  so a request has no clear end.
+- Retrieval over uploaded documents without review: rejected; it would bypass the review
+  step and the exact-line catalog.
+- PDF and Word now: D3 option (b) creates a second document parser beside the CLM
+  backend's; option (c) adds a Director-only endpoint to the backend, a teammate's area.
+  Both are deferred.
+
+### Risks
+
+- The question is stored exactly as typed, so it may contain personal data. Mitigations:
+  Director and own-RM access only, logged views, and short retention.
+- Retention runs inside the assistant; if deletion fails, records outlive the agreed period.
+  The build needs a deletion test.
+- The sentence checks are best effort (see section C), so approved document sentences rely
+  mainly on the review step. The preview's used / not used marks support that review.
+- A large document can produce many drafts at once, which strains review, more so in
+  single-reviewer mode.
+- Schema v5 must migrate v4 stores (and any older ones) in place, as v4 did.
+
+### What stays unchanged
+
+- The exact-line catalog (section C): the model may only output allowed catalog lines and
+  approved knowledge lines; anything else is dropped.
+- Maker-checker: two-person approval (D-074), apart from the POC single-reviewer mode if
+  D-080 is accepted; retirement always takes two reviewers.
+- Rechecks of the caller inside the SQLite write lock.
+- Read-only access towards the CLM backend: GET only, with the user's session.
