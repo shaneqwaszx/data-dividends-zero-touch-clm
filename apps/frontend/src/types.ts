@@ -113,7 +113,7 @@ export interface PolicyCatalogue {
   version: number;
   active_version?: number;
   active_identity?: string;
-  active_origin?: "DEFAULT" | "APPROVED";
+  active_origin?: "DEFAULT" | "APPROVED" | "MIGRATED";
   active_effective_at?: string | null;
   proposals?: PolicyProposal[];
   superseded_versions?: Array<{ version: number; status: "SUPERSEDED"; rules: PolicyRule[]; superseded_at: string }>;
@@ -781,6 +781,49 @@ export interface OwnershipCandidate {
   paths: OwnershipPath[];
 }
 
+export type OwnershipDiscoveryOutcome =
+  | "CACHE_HIT"
+  | "FETCHED"
+  | "DEFERRED_BELOW_TRACE_THRESHOLD"
+  | "DEPTH_LIMIT"
+  | "BUSINESS_BUDGET"
+  | "HARD_LIMIT"
+  | "UNVERIFIED_UEN"
+  | "FOREIGN_UNSUPPORTED"
+  | "UNSUPPORTED_LEGAL_FORM"
+  | "NOT_FOUND"
+  | "PROVIDER_UNSUPPORTED"
+  | "PROVIDER_PARTIAL"
+  | "PROVIDER_FAILED"
+  | "PROVIDER_INVALID"
+  | "CACHE_FAILURE";
+
+/** Backend corporate discovery audit; Decimal strings are displayed, never recalculated. */
+export interface OwnershipDiscoveryAudit {
+  method: "REGISTRY_CORPORATE_DISCOVERY_V1";
+  trace_threshold_percent: string;
+  ubo_threshold_percent: string;
+  max_corporate_depth: number;
+  call_budget_enabled: boolean;
+  call_budget_max: number;
+  graph_complete: boolean;
+  classification_certainty: "COMPLETE" | "BOUNDED_NO_THRESHOLD_CHANGE" | "UNCERTAIN";
+  unresolved_upper_bound_percent?: string | null;
+  registry_lookups: number;
+  provider_backed_lookups: number;
+  cache_hits: number;
+  records: Array<{
+    party_id: string;
+    display_name: string;
+    registration_number?: string | null;
+    depth: number;
+    outcome: OwnershipDiscoveryOutcome;
+    max_effective_percent?: string | null;
+    reason_code?: string | null;
+  }>;
+  unresolved_person_party_ids: string[];
+}
+
 export interface OwnershipAnalysisRecord {
   version?: number;
   document_observations?: DocumentOwnershipObservation[];
@@ -824,10 +867,13 @@ export interface OwnershipAnalysisRecord {
       | "UBO_REVIEW_REQUIRED"
       | "OWNERSHIP_METHOD_UNSUPPORTED"
       | "MAXIMUM_DEPTH_EXCEEDED"
-      | "PATH_LIMIT_EXCEEDED";
+      | "PATH_LIMIT_EXCEEDED"
+      | "CORPORATE_OWNERSHIP_UNRESOLVED"
+      | "PERSON_IDENTITY_UNRESOLVED";
     message: string;
     affected_party_ids: string[];
   }>;
+  discovery?: OwnershipDiscoveryAudit | null;
   threshold_percent: string;
   threshold_comparator: "GREATER_THAN_OR_EQUAL_TO";
   events: Array<{

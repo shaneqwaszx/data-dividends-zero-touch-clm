@@ -8,6 +8,18 @@ export function formatTimestamp(value: string): string {
   }).format(new Date(value));
 }
 
+/** One display format for any retained timestamp; missing -> fallback, unparseable -> shown as-is. */
+export function displayTimestamp(value: string | null | undefined, fallback = "Not recorded"): string {
+  if (!value) return fallback;
+  return Number.isFinite(new Date(value).getTime()) ? formatTimestamp(value) : value;
+}
+
+/** True for ISO-8601 date-time values such as 2026-10-21T15:56:13.240228Z. */
+export function isIsoTimestamp(value: string | null | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(value)
+    && Number.isFinite(new Date(value).getTime()));
+}
+
 /** Registry wire times are UTC; validity is independent of presentation text. */
 export function registryTimestampIsUsable(value: string | null | undefined): value is string {
   if (!value || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(value)) return false;

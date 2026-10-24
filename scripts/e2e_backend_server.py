@@ -96,7 +96,7 @@ def main() -> int:
         raise RuntimeError("Sandbox fixtures require separate compositions")
     if recovery_demo and (registry_demo or garden_protocol_fixture):
         raise RuntimeError("Recovery fixtures require separate compositions")
-    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
+    if registry_demo not in {None, "garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
         raise RuntimeError("Unknown isolated registry fixture")
     if registry_demo and garden_protocol_fixture:
         raise RuntimeError("Registry fixtures require separate compositions")
@@ -165,7 +165,9 @@ def main() -> int:
         setting_values[credential_setting_key(user_id).lower()] = encoded
     settings = Settings(_env_file=None, **setting_values)
     fixture_connector = None
-    protocol_fixture = garden_protocol_fixture or registry_demo == 'garden-partnership'
+    protocol_fixture = garden_protocol_fixture or registry_demo in {
+        'garden-partnership', 'five-layer-hybrid',
+    }
     if registry_demo:
         settings = settings.model_copy(update={
             'registry_cache_mode': 'mock', 'registry_cache_freshness_seconds': 7776000,
@@ -182,17 +184,34 @@ def main() -> int:
             "acra_api_marketplace_mock_client_id": SecretStr(secrets.token_urlsafe(32)),
             "acra_api_marketplace_mock_secret_key": SecretStr(secrets.token_urlsafe(32)),
         })
+        five_layer_transport = None
         if registry_demo == "garden-partnership":
             from scripts.slice_b_registry_fixture import (
                 GardenPartnershipProtocolTransport,
             )
 
             transport: OfflineGardenProtocolTransport = GardenPartnershipProtocolTransport()
+        elif registry_demo == "five-layer-hybrid":
+            from scripts.five_layer_hybrid_fixture import (
+                OfflineFiveLayerProtocolTransport,
+            )
+
+            # Explicit D-077 hybrid composition; offline allowlisted protocol input only.
+            settings = settings.model_copy(update={
+                "acra_marketplace_ownership_overlay": "hybrid_direct_overlay",
+            })
+            five_layer_transport = OfflineFiveLayerProtocolTransport()
         else:
             transport = OfflineGardenProtocolTransport()
-        fixture_connector = build_acra_connector(
-            settings, transport=transport, marketplace_token_transport=transport,
-        )
+        if five_layer_transport is not None:
+            fixture_connector = build_acra_connector(
+                settings, transport=five_layer_transport,
+                marketplace_token_transport=five_layer_transport,
+            )
+        else:
+            fixture_connector = build_acra_connector(
+                settings, transport=transport, marketplace_token_transport=transport,
+            )
     if registry_demo == "synthetic-cache":
         from scripts.slice_b_registry_fixture import CountingSyntheticRegistry
 
@@ -413,6 +432,9 @@ def main() -> int:
                 return {"fixture": registry_demo, **seed_transport.metadata()}
             if registry_demo == "garden-partnership":
                 return {"fixture": registry_demo, "calls": list(transport.calls), "external_calls": 0}
+            if registry_demo == "five-layer-hybrid":
+                assert five_layer_transport is not None
+                return {"fixture": registry_demo, **five_layer_transport.metadata()}
             from scripts.slice_b_registry_fixture import CountingSyntheticRegistry
             assert isinstance(fixture_connector, CountingSyntheticRegistry)
             return {"fixture": registry_demo, "calls": list(fixture_connector.calls), "external_calls": 0}

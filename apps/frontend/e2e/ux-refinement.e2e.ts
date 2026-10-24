@@ -42,7 +42,7 @@ async function collapse(page: Page, title: string) {
   await expect(stage.locator(":scope > div").first()).toBeVisible();
 }
 
-test("UX refinement attention identity, sticky twelve-stage rail and mobile keyboard routing", async ({ page }) => {
+test("UX refinement attention identity, sticky business-stage rail and mobile keyboard routing", async ({ page }) => {
   const { headers, violations } = await login(page);
   const cid = await create(page, headers, "99999999Z");
   await page.setViewportSize({ width: 1280, height: 720 }); await page.goto(`/cases/${cid}`);
@@ -52,11 +52,15 @@ test("UX refinement attention identity, sticky twelve-stage rail and mobile keyb
   // The real GET contains the registry exception plus a distinct missing-identity projection.
   const live = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
   expect(live.active_exceptions).toHaveLength(1); expect(live.interventions).toHaveLength(2);
+  expect(live.processing_pipeline).toHaveLength(12);
   expect(new Set(live.interventions.map((item: { intervention_id: string }) => item.intervention_id)).size).toBe(2);
   await expect(attention).toContainText("2 active blockers");
   await expect(attention).toContainText("Initial identity incomplete");
   await expect(attention).toContainText("Registry identity requires correction");
-  await expect(page.locator(".case-pipeline-panel .ds-stage")).toHaveCount(12);
+  // Ten business steps plus Initial identity, shown while its blocker is retained.
+  await expect(page.locator(".case-pipeline-panel .ds-stage")).toHaveCount(11);
+  await expect(page.locator('.case-pipeline-panel .ds-stage[data-node-id="INITIAL_IDENTITY"]')).toHaveCount(1);
+  await expect(page.locator('.case-pipeline-panel .ds-stage[data-node-id="GOLDTIER_DETAILS"]')).toHaveCount(1);
   await collapse(page, "Registry verification");
   await showAllIssues(page); const action = attention.getByRole("button", { name: /^Blocker:/ }).first();
   await action.focus(); await action.press("Enter"); await expect(page.locator("#identity-registration-number")).toBeFocused();
@@ -67,7 +71,7 @@ test("UX refinement attention identity, sticky twelve-stage rail and mobile keyb
   await expect(registry.getByRole("button", { name: "Verify UEN and resume", exact: true })).toBeVisible();
   await expect(registry.getByRole("button", { name: "Verify UEN and resume", exact: true })).toBeDisabled();
   // Open retained sections to make the page tall, then scroll main content independently.
-  await openStage(page, "Ownership & UBO"); await openStage(page, "GoldTier submission package");
+  await openStage(page, "Ownership & UBO"); await openStage(page, "GoldTier Details & Status");
   await page.evaluate(() => window.scrollTo(0, 500));
   await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
   const rail = page.locator(".case-pipeline-panel");

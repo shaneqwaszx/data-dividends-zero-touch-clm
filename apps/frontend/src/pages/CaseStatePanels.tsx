@@ -1,7 +1,9 @@
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 
-import { formatDuration, formatTimestamp, registryReuseDescription } from "../shared";
+import { displayTimestamp, formatDuration, formatTimestamp, registryReuseDescription } from "../shared";
+import { documentFieldKeyFor, registryChoiceFields } from "./BlockerDecisionReview";
 import type {
+  DocumentProcessingRecord,
   ReconciliationDecisionAction,
   ReconciliationDiscrepancy,
   ReconciliationObservation,
@@ -55,6 +57,83 @@ function pipelineRailState(status: ProcessingNodeStatus): "done" | "now" | "atte
   return "";
 }
 
+export const GOLDTIER_DETAILS_STAGE_LABEL = "GoldTier Details & Status";
+/** Presentation-only id of the visual step that groups the two backend stages below. */
+export const GOLDTIER_DETAILS_STEP_ID = "GOLDTIER_DETAILS";
+const GOLDTIER_DETAILS_NODE_IDS = ["READINESS", "GOLDTIER_TARGET"];
+
+/**
+ * Presentation-only mapping of the twelve backend stages to the business steps shown.
+ * Initial identity is shown while it is not done or an identity issue is retained, so it is never hidden.
+ * READINESS and GOLDTIER_TARGET appear as one step: its marker uses the member that needs the
+ * user most, so the step is done only when both are; each member keeps its own status and details.
+ */
+export function businessStagePipeline(backendPipeline: ProcessingNode[], identityIssue = false): ProcessingNode[] {
+  const pipeline = backendPipeline.filter(node => node.node_id !== "INITIAL_IDENTITY" || identityIssue || pipelineRailState(node.status) !== "done");
+  const grouped = pipeline.filter(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id));
+  if (grouped.length < 2) return pipeline;
+  const lead = grouped.find(node => pipelineRailState(node.status) === "attention")
+    ?? grouped.find(node => node.status === "IN_PROGRESS")
+    ?? grouped.find(node => pipelineRailState(node.status) !== "done")
+    ?? grouped[0];
+  const step: ProcessingNode = {
+    node_id: GOLDTIER_DETAILS_STEP_ID,
+    label: GOLDTIER_DETAILS_STAGE_LABEL,
+    status: lead.status,
+    backend_stage: null,
+    timestamp: lead.timestamp,
+    children: [],
+  };
+  const firstIndex = pipeline.findIndex(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id));
+  return pipeline.flatMap((node, index) => (
+    !GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id) ? [node] : index === firstIndex ? [step] : []
+  ));
+}
+
+/** The backend stages behind one business step: both members for the grouped step, else the node itself. */
+export function businessStageMembers(backendPipeline: ProcessingNode[], node: ProcessingNode): ProcessingNode[] {
+  return node.node_id === GOLDTIER_DETAILS_STEP_ID
+    ? backendPipeline.filter(item => GOLDTIER_DETAILS_NODE_IDS.includes(item.node_id))
+    : [node];
+}
+
+/** Resolve a business step or backend stage id, such as a stage-focus request from another page. */
+export function findBusinessStage(backendPipeline: ProcessingNode[], nodeId: string): ProcessingNode | null {
+  return businessStagePipeline(backendPipeline).find(node => node.node_id === nodeId) ?? findProcessingNode(backendPipeline, nodeId);
+}
+
+/** True while the backend retains an Initial identity blocker or error, even for a completed identity stage. */
+export function identityIssueRetained(summary: ZeroTouchCaseSummary): boolean {
+  const identityCode = (code: string | null | undefined) => code?.startsWith("INITIAL_IDENTITY_") === true;
+  return summary.active_exceptions.some(item => identityCode(item.blocker_code))
+    || summary.interventions?.some(item => identityCode(item.blocker_code)) === true
+    || identityCode(summary.case.error?.code);
+}
+
+/** Business-step id that shows a backend stage on the rail. */
+export function businessStageIdFor(nodeId: string): string {
+  return GOLDTIER_DETAILS_NODE_IDS.includes(nodeId) ? GOLDTIER_DETAILS_STEP_ID : nodeId;
+}
+
+/** Status text for a step; a grouped step names each member's status when they differ. */
+function stageStatusText(members: ProcessingNode[], node: ProcessingNode): string {
+  const labels = new Set(members.map(member => PROGRESS_STATUS_LABELS[member.status]));
+  return labels.size > 1
+    ? members.map(member => `${member.label}: ${PROGRESS_STATUS_LABELS[member.status]}`).join(" · ")
+    : PROGRESS_STATUS_LABELS[node.status];
+}
+
+/** Stage facts for a step; a grouped step lists each backend stage separately. */
+function BusinessStageFacts({ node, members, nextAction }: {
+  node: ProcessingNode; members: ProcessingNode[]; nextAction?: (member: ProcessingNode) => string | undefined;
+}) {
+  if (members.length === 1 && members[0] === node) return <ProcessingStageFacts node={node} nextAction={nextAction?.(node)} />;
+  return <>{members.map(member => <div key={member.node_id} className="stage-facts__member" data-node-id={member.node_id}>
+    <h4>{member.label}</h4>
+    <ProcessingStageFacts node={member} nextAction={nextAction?.(member)} />
+  </div>)}</>;
+}
+
 export interface StageStatus { tone: "attention" | "current" | "done" | "pending"; label: string }
 
 /** Summarise the backend status of the pipeline nodes behind one case section. */
@@ -74,11 +153,13 @@ export function PipelineRail({ summary, onStageActivate, renderAttention }: {
   /** Optional per-step content, rendered after the step status. */
   renderAttention?: (node: ProcessingNode) => ReactNode;
 }) {
-  const pipeline = summary.processing_pipeline ?? [];
+  const backendPipeline = identityCorrectedPipeline(summary);
+  const pipeline = businessStagePipeline(backendPipeline, identityIssueRetained(summary));
   return (
     <div className="ds-stage-rail" aria-label="Backend workflow stages">
       {pipeline.map((node, index) => {
         const state = pipelineRailState(node.status);
+        const members = businessStageMembers(backendPipeline, node);
         return (
           <div className="ds-stage" key={node.node_id} data-node-id={node.node_id} data-status={node.status}>
             <div className="ds-stage-marker">
@@ -92,11 +173,11 @@ export function PipelineRail({ summary, onStageActivate, renderAttention }: {
             <div className="ds-stage-copy">
               <details>
                 <summary>{node.label}</summary>
-                <ProcessingStageFacts node={node} />
+                <BusinessStageFacts node={node} members={members} />
                 {onStageActivate && <button type="button" className="btn btn-ghost" onClick={() => onStageActivate(node)}>Open case stage details</button>}
               </details>
               {node.node_id === "ADVISORY" && <p className="control-help">Bounded POC advisory</p>}
-              <div className="text-muted">{PROGRESS_STATUS_LABELS[node.status]}</div>
+              <div className="text-muted">{stageStatusText(members, node)}</div>
               {renderAttention?.(node)}
             </div>
           </div>
@@ -261,6 +342,8 @@ const NAVIGABLE_PROCESSING_STATUSES = new Set<ProcessingNodeStatus>([
 export function processingNodeFocusTarget(node: ProcessingNode): string | null {
   const nodeId = node.node_id;
   if (nodeId === "INITIAL_IDENTITY") return "case-identity-correction";
+  // The grouped step always opens its section; the case page routes an attention member further.
+  if (nodeId === GOLDTIER_DETAILS_STEP_ID) return "case-target-blocker";
   if (!NAVIGABLE_PROCESSING_STATUSES.has(node.status)) return null;
   if (nodeId === "ACRA_REGISTRY" || nodeId.startsWith("ACRA_")) return "case-evidence-registry";
   if (nodeId === "DOCUMENT_IDP") return "case-evidence-documents";
@@ -288,11 +371,11 @@ export function findProcessingNode(nodes: ProcessingNode[], nodeId: string): Pro
   return null;
 }
 
-function ProcessingExplanation({ node, children }: { node: ProcessingNode; children: string }) {
+function ProcessingExplanation({ node, children, showCode = true }: { node: ProcessingNode; children: string; showCode?: boolean }) {
   return (
     <>
       <p><strong>Status:</strong> {PROGRESS_STATUS_LABELS[node.status]}</p>
-      {node.blocker_code && <p><strong>Safe blocker code:</strong> {node.blocker_code}</p>}
+      {showCode && node.blocker_code && <p><strong>Safe blocker code:</strong> {node.blocker_code}</p>}
       {node.safe_result && <p>{node.safe_result}</p>}
       <p className="control-help">{children}</p>
     </>
@@ -328,7 +411,7 @@ export function ProcessingBlockerPanels({ summary, stage, searchPart = "all" }: 
             <div><dt>Backend stage</dt><dd>{search.backend_stage ?? "Not recorded"}</dd></div>
             <div><dt>Operation</dt><dd>{search.operation ?? "Not recorded"}</dd></div>
             <div><dt>Provider</dt><dd>{search.provider ?? "Not recorded"} · {search.environment ?? "Not recorded"}</dd></div>
-            <div><dt>Recorded at</dt><dd>{search.timestamp ?? "Not recorded"}</dd></div>
+            <div><dt>Recorded at</dt><dd>{displayTimestamp(search.timestamp)}</dd></div>
             <div><dt>Record count</dt><dd>{search.record_count ?? "Not recorded"}</dd></div>
           </dl>}
           {searchPart === "technical" && search.children.length > 0 && <ol aria-label="Search operation details">{search.children.map(child => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
@@ -338,7 +421,7 @@ export function ProcessingBlockerPanels({ summary, stage, searchPart = "all" }: 
         <section id="case-target-blocker" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-target-blocker-heading">
           <p className="card-kicker">Target safety boundary</p>
           <h2 id="case-target-blocker-heading">GoldTier target operations</h2>
-          <ProcessingExplanation node={target}>
+          <ProcessingExplanation node={target} showCode={false}>
             The retained target ledger controls each operation and stops unsafe downstream work. This explanation does not provide a bypass or replay action.
           </ProcessingExplanation>
         </section>
@@ -346,6 +429,28 @@ export function ProcessingBlockerPanels({ summary, stage, searchPart = "all" }: 
 
     </>
   );
+}
+
+/** Backend stages, with Initial identity marked for correction while its blocker is active. */
+function identityCorrectedPipeline(summary: ZeroTouchCaseSummary): ProcessingNode[] {
+  const backendPipeline = summary.processing_pipeline ?? [];
+  const identityIncomplete = summary.active_exceptions.some(
+    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
+  );
+  if (!identityIncomplete) return backendPipeline;
+  const identityCorrectionNode: ProcessingNode = {
+    node_id: "INITIAL_IDENTITY",
+    label: "Initial identity",
+    status: "REVIEW_REQUIRED",
+    backend_stage: null,
+    timestamp: summary.updated_at,
+    safe_result: "Complete legal name, Singapore UEN, and jurisdiction before Search resumes.",
+    blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
+    children: [],
+  };
+  return backendPipeline.some((node) => node.node_id === "INITIAL_IDENTITY")
+    ? backendPipeline.map((node) => (node.node_id === "INITIAL_IDENTITY" ? { ...node, ...identityCorrectionNode } : node))
+    : [identityCorrectionNode, ...backendPipeline];
 }
 
 export function OnboardingProgressPanel({
@@ -359,35 +464,24 @@ export function OnboardingProgressPanel({
   availableFocusTargets?: ReadonlySet<string>;
   initialFocusNodeId?: string;
 }) {
-  const retainedPipeline = summary.processing_pipeline ?? [];
+  const backendPipeline = summary.processing_pipeline ?? [];
   const [inspected, setInspected] = useState<{ caseId: string; nodeId: string } | null>(null);
   useEffect(() => {
     if (initialFocusNodeId) setInspected({ caseId: summary.case.case_id, nodeId: initialFocusNodeId });
   }, [initialFocusNodeId, summary.case.case_id]);
-  const identityIncomplete = summary.active_exceptions.some(
-    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
-  );
-  const hasTopLevelIdentity = retainedPipeline.some((node) => node.node_id === "INITIAL_IDENTITY");
-  const identityCorrectionNode: ProcessingNode = {
-        node_id: "INITIAL_IDENTITY",
-        label: "Initial identity",
-        status: "REVIEW_REQUIRED",
-        backend_stage: null,
-        timestamp: summary.updated_at,
-        safe_result: "Complete legal name, Singapore UEN, and jurisdiction before Search resumes.",
-        blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
-        children: [],
-      };
-  const pipeline: ProcessingNode[] = identityIncomplete
-    ? hasTopLevelIdentity
-      ? retainedPipeline.map((node) => (
-          node.node_id === "INITIAL_IDENTITY"
-            ? { ...node, ...identityCorrectionNode }
-            : node
-        ))
-      : [identityCorrectionNode, ...retainedPipeline]
-    : retainedPipeline;
-  const inspectedNode = inspected?.caseId === summary.case.case_id ? findProcessingNode(pipeline, inspected.nodeId) : null;
+  const stagePipeline = identityCorrectedPipeline(summary);
+  // Counts and percentages use the business steps shown; a hidden stage is always done.
+  const pipeline = businessStagePipeline(stagePipeline, identityIssueRetained(summary));
+  const inspectedNode = inspected?.caseId === summary.case.case_id
+    ? findProcessingNode(pipeline, inspected.nodeId) ?? findProcessingNode(backendPipeline, inspected.nodeId)
+    : null;
+  const inspectedMembers = inspectedNode ? businessStageMembers(stagePipeline, inspectedNode) : [];
+  const nextActionFor = (member: ProcessingNode) => summary.interventions?.find((item) => (
+    NAVIGABLE_PROCESSING_STATUSES.has(member.status) && (
+      (member.blocker_code && item.blocker_code === member.blocker_code)
+      || (member.backend_stage && item.owning_stage === member.backend_stage)
+    )
+  ))?.expected_next_step;
   const completed = pipeline.filter((node) =>
     node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED"
   ).length;
@@ -409,7 +503,7 @@ export function OnboardingProgressPanel({
             : "Review the stopped stage.")
           : "Wait for the current backend stage.");
   const currentText = current
-    ? `${current.label} — ${PROGRESS_STATUS_LABELS[current.status]}`
+    ? `${current.label} — ${stageStatusText(businessStageMembers(stagePipeline, current), current)}`
     : "Waiting for backend processing state";
 
   return (
@@ -457,7 +551,7 @@ export function OnboardingProgressPanel({
                 <span className="onboarding-progress__symbol" aria-hidden="true">{PROGRESS_STATUS_SYMBOLS[node.status]}</span>
                 <span className="onboarding-progress__stage-label">{node.label}</span>
               </span>
-              <span className="onboarding-progress__stage-status">{PROGRESS_STATUS_LABELS[node.status]}</span>
+              <span className="onboarding-progress__stage-status">{stageStatusText(businessStageMembers(stagePipeline, node), node)}</span>
               {node.node_id === "ADVISORY" && <span className="control-help">Bounded POC advisory</span>}
               <span className="onboarding-progress__stage-action">{navigable && node.status === "REVIEW_REQUIRED" ? "Review" : navigable && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
             </>;
@@ -480,16 +574,12 @@ export function OnboardingProgressPanel({
       ) : (
         <p className="empty-copy">The backend has not reported a processing route yet.</p>
       )}
-      {inspectedNode && <section id="processing-stage-details" className="card evidence-focus-target" tabIndex={-1} aria-label={`${inspectedNode.label} details`}>
-        <h3>{inspectedNode.label}</h3>
-        <ProcessingStageFacts node={inspectedNode} nextAction={summary.interventions?.find((item) => (
-          NAVIGABLE_PROCESSING_STATUSES.has(inspectedNode.status) && (
-            (inspectedNode.blocker_code && item.blocker_code === inspectedNode.blocker_code)
-            || (inspectedNode.backend_stage && item.owning_stage === inspectedNode.backend_stage)
-          )
-        ))?.expected_next_step} />
-        {inspectedNode.children.length > 0 && <ol>{inspectedNode.children.map((child) => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
-      </section>}
+      {/* Collapsed by default; a new stage starts collapsed again (keyed by node). */}
+      {inspectedNode && <details key={inspectedNode.node_id} id="processing-stage-details" className="card evidence-focus-target stage-details" tabIndex={-1} aria-label={`${inspectedNode.label} details`}>
+        <summary>Stage details — {inspectedNode.label}</summary>
+        <BusinessStageFacts node={inspectedNode} members={inspectedMembers} nextAction={nextActionFor} />
+        {inspectedMembers.flatMap(member => member.children).length > 0 && <ol>{inspectedMembers.flatMap(member => member.children).map((child) => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
+      </details>}
       <p className="onboarding-progress__updated"><strong>Last updated:</strong> {formatTimestamp(summary.updated_at)}</p>
     </section>
   );
@@ -953,21 +1043,28 @@ export function ConfirmDetailsPanel({
   presentation = "full",
   isBusy = false,
   onResolve,
+  embedded = false,
+  documents,
 }: {
   summary: ZeroTouchCaseSummary;
+  /** Current document records: the document's own read value, confidence and the reviewer's choice. */
+  documents?: DocumentProcessingRecord[];
   isBusy?: boolean;
   presentation?: "full" | "main" | "technical";
+  /** Rendered inside the combined document card, which supplies the heading. */
+  embedded?: boolean;
   onResolve?: (discrepancy: ReconciliationDiscrepancy, action: ReconciliationDecisionAction) => void;
 }) {
   const reconciliation = summary.reconciliation;
-  if (!reconciliation || (presentation !== "technical" && summary.current_stage !== "DOCUMENT")) return null;
+  // Embedded in the document card, the comparison (and the reviewer's choice) stays visible after the document stage.
+  if (!reconciliation || (presentation !== "technical" && !embedded && summary.current_stage !== "DOCUMENT")) return null;
   const discrepancies = new Map(reconciliation.discrepancies.map((item) => [item.discrepancy_id, item]));
   if (presentation === "technical") return <section aria-label="Reconciliation provenance">
     <h3>Reconciliation provenance</h3>
     <dl className="document-field__evidence">
       <div><dt>Reconciliation status / version</dt><dd>{reconciliation.status} / {reconciliation.version}</dd></div>
       <div><dt>Reconciliation reference</dt><dd>{reconciliation.reconciliation_id}</dd></div>
-      <div><dt>Updated at — original ISO UTC</dt><dd>{reconciliation.updated_at}</dd></div>
+      <div><dt>Updated at</dt><dd>{displayTimestamp(reconciliation.updated_at)}</dd></div>
       <div><dt>Source document bindings</dt><dd>{reconciliation.source_document_ids.map((id, index) => `${id} · event count ${reconciliation.source_document_event_counts[index] ?? "Not recorded"}`).join("; ") || "None recorded"}</dd></div>
     </dl>
     {reconciliation.fields.map(field => <section key={field.field_name}>
@@ -983,15 +1080,17 @@ export function ConfirmDetailsPanel({
     .map((field) => (field.discrepancy_id ? discrepancies.get(field.discrepancy_id) : undefined))
     .filter((item): item is ReconciliationDiscrepancy => item?.status === "OPEN");
   const replacementNeeded = openDiscrepancies.filter((item) => item.allowed_actions.length === 0).length;
+  const documentRecords = (documents ?? []).filter((item) => item.superseded_by_document_id == null);
+  const intents = registryChoiceFields(summary.case.case_id);
   const decisionElsewhere = !onResolve && openDiscrepancies.some((item) => item.allowed_actions.length > 0);
   return (
-    <section className="state-composition confirm-details" aria-labelledby="confirm-details-heading">
+    <section className={`state-composition confirm-details${embedded ? " confirm-details--embedded" : ""}`} aria-labelledby={embedded ? undefined : "confirm-details-heading"} aria-label={embedded ? "Registry and document comparison" : undefined}>
       <div className="state-composition__header">
-        <div>
+        {!embedded && <div>
           <p className="card-kicker">Source-neutral reconciliation</p>
           <h2 id="confirm-details-heading">Confirm details</h2>
           <p className="text-muted">Registry and document values side by side. No source wins automatically.</p>
-        </div>
+        </div>}
         <div className="confirm-details__meta">
           <div className="reconciliation-summary" aria-label="Reconciliation outcomes">
             {outcomes.map(({ outcome, count }) => (
@@ -1005,21 +1104,31 @@ export function ConfirmDetailsPanel({
       </div>
       <div className="confirm-table" role="table" aria-label="Registry and document comparison">
         <div className="confirm-table__row confirm-table__head" role="row">
-          <span role="columnheader">Field</span><span role="columnheader">Registry</span>
-          <span role="columnheader">Document</span><span role="columnheader">Result</span>
+          <span role="columnheader">Field</span><span role="columnheader">Registry value</span>
+          <span role="columnheader">Document value</span><span role="columnheader">Your choice</span>
         </div>
         {reconciliation.fields.map((field) => {
           const discrepancy = field.discrepancy_id ? discrepancies.get(field.discrepancy_id) : undefined;
           const registry = field.observations.filter((item) => item.source_kind === "REGISTRY");
           const documents = field.observations.filter((item) => item.source_kind === "DOCUMENT_IDP");
+          const documentField = currentDocumentField(documentRecords, field.field_name);
+          const decided = reconciliation.discrepancies.find((item) => item.field_name === field.field_name && item.decision)?.decision?.action;
+          const choice = reviewerChoice(documentField, decided, intents.has(documentFieldKeyFor(field.field_name)));
+          const chosen = choiceKind(choice);
           const actions = discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length > 0 && onResolve;
           return (
             <div className={`confirm-table__row outcome-${field.outcome.toLowerCase()}`} role="row" key={field.field_name}>
               <span role="cell" className="confirm-table__field">{field.field_name.replaceAll("_", " ")}</span>
-              <span role="cell" data-label="Registry"><ObservationValue observations={registry} /></span>
-              <span role="cell" data-label="Document"><ObservationValue observations={documents} showConfidence /></span>
-              <span role="cell" data-label="Result">
-                <span className={`confirm-outcome outcome-${field.outcome.toLowerCase()}`}>{field.outcome.replaceAll("_", " ").toLowerCase()}</span>
+              <span role="cell" data-label="Registry value" className={chosen === "registry" ? "is-chosen" : undefined}><ObservationValue observations={registry} /></span>
+              {/* The document's own read value stays visible even after a review decision changes the comparison. */}
+              <span role="cell" data-label="Document value" className={chosen === "document" ? "is-chosen" : undefined}>{documentField?.original_extracted_value != null
+                ? <span className="confirm-value">{documentField.original_extracted_value}{documentField.confidence != null && <small> · {Math.round(documentField.confidence * 100)}% confidence</small>}</span>
+                : <ObservationValue observations={documents} showConfidence />}</span>
+              <span role="cell" data-label="Your choice" className={chosen === "manual" ? "is-chosen" : undefined}>
+                <strong className="confirm-choice">{choice}</strong>
+                {decided
+                  ? <span className="confirm-outcome outcome-match">resolved</span>
+                  : <span className={`confirm-outcome outcome-${field.outcome.toLowerCase()}`}>{field.outcome.replaceAll("_", " ").toLowerCase()}</span>}
                 {discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length === 0 && <small className="confirm-table__note">Needs replacement evidence</small>}
               </span>
               {(actions || presentation === "full") && <div className="confirm-table__extra">
@@ -1046,10 +1155,44 @@ export function ConfirmDetailsPanel({
       </div>
       {(replacementNeeded > 0 || decisionElsewhere) && <div className="confirm-details__notes">
         {replacementNeeded > 0 && <p className="control-help">Replacement evidence is required for {replacementNeeded} field{replacementNeeded === 1 ? "" : "s"}; no value-selection action is allowed.</p>}
-        {decisionElsewhere && <p className="control-help">Use the backend-authorized Action required panel to record this decision.</p>}
+        {decisionElsewhere && <p className="control-help">Record each decision with the actions in this section.</p>}
       </div>}
     </section>
   );
+}
+
+function currentDocumentField(records: DocumentProcessingRecord[], reconciliationField: string) {
+  const key = documentFieldKeyFor(reconciliationField);
+  for (const record of records) {
+    const match = record.fields.find((item) => item.field_key === key);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+/**
+ * What the reviewer selected, in their terms: registry value, document value, or manual input.
+ * A backend REJECTED field review is shown as the rejected suggestion it is.
+ */
+function reviewerChoice(
+  documentField: DocumentProcessingRecord["fields"][number] | undefined,
+  decided: ReconciliationDecisionAction | undefined,
+  registryIntent: boolean,
+): string {
+  if (decided === "KEEP_REGISTRY_VALUE") return "Registry value";
+  if (decided === "USE_DOCUMENT_VALUE") return "Document value";
+  if (!documentField) return "—";
+  if (documentField.review_status === "CORRECTED") return `Manual input: ${documentField.reviewed_value ?? "—"}`;
+  if (documentField.review_status === "REJECTED") return "Suggestion rejected";
+  if (documentField.review_status === "ACCEPTED") return registryIntent ? "Registry value" : "Document value";
+  return "Not chosen yet";
+}
+
+/** Which column holds the reviewer's chosen value, for highlighting. */
+function choiceKind(choice: string): "registry" | "document" | "manual" | null {
+  if (choice === "Registry value") return "registry";
+  if (choice === "Document value") return "document";
+  return choice.startsWith("Manual input") ? "manual" : null;
 }
 
 /** One source's value for a field; validity is shown only when it is not VALID. */

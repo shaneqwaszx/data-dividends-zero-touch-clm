@@ -29,13 +29,12 @@ async function createGarden(page: Page, customDocument?: { name: string; mimeTyp
   await page.getByLabel("Registration ID / UEN").fill("11111999A");
   await page.locator("#home-document").setInputFiles(customDocument ?? fixture);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   for (const name of ["KYC customer type", "Client segment"]) {
     const control = page.getByLabel(name, { exact: true });
     const value = await control.locator("option").evaluateAll((options) => options.map((item) => (item as HTMLOptionElement).value).find(Boolean));

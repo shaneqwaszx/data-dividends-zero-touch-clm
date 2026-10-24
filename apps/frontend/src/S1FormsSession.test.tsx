@@ -34,9 +34,15 @@ const teams: AuthenticatedTeam[] = [
   { team_id: "TEAM_B", display_name: "Beta onboarding", team_type: "Onboarding", description: "Synthetic team", client_scope_label: "Beta" },
 ];
 const created = {
-  case: { case_id: caseId, requested_uen: "202400001A", priority: 10, client_scope_label: "Beta" },
+  case: { case_id: caseId, requested_uen: "202400001A", priority: 10, client_scope_label: "Beta", events: [{ sequence: 1, event_type: "CASE_CREATED", timestamp: "2026-10-04T01:00:00Z" }] },
   status: "PENDING_INPUTS", current_stage: "DOCUMENT", completed_stages: ["REGISTRY"],
   active_exceptions: [], technical_failure: null, reconciliation: null, target_operations: [], timeline: [],
+  version: 1,
+  metrics: { automated_stages_completed: 1, human_interventions: 0, exceptions_raised: 0, exceptions_resolved: 0, final_outcome: null, total_duration_ms: null, stage_durations_ms: {} },
+  clm: {
+    readiness: { registry: { status: "READY" }, document: { status: "BLOCKED" }, ownership: { status: "BLOCKED" }, goldtier: { status: "BLOCKED" }, blockers: [], warnings: [] },
+    submission_plan: { environment: "MOCK", base_operations: [], real_ready_for_approval: "NOT_AVAILABLE" },
+  },
   timing: { observed_at: "2026-10-04T01:00:00Z", case_elapsed_ms: 0, time_since_last_update_ms: 0, automation_elapsed_ms: null, recorded_total_duration_ms: null },
   created_at: "2026-10-04T01:00:00Z", updated_at: "2026-10-04T01:00:00Z",
 } as unknown as ZeroTouchCaseSummary;
@@ -104,12 +110,15 @@ describe("Session 1 onboarding forms", () => {
     client.clear();
   });
 
-  it("keeps Director team selection inside the details card and clears all drafts on a fresh start", async () => {
+  it("keeps Director team selection inside the details card and clears all drafts after the pending upload is discarded", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const path = new URL(String(input), "http://frontend.test").pathname;
       if (path === "/api/teams/options") return json(teams);
       if (path === "/api/clm/zero-touch/cases" && init?.method === "POST") return json(created, 201);
       if (path.endsWith("/intake/documents")) return json({ detail: { code: "SYNTHETIC_INTAKE_STOP", message: "Synthetic intake paused." } }, 400);
+      // The created case opens on its case page; answer its reads like the backend does.
+      if (path === `/api/clm/zero-touch/cases/${caseId}`) return json(created);
+      if (path.endsWith("/ownership") || path.endsWith("/intelligence")) return json({ detail: { code: "NOT_FOUND" } }, 404);
       return json([]);
     });
     const client = await mountOnboarding(director);
@@ -130,10 +139,19 @@ describe("Session 1 onboarding forms", () => {
     Object.defineProperty(fileInput, "files", { configurable: true, value: [file] });
     await act(async () => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
     await act(async () => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    await vi.waitFor(() => expect(container.textContent).toContain("Synthetic intake paused."));
-    const createRequest = request.mock.calls.find(([input, init]) => String(input).endsWith("/api/clm/zero-touch/cases") && init?.method === "POST")!;
+    const createRequest = await vi.waitFor(() => request.mock.calls.find(([input, init]) => String(input).endsWith("/api/clm/zero-touch/cases") && init?.method === "POST")!);
     expect(JSON.parse(createRequest[1]!.body as string)).toMatchObject({ uen: "202400001A", legal_name: "SYNTHETIC SESSION ONE PTE. LTD.", team_id: "TEAM_B", priority: 10 });
-    await act(async () => container.querySelector<HTMLButtonElement>("button[aria-label='Start a new case']")!.click());
+    // The created case opens on its case page. The failed upload keeps the file pending there;
+    // discarding it returns New onboarding to a blank form.
+    const pending = await vi.waitFor(() => { const banner = container.querySelector<HTMLElement>(".pending-documents")!; expect(banner).not.toBeNull(); return banner; });
+    await vi.waitFor(() => expect(pending.textContent).toContain("Synthetic intake paused."));
+    expect(pending.textContent).toContain(file.name);
+    expect(container.querySelector("#home-uen")).toBeNull();
+    const discard = Array.from(pending.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Discard")!;
+    await act(async () => discard.click());
+    const newOnboarding = () => Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find((link) => link.textContent === "New onboarding")!;
+    await vi.waitFor(() => expect(newOnboarding().getAttribute("href")).toBe("/new-onboarding"));
+    await act(async () => newOnboarding().click());
     await vi.waitFor(() => expect(container.querySelector("#home-uen")).not.toBeNull());
     for (const selector of ["#home-uen", "#home-legal-name", "#home-country", "#home-priority", "#director-team-id"]) {
       expect(container.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!.value).toBe("");

@@ -11,9 +11,9 @@ import { openStage } from "./stage-disclosures";
 const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
   "../../backend/tests/fixtures/uat/clean-company-profile.pdf");
 const stageNames = [
-  "Case created", "Initial identity", "Jurisdiction", "Existing-customer search",
+  "Case created", "Jurisdiction", "Existing-customer search",
   "Registry verification", "Document verification", "Data reconciliation", "Ownership & UBO",
-  "Risk assessment", "Submission readiness", "GoldTier submission package", "Final review & send",
+  "Risk assessment", "GoldTier Details & Status", "Final review & send",
 ];
 let violations: string[];
 let holdCreation: Promise<void> | null;
@@ -120,7 +120,7 @@ test("S1 blank login and onboarding forms retain readable team ownership at thre
     .getByLabel("Registration ID / UEN", { exact: true })).toBeVisible();
 });
 
-test("S1 executing workspace is inert, all 12 stages inspect, failed documents stay truthful, and reset clears drafts", async ({ page }) => {
+test("S1 executing workspace is inert, all 10 business stages inspect, failed documents stay truthful, and reset clears drafts", async ({ page }) => {
   await page.goto("/");
   await login(page, "olivia-koh");
   await openNew(page);
@@ -150,16 +150,21 @@ test("S1 executing workspace is inert, all 12 stages inspect, failed documents s
     releaseCreation();
     holdCreation = null;
   }
-  await expect(page.getByRole("button", { name: "Open full case", exact: true })).toBeEnabled();
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   await expect(page.locator(".processing-workspace__overlay")).toHaveCount(0);
   await expect(page.locator(".processing-workspace__content[inert]")).toHaveCount(0);
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const labels = page.locator(".onboarding-progress__stages .onboarding-progress__stage-label");
   await expect(labels).toHaveText(stageNames);
   for (const name of stageNames) {
     const button = page.getByRole("button", { name: `Open details for ${name}`, exact: true });
     await button.click();
-    await expect(page.getByRole("region", { name: `${name} details`, exact: true })).toBeVisible();
+    // Stage details start collapsed (one panel for the inspected stage); open it to inspect.
+    const details = page.locator(`details#processing-stage-details[aria-label="${name} details"]`);
+    await expect(details).toBeAttached();
+    if (await details.getAttribute("open") === null) await details.locator(":scope > summary").click();
+    await expect(details).toHaveAttribute("open", "");
+    await expect(details.locator(":scope > summary")).toHaveText(`Stage details — ${name}`);
+    await expect(details.locator(":scope > :not(summary)").first()).toBeVisible();
   }
   for (const width of [320, 720, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -167,8 +172,10 @@ test("S1 executing workspace is inert, all 12 stages inspect, failed documents s
     await expectContained(page);
   }
   const caseUrl = page.url();
-  await page.getByRole("link", { name: "New onboarding", exact: true }).click();
-  await page.getByRole("button", { name: "Start a new case", exact: true }).click();
+  // The completed intake resets the draft, so New onboarding opens a blank form directly.
+  const newOnboarding = page.getByRole("link", { name: "New onboarding", exact: true });
+  await expect(newOnboarding).toHaveAttribute("href", "/new-onboarding", { timeout: 60_000 });
+  await newOnboarding.click();
   await expectBlankDraft(page);
   await expect(page.getByLabel("Owning team *", { exact: true })).toHaveValue("");
   failDocuments = true;

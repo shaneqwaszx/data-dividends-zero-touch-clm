@@ -30,13 +30,12 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
     await page.getByLabel("Registration ID / UEN").fill(fixture.uen);
     await page.locator("#home-document").setInputFiles(path.resolve("../backend/tests/fixtures/uat/zero-touch-database", fixture.document));
     await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-    await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     const caseId = page.url().split("/").at(-1)!;
     const read = async (): Promise<ZeroTouchCaseSummary> => (await page.request.get(`/api/clm/zero-touch/cases/${caseId}`)).json();
     if (fixture.label === "Government") {
       await expect.poll(async () => (await read()).target_classification.kyc_customer_type.selected_value).toBe("Government");
     } else await expect.poll(async () => (await read()).active_exceptions.map((item) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
-    await page.getByRole("button", { name: "Open full case", exact: true }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
     const summary = await read();
     expect(summary.clm.target_search_checkpoint?.disposition).toBe("NO_MATCH");
@@ -49,7 +48,7 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
       expect(summary.target_submission?.state).toBe("NOT_SUBMITTED");
       const ownership = await (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
       expect(ownership.state).toBe("REVIEW_REQUIRED"); expect(ownership.candidates).toEqual([]);
-      await openStage(page, "Submission readiness");
+      await openStage(page, "GoldTier Details & Status");
       await expect(page.getByRole("button", { name: "Save target classification", exact: true })).toHaveCount(0);
       await expect(page.getByText("Automatically classified from document", { exact: false }).first()).toBeVisible();
       await openStage(page, "Final review & send");
@@ -72,7 +71,7 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
     expect(summary.processing_pipeline).toHaveLength(12);
     expect(nodes.READINESS.status).toBe("COMPLETE"); expect(nodes.READINESS.blocker_code).toBeNull();
     expect(nodes.GOLDTIER_TARGET.status).toBe("COMPLETE"); expect(nodes.FINAL_REVIEW_SEND.status).toBe("REVIEW_REQUIRED");
-    await openStage(page, "Submission readiness");
+    await openStage(page, "GoldTier Details & Status");
     await expect(page.getByRole("heading", { name: "GoldTier submission settings", exact: true })).toBeVisible();
     await expect(page.getByText("Automatically classified from document", { exact: false }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Save target classification", exact: true })).toHaveCount(0);
@@ -123,7 +122,7 @@ test("database classification conflict prior USER then explicit current review",
   const caseUrl = "/api/clm/zero-touch/cases/" + caseId;
   const read = async (): Promise<ZeroTouchCaseSummary> => (await page.request.get(caseUrl)).json();
   await page.goto("/cases/" + caseId);
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const priorSave = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));
@@ -150,9 +149,9 @@ test("database classification conflict prior USER then explicit current review",
   });
   expect(completed.status()).toBe(200);
   await page.reload();
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   await expect(page.getByRole("heading", { name: "Target classification — conflicting evidence", exact: true })).toBeVisible();
-  await expect(page.getByText("Company - Private; Partnership - Unregulated", { exact: false })).toBeVisible();
+  await expect(page.getByText("Company - Private; Partnership - Unregulated", { exact: false }).filter({ visible: true })).toBeVisible();
   await openStage(page, "Historical / resolved issues");
   const packageNode = page.locator(".processing-pipeline__node").filter({
     has: page.locator(".processing-pipeline__node-title").filter({ hasText: /^GoldTier submission package$/ }),
@@ -167,7 +166,7 @@ test("database classification conflict prior USER then explicit current review",
   expect(["BLOCKED", "NOT_REACHED"]).toContain(nodes.FINAL_REVIEW_SEND.status);
   await openStage(page, "Final review & send");
   await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toHaveCount(0);
-  await openStage(page, "Submission readiness");
+  await openStage(page, "GoldTier Details & Status");
   const currentSave = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));
   await page.getByRole("button", { name: "Save target classification", exact: true }).click();
   const response = await currentSave;

@@ -66,8 +66,9 @@ the supported single-process POC repository boundary, not distributed IAM atomic
 
 The catalogue is a strict singleton with at most 64 typed rules and catalogue/rule
 optimistic versions. It accepts no executable expressions or arbitrary nested JSON.
-The current catalogue has 35 seed rules (see Phase24C amendment below). The historical
-first 21 definitions, including 13 intelligence rules, are:
+The current catalogue has 39 seed rules (see the Phase24C and recursive ownership
+amendments below). The historical first 21 definitions, including 13 intelligence rules,
+are:
 
 1. `DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD` — editable, runtime-enforced, default
    `0.85`.
@@ -153,3 +154,28 @@ approval history. Historical schema1/absent-version catalogues retain their stor
 values; exact supported 8/21/29-seed prefixes plus historical display rules gain missing
 runtime definitions once. Partial/unknown runtime catalogues fail closed. No global
 approval changes historical case snapshots. See POLICY_ACTIVATION_CONTRACT.md/D-064.
+
+## Recursive ownership discovery amendment — 2026-10-23
+
+Four project-defined, editable, runtime-enforced Ownership rules are appended (39 seeds):
+`OWNERSHIP_TRACE_THRESHOLD_PERCENT` (10.000000, range 0.000001-100, never above the
+active UBO threshold), `OWNERSHIP_DISCOVERY_MAX_CORPORATE_DEPTH` (5, range 1-7, below the
+unchanged 8-edge calculation ceiling), `OWNERSHIP_REGISTRY_CALL_BUDGET_ENABLED` (false)
+and `OWNERSHIP_REGISTRY_CALL_BUDGET_MAX` (10, range 1-32; counts provider-backed corporate
+issuer acquisitions, not cache hits). Submission, approval, catalogue migration and case
+snapshots reject a trace threshold above the effective UBO threshold; the read-only impact
+preview evaluates no discovery parameter and does not apply this check. New case snapshots freeze
+these values as `ownership_discovery`; historical snapshots without it keep root-only
+ownership semantics and never acquire subsidiaries.
+
+An exact 35-seed prefix gains the four rules once. When the catalogue has no proposals,
+superseded versions or approved activation, the existing rebuild applies. Otherwise
+catalogue schema 3 records an audited `MIGRATED` activation: active values are kept, the
+replaced active rules become a retained superseded version, decided or already-stale
+proposals are retained unchanged, and undecided proposals on the replaced base are
+rebased by adding only the new default rules. No new value is approved automatically.
+Every migration path (8/21/29/35 seeds) checks the discovery rules against the active
+UBO threshold before writing. If that threshold is positive but below 10%, the added trace
+threshold starts at the active UBO value (audit `trace_threshold_seeded_from_ubo`);
+an active 0% UBO threshold admits no positive trace threshold, so startup fails closed and
+leaves the stored catalogue unchanged for owner correction.

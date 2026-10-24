@@ -183,7 +183,7 @@ class PolicyAuthorityCheckerTests(unittest.TestCase):
             policy_profile = root / "docs/contracts/POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md"
             policy_profile.write_text(
                 policy_profile.read_text(encoding="utf-8").replace(
-                    "The current catalogue has 35 seed rules",
+                    "The current catalogue has 39 seed rules",
                     "The eight seed rules are:",
                 ),
                 encoding="utf-8",
@@ -199,7 +199,7 @@ class PolicyAuthorityCheckerTests(unittest.TestCase):
             failures = CHECK.validate(root)
         finally:
             temporary.cleanup()
-        self.assertTrue(any("35-rule policy catalogue" in item for item in failures))
+        self.assertTrue(any("39-rule policy catalogue" in item for item in failures))
         self.assertTrue(any("schema-v5 activity" in item for item in failures))
 
 

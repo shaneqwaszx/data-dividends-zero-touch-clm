@@ -144,12 +144,37 @@ function summaryFixture(caseId: string, label = "SYNTHETIC CASE"): ZeroTouchCase
     },
     evidence_decision_authorized: true,
     ownership_edit_authorized: false,
+    version: 1,
     status: "PENDING_INPUTS",
     current_stage: "DOCUMENT",
     completed_stages: ["REGISTRY"],
     active_exceptions: [],
     technical_failure: null,
     reconciliation: null,
+    metrics: {
+      automated_stages_completed: 1,
+      human_interventions: 0,
+      exceptions_raised: 0,
+      exceptions_resolved: 0,
+      final_outcome: null,
+      total_duration_ms: null,
+      stage_durations_ms: {},
+    },
+    clm: {
+      readiness: {
+        registry: { status: "READY" },
+        document: { status: "BLOCKED" },
+        ownership: { status: "BLOCKED" },
+        goldtier: { status: "BLOCKED" },
+        blockers: [],
+        warnings: [],
+      },
+      submission_plan: {
+        environment: "MOCK",
+        base_operations: [],
+        real_ready_for_approval: "NOT_AVAILABLE",
+      },
+    },
     target_operations: [],
     timeline: [],
     timing: {
@@ -657,7 +682,7 @@ describe("Phase 15C canonical route ownership", () => {
 });
 
 describe("Phase 15C case-bound action lifetime", () => {
-  it("renders each reconciliation action once through the shared intervention panel", async () => {
+  it("renders each reconciliation action once, in the review decisions panel", async () => {
     const summary = caseDetailFixture(CASE_A, "CASE A");
     const exception = {
       ...summary.active_exceptions[0],
@@ -749,12 +774,109 @@ describe("Phase 15C case-bound action lifetime", () => {
       </QueryClientProvider>,
     ));
 
-    const actions = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .filter((button) => button.textContent === "Keep registry value");
-    expect(actions).toHaveLength(1);
-    expect(container?.textContent).toContain(
-      "Use the backend-authorized Action required panel to record this decision.",
+    // The decision is offered once, in Review blocker decisions; the duplicate intervention card is hidden.
+    expect(Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .filter((button) => button.textContent === "Keep registry value")).toHaveLength(0);
+    // Pending document field reviews come first; the group switch keeps this decision reachable in the same panel.
+    expect(container?.querySelector<HTMLSelectElement>('select[aria-label="Decision group"]')?.value).toBe("document");
+    expect(container?.querySelector("input[data-review-field]")).not.toBeNull();
+    expect(container?.textContent).not.toContain("Document or reconciliation review required");
+  });
+
+  it("keeps the intervention card when the review panel cannot offer the decision", async () => {
+    const summary = caseDetailFixture(CASE_A, "CASE A");
+    const exception = {
+      ...summary.active_exceptions[0],
+      blocker_code: "DOCUMENT_SOURCE_CONFLICT",
+      available_actions: ["KEEP_REGISTRY_VALUE"],
+      evidence_version: "reconciliation:1:1:synthetic",
+    } as ZeroTouchException;
+    const observation = {
+      observation_id: "observation-registry",
+      field_name: "legal_name",
+      normalized_value: "CASE A",
+      source_kind: "REGISTRY",
+      source_system: "ACRA",
+      environment: "MOCK",
+      observed_at: NOW,
+      evidence_reference: "safe:registry",
+      document_id: null,
+      document_display_name: null,
+      confidence: null,
+      validity: "VALID",
+    } as const;
+    const reviewSummary = {
+      ...summary,
+      active_exceptions: [exception],
+      interventions: [{
+        intervention_id: exception.exception_id,
+        owning_stage: "DOCUMENT",
+        owning_stage_label: "Documents / reconciliation",
+        title: "Document or reconciliation review required",
+        blocker_code: exception.blocker_code,
+        explanation: exception.explanation,
+        required_evidence_or_input: ["Current document evidence."],
+        authorized_actions: [{
+          action: "KEEP_REGISTRY_VALUE",
+          label: "Keep registry value",
+          description: "Retain the current registry observation.",
+        }],
+        no_action_reason: null,
+        expected_next_step: "The owning service will re-evaluate retained evidence.",
+        candidate_summaries: [],
+      }],
+      reconciliation: {
+        reconciliation_id: "reconciliation-1",
+        version: 1,
+        status: "REVIEW_REQUIRED",
+        source_document_ids: [documentFixture(CASE_A).document_id],
+        source_document_event_counts: [99], // stale binding: the review panel cannot offer this decision
+        fields: [{
+          field_name: "legal_name",
+          observations: [observation],
+          outcome: "CONFLICT",
+          document_required: true,
+          discrepancy_id: exception.exception_id,
+        }],
+        discrepancies: [{
+          discrepancy_id: exception.exception_id,
+          field_name: "legal_name",
+          outcome: "CONFLICT",
+          observations: [observation],
+          status: "OPEN",
+          allowed_actions: ["KEEP_REGISTRY_VALUE"],
+          evidence_fingerprint: "a".repeat(64),
+          decision: null,
+        }],
+        updated_at: NOW,
+      },
+    } as unknown as ZeroTouchCaseSummary;
+    const queryClient = testClient();
+    queryClient.setQueryData(
+      caseQueryKeys.detail(relationshipActor.user_id, CASE_A),
+      reviewSummary,
     );
+    queryClient.setQueryData(
+      caseQueryKeys.documents(relationshipActor.user_id, CASE_A),
+      [documentFixture(CASE_A)],
+    );
+    queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
+    queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
+
+    await act(async () => root?.render(
+      <QueryClientProvider client={queryClient}>
+        <CaseDetail
+          caseId={CASE_A}
+          actor={relationshipActor}
+          onBack={() => undefined}
+          onViewOnboarded={() => undefined}
+          onViewAudit={() => undefined}
+        />
+      </QueryClientProvider>,
+    ));
+
+    expect(Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .filter((button) => button.textContent === "Keep registry value")).toHaveLength(1);
   });
 
   it("closes A delete and correction state when the routed identity changes to B and omits unsupported actions", async () => {
@@ -1248,7 +1370,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     await act(async () => accept.click());
     await vi.waitFor(() => expect(container?.textContent).toContain("Evidence reload could not be confirmed."));
     expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
-    const reject = container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="REJECTED"]')!;
+    const reject = container!.querySelector<HTMLInputElement>('input[data-review-field="legal_name"][value="REGISTRY"]')!;
     expect(reject.disabled).toBe(true);
     const refresh = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .find((button) => button.textContent === "Refresh case evidence")!;
@@ -1496,7 +1618,7 @@ describe("Phase 15C auth, cache, and adverse navigation", () => {
 });
 
 describe("Phase 15C intake and mutation safety", () => {
-  it("P15C-NAV-10/11 retains the case URL and selected file across route remounts without replay", async () => {
+  it("P15C-NAV-10/11 opens the created case and keeps New onboarding on it during intake without replay", async () => {
     const calls: Array<{ url: string; method: string }> = [];
     const created = summaryFixture(CASE_A);
     const completion = new Promise<Response>(() => undefined);
@@ -1527,8 +1649,8 @@ describe("Phase 15C intake and mutation safety", () => {
       new Event("submit", { bubbles: true, cancelable: true }),
     ));
     await vi.waitFor(() => expect(calls.filter((call) => call.method === "POST")).toHaveLength(3));
-    expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(paths.retainedIntake(CASE_A));
-    expect(container?.textContent).toContain("synthetic-package.pdf");
+    // Creating a case opens the case page directly; the upload keeps running in the background.
+    expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(paths.caseDetail(CASE_A));
 
     const casesLink = Array.from(container?.querySelectorAll<HTMLAnchorElement>("a") ?? [])
       .find((link) => link.getAttribute("href") === paths.cases);
@@ -1536,9 +1658,9 @@ describe("Phase 15C intake and mutation safety", () => {
     expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(paths.cases);
     const intakeLink = Array.from(container?.querySelectorAll<HTMLAnchorElement>("a") ?? [])
       .find((link) => link.textContent === "New onboarding");
-    expect(intakeLink?.getAttribute("href")).toBe(paths.retainedIntake(CASE_A));
+    expect(intakeLink?.getAttribute("href")).toBe(paths.caseDetail(CASE_A));
     await act(async () => intakeLink?.click());
-    expect(container?.textContent).toContain("synthetic-package.pdf");
+    expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(paths.caseDetail(CASE_A));
     expect(calls.filter((call) => call.method === "POST" && call.url.endsWith("/cases"))).toHaveLength(1);
     expect(calls.filter((call) => call.method === "POST" && call.url.endsWith("/intake/documents"))).toHaveLength(1);
     expect(calls.filter((call) => call.method === "POST" && call.url.endsWith("/intake/complete"))).toHaveLength(1);

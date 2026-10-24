@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[10] = 10
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[13] = 13
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -101,7 +101,7 @@ class DurableCaseSnapshotV1(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -165,7 +165,7 @@ class DurableCaseSnapshotV2(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -227,7 +227,7 @@ class DurableCaseSnapshotV3(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -277,7 +277,7 @@ class DurableCaseSnapshotV4(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -327,7 +327,7 @@ class DurableCaseSnapshotV5(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -415,7 +415,7 @@ class DurableCaseSnapshotV6(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -465,7 +465,7 @@ class DurableCaseSnapshotV7(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=10,
+            schema_version=CASE_SNAPSHOT_SCHEMA_VERSION,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -556,22 +556,141 @@ class DurableCaseSnapshotV9(BaseModel):
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
         reject_classification_legacy_fields(value)
+        reject_hybrid_overlay_legacy_fields(value)
+        reject_official_shareholder_legacy_fields(value)
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
-        return DurableCaseSnapshot.model_validate({**self.model_dump(), "schema_version": 10})
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
 
     @model_validator(mode="after")
     def validate_case_bindings(self) -> "DurableCaseSnapshotV9":
         _validate_case_bindings(self)
         return self
 
+
+class DurableCaseSnapshotV10(BaseModel):
+    """Exact schema-10 envelope: no frozen discovery policy or discovery audit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[10] = 10
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_ownership_discovery_legacy_fields(value)
+        reject_hybrid_overlay_legacy_fields(value)
+        reject_official_shareholder_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV10":
+        _validate_case_bindings(self)
+        return self
+
+
+class DurableCaseSnapshotV11(BaseModel):
+    """Exact schema-11 envelope: no hybrid official-Mock plus local overlay evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[11] = 11
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_hybrid_overlay_legacy_fields(value)
+        reject_official_shareholder_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV11":
+        _validate_case_bindings(self)
+        return self
+
+
+class DurableCaseSnapshotV12(BaseModel):
+    """Exact schema-12 envelope: no D-079 official shareholder evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[12] = 12
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_official_shareholder_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV12":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[10] = 10
+    schema_version: Literal[13] = 13
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -608,9 +727,90 @@ def reject_classification_legacy_fields(value: Any) -> None:
         raise ValueError("Historical schema cannot contain classification observations")
 
 
+def reject_ownership_discovery_legacy_fields(value: Any) -> None:
+    """Schema <= 10 envelopes cannot carry a frozen discovery policy or audit.
+
+    Like the Phase24C policy-parameter rule, an explicit null is the legacy meaning.
+    """
+    raw = _explicit_fields(value)
+    onboarding = _explicit_fields(raw.get("onboarding"))
+    snapshots = (
+        onboarding.get("policy_snapshot"),
+        *(
+            _explicit_fields(item).get("previous_snapshot")
+            for item in onboarding.get("policy_rebind_history", ())
+        ),
+    )
+    if any(_explicit_fields(item).get("ownership_discovery") is not None for item in snapshots):
+        raise ValueError("Historical schema cannot contain ownership discovery policy.")
+    ownership = _explicit_fields(raw.get("ownership"))
+    for record in (ownership, *ownership.get("prior_analyses", ())):
+        if _explicit_fields(record).get("discovery") is not None:
+            raise ValueError("Historical schema cannot contain ownership discovery audit.")
+
+
+_HYBRID_AUDIT_FIELDS = (
+    "overlay_scenario_id",
+    "topology_complete",
+    "official_identity_complete",
+    "quantitative_evidence_complete",
+)
+_HYBRID_RECORD_FIELDS = ("identity_basis", "official_entity_lookup", "official_legal_form")
+
+
+def reject_hybrid_overlay_legacy_fields(value: Any) -> None:
+    """Schema <= 11 envelopes cannot carry hybrid official-Mock plus local overlay evidence.
+
+    As for the discovery audit, an explicit null keeps the legacy meaning.
+    """
+    raw = _explicit_fields(value)
+    ownership = _explicit_fields(raw.get("ownership"))
+    for record in (ownership, *ownership.get("prior_analyses", ())):
+        fields = _explicit_fields(record)
+        if str(fields.get("source_classification")) == "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY":
+            raise ValueError("Historical schema cannot contain hybrid overlay ownership.")
+        audit = _explicit_fields(fields.get("discovery"))
+        if any(audit.get(name) is not None for name in _HYBRID_AUDIT_FIELDS) or any(
+            str(_explicit_fields(item).get("outcome")) == "LOCAL_SYNTHETIC_OVERLAY"
+            or any(_explicit_fields(item).get(name) is not None for name in _HYBRID_RECORD_FIELDS)
+            for item in audit.get("records", ())
+        ):
+            raise ValueError("Historical schema cannot contain hybrid overlay discovery.")
+        if any(
+            _explicit_fields(item).get("synthetic_basis_threshold_result") is not None
+            for item in fields.get("candidates", ())
+        ) or any(
+            str(_explicit_fields(item).get("code")) == "SYNTHETIC_OWNERSHIP_EVIDENCE"
+            for item in fields.get("issues", ())
+        ):
+            raise ValueError("Historical schema cannot contain hybrid overlay analysis.")
+
+
+def reject_official_shareholder_legacy_fields(value: Any) -> None:
+    """Schema <= 12 envelopes cannot carry D-079 official shareholder evidence.
+
+    An explicit empty collection or null lookup keeps the legacy meaning.
+    """
+    raw = _explicit_fields(value)
+    ownership = _explicit_fields(raw.get("ownership"))
+    for record in (ownership, *ownership.get("prior_analyses", ())):
+        audit = _explicit_fields(_explicit_fields(record).get("discovery"))
+        for item in audit.get("records", ()):
+            fields = _explicit_fields(item)
+            if (
+                fields.get("official_shareholders")
+                or fields.get("official_shareholder_lookup") is not None
+                or str(fields.get("reason_code"))
+                in {"OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE", "OFFICIAL_SHAREHOLDERS_EMPTY"}
+            ):
+                raise ValueError("Historical schema cannot contain official shareholder evidence.")
+
+
 def reject_session2_legacy_fields(value: Any) -> None:
     """Reject later evidence in exact historical envelope versions, even if null."""
     reject_classification_legacy_fields(value)
+    reject_hybrid_overlay_legacy_fields(value)
+    reject_official_shareholder_legacy_fields(value)
     raw = _explicit_fields(value)
     reconciliation = _explicit_fields(raw.get("reconciliation"))
     for result in (*reconciliation.get("fields", ()), *reconciliation.get("discrepancies", ())):

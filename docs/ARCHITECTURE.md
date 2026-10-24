@@ -972,11 +972,11 @@ knowledge the user may see adds lines only as verbatim, tagged sentences that pa
 sentence-level checks against the case facts, with titles and follow-up questions under the
 same checks; the owner accepted this extension on 2026-10-21 (D-074). Two-person approval is
 the primary control for knowledge content and the checks are a best-effort filter. RM
-feedback (D-076, proposed): "Yes, helpful" only records a rating with the case context,
+feedback (D-080, proposed): "Yes, helpful" only records a rating with the case context,
 counted per blocker code in the reviewer's stats; "Not helpful" needs a note and becomes an
 enhancement request, which a Director handles end to end: writes the fix (a past case or a
 guidance change, redacted against the request's case) or closes it with a reason, both
-rechecked inside the SQLite write transaction (schema v4). D-076's POC single-reviewer mode
+rechecked inside the SQLite write transaction (schema v4). D-080's POC single-reviewer mode
 (`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER`, default true; the synthetic users have one
 Director) relaxes D-074's two-person control: a reviewer may publish their own entry after
 seeing its final text and confirming, recorded as single-reviewer; it needs the owner's
@@ -1039,3 +1039,48 @@ source-precedence rule, ownership engine or target path is introduced. Four sepa
 native sponsor PDFs use the existing explicit LOCAL seed manager and parser. Their
 informational registry annex does not become independently asserted ownership evidence.
 Expanded acceptance belongs to SPONSOR_DEMO_FINAL_QUALITY_GATE.md.
+
+## Recursive corporate ownership discovery - unmerged candidate, 2026-10-23
+
+D-076/ADR-013 add one scheduling owner, `services/ownership_discovery.py`
+(`OwnershipDiscoveryCoordinator`). `OwnershipAnalysisService` calls it during load, under
+the case lock, for registry-sourced graphs of cases with a frozen discovery policy. It
+reads corporate owners only through the new read-only
+`OnboardingService.acquire_subsidiary_registry_evidence()`, which reuses the existing
+Singapore router, ACRA adapter and `RegistryAcquisitionCoordinator`/snapshot repository
+(cache first; no case acquisition, binding or event is touched). Each issuer bundle is
+normalized by the extracted `acquisition_ownership_source()` used for the root.
+
+Dependency direction: ownership service -> coordinator protocol; coordinator -> engine
+functions, registry-ownership normalization and the subsidiary reader. The coordinator
+holds no cache, repository or classification; `calculate_ownership_paths()` remains the
+sole Decimal calculator and only additionally reports exact unresolved legal-entity
+shares. Durable additions: optional case-frozen `ownership_discovery` policy and
+ownership `discovery` audit (case envelope schema 11), and catalogue schema 3 `MIGRATED`
+activation. Garden/SIM LIM are separate local Mock issuers (`MOCK_ACRA_SYNTHETIC_V2`);
+the official Marketplace Mock lane keeps its labelled Garden supplement.
+
+## Hybrid Marketplace overlay - unmerged candidate, 2026-10-23
+
+D-077 extends the D-076 owners without a new service, repository or calculator. The
+opt-in official-lane composition `hybrid_direct_overlay` wires a whitelisted
+`HybridOwnershipOverlayCatalogue` (connector fixture boundary) into
+`OwnershipAnalysisService`, which applies the root's declared direct holders after
+eligible official evidence and passes the scenario to `OwnershipDiscoveryCoordinator`.
+Each corporate holder is still acquired through `acquire_subsidiary_registry_evidence()`
+(official namespace, cache first); declared holders attach only after a definitive
+official answer, as LOCAL_SYNTHETIC_RELATIONSHIP links, and the analysis always stays
+review-required. Case envelope schema 12. The default official-lane composition, the
+local Mock lane and historical cases are unchanged.
+
+D-079 candidate (2026-10-24): in the official Marketplace lane, a non-overlay corporate
+holder whose entity-basic profile is a definitive NOT_FOUND gets one more cache-first
+read. The call chain is:
+1. `acquire_subsidiary_shareholder_evidence()`;
+2. `RegistryAcquisitionCoordinator.acquire_shareholder_evidence()` (registry cache schema 3,
+   contract `MARKETPLACE_SHAREHOLDERS_V1`);
+3. `AcraRegistryProviderAdapter.retrieve_shareholder_evidence()`.
+
+The rows stay on the discovery record outside the graph, with official operation
+provenance. No identity, edge or percentage is created and review stays required. Case
+envelope schema 13.

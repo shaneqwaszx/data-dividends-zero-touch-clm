@@ -1,6 +1,6 @@
 """Enhancement-request notes, and the fix a Director writes for one, carry no client details,
 and nothing the browser claims the assistant said reaches them (independent QG finding G4).
-Before D-076 drafts came from "Solved it"; now the Director's own text is redacted against
+Before D-080 drafts came from "Solved it"; now the Director's own text is redacted against
 the request's case."""
 
 import copy

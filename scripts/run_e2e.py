@@ -33,6 +33,22 @@ PROCESS_STOP_TIMEOUT_SECONDS = 5.0
 # 120 seconds per lifecycle for those bounded phases, capture joins and dispatch.
 LIFECYCLE_OVERHEAD_SECONDS = 120.0
 DISCOVERY_TIMEOUT_SECONDS = 60.0
+# Chromium refuses navigation to these ports (ERR_UNSAFE_PORT). Pinned from
+# chromium/src net/base/port_util.cc kRestrictedPorts on 2026-10-22. That list
+# omits 4190 and 6679, so the default 8765/4173 lifecycle ranges stay valid.
+CHROMIUM_RESTRICTED_PORTS = frozenset({
+    0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
+    87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137,
+    139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540,
+    548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049,
+    3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080,
+})
+RESULTS_SCHEMA_VERSION = 1
+LIFECYCLE_RESULTS = (
+    "PASS", "PORT_UNAVAILABLE", "READINESS_FAILURE", "ASSERTION_FAILURE",
+    "INDIVIDUAL_SELECTION_TIMEOUT", "CLEANUP_FAILURE", "INTERRUPTED", "NOT_RUN",
+)
+SETUP_FAILURE_STAGES = ("DISCOVERY", "SELECTION", "PORT_ALLOCATION", "PORT_PREFLIGHT")
 RECOVERY_DEMO_MODES = ("optional-amend", "stale-policy", "retained-recovery", "search-recheck", "document-refresh")
 SANDBOX_DEMO_MODES = (
     "success", "uncertain-shell", "uncertain-policy", "failed-policy", "existing-customer",
@@ -273,12 +289,27 @@ def _allocate_lifecycle_ports(
             raise ValueError("Derived E2E ports must be between 1024 and 65535")
         if pair[0] == pair[1] or pair[0] in allocated or pair[1] in allocated:
             raise ValueError("Derived E2E lifecycle port collision")
+        _reject_restricted_ports(*pair, lifecycle=index + 1)
         allocated.update(pair)
         pairs.append(pair)
     return pairs
 
 
-def _assert_ports_available(backend_port: int, frontend_port: int) -> None:
+def _reject_restricted_ports(
+    backend_port: int, frontend_port: int, *, lifecycle: int | None = None,
+) -> None:
+    for name, port in (("backend", backend_port), ("frontend", frontend_port)):
+        if port in CHROMIUM_RESTRICTED_PORTS:
+            where = f" for lifecycle {lifecycle}" if lifecycle is not None else ""
+            raise ValueError(
+                f"E2E {name} port {port}{where} is restricted by Chromium "
+                "(ERR_UNSAFE_PORT); choose a different base port"
+            )
+
+
+def _assert_ports_available(
+    backend_port: int, frontend_port: int, *, tolerate_time_wait: bool = False,
+) -> None:
     if backend_port == frontend_port:
         raise ValueError("Backend and frontend ports must be distinct")
     sockets: list[socket.socket] = []
@@ -288,6 +319,10 @@ def _assert_ports_available(backend_port: int, frontend_port: int) -> None:
             sockets.append(candidate)
             if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
                 candidate.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            elif tolerate_time_wait:
+                # POSIX bind otherwise rejects a recently used port in TIME_WAIT;
+                # a live listener still makes the bind fail.
+                candidate.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             candidate.bind(("127.0.0.1", port))
     except OSError as exc:
         raise RuntimeError("An assigned E2E loopback port is already occupied") from exc
@@ -296,12 +331,28 @@ def _assert_ports_available(backend_port: int, frontend_port: int) -> None:
             candidate.close()
 
 
+def _preflight_lifecycle_ports(pairs: Sequence[tuple[int, int]]) -> None:
+    """Reject unsafe or occupied lifecycle ports before any lifecycle starts.
+
+    Each lifecycle still probes its own pair at startup; this only moves a
+    deterministic conflict from the middle of a long suite to its start.
+    """
+
+    for index, (backend_port, frontend_port) in enumerate(pairs, start=1):
+        _reject_restricted_ports(backend_port, frontend_port, lifecycle=index)
+        try:
+            _assert_ports_available(backend_port, frontend_port, tolerate_time_wait=True)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"Assigned E2E loopback ports for lifecycle {index} "
+                f"({backend_port}/{frontend_port}) are already occupied"
+            ) from exc
+
+
 def _base_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
     current = os.environ if source is None else source
     result = {key: current[key] for key in _SYSTEM_ENV_KEYS if key in current}
     result["PYTHONIOENCODING"] = "utf-8"
-    if result == 0:
-        print("E2E PASS: guarded authenticated local Mock browser suite completed.")
     return result
 
 
@@ -395,7 +446,7 @@ def _selectors_from_listing(
                 tags = [tag.removeprefix("@") for tag in tags]
                 garden = "garden-protocol" in tags or selector.startswith("e2e/garden-happy-path.e2e.ts:")
                 registry_modes = [
-                    mode for mode in ("garden-partnership", "synthetic-cache", "synthetic-seed")
+                    mode for mode in ("garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed")
                     if f"slice-b-{mode}" in tags
                 ]
                 for suffix in ("ambiguity", "reuse"):
@@ -523,12 +574,23 @@ def run(
     registry_demo: str | None = None,
     recovery_demo: str | None = None,
     sandbox_demo: str | None = None,
+    outcome: dict[str, object] | None = None,
 ) -> int:
+    # Optional caller-owned record of the result kind and phase durations.
+    record: dict[str, object] = {} if outcome is None else outcome
+    phases: dict[str, float | None] = {
+        "backend_ready_seconds": None,
+        "frontend_ready_seconds": None,
+        "playwright_seconds": None,
+        "cleanup_seconds": None,
+    }
+    record["result"] = "PORT_UNAVAILABLE"
+    record["phases"] = phases
     if sandbox_demo not in {None, *SANDBOX_DEMO_MODES}:
         raise ValueError("Unknown isolated Sandbox fixture")
     if sandbox_demo and (not (grep or selection) or garden_protocol or registry_demo or recovery_demo):
         raise ValueError("Sandbox fixture requires focused selection and separate composition")
-    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
+    if registry_demo not in {None, "garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
         raise ValueError("Unknown Slice-B registry fixture")
     if registry_demo is not None and (not (grep or selection) or garden_protocol):
         raise ValueError("Slice-B registry fixture requires a focused grep and separate composition")
@@ -539,10 +601,12 @@ def run(
     if grep is not None and selection is not None:
         raise ValueError("grep and exact test selection are mutually exclusive")
     try:
+        _reject_restricted_ports(backend_port, frontend_port)
         _assert_ports_available(backend_port, frontend_port)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
         return 1
+    record["result"] = "READINESS_FAILURE"
     node = _find_node()
     vite_cli = FRONTEND_ROOT / "node_modules" / "vite" / "bin" / "vite.js"
     playwright_cli = FRONTEND_ROOT / "node_modules" / "@playwright" / "test" / "cli.js"
@@ -600,8 +664,16 @@ def run(
     processes: list[OwnedProcess] = []
     cleanup_failures: list[str] = []
     result = 1
-    deadline = time.monotonic() + timeout_seconds
+    phase_started = time.monotonic()
+    deadline = phase_started + timeout_seconds
     failure_kind = "READINESS_FAILURE"
+
+    def finish_phase(name: str) -> None:
+        nonlocal phase_started
+        now = time.monotonic()
+        phases[name] = round(now - phase_started, 3)
+        phase_started = now
+
     try:
         backend = OwnedProcess(
             "backend",
@@ -611,6 +683,7 @@ def run(
         )
         processes.append(backend)
         _wait_for_http(f"{backend_origin}/health", backend, deadline, expected_text='"status":"ok"')
+        finish_phase("backend_ready_seconds")
 
         frontend = OwnedProcess(
             "frontend",
@@ -628,6 +701,7 @@ def run(
         )
         processes.append(frontend)
         _wait_for_http(frontend_origin, frontend, deadline, expected_text="Zero-Touch CLM")
+        finish_phase("frontend_ready_seconds")
 
         playwright_command = [
             node,
@@ -651,6 +725,7 @@ def run(
         processes.append(tests)
         failure_kind = "ASSERTION_FAILURE"
         return_code = _wait_for_test(tests, deadline)
+        finish_phase("playwright_seconds")
         sanitized = _sanitize(tests.capture.text(), (ephemeral_credential,))
         if sanitized:
             print(sanitized)
@@ -667,15 +742,19 @@ def run(
                     print(milestones)
         if return_code != 0:
             print("E2E FAILED [ASSERTION_FAILURE]: Playwright returned a non-zero status.", file=sys.stderr)
+            record["result"] = "ASSERTION_FAILURE"
             result = return_code
         else:
+            record["result"] = "PASS"
             result = 0
     except KeyboardInterrupt:
         print("E2E INTERRUPTED: stopping task-owned process groups.", file=sys.stderr)
+        record["result"] = "INTERRUPTED"
         result = 130
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         if failure_kind == "ASSERTION_FAILURE" and isinstance(exc, TimeoutError):
             failure_kind = "INDIVIDUAL_SELECTION_TIMEOUT"
+        record["result"] = failure_kind
         print(
             f"E2E FAILED [{failure_kind}]: {_sanitize(str(exc), (ephemeral_credential,))}",
             file=sys.stderr,
@@ -686,6 +765,7 @@ def run(
                 print(f"[{process.name} sanitized output]\n{output}", file=sys.stderr)
         result = 1
     finally:
+        phase_started = time.monotonic()
         for process in reversed(processes):
             try:
                 process.stop()
@@ -697,12 +777,14 @@ def run(
                 _cleanup_classification_database(classification_database, synthetic_seed_port)
             except Exception:  # noqa: BLE001 - driver errors are deliberately sanitized
                 cleanup_failures.append("Classification disposable database cleanup failed")
+        finish_phase("cleanup_seconds")
 
     if cleanup_failures:
         print(
             f"E2E FAILED [CLEANUP_FAILURE]: task-owned process cleanup failed: {cleanup_failures[0]}",
             file=sys.stderr,
         )
+        record["result"] = "CLEANUP_FAILURE"
         return 1
     if result == 0:
         print("E2E PASS: guarded authenticated local Mock browser suite completed.")
@@ -727,6 +809,85 @@ def _shard_selectors(
     return selectors[index - 1 :: total]
 
 
+def _read_selector_file(path: Path, discovered: Sequence[str]) -> list[str]:
+    """Return the requested selectors in discovery order; unknown entries fail closed."""
+
+    requested: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        entry = line.strip()
+        if entry and not entry.startswith("#"):
+            requested.append(entry)
+    if not requested:
+        raise ValueError("Selector file names no selectors")
+    if len(set(requested)) != len(requested):
+        raise ValueError("Selector file repeats a selector")
+    unknown = [entry for entry in requested if entry not in discovered]
+    if unknown:
+        raise ValueError(
+            f"Selector file names {len(unknown)} selector(s) absent from current discovery; "
+            f"first: {unknown[0]}"
+        )
+    wanted = set(requested)
+    return [selector for selector in discovered if selector in wanted]
+
+
+def _git_identity() -> dict[str, object]:
+    environment = {**_base_environment(), "GIT_OPTIONAL_LOCKS": "0"}
+
+    def value(*args: str) -> str | None:
+        try:
+            completed = subprocess.run(
+                ["git", *args], cwd=ROOT, env=environment, stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                check=False, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return completed.stdout.strip() if completed.returncode == 0 else None
+
+    status = value("status", "--porcelain")
+    return {
+        "head": value("rev-parse", "HEAD"),
+        "tree": value("rev-parse", "HEAD^{tree}"),
+        "dirty": None if status is None else bool(status),
+        "origin_main": value("rev-parse", "--verify", "origin/main^{commit}"),
+    }
+
+
+def _environment_summary() -> dict[str, object]:
+    node_version: str | None = None
+    try:
+        completed = subprocess.run(
+            [_find_node(), "--version"], env=_base_environment(), stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        if completed.returncode == 0:
+            node_version = completed.stdout.strip()
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        pass
+    playwright_version: str | None = None
+    manifest = FRONTEND_ROOT / "node_modules" / "@playwright" / "test" / "package.json"
+    try:
+        version = json.loads(manifest.read_text(encoding="utf-8")).get("version")
+        playwright_version = version if isinstance(version, str) else None
+    except (OSError, ValueError, AttributeError):
+        pass
+    return {
+        "platform": sys.platform,
+        "python": sys.version.split()[0],
+        "node": node_version,
+        "playwright": playwright_version,
+    }
+
+
+def _write_results(path: Path, document: Mapping[str, object]) -> None:
+    # Exclusive creation: a results file is evidence and is never overwritten.
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(document, handle, indent=2)
+        handle.write("\n")
+    print(f"E2E RESULTS: {path}")
+
+
 def run_isolated_suite(
     *,
     backend_port: int,
@@ -735,8 +896,63 @@ def run_isolated_suite(
     headed: bool,
     diagnostics: bool = False,
     shard: tuple[int, int] | None = None,
+    keep_going: bool = False,
+    selectors_file: Path | None = None,
+    results_path: Path | None = None,
 ) -> int:
     started = time.monotonic()
+    if shard is not None and selectors_file is not None:
+        raise ValueError("A selector file and a shard are mutually exclusive")
+    if results_path is not None and (results_path.exists() or not results_path.parent.is_dir()):
+        print(
+            "E2E FAILED: results file must be a new path in an existing directory.",
+            file=sys.stderr,
+        )
+        return 1
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    mode = "shard" if shard else "selectors-file" if selectors_file else "full"
+    document: dict[str, object] = {
+        "schema_version": RESULTS_SCHEMA_VERSION,
+        "runner": "scripts/run_e2e.py",
+        "status": "FAIL",
+        "complete": False,
+        "mode": mode,
+        "shard": f"{shard[0]}/{shard[1]}" if shard else None,
+        "keep_going": keep_going,
+        "timeout_seconds": timeout_seconds,
+        "discovered_count": None,
+        "selected_count": None,
+        "started_at_utc": started_at,
+        "elapsed_seconds": None,
+        "counts": {},
+        "lifecycles": [],
+    }
+    lifecycles: list[dict[str, object]] = []
+
+    def finish(code: int, *, complete: bool) -> int:
+        if results_path is None:
+            return code
+        counts: dict[str, int] = {}
+        for item in lifecycles:
+            counts[str(item["result"])] = counts.get(str(item["result"]), 0) + 1
+        document.update(
+            status="PASS" if code == 0 else "FAIL",
+            complete=complete,
+            elapsed_seconds=round(time.monotonic() - started, 3),
+            counts=counts,
+            lifecycles=lifecycles,
+            identity=_git_identity(),
+            environment=_environment_summary(),
+        )
+        try:
+            _write_results(results_path, document)
+        except OSError as exc:
+            print(f"E2E FAILED: results file could not be written: {_sanitize(str(exc))}",
+                  file=sys.stderr)
+            return code or 1
+        return code
+
+    setup_stage = "DISCOVERY"
     try:
         garden_selectors: set[str] = set()
         registry_selectors: dict[str, str] = {}
@@ -746,6 +962,8 @@ def run_isolated_suite(
                                          registry_selectors=registry_selectors,
                                          recovery_selectors=recovery_selectors,
                                          sandbox_selectors=sandbox_selectors)
+        document["discovered_count"] = len(selectors)
+        setup_stage = "SELECTION"
         if shard is not None:
             discovered_count = len(selectors)
             selectors = _shard_selectors(selectors, shard)
@@ -753,14 +971,47 @@ def run_isolated_suite(
                 f"E2E SHARD: {shard[0]}/{shard[1]}; "
                 f"discovered={discovered_count}; selected={len(selectors)}"
             )
+        if selectors_file is not None:
+            discovered_count = len(selectors)
+            selectors = _read_selector_file(selectors_file, selectors)
+            print(
+                f"E2E SELECTOR FILE: discovered={discovered_count}; selected={len(selectors)}"
+            )
+        document["selected_count"] = len(selectors)
+        setup_stage = "PORT_ALLOCATION"
         lifecycle_ports = _allocate_lifecycle_ports(
             backend_port,
             frontend_port,
             len(selectors),
         )
+        setup_stage = "PORT_PREFLIGHT"
+        _preflight_lifecycle_ports(lifecycle_ports)
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
-        return 1
+        # Only the fixed stage is evidence; process output stays on stderr.
+        document["setup_failure"] = setup_stage
+        return finish(1, complete=False)
+
+    def fixture(selection: str) -> dict[str, object]:
+        return {
+            "garden_protocol": (selection in garden_selectors
+                or selection.startswith("e2e/garden-happy-path.e2e.ts:")),
+            "registry_demo": registry_selectors.get(selection),
+            "recovery_demo": recovery_selectors.get(selection),
+            "sandbox_demo": sandbox_selectors.get(selection),
+        }
+
+    def not_run_from(first_index: int) -> None:
+        for later, (selection, ports) in enumerate(
+            zip(selectors[first_index - 1 :], lifecycle_ports[first_index - 1 :], strict=True),
+            start=first_index,
+        ):
+            lifecycles.append({
+                "index": later, "selector": selection, "fixture": fixture(selection),
+                "ports": {"backend": ports[0], "frontend": ports[1]},
+                "result": "NOT_RUN", "exit_code": None, "elapsed_seconds": None,
+                "phases": None,
+            })
 
     suite_timeout = DISCOVERY_TIMEOUT_SECONDS + len(selectors) * (
         timeout_seconds + LIFECYCLE_OVERHEAD_SECONDS
@@ -773,6 +1024,8 @@ def run_isolated_suite(
     )
     slowest_seconds = 0.0
     slowest_selection = ""
+    first_failure = 0
+    failed: list[tuple[int, str, str]] = []
     for index, (selection, ports) in enumerate(
         zip(selectors, lifecycle_ports, strict=True),
         start=1,
@@ -782,9 +1035,12 @@ def run_isolated_suite(
                 f"E2E FAILED [SUITE_JOB_TIMEOUT]: suite safety budget exhausted; "
                 f"selection {index}/{len(selectors)} was not dispatched.", file=sys.stderr,
             )
-            return 1
+            not_run_from(index)
+            return finish(1, complete=False)
         print(f"E2E isolated lifecycle {index}/{len(selectors)}: {selection}")
         selection_started = time.monotonic()
+        outcome: dict[str, object] = {}
+        selected_fixture = fixture(selection)
         result = run(
             backend_port=ports[0],
             frontend_port=ports[1],
@@ -793,14 +1049,23 @@ def run_isolated_suite(
             grep=None,
             selection=selection,
             diagnostics=diagnostics,
-            garden_protocol=(selection in garden_selectors
-                or selection.startswith("e2e/garden-happy-path.e2e.ts:")),
+            garden_protocol=bool(selected_fixture["garden_protocol"]),
             registry_demo=registry_selectors.get(selection),
             recovery_demo=recovery_selectors.get(selection),
             sandbox_demo=sandbox_selectors.get(selection),
+            outcome=outcome,
         )
         elapsed = time.monotonic() - selection_started
         print(f"E2E LIFECYCLE TIMING: selection={index}/{len(selectors)}; elapsed_seconds={elapsed:.3f}")
+        kind = str(outcome.get("result", "PASS" if result == 0 else "ASSERTION_FAILURE"))
+        if result != 0 and kind == "PASS":
+            kind = "ASSERTION_FAILURE"
+        lifecycles.append({
+            "index": index, "selector": selection, "fixture": selected_fixture,
+            "ports": {"backend": ports[0], "frontend": ports[1]},
+            "result": kind, "exit_code": result, "elapsed_seconds": round(elapsed, 3),
+            "phases": outcome.get("phases"),
+        })
         if elapsed > slowest_seconds:
             slowest_seconds, slowest_selection = elapsed, selection
         if result != 0:
@@ -808,17 +1073,32 @@ def run_isolated_suite(
                 f"E2E SUITE FAILED: isolated selection {index}/{len(selectors)} failed.",
                 file=sys.stderr,
             )
-            return result
+            # Interruption and unproved cleanup stay fatal even for diagnostics.
+            if not keep_going or result == 130 or kind == "CLEANUP_FAILURE":
+                not_run_from(index + 1)
+                return finish(result, complete=False)
+            first_failure = first_failure or result
+            failed.append((index, selection, kind))
 
+    if failed:
+        print(
+            f"E2E SUITE FAILED: {len(failed)}/{len(selectors)} isolated selections failed "
+            "(keep-going diagnostics; not an acceptance pass).",
+            file=sys.stderr,
+        )
+        for index, selection, kind in failed:
+            print(f"E2E FAILED SELECTION: {index}/{len(selectors)} {selection} [{kind}]",
+                  file=sys.stderr)
+        return finish(first_failure, complete=True)
     if time.monotonic() > suite_deadline:
         print("E2E FAILED [SUITE_JOB_TIMEOUT]: suite safety budget exceeded.", file=sys.stderr)
-        return 1
+        return finish(1, complete=True)
     print(
         f"E2E SUITE TIMING: elapsed_seconds={time.monotonic() - started:.3f}; "
         f"slowest_seconds={slowest_seconds:.3f}; slowest_selection={slowest_selection}"
     )
     print(f"E2E SUITE PASS: {len(selectors)} configured selectors passed in isolated lifecycles.")
-    return 0
+    return finish(0, complete=True)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -839,7 +1119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Use strict offline synthetic ACRA protocol evidence for focused Garden tests.",
     )
     parser.add_argument(
-        "--registry-demo", choices=("garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"),
+        "--registry-demo", choices=("garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"),
         help="Isolated Slice-B fixture; requires focused --grep, never normal configuration.",
     )
     parser.add_argument(
@@ -869,9 +1149,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=("Run INDEX/TOTAL of the discovered isolated lifecycles; "
               "CI shards cover all selectors."),
     )
+    parser.add_argument(
+        "--keep-going", action="store_true",
+        help=("Diagnostics only: run every selected isolated lifecycle after a failure, "
+              "then exit non-zero listing each failure."),
+    )
+    parser.add_argument(
+        "--selectors-file", type=Path,
+        help=("Run only the listed discovered selectors (one per line, '#' comments) "
+              "in isolated lifecycles."),
+    )
+    parser.add_argument(
+        "--results-json", type=Path,
+        help="Write per-lifecycle structured results to this new file.",
+    )
     args = parser.parse_args(argv)
     if args.shard is not None and args.grep:
         parser.error("--shard applies only to the unfiltered isolated suite")
+    if args.grep and (args.keep_going or args.selectors_file or args.results_json):
+        parser.error(
+            "--keep-going, --selectors-file and --results-json apply only to isolated lifecycles"
+        )
+    if args.selectors_file is not None and args.shard is not None:
+        parser.error("--selectors-file and --shard are mutually exclusive")
     if args.sandbox_demo and (
         not args.grep or args.garden_protocol or args.registry_demo or args.recovery_demo
     ):
@@ -904,6 +1204,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         headed=args.headed,
         diagnostics=args.diagnostics,
         shard=args.shard,
+        keep_going=args.keep_going,
+        selectors_file=args.selectors_file,
+        results_path=args.results_json,
     )
 
 

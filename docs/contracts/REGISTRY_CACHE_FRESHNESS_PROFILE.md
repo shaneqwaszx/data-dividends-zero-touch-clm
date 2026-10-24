@@ -208,6 +208,18 @@ exclusive at exact expiry and rechecked at actual binding after acquisition. Exp
 crossing during acquisition fails safely without committing/binding stale evidence.
 Only definitive absence is negative; timeout/TLS/malformed/uncertain failures are not.
 
+Schema3 (D-079 candidate) holds only shareholder evidence read without an entity profile.
+- **Key:** the same provider identity, with acquisition contract
+  `MARKETPLACE_SHAREHOLDERS_V1`.
+- **Contents:** no acquisition and no negative result. The anchor equals the operation
+  retrieval time.
+- **Freshness:** COMPLETE evidence follows the case freshness policy and EMPTY evidence the
+  definitive negative TTL. A FAILED operation is never written.
+- **Unchanged:** the same exact-key locks, CAS revisions and strict decoding apply, and
+  schema1/schema2 keys and meanings are unchanged.
+- **Rollback:** schema1/schema2 documents written by this version serialize
+  `shareholder_evidence` as null, so an earlier version reading them fails closed.
+
 One process-local exact-key owner suppresses active same-key calls, with max256 keys,
 max64 registered users per key and max45s waiter deadline (bounded test seams). Cancellation
 before/post acquisition commits no result; locks retire after the last user. Error or
@@ -260,3 +272,19 @@ The browser binding adds nullable synthetic_seed_namespace, allowlisted only to
 LOCAL_SYNTHETIC_UAT_V1 when the full retained identity equals the approved local seed
 identity. Private keys, arbitrary namespaces, endpoints and contract identifiers remain
 private. Original evidence references and provider configuration are not relabelled.
+
+## Corporate-owner issuer reuse - D-076 candidate, 2026-10-23
+
+Recursive ownership discovery reads each corporate owner's own registry evidence through
+the same coordinator, exact key and case-frozen freshness/negative policy, via the
+read-only `OnboardingService.acquire_subsidiary_registry_evidence()`. A fresh COMPLETE
+snapshot (including the approved local seed) is a CACHE_HIT with zero provider calls; a
+miss or stale entry uses the configured provider once and is saved under the existing
+insert/CAS rules. The result is never bound to, or written onto, any case; only the
+derived ownership graph records it. Read/write/CAS/invalid cache failures leave that
+corporate branch unresolved for review rather than serving or overwriting evidence.
+
+The local synthetic namespace advances to `MOCK_ACRA_SYNTHETIC_V2` because Garden's
+record changed shape (direct owners only). Existing V1 entries are not deleted,
+reinterpreted or reused; historical cases keep their bound V1 evidence. The seed lookup
+is admitted for `MOCK_ACRA_SYNTHETIC_V2` and `ACRA_API_MARKETPLACE_MOCK_V1` only.

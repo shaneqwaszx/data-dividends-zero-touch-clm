@@ -8,7 +8,7 @@ Rules enforced here, in one transaction per change:
   unchanged, and taken out of review;
 - only a reviewer who wrote no version in the chain being decided can approve or reject it
   (maker-checker), and only the exact content they were shown (content hash). In the POC's
-  single-reviewer mode (D-076, proposed) an author or editor may decide it too, an approval
+  single-reviewer mode (D-080, proposed) an author or editor may decide it too, an approval
   only once confirmed, and the review row records it as single-reviewer;
 - an entry may only replace an entry of the same kind (a past resolution never retires
   official guidance);
@@ -565,7 +565,7 @@ class KnowledgeStore:
         """Approve or reject a pending version.
 
         Nobody who wrote this version, or a version it was revised from, can decide it, unless
-        ``single_reviewer`` (the POC setting, D-076): then they may, an approval only when
+        ``single_reviewer`` (the POC setting, D-080): then they may, an approval only when
         ``confirmed``, and the review row is marked single-reviewer. When ``expected_hash`` is
         given (always, from the review API) the decision applies only if the version still
         says exactly what the reviewer was shown.
@@ -966,7 +966,7 @@ class KnowledgeStore:
 
     @staticmethod
     def _migrate_to_4(db: sqlite3.Connection) -> None:
-        """Version 4 marks single-reviewer decisions (D-076): reviews gain ``single_reviewer``
+        """Version 4 marks single-reviewer decisions (D-080): reviews gain ``single_reviewer``
         (0 for every existing row). It also lets an enhancement request be 'resolved' (its
         draft was approved) and records why one was closed: rebuild the feedback table.
         Existing rows keep their values; none has a close reason or a linked fix version

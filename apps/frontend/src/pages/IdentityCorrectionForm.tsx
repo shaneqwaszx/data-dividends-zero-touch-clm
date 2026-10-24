@@ -38,11 +38,23 @@ export default function IdentityCorrectionForm({
   const complete = legalNameValue.length > 0 && registrationNumberValue.length > 0;
   const [editing, setEditing] = useState(!registryRecovery || !initial?.legal_name);
   const [validationError, setValidationError] = useState<string | null>(null);
+  // UEN mismatch: one choice ("ENTERED", a document id, or "OTHER") and one confirm button.
+  const conflict = registryRecovery && documentCandidates.length > 0;
+  const [selection, setSelection] = useState<string>("");
 
   function choose(uen: string, choice: "ENTERED" | "DOCUMENT", documentId?: string, eventCount?: number): void {
     if (disabled || !legalNameValue) return;
     onSubmit({ legal_name: legalNameValue, registration_number: uen, country_of_incorporation: "SG",
       choice, document_id: documentId, expected_document_event_count: eventCount });
+  }
+
+  function confirmChoice(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    if (disabled || !legalNameValue) return;
+    if (selection === "ENTERED") { choose(onboardingCase.requested_uen, "ENTERED"); return; }
+    const candidate = documentCandidates.find(item => item.documentId === selection);
+    if (candidate) { choose(candidate.uen, "DOCUMENT", candidate.documentId, candidate.eventCount); return; }
+    if (selection === "OTHER") submit(event);
   }
 
   function submit(event: FormEvent<HTMLFormElement>): void {
@@ -65,7 +77,7 @@ export default function IdentityCorrectionForm({
     <section className="identity-correction" aria-labelledby="identity-correction-title">
       <p className="card-kicker">Corrective action · same case</p>
       <h2 id="identity-correction-title">{registryRecovery ? "Registry identity" : "Complete company details"}</h2>
-      {registryRecovery && <>
+      {registryRecovery && !conflict && <>
         <p>Original entered UEN: <strong>{originalUen}</strong></p>
         {originalUen !== onboardingCase.requested_uen && <p>Current corrected UEN: <strong>{onboardingCase.requested_uen}</strong></p>}
       </>}
@@ -73,18 +85,45 @@ export default function IdentityCorrectionForm({
         (onboardingCase.error.code.startsWith("ACRA_") ||
          onboardingCase.error.code.startsWith("REGISTRY_")) &&
         <p role="status">Registry verification could not verify this UEN.</p>}
-      {registryRecovery && documentCandidates.length > 0 && <section aria-label="UEN identity choices">
+      {conflict && <form className="identity-choice" aria-label="UEN identity choices" onSubmit={confirmChoice}>
         <h3>Entity identity requires confirmation</h3>
-        <p>Use the current entered identity: <strong>{onboardingCase.requested_uen}</strong></p>
-        <button type="button" className="btn btn-secondary" disabled={disabled || !legalNameValue} onClick={() => choose(onboardingCase.requested_uen, "ENTERED")}>Use entered UEN</button>
-        {documentCandidates.map((candidate) => <div key={candidate.documentId}>
-          <p>Document-detected UEN: <strong>{candidate.uen}</strong></p>
-          <button type="button" className="btn btn-secondary" disabled={disabled || !legalNameValue} onClick={() => choose(candidate.uen, "DOCUMENT", candidate.documentId, candidate.eventCount)}>Use document UEN</button>
-        </div>)}
-        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setEditing(true)}>Enter another UEN</button>
-      </section>}
-      {registryRecovery && !editing && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setEditing(true)}>Edit UEN</button>}
-      {(!registryRecovery || editing) && <>
+        <p className="control-help">The UEN you entered and the UEN found in the document don't match. Choose the one to verify; the backend re-checks the registry and resumes the case.</p>
+        {(validationError || error) && <p role="alert" className="ds-banner ds-banner-warn">{validationError || error}</p>}
+        <div className="identity-choice__options" role="radiogroup" aria-label="UEN to verify">
+          <label className={`identity-choice__option${selection === "ENTERED" ? " is-chosen" : ""}`}>
+            <input type="radio" name="uen-choice" value="ENTERED" checked={selection === "ENTERED"} disabled={disabled} onChange={() => setSelection("ENTERED")} />
+            <span className="identity-choice__label">Entered UEN</span>
+            <strong className="identity-choice__value">{onboardingCase.requested_uen}</strong>
+            {originalUen !== onboardingCase.requested_uen && <small className="control-help">Originally entered: {originalUen}</small>}
+          </label>
+          {documentCandidates.map((candidate) => (
+            <label key={candidate.documentId} className={`identity-choice__option${selection === candidate.documentId ? " is-chosen" : ""}`}>
+              <input type="radio" name="uen-choice" value={candidate.documentId} checked={selection === candidate.documentId} disabled={disabled} onChange={() => setSelection(candidate.documentId)} />
+              <span className="identity-choice__label">Document UEN</span>
+              <strong className="identity-choice__value">{candidate.uen}</strong>
+            </label>
+          ))}
+          <label className={`identity-choice__option${selection === "OTHER" ? " is-chosen" : ""}`}>
+            <input type="radio" name="uen-choice" value="OTHER" checked={selection === "OTHER"} disabled={disabled} onChange={() => setSelection("OTHER")} />
+            <span className="identity-choice__label">Another UEN</span>
+            <input id="identity-registration-number" className="input" aria-label="Singapore UEN" value={registrationNumber} maxLength={32}
+              autoCapitalize="characters" disabled={disabled}
+              onFocus={() => setSelection("OTHER")}
+              onChange={(event) => { setSelection("OTHER"); setRegistrationNumber(event.target.value.toUpperCase()); }} />
+          </label>
+        </div>
+        {(!initial?.legal_name || selection === "OTHER") && <div className="identity-choice__name">
+          <label htmlFor="identity-legal-name">Legal company name</label>
+          <input id="identity-legal-name" className="input" value={legalName} maxLength={160} autoComplete="organization"
+            disabled={disabled} onChange={(event) => setLegalName(event.target.value)} required />
+        </div>}
+        <div className="identity-choice__actions">
+          <button type="submit" className="btn btn-primary"
+            disabled={disabled || !selection || !legalNameValue || (selection === "OTHER" && !registrationNumberValue)}>Confirm UEN and resume</button>
+        </div>
+      </form>}
+      {!conflict && registryRecovery && !editing && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setEditing(true)}>Edit UEN</button>}
+      {!conflict && (!registryRecovery || editing) && <>
       <p>{registryRecovery ? "Verify the proposed UEN through the existing registry acquisition path. The backend retains the correction, re-evaluates documents and resumes dependent processing." : <>
         Enter the company identity to run another read-only GoldTier Search for this case.
         These proposed values are not authoritative registry evidence; the backend retains the

@@ -12,8 +12,9 @@ from time import monotonic
 from pydantic import ValidationError
 
 from app.connectors.errors import ConnectorError
-from app.connectors.registry import RegistryProvider
+from app.connectors.registry import RegistryProvider, ShareholderEvidenceProvider
 from app.domain.models import (
+    SHAREHOLDER_EVIDENCE_CONTRACT_VERSION,
     RegistryAcquisitionBundle,
     RegistryAcquisitionStatus,
     RegistryCacheKey,
@@ -23,6 +24,7 @@ from app.domain.models import (
     RegistryOperation,
     RegistryOperationStatus,
     RegistryProviderIdentity,
+    RegistryShareholderEvidence,
     RegistrySnapshotEntry,
     SourceEnvironment,
 )
@@ -81,6 +83,45 @@ class RegistryAcquisitionBusyError(RegistryCacheError):
 class RegistryAcquisitionResult:
     acquisition: RegistryAcquisitionBundle | None
     binding: RegistryEvidenceBinding | None
+    # In-memory observations only: a fresh definitive NOT_FOUND served from the cache,
+    # or an incomplete result whose entity profile came from a fresh cached prefix.
+    negative_cache_hit: bool = False
+    entity_profile_reused: bool = False
+
+
+@dataclass(frozen=True)
+class SubsidiaryRegistryEvidence:
+    """Read-only issuer evidence for ownership discovery; never bound to a case.
+
+    `provider_backed` is false only for a committed fresh cache hit (including the
+    approved local seed and a fresh definitive NOT_FOUND). A miss, stale entry,
+    uncached lane or incomplete result used the configured provider and counts toward
+    any business call budget, even when its entity profile came from a cached prefix.
+    """
+
+    identifier: str
+    acquisition: RegistryAcquisitionBundle | None
+    disposition: RegistryEvidenceDisposition | None
+    provider_backed: bool
+    negative_cache_hit: bool = False
+    entity_profile_reused: bool = False
+
+
+@dataclass(frozen=True)
+class RegistryShareholderAcquisitionResult:
+    """D-079 issuer shareholder evidence; `cache_hit` means no provider call was made."""
+
+    evidence: RegistryShareholderEvidence
+    cache_hit: bool
+
+
+@dataclass(frozen=True)
+class SubsidiaryShareholderEvidence:
+    """Read-only D-079 shareholder evidence for one corporate holder; never case-bound."""
+
+    identifier: str
+    evidence: RegistryShareholderEvidence
+    provider_backed: bool
 
 
 @dataclass
@@ -168,7 +209,7 @@ class RegistryAcquisitionCoordinator:
             and identity.acquisition_contract_version
             == self._local_seed_identity.acquisition_contract_version
             and identity.dataset_namespace
-            in {"MOCK_ACRA_SYNTHETIC_V1", "ACRA_API_MARKETPLACE_MOCK_V1"}
+            in {"MOCK_ACRA_SYNTHETIC_V2", "ACRA_API_MARKETPLACE_MOCK_V1"}
         ):
             seed_key = RegistryCacheKey(
                 provider_identity=self._local_seed_identity,
@@ -230,6 +271,123 @@ class RegistryAcquisitionCoordinator:
                 flight.shared_result = result
             return result
 
+    def acquire_shareholder_evidence(
+        self,
+        provider: ShareholderEvidenceProvider,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None = None,
+        policy_version: int = 0,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> RegistryShareholderAcquisitionResult:
+        """Cache-first D-079 shareholder evidence under its own contract key.
+
+        It shares this owner's repository, key locks and CAS writes. Fresh COMPLETE
+        evidence follows the freshness policy and fresh EMPTY evidence the definitive
+        negative TTL; a failed operation is returned but never cached.
+        """
+        if cancelled is not None and cancelled():
+            raise RegistryAcquisitionBusyError
+        identity = provider.cache_identity
+        if identity is None:
+            return RegistryShareholderAcquisitionResult(
+                evidence=provider.retrieve_shareholder_evidence(identifier), cache_hit=False
+            )
+        if identity.environment != SourceEnvironment.MOCK:
+            raise RegistryCacheInvalidError
+        policy = (
+            self._policy
+            if case_policy is None
+            else RegistryFreshnessPolicy(
+                policy_id="MOCK_ACRA_APPROVED_POLICY",
+                version=policy_version,
+                duration_seconds=case_policy.freshness_seconds,
+            )
+        )
+        negative_seconds = case_policy.negative_seconds if case_policy is not None else 600
+        key = RegistryCacheKey(
+            provider_identity=RegistryProviderIdentity(
+                provider=identity.provider,
+                environment=identity.environment,
+                acquisition_contract_version=SHAREHOLDER_EVIDENCE_CONTRACT_VERSION,
+                dataset_namespace=identity.dataset_namespace,
+            ),
+            normalized_identifier=identifier.strip().upper(),
+        )
+        with self._key_lock(key.digest, cancelled=cancelled) as flight:
+            if flight.failure is not None:
+                raise flight.failure() from None
+            try:
+                return self._acquire_shareholders_locked(
+                    provider, key, policy, negative_seconds, cancelled
+                )
+            except (ConnectorError, RegistryCacheError) as error:
+                flight.failure = type(error)
+                raise
+            except BaseException:
+                flight.failure = RegistryAcquisitionBusyError
+                raise
+
+    def _acquire_shareholders_locked(
+        self,
+        provider: ShareholderEvidenceProvider,
+        key: RegistryCacheKey,
+        policy: RegistryFreshnessPolicy,
+        negative_seconds: int,
+        cancelled: Callable[[], bool] | None,
+    ) -> RegistryShareholderAcquisitionResult:
+        now = self._utc_now()
+        entry = self._read(key)
+        if entry is not None:
+            self._validate_entry_for_use(entry, key, now)
+            cached = entry.shareholder_evidence
+            if cached is None:
+                raise RegistryCacheInvalidError
+            fresh = (
+                registry_negative_cache_is_fresh(entry.freshness_anchor, now, negative_seconds)
+                if cached.operation_result.status == RegistryOperationStatus.EMPTY
+                else registry_cache_window_is_fresh(
+                    policy.expires_at(entry.freshness_anchor), now
+                )
+            )
+            if fresh:
+                return RegistryShareholderAcquisitionResult(
+                    evidence=cached.model_copy(deep=True), cache_hit=True
+                )
+        if cancelled is not None and cancelled():
+            raise RegistryAcquisitionBusyError
+        evidence = provider.retrieve_shareholder_evidence(key.normalized_identifier)
+        bound_at = self._utc_now()
+        if cancelled is not None and cancelled():
+            raise RegistryAcquisitionBusyError
+        provenance = evidence.operation_result.provenance
+        if evidence.requested_identifier != key.normalized_identifier or (
+            provenance is not None and provenance.retrieved_at > bound_at
+        ):
+            raise RegistryCacheInvalidError
+        if evidence.operation_result.status != RegistryOperationStatus.FAILED:
+            if provenance is None or (
+                evidence.operation_result.status == RegistryOperationStatus.COMPLETE
+                and bound_at >= policy.expires_at(provenance.retrieved_at)
+            ):
+                raise RegistryCacheInvalidError
+            self._write(
+                RegistrySnapshotEntry(
+                    cache_schema_version=3,
+                    cache_id=key.digest,
+                    key=key,
+                    revision=entry.revision if entry is not None else 0,
+                    acquisition=None,
+                    shareholder_evidence=evidence,
+                    freshness_anchor=provenance.retrieved_at,
+                    written_at=bound_at,
+                ),
+                current=entry,
+            )
+        return RegistryShareholderAcquisitionResult(
+            evidence=evidence.model_copy(deep=True), cache_hit=False
+        )
+
     def _acquire_locked(
         self,
         provider: RegistryProvider,
@@ -246,7 +404,9 @@ class RegistryAcquisitionCoordinator:
             self._validate_entry_for_use(entry, key, now)
             if entry.negative_result == "NOT_FOUND":
                 if registry_negative_cache_is_fresh(entry.freshness_anchor, now, negative_seconds):
-                    return RegistryAcquisitionResult(acquisition=None, binding=None)
+                    return RegistryAcquisitionResult(
+                        acquisition=None, binding=None, negative_cache_hit=True
+                    )
             elif entry.acquisition is not None:
                 reuse = entry.acquisition
                 if (
@@ -338,7 +498,9 @@ class RegistryAcquisitionCoordinator:
         persisted = self._write(candidate, current=entry)
         if acquisition.status != RegistryAcquisitionStatus.COMPLETE:
             return RegistryAcquisitionResult(
-                acquisition=acquisition.model_copy(deep=True), binding=None
+                acquisition=acquisition.model_copy(deep=True),
+                binding=None,
+                entity_profile_reused=RegistryOperation.ENTITY_PROFILE in reusable,
             )
         return self._bound_result(
             persisted,

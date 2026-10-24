@@ -85,3 +85,15 @@ export async function focusPipelineAction(page: Page, nodeId: string, control: L
     node: nodeId, actual_control: actual, visible: true, enabled: true, focused: true,
     in_viewport: true, unobscured: true, calls_before_confirmation: 0, verdict: "PASS" }, null, 2)+"\n");
 }
+
+/**
+ * Current document's per-field backend verification states. The main case view shows the
+ * registry/document comparison; each field's verification state is retained under
+ * "More details — Document verification" (counted like the former main-view tags).
+ */
+export function fieldVerificationStates(page: Page, state: string): Locator {
+  return page.locator("details").filter({ has: page.getByText("More details — Document verification", { exact: true }) })
+    .locator(".document-support-card .document-field__evidence > div")
+    .filter({ has: page.locator("dt", { hasText: /^Verification state$/ }) })
+    .filter({ has: page.locator("dd", { hasText: new RegExp(`^${state}$`) }) });
+}

@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { focusPipelineAction, openStage } from "./stage-disclosures";
 import { confirmBatch } from "./blocker-decisions";
+import { showAllIssues } from "./attention";
 
 const evidence = () => retainedEvidencePath("blocker-regression");
 const identity = { "Legal Name": "MERLION CIRCULAR LABS PTE. LTD.", UEN: "202400001A", "Registered Address": "18 INNOVATION WAY, #04-01, 018956, SG", Country: "SG" };
@@ -48,7 +49,8 @@ for (const scenario of scenarios) {
     const calls: string[] = [];
     page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/")) calls.push(`${request.method()} ${new URL(request.url()).pathname}`); });
     if (scenario.choice === "identity") await focusPipelineAction(page, "RECONCILIATION", page.locator("#identity-registration-number"));
-    else if (scenario.choice === "source") await page.locator(".intervention-card").getByRole("button", { name: "Keep registry value", exact: true }).first().click();
+    // The duplicate document blocker card is hidden by design; the attention list is the blocker affordance.
+    else if (scenario.choice === "source") { await showAllIssues(page); await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker:/ }).first().click(); }
     else await page.getByRole("button", { name: action.label, exact: true }).click();
     const selector = scenario.choice === "source" ? "input[data-reconciliation-field]:not([disabled])"
       : scenario.choice === "document" ? "input[data-review-field]:not([disabled])"

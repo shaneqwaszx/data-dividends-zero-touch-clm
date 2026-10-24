@@ -67,12 +67,11 @@ async function create(page: Page, company: Company, upload: Upload, enteredUen =
   await page.locator("#home-document").setInputFiles(upload);
   console.log("SPONSOR_DEMO_STAGE", company.code, "intake-filled");
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
-  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
   const cid = page.url().split("/").at(-1)!;
   const createdState = await summary(page, cid);
   console.log("SPONSOR_DEMO_STAGE", company.code, "case-created", createdState.status, createdState.current_stage, createdState.active_exceptions.map((e: any) => e.blocker_code));
   await expect.poll(async () => (await summary(page, cid)).status).toBe("WAITING_FOR_REVIEW");
-  await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${cid}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
   return cid;
@@ -90,7 +89,7 @@ async function currentKnownReview(page: Page, cid: string, checkpoints: any[]) {
     checkpoints.push({ stage: current.current_stage, blockers: current.active_exceptions.map((e: any) => e.blocker_code), version: current.version });
   }
   if (current.active_exceptions.some((e: any) => e.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED")) {
-    await openStage(page, "Submission readiness");
+    await openStage(page, "GoldTier Details & Status");
     await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
     await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
     const saved = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));
@@ -130,7 +129,7 @@ async function finish(page: Page, company: Company, cid: string, headers: Record
   const send = page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true }); await expect(send).toBeEnabled();
   fs.mkdirSync(evidence, { recursive: true });
   await page.screenshot({ path: path.join(evidence, `${company.code}-final-review.png`), fullPage: true });
-  await openStage(page, "GoldTier submission package");
+  await openStage(page, "GoldTier Details & Status");
   const preview = current.clm.submission_plan.request_preview;
   expect(preview.dispatch_ready).toBe(true);
   await openStage(page, "Final review & send");
@@ -153,7 +152,7 @@ async function finish(page: Page, company: Company, cid: string, headers: Record
   });
   expect(frozenClassification.status()).toBe(409);
   receipt.frozen_replacement_status = frozenReplacement.status(); receipt.frozen_classification_status = frozenClassification.status();
-  await page.reload(); await openStage(page, "GoldTier submission package");
+  await page.reload(); await openStage(page, "GoldTier Details & Status");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   expect((await counts(page)).calls).toEqual(completedCounts.calls);
   expect((await summary(page, cid)).target_operations).toEqual(done.target_operations);
@@ -232,9 +231,12 @@ function blockerJourney(company: typeof blocked[number]) {
     if (company.code === "merlion") {
       await openStage(page, "Registry verification");
       const corrected = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith("/registry-identity"));
-      const documentChoice = page.getByRole("button", { name: "Use document UEN", exact: true });
-      if (await documentChoice.count()) await documentChoice.click();
-      else {
+      // UEN conflict: choose the document UEN in the "UEN to verify" choice, then confirm.
+      const documentChoice = page.getByRole("radio", { name: /^Document UEN/ });
+      if (await documentChoice.count()) {
+        await documentChoice.check();
+        await page.getByRole("button", { name: "Confirm UEN and resume", exact: true }).click();
+      } else {
         await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
         await page.locator("#identity-registration-number").fill(company.uen);
         await page.getByRole("button", { name: "Verify UEN and resume", exact: true }).click();
@@ -274,7 +276,7 @@ function blockerJourney(company: typeof blocked[number]) {
       console.log("SPONSOR_DEMO_STAGE", company.code, "source-group-confirmed", resolved.current_stage, resolved.active_exceptions.map((e: any) => e.blocker_code));
       if (company.code === "garden") { expect(resolved.case.registry_acquisition.status).toBe("PARTIAL"); expect(resolved.case.registry_acquisition.relationships).toEqual([]); }
       if (resolved.active_exceptions.some((e: any) => e.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED")) {
-        await openStage(page, "Submission readiness");
+        await openStage(page, "GoldTier Details & Status");
         await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
         await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
         const classified = page.waitForResponse(r => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));

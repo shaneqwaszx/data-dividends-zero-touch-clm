@@ -15,6 +15,7 @@ export default function HumanInterventionPanel({
   onConfirmExisting,
   stages,
   historyOnly = false,
+  omit,
 }: {
   summary: ZeroTouchCaseSummary;
   isBusy: boolean;
@@ -23,9 +24,11 @@ export default function HumanInterventionPanel({
   onConfirmExisting?: (rationale: string) => void;
   stages?: readonly string[];
   historyOnly?: boolean;
+  /** Hide interventions another panel on the page already resolves. */
+  omit?: (intervention: HumanInterventionProjection) => boolean;
 }) {
   const interventions = historyOnly ? [] : (summary.interventions ?? []).filter(
-    (item) => !stages || stages.includes(item.owning_stage),
+    (item) => (!stages || stages.includes(item.owning_stage)) && !omit?.(item),
   );
   const history = historyOnly || !stages ? summary.historical_exceptions ?? [] : [];
   if (interventions.length === 0 && history.length === 0) return null;
@@ -98,6 +101,12 @@ export default function HumanInterventionPanel({
   );
 }
 
+/** Blockers shown as a one-line summary; the fix lives in a form elsewhere on the page. */
+const ONE_LINE_BLOCKERS: Record<string, string> = {
+  INITIAL_IDENTITY_INCOMPLETE:
+    "The company's legal name, UEN or country is missing — complete it in Complete company details below and save to rerun the Search.",
+};
+
 function InterventionCard({
   intervention,
   exception,
@@ -119,6 +128,20 @@ function InterventionCard({
   const evidenceRecords = [{ intervention, exception }, ...relatedEvidence];
   const requirementKey = (item: HumanInterventionProjection) => JSON.stringify([item.required_evidence_or_input, item.expected_next_step, item.resolution_condition]);
   const sharedRequirements = evidenceRecords.every(record => requirementKey(record.intervention) === requirementKey(intervention));
+  const oneLine = relatedEvidence.length === 0 ? ONE_LINE_BLOCKERS[intervention.blocker_code] : undefined;
+  if (oneLine) {
+    return (
+      <article id={`case-intervention-${intervention.intervention_id}`} className="card intervention-card intervention-card--one-line" aria-labelledby={`intervention-${intervention.intervention_id}`}>
+        <div className="intervention-card__heading">
+          <div>
+            <p className="card-kicker">{intervention.owning_stage_label}</p>
+            <h3 id={`intervention-${intervention.intervention_id}`}>{intervention.title}</h3>
+          </div>
+        </div>
+        <p className="intervention-card__explanation">{oneLine}</p>
+      </article>
+    );
+  }
   return (
     <article id={`case-intervention-${intervention.intervention_id}`} className="card intervention-card" aria-labelledby={`intervention-${intervention.intervention_id}`}>
       <div className="intervention-card__heading">

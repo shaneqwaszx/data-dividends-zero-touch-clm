@@ -445,7 +445,7 @@ def test_exact_key_fields_are_isolated_and_unknown_provider_is_rejected() -> Non
     adjacent_keys = (
         binding.cache_key.model_copy(update={"normalized_identifier": SECOND_UEN}),
         RegistryCacheKey(
-            provider_identity=identity(dataset="MOCK_ACRA_SYNTHETIC_V2"),
+            provider_identity=identity(dataset="MOCK_ACRA_SYNTHETIC_V3"),
             normalized_identifier=VALID_UEN,
         ),
         RegistryCacheKey(

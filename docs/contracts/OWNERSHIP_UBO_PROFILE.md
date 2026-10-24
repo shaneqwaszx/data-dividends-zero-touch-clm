@@ -36,7 +36,11 @@ units, withdrawn holders are excluded, and relationship percentages are quantize
 six decimal places. Missing, binary-float, zero, negative, duplicate-identity, or
 malformed fixture data fails closed.
 
-The graph then follows the ordinary ownership contract. In particular, the path
+Since D-076 the local Mock serves Garden and SIM LIM as two separate issuer records:
+Garden's record names only SIM LIM (Corporate, 5000 units) and LIM CHOON HUAT (3000
+units); SIM LIM's holders come only from SIM LIM's own record (see the recursive
+discovery section below). The graph then follows the ordinary ownership contract. In
+particular, the path
 `11111999A -> 111111111M (62.500000%) -> S123AC1234E (81.818182%)` produces
 `51.13636375%`, approximately `51.136364%` at six-decimal presentation. LIM CHOON HUAT
 retains direct `37.500000%`; the two `9.090909%` SIM LIM holders each have effective
@@ -272,3 +276,124 @@ document and independent user decisions are outside this retirement category.
 Recovery rebinds partial CLM projection from retained Search, preserves cancelled
 history, and recomputes reconciliation/ownership/readiness without provider replay.
 Submission freeze, authorization and stale-writer protections remain authoritative.
+
+## Registry-driven recursive corporate discovery — D-076 candidate, 2026-10-23
+
+`OwnershipDiscoveryCoordinator` (ADR-013) runs inside the ownership load, under the case
+lock, only for registry-sourced graphs of cases whose frozen snapshot carries
+`ownership_discovery`. Historical snapshots without it keep root-only semantics.
+
+- **Trigger.** A legal-entity leaf (no disclosed owners in the current graph) with a
+  verified Singapore UEN is acquired as its own issuer through
+  `OnboardingService.acquire_subsidiary_registry_evidence()`: fresh compatible cache
+  first (zero provider calls), configured provider on miss/stale, never a case rewrite.
+  Names never link entities. Non-SG or unverified identifiers are never sent to ACRA.
+- **Acceptance.** Requested/returned UEN, entity profile, MOCK environment, COMPLETE
+  status and COMPANY legal form must agree; the issuer record must itself be a valid
+  ownership graph. Officer roles stay descriptive; ownership-like roles keep review.
+  NOT_FOUND, unsupported, partial, failed, invalid and cache failures are distinct
+  unresolved outcomes, never success.
+- **Identity.** Issuer nodes deduplicate by verified UEN (diamonds share one acquisition;
+  a holder pointing back to an ancestor becomes the engine's `CYCLE_DETECTED`). Holders
+  from an issuer record use `<issuer UEN>.<source id>` identifiers (hashed when unsafe or
+  long), so source-local IDs never collide. Equal source person identifiers in different
+  issuer records stay distinct and raise `PERSON_IDENTITY_UNRESOLVED`; only an explicit
+  verified binding merges them, and no current provider supplies one.
+- **Tracing.** A frontier issuer whose exact root-equivalent share is at least the frozen
+  trace threshold is acquired first. Smaller branches are deferred only when a sound
+  global bound proves no known or unknown person can cross the UBO threshold; the bound
+  assumes each unresolved issuer's holders total at most 100% and is void on cycles,
+  traversal limits, over-allocated resolved issuers or unresolved person identity.
+  Otherwise deferred branches are expanded. A deferral is never a non-UBO finding.
+- **Limits.** Corporate depth (root level 0) is case policy; deeper owners are
+  `DEPTH_LIMIT`. The optional business budget counts provider-backed issuer
+  acquisitions (cache hits do not count; uncertain busy/cache failures count
+  conservatively). Fixed technical caps always apply: 32 issuer lookups, 60 s deadline,
+  sequential acquisition, existing 100-party/200-relationship/256-evidence limits. The
+  8-edge calculation depth and path limits are unchanged.
+- **Status.** The audit records `graph_complete` and `classification_certainty`
+  (`COMPLETE`, `BOUNDED_NO_THRESHOLD_CHANGE`, `UNCERTAIN`) with per-issuer outcome,
+  depth, root-equivalent exposure and lookup counts. Any unresolved branch adds
+  `CORPORATE_OWNERSHIP_UNRESOLVED` beside the engine's `INCOMPLETE_LEGAL_ENTITY`, so the
+  existing rule keeps every candidate `REVIEW_REQUIRED`/`INDETERMINATE`; the graph never
+  becomes ownership-ready while a branch is unresolved.
+- **Currentness.** After acquisition the case is re-read; a changed identity or retained
+  target result fails the load as `OWNERSHIP_SOURCE_STALE` with no derived analysis.
+
+Garden through this path: Garden direct edges `111111111M` 62.500000% and LIM CHOON HUAT
+37.500000%, then SIM LIM's own holders 81.818182/9.090909/9.090909% (withdrawn holder
+excluded), giving ABCD123 `51.13636375%`, LIM CHOON HUAT `37.500000%` and two
+`5.681818125%` holders — identical to the accepted D-046 result.
+
+## Hybrid official-Mock plus local direct overlay — D-077 candidate, 2026-10-23
+
+Opt-in only (`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay`, official
+Marketplace Mock lane). The default keeps the accepted flattened Garden supplement above.
+
+- **Scope.** Only whitelisted scenarios in `connectors/hybrid_ownership_overlay.py`:
+  `GARDEN_DIRECT_OVERLAY_V1` (owner-supplied Garden body, direct rows only; SIM LIM's
+  own holders are never attached locally) and `FIVE_LAYER_MARKETPLACE_HYBRID_V1`. No
+  calculator, service or router branches on these UENs.
+- **Declared basis.** Each issuer declares active same-class units and a complete active
+  denominator that must equal their sum; withdrawn rows never become edges; float,
+  group/member, non-ordinary or unverified-UEN rows fail closed. The D-046 six-decimal
+  rule derives each direct percentage. The root's original units are retained as
+  `supplemental_evidence`, outside arithmetic. Corporate issuers' declared units are not
+  retained separately; only their derived direct percentages appear on the links, and
+  the whitelisted catalogue remains their source.
+- **Provenance.** Links are `LOCAL_SYNTHETIC_RELATIONSHIP` / `LOCAL`. Entity identity is
+  official only when the official lookup returned the same-UEN profile.
+- **Root.** Applied only to fresh, successful, same-UEN official Marketplace evidence.
+  If the official root ever carries quantitative ownership, the declaration is retained
+  beside it and the existing comparison requires review; it never replaces it.
+- **Issuers.** The D-076 coordinator performs each corporate holder's cache-first official
+  lookup. A definitive NOT_FOUND (identity `LOCAL_SYNTHETIC_IDENTITY`) or an official
+  profile without shareholder rows (`OFFICIAL_MOCK_ENTITY_PROFILE`) attaches the
+  scenario's declared holders as `LOCAL_SYNTHETIC_OVERLAY`. Failure, mismatch, another
+  lane or official shareholder rows (`OFFICIAL_QUANTITY_PRECLUDES_OVERLAY`) leave the
+  branch unresolved.
+- **Review.** `SYNTHETIC_OWNERSHIP_EVIDENCE` is always raised, so analyses stay
+  REVIEW_REQUIRED and candidates REVIEW_REQUIRED/INDETERMINATE. The discovery audit adds
+  `topology_complete`, `official_identity_complete`, `quantitative_evidence_complete`
+  (always false) and certainty `UNCERTAIN`. `synthetic_basis_threshold_result` is the
+  same inclusive comparator on the declared basis: MET survives unresolved branches,
+  NOT_MET needs complete topology or a sound bound; cycles, limits, person ambiguity or
+  contradictions give INDETERMINATE. It is never a classification or readiness input.
+- **Manual replacement (D-078).** The existing creator source decisions may replace a
+  hybrid analysis, including `CURRENT_EVIDENCE` retention of its synthetic graph. The
+  result is a `MANUAL_DECLARATION_POC` declaration without `SYNTHETIC_OWNERSHIP_EVIDENCE`
+  or `OWNERSHIP_METHOD_UNSUPPORTED` (manual sources carry no registry legal form). The
+  receipt records the selection, and the prior hybrid analysis stays in the bounded
+  `prior_analyses` (latest four only). Target-dispatch confirmation is still required.
+  It is not ACRA verification or a legal UBO determination.
+
+Five-layer declared topology (fictional): `201511222D` -> `200811111M` 80% ->
+`201688888A` 62.5% -> `200811111K` 60% / `199801111H` 40% -> `111111111K` 100% / 50%,
+with persons ALEX TAN 20% (root), BEATRICE LIM 37.5% (L2), CHARLES ONG 50% (L4B),
+DIANA KOH 62.5% and EDWARD NG 37.5% (L5). Exact path products: 20, 30, 10,
+DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
+11.25 + 3.75 = 15. See `docs/demo/FIVE_LAYER_ACRA_HYBRID_DEMO.md`.
+
+## Official shareholder evidence without an entity profile — D-079 candidate, 2026-10-24
+
+- **Scope.** The official Marketplace Mock lane, for an identified corporate holder that is
+  not a scenario-overlay issuer, has a verified Singapore UEN, and whose entity-basic
+  profile is a definitive NOT_FOUND. It gets one additional cache-first shareholder read,
+  within the same issuer lookup.
+- **Retained.** `official_shareholders` on the discovery record (`PROVIDER_PARTIAL`, reason
+  `OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE`, lookup
+  `SHAREHOLDERS_FETCHED`/`SHAREHOLDERS_CACHE_REUSED`). Each row keeps:
+  - source id, name, party type, category and status;
+  - exact units;
+  - `current_interest` (explicitly Active only);
+  - official operation provenance
+    (`ACRA_REGISTRY_ACQUISITION`/MOCK/`ACRA_API_MARKETPLACE_MOCK_V1`/`OWNERSHIP_PARTIES`).
+- **Not created.** Identity, legal form, verification, graph party, edge or percentage.
+  Withdrawn rows are history only. Corporate holders are not recursed without a supplied
+  verified UEN.
+- **Review.** The branch stays unresolved with the same bound. An
+  `OWNERSHIP_DENOMINATOR_REQUIRED` issue names the issuer, and the analysis stays
+  REVIEW_REQUIRED. Empty results keep NOT_FOUND (`OFFICIAL_SHAREHOLDERS_EMPTY`). Failures
+  record a provider or cache outcome with nothing retained.
+- **Persistence.** Case envelope schema 13; registry cache schema 3. The unchanged UI does
+  not render the rows. Its discovery table shows the outcome label and reason code.

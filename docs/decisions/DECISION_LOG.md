@@ -349,7 +349,132 @@ retrieval evidence. Q-014 review authority stays UNKNOWN_BLOCKED and no sponsor 
 production readiness is claimed. Cycle 9 aligns the knowledge-review scope of Directors with
 the CLM backend's global Director scope (a defect fix, not a new authority).
 
-## D-076 - proposed AI Assistant feedback, enhancement requests and single-reviewer POC mode (PROPOSED)
+## D-076 - owner-authorized registry-driven recursive ownership discovery (candidate)
+
+The 2026-10-23 owner assignment (Master Assignment v4) authorizes bounded Singapore Mock
+recursive corporate-owner discovery: each verified-UEN corporate owner is acquired from
+its own registry record through the existing coordinator, cache-first, and attached to
+the one Decimal graph ([ADR-013](ADR-013_REGISTRY_DRIVEN_CORPORATE_OWNERSHIP_DISCOVERY.md)).
+Garden `11111999A` and SIM LIM `111111111M` become separate synthetic Mock issuers using
+the owner-supplied Garden shareholder body; D-046 equal-unit derivation stays inside
+these two fixtures and the accepted Garden UBO percentages are unchanged. The local
+dataset namespace becomes `MOCK_ACRA_SYNTHETIC_V2`; the official Marketplace Mock keeps
+its labelled Garden supplement because it has no separate SIM LIM ownership operation.
+
+New editable rules: trace threshold 10% (never above the D-062 UBO threshold; retrieval
+priority only), corporate depth 5 (1-7), business call budget disabled (max 10, 1-32).
+Fixed technical caps: 32 issuer lookups, 60 s, sequential. Unresolved branches, deferred
+branches and repeated cross-issuer person identifiers keep review required. Authority:
+`USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated acceptance and
+independent gate. Not legal UBO policy (Q-004), real ACRA subsidiary capability (Q-012),
+person identity or traversal authority (Q-019), cross-lane cache sharing or GoldTier
+hierarchy writes (Q-002). A 0% UBO threshold can no longer be activated because the
+positive trace threshold may not exceed it.
+
+## D-077 - owner-authorized hybrid Marketplace Mock plus local direct overlay (candidate)
+
+The 2026-10-23 owner assignment (Master Assignment V5) authorizes an explicitly opt-in
+non-production composition for the official ACRA API Marketplace Mock lane:
+`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay` (default
+`garden_legacy_supplement` keeps the accepted flattened Garden fixture unchanged). A
+whitelisted catalogue (`connectors/hybrid_ownership_overlay.py`) declares per-issuer
+*direct* holders only for two named scenarios: `GARDEN_DIRECT_OVERLAY_V1` (the
+owner-supplied Garden body, direct rows only) and `FIVE_LAYER_MARKETPLACE_HYBRID_V1`
+(root `201511222D` OPQ PTE. LTD. plus sample-catalogue UENs `200811111M`, `201688888A`,
+`200811111K`, `199801111H`, `111111111K`). Declared units use a locally declared
+complete same-class active denominator and the D-046 six-decimal rule; links are
+`LOCAL_SYNTHETIC_RELATIONSHIP`/`LOCAL`, never ACRA or Mock provenance.
+
+The root overlay applies only to fresh successful same-UEN official Marketplace evidence;
+failure, staleness or another lane never selects it. The source classification
+`OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY` may enter the existing D-076 discovery
+coordinator (the flattened legacy supplement still may not). Each corporate holder gets
+its own cache-first official lookup; only a definitive NOT_FOUND or an official entity
+profile without quantitative rows lets the scenario attach that issuer's declared
+holders (`LOCAL_SYNTHETIC_OVERLAY`, identity `LOCAL_SYNTHETIC_IDENTITY` or
+`OFFICIAL_MOCK_ENTITY_PROFILE`). Provider/cache failure, identity or lane mismatch and
+official shareholder rows leave the branch unresolved. Every hybrid analysis carries
+`SYNTHETIC_OWNERSHIP_EVIDENCE`, so it is always REVIEW_REQUIRED with
+REVIEW_REQUIRED/INDETERMINATE candidates; a separately labelled
+`synthetic_basis_threshold_result` applies the same inclusive comparator to the declared
+basis for demonstration only. Topology, official identity and quantitative evidence
+completeness are recorded separately. A fresh definitive NOT_FOUND cache hit now counts
+as a cache hit (zero provider calls) in discovery counters. Case envelope schema 12.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. Not ACRA ownership, Live or production evidence, legal
+UBO policy (Q-004), Marketplace relationship/denominator capability (Q-012), person
+identity authority (Q-019) or GoldTier hierarchy writes (Q-002). No live Marketplace
+probe was run in the implementing session (credential access was not permitted).
+
+## D-078 - owner decision on manual replacement of D-077 hybrid analyses
+
+Owner decision 2026-10-24, A1 of the Garden/OPQ REVIEW_REQUIRED investigation: option 1,
+keep current behavior. The existing creator source decisions from the PR #69 contract
+(`USER_SUPPLIED_DECLARATION`, `CURRENT_EVIDENCE`, `DOCUMENT_OBSERVATIONS`), each subject
+to its existing conditions, may replace a D-077 hybrid analysis with no new restriction.
+That includes `CURRENT_EVIDENCE` retention of its `LOCAL_SYNTHETIC_RELATIONSHIP` graph.
+
+The replacement is a `MANUAL_DECLARATION_POC`/`LOCAL` creator declaration. It drops
+`SYNTHETIC_OWNERSHIP_EVIDENCE` and, because manual sources carry no registry legal form,
+`OWNERSHIP_METHOD_UNSUPPORTED`. It is never ACRA, Mock or Live evidence, and never a legal
+UBO determination. The creator remains accountable through three existing safeguards:
+- the review receipt (actor, time, source selection, replaced analysis and version);
+- the retained prior hybrid analysis, with its source classification,
+  `SYNTHETIC_OWNERSHIP_EVIDENCE` and synthetic links. Retention is bounded to the latest
+  four prior analyses. After four further snapshot-creating changes (manual replacements
+  or document/identity reloads), the hybrid snapshot is no longer in the ownership record.
+  The hybrid analysis itself carries no receipt. The `CURRENT_EVIDENCE` receipt that names
+  it is held by the next analysis and drops out one change later;
+- the separate target-dispatch confirmation required before any GoldTier target mutation.
+  GoldTier Search runs earlier and is read-only.
+
+An incomplete replacement still requires review. No runtime behavior changed.
+
+Authority: `USER_AUTHORIZED_POC`. Not sponsor-confirmed reviewer authority (Q-014), legal
+UBO policy (Q-004) or Marketplace ownership capability (Q-012).
+
+## D-079 - owner-authorized official shareholder evidence without an entity profile (candidate)
+
+The 2026-10-24 owner assignment (Sim Lim official ACRA shareholder acquisition) approved
+proposal P1. It applies only in the official ACRA API Marketplace Mock composition, to an
+identified corporate holder that:
+- is not a scenario-overlay issuer;
+- has a verified Singapore UEN discovered from its parent;
+- has an entity-basic profile that is a definitive NOT_FOUND.
+
+Such a holder gets one additional bounded `coShareholdersDetails` read through the existing
+connector, and the existing strict decoder binds the returned UEN to the request. This is
+an exception to the accepted rule that the company-shareholder operation dispatches only
+for a recognized COMPANY legal form.
+
+The rows are retained beside the graph as `official_shareholders` on the issuer's
+discovery record, with official Marketplace Mock operation provenance. The record carries
+outcome `PROVIDER_PARTIAL`, reason `OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE` and a
+fetched or cache-reused lookup. Under these rules:
+- no canonical identity, legal form, verification, graph party, edge or percentage is
+  created;
+- only explicitly Active rows are current interests, and withdrawn rows remain history;
+- corporate holders are not recursed without a supplied verified UEN;
+- without a same-entity authoritative denominator the branch stays unresolved, an
+  `OWNERSHIP_DENOMINATOR_REQUIRED` issue is added and the case stays REVIEW_REQUIRED, so
+  readiness and GoldTier remain blocked;
+- an empty result keeps `NOT_FOUND` (reason `OFFICIAL_SHAREHOLDERS_EMPTY`), and failures
+  stop safely and are never cached.
+
+The single registry coordinator caches the evidence in the existing cache under contract
+key `MARKETPLACE_SHAREHOLDERS_V1` (registry cache schema 3). COMPLETE evidence follows the
+freshness policy and EMPTY evidence the negative TTL. Case envelope schema 13; v1..v12
+readers reject the new fields. Retaining `shareType`/`currency` is deferred. The unchanged frontend does not render the rows. Its discovery table shows the issuer's
+outcome label ("Incomplete registry evidence") with the reason code, and the issue list
+shows the new message.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. Not ACRA ownership, Live or production evidence, legal
+UBO policy (Q-004), Marketplace denominator or relationship capability (Q-012), or person
+identity authority (Q-019).
+
+## D-080 - proposed AI Assistant feedback, enhancement requests and single-reviewer POC mode (PROPOSED)
 
 Status: PROPOSED by the project team on 2026-10-21. **It relaxes D-074's two-person control
 for the POC and needs the repository owner's (Shane's) explicit acceptance before merge**;

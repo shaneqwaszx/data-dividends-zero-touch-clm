@@ -60,7 +60,12 @@ visible-browser diagnostic after Chromium is installed, use:
 npm.cmd --prefix apps\frontend run e2e:headed
 ```
 
-The launcher rejects invalid, duplicate, or occupied ports; starts the real backend in
+The launcher rejects invalid, duplicate, occupied, or Chromium-restricted ports
+(`ERR_UNSAFE_PORT`, for example 5060, 6000, 6566 or 10080; the default 8765/4173
+ranges contain none). A suite derives one port pair per lifecycle from the base ports
+and checks every pair before the first lifecycle starts, so an unsafe or occupied base
+fails at once instead of mid-suite; each lifecycle still probes its own pair at
+startup. The launcher then starts the real backend in
 test/memory mode with Mock ACRA, local deterministic document extraction, registry-fed
 local ownership analysis, Mock GoldTier, and demo controls disabled; starts Vite with
 strict port ownership; waits for process-owned readiness; runs every discovered selector
@@ -81,17 +86,50 @@ Windows cleanup is also bounded. Cleanup failure remains fatal, with no further
 selector dispatched. A suite safety exhaustion names an undispatched selector and
 returns non-zero, never suite PASS.
 
-CI explicitly uses a 60-second per-lifecycle budget and a 90-minute job timeout.
-At the current 26-selector inventory the derived worst-case suite budget is 79
-minutes, leaving 11 minutes for dependency/browser setup. Normal observed runtime
-is minutes. Reassess the documented outer job bound when discovery grows; the
-launcher logs discovered count, effective budgets, individual lifecycle elapsed
-time, total elapsed and the slowest lifecycle. GitHub's job timeout remains a final
-outer guard even if the launcher is forcibly terminated.
+CI explicitly uses a 60-second per-lifecycle budget, two `--shard` jobs and the job
+timeout in `.github/workflows/ci.yml`. `tests/test_run_e2e.py` derives the largest
+shard's worst-case budget from current discovery and fails if it plus the setup
+allowance exceeds that job timeout, so reassess the bound when that test fails rather
+than recording a selector count here. The launcher logs discovered count, effective
+budgets, individual lifecycle elapsed time, total elapsed and the slowest lifecycle.
+GitHub's job timeout remains a final outer guard even if the launcher is forcibly
+terminated.
 
 Failure categories distinguish `INDIVIDUAL_SELECTION_TIMEOUT`, `SUITE_JOB_TIMEOUT`,
 `ASSERTION_FAILURE` (non-zero Playwright result), `READINESS_FAILURE`, and
 `CLEANUP_FAILURE`. No failed, undispatched or skipped selector is counted as passing.
+
+### Isolated diagnostics
+
+Three opt-in flags apply only to isolated lifecycles (never with `--grep`); without
+them the suite, its fail-fast exit and CI behavior are unchanged.
+
+- `--selectors-file PATH` runs only the listed discovered selectors (one per line,
+  blank lines and `#` comments ignored), each in its own lifecycle with its normal
+  fixture composition, in discovery order. Unknown, repeated or absent entries fail
+  before any lifecycle starts. It cannot be combined with `--shard`. Use it to rerun
+  failed selectors under the same isolation as the official suite; a `--grep` run
+  shares one lifecycle and is not equivalent evidence.
+- `--keep-going` continues after a failed lifecycle, then lists every failure and exits
+  non-zero. It never prints suite PASS when any lifecycle failed. Interruption, a
+  cleanup failure and the suite safety budget still stop the run. It is a diagnostic
+  inventory, not acceptance evidence.
+- `--results-json PATH` writes a new file (an existing path is refused, never
+  overwritten) with the run identity (`HEAD`, its tree, a dirty flag, `origin/main`),
+  Node/Playwright versions, and one record per selected lifecycle: selector, fixture,
+  ports, result (`PASS`, `PORT_UNAVAILABLE`, `READINESS_FAILURE`, `ASSERTION_FAILURE`,
+  `INDIVIDUAL_SELECTION_TIMEOUT`, `CLEANUP_FAILURE`, `INTERRUPTED` or `NOT_RUN`),
+  exit code, elapsed time and phase durations (backend readiness, frontend readiness,
+  Playwright, cleanup). A failure before the first lifecycle records only its stage
+  as `setup_failure` (`DISCOVERY`, `SELECTION`, `PORT_ALLOCATION` or
+  `PORT_PREFLIGHT`); the sanitized detail is printed to stderr only. The file holds
+  no output text, credentials or URIs. With a dirty tree, the recorded tree is
+  `HEAD`'s, not the tested content.
+
+```bat
+.venv\Scripts\python.exe scripts\run_e2e.py --timeout-seconds 60 --keep-going --results-json tmp\e2e-results.json
+.venv\Scripts\python.exe scripts\run_e2e.py --timeout-seconds 60 --selectors-file tmp\rerun.txt
+```
 
 The browser interception layer continues only requests to the task-owned loopback
 origins. It recognizes the one exact baseline `fonts.googleapis.com` stylesheet URL

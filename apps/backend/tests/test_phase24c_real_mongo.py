@@ -114,7 +114,7 @@ def test_policy_activation_restart_preserves_inflight_and_completed_case_freeze(
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(new.case_id)}
         )
-        assert raw["schema_version"] == 10
+        assert raw["schema_version"] == 13
     finally:
         second.close()
 
@@ -278,7 +278,7 @@ def test_schema7_case_read_is_legacy_without_rewrite_or_new_parameter_smuggling(
     raw["schema_version"] = 7
     omit_session2_fields(raw)
     parameters = deepcopy(raw["onboarding"]["policy_snapshot"])
-    for key in ("registry", "evidence_classifier", "policy_identity"):
+    for key in ("registry", "evidence_classifier", "policy_identity", "ownership_discovery"):
         raw["onboarding"]["policy_snapshot"].pop(key)
     collection.replace_one({"_id": raw["_id"]}, raw)
     try:

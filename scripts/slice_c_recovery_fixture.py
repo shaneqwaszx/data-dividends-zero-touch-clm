@@ -131,6 +131,7 @@ class CreationPolicyFixture:
                 "catalogue_version": 0,
                 "registry": None,
                 "evidence_classifier": None,
+                "ownership_discovery": None,
                 "policy_identity": None,
                 "goldtier_target": legacy_target.model_dump(),
             }

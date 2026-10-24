@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
-import { expectDisclosureContrast, openStage } from "./stage-disclosures";
+import { expectDisclosureContrast, openStage, fieldVerificationStates } from "./stage-disclosures";
 
 const fields = ["legal_name", "registration_number", "registered_address", "country_of_incorporation"];
 const content = Buffer.from([
@@ -12,6 +12,33 @@ const content = Buffer.from([
   "Registered Address: 18 INNOVATION WAY, #04-01, 018956, SG", "Registered Address: 18 OTHER TEST ROAD, SG",
   "Country: SG", "Country: MY",
 ].join("\r\n"));
+
+// WCAG 2.2 SC 2.4.11: the focused element is inside the viewport and nothing covers its centre.
+function focusVisibility(page: Page) {
+  return page.evaluate(() => {
+    const element = document.activeElement!;
+    const r = element.getBoundingClientRect();
+    const { clientWidth, clientHeight } = document.documentElement;
+    // Layout rects are fractional; painting snaps them to whole pixels.
+    const [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom].map(Math.round);
+    if (top < 0 || left < 0 || bottom > clientHeight || right > clientWidth) {
+      return `outside the ${clientWidth}x${clientHeight} viewport at ${[left, top, right, bottom].join(",")}`;
+    }
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit === element || (hit !== null && element.contains(hit)) ? "unobscured" : `covered by ${hit?.closest("[class]")?.className ?? "nothing"}`;
+  });
+}
+
+// Scrolls so only a 10px sliver of the option shows below its section's stuck header; returns a point on it.
+function placeUnderStuckHeader(option: Locator) {
+  return option.evaluate(element => {
+    const header = element.closest(".stage-disclosure")!.querySelector(":scope > h2")!;
+    scrollBy(0, element.getBoundingClientRect().top - 40);
+    scrollBy(0, element.getBoundingClientRect().bottom - (header.getBoundingClientRect().bottom + 10));
+    const option = element.getBoundingClientRect(); const stuck = header.getBoundingClientRect();
+    return { x: option.left + option.width / 2, y: stuck.bottom + 5, scrollY, covered: option.top < stuck.bottom };
+  });
+}
 
 async function runPerformanceGroup(page: Page, group: number) {
     const evidence = retainedEvidencePath("blocker-regression");
@@ -36,7 +63,7 @@ async function runPerformanceGroup(page: Page, group: number) {
       expect(uploaded.status()).toBe(201);
       expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/complete`, { headers, data: { expected_document_count: 1 } })).status()).toBe(200);
       await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
-      await expect(page.locator(".document-field .tag").filter({ hasText: "PENDING" })).toHaveCount(4);
+      await expect(fieldVerificationStates(page, "PENDING")).toHaveCount(4);
       const batch = await page.locator("#case-blocker-review").count() > 0;
       if (batch) {
         const warning = page.locator(".intervention-card").filter({ has: page.getByRole("heading", {
@@ -179,26 +206,46 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
       if (focused === null) break;
       visited.push(focused);
       // WCAG 2.2 SC 2.4.11: the focused review control is inside the viewport and nothing covers its centre.
-      await expect.poll(() => page.evaluate(() => {
-        const element = document.activeElement!;
-        const r = element.getBoundingClientRect();
-        const { clientWidth, clientHeight } = document.documentElement;
-        // Layout rects are fractional; painting snaps them to whole pixels.
-        const [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom].map(Math.round);
-        if (top < 0 || left < 0 || bottom > clientHeight || right > clientWidth) {
-          return `outside the ${clientWidth}x${clientHeight} viewport at ${[left, top, right, bottom].join(",")}`;
-        }
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return hit === element || (hit !== null && element.contains(hit)) ? "unobscured" : `covered by ${hit?.closest("[class]")?.className ?? "nothing"}`;
-      }), `${focused} at ${viewport.width}x${viewport.height}`).toBe("unobscured");
+      await expect.poll(() => focusVisibility(page), `${focused} at ${viewport.width}x${viewport.height}`).toBe("unobscured");
       await page.keyboard.press("Tab");
     }
     expect(await page.evaluate(() => document.activeElement?.closest("#case-blocker-review") == null)).toBe(true);
     expect(visited.filter(name => /^(Accept|Reject) document suggestion for /.test(name))).toHaveLength(fields.length);
     expect(visited.filter(name => name.startsWith("Correction for "))).toHaveLength(fields.length);
     expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
-    expect(visited).toContain("Reject all undecided suggestions");
+    expect(visited).toContain("Use registry value for all undecided");
     expect(visited).toContain("How drafts work");
+  }
+  // Moving back up (Shift+Tab) must also keep every focused review control clear of the sticky section header.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1024, height: 768 }, { width: 1280, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    await page.locator("#case-blocker-review").locator("input:enabled, select:enabled, button:enabled, summary").last().focus();
+    const visited: string[] = [];
+    for (let stop = 0; stop < 60; stop++) {
+      const focused = await page.evaluate(() => {
+        const element = document.activeElement;
+        return element?.closest("#case-blocker-review") ? element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.tagName : null;
+      });
+      if (focused === null) break;
+      visited.push(focused);
+      await expect.poll(() => focusVisibility(page), `${focused} backwards at ${viewport.width}x${viewport.height}`).toBe("unobscured");
+      await page.keyboard.press("Shift+Tab");
+    }
+    expect(visited.filter(name => name.startsWith("Correction for "))).toHaveLength(fields.length);
+    expect(visited.filter(name => name.startsWith("Add note for "))).toHaveLength(fields.length);
+  }
+  // A click on the visible sliver of an option under the stuck header lands without moving the page.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+    const option = page.locator('#case-blocker-review input[data-review-field="registration_number"][value="REJECTED"]');
+    await expect(option).not.toBeChecked();
+    const placement = await placeUnderStuckHeader(option);
+    expect(placement.covered, `option under the header at ${viewport.width}x${viewport.height}`).toBe(true);
+    await page.mouse.click(placement.x, placement.y);
+    await expect(option, `sliver click at ${viewport.width}x${viewport.height}`).toBeChecked();
+    expect(await page.evaluate(() => scrollY)).toBe(placement.scrollY);
   }
   // WCAG 2.2 SC 1.4.4: the footer status, hint and "How drafts work" keep a readable column at every review width.
   for (const viewport of [{ width: 360, height: 780 }, { width: 768, height: 1024 }, { width: 960, height: 800 }, { width: 1024, height: 768 }, { width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
@@ -231,4 +278,37 @@ test("Blocker decision review keyboard focus stays unobscured and footer text re
     }
   }
   expect(violations).toEqual([]);
+});
+
+test.describe("touch input", () => {
+  test.use({ hasTouch: true });
+
+  test("Blocker decision review sliver tap under the sticky header selects without moving the page", async ({ page }) => {
+    const violations: string[] = [];
+    const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
+    await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
+    await page.goto("/");
+    const loginResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+    await page.getByLabel("User ID").fill("maya-lim"); await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    const headers = { "X-CSRF-Token": (await (await loginResponse).json()).csrf_token };
+    await expect(page.getByRole("link", { name: "New onboarding", exact: true })).toBeVisible();
+    const created = await page.request.post("/api/clm/zero-touch/cases", { headers, data: { uen: "202400001A", legal_name: "MERLION CIRCULAR LABS PTE. LTD.", country_of_incorporation: "SG" } });
+    expect(created.status()).toBe(201); const cid = (await created.json()).case.case_id;
+    const uploaded = await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/documents`, { headers: { ...headers, "Content-Type": "text/plain", "X-Document-Name": "synthetic-ambiguous.txt" }, data: content });
+    expect(uploaded.status()).toBe(201);
+    expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/complete`, { headers, data: { expected_document_count: 1 } })).status()).toBe(200);
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+      const option = page.locator('#case-blocker-review input[data-review-field="registration_number"][value="REJECTED"]');
+      await expect(option).not.toBeChecked();
+      const placement = await placeUnderStuckHeader(option);
+      expect(placement.covered, `option under the header at ${viewport.width}x${viewport.height}`).toBe(true);
+      await page.touchscreen.tap(placement.x, placement.y);
+      await expect(option, `sliver tap at ${viewport.width}x${viewport.height}`).toBeChecked();
+      expect(await page.evaluate(() => scrollY)).toBe(placement.scrollY);
+    }
+    expect(violations).toEqual([]);
+  });
 });

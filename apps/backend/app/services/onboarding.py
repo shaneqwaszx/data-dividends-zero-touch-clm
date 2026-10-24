@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import Lock, RLock
-from typing import Literal, Never, Protocol, TypeVar
+from typing import Literal, Never, Protocol, TypeVar, cast
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -30,9 +30,11 @@ from app.connectors.goldtier_models import (
 from app.connectors.goldtier_xpi import observed_goldtier_xpi_search_status
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.connectors.registry import (
+    AcraIdentifierNotEligibleError,
     AcraRegistryProviderAdapter,
     RegistryProvider,
     RegistryProviderRouter,
+    ShareholderEvidenceProvider,
 )
 from app.domain.access import CasePriority, TeamId
 from app.domain.jurisdiction import (
@@ -56,6 +58,7 @@ from app.domain.models import (
     RegistryAcquisitionBundle,
     RegistryAcquisitionStatus,
     RegistryEvidenceBinding,
+    RegistryEvidenceDisposition,
     RegistryOperationStatus,
     SafeError,
     TargetDispatchConfirmation,
@@ -81,6 +84,7 @@ from app.domain.policy import (
     GoldTierTargetPolicySnapshot,
     IntelligencePolicySnapshot,
     PolicyAuthority,
+    RegistryPolicySnapshot,
     legacy_phase13_policy_snapshot,
 )
 from app.domain.reconciliation import ReconciliationField
@@ -118,8 +122,11 @@ from app.services.errors import (
     TargetProviderContextMismatchError,
 )
 from app.services.registry_acquisition import (
+    RegistryAcquisitionBusyError,
     RegistryAcquisitionCoordinator,
     RegistryCacheError,
+    SubsidiaryRegistryEvidence,
+    SubsidiaryShareholderEvidence,
 )
 from app.services.repository import OnboardingCaseRepository
 from app.services.target_execution_repository import (
@@ -1915,6 +1922,106 @@ class OnboardingService:
             )
         return self._acquire_required_registry_evidence(
             case, registry_provider, normalised_uen
+        )
+
+    def acquire_subsidiary_registry_evidence(
+        self,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None,
+        policy_version: int,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> SubsidiaryRegistryEvidence:
+        """Read one corporate owner's own registry evidence without touching any case.
+
+        This narrow interface reuses the closed Singapore route and the single registry
+        coordinator: a fresh eligible snapshot is a zero-call cache hit; a miss or stale
+        entry uses the configured provider once under the existing per-key single-flight.
+        It never replaces a case acquisition, binding, lock or event history.
+        """
+
+        normalized = identifier.strip().upper()
+        if not is_eligible_singapore_uen(normalized):
+            raise AcraIdentifierNotEligibleError
+        _, provider = self._registry_router.route(
+            JurisdictionCode.SINGAPORE, decided_at=self._clock()
+        )
+        if provider is None:
+            raise AcraIdentifierNotEligibleError
+        coordinator = self._registry_acquisition_coordinator
+        if coordinator is None:
+            if cancelled is not None and cancelled():
+                raise RegistryAcquisitionBusyError
+            return SubsidiaryRegistryEvidence(
+                identifier=normalized,
+                acquisition=provider.retrieve_acquisition(normalized),
+                disposition=None,
+                provider_backed=True,
+            )
+        result = coordinator.acquire(
+            provider,
+            normalized,
+            case_policy=case_policy,
+            policy_version=policy_version,
+            cancelled=cancelled,
+        )
+        disposition = result.binding.disposition if result.binding is not None else None
+        cache_hit = disposition == RegistryEvidenceDisposition.CACHE_HIT
+        return SubsidiaryRegistryEvidence(
+            identifier=normalized,
+            acquisition=result.acquisition,
+            disposition=disposition,
+            provider_backed=not (cache_hit or result.negative_cache_hit),
+            negative_cache_hit=result.negative_cache_hit,
+            entity_profile_reused=cache_hit or result.entity_profile_reused,
+        )
+
+    def acquire_subsidiary_shareholder_evidence(
+        self,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None,
+        policy_version: int,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> SubsidiaryShareholderEvidence | None:
+        """D-079: one corporate holder's shareholder operation without an entity profile.
+
+        Returns `None` without any call unless the routed provider is the official
+        Marketplace Mock composition. It reuses the single registry coordinator under
+        its own contract key and never touches a case.
+        """
+
+        normalized = identifier.strip().upper()
+        if not is_eligible_singapore_uen(normalized):
+            raise AcraIdentifierNotEligibleError
+        _, provider = self._registry_router.route(
+            JurisdictionCode.SINGAPORE, decided_at=self._clock()
+        )
+        if provider is None:
+            raise AcraIdentifierNotEligibleError
+        if not getattr(provider, "supports_shareholder_evidence", False):
+            return None
+        shareholder_provider = cast(ShareholderEvidenceProvider, provider)
+        coordinator = self._registry_acquisition_coordinator
+        if coordinator is None:
+            if cancelled is not None and cancelled():
+                raise RegistryAcquisitionBusyError
+            return SubsidiaryShareholderEvidence(
+                identifier=normalized,
+                evidence=shareholder_provider.retrieve_shareholder_evidence(normalized),
+                provider_backed=True,
+            )
+        result = coordinator.acquire_shareholder_evidence(
+            shareholder_provider,
+            normalized,
+            case_policy=case_policy,
+            policy_version=policy_version,
+            cancelled=cancelled,
+        )
+        return SubsidiaryShareholderEvidence(
+            identifier=normalized,
+            evidence=result.evidence,
+            provider_backed=not result.cache_hit,
         )
 
     def _acquire_required_registry_evidence(

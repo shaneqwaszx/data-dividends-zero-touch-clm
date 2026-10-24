@@ -1,3 +1,4 @@
+import { displayTimestamp } from "../shared";
 import { formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -8,6 +9,56 @@ import UboSummary from "./UboSummary";
 
 const PAGE_SIZE = 20;
 const VISUAL_EDGE_LIMIT = 11;
+const PARTIAL_ISSUE_CODES: string[] = [
+  "CYCLE_DETECTED",
+  "INCOMPLETE_LEGAL_ENTITY",
+  "MAXIMUM_DEPTH_EXCEEDED",
+  "PATH_LIMIT_EXCEEDED",
+  "CORPORATE_OWNERSHIP_UNRESOLVED",
+  "PERSON_IDENTITY_UNRESOLVED",
+];
+const DISCOVERY_OUTCOME_LABELS: Record<string, string> = {
+  CACHE_HIT: "Reused fresh registry evidence",
+  FETCHED: "Acquired from its own registry record",
+  DEFERRED_BELOW_TRACE_THRESHOLD: "Deferred below tracing priority",
+  DEPTH_LIMIT: "Beyond the discovery depth limit",
+  BUSINESS_BUDGET: "Registry call budget reached",
+  HARD_LIMIT: "Technical safeguard reached",
+  UNVERIFIED_UEN: "No verified Singapore UEN",
+  FOREIGN_UNSUPPORTED: "Foreign company not supported",
+  UNSUPPORTED_LEGAL_FORM: "Legal form not supported",
+  NOT_FOUND: "Not found in the registry",
+  PROVIDER_UNSUPPORTED: "Ownership not supported by provider",
+  PROVIDER_PARTIAL: "Incomplete registry evidence",
+  PROVIDER_FAILED: "Registry lookup failed",
+  PROVIDER_INVALID: "Registry evidence rejected",
+  CACHE_FAILURE: "Stored evidence could not be used",
+};
+
+/** Read-only corporate discovery audit: backend Decimal strings are never recalculated. */
+function CorporateDiscoverySummary({ record }: { record: OwnershipAnalysisRecord }) {
+  const audit = record.discovery;
+  if (!audit) return null;
+  const certainty = audit.classification_certainty === "COMPLETE"
+    ? "complete"
+    : audit.classification_certainty === "BOUNDED_NO_THRESHOLD_CHANGE" ? "partial; bound shows no threshold change" : "partial; outcome uncertain";
+  return <details className="evidence-details ownership-discovery">
+    <summary>Corporate owners from separate registry records ({audit.records.length})</summary>
+    <p className="control-help">
+      Graph {audit.graph_complete ? "complete" : "partial"} · {certainty} · {audit.registry_lookups} registry lookup{audit.registry_lookups === 1 ? "" : "s"} ({audit.provider_backed_lookups} provider-backed, {audit.cache_hits} reused from cache).
+      {audit.unresolved_upper_bound_percent != null && !audit.graph_complete && <> Up to {formatOwnershipPercent(audit.unresolved_upper_bound_percent)} root-equivalent interest remains undisclosed.</>}
+    </p>
+    <div className="table-scroll" tabIndex={0}><table>
+      <caption>Each corporate owner is resolved from its own synthetic Mock registry record; unresolved branches keep ownership under review</caption>
+      <thead><tr><th>Corporate owner</th><th>UEN</th><th>Level</th><th>Outcome</th><th>Root-equivalent interest</th></tr></thead>
+      <tbody>{audit.records.map(item => <tr key={item.party_id}>
+        <td>{item.display_name}</td><td>{item.registration_number ?? "Not verified"}</td><td>{item.depth}</td>
+        <td>{DISCOVERY_OUTCOME_LABELS[item.outcome] ?? item.outcome}{item.reason_code ? ` · ${item.reason_code}` : ""}</td>
+        <td>{item.max_effective_percent != null ? formatOwnershipPercent(item.max_effective_percent) : "Not available"}</td>
+      </tr>)}</tbody>
+    </table></div>
+  </details>;
+}
 
 function visualEdges(path: OwnershipPath) {
   if (path.edges.length <= VISUAL_EDGE_LIMIT) return { prefix: path.edges, suffix: [] as typeof path.edges, hidden: 0 };
@@ -62,12 +113,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
     setPage((current) => Math.min(current, maxPage));
   }, [record?.analysis_id, candidate?.party.party_id, candidate?.paths.length]);
 
-  const partialIssues = record?.issues.filter((issue) => [
-    "CYCLE_DETECTED",
-    "INCOMPLETE_LEGAL_ENTITY",
-    "MAXIMUM_DEPTH_EXCEEDED",
-    "PATH_LIMIT_EXCEEDED",
-  ].includes(issue.code)) ?? [];
+  const partialIssues = record?.issues.filter((issue) => PARTIAL_ISSUE_CODES.includes(issue.code)) ?? [];
   const totalPages = Math.max(1, Math.ceil((candidate?.paths.length ?? 0) / PAGE_SIZE));
   const visiblePaths = useMemo(
     () => candidate?.paths.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) ?? [],
@@ -160,6 +206,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
       {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
       <UboSummary record={record} />
       <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); if (candidate?.party.party_id !== partyId) setInspectionOpen(false); }} />
+      <CorporateDiscoverySummary key={`discovery:${record.analysis_id}`} record={record} />
       {presentation === "main" ? <>
         {partialIssues.length > 0 && <div className="ds-banner ds-banner-warn" role="note"><strong>Non-definitive partial ownership view.</strong>{partialIssues.map(issue => <p key={`${issue.code}-${issue.message}`}>{issue.code}: {issue.message}</p>)}</div>}
         {record.error && !primaryBlockerVisible && <p role="alert">{record.error.code}: {record.error.message}</p>}
@@ -203,18 +250,13 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
   if (!record) return null;
   const Disclosure = presentation === "full" ? "details" : "section";
   const Label = presentation === "full" ? "summary" : "h5";
-  const partialIssues = record?.issues.filter((issue) => [
-    "CYCLE_DETECTED",
-    "INCOMPLETE_LEGAL_ENTITY",
-    "MAXIMUM_DEPTH_EXCEEDED",
-    "PATH_LIMIT_EXCEEDED",
-  ].includes(issue.code)) ?? [];
+  const partialIssues = record?.issues.filter((issue) => PARTIAL_ISSUE_CODES.includes(issue.code)) ?? [];
   return <section ref={panel} className="ownership-support-panel">
     {presentation !== "more" && <>
       {presentation === "technical" && <>
       <h4>Retained calculation and source metadata</h4>
       <p>Analysis {record.analysis_id} · version {record.version ?? "UNKNOWN"} · {record.provider_name} · {record.provider_environment}</p>
-      <p>Created {record.created_at} · updated {record.updated_at}</p>
+      <p>Created {displayTimestamp(record.created_at)} · updated {displayTimestamp(record.updated_at)}</p>
       <p>Exact retained threshold: {record.threshold_comparator} {record.threshold_percent}</p>
       <div className="table-scroll" tabIndex={0}><table><caption>Exact backend Decimal values — read-only, no recalculation</caption>
         <thead><tr><th>Candidate</th><th>Direct</th><th>Indirect</th><th>Aggregated</th><th>Threshold / result</th><th>Retained paths</th></tr></thead>
@@ -264,7 +306,7 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
           <tbody>{record.evidence.map((item) => <tr key={item.evidence_id}>
             <td>{item.entity_identifier ?? "Unknown binding"}</td><td>{item.kind.replaceAll("_", " ")}</td>
             <td>{item.kind === "DIRECT_PERCENTAGE" ? formatOwnershipPercent(item.numeric_value ?? item.raw_value.replace(/%$/, "")) : item.raw_value}{item.kind === "SHARE_UNITS" ? " units" : ""}</td>
-            <td>{item.provider} · {item.environment} · {item.source_operation} · {item.retrieved_at}</td>
+            <td>{item.provider} · {item.environment} · {item.source_operation} · {displayTimestamp(item.retrieved_at)}</td>
           </tr>)}</tbody>
         </table>
       </div> : null}
@@ -289,7 +331,7 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
         {record.supplemental_evidence?.map((item) => <p key={item.evidence_id}>{item.entity_identifier ?? "Unknown binding"} · {item.kind} · original {item.kind === "DIRECT_PERCENTAGE" ? formatOwnershipPercent(item.numeric_value ?? item.raw_value.replace(/%$/, "")) : item.raw_value} · {item.provider} · {item.environment} · {item.source_operation}</p>)}
       </Disclosure>}
       {presentation === "full" && <OwnershipObservations record={record} />}
-      {record.manual_review_receipt && <section className="s2-ownership-receipt"><h5>Current ownership decision receipt</h5><p>{record.manual_review_receipt.source_selection ?? record.manual_review_receipt.source_type} · {record.manual_review_receipt.actor_id} · {record.manual_review_receipt.reviewed_at}</p><p>{record.manual_review_receipt.rationale ?? "No reviewer note supplied"}</p><p>Evidence document {record.manual_review_receipt.evidence_document_id} · review revision {record.manual_review_receipt.evidence_document_version} · as of {record.manual_review_receipt.as_of_date}</p><p>Observed document review revisions: {record.manual_review_receipt.observed_document_versions?.map((item) => `${item.document_id} / ${item.event_count}`).join("; ") || "None recorded"}</p><p>Selected immutable observations: {record.manual_review_receipt.selected_observation_ids?.join(", ") || "None recorded"}</p><p className="control-help">Reviewed client evidence, not independently verified ownership.</p></section>}
+      {record.manual_review_receipt && <section className="s2-ownership-receipt"><h5>Current ownership decision receipt</h5><p>{record.manual_review_receipt.source_selection ?? record.manual_review_receipt.source_type} · {record.manual_review_receipt.actor_id} · {displayTimestamp(record.manual_review_receipt.reviewed_at)}</p><p>{record.manual_review_receipt.rationale ?? "No reviewer note supplied"}</p><p>Evidence document {record.manual_review_receipt.evidence_document_id} · review revision {record.manual_review_receipt.evidence_document_version} · as of {record.manual_review_receipt.as_of_date}</p><p>Observed document review revisions: {record.manual_review_receipt.observed_document_versions?.map((item) => `${item.document_id} / ${item.event_count}`).join("; ") || "None recorded"}</p><p>Selected immutable observations: {record.manual_review_receipt.selected_observation_ids?.join(", ") || "None recorded"}</p><p className="control-help">Reviewed client evidence, not independently verified ownership.</p></section>}
       {!!record.prior_analyses?.length && <Disclosure className="evidence-history"><Label>Retained ownership history ({record.prior_analyses.length}){presentation === "more" ? " — Historical / read-only" : ""}</Label>
         {record.prior_analyses.map((prior) => <section key={prior.analysis_id}><h5>Prior analysis {prior.analysis_id} · version {prior.version ?? "UNKNOWN"}</h5><p>{prior.provider_name} · {prior.provider_environment} · {prior.state}</p>
           <div className="table-scroll" tabIndex={0}><table className="table"><caption>Prior retained ownership relationships</caption><thead><tr><th>Owned entity</th><th>Owner</th><th>Direct percentage</th><th>Source</th></tr></thead><tbody>{prior.relationships.map((edge) => <tr key={edge.relationship_id}><td>{prior.parties.find((party) => party.party_id === edge.parent_party_id)?.display_name ?? edge.parent_party_id}</td><td>{prior.parties.find((party) => party.party_id === edge.child_party_id)?.display_name ?? edge.child_party_id}</td><td>{formatOwnershipPercent(edge.ownership_percent)}</td><td>{edge.provenance.provider} · {edge.provenance.environment}</td></tr>)}</tbody></table></div>
@@ -297,7 +339,7 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
           {prior.supplemental_relationships?.map((edge) => <p key={edge.relationship_id}>Original supplement relationship {edge.parent_party_id} → {edge.child_party_id} · {formatOwnershipPercent(edge.ownership_percent)} · {edge.provenance.provider} · {edge.provenance.environment}</p>)}
           {prior.supplemental_evidence?.map((item) => <p key={item.evidence_id}>Original supplement scalar {item.kind} · {item.kind === "DIRECT_PERCENTAGE" ? formatOwnershipPercent(item.numeric_value ?? item.raw_value.replace(/%$/, "")) : item.raw_value} · {item.provider} · {item.environment} · {item.source_operation}</p>)}
           {prior.candidates.map((item) => <p key={item.party.party_id}>{item.party.display_name} · {formatOwnershipPercent(item.aggregated_ownership_percent)} effective · {item.classification}</p>)}
-          {prior.manual_review_receipt && <p>Prior decision {prior.manual_review_receipt.source_selection ?? prior.manual_review_receipt.source_type} · {prior.manual_review_receipt.actor_id} · {prior.manual_review_receipt.reviewed_at} · {prior.manual_review_receipt.rationale ?? "No reviewer note supplied"} · document {prior.manual_review_receipt.evidence_document_id} / review revision {prior.manual_review_receipt.evidence_document_version}</p>}
+          {prior.manual_review_receipt && <p>Prior decision {prior.manual_review_receipt.source_selection ?? prior.manual_review_receipt.source_type} · {prior.manual_review_receipt.actor_id} · {displayTimestamp(prior.manual_review_receipt.reviewed_at)} · {prior.manual_review_receipt.rationale ?? "No reviewer note supplied"} · document {prior.manual_review_receipt.evidence_document_id} / review revision {prior.manual_review_receipt.evidence_document_version}</p>}
           {prior.document_observations?.map((item) => <p key={item.observation_id}>Original proposal {item.owner_name} · {formatOwnershipPercent(item.explicit_percentage)} · shares {item.share_count ?? "not supplied"} / denominator {item.explicit_total_shares ?? "not supplied"} · {item.extraction_quality ?? "UNKNOWN"} · {item.extraction_method ?? "UNKNOWN"} · document {item.document_id} / version {item.document_version} / page {item.page_number} / {item.source_reference} · {item.decision_state}</p>)}
           {prior.document_discrepancies?.map((item) => <p key={item.observation_id}>Original discrepancy {item.agreement} · {item.reason_code} · {item.verification_state}</p>)}
         </section>)}

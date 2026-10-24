@@ -421,6 +421,7 @@ def policy_rebind_snapshots() -> tuple[CasePolicySnapshot, CasePolicySnapshot]:
             "catalogue_version": 0,
             "registry": None,
             "evidence_classifier": None,
+            "ownership_discovery": None,
             "policy_identity": None,
             "idp_review_confidence_threshold": Decimal("0.81"),
             "ubo_threshold_percent": Decimal("27"),
@@ -768,7 +769,7 @@ def test_policy_rebind_preserves_case_choices_and_audits_previous_snapshot() -> 
     )
     codec = object.__new__(MongoCaseStore)
     round_trip = codec._decode(codec._encode(durable))  # noqa: SLF001
-    assert round_trip.schema_version == 10
+    assert round_trip.schema_version == 13
     assert round_trip.onboarding.policy_rebind_history == persisted.policy_rebind_history
 
     stale = client.post(

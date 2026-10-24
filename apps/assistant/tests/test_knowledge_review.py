@@ -73,7 +73,7 @@ def kb(tmp_path: Path) -> KnowledgeBase:
 
 def client(kb: KnowledgeBase, session: str, *, single_reviewer: bool = False) -> TestClient:
     """A signed-in browser. Two-person review unless ``single_reviewer`` (the POC setting,
-    D-076, which defaults to on): these tests prove the two-person rule unchanged."""
+    D-080, which defaults to on): these tests prove the two-person rule unchanged."""
 
     settings = AiAssistantSettings(  # type: ignore[call-arg]
         _env_file=None, llm_enabled=False, knowledge_single_reviewer=single_reviewer
@@ -154,7 +154,7 @@ def drafted(
 
 def legacy_rm_draft(kb: KnowledgeBase) -> str:
     """A pending past resolution written by the RM maya-lim, as "Solved it" drafted them
-    before D-076. Such drafts can still be in a store, so the author view must keep working."""
+    before D-080. Such drafts can still be in a store, so the author view must keep working."""
 
     entry = kb.propose(
         Entry(
@@ -472,7 +472,7 @@ def test_an_rm_can_never_approve_and_the_author_never_decides(kb: KnowledgeBase)
     reply = decide(kb, "drafter-session", entry_id, 1)
     assert reply.json()["detail"]["code"] == "MAKER_CHECKER"
     assert reply.status_code == 403 and "you wrote" in reply.json()["detail"]["message"]
-    # Nor can an RM who wrote a draft before D-076, once a Director.
+    # Nor can an RM who wrote a draft before D-080, once a Director.
     legacy = legacy_rm_draft(kb)
     USERS["self-approver"] = _profile("maya-lim", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"])
     try:

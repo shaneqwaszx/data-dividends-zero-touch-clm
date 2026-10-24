@@ -46,7 +46,7 @@ def test_schema10_stale_fresh_and_changed_review_survive_restart_without_read_ti
             conflict_fingerprint = current["target_classification"]["evidence_fingerprint"]
             assert current["target_classification"]["state"] == "CONFLICT"
             original = collection.find_one({"_id": cid})
-            assert original["schema_version"] == 10
+            assert original["schema_version"] == 13
         with TestClient(
             create_app(settings, acra_connector=acra, goldtier_transport=target)
         ) as client:
