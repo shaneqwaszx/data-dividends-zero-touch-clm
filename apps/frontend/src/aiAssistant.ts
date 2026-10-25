@@ -365,11 +365,15 @@ export interface KnowledgeGap {
   answer_id?: string | null;
 }
 
+/** Where an allowed line comes from: a fixed catalog line, one filled from the case, or knowledge. */
+export type AllowedLineSource = "policy" | "case" | "knowledge";
+
 /** The server's record of one answer: what the AI was given, chose and left out. */
 export interface AnswerRecord {
   answer_id: string;
   case_id: string;
   created_at: string;
+  /** The question as the service used it. */
   question: string;
   earlier_answer_ids: string[];
   case_snapshot: {
@@ -382,11 +386,23 @@ export interface AnswerRecord {
   knowledge: {
     confidence: "high" | "low" | "none" | null;
     degraded: boolean | null;
-    entries: { tag: string; entry_id: string; version: number; score: number; fallback: boolean }[];
+    /** The minimum score an entry of each kind needs to be used. */
+    thresholds: { guidance: number; resolution: number };
+    entries: {
+      tag: string;
+      kind: "guidance" | "resolution";
+      entry_id: string;
+      version: number;
+      score: number;
+      parts: Record<string, number>;
+      fallback: boolean;
+    }[];
   };
-  allowed_lines: string[];
+  allowed_lines: { text: string; source: AllowedLineSource }[];
   chosen_lines: string[];
   dropped_lines: string[];
+  /** The answer as the RM saw it (a case-data answer with names and identifiers removed). */
+  shown_answer: string;
   result: {
     answered_by: "model" | "case_data";
     notices: string[];

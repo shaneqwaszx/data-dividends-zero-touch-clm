@@ -33,6 +33,7 @@ from .answer_records import (
     ANSWER_ID,
     AnswerRecorder,
     FallbackReason,
+    allowed_lines,
     capped_dropped,
     case_snapshot,
     knowledge_used,
@@ -46,7 +47,6 @@ from .guardrails import (
     LEFT_OUT_REASON,
     StreamingGuard,
     Validation,
-    allowed_guidance,
     validate_answer,
 )
 from .knowledge.redaction import Redactor, case_parties
@@ -330,13 +330,22 @@ def create_app(
                         prep.tagged,
                         confidence=prep.knowledge.confidence if prep.knowledge else None,
                         degraded=prep.knowledge.degraded if prep.knowledge else None,
+                        thresholds={
+                            "guidance": config.retrieval_min_score_guidance,
+                            "resolution": config.retrieval_min_score_resolution,
+                        },
                     ),
-                    "allowed_lines": list(
-                        dict.fromkeys([*allowed_guidance(prep.facts), *prep.shown.lines])
-                    ),
+                    "allowed_lines": allowed_lines(prep.facts, prep.shown.lines),
                     # Model answers only: the checked lines the RM was shown.
                     "chosen_lines": (
                         response.answer.splitlines() if response.answered_by == "model" else []
+                    ),
+                    # The answer as the RM saw it: a model answer is its checked lines; a
+                    # case-data answer is fixed wording filled from the case, so it is redacted.
+                    "shown_answer": (
+                        response.answer
+                        if response.answered_by == "model"
+                        else redact(response.answer)
                     ),
                     "dropped_lines": (
                         capped_dropped(validation.dropped, redact) if validation else []

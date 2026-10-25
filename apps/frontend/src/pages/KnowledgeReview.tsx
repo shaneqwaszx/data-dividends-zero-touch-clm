@@ -11,10 +11,11 @@ import {
   fetchKnowledgeStats,
   type KnowledgeEntry,
   type KnowledgeFix,
+  type KnowledgeGap,
   type KnowledgeReviewQueue,
   type KnowledgeStats,
 } from "../aiAssistant";
-import WhatHappened from "./WhatHappened";
+import RequestPage from "./RequestPage";
 
 /** The fix a Director is writing for an enhancement request. */
 interface FixDraft {
@@ -99,6 +100,11 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
   const [tick, setTick] = useState(0);
   const dialog = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  // The enhancement request open as a full-width page, and the one to return focus to.
+  const [openRequest, setOpenRequest] = useState<KnowledgeGap | null>(null);
+  const openRequestRef = useRef<KnowledgeGap | null>(null);
+  openRequestRef.current = openRequest;
+  const returnTo = useRef<number | null>(null);
 
   // A modal dialog: focus moves into it when it opens and back to what opened it on close.
   useEffect(() => {
@@ -114,7 +120,9 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        // On a request page, Escape goes back to the review window first.
+        if (openRequestRef.current) setOpenRequest(null);
+        else onClose();
         return;
       }
       if (event.key !== "Tab" || !dialog.current) return;
@@ -133,6 +141,13 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  // Back from a request page: focus returns to the button that opened it.
+  useEffect(() => {
+    if (openRequest || returnTo.current === null) return;
+    dialog.current?.querySelector<HTMLElement>(`[data-open-request="${returnTo.current}"]`)?.focus();
+    returnTo.current = null;
+  }, [openRequest]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -257,6 +272,22 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     } finally {
       setBusy(null);
     }
+  }
+
+  if (openRequest) {
+    return (
+      <div
+        ref={dialog}
+        className="knowledge-review-backdrop knowledge-review-backdrop-page"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="knowledge-review-title"
+      >
+        <section className="knowledge-review knowledge-review-page">
+          <RequestPage gap={openRequest} onBack={() => setOpenRequest(null)} />
+        </section>
+      </div>
+    );
   }
 
   return (
@@ -410,7 +441,19 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                 <article key={gap.id} className="knowledge-review-entry" aria-label={`Enhancement request ${gap.id}`}>
                   <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
                   <p>{gap.note || "No note given."}</p>
-                  {gap.answer_id && <WhatHappened feedbackId={gap.id} />}
+                  {gap.answer_id && (
+                    <button
+                      type="button"
+                      className="btn"
+                      data-open-request={gap.id}
+                      onClick={() => {
+                        returnTo.current = gap.id;
+                        setOpenRequest(gap);
+                      }}
+                    >
+                      Open request page
+                    </button>
+                  )}
                   <fieldset className="knowledge-review-fix">
                     <legend>Write the fix</legend>
                     <label>

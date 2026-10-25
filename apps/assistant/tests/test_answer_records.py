@@ -104,7 +104,7 @@ def rate(
 def allowed_line(kb: KnowledgeBase) -> str:  # noqa: F811
     """A line the model may say on this case (from a record of the server's allowed lines)."""
 
-    return str(record(kb, ask(kb)["answer_id"])["allowed_lines"][0])
+    return str(record(kb, ask(kb)["answer_id"])["allowed_lines"][0]["text"])
 
 
 def blank(answer_id: str, user_id: str = "maya-lim", case_id: str = CASE_ID) -> dict[str, Any]:
@@ -123,6 +123,7 @@ def blank(answer_id: str, user_id: str = "maya-lim", case_id: str = CASE_ID) -> 
         "chosen_lines": [],
         "dropped_lines": [],
         "result": {},
+        "shown_answer": "",
     }
 
 
@@ -158,8 +159,19 @@ def test_an_answer_is_recorded_from_what_the_server_produced(
     snapshot = stored["case_snapshot"]
     assert set(snapshot) == {"blocker_codes", "stage", "steps_done", "steps_total", "facts_hash"}
     assert snapshot["blocker_codes"] and len(snapshot["facts_hash"]) == 64
-    assert stored["allowed_lines"] and reply["answer"] in stored["allowed_lines"]
-    assert set(stored["knowledge"]) == {"confidence", "degraded", "entries"}
+    assert reply["answer"] in [line["text"] for line in stored["allowed_lines"]]
+    assert stored["shown_answer"] == reply["answer"]
+    assert set(stored["knowledge"]) == {"confidence", "degraded", "entries", "thresholds"}
+    assert stored["knowledge"]["thresholds"] == {"guidance": 0.3, "resolution": 0.4}
+    # Each allowed line says where it comes from; the fixed catalog lines are policy.
+    sources = {line["text"]: line["source"] for line in stored["allowed_lines"]}
+    assert (
+        sources[
+            "Ownership and UBO analysis is provisional; it does not establish legal verification."
+        ]
+        == "policy"
+    )
+    assert sources[reply["answer"]] == "case"
     # Browser-sent history text is never stored.
     with sqlite3.connect(kb.store._path) as db:
         row = db.execute("SELECT * FROM answer_records WHERE id = ?", (answer_id,)).fetchone()
@@ -502,3 +514,30 @@ def test_every_earlier_store_gains_answer_records(tmp_path: Path, version: str) 
     assert store.owned_answers(["E" * 22], user_id="maya-lim", case_id=CASE_ID) == ["E" * 22]
     KnowledgeStore(path)  # opening again changes nothing
     assert store.answer_record("E" * 22) is not None
+
+
+def test_allowed_lines_are_tagged_policy_case_or_knowledge() -> None:
+    from ai_assistant.answer_records import POLICY_LINES, allowed_lines
+    from ai_assistant.clm_client import CaseSnapshot
+    from ai_assistant.context import build_case_facts
+    from tests.test_ai_assistant import ME
+
+    facts = build_case_facts(CaseSnapshot(summary=SUMMARY, documents=DOCUMENTS, actor=ME))
+    knowledge = ("Ask for a certified copy of the register [G1].",)
+    tagged = allowed_lines(facts, knowledge)
+    by_source: dict[str, list[str]] = {}
+    for line in tagged:
+        by_source.setdefault(line["source"], []).append(line["text"])
+    assert by_source["knowledge"] == list(knowledge)
+    assert set(by_source["policy"]) == set(POLICY_LINES)
+    # Case lines are the ones only this case's facts produce.
+    assert by_source["case"] and not set(by_source["case"]) & POLICY_LINES
+
+
+def test_a_case_data_answer_is_kept_as_shown_but_redacted(kb: KnowledgeBase) -> None:  # noqa: F811
+    reply = ask(kb, FakeModel(fail=True))
+    stored = record(kb, reply["answer_id"])
+    assert reply["answer"] and stored["shown_answer"]
+    assert "11111999A" not in stored["shown_answer"]
+    assert "GARDEN BUSINESS" not in stored["shown_answer"].upper()
+    assert stored["result"]["notices"] == [reply["notice"]]

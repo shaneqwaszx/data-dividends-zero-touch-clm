@@ -8,8 +8,8 @@ import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.co
 // Real Chromium rendering the actual panel and Knowledge review window against a synthetic
 // assistant API. The fixture is synthetic; it grants no backend authority or Live-model claim.
 // The fake service keeps the answer record contract: feedback must name the answer_id the
-// stream returned, and only the record linked to a request is served as "What happened".
-test("answer records: RM asks, marks it Not helpful, and a Director sees What happened", async ({ page }) => {
+// stream returned, and only the record linked to a request is served on its request page.
+test("answer records: RM asks, marks it Not helpful, and a Director opens the request page", async ({ page }) => {
   test.setTimeout(45000);
   page.setDefaultTimeout(8000);
   const pageErrors: string[] = [];
@@ -38,15 +38,20 @@ test("answer records: RM asks, marks it Not helpful, and a Director sees What ha
 
   const question = "Explain the registered address difference";
   const answerId = "Ab3_dE5-gH7iJ9kL1mN2oP";
-  const allowed = ["Keep the registry value.", "Open Documents to compare the values."];
+  const allowed = [
+    { text: "Registry and document differences require the current case decision; neither source automatically overrides the other.", source: "policy" },
+    { text: 'The current case offers "Keep registry value".', source: "case" },
+  ];
+  const shownAnswer = "The registered address comes from ACRA.";
+  const notice = "The model response could not be verified, so this answer comes from the case data.";
   const record = {
     answer_id: answerId, case_id: "case-one", created_at: "2026-10-25T00:00:00+00:00", question,
     earlier_answer_ids: [],
     case_snapshot: { blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], stage: "Documents", steps_done: 3, steps_total: 10, facts_hash: "f".repeat(64) },
-    knowledge: { confidence: "low", degraded: false, entries: [] },
-    allowed_lines: allowed, chosen_lines: [],
+    knowledge: { confidence: "none", degraded: false, thresholds: { guidance: 0.3, resolution: 0.4 }, entries: [] },
+    allowed_lines: allowed, chosen_lines: [], shown_answer: shownAnswer,
     dropped_lines: ["The document says [ADDRESS] but ACRA says [ADDRESS]."],
-    result: { answered_by: "case_data", notices: [], fallback_reason: "nothing_allowed", left_out: 1, model: "synthetic", elapsed_ms: 1200 },
+    result: { answered_by: "case_data", notices: [notice], fallback_reason: "nothing_allowed", left_out: 1, model: "synthetic", elapsed_ms: 1200 },
     rated: true,
   };
   const feedbackBodies: unknown[] = [];
@@ -74,9 +79,8 @@ test("answer records: RM asks, marks it Not helpful, and a Director sees What ha
       }
       if (url.endsWith("/cases/case-one/chat/stream")) {
         response.setHeader("Content-Type", "application/x-ndjson");
-        response.end(JSON.stringify({ type: "done", answer: "The registered address comes from ACRA.",
-          answered_by: "case_data", model: null, notice: "The model response could not be verified, so this answer comes from the case data.",
-          suggested_questions: [], answer_id: answerId }) + "\n"); return;
+        response.end(JSON.stringify({ type: "done", answer: shownAnswer,
+          answered_by: "case_data", model: null, notice, suggested_questions: [], answer_id: answerId }) + "\n"); return;
       }
       if (url.endsWith("/cases/case-one/feedback")) {
         const sent = JSON.parse(body) as { helpful: boolean; note: string; answer_id?: string };
@@ -120,7 +124,7 @@ test("answer records: RM asks, marks it Not helpful, and a Director sees What ha
     await page.getByRole("button", { name: "Ask AI Assistant", exact: true }).click();
     await expect(page.getByText("Case One · read-only", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: question, exact: true }).click();
-    await expect(page.getByText("The registered address comes from ACRA.", { exact: true })).toBeVisible();
+    await expect(page.getByText(shownAnswer, { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Not helpful", exact: true }).click();
     const form = page.locator(".ai-assistant-feedback-form");
     await form.getByRole("textbox", { name: "What was missing?" }).fill("It did not show the two addresses.");
@@ -128,18 +132,32 @@ test("answer records: RM asks, marks it Not helpful, and a Director sees What ha
     await expect(page.getByText("Thanks. This has been flagged so the answer can be improved.", { exact: true })).toBeVisible();
     expect(feedbackBodies).toEqual([{ helpful: false, note: "It did not show the two addresses.", answer_id: answerId }]);
 
-    // The Director opens the request and sees what happened, loaded only when opened.
+    // The Director opens the request page; the record is loaded (and the view logged) only then.
     await page.getByRole("button", { name: "Sign in as the Director", exact: true }).click();
     const requestCard = page.getByRole("article", { name: "Enhancement request 1" });
     await expect(requestCard.getByText("It did not show the two addresses.", { exact: true })).toBeVisible();
     expect(recordViews).toEqual([]);
-    await requestCard.getByText("What happened", { exact: true }).click();
-    await expect(requestCard.getByRole("alert")).toContainText("No allowed line matched.");
-    await expect(requestCard.getByText(question, { exact: true })).toBeVisible();
-    await expect(requestCard.getByText("The document says [ADDRESS] but ACRA says [ADDRESS].", { exact: true })).toBeVisible();
-    await requestCard.getByText("Allowed lines (2)", { exact: true }).click();
-    for (const line of allowed) await expect(requestCard.getByText(line, { exact: true })).toBeVisible();
+    await requestCard.getByRole("button", { name: "Open request page", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Enhancement request 1" })).toBeFocused();
+    const saw = page.getByRole("region", { name: "What the RM saw" });
+    await expect(saw.getByText(question, { exact: true })).toBeVisible();
+    await expect(saw.getByText(shownAnswer, { exact: true })).toBeVisible();
+    await expect(saw.getByText(notice, { exact: true })).toBeVisible();
+    await expect(saw.getByText("It did not show the two addresses.", { exact: true })).toBeVisible();
+    const why = page.getByRole("region", { name: "Why the AI answered this way" });
+    const cause = why.getByRole("note", { name: "Suggested cause" });
+    await expect(cause).toContainText("Rule-based hint, not a verdict");
+    await expect(cause).toContainText("Catalog gap: no allowed line matched");
+    await expect(why.locator("del")).toHaveText("The document says [ADDRESS] but ACRA says [ADDRESS].");
+    await why.getByText("All allowed lines (2)", { exact: true }).click();
+    const allowedList = why.locator(".request-page-allowed li");
+    await expect(allowedList).toHaveText(allowed.map((line) => `${line.source === "policy" ? "Policy" : "Case"} ${line.text}`));
+    // Side by side on a wide screen.
+    const [left, right] = [await saw.boundingBox(), await why.boundingBox()];
+    expect(left && right && right.x > left.x + left.width - 1).toBe(true);
     expect(recordViews).toHaveLength(1);
+    await page.getByRole("button", { name: "← Back to Knowledge review" }).click();
+    await expect(page.getByRole("button", { name: "Open request page", exact: true })).toBeFocused();
     expect(violations).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {

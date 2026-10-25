@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS answer_records (
     chosen_lines TEXT NOT NULL,
     dropped_lines TEXT NOT NULL,
     result TEXT NOT NULL,
+    shown_answer TEXT NOT NULL,
     rated_at TEXT,
     linked_request_id INTEGER REFERENCES feedback (id)
 );
@@ -161,6 +162,7 @@ _ANSWER_JSON = (
     "chosen_lines",
     "dropped_lines",
     "result",
+    "shown_answer",
 )
 
 # How long a write waits for another writer to finish before reporting a stale request.

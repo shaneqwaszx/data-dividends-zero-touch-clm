@@ -3,9 +3,11 @@ answer, so a Director can see why the AI said what it said.
 
 A record holds only what this request produced or received: the question as the server used
 it, the ids of earlier answers it checked belong to the same user and case, the case state,
-the knowledge retrieved, the allowed lines, the lines kept, the lines left out (redacted with
-the case Redactor and capped), and how the answer was made. Browser-sent history text is
-never stored. Records are never put into a prompt and never copied into knowledge.
+the knowledge retrieved (with the score thresholds), the allowed lines tagged by where they
+come from, the lines kept, the answer as the RM saw it (a case-data answer redacted), the lines
+left out (redacted with the case Redactor and capped), and how the answer was made.
+Browser-sent history text is never stored. Records are never put into a prompt and never
+copied into knowledge.
 """
 
 import hashlib
@@ -17,6 +19,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
+from .guardrails import allowed_guidance
 from .knowledge.retrieval import case_context
 from .knowledge.store import KnowledgeStore
 from .knowledge_answers import TaggedHit
@@ -27,6 +30,10 @@ MAX_DROPPED_BYTES = 8 * 1024
 PURGE_INTERVAL_SECONDS = 3600.0
 
 FallbackReason = Literal["model_unavailable", "nothing_allowed", "cut_short"]
+LineSource = Literal["policy", "case", "knowledge"]
+
+# The catalog's fixed lines (the same on every case): what it gives with no case facts.
+POLICY_LINES = frozenset(allowed_guidance({}))
 
 log = logging.getLogger("ai_assistant")
 
@@ -50,15 +57,37 @@ def case_snapshot(facts: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def allowed_lines(facts: dict[str, Any], knowledge_lines: Sequence[str]) -> list[dict[str, str]]:
+    """The allowed lines of this answer, each tagged by where it comes from: a fixed catalog
+    line (policy), a catalog line filled from this case (case), or approved knowledge."""
+
+    knowledge = set(knowledge_lines)
+    lines = dict.fromkeys([*allowed_guidance(facts), *knowledge_lines])
+    sources: list[dict[str, str]] = []
+    for line in lines:
+        source: LineSource = (
+            "knowledge" if line in knowledge else "policy" if line in POLICY_LINES else "case"
+        )
+        sources.append({"text": line, "source": source})
+    return sources
+
+
 def knowledge_used(
-    tagged: Sequence[TaggedHit], *, confidence: str | None, degraded: bool | None
+    tagged: Sequence[TaggedHit],
+    *,
+    confidence: str | None,
+    degraded: bool | None,
+    thresholds: dict[str, float],
 ) -> dict[str, Any]:
     return {
         "confidence": confidence,
         "degraded": degraded,
+        # The minimum score an entry of each kind needs to be used.
+        "thresholds": thresholds,
         "entries": [
             {
                 "tag": item.tag,
+                "kind": item.hit.entry.kind.value,
                 "entry_id": item.hit.entry.entry_id,
                 "version": item.hit.entry.version,
                 "score": round(item.hit.score, 4),

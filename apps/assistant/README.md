@@ -188,13 +188,19 @@ for /chat/stream). A record holds only what the server produced or received in t
 the question as the model got it (after the 600-character cut), the ids of earlier answers
 in the chat that the server found to be this user's on this case (at most
 `max_history_messages`), the case's blocker codes, stage, steps and a facts hash, the
-knowledge retrieved (tag, entry, version, scores, confidence, degraded), the allowed lines,
-the lines shown, the lines left out (redacted with the case Redactor, at most 8 KiB) and how
-the answer was made (answered by, notices, fallback reason `model_unavailable`,
+knowledge retrieved (tag, kind, entry, version, scores, the score thresholds, confidence,
+degraded), the allowed lines each tagged policy (a fixed catalog line), case (a catalog line
+filled from this case) or knowledge, the lines shown, the answer as the RM saw it (a
+case-data answer redacted with the case Redactor), the lines left out (redacted, at most
+8 KiB) and how the answer was made (answered by, notices, fallback reason `model_unavailable`,
 `nothing_allowed` or `cut_short`, model, time). Browser history text is never stored, and a
 record never goes into a prompt or into knowledge. Each record can be rated once; "Not
-helpful" links it to the new enhancement request, where a Director sees it as **What
-happened** (with **No allowed line matched** when none of the model's lines was allowed).
+helpful" links it to the new enhancement request. In the Knowledge review window a Director
+opens the request as a full-width page: **What the RM saw** (question, answer and notices,
+the RM's note, earlier answers on request) and **Why the AI answered this way** (a
+rule-based hint, not a verdict: "Catalog gap: no allowed line matched", "No knowledge
+found" or "Missing knowledge"; shown lines tagged Policy/Case/Knowledge, left-out lines
+crossed out, knowledge with scores and thresholds, all allowed lines, the case at the time).
 Records not linked to a request are deleted after `AI_ASSISTANT_ANSWER_RECORD_UNRATED_DAYS`
 (7), linked ones `AI_ASSISTANT_ANSWER_RECORD_CLOSED_DAYS` (30) after the request was resolved
 or closed: on start-up and at most hourly with a new record.

@@ -246,6 +246,7 @@ def answer_view(record: dict[str, Any]) -> dict[str, Any]:
         "chosen_lines": record["chosen_lines"],
         "dropped_lines": record["dropped_lines"],
         "result": record["result"],
+        "shown_answer": record["shown_answer"],
         "rated": record["rated_at"] is not None,
     }
 

@@ -4,7 +4,9 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AnswerRecord } from "../aiAssistant";
 import KnowledgeReview from "./KnowledgeReview";
+import { suggestedCause } from "./RequestPage";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -465,91 +467,157 @@ const RECORD = {
   question: "Explain the registered address difference",
   earlier_answer_ids: ["B".repeat(22)],
   case_snapshot: { blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], stage: "Documents", steps_done: 3, steps_total: 10, facts_hash: "f".repeat(64) },
-  knowledge: { confidence: "low", degraded: false, entries: [{ tag: "G1", entry_id: "guidance.environments", version: 1, score: 0.31, fallback: true }] },
-  allowed_lines: ["Keep the registry value.", "Open Documents to compare the values."],
+  knowledge: {
+    confidence: "low",
+    degraded: false,
+    thresholds: { guidance: 0.3, resolution: 0.4 },
+    entries: [{ tag: "G1", kind: "guidance", entry_id: "guidance.environments", version: 1, score: 0.31, parts: {}, fallback: true }],
+  },
+  allowed_lines: [
+    { text: "Registry and document differences require the current case decision.", source: "policy" },
+    { text: 'The current case offers "Keep registry value".', source: "case" },
+    { text: "Ask for a certified copy of the register [G1].", source: "knowledge" },
+  ],
   chosen_lines: [],
   dropped_lines: ["The document says [ADDRESS] but ACRA says [ADDRESS]."],
-  result: { answered_by: "case_data", notices: [], fallback_reason: "nothing_allowed", left_out: 1, model: "m", elapsed_ms: 2300 },
+  shown_answer: "I found 1 issue stopping the onboarding of [COMPANY].",
+  result: {
+    answered_by: "case_data",
+    notices: ["The model response could not be verified, so this answer comes from the case data."],
+    fallback_reason: "nothing_allowed",
+    left_out: 1,
+    model: "m",
+    elapsed_ms: 2300,
+  },
   rated: true,
 };
 
-describe("What happened on an enhancement request", () => {
-  function reviewWith(gap: Record<string, unknown>, fetched: string[]) {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      fetched.push(url);
-      if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [gap] });
-      if (url.endsWith("/knowledge/stats")) {
-        return json({ entries: {}, feedback: { total: 1, helpful: 0, not_helpful: 1, helpful_rate: 0, open_gaps: 1 }, by_topic: {} });
-      }
-      if (url.endsWith("/knowledge/entries")) return json([]);
-      if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
-      if (url.endsWith("/knowledge/feedback/7/answer")) return json(RECORD);
-      if (url.endsWith(`/knowledge/feedback/7/answers/${"B".repeat(22)}`)) {
-        return json({ ...RECORD, answer_id: "B".repeat(22), question: "What should I do next?", chosen_lines: ["Keep the registry value."], dropped_lines: [], earlier_answer_ids: [], result: { ...RECORD.result, answered_by: "model", fallback_reason: null, left_out: 0 } });
-      }
-      return json({}, 404);
-    }));
-  }
+const GAP = { id: 7, note: "It did not show the two addresses.", blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], fields: [], stages: [], created_at: "" };
 
-  const GAP = { id: 7, note: "It did not show the two addresses.", blocker_codes: [], fields: [], stages: [], created_at: "" };
+function reviewWith(gap: Record<string, unknown>, fetched: string[], record: unknown = RECORD) {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    fetched.push(url);
+    if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [gap] });
+    if (url.endsWith("/knowledge/stats")) {
+      return json({ entries: {}, feedback: { total: 1, helpful: 0, not_helpful: 1, helpful_rate: 0, open_gaps: 1 }, by_topic: {} });
+    }
+    if (url.endsWith("/knowledge/entries")) return json([]);
+    if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
+    if (url.endsWith("/knowledge/feedback/7/answer")) return json(record);
+    if (url.endsWith(`/knowledge/feedback/7/answers/${"B".repeat(22)}`)) {
+      return json({ ...RECORD, answer_id: "B".repeat(22), question: "What should I do next?", shown_answer: "Keep the registry value.", result: { ...RECORD.result, notices: [] } });
+    }
+    return json({}, 404);
+  }));
+}
 
-  it("loads the record only when opened and shows the catalog-gap signal and the allowed lines", async () => {
+function openRequestPage(view: HTMLDivElement): void {
+  const open = [...view.querySelectorAll("button")].find((b) => b.textContent === "Open request page");
+  act(() => open?.click());
+}
+
+describe("The enhancement request page", () => {
+  it("opens full width, loads the record only then, and shows what the RM saw", async () => {
     const fetched: string[] = [];
     reviewWith({ ...GAP, answer_id: "A".repeat(22) }, fetched);
     const view = render();
     await flush();
-    const section = view.querySelector(".what-happened") as HTMLDetailsElement;
-    expect(section?.querySelector("summary")?.textContent).toBe("What happened");
-    // Nothing is fetched (and so no view is logged) until the Director opens it.
+    // Nothing is fetched (and so no view is logged) until the Director opens the request.
     expect(fetched.some((url) => url.includes("/answer"))).toBe(false);
-    act(() => { section.open = true; section.dispatchEvent(new Event("toggle")); });
+    openRequestPage(view);
     await flush();
     expect(fetched.filter((url) => url.endsWith("/knowledge/feedback/7/answer"))).toHaveLength(1);
-    const text = section.textContent ?? "";
-    expect(section.querySelector('[role="alert"]')?.textContent).toContain("No allowed line matched.");
-    expect(text).toContain("Explain the registered address difference");
-    expect(text).toContain("None of the model's lines was an allowed line");
-    expect(text).toContain("[G1] guidance.environments v1 (score 0.31)");
-    expect(text).toContain("The document says [ADDRESS] but ACRA says [ADDRESS].");
-    const allowed = [...section.querySelectorAll("details")].find((d) => d.querySelector("summary")?.textContent === "Allowed lines (2)");
-    expect([...(allowed?.querySelectorAll("li") ?? [])].map((li) => li.textContent)).toEqual(RECORD.allowed_lines);
-
-    const earlier = [...section.querySelectorAll("button")].find((b) => b.textContent === "Show earlier answer 1");
-    act(() => earlier?.click());
+    expect(view.querySelector(".knowledge-review-page")).not.toBeNull();
+    expect(document.activeElement?.textContent).toBe("Enhancement request 7");
+    const saw = view.querySelector('[aria-labelledby="request-page-saw"]');
+    expect(saw?.querySelector(".request-page-question")?.textContent).toBe("Explain the registered address difference");
+    expect(saw?.querySelector(".request-page-answer-text")?.textContent).toBe("I found 1 issue stopping the onboarding of [COMPANY].");
+    expect(saw?.querySelector(".request-page-notice")?.textContent).toContain("could not be verified");
+    expect(saw?.querySelector(".request-page-note")?.textContent).toBe("It did not show the two addresses.");
+    // The earlier answers of the chat, loaded on request.
+    act(() => [...(saw?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Show earlier answer 1")?.click());
     await flush();
-    expect(section.textContent).toContain("What should I do next?");
-    expect(fetched.some((url) => url.endsWith(`/knowledge/feedback/7/answers/${"B".repeat(22)}`))).toBe(true);
+    expect(saw?.textContent).toContain("What should I do next?");
+    // Back returns to the review window, with focus on the button that opened the page.
+    act(() => [...view.querySelectorAll("button")].find((b) => b.textContent?.includes("Back to Knowledge review"))?.click());
+    await flush();
+    expect(view.querySelector(".knowledge-review-page")).toBeNull();
+    expect(document.activeElement?.textContent).toBe("Open request page");
   });
 
-  it("names left-out lines without the gap signal when the model's answer was shown", async () => {
-    const fetched: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      fetched.push(url);
-      if (url.endsWith("/knowledge/feedback/7/answer")) {
-        return json({ ...RECORD, earlier_answer_ids: [], chosen_lines: ["Keep the registry value."], dropped_lines: ["One line.", "Two lines."], result: { ...RECORD.result, answered_by: "model", fallback_reason: null, left_out: 2 } });
-      }
-      if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [{ ...GAP, answer_id: "A".repeat(22) }] });
-      if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false });
-      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 0, helpful: 0, not_helpful: 0, helpful_rate: null, open_gaps: 0 }, by_topic: {} });
-      return json([]);
-    }));
+  it("explains why the AI answered this way", async () => {
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, []);
     const view = render();
     await flush();
-    const section = view.querySelector(".what-happened") as HTMLDetailsElement;
-    act(() => { section.open = true; section.dispatchEvent(new Event("toggle")); });
+    openRequestPage(view);
     await flush();
-    expect(section.querySelector('[role="alert"]')).toBeNull();
-    expect(section.textContent).toContain("2 lines didn't match an allowed line.");
-    expect(section.textContent).toContain("None: a full model answer.");
+    const why = view.querySelector('[aria-labelledby="request-page-why"]');
+    const cause = why?.querySelector('[aria-label="Suggested cause"]');
+    expect(cause?.querySelector(".request-page-cause-label")?.textContent).toBe("Rule-based hint, not a verdict");
+    expect(cause?.querySelector(".request-page-cause-title")?.textContent).toBe("Catalog gap: no allowed line matched");
+    const dropped = why?.querySelector("del");
+    expect(dropped?.textContent).toBe("The document says [ADDRESS] but ACRA says [ADDRESS].");
+    expect(dropped?.nextElementSibling?.textContent).toContain("Not an allowed line");
+    const rows = [...(why?.querySelectorAll(".request-page-table tbody tr") ?? [])].map((row) => row.textContent);
+    expect(rows).toEqual(["G1guidance.environments v1 (stage guidance)0.310.3"]);
+    const allowed = why?.querySelector(".request-page-allowed");
+    expect(allowed?.querySelector("summary")?.textContent).toBe("All allowed lines (3)");
+    expect([...(allowed?.querySelectorAll(".request-page-tag") ?? [])].map((tag) => tag.textContent)).toEqual(["Policy", "Case", "Knowledge"]);
+    expect(why?.textContent).toContain("3 of 10 done");
   });
 
-  it("shows no What happened for a request without a record", async () => {
+  it("tags the lines shown to the RM by where they come from", async () => {
+    const shown = { ...RECORD, chosen_lines: ['The current case offers "Keep registry value".'], dropped_lines: [], result: { ...RECORD.result, answered_by: "model", fallback_reason: null, left_out: 0 } };
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, [], shown);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    const line = view.querySelector('[aria-labelledby="request-page-why"] .request-page-lines li');
+    expect(line?.querySelector(".request-page-tag")?.textContent).toBe("Case");
+    expect(line?.textContent).toContain("Keep registry value");
+  });
+
+  it("Escape on the request page goes back to the review window", async () => {
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, []);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    act(() => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    await flush();
+    expect(view.querySelector(".knowledge-review-page")).toBeNull();
+    expect(view.textContent).toContain("Enhancement requests (1)");
+  });
+
+  it("offers no request page for a request without a record", async () => {
     reviewWith(GAP, []);
     const view = render();
     await flush();
     expect(view.textContent).toContain("It did not show the two addresses.");
-    expect(view.querySelector(".what-happened")).toBeNull();
+    expect([...view.querySelectorAll("button")].some((b) => b.textContent === "Open request page")).toBe(false);
+  });
+});
+
+describe("suggestedCause", () => {
+  const base = RECORD as unknown as AnswerRecord;
+  const used = { ...base.knowledge };
+  const none = { ...base.knowledge, entries: [] };
+
+  it("follows the three rules in order", () => {
+    expect(suggestedCause({ ...base, chosen_lines: [], dropped_lines: ["x"], knowledge: none })?.title)
+      .toBe("Catalog gap: no allowed line matched");
+    expect(suggestedCause({ ...base, chosen_lines: ["a"], dropped_lines: [], result: { ...base.result, left_out: 0, fallback_reason: null }, knowledge: none })?.title)
+      .toBe("No knowledge found");
+    expect(suggestedCause({ ...base, chosen_lines: ["a"], dropped_lines: ["x"], result: { ...base.result, left_out: 1, fallback_reason: null }, knowledge: used })?.title)
+      .toBe("Missing knowledge");
+    expect(suggestedCause({ ...base, chosen_lines: ["a"], dropped_lines: [], result: { ...base.result, left_out: 0, fallback_reason: null }, knowledge: used }))
+      .toBeNull();
+  });
+
+  it("gives no hint when the model was not available", () => {
+    expect(suggestedCause({ ...base, chosen_lines: [], dropped_lines: [], result: { ...base.result, left_out: 0, fallback_reason: "model_unavailable" }, knowledge: none }))
+      .toBeNull();
   });
 });
