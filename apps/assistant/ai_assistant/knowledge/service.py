@@ -46,6 +46,8 @@ class KnowledgeBase:
         notes: str = "",
         expected_hash: str | None = None,
         authorize: Callable[[], None] | None = None,
+        single_reviewer: bool = False,
+        confirmed: bool = False,
     ) -> Entry:
         decided = self.store.decide(
             entry_id,
@@ -55,6 +57,8 @@ class KnowledgeBase:
             notes=notes,
             expected_hash=expected_hash,
             authorize=authorize,
+            single_reviewer=single_reviewer,
+            confirmed=confirmed,
         )
         self.sync()
         return decided

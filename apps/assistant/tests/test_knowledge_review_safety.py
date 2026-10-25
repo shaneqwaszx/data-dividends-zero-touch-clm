@@ -19,7 +19,7 @@ from ai_assistant.knowledge.store import (
     KnowledgeStore,
     MakerCheckerError,
 )
-from tests.test_knowledge_review import client, decide, edit, kb, solved  # noqa: F401
+from tests.test_knowledge_review import client, decide, drafted, edit, kb  # noqa: F401
 
 GUIDANCE = "guidance.address-mismatch"
 RETIRE = f"/assistant/knowledge/entries/{GUIDANCE}/retire"
@@ -74,7 +74,7 @@ def test_a_retirement_request_does_not_carry_over_to_a_new_version(tmp_path: Pat
 def test_a_resolution_in_another_team_cannot_even_be_asked_to_retire(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     decide(kb, "director-session", entry_id, 1)
     other = client(kb, "director-b-session").post(
         f"/assistant/knowledge/entries/{entry_id}/retire", json={"notes": "not mine"}
@@ -182,7 +182,7 @@ def test_a_concurrent_edit_is_a_clean_409_through_the_api(
     kb: KnowledgeBase,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
 
     def conflict(*args: object, **kwargs: object) -> None:
         raise ContentChangedError("a concurrent change came first")
@@ -262,7 +262,7 @@ def test_an_edit_cannot_widen_role_visibility(tmp_path: Path) -> None:
 
 
 def test_stats_count_only_the_callers_team(kb: KnowledgeBase) -> None:  # noqa: F811
-    solved(kb)
+    drafted(kb)
     own = client(kb, "director-session").get("/assistant/knowledge/stats").json()
     other = client(kb, "director-b-session").get("/assistant/knowledge/stats").json()
     assert own["entries"].get("resolution_pending_review") == 1
@@ -270,3 +270,64 @@ def test_stats_count_only_the_callers_team(kb: KnowledgeBase) -> None:  # noqa: 
     assert other["feedback"]["total"] == 0
     # Organisation-wide guidance counts for every team.
     assert own["entries"]["guidance_approved"] == other["entries"]["guidance_approved"]
+
+
+@pytest.mark.parametrize("order", ["draft-first", "close-first"])
+def test_drafting_and_closing_one_request_at_once_have_exactly_one_winner(
+    tmp_path: Path, order: str
+) -> None:
+    path = tmp_path / "race.sqlite3"
+    request_id = KnowledgeStore(path).add_feedback(
+        case_id="c1",
+        user_id="maya-lim",
+        role="CLIENT_ONBOARDER",
+        team="TEAM_A",
+        helpful=False,
+        note="No proof list.",
+        blocker_codes=(),
+        fields=(),
+        stages=(),
+        entry_id=None,
+    )
+
+    def build(row: dict[str, object]) -> Entry:
+        time.sleep(0.4)  # holds the write lock, after the open-request check
+        return Entry(
+            entry_id="resolution.from-request",
+            kind=EntryKind.RESOLUTION,
+            title="Draft",
+            body=str(row["note"]),
+            author="director-dan",
+        )
+
+    calls: dict[str, Callable[[KnowledgeStore], object]] = {
+        "draft": lambda store: store.draft_request(request_id, build),
+        "close": lambda store: store.close_feedback(request_id, by="director-dee", reason="Dup."),
+    }
+    outcomes: dict[str, str] = {}
+
+    def run(name: str) -> None:
+        try:
+            calls[name](KnowledgeStore(path))
+            outcomes[name] = "ok"
+        except KnowledgeError as exc:
+            outcomes[name] = type(exc).__name__
+        except Exception as exc:  # noqa: BLE001 - any other error is the failure under test
+            outcomes[name] = f"CRASH {type(exc).__name__}"
+
+    names = ["draft", "close"] if order == "draft-first" else ["close", "draft"]
+    threads = [threading.Thread(target=run, args=(name,)) for name in names]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.05)
+    for thread in threads:
+        thread.join(timeout=30)
+    winner = names[0]
+    assert outcomes == {winner: "ok", names[1]: "ContentChangedError"}
+    store = KnowledgeStore(path)
+    (row,) = store.feedback()
+    drafts = [e for e in store.entries() if e.kind == EntryKind.RESOLUTION]
+    if winner == "draft":
+        assert (row["status"], row["close_reason"]) == ("drafted", None) and len(drafts) == 1
+    else:
+        assert (row["status"], row["entry_id"]) == ("closed", None) and drafts == []

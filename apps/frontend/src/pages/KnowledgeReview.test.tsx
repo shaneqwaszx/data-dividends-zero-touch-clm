@@ -48,6 +48,17 @@ const PENDING = {
   source_ref: "RM feedback",
   illustrative: false,
   content_hash: "a".repeat(64),
+  single_reviewer: false,
+};
+
+const GUIDANCE = {
+  ...PENDING,
+  entry_id: "guidance.address-mismatch",
+  key: "guidance.address-mismatch@v2",
+  version: 2,
+  kind: "guidance",
+  status: "approved",
+  title: "Registered address differs from ACRA",
 };
 
 function backend(calls: { url: string; body: unknown }[], decision = () => json({ ...PENDING, status: "approved" })) {
@@ -55,11 +66,21 @@ function backend(calls: { url: string; body: unknown }[], decision = () => json(
     const url = String(input);
     if (init?.method === "POST") calls.push({ url, body: JSON.parse(String(init.body)) });
     if (url.endsWith("/knowledge/reviews")) return json({ pending: [PENDING], gaps: [{ id: 7, note: "No proof list.", blocker_codes: [], fields: [], stages: [], created_at: "" }] });
-    if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 3, helpful: 2, not_helpful: 1, helpful_rate: 0.667, open_gaps: 1 } });
-    if (url.includes("/knowledge/entries?kind=resolution")) return json([]);
+    if (url.endsWith("/knowledge/stats")) {
+      return json({
+        entries: {},
+        feedback: { total: 3, helpful: 2, not_helpful: 1, helpful_rate: 0.667, open_gaps: 1 },
+        by_topic: { DOCUMENT_SOURCE_CONFLICT: { helpful: 2, not_helpful: 1 }, UBO_EVIDENCE_REQUIRED: { helpful: 0, not_helpful: 1 } },
+      });
+    }
+    if (url.endsWith("/knowledge/entries")) return json([GUIDANCE]);
+    if (url.endsWith("/knowledge/me")) {
+      return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
+    }
     if (url.endsWith("/edit")) return json(PENDING);
     if (url.endsWith("/decision")) return decision();
     if (url.endsWith("/close")) return json({ status: "closed" });
+    if (url.endsWith("/draft")) return json({ ...PENDING, entry_id: "resolution.new", author: "director-dan" });
     return json({}, 404);
   });
 }
@@ -96,21 +117,41 @@ function button(view: HTMLElement, text: string): HTMLButtonElement {
 }
 
 describe("KnowledgeReview", () => {
-  it("shows the queue, gaps and stats, and approves exactly the content shown", async () => {
+  it("shows the queue, requests and stats, and publishes exactly the content shown after confirming", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
     expect(view.textContent).toContain("Waiting for review (1)");
-    expect(view.textContent).toContain("3 feedback · 2 solved · 1 not helpful · 67% helpful");
+    expect(view.textContent).toContain("3 feedback · 2 helpful · 1 not helpful · 67% helpful");
+    expect([...view.querySelectorAll('[aria-label="Confidence by topic"] li')].map((li) => li.textContent)).toEqual([
+      "DOCUMENT_SOURCE_CONFLICT: 2 helpful · 1 not helpful",
+      "UBO_EVIDENCE_REQUIRED: 0 helpful · 1 not helpful",
+    ]);
+    expect(view.textContent).toContain("Enhancement requests (1)");
+    expect(view.textContent).not.toContain("Gaps");
     expect(view.textContent).toContain("No proof list.");
 
+    // Approve first shows the final text; nothing is sent until it is confirmed.
     act(() => button(view, "Approve").click());
+    const confirm = view.querySelector('[aria-label="Confirm publishing"]') as HTMLElement;
+    expect(confirm.textContent).toContain("Draft: Document or reconciliation review required");
+    expect(confirm.textContent).toContain("Problem: the [COMPANY] address differs from ACRA.");
+    expect(confirm.textContent).toContain("What about ownership?");
+    expect(confirm.textContent).toContain("goes live for every team");
+    expect(confirm.textContent).toContain("recorded as a single-reviewer decision");
+    expect(calls).toEqual([]);
+    act(() => button(view, "Back").click());
+    expect(view.querySelector('[aria-label="Confirm publishing"]')).toBeNull();
+    expect(calls).toEqual([]);
+
+    act(() => button(view, "Approve").click());
+    act(() => button(view, "Confirm and publish").click());
     await flush();
     expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual([
       "/knowledge/entries/resolution.abc/versions/1/decision",
     ]);
-    expect(calls[0].body).toEqual({ approve: true, content_hash: "a".repeat(64), notes: "" });
+    expect(calls[0].body).toEqual({ approve: true, content_hash: "a".repeat(64), notes: "", confirm_single_reviewer: true });
     expect(view.textContent).toContain("Approved: it can now help answer similar questions.");
   });
 
@@ -146,7 +187,7 @@ describe("KnowledgeReview", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.endsWith("/knowledge/reviews")) return json({ pending: [replacing], gaps: [] });
-        if (url.includes("/knowledge/entries?kind=resolution")) return json([older]);
+        if (url.endsWith("/knowledge/entries")) return json([older, GUIDANCE]);
         return rest(input, init);
       }),
     );
@@ -187,20 +228,136 @@ describe("KnowledgeReview", () => {
     act(() => button(view, "Reject").click());
     await flush();
     expect(calls).toHaveLength(1);
-    expect(calls[0].body).toEqual({ approve: false, content_hash: "a".repeat(64), notes: "" });
+    expect(calls[0].body).toEqual({ approve: false, content_hash: "a".repeat(64), notes: "", confirm_single_reviewer: false });
     expect(view.querySelector("[role=alert]")?.textContent).toBe(
       "You cannot approve or reject an entry you wrote or edited.",
     );
   });
 
-  it("closes a gap", async () => {
+  it("closes an enhancement request only with a reason", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    act(() => button(view, "Mark as handled").click());
+    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    expect(button(request, "Close with reason").disabled).toBe(true);
+    const reason = request.querySelector(":scope > label input");
+    type(reason, "   ");
+    expect(button(request, "Close with reason").disabled).toBe(true);
+    type(reason, " Covered by the proof-list guidance. ");
+    act(() => button(request, "Close with reason").click());
     await flush();
-    expect(calls[0].url).toContain("/knowledge/feedback/7/close");
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual(["/knowledge/feedback/7/close"]);
+    expect(calls[0].body).toEqual({ reason: "Covered by the proof-list guidance." });
+    expect(view.textContent).toContain("Request closed.");
+  });
+
+  it("writes the fix for a request as a past case and saves it for review", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    const view = render();
+    await flush();
+    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    const save = () => button(request, "Save the fix for review");
+    expect(save().disabled).toBe(true);
+    const fields = request.querySelectorAll("fieldset input, fieldset textarea");
+    type(fields[0], "Proof list for moved offices");
+    expect(save().disabled).toBe(true); // no body yet
+    type(fields[1], "Ask for the tenancy agreement before changing the address.");
+    type(fields[2], "What about the ownership step?\n\n");
+    act(() => save().click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual(["/knowledge/feedback/7/draft"]);
+    expect(calls[0].body).toEqual({
+      kind: "resolution",
+      title: "Proof list for moved offices",
+      body: "Ask for the tenancy agreement before changing the address.",
+      follow_ups: ["What about the ownership step?"],
+    });
+    expect(view.textContent).toContain("Fix saved for review. Check it under Waiting for review, then publish it.");
+  });
+
+  it("writes the fix as a change to existing guidance, which needs a source reference", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    const view = render();
+    await flush();
+    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    choose(request.querySelector("fieldset select"), "guidance");
+    choose(request.querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
+    const inputs = () => request.querySelectorAll("fieldset input, fieldset textarea");
+    type(inputs()[0], "Address differs from ACRA");
+    type(inputs()[1], "Keep the registry address until the client confirms the move.");
+    expect(button(request, "Save the fix for review").disabled).toBe(true); // no source yet
+    type(inputs()[2], "docs/decisions/DECISION_LOG.md#D-030");
+    act(() => button(request, "Save the fix for review").click());
+    await flush();
+    expect(calls[0].body).toEqual({
+      kind: "guidance",
+      title: "Address differs from ACRA",
+      body: "Keep the registry address until the client confirms the move.",
+      source_ref: "docs/decisions/DECISION_LOG.md#D-030",
+      entry_id: "guidance.address-mismatch",
+    });
+  });
+
+  it("says nothing about single-reviewer decisions when the mode is off", async () => {
+    const rest = backend([]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith("/knowledge/me")
+          ? json({ user_id: "director-dan", can_review: true, can_edit_guidance: false, single_reviewer: false })
+          : rest(input, init),
+      ),
+    );
+    const view = render();
+    await flush();
+    act(() => button(view, "Approve").click());
+    const confirm = view.querySelector('[aria-label="Confirm publishing"]') as HTMLElement;
+    expect(confirm.textContent).toContain("goes live for every team.");
+    expect(confirm.textContent).not.toContain("single-reviewer");
+  });
+
+  it("lists entries published by a single reviewer and says so after self-publishing", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const single = { ...GUIDANCE, single_reviewer: true, approver: "olivia-koh", approved_at: "2026-10-21T10:00:00+00:00" };
+    const rest = backend(calls, () => json({ ...PENDING, status: "approved", single_reviewer: true }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith("/knowledge/entries") ? json([single, { ...PENDING, status: "approved" }]) : rest(input, init),
+      ),
+    );
+    const view = render();
+    await flush();
+    expect(view.textContent).toContain("Published by a single reviewer (1)");
+    expect([...view.querySelectorAll('[aria-label="Published by a single reviewer"] li')].map((li) => li.textContent)).toEqual([
+      "Guidance: Registered address differs from ACRA · version 2 · approved by olivia-koh, who wrote or edited it · 2026-10-21T10:00:00+00:00",
+    ]);
+    act(() => button(view, "Approve").click());
+    act(() => button(view, "Confirm and publish").click());
+    await flush();
+    expect(view.textContent).toContain("Published as the only reviewer: recorded as a single-reviewer decision.");
+  });
+
+  it("shows the backend's reason when a request was already handled", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const rest = backend(calls);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith("/close")
+          ? json({ detail: { code: "CHANGED", message: "This request was already handled. Refresh and try again." } }, 409)
+          : rest(input, init),
+      ),
+    );
+    const view = render();
+    await flush();
+    type(view.querySelector('[aria-label="Enhancement request 7"] > label input'), "Duplicate.");
+    act(() => button(view, "Close with reason").click());
+    await flush();
+    expect(view.querySelector("[role=alert]")?.textContent).toBe("This request was already handled. Refresh and try again.");
   });
 });
 
@@ -279,7 +436,8 @@ describe("KnowledgeReview dialog focus", () => {
     const controls = dialogControls(view);
     const [first, last] = [controls[0], controls[controls.length - 1]];
     expect(first.getAttribute("aria-label")).toBe("Close knowledge review");
-    expect(last.textContent).toBe("Mark as handled");
+    // The last enabled control: the request's "Reason for closing" (Close with reason waits for it).
+    expect(last).toBe(view.querySelector('[aria-label="Enhancement request 7"] > label input'));
 
     // Shift+Tab from the heading (where focus starts) goes to the last control, not out.
     expect(press("Tab", true).defaultPrevented).toBe(true);

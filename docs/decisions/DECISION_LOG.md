@@ -708,12 +708,55 @@ Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integr
 acceptance and independent gate. This is not ownership verification, a legal UBO
 determination (Q-004), Marketplace denominator semantics (Q-012) or Live evidence.
 
+## D-083 - proposed AI Assistant feedback, enhancement requests and single-reviewer POC mode (PROPOSED)
+
+Status: PROPOSED by the project team on 2026-10-21. **It relaxes D-074's two-person control
+for the POC and needs the repository owner's (Shane's) explicit acceptance before merge**;
+it is not accepted. It amends ADR-012 section A.
+
+Feedback. "Yes, helpful" only records the rating with the case context (blocker codes,
+fields, stages): it drafts nothing, adds nothing to the review queue and changes no retrieval
+or ranking; the Director's stats show confidence by topic (helpful and not-helpful counts per
+blocker code). "Not helpful" starts an enhancement request: a non-blank note is required (422
+otherwise; the panel keeps Send disabled) and is redacted before it is stored. The panel no
+longer sends the conversation.
+
+Enhancement requests. Directors (POLICY_APPROVE) handle them end to end in the Knowledge
+review window; HR does not, as it has no case access. A Director either writes the fix as a
+past case or a guidance change (new guidance or a new version of existing guidance) linked to
+the request, or closes the request with a required reason. The fix is redacted against the
+request's own case (loaded with the Director's session) and by pattern, then waits for review
+like any other entry: publishing it resolves the request, rejecting it opens the request again.
+Only an open request can be handled. Both actions recheck the caller inside the SQLite write
+transaction.
+
+Single-reviewer mode (relaxes D-074). D-074 made two-person approval bound to the reviewed
+content hash the primary control for knowledge content. The POC's synthetic users have only
+one Director (olivia-koh), and only POLICY_APPROVE can approve knowledge, so with author ≠
+approver no fix a Director writes could ever be published. The setting
+`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER` (default true for this POC) therefore lets a reviewer
+approve or reject an entry they wrote or edited. An approval shows the reviewer the final
+entry text and needs an explicit confirmation (`confirm_single_reviewer`, refused with 403
+otherwise); every such decision, approval or rejection, is recorded as single-reviewer in
+the review history (`reviews.single_reviewer`), and the Review window lists the entries
+currently published that way and says so in its confirm step. With the setting false the
+two-person rule applies unchanged. Unchanged in both modes: decisions bound to the content
+hash, the sentence checks, redaction, team scope, and retiring an approved entry (official
+guidance included) still takes two reviewers. SQLite schema v4 adds `reviews.single_reviewer`
+(0 for existing rows), a `resolved` request status, a nullable `feedback.close_reason` and
+`feedback.entry_version`: a request is linked to the exact version of its fix (a reviewer's
+edit moves the link), so a decision on another version of the same entry leaves it alone.
+
+The POLICY_APPROVE mapping stays PROJECT_DEFINED_PROVISIONAL and review authority stays
+UNKNOWN_BLOCKED (Q-014). Not sponsor review policy; no CLM backend write, provider status or
+Live claim follows.
+
 ## D-084 - proposed AI Assistant answer records, request lifecycle and document upload (PROPOSED)
 
 Status: PROPOSED by the project team on 2026-10-25. Not accepted, and nothing is built.
 **Each of D1 to D6 below needs the repository owner's (Shane's) explicit acceptance before
-code.** It amends ADR-012 (Amendment 1) and builds on D-083 (proposed with the feedback PR #108;
-D-083 is the next number after main's D-082 and is reserved by that PR). If D-083 is not accepted,
+code.** It amends ADR-012 (Amendment 1) and builds on D-083 (still proposed; its code is on
+main since PR #108). If D-083 is not accepted,
 this entry is revisited with it.
 
 All three parts stay inside the AI Assistant service and its local knowledge store (schema

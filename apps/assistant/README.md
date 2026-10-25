@@ -86,17 +86,30 @@ retraining the model. There are two kinds of entry:
 - **Official guidance**: the rulebook, written from recorded decisions (`knowledge/guidance/*.md`,
   each citing its source). HR (`POLICY_MUTATE`) can propose new guidance through
   `POST /api/assistant/knowledge/guidance`; there is no in-app UI for it.
-- **Approved past resolutions**: worked examples drafted from an RM's "Yes, helpful" feedback and
-  approved by a manager (Director, `POLICY_APPROVE`). The demo seed
+- **Approved past resolutions**: worked examples a manager (Director, `POLICY_APPROVE`) writes
+  as the fix for an RM's enhancement request ("Not helpful" with a note) and that is then
+  approved (D-083, proposed; see single-reviewer mode below). The demo seed
   (`seed/synthetic_resolutions.json`) is made up and labelled illustrative.
 
 ```
 RM asks ─► case context (blocker codes, fields, stage)
         ─► search: approved, current versions the RM may see ─► top guidance [G1..] + resolutions [P1..]
         ─► prompt (rules → facts → history → KNOWLEDGE → question) ─► guardrails ─► answer + source chips
-RM clicks "Yes, helpful" ─► redacted draft ─► Director edits / approves ─► searchable for the next RM
-RM clicks "Not helpful" ─► gap for the Director to handle
+RM clicks "Yes, helpful" ─► rating stored with the case context (confidence by topic in the stats)
+RM clicks "Not helpful" + note ─► redacted enhancement request
+        ─► Director writes the fix (past case or guidance change) ─► final text shown, confirmed,
+            approved ─► request resolved, searchable for the next RM (rejected: request open again)
+        ─► or Director closes it with a reason
 ```
+
+**Single-reviewer mode** (`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER`, default `true` for this POC;
+D-083, proposed, needs the owner's acceptance before merge). The synthetic users have one
+Director, so with two-person review nothing a Director writes could be published. In this
+mode a reviewer may approve or reject an entry they wrote or edited; approving needs
+`"confirm_single_reviewer": true` (the Review window asks after showing the final text) and is
+recorded as single-reviewer in the review history (as is a rejection of your own entry); the
+Review window lists the entries currently published that way. Set it to `false`
+to keep the two-person rule. Retiring an entry always takes two reviewers.
 
 | Part (`ai_assistant/knowledge/`) | What it does |
 |---|---|
@@ -105,7 +118,7 @@ RM clicks "Not helpful" ─► gap for the Director to handle
 | `vector_index.py` + `embeddings.py` | ChromaDB vectors of approved current versions only; local embeddings through Ollama (`nomic-embed-text`) |
 | `service.py` | Propose, decide, retire; keeps SQLite and ChromaDB in step; retries; rebuild |
 | `retrieval.py` | Hybrid search with permission filters (below) |
-| `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from feedback |
+| `redaction.py` + `drafting.py` | Removes client values (case facts plus UEN, NRIC, email, phone, postal, unit patterns) and drafts a resolution from an enhancement request |
 | `ingest.py` | Loads the guidance files (an app-approved edit is not overwritten by its file) |
 | `evaluation.py` | Recall and "correctly found nothing" on a labelled question set |
 | `../knowledge_answers.py` | Tags hits, keeps only approved entries the user may see, checks every knowledge text the RM can see (lines, titles, follow-up questions), lists the allowed lines in the KNOWLEDGE prompt part, works out cited sources |
@@ -150,24 +163,25 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (drafts a resolution) or "Not helpful" (records a gap) |
-| GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance |
-| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open gaps |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422) |
+| GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
+| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open enhancement requests (`gaps`) |
 | GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
 | GET | `/assistant/knowledge/entries/{id}` | Director (every team), HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
-| POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author | Approve or reject |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author (or the author after confirming, in single-reviewer mode) | Approve or reject; `confirm_single_reviewer` confirms publishing your own entry |
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
-| POST | `/assistant/knowledge/feedback/{id}/close` | Director | Mark a gap as handled |
+| POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request |
+| POST | `/assistant/knowledge/feedback/{id}/close` | Director | Close an open enhancement request; `reason` is required |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
 | POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
-| GET | `/assistant/knowledge/stats` | Director | Entry counts and how helpful answers were |
+| GET | `/assistant/knowledge/stats` | Director | Entry counts, how helpful answers were, and confidence by topic (helpful / not helpful per blocker code) |
 
 ### In the app
 
 The panel is built on `@assistant-ui/react`. Each answer shows the guidance and past cases it
 cited as chips (G1, P1 …) and has **Yes, helpful** (one click, no note) and **Not helpful**
-(with an optional note) buttons. Users who can review
+(asks "What was missing?"; Send stays disabled until a note is typed) buttons. Users who can review
 see a **Review** button that opens the Knowledge review window.
 
 ### Demo script
@@ -175,10 +189,13 @@ see a **Review** button that opens the Knowledge review window.
 1. Sign in as an RM, open a case blocked by a document/ACRA address conflict, open the AI Assistant.
 2. Ask "Can I use the document address?" The answer cites guidance [G1] and an illustrative past
    case [P1], shown as chips.
-3. Click **Yes, helpful** (one click; only **Not helpful** asks for a note).
-4. Sign in as a Director (not the same user), open **Review**: the draft has the client's name
-   replaced with `[COMPANY]`. Edit if needed, then **Approve**.
-5. Back as an RM on a similar case, ask again: the new resolution is now cited.
+3. Click **Not helpful** and say what was missing, naming the client.
+4. Sign in as the Director (olivia-koh), open **Review**: under **Enhancement requests** the
+   note has the client's name replaced with `[COMPANY]`. Under **Write the fix**, write what
+   resolves it as a past case and **Save the fix for review**.
+5. Under **Waiting for review**, click **Approve**, check the final text and **Confirm and
+   publish** (single-reviewer mode; it is listed under **Published by a single reviewer**).
+6. Back as an RM on a similar case, ask again: the new resolution is now cited.
 
 ## Output policy
 

@@ -640,3 +640,18 @@
   display: flex;
   gap: 8px;
 }
+
+.knowledge-review-fix,
+.knowledge-review-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 8px;
+}
+
+.knowledge-review-final {
+  white-space: pre-wrap;
+}
