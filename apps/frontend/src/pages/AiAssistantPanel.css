@@ -655,3 +655,68 @@
 .knowledge-review-final {
   white-space: pre-wrap;
 }
+
+/* "What happened" on an enhancement request: the server's record of the rated answer. */
+.what-happened {
+  padding: 8px 10px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 8px;
+}
+
+.what-happened > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.what-happened-record {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.what-happened-record h4 {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.what-happened-gap {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-accent-200, #ffe3bf);
+  background: var(--color-accent-100, #fff3e4);
+  color: var(--color-accent-700, #6b4a12);
+}
+
+.what-happened-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.what-happened-facts dt {
+  color: var(--color-text-muted, #5f5a52);
+}
+
+.what-happened-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.what-happened-lines {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.what-happened-earlier {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+}

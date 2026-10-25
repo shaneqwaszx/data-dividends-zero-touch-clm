@@ -14,6 +14,7 @@ import {
   type KnowledgeReviewQueue,
   type KnowledgeStats,
 } from "../aiAssistant";
+import WhatHappened from "./WhatHappened";
 
 /** The fix a Director is writing for an enhancement request. */
 interface FixDraft {
@@ -409,6 +410,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                 <article key={gap.id} className="knowledge-review-entry" aria-label={`Enhancement request ${gap.id}`}>
                   <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
                   <p>{gap.note || "No note given."}</p>
+                  {gap.answer_id && <WhatHappened feedbackId={gap.id} />}
                   <fieldset className="knowledge-review-fix">
                     <legend>Write the fix</legend>
                     <label>

@@ -457,3 +457,99 @@ describe("KnowledgeReview dialog focus", () => {
     expect(document.activeElement).toBe(first);
   });
 });
+
+const RECORD = {
+  answer_id: "A".repeat(22),
+  case_id: "case-1",
+  created_at: "2026-10-25T00:00:00+00:00",
+  question: "Explain the registered address difference",
+  earlier_answer_ids: ["B".repeat(22)],
+  case_snapshot: { blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], stage: "Documents", steps_done: 3, steps_total: 10, facts_hash: "f".repeat(64) },
+  knowledge: { confidence: "low", degraded: false, entries: [{ tag: "G1", entry_id: "guidance.environments", version: 1, score: 0.31, fallback: true }] },
+  allowed_lines: ["Keep the registry value.", "Open Documents to compare the values."],
+  chosen_lines: [],
+  dropped_lines: ["The document says [ADDRESS] but ACRA says [ADDRESS]."],
+  result: { answered_by: "case_data", notices: [], fallback_reason: "nothing_allowed", left_out: 1, model: "m", elapsed_ms: 2300 },
+  rated: true,
+};
+
+describe("What happened on an enhancement request", () => {
+  function reviewWith(gap: Record<string, unknown>, fetched: string[]) {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      fetched.push(url);
+      if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [gap] });
+      if (url.endsWith("/knowledge/stats")) {
+        return json({ entries: {}, feedback: { total: 1, helpful: 0, not_helpful: 1, helpful_rate: 0, open_gaps: 1 }, by_topic: {} });
+      }
+      if (url.endsWith("/knowledge/entries")) return json([]);
+      if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
+      if (url.endsWith("/knowledge/feedback/7/answer")) return json(RECORD);
+      if (url.endsWith(`/knowledge/feedback/7/answers/${"B".repeat(22)}`)) {
+        return json({ ...RECORD, answer_id: "B".repeat(22), question: "What should I do next?", chosen_lines: ["Keep the registry value."], dropped_lines: [], earlier_answer_ids: [], result: { ...RECORD.result, answered_by: "model", fallback_reason: null, left_out: 0 } });
+      }
+      return json({}, 404);
+    }));
+  }
+
+  const GAP = { id: 7, note: "It did not show the two addresses.", blocker_codes: [], fields: [], stages: [], created_at: "" };
+
+  it("loads the record only when opened and shows the catalog-gap signal and the allowed lines", async () => {
+    const fetched: string[] = [];
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, fetched);
+    const view = render();
+    await flush();
+    const section = view.querySelector(".what-happened") as HTMLDetailsElement;
+    expect(section?.querySelector("summary")?.textContent).toBe("What happened");
+    // Nothing is fetched (and so no view is logged) until the Director opens it.
+    expect(fetched.some((url) => url.includes("/answer"))).toBe(false);
+    act(() => { section.open = true; section.dispatchEvent(new Event("toggle")); });
+    await flush();
+    expect(fetched.filter((url) => url.endsWith("/knowledge/feedback/7/answer"))).toHaveLength(1);
+    const text = section.textContent ?? "";
+    expect(section.querySelector('[role="alert"]')?.textContent).toContain("No allowed line matched.");
+    expect(text).toContain("Explain the registered address difference");
+    expect(text).toContain("None of the model's lines was an allowed line");
+    expect(text).toContain("[G1] guidance.environments v1 (score 0.31)");
+    expect(text).toContain("The document says [ADDRESS] but ACRA says [ADDRESS].");
+    const allowed = [...section.querySelectorAll("details")].find((d) => d.querySelector("summary")?.textContent === "Allowed lines (2)");
+    expect([...(allowed?.querySelectorAll("li") ?? [])].map((li) => li.textContent)).toEqual(RECORD.allowed_lines);
+
+    const earlier = [...section.querySelectorAll("button")].find((b) => b.textContent === "Show earlier answer 1");
+    act(() => earlier?.click());
+    await flush();
+    expect(section.textContent).toContain("What should I do next?");
+    expect(fetched.some((url) => url.endsWith(`/knowledge/feedback/7/answers/${"B".repeat(22)}`))).toBe(true);
+  });
+
+  it("names left-out lines without the gap signal when the model's answer was shown", async () => {
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      fetched.push(url);
+      if (url.endsWith("/knowledge/feedback/7/answer")) {
+        return json({ ...RECORD, earlier_answer_ids: [], chosen_lines: ["Keep the registry value."], dropped_lines: ["One line.", "Two lines."], result: { ...RECORD.result, answered_by: "model", fallback_reason: null, left_out: 2 } });
+      }
+      if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [{ ...GAP, answer_id: "A".repeat(22) }] });
+      if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false });
+      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 0, helpful: 0, not_helpful: 0, helpful_rate: null, open_gaps: 0 }, by_topic: {} });
+      return json([]);
+    }));
+    const view = render();
+    await flush();
+    const section = view.querySelector(".what-happened") as HTMLDetailsElement;
+    act(() => { section.open = true; section.dispatchEvent(new Event("toggle")); });
+    await flush();
+    expect(section.querySelector('[role="alert"]')).toBeNull();
+    expect(section.textContent).toContain("2 lines didn't match an allowed line.");
+    expect(section.textContent).toContain("None: a full model answer.");
+  });
+
+  it("shows no What happened for a request without a record", async () => {
+    reviewWith(GAP, []);
+    const view = render();
+    await flush();
+    expect(view.textContent).toContain("It did not show the two addresses.");
+    expect(view.querySelector(".what-happened")).toBeNull();
+  });
+});

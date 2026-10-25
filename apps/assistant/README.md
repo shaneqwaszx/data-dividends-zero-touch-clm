@@ -163,7 +163,8 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422) |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated: required for "Not helpful", optional for "Yes, helpful"; it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." |
+| GET | `/assistant/answers/{answer_id}` | the RM who asked | Their own answer record (view logged); HR gets 403, anyone else 404 |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
 | GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open enhancement requests (`gaps`) |
 | GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
@@ -173,9 +174,30 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
 | POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request |
 | POST | `/assistant/knowledge/feedback/{id}/close` | Director | Close an open enhancement request; `reason` is required |
+| GET | `/assistant/knowledge/feedback/{id}/answer` | Director | "What happened": the answer record linked to the request (view logged) |
+| GET | `/assistant/knowledge/feedback/{id}/answers/{answer_id}` | Director | One of the earlier answers that record names (view logged); any other id is 404 |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
 | POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
 | GET | `/assistant/knowledge/stats` | Director | Entry counts, how helpful answers were, and confidence by topic (helpful / not helpful per blocker code) |
+
+### Answer records
+
+Every answer except small talk is saved as an answer record (`answer_records.py`, store
+schema v5; D-084, proposed) and the reply carries its `answer_id` (in the final `done` event
+for /chat/stream). A record holds only what the server produced or received in that request:
+the question as the model got it (after the 600-character cut), the ids of earlier answers
+in the chat that the server found to be this user's on this case (at most
+`max_history_messages`), the case's blocker codes, stage, steps and a facts hash, the
+knowledge retrieved (tag, entry, version, scores, confidence, degraded), the allowed lines,
+the lines shown, the lines left out (redacted with the case Redactor, at most 8 KiB) and how
+the answer was made (answered by, notices, fallback reason `model_unavailable`,
+`nothing_allowed` or `cut_short`, model, time). Browser history text is never stored, and a
+record never goes into a prompt or into knowledge. Each record can be rated once; "Not
+helpful" links it to the new enhancement request, where a Director sees it as **What
+happened** (with **No allowed line matched** when none of the model's lines was allowed).
+Records not linked to a request are deleted after `AI_ASSISTANT_ANSWER_RECORD_UNRATED_DAYS`
+(7), linked ones `AI_ASSISTANT_ANSWER_RECORD_CLOSED_DAYS` (30) after the request was resolved
+or closed: on start-up and at most hourly with a new record.
 
 ### In the app
 

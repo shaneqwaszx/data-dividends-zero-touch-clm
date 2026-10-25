@@ -120,11 +120,24 @@ def edit(
     )
 
 
+def asked(kb: KnowledgeBase, session: str = "rm-session", case_id: str = CASE_ID) -> str:
+    """Ask a question as ``session``: the id of the answer record (which feedback rates)."""
+
+    reply = client(kb, session).post(
+        f"/assistant/cases/{case_id}/chat", json={"message": "What should I do next?"}
+    )
+    assert reply.status_code == 200, reply.text
+    answer_id = reply.json()["answer_id"]
+    assert answer_id
+    return str(answer_id)
+
+
 def not_helpful(kb: KnowledgeBase, note: str = "No proof list.") -> int:
     """An RM's "Not helpful" with a note: an enhancement request. Returns its id."""
 
     reply = client(kb, "rm-session").post(
-        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": note}
+        f"/assistant/cases/{CASE_ID}/feedback",
+        json={"helpful": False, "note": note, "answer_id": asked(kb)},
     )
     assert reply.status_code == 200, reply.text
     return int(reply.json()["feedback_id"])
@@ -197,7 +210,11 @@ def test_yes_helpful_only_records_the_rating_with_its_case_context(kb: Knowledge
 def test_not_helpful_starts_a_redacted_enhancement_request(kb: KnowledgeBase) -> None:
     reply = client(kb, "rm-session").post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": " It did not say what proof to ask GARDEN BUSINESS for. "},
+        json={
+            "helpful": False,
+            "note": " It did not say what proof to ask GARDEN BUSINESS for. ",
+            "answer_id": asked(kb),
+        },
     )
     assert reply.status_code == 200
     assert reply.json()["message"] == "Thanks. This has been flagged so the answer can be improved."
@@ -210,7 +227,8 @@ def test_not_helpful_starts_a_redacted_enhancement_request(kb: KnowledgeBase) ->
 @pytest.mark.parametrize("note", ["", "   ", "\n\t "], ids=["empty", "spaces", "whitespace"])
 def test_not_helpful_needs_a_note(kb: KnowledgeBase, note: str) -> None:
     reply = client(kb, "rm-session").post(
-        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": note}
+        f"/assistant/cases/{CASE_ID}/feedback",
+        json={"helpful": False, "note": note, "answer_id": asked(kb)},
     )
     assert reply.status_code == 422
     assert kb.store.feedback() == []
@@ -219,7 +237,7 @@ def test_not_helpful_needs_a_note(kb: KnowledgeBase, note: str) -> None:
 def test_feedback_no_longer_takes_the_conversation(kb: KnowledgeBase) -> None:
     reply = client(kb, "rm-session").post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": "No proof list.", "turns": TURNS},
+        json={"helpful": False, "note": "No proof list.", "turns": TURNS, "answer_id": asked(kb)},
     )
     assert reply.status_code == 422
     assert kb.store.feedback() == []
@@ -360,7 +378,11 @@ def test_only_a_director_handles_enhancement_requests(kb: KnowledgeBase) -> None
 def test_stats_show_confidence_by_topic(kb: KnowledgeBase) -> None:
     rm = client(kb, "rm-session")
     for helpful, note in ((True, ""), (True, ""), (False, "No proof list.")):
-        rm.post(f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": helpful, "note": note})
+        rated = rm.post(
+            f"/assistant/cases/{CASE_ID}/feedback",
+            json={"helpful": helpful, "note": note, "answer_id": asked(kb)},
+        )
+        assert rated.status_code == 200, rated.text
     codes = kb.store.feedback()[0]["blocker_codes"]
     assert codes  # the synthetic case has blockers
     stats = client(kb, "director-session").get("/assistant/knowledge/stats").json()
@@ -780,16 +802,21 @@ def test_directors_can_retire_with_two_people_and_see_stats(kb: KnowledgeBase) -
     }
 
 
+# Seeding uses the current store; an older shape has none of the schema v5 tables.
+DROP_V5_TABLES = "DROP TABLE answer_record_views; DROP TABLE answer_records;"
+
+
 def test_a_store_from_before_this_change_is_migrated(tmp_path: Path) -> None:
     import sqlite3
 
     path = tmp_path / "old.sqlite3"
     KnowledgeStore(path)
     with sqlite3.connect(path) as db:
+        db.executescript(DROP_V5_TABLES)
         db.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
     assert store.entries() == []
 
 
@@ -859,7 +886,8 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
     seeded.decide(rule.entry_id, 1, reviewer="director-dan", approve=True)
     with sqlite3.connect(path) as db:
         db.executescript(
-            "ALTER TABLE reviews RENAME TO reviews_v4;"
+            DROP_V5_TABLES
+            + "ALTER TABLE reviews RENAME TO reviews_v4;"
             + V3_REVIEWS
             + "INSERT INTO reviews SELECT id, entry_id, version, reviewer, decision, notes,"
             " created_at FROM reviews_v4; DROP TABLE reviews_v4;"
@@ -878,7 +906,7 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
         before = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
         after = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
         assert (
             db.execute("SELECT name FROM sqlite_master WHERE name = 'feedback_v3'").fetchone()
@@ -969,7 +997,12 @@ def test_a_branch_only_v4_store_gains_its_missing_columns(tmp_path: Path, shape:
         entry_id=None,
     )
     with sqlite3.connect(path) as db:
-        db.executescript(EARLY_V4_SHAPES[shape])  # the version stays '4'
+        # A v4 store: no v5 tables, stamped '4', and missing this shape's v4 columns.
+        db.executescript(
+            DROP_V5_TABLES
+            + "UPDATE meta SET value = '4' WHERE key = 'schema_version';"
+            + EARLY_V4_SHAPES[shape]
+        )
         assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
     store = KnowledgeStore(path)  # repairs
     with sqlite3.connect(path) as db:

@@ -8,6 +8,9 @@ session is forwarded to the CLM backend, which stays the authority for access.
 
 Opening the panel (/brief) may pre-warm a literal loopback model in the background; the chat panel
 uses /chat/stream so the answer appears while it is written (see README "Speed").
+
+With the knowledge store on, every answer except small talk is saved as an answer record
+(answer_records.py) and its ``answer_id`` returned, so "Not helpful" can point at it.
 """
 
 import hashlib
@@ -15,7 +18,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
@@ -26,11 +29,27 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .answer_records import (
+    ANSWER_ID,
+    AnswerRecorder,
+    FallbackReason,
+    capped_dropped,
+    case_snapshot,
+    knowledge_used,
+    new_answer_id,
+)
 from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
-from .guardrails import LEFT_OUT_REASON, StreamingGuard, Validation, validate_answer
+from .guardrails import (
+    LEFT_OUT_REASON,
+    StreamingGuard,
+    Validation,
+    allowed_guidance,
+    validate_answer,
+)
+from .knowledge.redaction import Redactor, case_parties
 from .knowledge.retrieval import Retriever, case_context, settings_from
 from .knowledge.service import KnowledgeBase
 from .knowledge_answers import (
@@ -60,6 +79,11 @@ class ChatRequest(BaseModel):
 
     message: str = Field(min_length=1, max_length=4000)
     history: list[ChatTurn] = Field(default_factory=list, max_length=40)
+    # The answer records of the earlier answers in this chat. Only ids are taken from the
+    # browser, and only the server's own records of this user on this case are kept.
+    earlier_answer_ids: list[Annotated[str, Field(pattern=ANSWER_ID)]] = Field(
+        default_factory=list, max_length=40
+    )
 
 
 class BriefResponse(BaseModel):
@@ -114,6 +138,9 @@ class ChatResponse(BaseModel):
     # Retrieved guidance and past cases, and how confident retrieval was.
     sources: list[KnowledgeSource] = Field(default_factory=list)
     knowledge: KnowledgeUse | None = None
+    # The server's record of this answer (none for small talk, or with the knowledge store
+    # off); "Not helpful" sends it back.
+    answer_id: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -138,6 +165,10 @@ class Prepared:
     messages: list[dict[str, str]]
     fallback: str
     suggestions: list[str]
+    # The question as the model got it (after the max_question_chars cut), and when work on
+    # it started (time.monotonic), for the answer record.
+    question: str = ""
+    started: float = 0.0
     tagged: list[TaggedHit] = field(default_factory=list)
     knowledge: KnowledgeUse | None = None
     # The checked knowledge text the RM may see: lines the model may select, titles and
@@ -244,7 +275,89 @@ def create_app(
             for turn in body.history[-config.max_history_messages :]
         ]
 
+    recorder = (
+        AnswerRecorder(
+            knowledge.store,
+            unrated_days=config.answer_record_unrated_days,
+            closed_days=config.answer_record_closed_days,
+        )
+        if knowledge is not None and config.knowledge_enabled
+        else None
+    )
+    if recorder is not None:
+        try:
+            recorder.purge()  # expired answer records go on start-up
+        except Exception:
+            log.exception("answer record purge failed")
+
+    def record(
+        case_id: UUID,
+        snapshot: CaseSnapshot,
+        body: ChatRequest,
+        prep: Prepared,
+        response: ChatResponse,
+        validation: Validation | None,
+        reason: FallbackReason | None,
+    ) -> ChatResponse:
+        """Save the answer record and put its id on the reply. Only what this request
+        produced is saved: the browser's history text never is, and of the earlier answer
+        ids it sent only this user's records on this case are kept."""
+
+        if recorder is None:
+            return response
+        profile = snapshot.actor.get("profile") or {}
+        user = profile.get("user_id")
+        if not user:
+            return response
+        try:
+            limit = config.max_history_messages
+            earlier = recorder.store.owned_answers(
+                body.earlier_answer_ids[-limit:] if limit else [],
+                user_id=str(user),
+                case_id=str(case_id),
+            )
+            redact = Redactor(prep.facts, parties=case_parties(snapshot.summary)).redact
+            answer_id = recorder.save(
+                {
+                    "id": new_answer_id(),
+                    "case_id": str(case_id),
+                    "user_id": str(user),
+                    "team": profile.get("team_id"),
+                    "question": prep.question,
+                    "earlier_answer_ids": earlier,
+                    "case_snapshot": case_snapshot(prep.facts),
+                    "knowledge": knowledge_used(
+                        prep.tagged,
+                        confidence=prep.knowledge.confidence if prep.knowledge else None,
+                        degraded=prep.knowledge.degraded if prep.knowledge else None,
+                    ),
+                    "allowed_lines": list(
+                        dict.fromkeys([*allowed_guidance(prep.facts), *prep.shown.lines])
+                    ),
+                    # Model answers only: the checked lines the RM was shown.
+                    "chosen_lines": (
+                        response.answer.splitlines() if response.answered_by == "model" else []
+                    ),
+                    "dropped_lines": (
+                        capped_dropped(validation.dropped, redact) if validation else []
+                    ),
+                    "result": {
+                        "answered_by": response.answered_by,
+                        "notices": [response.notice] if response.notice else [],
+                        "fallback_reason": reason,
+                        "left_out": validation.left_out if validation else 0,
+                        "model": model.name if model is not None else None,
+                        "elapsed_ms": round((time.monotonic() - prep.started) * 1000),
+                    },
+                }
+            )
+        except Exception:  # a record must never break the answer
+            log.exception("answer record failed")
+            return response
+        return response.model_copy(update={"answer_id": answer_id})
+
     def prepare(body: ChatRequest, snapshot: CaseSnapshot, question: str) -> Prepared:
+        started = time.monotonic()
         facts = build_case_facts(snapshot)
         tagged: list[TaggedHit] = []
         use: KnowledgeUse | None = None
@@ -278,10 +391,19 @@ def create_app(
             tagged=tagged,
             knowledge=use,
             shown=shown,
+            question=question,
+            started=started,
         )
 
-    def answer_with_model(prep: Prepared) -> ChatResponse:
+    def answer_with_model(
+        prep: Prepared,
+    ) -> tuple[ChatResponse, Validation | None, FallbackReason | None]:
+        """The reply, the check of the model's text (if it got one), and why the answer is not
+        a full model answer (None when it is)."""
+
         notice = FALLBACK_NOTICE
+        reason: FallbackReason = "model_unavailable"
+        checked: Validation | None = None
         if model is not None:
             try:
                 reply = model.complete(prep.messages)
@@ -289,14 +411,18 @@ def create_app(
                     reply.text, prep.facts, knowledge_lines=prep.shown.lines
                 )
                 if not validation.text:
-                    notice = POLICY_NOTICE
+                    notice, reason, checked = POLICY_NOTICE, "nothing_allowed", validation
                     raise LlmUnavailableError("no allowed line in the model reply")
-                return _model_reply(
-                    validation, prep, model_name=model.name, cut_short=reply.cut_short
+                return (
+                    _model_reply(
+                        validation, prep, model_name=model.name, cut_short=reply.cut_short
+                    ),
+                    validation,
+                    "cut_short" if reply.cut_short else None,
                 )
             except LlmUnavailableError:
                 pass
-        return _fallback_reply(prep, notice=notice)
+        return _fallback_reply(prep, notice=notice), checked, reason
 
     warmed: dict[str, float] = {}
     warm_lock = threading.Lock()
@@ -322,17 +448,27 @@ def create_app(
                 del warmed[old]
         model.warm(messages)
 
-    async def stream_answer(prep: Prepared) -> AsyncIterator[str]:
+    async def stream_answer(
+        prep: Prepared,
+        finish: Callable[[ChatResponse, Validation | None, FallbackReason | None], ChatResponse],
+    ) -> AsyncIterator[str]:
         """The answer as newline-delimited JSON: "text" updates while the model writes,
-        then one "done" with the final answer (the same fields as the /chat reply)."""
+        then one "done" with the final answer (the same fields as the /chat reply).
+        ``finish`` records the answer (only the guard's checked lines) before "done"."""
 
         def line(event: dict[str, object]) -> str:
             return json.dumps(event, ensure_ascii=False) + "\n"
 
-        def done(response: ChatResponse) -> str:
-            return line({"type": "done", **response.model_dump()})
+        def done(
+            response: ChatResponse,
+            validation: Validation | None = None,
+            reason: FallbackReason | None = None,
+        ) -> str:
+            return line({"type": "done", **finish(response, validation, reason).model_dump()})
 
         notice = FALLBACK_NOTICE
+        reason: FallbackReason = "model_unavailable"
+        checked: Validation | None = None
         if model is not None:
             guard = StreamingGuard(prep.facts, knowledge_lines=prep.shown.lines)
             cut_short = False
@@ -346,10 +482,12 @@ def create_app(
                 guard.finish()
                 validation = guard.validation()
                 if not validation.text:
-                    notice = POLICY_NOTICE
+                    notice, reason, checked = POLICY_NOTICE, "nothing_allowed", validation
                 if validation.text:
                     yield done(
-                        _model_reply(validation, prep, model_name=model.name, cut_short=cut_short)
+                        _model_reply(validation, prep, model_name=model.name, cut_short=cut_short),
+                        validation,
+                        "cut_short" if cut_short else None,
                     )
                     return
             except LlmUnavailableError:
@@ -357,9 +495,15 @@ def create_app(
                 partial = guard.validation()
                 if partial.text:
                     # Keep what the RM has already read, and say it stopped early.
-                    yield done(_model_reply(partial, prep, model_name=model.name, cut_short=True))
+                    yield done(
+                        _model_reply(partial, prep, model_name=model.name, cut_short=True),
+                        partial,
+                        "cut_short",
+                    )
                     return
-        yield done(_fallback_reply(prep, notice=notice))
+                if partial.left_out:
+                    checked = partial
+        yield done(_fallback_reply(prep, notice=notice), checked, reason)
 
     if knowledge is not None and config.knowledge_enabled:
         from .knowledge_api import knowledge_router
@@ -371,6 +515,7 @@ def create_app(
                 check_origin=check_origin,
                 load_case=load_case,
                 single_reviewer=config.knowledge_single_reviewer,
+                answer_days=config.answer_record_unrated_days,
             )
         )
 
@@ -396,7 +541,7 @@ def create_app(
         )
 
     @app.post("/assistant/cases/{case_id}/chat", response_model=ChatResponse)
-    def chat(body: ChatRequest, snapshot: Snapshot) -> ChatResponse:
+    def chat(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> ChatResponse:
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
         quick = small_talk_reply(question, facts)
@@ -409,10 +554,11 @@ def create_app(
                 notice=None,
                 suggested_questions=suggested_questions(facts),
             )
-        return answer_with_model(prepare(body, snapshot, question))
+        prep = prepare(body, snapshot, question)
+        return record(case_id, snapshot, body, prep, *answer_with_model(prep))
 
     @app.post("/assistant/cases/{case_id}/chat/stream")
-    def chat_stream(body: ChatRequest, snapshot: Snapshot) -> StreamingResponse:
+    def chat_stream(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> StreamingResponse:
         """Like /chat, but the answer appears while the model is still writing it."""
 
         facts = build_case_facts(snapshot)
@@ -431,7 +577,16 @@ def create_app(
                 [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]
             )
         else:
-            events = stream_answer(prepare(body, snapshot, question))
+            prep = prepare(body, snapshot, question)
+
+            def finish(
+                response: ChatResponse,
+                validation: Validation | None,
+                reason: FallbackReason | None,
+            ) -> ChatResponse:
+                return record(case_id, snapshot, body, prep, response, validation, reason)
+
+            events = stream_answer(prep, finish)
         return StreamingResponse(
             events,
             media_type="application/x-ndjson",

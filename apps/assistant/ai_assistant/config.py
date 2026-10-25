@@ -42,6 +42,12 @@ class AiAssistantSettings(BaseSettings):
     # edited, after confirming it, and the decision is recorded as single-reviewer. False keeps
     # the two-person rule. Retiring an entry always takes two reviewers.
     knowledge_single_reviewer: bool = True
+    # Answer records (D-084, proposed): one per answer, kept so a Director can see why the AI
+    # said what it said. A record not linked to an enhancement request (unrated, or rated "Yes,
+    # helpful") is deleted this many days after the answer; a linked one this many days after
+    # its request was resolved or closed.
+    answer_record_unrated_days: int = Field(default=7, ge=1, le=365)
+    answer_record_closed_days: int = Field(default=30, ge=1, le=365)
     # Local embedding model for knowledge search (Ollama's own API, not the /v1 path).
     embed_base_url: str = "http://127.0.0.1:11434"
     embed_model: str = "nomic-embed-text"

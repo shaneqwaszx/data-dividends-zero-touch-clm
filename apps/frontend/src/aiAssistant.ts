@@ -45,7 +45,13 @@ export interface AiAssistantAnswer {
   /** Retrieved guidance [G] and past cases [P]. */
   sources?: AiAssistantSource[];
   knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
+  /** The server's record of this answer; feedback sends it back (none for small talk). */
+  answer_id?: string | null;
 }
+
+/** The question body, with the ids of earlier answers in this chat (the server checks them). */
+const chatBody = (message: string, history: AiAssistantTurn[], earlierAnswerIds: string[]) =>
+  earlierAnswerIds.length ? { message, history, earlier_answer_ids: earlierAnswerIds } : { message, history };
 
 export class AiAssistantError extends Error {
   constructor(message: string, readonly status: number | null = null) {
@@ -178,10 +184,11 @@ export function askAiAssistant(
   message: string,
   history: AiAssistantTurn[],
   signal?: AbortSignal,
+  earlierAnswerIds: string[] = [],
 ): Promise<AiAssistantAnswer> {
   return request<AiAssistantAnswer>(
     `/cases/${encodeURIComponent(caseId)}/chat`,
-    { message, history },
+    chatBody(message, history, earlierAnswerIds),
     signal,
   );
 }
@@ -199,8 +206,13 @@ export async function askAiAssistantStreaming(
   history: AiAssistantTurn[],
   onText: (textSoFar: string) => void,
   signal?: AbortSignal,
+  earlierAnswerIds: string[] = [],
 ): Promise<AiAssistantAnswer> {
-  const response = await send(`/cases/${encodeURIComponent(caseId)}/chat/stream`, { message, history }, signal);
+  const response = await send(
+    `/cases/${encodeURIComponent(caseId)}/chat/stream`,
+    chatBody(message, history, earlierAnswerIds),
+    signal,
+  );
   const isStream = (response.headers.get("Content-Type") ?? "").includes("ndjson");
   if (!response.body) throw new AiAssistantError("The AI assistant could not answer right now.");
   // Additional browser containment above the service's 64 KiB model text cap.
@@ -229,6 +241,7 @@ export async function askAiAssistantStreaming(
       && ["model", "case_data"].includes(event.answered_by)
       && (event.model === null || typeof event.model === "string")
       && (event.notice === null || typeof event.notice === "string")
+      && (event.answer_id == null || typeof event.answer_id === "string")
       && Array.isArray(event.suggested_questions)
       && event.suggested_questions.every((question) => typeof question === "string")) {
       const { type: _type, ...answer } = event;
@@ -294,11 +307,11 @@ export interface AiAssistantFeedbackResult {
 
 /**
  * "Yes, helpful" records the rating; "Not helpful" needs a note (the backend refuses an empty
- * one) and becomes an enhancement request for a Director.
+ * one) and the answer's `answer_id`, and becomes an enhancement request for a Director.
  */
 export function sendAiAssistantFeedback(
   caseId: string,
-  feedback: { helpful: boolean; note: string },
+  feedback: { helpful: boolean; note: string; answer_id?: string },
   signal?: AbortSignal,
 ): Promise<AiAssistantFeedbackResult> {
   return request<AiAssistantFeedbackResult>(`/cases/${encodeURIComponent(caseId)}/feedback`, feedback, signal);
@@ -348,6 +361,41 @@ export interface KnowledgeGap {
   fields: string[];
   stages: string[];
   created_at: string;
+  /** The record of the answer the RM rated (requests made before answer records have none). */
+  answer_id?: string | null;
+}
+
+/** The server's record of one answer: what the AI was given, chose and left out. */
+export interface AnswerRecord {
+  answer_id: string;
+  case_id: string;
+  created_at: string;
+  question: string;
+  earlier_answer_ids: string[];
+  case_snapshot: {
+    blocker_codes: string[];
+    stage: string | null;
+    steps_done: number | null;
+    steps_total: number | null;
+    facts_hash: string;
+  };
+  knowledge: {
+    confidence: "high" | "low" | "none" | null;
+    degraded: boolean | null;
+    entries: { tag: string; entry_id: string; version: number; score: number; fallback: boolean }[];
+  };
+  allowed_lines: string[];
+  chosen_lines: string[];
+  dropped_lines: string[];
+  result: {
+    answered_by: "model" | "case_data";
+    notices: string[];
+    fallback_reason: "model_unavailable" | "nothing_allowed" | "cut_short" | null;
+    left_out: number;
+    model: string | null;
+    elapsed_ms: number;
+  };
+  rated: boolean;
 }
 
 export interface KnowledgeReviewQueue {
@@ -412,3 +460,13 @@ export const draftFromKnowledgeGap = (feedbackId: number, fix: KnowledgeFix) =>
   request<KnowledgeEntry>(`/knowledge/feedback/${feedbackId}/draft`, fix);
 export const closeKnowledgeGap = (feedbackId: number, reason: string) =>
   request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, { reason });
+// "What happened": the record linked to a request, or one of the earlier answers it names.
+// Every view is logged by the service.
+export const fetchGapAnswer = (feedbackId: number, signal?: AbortSignal) =>
+  request<AnswerRecord>(`/knowledge/feedback/${feedbackId}/answer`, undefined, signal);
+export const fetchGapEarlierAnswer = (feedbackId: number, answerId: string, signal?: AbortSignal) =>
+  request<AnswerRecord>(
+    `/knowledge/feedback/${feedbackId}/answers/${encodeURIComponent(answerId)}`,
+    undefined,
+    signal,
+  );

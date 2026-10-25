@@ -40,6 +40,7 @@ phrasings are not recognised.
 """
 
 import bisect
+import dataclasses
 import json
 import re
 from collections.abc import Iterable, Sequence
@@ -467,6 +468,9 @@ class Validation:
     left_out: int = 0
     # Short notices the RM should see with the answer.
     disclosures: tuple[str, ...] = ()
+    # The left-out lines themselves, for the answer record only (never shown to the RM).
+    # A read-only record of what was not kept: it takes no part in selecting lines.
+    dropped: tuple[str, ...] = dataclasses.field(default=(), compare=False, repr=False)
 
     def notice(self) -> str | None:
         parts = list(self.disclosures)
@@ -514,14 +518,21 @@ def validate_answer(
     allowed = _allowed(facts, knowledge_lines)
     kept: dict[str, None] = {}
     left_out = 0
+    dropped: list[str] = []
     for line in answer.splitlines():
         line = line.strip()
         if line in allowed:
             kept[line] = None
         elif line:
             left_out += 1
+            dropped.append(line)
     text = "\n".join(kept)
-    return Validation(text=text, left_out=left_out, disclosures=_disclosures(text, facts))
+    return Validation(
+        text=text,
+        left_out=left_out,
+        disclosures=_disclosures(text, facts),
+        dropped=tuple(dropped),
+    )
 
 
 def guard_answer(answer: str, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()) -> str:
@@ -549,6 +560,7 @@ class StreamingGuard:
         self._pending: list[str] = []  # the unfinished line, in pieces
         self._accepted: dict[str, None] = {}
         self._left_out = 0
+        self._dropped: list[str] = []
         self._total_bytes = 0
 
     @property
@@ -563,6 +575,7 @@ class StreamingGuard:
             self._accepted[line] = None
         elif line:
             self._left_out += 1
+            self._dropped.append(line)
 
     def feed(self, text: str) -> str | None:
         if self._total_bytes + len(text) > MAX_MODEL_TEXT_BYTES:
@@ -600,5 +613,8 @@ class StreamingGuard:
 
         text = self.text
         return Validation(
-            text=text, left_out=self._left_out, disclosures=_disclosures(text, self._facts)
+            text=text,
+            left_out=self._left_out,
+            disclosures=_disclosures(text, self._facts),
+            dropped=tuple(self._dropped),
         )
