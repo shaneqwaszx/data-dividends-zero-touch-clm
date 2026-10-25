@@ -78,10 +78,12 @@ function entityTypeLabel(record: OwnershipAnalysisRecord, partyId: string): stri
       || (party?.registration_number && item.registration_number === party.registration_number))?.official_legal_form;
   return (form && NON_COMPANY_FORMS[form]) ?? "Company";
 }
-// D-086: an owner-declared relationship percentage is marked technically and visibly.
+// D-086: an owner-declared relationship percentage is marked technically and visibly;
+// D-088: an issued-capital link names the official Mock business profile it derives from.
 function sourceLabel(edge: OwnershipRelationship): string {
   const declared = edge.provenance.owner_declared_percentage === true;
-  return `${edge.provenance.provider} · ${edge.provenance.environment}${declared ? " · owner-declared percentage" : ""}`;
+  const issued = edge.provenance.provider === "LOCAL_POC_ISSUED_CAPITAL_BASIS";
+  return `${edge.provenance.provider} · ${edge.provenance.environment}${declared ? " · owner-declared percentage" : ""}${issued ? " · from ACRA Mock business profile" : ""}`;
 }
 
 const LAYER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
@@ -140,7 +142,13 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
         {record.poc_acceptance?.accepted_assumptions?.includes("UNCLASSIFIED_LEGAL_FORM")
           && <p>The registry legal form has no supported formal UBO method; the declared POC arithmetic is shown without a formal classification.</p>}
         {record.poc_acceptance && record.poc_acceptance.descriptive_current_role_count + record.poc_acceptance.descriptive_ceased_role_count > 0
-          && <p>The official Marketplace Mock officer ownership role records ({record.poc_acceptance.descriptive_current_role_count} current, {record.poc_acceptance.descriptive_ceased_role_count} ceased) are retained unchanged as descriptive context only. They do not corroborate the synthetic shareholder relationships.</p>}</div>
+          && <p>The official Marketplace Mock officer ownership role records ({record.poc_acceptance.descriptive_current_role_count} current, {record.poc_acceptance.descriptive_ceased_role_count} ceased) are retained unchanged as descriptive context only. They do not corroborate the synthetic shareholder relationships.</p>}
+        {record.poc_acceptance && (record.poc_acceptance.descriptive_intermediate_current_role_count ?? 0) + (record.poc_acceptance.descriptive_intermediate_ceased_role_count ?? 0) > 0
+          && <p>An intermediate entity's official Marketplace Mock officer ownership role records ({record.poc_acceptance.descriptive_intermediate_current_role_count ?? 0} current, {record.poc_acceptance.descriptive_intermediate_ceased_role_count ?? 0} ceased) are retained unchanged as descriptive context only. They are not shareholdings and do not corroborate the synthetic relationships.</p>}
+        {record.poc_acceptance?.accepted_assumptions?.includes("ISSUED_CAPITAL_DENOMINATOR")
+          && <p>An issuer's holder percentages use its official ACRA Marketplace Mock business profile share quantities over its issued share capital. The profile returned no holder status; treating the holding as current is a declared POC assumption.</p>}
+        {record.relationships.some(edge => edge.provenance.owner_declared_percentage)
+          && <p>Ownership calculations are accepted for this demonstration using ACRA Marketplace Mock observations and explicitly declared synthetic relationships, including an owner-declared percentage. This is not a verified legal UBO determination.</p>}</div>
       : calculatedForVerification(record)
       ? <div className="ds-banner ds-banner-warn" role="note"><strong>Ownership calculated — verification required</strong>
         <p>Ownership percentages use retained ACRA Marketplace Mock shareholder quantities and declared POC assumptions. Official share denominators and share-class rights remain unverified.</p>

@@ -225,12 +225,38 @@ effective interests (Garden 100%, SIM LIM 62.5%); in the five-layer scenario L2 
 L4A 30%, L4B 20% and L5 40% (30% + 10% across the diamond). These are presentation values,
 not UBO classifications.
 
-**Readiness (owner decision: fail closed).** Garden's four official OFFICERS Owner roles are
-kept on its discovery record. Because no declared assumption covers an intermediate
-issuer's ownership-like roles, Scenario B is **not POC-ready** even with
-`ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc`. It calculates and displays,
-stays REVIEW_REQUIRED, and stops at OWNERSHIP with no target confirmation offered. Whether
-`DESCRIPTIVE_OFFICER_ROLES` may extend to such roles is an open owner question (D-086).
+**Readiness (owner decision D-087).** Garden's four official OFFICERS Owner roles (three
+current, one ceased) are kept on its discovery record. Scenario B's trusted declaration
+names Garden and the `OWNER` role kind as descriptive intermediate context, so with
+`ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc` a fresh case shows
+**Ownership calculated — POC basis accepted**, ownership readiness is READY with no
+blocker, and the case waits for explicit target confirmation. The formal classifications
+stay REVIEW_REQUIRED and nothing is sent automatically. Any other ownership-like role
+kind on Garden, or such a role on another issuer, still blocks.
+
+## 7b. OPQ multi-holder: GARDEN BUSINESS 50% and ABC COMPANY 50% (D-088, D-089)
+
+Select it with `ACRA_MARKETPLACE_OPQ_SCENARIO=garden_abc_multi_holder`. This is a separate
+variant; the default and the 100% variant are unchanged.
+
+| Level | Entity | Basis |
+|---|---|---|
+| L1 | OPQ PTE. LTD. `201511222D` | Official Marketplace Mock root (legal form read as `OTHER`) |
+| L2 | GARDEN BUSINESS `11111999A` | **50%, owner-declared** `LOCAL_SYNTHETIC_RELATIONSHIP`; Garden's register below is unchanged |
+| L2 | ABC COMPANY PTE. LTD. `201688888A` | **50%, owner-declared** `LOCAL_SYNTHETIC_RELATIONSHIP` |
+| Person | ABC's individual holder | 1000 of 1000 issued ORDINARY (SGD) from ABC's official businessProfile: `LOCAL_POC_ISSUED_CAPITAL_BASIS · LOCAL · from ACRA Mock business profile` (100%) |
+
+- **Effective interests.** ABC's holder 50%, ABCD123 25.568181875%, LIM CHOON HUAT
+  18.75%, TAN WEI LING and EFGH2345 2.8409090625% each.
+- **Assumed-basis threshold matches.** ABC's holder and ABCD123.
+- **Entity values.** Garden 50%, SIM LIM 31.25%, ABC 50%.
+- **Readiness.** With the opt-in POC policy, the case shows **Ownership calculated — POC
+  basis accepted**, ownership is READY with no blocker, and it waits for explicit target
+  confirmation. Mock GoldTier only.
+
+The businessProfile row returned no status; treating it as current is the recorded D-088
+assumption. It applies only because the row exactly equals ABC's single issued class.
+The offline transport uses a synthetic holder name in the observed shape.
 
 ## 8. Garden under the same concept
 

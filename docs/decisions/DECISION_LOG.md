@@ -925,9 +925,9 @@ Owner scope adjustment and decisions, 2026-10-25. The owner accepted
     ownership-like intermediate role would qualify (tested as a counterfactual). An
     ownership-like root role also blocks. Formal classifications stay REVIEW_REQUIRED; target
     confirmation, no provisional UBO ids and D-081 Option B are unchanged.
-  - **Open owner question.** Should `DESCRIPTIVE_OFFICER_ROLES` extend to the official
-    ownership-like roles of a declared intermediate issuer (Garden in Scenario B), with
-    those roles counted in the acceptance record? Until then Scenario B stays in review.
+  - **Open owner question (answered by D-087).** Should `DESCRIPTIVE_OFFICER_ROLES` extend
+    to the official ownership-like roles of a declared intermediate issuer (Garden in
+    Scenario B)? D-087 answers with a separate, scenario-declared assumption instead.
 - **Entity effective interests (owner request, 2026-10-25).** Intermediate legal entities
   showed "Not calculated". On an opt-in flag (`include_entity_paths`, off for analysis,
   discovery and advice, which therefore run main's exact code path), the single engine
@@ -950,3 +950,149 @@ Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integr
 acceptance and independent gate. Not ACRA ownership, a verified holding, legal UBO policy
 (Q-004), Marketplace relationship or denominator semantics (Q-012), person identity (Q-019)
 or Live evidence.
+
+## D-087 - declared intermediate issuer officer roles as POC descriptive context (candidate)
+
+Owner decision, 2026-10-25, before PR #111 merges. It extends the D-085 scenario-declared
+POC acceptance so the explicitly selected OPQ -> GARDEN BUSINESS -> SIM LIM scenario
+(`OPQ_GARDEN_SIM_LIM_V1`) can pass the ownership readiness boundary with Garden's verified,
+source-observed official OFFICERS Owner roles retained as descriptive context. It replaces
+D-086's fail-closed outcome for that scenario only. This is POC workflow acceptance, not
+legal ownership verification.
+
+- **New assumption.** `DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES`. A scenario's trusted
+  declaration (project code, never a case field) names each intermediate issuer and the
+  ownership-like role kinds accepted for it (`descriptive_intermediate_roles`). The
+  assumption exists exactly when issuers are named, and only non-root scenario issuers
+  qualify. It accepts no analysis issue code: the roles stay on the issuer's discovery
+  record (D-086), not in the analysis evidence.
+- **Scenario B declaration.** Garden `11111999A`, role kind `OWNER` only. The Garden direct
+  scenario and the historical five-layer fixture are unchanged (the five-layer fixture
+  declares no acceptance).
+- **Still blocking (fail closed).** An ownership-like role on an undeclared issuer, the
+  root, or of an undeclared kind (for example `SHAREHOLDER`, `PARTNER` or `MEMBER` on
+  Garden); an issuer without its official profile, not recorded once, or not a local overlay
+  issuer of the scenario; a role record breaking the OFFICERS / ACRA / Mock / status
+  contract; more than 32 such records; and every existing D-085 condition (policy disabled,
+  outside the Mock hybrid lane, unknown scenario, incomplete topology, identity mismatch,
+  document discrepancies, genuine evidence defects, limits, cycles, and any later change to
+  the bound content, which revokes the acceptance).
+- **Acceptance record.** Adds `descriptive_intermediate_current_role_count` and
+  `descriptive_intermediate_ceased_role_count` (counts only; no identity or digest). The
+  assumption is recorded exactly when those counts are non-zero. Case envelope 15 is
+  unchanged in version (unreleased); schema 14-and-older readers reject the counts.
+- **Result.** A fresh Scenario B case with the opt-in policy is accepted: assumptions
+  `DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES`, `EQUAL_UNIT_DENOMINATOR`,
+  `SIMULATED_RELATIONSHIPS` and `UNCLASSIFIED_LEGAL_FORM`; Garden counts 3 current and 1
+  ceased. Ownership readiness is READY with no blocker, and the case waits at
+  `TARGET_CONFIRMATION_REQUIRED`. The review state, issues, evidence, classifications
+  (REVIEW_REQUIRED) and every percentage are unchanged. Explicit RM confirmation, Mock
+  GoldTier only, no provisional UBO ids and revalidation before the first target mutation
+  are unchanged.
+- **Presentation.** The accepted banner adds an intermediate-role disclosure and, when an
+  owner-declared percentage is present, the statement that calculations use ACRA
+  Marketplace Mock observations and explicitly declared synthetic relationships and are
+  not a verified legal UBO determination.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. Not ACRA ownership, a verified holding, legal UBO policy
+(Q-004), Marketplace relationship semantics (Q-012) or Live evidence.
+
+## D-088 - official Marketplace Mock businessProfile and the issued-capital POC interpretation (candidate)
+
+Owner decisions, 2026-10-25 ("ACRA issued capital" and "Current, if capital matches").
+A project-defined Marketplace Mock POC interpretation, not a production or
+sponsor-approved ownership rule (Q-012 stays partially answered: Mock subset only).
+
+- **Observation (one owner-authorized read, 1 token + 1 GET, HTTP 200).**
+  `businessProfile` for ABC COMPANY PTE. LTD. `201688888A`, an exempt private company
+  limited by shares and a live company. It shows one Individual shareholder holding 1000
+  ORDINARY (SGD) with no row status, and issued and paid-up capital of 1000 ORDINARY (SGD).
+  Its entity-basic profile and `coShareholdersDetails` are empty in the Mock.
+- **Connector (new external-provider capability, Mock only).**
+  - The fixed official Mock path `/entityQuery/businessProfile` is read only through the
+    official Marketplace composition.
+  - A strict decoder keeps the company labels, shareholder rows (category, name, count,
+    class, currency and any returned status) and the issued and paid-up capital lines.
+    Officer, address, nationality and activity fields are never retained.
+  - A share count is accepted only as a finite whole JSON number, never a string (the
+    observed `1000.0` becomes the exact count 1000). A bad count, an unknown category, a
+    different UEN or more than one entity is malformed.
+  - The source holder identifier is replaced by an issuer-scoped digest (`BP-...`) and
+    never stored or projected. The digest is unkeyed, so it is pseudonymous rather than
+    irreversible for a small identifier space; any non-Mock use needs a keyed digest under
+    a server-held secret first.
+- **Cache.** Cache-first under its own contract key `MARKETPLACE_BUSINESS_PROFILE_V1`
+  (registry cache schema 5). The cache owner, locks and CAS are shared with the
+  shareholder contract. COMPLETE results follow the freshness policy, EMPTY results the
+  negative TTL, and FAILED results are never cached.
+- **When it is read.** Only for a corporate holder named in the trusted scenario's
+  `business_profile_issuers`, in the hybrid lane, and only after that holder's
+  entity-basic profile and shareholder operation are both definitively empty. It is
+  never read for any other scenario or lane.
+- **Interpretation (fail closed).** Status-free rows are assumed current, and attach as
+  `LOCAL_POC_ISSUED_CAPITAL_BASIS` links (units / issued x 100, the existing six-decimal
+  rule), only when all of these hold:
+  - every row is an individual with no returned status, a positive count and one common
+    class and currency;
+  - the issuer reports exactly one issued class, in that class and currency, with a
+    positive count;
+  - the rows total exactly that issued count;
+  - any paid-up line for the class agrees.
+
+  Otherwise the profile is retained unattached (`OFFICIAL_BUSINESS_PROFILE_RETAINED`) and
+  the branch stays unresolved. Empty, failed or malformed reads retain nothing.
+- **Recorded separately.** Each retained row keeps `provider_status` (what was returned)
+  apart from `assumed_current` (the POC assumption). A returned status is never replaced:
+  any status fails the rule closed.
+- **Acceptance.** New D-085 assumption `ISSUED_CAPITAL_DENOMINATOR`. It accepts no issue
+  code: the links are named by the synthetic-evidence issue. Eligibility also requires
+  that the issuer is a named profile issuer, that the retained profile still satisfies
+  the rule, and that the links reproduce exactly the rows' names and quantized shares.
+  The acceptance records `issued_capital_relationship_ids`. Schema 14-and-older readers
+  reject the new discovery and acceptance fields.
+- No GoldTier, mapping, authentication or assistant change. The engine is unchanged: the
+  links are ordinary graph edges.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. Not ACRA ownership, a verified holding, legal UBO policy
+(Q-004), Marketplace denominator semantics (Q-012) or Live evidence.
+
+## D-089 - OPQ multi-holder variant: GARDEN BUSINESS 50% and ABC COMPANY 50% (candidate)
+
+Owner decision, 2026-10-25 (Option A). A separate operator-selected variant: selector
+`ACRA_MARKETPLACE_OPQ_SCENARIO=garden_abc_multi_holder`, scenario `OPQ_GARDEN_ABC_V1`. The
+default five-layer simulation and the OPQ -> Garden 100% variant stay unchanged and
+available.
+
+- **New synthetic declarations, exactly two.** OPQ -> GARDEN BUSINESS `11111999A` 50% and
+  OPQ -> ABC COMPANY `201688888A` 50%. Both are owner-declared complete percentages
+  (`LOCAL_SYNTHETIC_RELATIONSHIP`, `LOCAL`), with no share units. ABC's 1000 shares are
+  never an OPQ denominator.
+- **Everything else unchanged.**
+  - Garden keeps its official BUSINESS_PARTNERSHIP identity and its owner-supplied
+    register (SIM LIM 62.5%, LIM CHOON HUAT 37.5%).
+  - SIM LIM keeps its official rows under D-081.
+  - ABC's holder is 100% under D-088.
+  - Garden's official Owner roles are descriptive context under D-087.
+- **Results (unchanged engine, inclusive 25% comparator, no rounding before comparison).**
+
+  | Party | Effective % | Threshold (assumed basis) |
+  |---|---|---|
+  | ABC's individual holder | 50 | MET |
+  | ABCD123 | 25.568181875 | MET |
+  | LIM CHOON HUAT | 18.75 | NOT_MET |
+  | TAN WEI LING | 2.8409090625 | NOT_MET |
+  | EFGH2345 | 2.8409090625 | NOT_MET |
+
+  Entity values: Garden 50, SIM LIM 31.25, ABC COMPANY 50.
+- **Acceptance.** Declared assumptions: `SIMULATED_RELATIONSHIPS`, `EQUAL_UNIT_DENOMINATOR`,
+  `UNCLASSIFIED_LEGAL_FORM`, `DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES` (Garden, `OWNER`) and
+  `ISSUED_CAPITAL_DENOMINATOR` (ABC). A fresh case with the opt-in policy is accepted,
+  ownership readiness is READY with no blocker, and the case waits at
+  `TARGET_CONFIRMATION_REQUIRED`.
+- **Unchanged.** Review state, issues and classifications stay REVIEW_REQUIRED. Explicit RM
+  confirmation, Mock GoldTier only and no provisional UBO ids are unchanged.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`. Simulation data, not
+ACRA-verified ownership.

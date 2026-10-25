@@ -926,6 +926,9 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
         if (
             str(acceptance.get("policy")) == "D085_SCENARIO_DECLARED_POC_BASIS_V1"
             or acceptance.get("accepted_assumptions")
+            or acceptance.get("descriptive_intermediate_current_role_count")
+            or acceptance.get("descriptive_intermediate_ceased_role_count")
+            or acceptance.get("issued_capital_relationship_ids")
         ):
             raise ValueError("Historical schema cannot contain a D-085 POC acceptance.")
         audit = _explicit_fields(_explicit_fields(record).get("discovery"))
@@ -934,6 +937,11 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
             for item in audit.get("records", ()) or ()
         ):
             raise ValueError("Historical schema cannot contain D-086 officer role observations.")
+        if any(
+            _explicit_fields(item).get("official_business_profile") is not None
+            for item in audit.get("records", ()) or ()
+        ):
+            raise ValueError("Historical schema cannot contain a D-088 business profile.")
 
 
 def reject_session2_legacy_fields(value: Any) -> None:

@@ -493,7 +493,19 @@ DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
     browser sees only `provenance.owner_declared_percentage`.
   - An official-profile overlay issuer keeps its OFFICERS roles as discovery
     `official_officer_roles` (role, status, Mock provenance; no identity). Ownership-like
-    intermediate roles block POC acceptance (fail closed; extension is an open owner question).
+    intermediate roles block POC acceptance unless the scenario's trusted declaration names
+    that issuer and role kind (`DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES`, D-087; Scenario B:
+    Garden `OWNER` only). Accepted roles are counted in the acceptance, never holdings.
+  - D-088: a scenario-named corporate holder with empty entity and shareholder reads may
+    keep its official businessProfile (`official_business_profile`: rows with the
+    returned `provider_status` apart from the `assumed_current` POC flag, and capital
+    lines). Rows that exactly equal one compatible issued class attach as
+    `LOCAL_POC_ISSUED_CAPITAL_BASIS` links (units / issued x 100) under the declared
+    `ISSUED_CAPITAL_DENOMINATOR` assumption; otherwise the profile is retained
+    unattached and the branch stays unresolved.
+  - D-089: `OPQ_GARDEN_ABC_V1` (selector `garden_abc_multi_holder`) declares OPQ -> Garden
+    50% and OPQ -> ABC COMPANY 50% as owner-declared percentages; ABC's holder is 100%
+    under D-088. Simulation data, not ACRA-verified ownership.
   - `OPQ_GARDEN_SIM_LIM_V1` is selected only by the operator setting
     `ACRA_MARKETPLACE_OPQ_SCENARIO=garden_sim_lim_chain`; the five-layer scenario stays the
     default. Not ACRA ownership.

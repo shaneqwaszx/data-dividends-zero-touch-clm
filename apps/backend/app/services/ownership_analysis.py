@@ -1,7 +1,7 @@
 """Bounded ownership loading, graph traversal, aggregation, and classification."""
 
 import json
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
@@ -13,11 +13,15 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from app.connectors.garden_business import quantized_unit_share
 from app.connectors.hybrid_ownership_overlay import (
     OVERLAY_RELATIONSHIP_PROVIDER,
     POC_EQUAL_UNITS_PROVIDER,
+    POC_ISSUED_CAPITAL_PROVIDER,
     HybridOverlayScenario,
     HybridOwnershipOverlayCatalogue,
+    PocAcceptanceDeclaration,
+    issued_capital_matches,
     overlay_component,
 )
 from app.connectors.ownership import (
@@ -30,6 +34,7 @@ from app.connectors.ownership import (
 from app.domain.documents import DocumentOwnershipObservation, DocumentProcessingRecord
 from app.domain.models import EventOutcome, OnboardingCase, SafeError
 from app.domain.ownership import (
+    OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL,
     OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS,
     OWNERSHIP_POC_ACCEPTANCE_POLICY,
     ManualOwnershipReviewReceipt,
@@ -40,6 +45,7 @@ from app.domain.ownership import (
     OwnershipCandidateClassification,
     OwnershipDiscoveryAudit,
     OwnershipDiscoveryOutcome,
+    OwnershipDiscoveryRecord,
     OwnershipDocumentBinding,
     OwnershipEnvironment,
     OwnershipEventType,
@@ -307,6 +313,7 @@ def synthetic_basis_threshold_results(
 _POC_ACCEPTANCE_EDGE_ASSUMPTIONS: Final = {
     OVERLAY_RELATIONSHIP_PROVIDER: PocAssumption.SIMULATED_RELATIONSHIPS,
     POC_EQUAL_UNITS_PROVIDER: PocAssumption.EQUAL_UNIT_DENOMINATOR,
+    POC_ISSUED_CAPITAL_PROVIDER: PocAssumption.ISSUED_CAPITAL_DENOMINATOR,
 }
 _OWNERSHIP_LIKE_ROLES: Final = frozenset({"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"})
 _UNRESOLVED_EVIDENCE_KINDS: Final = frozenset(
@@ -404,11 +411,118 @@ def _review_causes(record: OwnershipAnalysisRecord) -> _ReviewCauses:
 def _intermediate_ownership_like_roles(discovery: OwnershipDiscoveryAudit) -> bool:
     """D-086: any ownership-like official officer role retained on an overlay issuer."""
 
-    return any(
-        role.role.strip().upper() in _OWNERSHIP_LIKE_ROLES
+    return bool(_intermediate_role_records(discovery))
+
+
+def _intermediate_role_records(
+    discovery: OwnershipDiscoveryAudit,
+) -> tuple[OwnershipDiscoveryRecord, ...]:
+    """Discovery records holding at least one ownership-like official officer role."""
+
+    return tuple(
+        item
         for item in discovery.records
-        for role in item.official_officer_roles
+        if any(
+            role.role.strip().upper() in _OWNERSHIP_LIKE_ROLES
+            for role in item.official_officer_roles
+        )
     )
+
+
+def _undeclared_intermediate_roles(
+    discovery: OwnershipDiscoveryAudit,
+    scenario: HybridOverlayScenario,
+    declaration: PocAcceptanceDeclaration,
+) -> bool:
+    """D-087 fail closed: an ownership-like intermediate role outside the declaration.
+
+    Accepted only for the role kinds the trusted declaration names for that issuer, on a
+    non-root issuer of this scenario recorded once with its official entity profile, and
+    only for role records that keep the official OFFICERS evidence contract.
+    """
+
+    if not (records := _intermediate_role_records(discovery)):
+        return False
+    counts = Counter(item.registration_number for item in discovery.records)
+    return (
+        PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES not in declaration.accepted_assumptions
+        # The acceptance keeps at most 32 descriptive intermediate role records.
+        or sum(len(item.official_officer_roles) for item in records) > 32
+        or any(
+            item.registration_number is None
+            or item.registration_number == scenario.root_uen
+            or scenario.issuer(item.registration_number) is None
+            or counts[item.registration_number] != 1
+            or item.identity_basis != "OFFICIAL_MOCK_ENTITY_PROFILE"
+            or item.outcome != OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
+            or any(
+                role.source_operation != "OFFICERS"
+                or role.provider != "ACRA_REGISTRY_ACQUISITION"
+                or role.environment != "MOCK"
+                or role.status not in {"CURRENT", "CEASED"}
+                or (
+                    role.role.strip().upper() in _OWNERSHIP_LIKE_ROLES
+                    and role.role.strip().upper()
+                    not in declaration.descriptive_roles_of(item.registration_number)
+                )
+                for role in item.official_officer_roles
+            )
+            for item in records
+        )
+    )
+
+
+def _issued_capital_links_disagree(
+    record: OwnershipAnalysisRecord,
+    discovery: OwnershipDiscoveryAudit,
+    scenario: HybridOverlayScenario,
+) -> bool:
+    """D-088 fail closed: issued-capital links not reproduced by their retained profile.
+
+    Every such link must come from a scenario-named issuer whose retained businessProfile
+    still satisfies the exact capital match, and the links from that issuer must be
+    exactly its rows' holder names and quantized issued-capital shares.
+    """
+
+    links = [
+        edge
+        for edge in record.relationships
+        if edge.provenance.provider == POC_ISSUED_CAPITAL_PROVIDER
+    ]
+    profiles = [
+        item
+        for item in discovery.records
+        if item.reason_code == OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL
+    ]
+    if {edge.parent_party_id for edge in links} != {item.party_id for item in profiles}:
+        return True
+    names = {party.party_id: party.display_name for party in record.parties}
+    for item in profiles:
+        profile = item.official_business_profile
+        if (
+            profile is None
+            or item.registration_number is None
+            or item.registration_number not in scenario.business_profile_issuers
+            or len(profile.issued_share_capital) != 1
+            or not all(row.assumed_current for row in profile.shareholders)
+            or not issued_capital_matches(
+                profile.shareholders, profile.issued_share_capital, profile.paid_up_capital
+            )
+        ):
+            return True
+        denominator = profile.issued_share_capital[0].number_of_shares or Decimal("0")
+        expected = sorted(
+            (row.display_name, quantized_unit_share(row.number_of_shares, denominator))
+            for row in profile.shareholders
+        )
+        actual = sorted(
+            (names.get(edge.child_party_id, ""), edge.ownership_percent)
+            for edge in links
+            if edge.parent_party_id == item.party_id
+        )
+        if actual != expected:
+            return True
+    return False
 
 
 def _officer_role_evidence_id(party_id: str) -> str:
@@ -487,9 +601,10 @@ def eligible_poc_acceptance(
         )
         # A locally named issuer is a fabricated identity, never a declared assumption.
         or any(item.identity_basis == "LOCAL_SYNTHETIC_IDENTITY" for item in discovery.records)
-        # D-086 fail closed: an intermediate issuer's ownership-like official officer roles
-        # are not covered by any declared assumption (open owner question).
-        or _intermediate_ownership_like_roles(discovery)
+        # D-086/D-087 fail closed: an intermediate issuer's ownership-like official officer
+        # roles block unless the trusted declaration names that issuer.
+        or _undeclared_intermediate_roles(discovery, scenario, declaration)
+        or _issued_capital_links_disagree(record, discovery, scenario)
         or not link_assumptions
         or not link_assumptions <= declared
         or any(
@@ -542,6 +657,14 @@ def eligible_poc_acceptance(
     exercised = {item for item in link_assumptions if item is not None}
     if causes.unresolved_roles:
         exercised.add(PocAssumption.DESCRIPTIVE_OFFICER_ROLES)
+    intermediate_statuses = [
+        role.status
+        for item in _intermediate_role_records(discovery)
+        for role in item.official_officer_roles
+        if role.role.strip().upper() in _OWNERSHIP_LIKE_ROLES
+    ]
+    if intermediate_statuses:
+        exercised.add(PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES)
     if legal_form_other:
         exercised.add(PocAssumption.UNCLASSIFIED_LEGAL_FORM)
     # One registry review issue is recorded by priority: legal form OTHER masks roles.
@@ -571,6 +694,17 @@ def eligible_poc_acceptance(
         poc_relationship_ids=tuple(sorted({edge.relationship_id for edge in poc_edges})),
         descriptive_current_role_count=statuses.count("CURRENT"),
         descriptive_ceased_role_count=statuses.count("CEASED"),
+        descriptive_intermediate_current_role_count=intermediate_statuses.count("CURRENT"),
+        descriptive_intermediate_ceased_role_count=intermediate_statuses.count("CEASED"),
+        issued_capital_relationship_ids=tuple(
+            sorted(
+                {
+                    edge.relationship_id
+                    for edge in record.relationships
+                    if edge.provenance.provider == POC_ISSUED_CAPITAL_PROVIDER
+                }
+            )
+        ),
         accepted_assumptions=tuple(sorted(exercised)),
         basis_fingerprint=_poc_basis_fingerprint(record),
     )
@@ -1741,10 +1875,18 @@ class OwnershipAnalysisService:
                     item.party_id
                     for item in (discovery.records if discovery is not None else ())
                     if item.outcome == OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
-                    or item.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
+                    or item.reason_code
+                    in {
+                        OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS,
+                        OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL,
+                    }
                 ]
                 poc_links = any(
                     edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
+                    for edge in record.relationships
+                )
+                issued_capital_links = any(
+                    edge.provenance.provider == POC_ISSUED_CAPITAL_PROVIDER
                     for edge in record.relationships
                 )
                 record.issues.append(
@@ -1752,6 +1894,14 @@ class OwnershipAnalysisService:
                         code=OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
                         message=(
                             "Ownership links are LOCAL_SYNTHETIC_RELATIONSHIP declarations or "
+                            "LOCAL_POC_ASSUMED_EQUAL_UNITS / LOCAL_POC_ISSUED_CAPITAL_BASIS "
+                            "estimates, not ACRA-returned ownership."
+                            if issued_capital_links and poc_links
+                            else "Ownership links are LOCAL_SYNTHETIC_RELATIONSHIP declarations or "
+                            "LOCAL_POC_ISSUED_CAPITAL_BASIS estimates, not ACRA-returned "
+                            "ownership; unverified issuers keep LOCAL_SYNTHETIC_IDENTITY."
+                            if issued_capital_links
+                            else "Ownership links are LOCAL_SYNTHETIC_RELATIONSHIP declarations or "
                             "LOCAL_POC_ASSUMED_EQUAL_UNITS estimates, not ACRA-returned "
                             "ownership; unverified issuers keep LOCAL_SYNTHETIC_IDENTITY."
                             if poc_links
@@ -2246,6 +2396,7 @@ class OwnershipAnalysisService:
             if local_overlay and (provenance.provider, provenance.environment) in {
                 (OVERLAY_RELATIONSHIP_PROVIDER, OwnershipEnvironment.LOCAL),
                 (POC_EQUAL_UNITS_PROVIDER, OwnershipEnvironment.LOCAL),
+                (POC_ISSUED_CAPITAL_PROVIDER, OwnershipEnvironment.LOCAL),
             }:
                 continue
             if (

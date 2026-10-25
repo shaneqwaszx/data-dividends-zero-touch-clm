@@ -122,3 +122,34 @@ export function opqGardenSimLimFixture(): OwnershipAnalysisRecord {
   };
   return record;
 }
+
+/** D-089: OPQ -> GARDEN BUSINESS 50% and ABC COMPANY 50% (owner-declared); ABC's holder via D-088. */
+export function opqGardenAbcFixture(): OwnershipAnalysisRecord {
+  const parties = [
+    company("ENTITY_201511222D", "OPQ PTE. LTD."), { ...company("11111999A", "GARDEN BUSINESS"), registration_number: "11111999A" },
+    { ...company("201688888A", "ABC COMPANY PTE. LTD."), registration_number: "201688888A" },
+    company("SIMLIM", "SIM LIM PTE. LTD."), person("ABCHOLDER", "SYNTHETIC ABC HOLDER"),
+    person("ABCD", "ABCD123"), person("TAN", "TAN WEI LING"), person("EFGH", "EFGH2345"), person("LIM", "LIM CHOON HUAT"),
+  ];
+  const overlay = "LOCAL_SYNTHETIC_RELATIONSHIP"; const poc = "LOCAL_POC_ASSUMED_EQUAL_UNITS";
+  const declared = (id: string, child: string) => {
+    const edge = link(id, "ENTITY_201511222D", child, "50.000000", overlay);
+    edge.provenance = { ...edge.provenance, owner_declared_percentage: true };
+    return edge;
+  };
+  const relationships = [
+    declared("o-g", "11111999A"), declared("o-abc", "201688888A"),
+    link("abc-h", "201688888A", "ABCHOLDER", "100.000000", "LOCAL_POC_ISSUED_CAPITAL_BASIS"),
+    link("g-sim", "11111999A", "SIMLIM", "62.500000", overlay), link("g-lim", "11111999A", "LIM", "37.500000", overlay),
+    link("s-abcd", "SIMLIM", "ABCD", "81.818182", poc), link("s-tan", "SIMLIM", "TAN", "9.090909", poc), link("s-efgh", "SIMLIM", "EFGH", "9.090909", poc),
+  ];
+  const record = hybridRecord(parties, relationships, [
+    ["ABCHOLDER", "50.000000", ["o-abc", "abc-h"], "MET"],
+    ["ABCD", "25.568181875000", ["o-g", "g-sim", "s-abcd"], "MET"],
+    ["TAN", "2.8409090625000", ["o-g", "g-sim", "s-tan"], "NOT_MET"],
+    ["EFGH", "2.8409090625000", ["o-g", "g-sim", "s-efgh"], "NOT_MET"],
+    ["LIM", "18.750000", ["o-g", "g-lim"], "NOT_MET"],
+  ]);
+  record.legal_form = "OTHER";
+  return record;
+}

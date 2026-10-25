@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     )
     # D-086 operator selector, hybrid lane only: which whitelisted scenario the OPQ root
     # uses. The historical five-layer simulation stays the default; never a case field.
-    acra_marketplace_opq_scenario: Literal["five_layer_simulation", "garden_sim_lim_chain"] = (
+    acra_marketplace_opq_scenario: Literal[
+        "five_layer_simulation", "garden_sim_lim_chain", "garden_abc_multi_holder"
+    ] = (
         "five_layer_simulation"
     )
     ownership_connector_mode: Literal["mock"] = "mock"

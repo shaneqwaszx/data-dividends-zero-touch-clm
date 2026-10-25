@@ -47,6 +47,9 @@ from app.domain.models import (
 )
 from app.domain.ownership import (
     OWNER_DECLARED_PERCENT_SOURCE_SUFFIX,
+    OfficialBusinessProfileObservation,
+    OfficialBusinessProfileShareholder,
+    OfficialShareCapitalObservation,
     OfficialShareholderObservation,
     OwnershipEnvironment,
     OwnershipProvenance,
@@ -62,6 +65,9 @@ OVERLAY_SOURCE_OPERATION = "LOCAL_HYBRID_OVERLAY"
 # D-081: links derived in the hybrid lane from official Marketplace units under the
 # owner-declared POC assumption that current units are complete and equally weighted.
 POC_EQUAL_UNITS_PROVIDER = "LOCAL_POC_ASSUMED_EQUAL_UNITS"
+# D-088: links derived in the hybrid lane from a scenario-named issuer's official
+# businessProfile rows over its own compatible issued capital (POC interpretation).
+POC_ISSUED_CAPITAL_PROVIDER = "LOCAL_POC_ISSUED_CAPITAL_BASIS"
 OFFICIAL_MARKETPLACE_PROFILE_REFERENCE = (
     ACRA_API_MARKETPLACE_MOCK_BASE_URL + ACRA_API_MARKETPLACE_MOCK_ENTITY_PATH
 )
@@ -69,8 +75,14 @@ GARDEN_DIRECT_OVERLAY_SCENARIO_ID = "GARDEN_DIRECT_OVERLAY_V1"
 # D-086: the explicitly selected OPQ -> GARDEN -> SIM LIM variant and the reference suffix
 # that technically marks an owner-declared relationship percentage.
 OPQ_GARDEN_SIM_LIM_SCENARIO_ID = "OPQ_GARDEN_SIM_LIM_V1"
+# D-089: the explicitly selected OPQ multi-holder variant (Garden and ABC COMPANY).
+OPQ_GARDEN_ABC_SCENARIO_ID = "OPQ_GARDEN_ABC_V1"
+ABC_COMPANY_UEN = "201688888A"
+ABC_COMPANY_NAME = "ABC COMPANY PTE. LTD."
 OWNER_DECLARED_PERCENT_SUFFIX = OWNER_DECLARED_PERCENT_SOURCE_SUFFIX
-OpqScenarioVariant = Literal["five_layer_simulation", "garden_sim_lim_chain"]
+OpqScenarioVariant = Literal[
+    "five_layer_simulation", "garden_sim_lim_chain", "garden_abc_multi_holder"
+]
 FIVE_LAYER_SCENARIO_ID = "FIVE_LAYER_MARKETPLACE_HYBRID_V1"
 FIVE_LAYER_ROOT_UEN = "201511222D"
 
@@ -188,6 +200,19 @@ class OverlayIssuer(BaseModel):
         return self
 
 
+class DescriptiveIntermediateRoles(BaseModel):
+    """D-087: one named intermediate issuer and the official OFFICERS role kinds accepted.
+
+    Only these ownership-like role kinds of this issuer are descriptive context; any other
+    ownership-like role observed on it, or on any other issuer, stays blocking.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    issuer_uen: _HolderId
+    roles: frozenset[Literal["OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"]] = Field(min_length=1)
+
+
 class PocAcceptanceDeclaration(BaseModel):
     """D-085: the reviewed POC basis a trusted scenario may have accepted at readiness.
 
@@ -199,9 +224,37 @@ class PocAcceptanceDeclaration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     quantity_basis: Literal[
-        "OWNER_SUPPLIED_DIRECT_REGISTER", "OWNER_DECLARED_PERCENTAGE_AND_DIRECT_REGISTER"
+        "OWNER_SUPPLIED_DIRECT_REGISTER",
+        "OWNER_DECLARED_PERCENTAGE_AND_DIRECT_REGISTER",
+        "OWNER_DECLARED_PERCENTAGES_DIRECT_REGISTER_AND_ISSUED_CAPITAL",
     ]
     accepted_assumptions: frozenset[PocAssumption] = Field(min_length=1)
+    # D-087: the only intermediate issuers (and role kinds) whose official OFFICERS
+    # ownership-like roles are descriptive context. Never every intermediate company.
+    descriptive_intermediate_roles: tuple[DescriptiveIntermediateRoles, ...] = Field(
+        default=(), max_length=8
+    )
+
+    @model_validator(mode="after")
+    def intermediate_roles_name_their_issuers(self) -> PocAcceptanceDeclaration:
+        issuers = [item.issuer_uen for item in self.descriptive_intermediate_roles]
+        if len(set(issuers)) != len(issuers) or (
+            PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES in self.accepted_assumptions
+        ) != bool(issuers):
+            raise ValueError("descriptive intermediate roles require their named issuers")
+        return self
+
+    def descriptive_roles_of(self, issuer_uen: str) -> frozenset[str]:
+        """The accepted ownership-like role kinds of one named intermediate issuer."""
+
+        return next(
+            (
+                frozenset(item.roles)
+                for item in self.descriptive_intermediate_roles
+                if item.issuer_uen == issuer_uen
+            ),
+            frozenset(),
+        )
 
 
 class HybridOverlayScenario(BaseModel):
@@ -213,6 +266,9 @@ class HybridOverlayScenario(BaseModel):
     root_uen: _HolderId
     issuers: tuple[OverlayIssuer, ...] = Field(min_length=1, max_length=16)
     poc_acceptance: PocAcceptanceDeclaration | None = None
+    # D-088: the only corporate holders whose official businessProfile may be read and
+    # interpreted (issued-capital basis). Never an overlay issuer or the root.
+    business_profile_issuers: frozenset[_HolderId] = Field(default=frozenset(), max_length=8)
 
     @model_validator(mode="after")
     def bounded_catalogue(self) -> HybridOverlayScenario:
@@ -226,6 +282,26 @@ class HybridOverlayScenario(BaseModel):
         ):
             # Declared overlay links always exist, so they must be declared assumptions.
             raise ValueError("an accepting overlay scenario declares its simulated links")
+        if self.poc_acceptance is not None and not (
+            {item.issuer_uen for item in self.poc_acceptance.descriptive_intermediate_roles}
+            <= set(uens) - {self.root_uen}
+        ):
+            raise ValueError("descriptive role issuers must be intermediate scenario issuers")
+        declared_holders = {
+            holder.registration_number
+            for issuer in self.issuers
+            for holder in issuer.holders
+            if holder.registration_number is not None
+        }
+        if not self.business_profile_issuers <= declared_holders - set(uens) - {self.root_uen}:
+            raise ValueError("business profile issuers must be declared non-overlay holders")
+        if (
+            self.poc_acceptance is not None
+            and PocAssumption.ISSUED_CAPITAL_DENOMINATOR
+            in self.poc_acceptance.accepted_assumptions
+            and not self.business_profile_issuers
+        ):
+            raise ValueError("the issued-capital assumption requires named profile issuers")
         return self
 
     def issuer(self, uen: str) -> OverlayIssuer | None:
@@ -372,6 +448,109 @@ def official_equal_unit_component(
                     provider=POC_EQUAL_UNITS_PROVIDER,
                     environment=OwnershipEnvironment.LOCAL,
                     source_reference=f"POC_EQUAL_UNITS_{relationship_id}",
+                    sourced_at=sourced_at,
+                ),
+            )
+        )
+    return OverlayComponent(
+        root_party_id=issuer_party.party_id,
+        parties=tuple(parties),
+        relationships=tuple(relationships),
+        share_evidence=(),
+    )
+
+
+def _label(value: str | None) -> str | None:
+    return value.strip().casefold() if value is not None else None
+
+
+def issued_capital_matches(
+    shareholders: Iterable[OfficialBusinessProfileShareholder],
+    issued: Iterable[OfficialShareCapitalObservation],
+    paid_up: Iterable[OfficialShareCapitalObservation] = (),
+) -> bool:
+    """D-088: may these status-free rows be assumed current over their issued capital?
+
+    Only when every row is an individual with no returned status, a positive count and one
+    common share class and currency; the issuer reports exactly one issued class, in that
+    class and currency, with a positive count; the rows total exactly that issued count;
+    and any paid-up line for the class agrees with it. Anything else fails closed.
+    """
+
+    rows = list(shareholders)
+    issued_lines = list(issued)
+    if (
+        not rows
+        or any(
+            item.party_type != PartyType.NATURAL_PERSON
+            or item.provider_status is not None
+            or item.number_of_shares <= 0
+            or item.share_type is None
+            or item.currency is None
+            for item in rows
+        )
+        or len({(_label(item.share_type), _label(item.currency)) for item in rows}) != 1
+        or len(issued_lines) != 1
+    ):
+        return False
+    share_class = (_label(rows[0].share_type), _label(rows[0].currency))
+    [line] = issued_lines
+    if (
+        (_label(line.share_type), _label(line.currency)) != share_class
+        or line.number_of_shares is None
+        or line.number_of_shares <= 0
+        or sum((item.number_of_shares for item in rows), Decimal("0")) != line.number_of_shares
+    ):
+        return False
+    return all(
+        (_label(item.share_type), _label(item.currency)) != share_class
+        or item.number_of_shares == line.number_of_shares
+        for item in paid_up
+    )
+
+
+def official_issued_capital_component(
+    issuer_uen: str,
+    profile: OfficialBusinessProfileObservation,
+    *,
+    issuer_party: Party,
+    sourced_at: datetime,
+) -> OverlayComponent:
+    """D-088: one issuer's own businessProfile rows over its compatible issued capital.
+
+    The same six-decimal rule as the overlay, with the issuer's single issued class as
+    the denominator. Raises ValueError unless every row is assumed current under
+    `issued_capital_matches`.
+    """
+
+    rows = profile.shareholders
+    if not rows or not all(item.assumed_current for item in rows) or not issued_capital_matches(
+        rows, profile.issued_share_capital, profile.paid_up_capital
+    ):
+        raise ValueError("issued-capital links require an exact compatible capital match")
+    [line] = profile.issued_share_capital
+    denominator = line.number_of_shares or Decimal("0")
+    parties = [issuer_party]
+    relationships: list[OwnershipRelationship] = []
+    for index, holder in enumerate(rows, start=1):
+        parties.append(
+            Party(
+                party_id=holder.source_party_id,
+                display_name=holder.display_name,
+                party_type=PartyType.NATURAL_PERSON,
+            )
+        )
+        relationship_id = f"BPIC_{issuer_uen}_{index}"
+        relationships.append(
+            OwnershipRelationship(
+                relationship_id=relationship_id,
+                parent_party_id=issuer_party.party_id,
+                child_party_id=holder.source_party_id,
+                ownership_percent=quantized_unit_share(holder.number_of_shares, denominator),
+                provenance=OwnershipProvenance(
+                    provider=POC_ISSUED_CAPITAL_PROVIDER,
+                    environment=OwnershipEnvironment.LOCAL,
+                    source_reference=f"POC_ISSUED_CAPITAL_{relationship_id}",
                     sourced_at=sourced_at,
                 ),
             )
@@ -603,8 +782,11 @@ OPQ_GARDEN_SIM_LIM_SCENARIO = HybridOverlayScenario(
         ),
         GARDEN_DIRECT_SCENARIO.issuers[0],
     ),
-    # The root's official legal form is unclassified (OTHER); its officer roles are
-    # non-ownership roles, so no descriptive-role assumption is declared.
+    # The root's official legal form is unclassified (OTHER) and its officer roles are
+    # non-ownership roles, so no root descriptive-role assumption is declared. D-087
+    # (owner decision 2026-10-25): Garden's official OFFICERS Owner roles, which the
+    # Garden scenario already accepts as context at its root, are accepted as descriptive
+    # context at its intermediate position here, and only for Garden.
     poc_acceptance=PocAcceptanceDeclaration(
         quantity_basis="OWNER_DECLARED_PERCENTAGE_AND_DIRECT_REGISTER",
         accepted_assumptions=frozenset(
@@ -612,13 +794,70 @@ OPQ_GARDEN_SIM_LIM_SCENARIO = HybridOverlayScenario(
                 PocAssumption.SIMULATED_RELATIONSHIPS,
                 PocAssumption.EQUAL_UNIT_DENOMINATOR,
                 PocAssumption.UNCLASSIFIED_LEGAL_FORM,
+                PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES,
             }
+        ),
+        descriptive_intermediate_roles=(
+            DescriptiveIntermediateRoles(
+                issuer_uen=GARDEN_BUSINESS_UEN, roles=frozenset({"OWNER"})
+            ),
+        ),
+    ),
+)
+# D-089 (owner decision 2026-10-25, Option A): a separate OPQ multi-holder variant. OPQ's
+# register is owner-declared 50% GARDEN BUSINESS and 50% ABC COMPANY (the only two new
+# synthetic declarations); Garden keeps its unchanged register, and ABC's own holders come
+# from its official businessProfile under the D-088 issued-capital interpretation.
+OPQ_GARDEN_ABC_SCENARIO = HybridOverlayScenario(
+    scenario_id=OPQ_GARDEN_ABC_SCENARIO_ID,
+    root_uen=FIVE_LAYER_ROOT_UEN,
+    issuers=(
+        OverlayIssuer(
+            issuer_uen=FIVE_LAYER_ROOT_UEN,
+            local_display_name="OPQ PTE. LTD.",
+            denominator_basis="OWNER_DECLARED_COMPLETE_PERCENTAGES",
+            holders=(
+                OverlayHolder(
+                    holder_id=GARDEN_BUSINESS_UEN,
+                    holder_name=GARDEN_BUSINESS_NAME,
+                    category="Corporate",
+                    registration_number=GARDEN_BUSINESS_UEN,
+                    declared_percent=Decimal("50"),
+                ),
+                OverlayHolder(
+                    holder_id=ABC_COMPANY_UEN,
+                    holder_name=ABC_COMPANY_NAME,
+                    category="Corporate",
+                    registration_number=ABC_COMPANY_UEN,
+                    declared_percent=Decimal("50"),
+                ),
+            ),
+        ),
+        GARDEN_DIRECT_SCENARIO.issuers[0],
+    ),
+    business_profile_issuers=frozenset({ABC_COMPANY_UEN}),
+    poc_acceptance=PocAcceptanceDeclaration(
+        quantity_basis="OWNER_DECLARED_PERCENTAGES_DIRECT_REGISTER_AND_ISSUED_CAPITAL",
+        accepted_assumptions=frozenset(
+            {
+                PocAssumption.SIMULATED_RELATIONSHIPS,
+                PocAssumption.EQUAL_UNIT_DENOMINATOR,
+                PocAssumption.UNCLASSIFIED_LEGAL_FORM,
+                PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES,
+                PocAssumption.ISSUED_CAPITAL_DENOMINATOR,
+            }
+        ),
+        descriptive_intermediate_roles=(
+            DescriptiveIntermediateRoles(
+                issuer_uen=GARDEN_BUSINESS_UEN, roles=frozenset({"OWNER"})
+            ),
         ),
     ),
 )
 _OPQ_VARIANTS: dict[str, HybridOverlayScenario] = {
     "five_layer_simulation": FIVE_LAYER_SCENARIO,
     "garden_sim_lim_chain": OPQ_GARDEN_SIM_LIM_SCENARIO,
+    "garden_abc_multi_holder": OPQ_GARDEN_ABC_SCENARIO,
 }
 
 

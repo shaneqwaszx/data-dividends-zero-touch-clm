@@ -1035,5 +1035,17 @@ Candidate D-080 on `feat/sim-lim-acra-ownership-followthrough-20261024`, from ma
   simulation calculated" (presentation-only `simulation_calculated`; readiness unchanged),
   and an operator-selected `OPQ_GARDEN_SIM_LIM_V1` scenario links OPQ to Garden at an
   owner-declared 100% (no units), reusing Garden's register and SIM LIM's official rows. It
-  calculates but stays in review: Garden's retained Owner roles block POC readiness (fail
-  closed pending an owner decision).
+  calculates; Garden's retained Owner roles first blocked POC readiness (fail closed).
+- **D-087 (candidate):** the OPQ scenario's trusted declaration names Garden's `OWNER` roles
+  as descriptive intermediate context (`DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES`), so a fresh
+  Scenario B case with the opt-in policy is POC-accepted, ownership-READY and waits for
+  explicit target confirmation. Undeclared issuers or role kinds still block.
+- **D-088 (candidate):** official Marketplace Mock `businessProfile` read for
+  scenario-named corporate holders only (cache schema 5, contract
+  `MARKETPLACE_BUSINESS_PROFILE_V1`). Status-free rows that exactly equal one compatible
+  issued class attach as `LOCAL_POC_ISSUED_CAPITAL_BASIS` links under the declared
+  `ISSUED_CAPITAL_DENOMINATOR` assumption. One owner-authorized read: 1 token + 1 GET.
+- **D-089 (candidate):** the `OPQ_GARDEN_ABC_V1` variant (selector
+  `garden_abc_multi_holder`), owner-declared OPQ -> Garden 50% / ABC COMPANY 50%. Results:
+  ABC holder 50, ABCD123 25.568181875, LIM CHOON HUAT 18.75, TAN WEI LING and EFGH2345
+  2.8409090625. POC-accepted, ownership READY, waits for explicit confirmation.

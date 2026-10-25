@@ -363,6 +363,18 @@ OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS = "OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS"
 OFFICIAL_SHAREHOLDER_RETAINED_REASONS = frozenset(
     {OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE, OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS}
 )
+# D-088: a scenario-named issuer whose entity profile and shareholder operation are empty
+# may keep its official businessProfile. ISSUED_CAPITAL also attached its holders under
+# the declared issued-capital POC interpretation; RETAINED could not support it.
+OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL = "OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL"
+OFFICIAL_BUSINESS_PROFILE_RETAINED = "OFFICIAL_BUSINESS_PROFILE_RETAINED"
+OFFICIAL_BUSINESS_PROFILE_EMPTY = "OFFICIAL_BUSINESS_PROFILE_EMPTY"
+OFFICIAL_BUSINESS_PROFILE_REASONS = frozenset(
+    {OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL, OFFICIAL_BUSINESS_PROFILE_RETAINED}
+)
+OfficialBusinessProfileLookup = Literal[
+    "BUSINESS_PROFILE_FETCHED", "BUSINESS_PROFILE_CACHE_REUSED"
+]
 
 
 class OfficialOfficerRoleObservation(BaseModel):
@@ -439,6 +451,105 @@ class OfficialShareholderObservation(BaseModel):
         return self
 
 
+_PROFILE_COUNT = Field(ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6)
+
+
+def _reject_inexact(value: object) -> object:
+    if isinstance(value, (float, bool)):
+        raise ValueError("business profile quantities must be exact")
+    return value
+
+
+class OfficialBusinessProfileShareholder(BaseModel):
+    """One official businessProfile shareholder row kept beside the graph (D-088).
+
+    `provider_status` is exactly what the provider returned (businessProfile omits a
+    status). `assumed_current` is the separately recorded D-088 POC assumption, true only
+    when the issuer's rows exactly equal its compatible issued capital.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    source_party_id: Annotated[str, StringConstraints(pattern=r"^BP-[0-9a-f]{24}$")]
+    display_name: SafePartyName
+    party_type: PartyType
+    source_category: SafeOptionalIdentifier
+    provider_status: SafeOptionalIdentifier | None = None
+    number_of_shares: Decimal = _PROFILE_COUNT
+    share_type: SafeOptionalIdentifier | None = None
+    currency: SafeOptionalIdentifier | None = None
+    assumed_current: bool
+
+    _exact = field_validator("number_of_shares", mode="before")(_reject_inexact)
+
+    @model_validator(mode="after")
+    def assumption_never_overrides_a_returned_status(self) -> "OfficialBusinessProfileShareholder":
+        if self.assumed_current and self.provider_status is not None:
+            raise ValueError("a returned status is never replaced by the current assumption")
+        return self
+
+
+class OfficialShareCapitalObservation(BaseModel):
+    """One official businessProfile issued or paid-up capital line, as returned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    share_type: SafeOptionalIdentifier | None = None
+    currency: SafeOptionalIdentifier | None = None
+    number_of_shares: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6
+    )
+    amount: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, max_digits=24, decimal_places=6
+    )
+
+    _exact = field_validator("number_of_shares", "amount", mode="before")(_reject_inexact)
+
+
+class OfficialBusinessProfileObservation(BaseModel):
+    """One issuer's official Marketplace Mock businessProfile kept beside the graph (D-088).
+
+    Identity labels, shareholder rows and capital lines exactly as returned. It is never
+    a canonical identity, legal form or verified holding; only the declared issued-capital
+    POC interpretation may derive labelled links from it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    entity_name: SafePartyName
+    company_type: SafePartyName | None = None
+    status_of_company: SafePartyName | None = None
+    shareholders: tuple[OfficialBusinessProfileShareholder, ...] = Field(
+        default=(), max_length=64
+    )
+    issued_share_capital: tuple[OfficialShareCapitalObservation, ...] = Field(
+        default=(), max_length=16
+    )
+    paid_up_capital: tuple[OfficialShareCapitalObservation, ...] = Field(
+        default=(), max_length=16
+    )
+    lookup: OfficialBusinessProfileLookup
+    provider: Literal["ACRA_REGISTRY_ACQUISITION"] = "ACRA_REGISTRY_ACQUISITION"
+    environment: Literal["MOCK"] = "MOCK"
+    dataset_namespace: Literal["ACRA_API_MARKETPLACE_MOCK_V1"] = "ACRA_API_MARKETPLACE_MOCK_V1"
+    source_operation: Literal["BUSINESS_PROFILE"] = "BUSINESS_PROFILE"
+    retrieved_at: datetime
+    evidence_reference: str = Field(pattern=r"^acra:business_profile:[A-Z0-9]{1,32}$")
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def retrieved_at_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("official business profile evidence time must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def rows_are_unique(self) -> "OfficialBusinessProfileObservation":
+        if len({item.source_party_id for item in self.shareholders}) != len(self.shareholders):
+            raise ValueError("official business profile rows must be unique")
+        return self
+
+
 class OwnershipDiscoveryRecord(BaseModel):
     """One corporate owner's discovery decision with its root-equivalent exposure.
 
@@ -471,6 +582,31 @@ class OwnershipDiscoveryRecord(BaseModel):
         default=(), max_length=64
     )
     official_shareholder_lookup: OfficialShareholderLookup | None = None
+    # D-088 only: a scenario-named issuer's official businessProfile.
+    official_business_profile: OfficialBusinessProfileObservation | None = None
+
+    @model_validator(mode="after")
+    def official_business_profile_is_explicit(self) -> "OwnershipDiscoveryRecord":
+        profile = self.official_business_profile
+        retained = (
+            self.outcome == OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
+            and self.reason_code in OFFICIAL_BUSINESS_PROFILE_REASONS
+        )
+        if retained != (profile is not None):
+            raise ValueError("a business profile requires its partial outcome and reason")
+        if profile is not None:
+            assumed = [item.assumed_current for item in profile.shareholders]
+            attached = self.reason_code == OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL
+            if attached != (bool(assumed) and all(assumed)) or (not attached and any(assumed)):
+                raise ValueError("only attached issued-capital rows are assumed current")
+            if self.identity_basis is not None or self.official_shareholders:
+                raise ValueError("a business profile record carries no other identity evidence")
+        if (
+            self.reason_code == OFFICIAL_BUSINESS_PROFILE_EMPTY
+            and self.outcome != OwnershipDiscoveryOutcome.NOT_FOUND
+        ):
+            raise ValueError("an empty business profile keeps the NOT_FOUND outcome")
+        return self
 
     @model_validator(mode="after")
     def official_officer_roles_need_an_official_profile(self) -> "OwnershipDiscoveryRecord":
@@ -528,10 +664,11 @@ class OwnershipDiscoveryRecord(BaseModel):
 
 
 def discovery_topology_resolved(record: OwnershipDiscoveryRecord) -> bool:
-    """Holders are attached, whatever the evidence basis (registry, overlay or D-081 POC)."""
+    """Holders are attached, whatever the basis (registry, overlay, D-081 or D-088 POC)."""
     return record.outcome in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES or (
         record.outcome == OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
-        and record.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
+        and record.reason_code
+        in {OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS, OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL}
     )
 
 
@@ -737,8 +874,17 @@ class PocAssumption(StrEnum):
     DESCRIPTIVE_OFFICER_ROLES = "DESCRIPTIVE_OFFICER_ROLES"
     # A root registry legal form with no supported formal UBO method (OTHER).
     UNCLASSIFIED_LEGAL_FORM = "UNCLASSIFIED_LEGAL_FORM"
+    # D-087: official Mock officer ownership-like roles of an explicitly declared
+    # intermediate issuer, kept on its discovery record as descriptive context.
+    DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES = "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES"
+    # D-088: a scenario-named issuer's official businessProfile issued capital used as the
+    # class denominator, with status-free rows assumed current only on an exact match.
+    ISSUED_CAPITAL_DENOMINATOR = "ISSUED_CAPITAL_DENOMINATOR"
 
 
+# The review issue each assumption accepts. Intermediate issuer roles and issued-capital
+# links raise no analysis issue of their own (the roles are discovery observations; the
+# links are covered by the synthetic-evidence issue), so those accept no issue code.
 POC_ASSUMPTION_ISSUES: dict[PocAssumption, OwnershipIssueCode] = {
     PocAssumption.SIMULATED_RELATIONSHIPS: OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
     PocAssumption.EQUAL_UNIT_DENOMINATOR: OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED,
@@ -773,8 +919,16 @@ class OwnershipPocAcceptance(BaseModel):
     # is stored here, and they are neither shareholdings nor corroboration of the links.
     descriptive_current_role_count: int = Field(default=0, ge=0, le=16)
     descriptive_ceased_role_count: int = Field(default=0, ge=0, le=16)
+    # D-087: the same descriptive counts for declared intermediate issuers' official
+    # OFFICERS ownership-like roles, which stay on their discovery records.
+    descriptive_intermediate_current_role_count: int = Field(default=0, ge=0, le=32)
+    descriptive_intermediate_ceased_role_count: int = Field(default=0, ge=0, le=32)
+    # D-088: the issued-capital POC links accepted with the issued-capital assumption.
+    issued_capital_relationship_ids: tuple[SafeRelationshipId, ...] = Field(
+        default=(), max_length=64
+    )
     # D-085 only: the declared assumptions this analysis actually exercised.
-    accepted_assumptions: tuple[PocAssumption, ...] = Field(default=(), max_length=4)
+    accepted_assumptions: tuple[PocAssumption, ...] = Field(default=(), max_length=6)
     basis_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
 
     @field_validator("accepted_at")
@@ -788,6 +942,10 @@ class OwnershipPocAcceptance(BaseModel):
     def accepts_only_declared_poc_assumptions(self) -> "OwnershipPocAcceptance":
         codes = set(self.accepted_issue_codes)
         roles = bool(self.descriptive_current_role_count + self.descriptive_ceased_role_count)
+        intermediate_roles = bool(
+            self.descriptive_intermediate_current_role_count
+            + self.descriptive_intermediate_ceased_role_count
+        )
         assumptions = set(self.accepted_assumptions)
         if self.policy == LEGACY_D082_POC_ACCEPTANCE_POLICY:
             valid = (
@@ -795,13 +953,15 @@ class OwnershipPocAcceptance(BaseModel):
                 and (OwnershipIssueCode.UBO_REVIEW_REQUIRED in codes) == roles
                 and bool(self.poc_relationship_ids)
                 and not assumptions
+                and not intermediate_roles
+                and not self.issued_capital_relationship_ids
             )
         else:
             # Exactly the synthetic-evidence marker plus one issue per exercised
             # assumption; equal-unit links exist exactly when that assumption does. The
             # one registry review issue is chosen by priority, so OTHER masks the roles.
             expected = {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE} | {
-                POC_ASSUMPTION_ISSUES[item] for item in assumptions
+                POC_ASSUMPTION_ISSUES[item] for item in assumptions if item in POC_ASSUMPTION_ISSUES
             }
             if PocAssumption.UNCLASSIFIED_LEGAL_FORM in assumptions:
                 expected.discard(OwnershipIssueCode.UBO_REVIEW_REQUIRED)
@@ -813,6 +973,10 @@ class OwnershipPocAcceptance(BaseModel):
                 )
                 and codes == expected
                 and (PocAssumption.DESCRIPTIVE_OFFICER_ROLES in assumptions) == roles
+                and (PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES in assumptions)
+                == intermediate_roles
+                and (PocAssumption.ISSUED_CAPITAL_DENOMINATOR in assumptions)
+                == bool(self.issued_capital_relationship_ids)
                 and (PocAssumption.EQUAL_UNIT_DENOMINATOR in assumptions)
                 == bool(self.poc_relationship_ids)
             )
@@ -820,6 +984,8 @@ class OwnershipPocAcceptance(BaseModel):
             not valid
             or self.accepted_issue_codes != tuple(sorted(codes))
             or self.poc_relationship_ids != tuple(sorted(set(self.poc_relationship_ids)))
+            or self.issued_capital_relationship_ids
+            != tuple(sorted(set(self.issued_capital_relationship_ids)))
         ):
             raise ValueError("POC acceptance covers only declared POC assumption issues")
         return self

@@ -348,6 +348,37 @@ does not define legal ownership, voting rights, controller status, or generic AC
 mapping. The resulting relationships enter the ordinary registry acquisition and sole
 Decimal ownership engine. Q-004 and Q-012 remain open.
 
+## Official Marketplace Mock `businessProfile` (D-088, Mock only)
+
+This is not part of the four-operation bundle or this local synthetic contract. The
+official `api_marketplace_mock` lane may read `GET /entityQuery/businessProfile?uen=` for
+one corporate holder only when a trusted hybrid scenario names it in
+`business_profile_issuers`, and only after that holder's entity-basic profile and
+`coShareholdersDetails` are both definitively empty.
+
+- **Observed shape (one owner-authorized read, 2026-10-25).** `entities[]` with `uen`,
+  `entityName`, `companyType`, `statusOfCompany`, `statusDate`,
+  `dateOfTransferOfRegistration`, `businessActivities`,
+  `officer[]`, `registeredOfficeAddress` and `shareholder[]`. Each shareholder row has
+  `category`, `id`, `principalName`, `numberOfShares`, `shareType`, `currency`,
+  `nationalityPlaceOfOrigin` and `address`, and no status. Capital comes as
+  `issuedShareCapital[]` and `paidUpCapital[]`, each with `numberOfShares`, `amount`,
+  `currency` and `shareType`. Counts arrive as JSON numbers such as `1000.0`.
+- **Decoder.**
+  - Exactly one same-UEN entity; an explicit empty list is EMPTY.
+  - Only the company labels, shareholder category, name, count, class, currency and any
+    returned status, and the capital lines are kept.
+  - Counts must be finite whole JSON numbers; strings are refused.
+  - Officers, addresses, nationalities and activities are never retained.
+  - The holder `id` becomes an issuer-scoped digest. It is unkeyed, so it is
+    pseudonymous (Mock only); a keyed digest is required before any non-Mock use.
+- **Cache.** Key `MARKETPLACE_BUSINESS_PROFILE_V1` (cache schema 5). The freshness policy
+  applies to COMPLETE results and the negative TTL to EMPTY results; FAILED results are
+  never cached.
+- **Use.** Only the D-088 issued-capital POC interpretation may derive labelled
+  `LOCAL_POC_ISSUED_CAPITAL_BASIS` links from it. It never supplies canonical identity,
+  a legal form or a verified holding.
+
 ## Safe errors and call stopping
 
 Phase 24 working candidate preserves strict `shareAllotted`, category/status and

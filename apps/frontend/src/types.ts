@@ -834,6 +834,20 @@ export interface OwnershipDiscoveryAudit {
     // Hybrid lane: the issuer's identity source and its official registry legal form.
     identity_basis?: "OFFICIAL_MOCK_ENTITY_PROFILE" | "LOCAL_SYNTHETIC_IDENTITY" | null;
     official_legal_form?: "COMPANY" | "BUSINESS_PARTNERSHIP" | "LLP" | "LP" | "OTHER" | null;
+    // D-088: a scenario-named issuer's official businessProfile, kept as returned.
+    official_business_profile?: {
+      entity_name: string;
+      company_type?: string | null;
+      status_of_company?: string | null;
+      shareholders: Array<{
+        display_name: string; source_category: string; provider_status?: string | null;
+        number_of_shares: string; share_type?: string | null; currency?: string | null;
+        assumed_current: boolean;
+      }>;
+      issued_share_capital: Array<{ share_type?: string | null; currency?: string | null; number_of_shares?: string | null }>;
+      source_operation: "BUSINESS_PROFILE";
+      environment: "MOCK";
+    } | null;
   }>;
   unresolved_person_party_ids: string[];
   overlay_scenario_id?: string | null;
@@ -946,7 +960,9 @@ export type PocAssumption =
   | "SIMULATED_RELATIONSHIPS"
   | "EQUAL_UNIT_DENOMINATOR"
   | "DESCRIPTIVE_OFFICER_ROLES"
-  | "UNCLASSIFIED_LEGAL_FORM";
+  | "UNCLASSIFIED_LEGAL_FORM"
+  | "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES"
+  | "ISSUED_CAPITAL_DENOMINATOR";
 
 export interface OwnershipPocAcceptance {
   policy: "D082_HYBRID_POC_EQUAL_UNITS_V1" | "D085_SCENARIO_DECLARED_POC_BASIS_V1";
@@ -961,6 +977,9 @@ export interface OwnershipPocAcceptance {
   poc_relationship_ids: string[];
   descriptive_current_role_count: number;
   descriptive_ceased_role_count: number;
+  descriptive_intermediate_current_role_count?: number;
+  descriptive_intermediate_ceased_role_count?: number;
+  issued_capital_relationship_ids?: string[];
   accepted_assumptions?: PocAssumption[];
   basis_fingerprint: string;
 }
