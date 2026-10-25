@@ -63,9 +63,25 @@ Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, rel
 party writes, production reviewer policy, and Ready-for-Approval remain blocked or
 unconfirmed. Authenticated POC reviewer roles and backend capability/team checks are implemented. See the [sponsor dependency matrix](docs/sponsor-questions/PHASE_07_SPONSOR_DEPENDENCY_MATRIX.md).
 
-## Quick start — Windows sponsor demo
+## Quick start — sponsor demo (Windows and macOS)
 
-Prerequisites: Python 3.12+, Node.js 22+, and npm 10+.
+Prerequisites: Python 3.12+, Node.js 22+, and npm 10+. Optional: Tesseract for OCR of
+image-based documents (`brew install tesseract` on macOS). The backend uses
+`LOCAL_OCR_EXECUTABLE` when it is set to an absolute Tesseract path, otherwise
+`tesseract` on `PATH`.
+
+Both platforms run the same composition: synthetic ACRA `MOCK`, IDP `LOCAL_PDF_TEXT`,
+Mock ownership, GoldTier `MOCK`, and gated developer controls. These process variables
+take precedence over `.env`.
+
+- Frontend: `http://127.0.0.1:5173`
+- Backend health: `http://127.0.0.1:8000/health`
+- API docs: `http://127.0.0.1:8000/docs`
+
+After pulling a new `main`, rerun the dependency install steps (`pip install -e` and
+`npm ci`); new backend or frontend packages are not installed automatically.
+
+### Windows
 
 One-time setup from the repository root:
 
@@ -82,10 +98,6 @@ Start both processes with the supported synthetic sponsor composition and gated 
 ```powershell
 .\scripts\start_demo_windows.bat
 ```
-
-- Frontend: `http://127.0.0.1:5173`
-- Backend health: `http://127.0.0.1:8000/health`
-- API docs: `http://127.0.0.1:8000/docs`
 
 Reset all process-local synthetic state or stop the launcher-owned demo processes:
 
@@ -108,6 +120,50 @@ mode and never drops durable Mongo data, repository files, or sponsor files. Lif
 errors return nonzero and
 unowned port occupants are never killed. For recovery and expected outputs, use the
 [demo runbook](docs/demo/DEMO_RUNBOOK.md).
+
+### macOS
+
+There is no macOS launcher; start the two processes manually. One-time setup from the
+repository root:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e "./apps/backend[dev]"
+(cd apps/frontend && npm ci)
+```
+
+Start the backend in one terminal:
+
+```bash
+cd apps/backend
+APP_ENV=development \
+ACRA_CONNECTOR_MODE=mock \
+GOLDTIER_CONNECTOR_MODE=mock \
+IDP_CONNECTOR_MODE=local_pdf_text \
+OWNERSHIP_CONNECTOR_MODE=mock \
+DEMO_CONTROLS_ENABLED=true \
+PHASE13_BROWSER_ORIGIN=http://127.0.0.1:5173 \
+  ../../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in a second terminal:
+
+```bash
+cd apps/frontend
+VITE_DEMO_CONTROLS_ENABLED=true \
+VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:8000 \
+  node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 --strictPort
+```
+
+Stop either process with `Ctrl+C`. Restarting the backend in memory mode is the macOS
+equivalent of Reset. These manual commands do not perform the Windows launcher's
+port, health, or process-ownership checks: confirm ports `8000` and `5173` are free
+first (`lsof -iTCP:8000 -iTCP:5173 -sTCP:LISTEN`) and check the health URL after start.
+
+If your `.env` selects `CLM_PERSISTENCE_MODE=mongo` and Mongo is not reachable, startup
+fails closed; add `CLM_PERSISTENCE_MODE=memory` to the backend command to run without
+it. `.env` values that are invalid in combination with the Mock ACRA lane (for example
+`GARDEN_SUPPLEMENT_ENABLED=true`) also stop startup; these apply on both platforms.
 
 ## Zero-touch demo
 
@@ -198,6 +254,14 @@ connection strings:
 .\.venv\Scripts\python.exe scripts\dev_preflight.py --persistence-mode mongo
 ```
 
+On macOS:
+
+```bash
+.venv/bin/python scripts/dev_preflight.py
+.venv/bin/python scripts/dev_preflight.py --persistence-mode memory
+.venv/bin/python scripts/dev_preflight.py --persistence-mode mongo
+```
+
 Memory mode deliberately skips Mongo connectivity. Mongo mode reports only whether the
 configured service is required and reachable; a missing URI or unreachable service
 fails the diagnostic without exposing the URI or driver error. The report similarly
@@ -233,6 +297,10 @@ $env:MONGO_DATABASE = "clm_poc"
 .\scripts\stop_demo_windows.bat
 .\scripts\start_demo_windows.bat
 ```
+
+On macOS, add `CLM_PERSISTENCE_MODE=mongo`, `MONGO_URI=mongodb://127.0.0.1:27017`,
+and `MONGO_DATABASE=clm_poc` to the backend command from the macOS quick start, then
+stop it with `Ctrl+C` and start it again with the same command.
 
 Reopen the same case ID or check Dashboard/Review. Do not use
 `reset_demo_windows.bat` as a data purge: durable-data deletion is deliberately not
@@ -286,6 +354,20 @@ npm test
 npm run build
 npm ls --all
 ```
+
+On macOS, use the same commands with `.venv/bin/python` and forward slashes, for
+example:
+
+```bash
+.venv/bin/python -m pytest apps/backend/tests
+.venv/bin/python -m ruff check apps/backend scripts tests
+.venv/bin/python -m mypy apps/backend/app
+.venv/bin/python scripts/check_secrets.py
+(cd apps/frontend && npm run typecheck && npm test && npm run build)
+```
+
+`tests.test_demo_lifecycle_windows` and the `*_windows.bat` scripts cover the Windows
+launcher only.
 
 GoldTier sponsor-example validation is optional when private archives are absent:
 
