@@ -7,7 +7,7 @@ when the model is switched off, not installed, or too slow.
 import re
 from typing import Any
 
-from .guardrails import approval_offered, who_resolves_lines
+from .guardrails import approval_not_offered, who_resolves_lines
 from .guide import (
     APPROVAL_NOT_OFFERED,
     NO_CONTACT,
@@ -309,7 +309,7 @@ def _topic_answer(kind: str, differences: list[Difference], facts: dict[str, Any
         return "\n".join(who_resolves_lines(facts) or [NO_CONTACT])
     if kind == APPROVE:
         rest = _still_needed_answer(facts)
-        return rest if approval_offered(facts) else f"{APPROVAL_NOT_OFFERED}\n{rest}"
+        return f"{APPROVAL_NOT_OFFERED}\n{rest}" if approval_not_offered(facts) else rest
     return _still_needed_answer(facts, explain=kind)
 
 

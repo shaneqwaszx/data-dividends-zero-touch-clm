@@ -95,11 +95,24 @@ def approval_offered(facts: dict[str, Any]) -> bool:
     return any(_APPROVE_LABEL.search(label) for label in allowed_actions(facts))
 
 
+def approval_not_offered(facts: dict[str, Any]) -> bool:
+    """Approving is not open to this RM: the case is not ready and no approve-type action is
+    offered. A ready case reaches Review & Send, whose Send is the app's final human approval,
+    so the "not offered" line is never offered there (QG F2)."""
+
+    return not_ready(facts) and not approval_offered(facts)
+
+
+# Straight and typographic double quotes: matching treats them alike, so either one inside a
+# filled-in value could close the template's own quotes (QG F1).
+_TEMPLATE_QUOTES = ('"', "\u201c", "\u201d")
+
+
 def _safe_template_text(value: object) -> bool:
     return (
         isinstance(value, str)
         and 0 < len(value) <= MAX_DIFFERENCE_VALUE
-        and '"' not in value
+        and not any(quote in value for quote in _TEMPLATE_QUOTES)
         and not _UNSUPPORTED_CHARACTER.search(value)
     )
 
@@ -121,8 +134,10 @@ def who_resolves_lines(facts: dict[str, Any]) -> list[str]:
 
 
 # A document value is untrusted text (D-090, PROPOSED): it may appear only inside the
-# difference template, in quotes, on one line, short, and when the whole line passes the
-# sentence checks (so a value that reads as an action or an approval is not offered).
+# difference template, in quotes it cannot close, on one line, short, and when the whole line
+# passes the sentence checks. Those catch only the phrasings they list (actions not offered,
+# the listed authority and Live claims); other wording, such as "approved" or "verified by
+# ACRA", stays inside the quotes as the document's value.
 MAX_DIFFERENCE_VALUE = 120
 
 
@@ -201,7 +216,7 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
         allowed.append(f'Open the "{section}" section to inspect the current case evidence.')
     if not_ready(facts):
         allowed.append(NOT_READY)
-    if not approval_offered(facts):
+    if approval_not_offered(facts):
         allowed.append(APPROVAL_NOT_OFFERED)
     allowed.extend(who_resolves_lines(facts) or [NO_CONTACT])
     allowed.append(OUT_OF_SCOPE)

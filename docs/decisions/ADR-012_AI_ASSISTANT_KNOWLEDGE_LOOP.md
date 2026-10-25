@@ -513,7 +513,7 @@ verified, approved or live, and name only sections that exist. Each stands alone
 | Registered address: "A different registered address can mean the document is older than the current ACRA record, or the company has moved." / "Before choosing an address, check the type of the document and which company it is for." | that field differs | as above; documents carry no issue date |
 | Legal name: "A different company name can be a former name, a trading name or a reading error." | that field differs | as above |
 | UEN: "A different UEN can come from a reading error or a document that belongs to another company." / "Before choosing a UEN, check that the document belongs to this company." | that field differs | as above |
-| "The document review finishes when every field read from the document has a review decision." / "A field read with low confidence, or a required field that could not be read, keeps the document review open." | `DOCUMENT_REVIEW_INCOMPLETE` is still needed | readiness in `services/clm_orchestration.py` |
+| "The document review needs a review decision for every field read from the document." / "A field read with low confidence, or a required field that could not be read, keeps the document review open." | `DOCUMENT_REVIEW_INCOMPLETE` is still needed | readiness in `services/clm_orchestration.py` |
 | "The UBO check needs the company's owners and each owner's economic interest in percent." / "Ownership evidence can come from the registry, an uploaded ownership document or a manual ownership declaration." / "A manual ownership declaration needs a reviewed current document first." | `OWNERSHIP_REQUIRED` is still needed | `domain/ownership.py`, `services/manual_ownership_evidence.py` |
 
 The "can" / "can mean" sentences give general reasons; the app does not work out why a value
@@ -523,10 +523,10 @@ differs, and they never read as a finding about this case.
 
 | Line | Offered when |
 | --- | --- |
-| `<Field>: ACRA says "<registry value>", the document says "<document value>".` (one per difference; the case-data answer's wording) | a blocker shows the difference, both values are single-line, at most 120 characters, without double quotes or unsupported characters, and the whole line passes the sentence checks. **This relaxes section C** ("document values never extend the allowed lines"): the document value is untrusted text, shown only quoted inside this template. Otherwise the difference stays model data only. |
+| `<Field>: ACRA says "<registry value>", the document says "<document value>".` (one per difference; the case-data answer's wording) | a blocker shows the difference, both values are single-line, at most 120 characters, without straight or typographic double quotes (which could close the template's quotes) or unsupported characters, and the whole line passes the sentence checks (which catch only their listed phrasings; other wording stays inside the quotes as the document's value). **This relaxes section C** ("document values never extend the allowed lines"): the document value is untrusted text, shown only quoted inside this template. Otherwise the difference stays model data only. |
 | "This case is not ready for GoldTier submission yet." | the readiness facts list a blocker (or a blocker is open) and the case is not completed |
-| "Approving the case is not offered to you on this case." | no approve-type action is offered to this viewer. Worded so the sentence checks recognise the negation ("<action> is not offered"); the requested "is not an action offered" failed them. |
-| `<blocker title>: this is for <who resolves it>.` | for each blocker whose owner is one the blocker policy names (`guide.OWNER`), with the title checked like a difference value |
+| "Approving the case is not offered to you on this case." | the case is not ready (as above) and no approve-type action is offered to this viewer. A ready case reaches Review & Send, whose Send is the app's final human approval, so the line is never offered there. Worded so the sentence checks recognise the negation ("<action> is not offered"); the requested "is not an action offered" failed them. |
+| `<blocker title>: this is for <who resolves it>.` | for each blocker whose owner is one the blocker policy names (`guide.OWNER`), with the title checked like a difference value (including no double quotes of either kind) |
 | "The case data does not name a contact for this." | no blocker has such an owner line |
 | "I can't answer that from this case's data." | always |
 
