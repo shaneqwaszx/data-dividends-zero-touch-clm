@@ -148,8 +148,10 @@ def test_the_saved_version_records_that_it_started_from_the_ais_answer(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
     request_id = request_with_dropped_lines(kb)
-    lines = fix_start(kb, request_id).json()["lines"]
-    saved = save(kb, request_id, body="\n".join(lines), started_from_answer=True)
+    assert fix_start(kb, request_id).json()["lines"]
+    # The Director rewrote the started text in general terms.
+    rewritten = "Ask the client for the tenancy agreement for the new address."
+    saved = save(kb, request_id, body=rewritten, started_from_answer=True)
     assert saved.status_code == 200, saved.text
     entry = saved.json()
     assert entry["started_from_answer"] is True
@@ -188,6 +190,46 @@ def test_the_save_still_redacts_and_refuses_hr(kb: KnowledgeBase) -> None:  # no
         kb, other, "hr-session", body="Ask for the lease first.", started_from_answer=True
     )
     assert refused.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "fix, left",
+    [
+        ({"body": "Ask [COMPANY] for the lease at [ADDRESS]."}, "[COMPANY], [ADDRESS]"),
+        ({"title": "Lease for [NAME]", "body": "Ask for the lease first."}, "[NAME]"),
+        ({"body": "Ask for the lease first.", "follow_ups": ["Is [UEN] right?"]}, "[UEN]"),
+        ({"body": "Ask for the lease at [SOME_NEW_TOKEN]."}, "[SOME_NEW_TOKEN]"),
+    ],
+)
+def test_a_fix_that_keeps_a_placeholder_is_refused(
+    kb: KnowledgeBase,  # noqa: F811
+    fix: dict[str, Any],
+    left: str,
+) -> None:
+    request_id = request_with_dropped_lines(kb)
+    refused = save(kb, request_id, started_from_answer=True, **fix)
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == {
+        "code": "PLACEHOLDER_NOT_REWRITTEN",
+        "message": f"Rewrite {left} in general terms before saving.",
+    }
+    # Nothing is saved and the request stays open.
+    assert (
+        app_client(kb, "director-session").get("/assistant/knowledge/reviews").json()["pending"]
+        == []
+    )
+    assert [g["id"] for g in kb.store.feedback(status="open")] == [request_id]
+
+
+def test_a_knowledge_tag_is_not_a_placeholder(kb: KnowledgeBase) -> None:  # noqa: F811
+    request_id = request_with_dropped_lines(kb)
+    saved = save(kb, request_id, body="Ask for the certified register [G1] first.")
+    assert saved.status_code == 200, saved.text
+
+
+def test_hr_is_refused_before_any_placeholder_check(kb: KnowledgeBase) -> None:  # noqa: F811
+    request_id = request_with_dropped_lines(kb)
+    assert save(kb, request_id, "hr-session", body="Ask [COMPANY] first.").status_code == 403
 
 
 def test_a_version_edited_from_it_keeps_the_origin(kb: KnowledgeBase) -> None:  # noqa: F811

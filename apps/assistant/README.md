@@ -172,7 +172,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author (or the author after confirming, in single-reviewer mode) | Approve or reject; `confirm_single_reviewer` confirms publishing your own entry |
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
-| POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request |
+| POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request. Text that still contains a redaction placeholder (`[ADDRESS]`, `[COMPANY]` or any `[UPPERCASE]` token) is a 422 `PLACEHOLDER_NOT_REWRITTEN` ("Rewrite [ADDRESS], [COMPANY] in general terms before saving."); `started_from_answer` marks a fix started from the record |
 | POST | `/assistant/knowledge/feedback/{id}/close` | Director | Close an open enhancement request; `reason` is required |
 | GET | `/assistant/knowledge/feedback/{id}/answer` | Director | "What happened": the answer record linked to the request (view logged) |
 | GET | `/assistant/knowledge/feedback/{id}/fix-start` | Director | Where the fix can start: a title from the blocker type and the AI's left-out lines (and any shown model line that is not an allowed line), one sentence per line, redacted against the request's case; no notices or fixed disclaimers, no model call, nothing saved. A logged view of the record; 404 without one (the form starts empty) |
@@ -208,9 +208,10 @@ verdict: "Catalog gap: no allowed line matched", "No knowledge found" or "Missin
 knowledge"; shown lines tagged Policy/Case/Knowledge, left-out lines crossed out, knowledge
 with scores and thresholds, all allowed lines, the case at the time) and, below them, the
 fix. When the request has a record, the fix starts from the AI's left-out lines (a guidance
-change from its current approved text with those lines below), with the Redactor's
-placeholders marked and a **Clear** button; nothing is saved until Save, and the save rules
-are unchanged. A version saved from it records `started_from_answer`, shown in its review
+change from its current title and approved text with those lines below), with the
+Redactor's placeholders marked and a **Clear** button. Save stays disabled, and the service
+refuses the fix, until every placeholder is rewritten in general terms; nothing is saved
+until Save, and the other save rules are unchanged. A version saved from it records `started_from_answer`, shown in its review
 history and on its review card. Records tied to no request are deleted after `AI_ASSISTANT_ANSWER_RECORD_UNRATED_DAYS`
 (7). A record linked to a request, and the up to 2 earlier answers kept with it
 (`kept_for_request_id`, same user and case), are deleted

@@ -172,6 +172,11 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
     await expect(fix.getByRole("textbox", { name: "Title" })).toHaveValue("Document source conflict");
     await expect(fix.getByRole("textbox", { name: /What resolves it/ })).toHaveValue(record.dropped_lines[0]);
     await expect(fix.locator(".knowledge-review-placeholders mark")).toHaveText(["[ADDRESS]"]);
+    // Save waits until the placeholders are rewritten in general terms.
+    await expect(fix.locator(".knowledge-review-placeholders")).toHaveText("Rewrite [ADDRESS] in general terms before saving.");
+    await expect(fix.getByRole("button", { name: "Save the fix for review", exact: true })).toBeDisabled();
+    await fix.getByRole("textbox", { name: /What resolves it/ }).fill("Ask the client for proof of the new address before choosing a value.");
+    await expect(fix.getByRole("button", { name: "Save the fix for review", exact: true })).toBeEnabled();
     const [columns, fixBox] = [await why.boundingBox(), await fix.boundingBox()];
     expect(columns && fixBox && fixBox.y >= columns.y + columns.height - 1).toBe(true);
     await page.getByRole("button", { name: "← Back to Knowledge review" }).click();

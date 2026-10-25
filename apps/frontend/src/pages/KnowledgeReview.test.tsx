@@ -746,6 +746,31 @@ describe("A fix started from the AI's answer", () => {
     expect(calls).toEqual([]);
   });
 
+  it("does not allow Save while a placeholder is left, and says which to rewrite", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    const save = () => button(fixArea(view), "Save the fix for review");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")?.textContent).toBe(
+      "Rewrite [COMPANY], [ADDRESS] in general terms before saving.",
+    );
+    expect(save().disabled).toBe(true);
+    act(() => save().click());
+    await flush();
+    expect(calls).toEqual([]);
+    // One left (any [UPPERCASE] token counts, in the title too): still not allowed.
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    type(fixArea(view).querySelector("fieldset input"), "Lease for [NAME]");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")?.textContent).toBe(
+      "Rewrite [NAME] in general terms before saving.",
+    );
+    expect(save().disabled).toBe(true);
+    // A knowledge tag is not a placeholder.
+    type(fixArea(view).querySelector("fieldset input"), "Lease for a moved office [G1]");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")).toBeNull();
+    expect(save().disabled).toBe(false);
+  });
+
   it("records on Save that the fix started from the AI's answer", async () => {
     const calls: { url: string; body: unknown }[] = [];
     prefillBackend(calls);
@@ -778,15 +803,24 @@ describe("A fix started from the AI's answer", () => {
     expect(calls[0].body).not.toHaveProperty("started_from_answer");
   });
 
-  it("starts a guidance change from its current approved text, with the AI's lines below", async () => {
+  it("starts a guidance change from its current title and approved text, with the AI's lines below", async () => {
     prefillBackend([]);
     const view = await openWithStart();
+    const title = () => fixArea(view).querySelector<HTMLInputElement>("fieldset input")?.value;
     choose(fixArea(view).querySelector("fieldset select"), "guidance");
+    // New guidance: what the fix was started with.
+    expect(title()).toBe("Document source conflict");
     expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
     choose(fixArea(view).querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
+    // Existing guidance keeps its own title, not the blocker type.
+    expect(title()).toBe("Registered address differs from ACRA");
     expect(bodyOf(view).value).toBe(
       "Keep the registry address until the client confirms the move.\nAsk [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.",
     );
+    // Back to new guidance: the started title and text again.
+    choose(fixArea(view).querySelectorAll("fieldset select")[1], "");
+    expect(title()).toBe("Document source conflict");
+    expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
   });
 
   it("gives a request without an answer record an empty form and asks for no start", async () => {

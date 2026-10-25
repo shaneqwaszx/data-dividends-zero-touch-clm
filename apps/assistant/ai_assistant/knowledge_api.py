@@ -232,6 +232,17 @@ NOT_FOUND_MESSAGE = "No such entry."
 SECOND_REVIEWER_MESSAGE = "A different reviewer must confirm this."
 CONFIRM_MESSAGE = "Confirm that you are publishing this entry as its only reviewer."
 REQUEST_NOT_FOUND_MESSAGE = "No such enhancement request."
+# A redaction placeholder such as [ADDRESS] or [COMPANY] (any [UPPERCASE] token the Redactor
+# makes; knowledge tags like [G1] have digits and do not match).
+PLACEHOLDER = re.compile(r"\[[A-Z][A-Z_]*\]")
+
+
+def placeholders_left(*texts: str) -> list[str]:
+    """The redaction placeholders still in a Director's fix, in order, each once."""
+
+    return list(dict.fromkeys(m.group(0) for text in texts for m in PLACEHOLDER.finditer(text)))
+
+
 REQUEST_CHANGED_MESSAGE = "This request was already handled. Refresh and try again."
 ANSWER_NOT_FOUND_MESSAGE = "No such answer."
 
@@ -760,6 +771,17 @@ def knowledge_router(
 
         require(profile, APPROVE)
         reach(profile)
+        # A fix started from the AI's answer must not keep its placeholders: they stand for
+        # this client's details and would read as a rule about "[ADDRESS]".
+        left = placeholders_left(body.title, body.body, *body.follow_ups)
+        if left:
+            raise HTTPException(
+                422,
+                detail={
+                    "code": "PLACEHOLDER_NOT_REWRITTEN",
+                    "message": f"Rewrite {', '.join(left)} in general terms before saving.",
+                },
+            )
         author = user_id(profile)
         # The fix is written from a client's case: redact it against that case's values and
         # parties (loaded with this Director's own session; a case they cannot load stops the

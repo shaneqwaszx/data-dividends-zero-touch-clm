@@ -29,12 +29,20 @@ interface FixDraft {
   changes: string;
   /** The AI's left-out lines the form was started from (empty when started blank or cleared). */
   startLines: string[];
+  /** The title it was started with (from the blocker type), for a past case or new guidance. */
+  startTitle: string;
 }
 
-const EMPTY_FIX: FixDraft = { kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "", startLines: [] };
+const EMPTY_FIX: FixDraft = { kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "", startLines: [], startTitle: "" };
 
-// The Redactor's placeholders, which the Director rewrites in general terms.
-const PLACEHOLDER = /\[(?:COMPANY|UEN|ADDRESS|PERSON|ID|EMAIL|PHONE|POSTAL|UNIT)\]/g;
+// A redaction placeholder ([ADDRESS], [COMPANY] or any [UPPERCASE] token the Redactor makes;
+// knowledge tags like [G1] have digits). The service refuses a fix that keeps one.
+const PLACEHOLDER = /\[[A-Z][A-Z_]*\]/g;
+
+/** The placeholders still in a fix, in order, each once. */
+function placeholdersIn(draft: FixDraft): string[] {
+  return [...new Set([draft.title, draft.body, draft.followUps].flatMap((text) => text.match(PLACEHOLDER) ?? []))];
+}
 
 /** The body a fix starts with: a guidance change starts from its current approved text. */
 function startingBody(startLines: string[], current?: KnowledgeEntry): string {
@@ -59,7 +67,7 @@ function fixOf(draft: FixDraft): KnowledgeFix {
 }
 
 function fixReady(draft: FixDraft): boolean {
-  const ready = draft.title.trim().length >= 3 && draft.body.trim().length >= 10;
+  const ready = draft.title.trim().length >= 3 && draft.body.trim().length >= 10 && placeholdersIn(draft).length === 0;
   return draft.kind === "resolution" ? ready : ready && draft.sourceRef.trim().length >= 3;
 }
 
@@ -181,7 +189,9 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
       .then((start) => {
         if (controller.signal.aborted || start.lines.length === 0) return;
         setFixes((all) =>
-          all[id] ? all : { ...all, [id]: { ...EMPTY_FIX, title: start.title, body: startingBody(start.lines), startLines: start.lines } },
+          all[id]
+            ? all
+            : { ...all, [id]: { ...EMPTY_FIX, title: start.title, body: startingBody(start.lines), startLines: start.lines, startTitle: start.title } },
         );
       })
       .catch(() => undefined); // the form simply starts empty
@@ -344,7 +354,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                 changeFix(gap.id, {
                   kind: event.target.value as FixDraft["kind"],
                   changes: "",
-                  ...(fix.startLines.length ? { body: startingBody(fix.startLines) } : {}),
+                  ...(fix.startLines.length ? { title: fix.startTitle, body: startingBody(fix.startLines) } : {}),
                 })
               }
             >
@@ -360,10 +370,15 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                 disabled={disabled}
                 onChange={(event) => {
                   const current = approved.find((entry) => entry.entry_id === event.target.value);
-                  // Changing existing guidance starts from its approved text, the AI's lines below it.
+                  // Changing existing guidance starts from its current title and approved text,
+                  // the AI's lines below it; new guidance from what the fix was started with.
                   changeFix(gap.id, {
                     changes: event.target.value,
-                    ...(fix.startLines.length ? { body: startingBody(fix.startLines, current) } : {}),
+                    ...(current
+                      ? { title: current.title, body: startingBody(fix.startLines, current) }
+                      : fix.startLines.length
+                        ? { title: fix.startTitle, body: startingBody(fix.startLines) }
+                        : {}),
                   });
                 }}
               >
@@ -385,11 +400,18 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
             <textarea rows={4} maxLength={4000} value={fix.body} disabled={disabled} onChange={(event) => changeFix(gap.id, { body: event.target.value })} />
           </label>
           {(() => {
-            const placeholders = [...new Set(fix.body.match(PLACEHOLDER) ?? [])];
+            const placeholders = placeholdersIn(fix);
+            // Save stays disabled until every placeholder is rewritten in general terms.
             return placeholders.length > 0 ? (
-              <p className="knowledge-review-placeholders">
-                Rewrite these in general terms:{" "}
-                {placeholders.map((placeholder) => <mark key={placeholder}>{placeholder}</mark>)}
+              <p className="knowledge-review-placeholders" role="status">
+                Rewrite{" "}
+                {placeholders.map((placeholder, index) => (
+                  <span key={placeholder}>
+                    {index > 0 && ", "}
+                    <mark>{placeholder}</mark>
+                  </span>
+                ))}{" "}
+                in general terms before saving.
               </p>
             ) : null;
           })()}
