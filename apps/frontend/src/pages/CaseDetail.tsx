@@ -1296,7 +1296,10 @@ export default function CaseDetail({
   const targetHeaderFreshness = headerReadSummary("target", detailHeaderQueries);
   const finalHeaderContext = headerReadSummary("final review", [detailQuery, documentQuery, ownershipQuery])
     + targetHeaderStatus + " " + (frozenReview || summary.status === "COMPLETED" ? "Reviewed package frozen. " : "");
-  const ownershipHeaderStatus = ownership
+  // D-082 N2: never claim acceptance while the workflow still holds the ownership stage.
+  const ownershipHeaderStatus = ownership?.poc_basis_accepted && !stageNeedsAttention(["OWNERSHIP"])
+    ? "Ownership calculated — POC basis accepted."
+    : ownership
     ? "Ownership: " + ownership.state.replaceAll("_", " ") + ". " + (stageNeedsAttention(["OWNERSHIP"]) || ["REVIEW_REQUIRED", "FAILED"].includes(ownership.state) || ownership.issues.length > 0 ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis.")
     : confirmedOwnershipEmpty ? "No ownership analysis retained in the confirmed response."
       : "Ownership analysis not confirmed.";

@@ -46,6 +46,27 @@ function retainedPath(record: OwnershipAnalysisRecord, row: Row) {
 
 function pathPercent(record: OwnershipAnalysisRecord, row: Row) { return retainedPath(record, row)?.effective_ownership_percent ?? null; }
 
+// Presentation only: a company's own interest is never calculated here. The client is the
+// root, and a single direct holding in the client is the retained relationship itself.
+function entityLabel(record: OwnershipAnalysisRecord, rows: Row[], row: Row): string | null {
+  if (row.unlinked || row.cycle || pathPercent(record, row) !== null) return null;
+  if (!row.path.length) return "Root entity — N/A";
+  if (record.parties.find(party => party.party_id === row.partyId)?.party_type !== "LEGAL_ENTITY") return null;
+  if (rows.filter(item => item.partyId === row.partyId && !item.unlinked).length > 1) return "Not calculated — held through multiple paths";
+  return row.path.length === 1
+    ? `${formatOwnershipPercent(row.path[0].ownership_percent)} — direct holding in client`
+    : "Not calculated for indirect corporate holders";
+}
+
+// D-081: only the declared POC/synthetic basis and review notes are open. Any unresolved,
+// conflicting or structural issue keeps the general warning.
+const POC_VERIFICATION_ISSUES = new Set(["OWNERSHIP_DENOMINATOR_REQUIRED", "SYNTHETIC_OWNERSHIP_EVIDENCE", "UBO_REVIEW_REQUIRED"]);
+function calculatedForVerification(record: OwnershipAnalysisRecord): boolean {
+  return record.state === "REVIEW_REQUIRED"
+    && record.relationships.some(edge => edge.provenance.provider === "LOCAL_POC_ASSUMED_EQUAL_UNITS")
+    && record.issues.length > 0 && record.issues.every(issue => POC_VERIFICATION_ISSUES.has(issue.code));
+}
+
 export default function OwnershipStructure({ record, selectedPartyId, onSelectPerson }: {
   record: OwnershipAnalysisRecord; selectedPartyId: string | null; onSelectPerson: (partyId: string) => void;
 }) {
@@ -84,7 +105,18 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
       <p className="control-help">Follow each owned entity to its holders. Direct percentages belong to the immediate owned entity. Displayed percentages are rounded to at most two decimals. Threshold comparisons and classifications use full backend precision. Effective percentages are retained backend path results; intermediate interests are not inferred.</p>
       <dl className="ownership-structure__legend"><div><dt>Direct interest</dt><dd>Holding in the immediate owned entity.</dd></div><div><dt>Indirect interest</dt><dd>Holding through intermediate entities.</dd></div><div><dt>Effective interest</dt><dd>Backend-calculated path value; candidate aggregate combines retained paths.</dd></div><div><dt>Ownership evidence source</dt><dd>Original provider and environment on each relationship.</dd></div><div><dt>Provisional UBO candidate</dt><dd>Natural person classified as qualifying by the backend.</dd></div><div><dt>Review/incomplete status</dt><dd>Unresolved evidence is not a final determination.</dd></div></dl>
     </details>
-    {record.state !== "ANALYZED" && <p className="ds-banner ds-banner-warn">Partial or disputed ownership evidence — review required.</p>}
+    {record.state !== "ANALYZED" && (record.poc_basis_accepted
+      // D-082: shown only from the backend's current acceptance authority.
+      ? <div className="ds-banner" role="note"><strong>Ownership calculated — POC basis accepted</strong>
+        <p>Ownership percentages use retained ACRA Marketplace Mock shareholder quantities and declared POC assumptions, accepted for readiness by the opt-in D-082 demonstration policy. Official share denominators and share-class rights remain unverified.</p>
+        <p>This is not verified ownership or a legal UBO determination. Target confirmation is still required before any GoldTier send.</p>
+        {record.poc_acceptance && record.poc_acceptance.descriptive_current_role_count + record.poc_acceptance.descriptive_ceased_role_count > 0
+          && <p>The official Marketplace Mock officer Owner role records ({record.poc_acceptance.descriptive_current_role_count} current, {record.poc_acceptance.descriptive_ceased_role_count} ceased) are retained unchanged and recognised as descriptive context for this named POC exception only. They do not corroborate the synthetic shareholder relationships.</p>}</div>
+      : calculatedForVerification(record)
+      ? <div className="ds-banner ds-banner-warn" role="note"><strong>Ownership calculated — verification required</strong>
+        <p>Ownership percentages use retained ACRA Marketplace Mock shareholder quantities and declared POC assumptions. Official share denominators and share-class rights remain unverified.</p>
+        <p>Legal UBO determination and ownership readiness remain subject to review.</p></div>
+      : <p className="ds-banner ds-banner-warn">Partial or disputed ownership evidence — review required.</p>)}
     <div className="ownership-structure__layout">
       <div className="ownership-structure__rows" tabIndex={0} role="table" aria-label="Ownership hierarchy">
         <div className="ownership-structure__row ownership-structure__head" role="row"><span role="columnheader">Holder</span><span role="columnheader">Type</span><span role="columnheader">Country</span><span role="columnheader">Direct/Indirect %</span><span role="columnheader">Effective on path %</span><span role="columnheader">Evidence source</span></div>
@@ -118,7 +150,7 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
             <span role="cell" data-label="Type">{person ? "Individual" : party?.party_type === "LEGAL_ENTITY" ? "Company" : "Unknown"}</span>
             <span role="cell" data-label="Country">{party?.country ?? "Not supplied"}</span>
             <span role="cell" data-label="Direct/Indirect">{row.path.length ? formatOwnershipPercent(row.path[row.path.length - 1].ownership_percent) : "—"}</span>
-            <span role="cell" data-label="Effective">{pathPercent(record, row) !== null ? formatOwnershipPercent(pathPercent(record, row)) : "Not retained"}</span>
+            <span role="cell" data-label="Effective">{pathPercent(record, row) !== null ? formatOwnershipPercent(pathPercent(record, row)) : entityLabel(record, rows, row) ?? "Not retained"}</span>
             <span role="cell" data-label="Source">{row.path.length ? `${row.path[row.path.length - 1].provenance.provider} · ${row.path[row.path.length - 1].provenance.environment}` : `${record.provider_name ?? "Not supplied"} · ${record.provider_environment ?? "Not supplied"}`}</span>
           </div>;
         })}
@@ -128,9 +160,9 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
         <p className="card-kicker">Selected holder</p><h5>{holder?.display_name ?? selected?.partyId ?? "No holder selected"}</h5>
         {selected && <>
           <p>{holder?.party_type.replaceAll("_", " ") ?? "Unknown type"} · {holder?.country ?? "Country not supplied"}</p>
-          <dl><div><dt>Direct holding in immediate entity</dt><dd>{selected.path.length ? formatOwnershipPercent(selected.path[selected.path.length - 1].ownership_percent) : "Not retained"}</dd></div>
-            <div><dt>Effective on selected path</dt><dd>{pathPercent(record, selected) !== null ? formatOwnershipPercent(pathPercent(record, selected)) : "Not calculated by retained analysis"}</dd></div>
-            {candidate && <><div><dt>Aggregate effective in root (all retained paths)</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div><div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.threshold_result}</dd></div><div><dt>Classification</dt><dd>{candidate.classification}</dd></div></>}
+          <dl><div><dt>Direct holding in immediate entity</dt><dd>{selected.path.length ? formatOwnershipPercent(selected.path[selected.path.length - 1].ownership_percent) : selected.unlinked ? "Not retained" : "Root entity — N/A"}</dd></div>
+            <div><dt>Effective on selected path</dt><dd>{pathPercent(record, selected) !== null ? formatOwnershipPercent(pathPercent(record, selected)) : entityLabel(record, rows, selected) ?? "Not calculated by retained analysis"}</dd></div>
+            {candidate && <><div><dt>Aggregate effective in root (all retained paths)</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div><div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.threshold_result}</dd></div>{candidate.synthetic_basis_threshold_result != null && <div><dt>Assumed-basis comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.synthetic_basis_threshold_result} (not a classification)</dd></div>}<div><dt>Classification</dt><dd>{candidate.classification}</dd></div></>}
           </dl>
           <h6>Path from client to holder</h6>
           {selected.unlinked ? <p>No retained root path is available.</p> : <ol className="ownership-structure__path"><li>{partyName(record.root_party_id ?? selected.partyId)} · client</li>{selected.path.map(edge => <li key={edge.relationship_id}>{partyName(edge.child_party_id)} holds {formatOwnershipPercent(edge.ownership_percent)} of {partyName(edge.parent_party_id)}</li>)}</ol>}

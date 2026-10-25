@@ -284,7 +284,8 @@ class RegistryAcquisitionCoordinator:
 
         It shares this owner's repository, key locks and CAS writes. Fresh COMPLETE
         evidence follows the freshness policy and fresh EMPTY evidence the definitive
-        negative TTL; a failed operation is returned but never cached.
+        negative TTL; a failed operation is returned but never cached. D-080 entries
+        (schema 4) use the V2 key, so D-079 V1 entries without share class are not reused.
         """
         if cancelled is not None and cancelled():
             raise RegistryAcquisitionBusyError
@@ -373,7 +374,7 @@ class RegistryAcquisitionCoordinator:
                 raise RegistryCacheInvalidError
             self._write(
                 RegistrySnapshotEntry(
-                    cache_schema_version=3,
+                    cache_schema_version=4,
                     cache_id=key.digest,
                     key=key,
                     revision=entry.revision if entry is not None else 0,

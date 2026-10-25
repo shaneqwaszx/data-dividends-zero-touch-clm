@@ -124,7 +124,7 @@ def test_schema9_restarts_preserve_creator_pages_proposals_receipts_and_suppleme
     try:
         first.create(original)
         raw = first._collection.find_one({"_id": str(original.case_id)})  # noqa: SLF001
-        assert raw is not None and raw["schema_version"] == 13
+        assert raw is not None and raw["schema_version"] == 14
     finally:
         first.close()
     second = open_store(physical_database)
@@ -201,7 +201,7 @@ def test_exact_v1_to_v8_physical_reads_keep_unknown_creator_without_rewrite(
     second = open_store(physical_database)
     try:
         decoded = second.get(case_id)
-        assert decoded.schema_version == 13
+        assert decoded.schema_version == 14
         assert decoded.onboarding.created_by_actor_id is None
         assert decoded.documents[0].document_version is None
         assert decoded.documents[0].fields[0].extraction_method == "UNKNOWN"

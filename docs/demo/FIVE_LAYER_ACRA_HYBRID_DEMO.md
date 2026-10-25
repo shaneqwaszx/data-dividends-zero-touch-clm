@@ -15,7 +15,7 @@ determination or a GoldTier submission.
 | Official identity | Root only (when the official profile is returned); unverified issuers are `LOCAL_SYNTHETIC_IDENTITY` |
 | Quantitative evidence | Always local synthetic (`quantitative_evidence_complete = false`) |
 | Classification | Every candidate `REVIEW_REQUIRED` / threshold `INDETERMINATE` |
-| Synthetic-basis comparison | Same inclusive >= 25% comparator on the declared basis, demonstration only (API field `synthetic_basis_threshold_result`; not rendered by the unchanged UI) |
+| Synthetic-basis comparison | Same inclusive >= 25% comparator on the declared basis, demonstration only (API field `synthetic_basis_threshold_result`). The UI shows it apart from the formal classification as "Assumed-basis matches" and "Meets the threshold on an assumed basis — review required" |
 | Readiness | Ownership review blocks progression; nothing is sent to GoldTier automatically |
 
 ## 2. Source catalogue and candidate selection
@@ -206,12 +206,133 @@ With `hybrid_direct_overlay`, Garden `11111999A` keeps its official Marketplace 
 entity/people facts. The owner-supplied Garden body becomes a direct-only overlay: SIM
 LIM 5000 / LIM CHOON HUAT 3000 of 8000 = 62.5% / 37.5%. SIM LIM `111111111M` receives
 its own official cache-first lookup. Its entity profile is empty in the Marketplace Mock.
-Under D-079, returned official `coShareholdersDetails` rows are kept beside the graph as
-`official_shareholders`. The record shows outcome `PROVIDER_PARTIAL`, reason
-`OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE`, and an `OWNERSHIP_DENOMINATOR_REQUIRED`
-issue is added. An empty shareholder result stays `NOT_FOUND`
-(`OFFICIAL_SHAREHOLDERS_EMPTY`). Either way no percentage is inferred and the branch stays
-unresolved. LIM CHOON HUAT's synthetic-basis comparison is MET
-(37.5%), and no 900/100/100 subtree is attached under any label. The default
-`garden_legacy_supplement` keeps the accepted flattened Garden result (ABCD123
-51.13636375%).
+Under D-079, returned official `coShareholdersDetails` rows are retained as
+`official_shareholders`.
+
+Under D-081 (owner scope correction), this opt-in lane also distributes SIM LIM's own
+current rows as POC equal units:
+- each active holder's units are divided by SIM LIM's total active units;
+- the existing six-decimal rule applies;
+- each link is labelled `LOCAL_POC_ASSUMED_EQUAL_UNITS` / `LOCAL`.
+
+The record keeps outcome `PROVIDER_PARTIAL`, with reason
+`OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS`. The `OWNERSHIP_DENOMINATOR_REQUIRED` issue states
+that the percentages assume equal POC units, not an ACRA denominator. Every candidate stays
+REVIEW_REQUIRED.
+
+Other outcomes:
+- rows that cannot support the convention keep reason
+  `OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE` with no links;
+- an empty shareholder result stays `NOT_FOUND` (`OFFICIAL_SHAREHOLDERS_EMPTY`).
+
+The local 900/100/100 fixture is never used here. The default `garden_legacy_supplement`
+keeps the accepted flattened Garden result (ABCD123 51.13636375%).
+
+### Reading SIM LIM's retained rows
+
+With official rows present, the ownership graph shows SIM LIM's current holders under it.
+Their links read `LOCAL_POC_ASSUMED_EQUAL_UNITS · LOCAL`; Garden's two links read
+`LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL`. Withdrawn holders never become links. The record
+also appears in these places:
+
+- *Corporate owners from separate registry records* shows SIM LIM as **Incomplete
+  registry evidence** with reason `OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS`, or
+  `OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE` when no links could be derived;
+- the issue list contains `OWNERSHIP_DENOMINATOR_REQUIRED` ("… retained without an entity
+  profile; current rows mix share classes; percentages shown assume equal POC units, not
+  an ACRA denominator.");
+- `GET /api/onboarding/cases/{case_id}/ownership` returns, for the `discovery.records[]`
+  entry with `registration_number` `111111111M`, the `official_shareholders` rows and
+  `official_shareholder_lookup`. Each row has the source id and name, party type,
+  category, status, exact `share_allotted`, the source `share_type` and `currency`
+  (D-080), `current_interest` (true only for an Active row) and Marketplace Mock
+  provenance. The lookup is `SHAREHOLDERS_FETCHED`, or `SHAREHOLDERS_CACHE_REUSED` on
+  reuse.
+
+In the bounded Mock read of 2026-10-24, SIM LIM's current rows were 900 Ordinary, 100
+Preference and 100 Others, beside a withdrawn corporate row. `coCapitalDetails` for SIM LIM
+was empty, so no *verified* denominator exists.
+
+Under the D-081 POC assumption (1100 equal units), the direct links are ABCD123 81.818182%,
+TAN WEI LING 9.090909% and EFGH2345 9.090909%. The resulting Garden interests are:
+- ABCD123 51.13636375%;
+- LIM CHOON HUAT 37.5%;
+- TAN WEI LING 5.681818125%;
+- EFGH2345 5.681818125%.
+
+All of them are REVIEW_REQUIRED. Pooling the classes is illustrative only; the retained rows
+keep their true classes.
+
+In the Ownership & UBO explorer, **Provisional UBOs** stays 0 and **Assumed-basis matches**
+shows 2. The section **Meets the threshold on an assumed basis — review required** lists:
+- ABCD123 51.14% (POC equal-unit assumption);
+- LIM CHOON HUAT 37.5% (Local synthetic overlay basis).
+
+The selected holder shows the assumed-basis comparison (MET) apart from the formal
+INDETERMINATE result. Review & Send shows the same section. The five-layer case lists
+BEATRICE LIM and DIANA KOH the same way.
+
+The hierarchy labels the client "Root entity — N/A" and SIM LIM "62.5% — direct holding in
+client". Deeper or multi-path corporate holders show "Not calculated…"; no company interest
+is calculated in the browser. For this POC case the banner reads **Ownership calculated —
+verification required**. Any unresolved, conflicting or structural issue keeps the general
+"Partial or disputed ownership evidence" warning.
+
+The POC percentages cannot clear the ownership blocker (owner F1 decision). On this case,
+**Keep current ownership evidence** is refused with `409
+OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED`. So is submitting the pre-filled POC values
+unchanged as a declaration. Nothing is replaced, and readiness stays blocked. Clearing the
+blocker needs independent evidence: a declaration with supported values, or matching
+document observations, under the existing rules.
+
+**Optional D-082 demonstration policy.** To show Garden reaching final review without
+manual ownership verification, also set
+`ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc` (default `disabled`), plus
+the protected officer-role allowlist `ACRA_MARKETPLACE_POC_OFFICER_ROLE_KEY` and
+`ACRA_MARKETPLACE_POC_OFFICER_ROLE_ALLOWLIST` in your own backend env file (syntax in
+`.env.example`; never commit, print or share the values). Then onboard a **new** Garden
+case. Existing cases are never accepted retroactively, and without a matching allowlist
+Garden stays under ordinary review.
+- The Ownership & UBO status reads **Ownership calculated — POC basis accepted**, and the
+  explorer shows "Calculated — POC basis accepted".
+- The analysis stays REVIEW_REQUIRED, with 0 provisional UBOs and 2 assumed-basis matches.
+- Readiness shows no blockers. Final review & send still requires the explicit **Confirm
+  and send to Mock GoldTier**, and the Mock snapshot carries no provisional UBO ids.
+- Garden's four official OFFICERS Owner role records (three current, one ceased) are kept
+  unchanged as descriptive context for this named POC exception only. They must match the
+  allowlist exactly, and they do not corroborate the synthetic shareholder links.
+- The manual form stays available, and the Option B refusals above still apply.
+
+Restarting without the setting, or outside the hybrid lane, revokes readiness:
+- the ownership blocker returns;
+- confirmation is refused;
+- resume restores the ordinary ownership hold.
+
+After re-enabling, the next resume of the case (the existing
+`POST /api/clm/zero-touch/cases/<case_id>/resume` operation) returns it to target
+confirmation. Until then it shows the ordinary ownership hold.
+
+The unchanged UI does not render the retained rows themselves. To read them, open the signed-in app tab's
+browser developer tools and inspect the ownership response in the Network panel, or run
+this in its console:
+
+```js
+fetch("/api/onboarding/cases/<case_id>/ownership").then((r) => r.json()).then((o) => o.discovery.records)
+```
+
+### Seeing D-079 on an existing case
+
+A case keeps the ownership analysis it was given. A backend restart or reopening the
+page never re-analyses it, and `ownership/load` is refused with `OWNERSHIP_ALREADY_LOADED`
+unless the case's documents or identity changed. So a Garden case analysed before D-079
+still shows SIM LIM as `NOT_FOUND`. That does not show that D-079 failed. Likewise, a
+case analysed under D-079 keeps its rows with no share class. To see the current
+behaviour, create a **new** Garden case; the old case and its history stay unchanged.
+A D-079 shareholder cache entry is never reused under D-080, so the first new case makes
+one fresh shareholder read.
+
+The new case reuses fresh cache entries. SIM LIM's empty entity profile is a negative
+cache entry (600 s by default), COMPLETE shareholder evidence follows the registry
+freshness window (90 days by default), and an empty shareholder result is negative-cached
+like the profile. In memory persistence, cases and caches are lost on restart; the
+explicit Mongo mode keeps both.

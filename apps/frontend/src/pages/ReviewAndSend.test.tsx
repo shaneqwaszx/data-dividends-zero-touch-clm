@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { confirmZeroTouchTargetDispatch } from "../api";
 import { caseQueryKeys, caseSummaryMutationEffect, targetConfirmationMutationEffect } from "../caseQueries";
 import type { AuthenticatedProfile, BlockerDecisionRecord, ZeroTouchCaseSummary, OwnershipAnalysisRecord } from "../types";
+import { gardenAssumedBasisFixture } from "./ownershipAssumedBasisFixture";
 import { ownershipStructureFixture } from "./ownershipStructureFixture";
 import ReviewAndSend from "./ReviewAndSend";
 
@@ -109,6 +110,34 @@ describe("ReviewAndSend", () => {
     expect(markup).toContain("<dt>Indirect</dt><dd>25%</dd>");
     expect(markup).toContain("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
     expect(markup).not.toContain("Synthetic below-threshold person");
+  });
+  it("explains assumed-basis matches apart from formal UBOs without enabling submission", () => {
+    const summary = summaryFixture("MOCK");
+    summary.clm.readiness!.blockers = ["OWNERSHIP_REVIEW_REQUIRED"];
+    const markup = render(summary, actor, gardenAssumedBasisFixture());
+    expect(markup).toContain("Identified UBO candidates");
+    expect(markup).toContain("No natural person is formally classified as a provisional UBO; 2 meet the threshold only on an assumed basis (below).");
+    expect(markup).toContain("Meets the threshold on an assumed basis — review required");
+    expect(markup).toContain("They are not verified or provisionally classified UBOs and do not clear ownership readiness.");
+    expect(markup).toContain("ABCD123");
+    expect(markup).toContain("POC equal-unit assumption");
+    expect(markup).toContain("LIM CHOON HUAT");
+    expect(markup).toContain("Local synthetic overlay basis");
+    expect(markup).not.toContain("Confirm and send to Mock GoldTier");
+    expect(markup).toContain("Review outstanding items");
+    // F5: assessed people, formal provisional UBOs and assumed-basis matches stay distinct.
+    expect(markup).toContain("Ownership: 4 natural person(s) assessed, 0 provisional UBO candidate(s), 2 assumed-basis threshold match(es),");
+    expect(markup).not.toContain("4 provisional candidate(s)");
+  });
+
+  it("D-082: an accepted POC basis keeps the disclosure without outdated review wording", () => {
+    const summary = summaryFixture("MOCK");
+    const markup = render(summary, actor, { ...gardenAssumedBasisFixture(), poc_basis_accepted: true });
+    expect(markup).toContain("Meets the threshold on an assumed basis");
+    expect(markup).not.toContain("Meets the threshold on an assumed basis — review required");
+    expect(markup).toContain("These percentages meet the configured threshold under declared POC assumptions. They are not verified legal UBO determinations or provisionally classified UBOs.");
+    expect(markup).not.toContain("do not clear ownership readiness");
+    expect(markup).toContain("Ownership: 4 natural person(s) assessed, 0 provisional UBO candidate(s), 2 assumed-basis threshold match(es),");
   });
   it("renders the current mapping, truthful sandbox boundary, and print control", () => {
     const markup = render();

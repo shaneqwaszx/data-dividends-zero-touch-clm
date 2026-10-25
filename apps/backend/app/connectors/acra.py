@@ -175,6 +175,8 @@ class AcraOwnershipPartyPayload(BaseModel):
         Decimal | None,
         Field(ge=Decimal("0"), max_digits=18, decimal_places=6),
     ] = None
+    share_type: OptionalSourceText = Field(default=None, max_length=64)
+    currency: OptionalSourceText = Field(default=None, max_length=64)
     ownership_percentage: Annotated[
         Decimal | None,
         Field(gt=Decimal("0"), le=Decimal("100"), max_digits=12, decimal_places=6),

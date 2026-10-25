@@ -3150,7 +3150,9 @@ def create_app(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=detail.model_dump(mode="json", exclude_none=True),
             ) from None
-        return OwnershipAnalysisResponse.from_domain(record)
+        return OwnershipAnalysisResponse.from_domain(
+            record, poc_basis_accepted=active_ownership.poc_basis_accepted(record)
+        )
 
     @application.get(
         "/api/onboarding/cases/{case_id}/ownership",
@@ -3174,7 +3176,9 @@ def create_app(
                     message="Ownership data has not been loaded for this case.",
                 )
             )
-        return OwnershipAnalysisResponse.from_domain(record)
+        return OwnershipAnalysisResponse.from_domain(
+            record, poc_basis_accepted=active_ownership.poc_basis_accepted(record)
+        )
 
     @application.get(
         "/api/onboarding/cases/{case_id}/ubo-candidates",

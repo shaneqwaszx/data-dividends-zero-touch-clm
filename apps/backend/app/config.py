@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     acra_marketplace_ownership_overlay: Literal[
         "garden_legacy_supplement", "hybrid_direct_overlay"
     ] = "garden_legacy_supplement"
+    # D-082 opt-in demonstration policy, hybrid lane only: an eligible analysis is accepted
+    # on its declared POC equal-unit basis at the readiness boundary. Never verification.
+    acra_marketplace_poc_ownership_acceptance: Literal["disabled", "accept_eligible_poc"] = (
+        "disabled"
+    )
+    # D-082 R1 protected values: a backend-only HMAC key and the keyed digests of the exact
+    # observed Garden officer Owner roles with their expected statuses. Absent or malformed
+    # values disable the officer-role exception; never logged or exposed.
+    acra_marketplace_poc_officer_role_key: SecretStr | None = None
+    acra_marketplace_poc_officer_role_allowlist: SecretStr | None = None
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
@@ -141,6 +151,13 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "Hybrid ownership overlays require the explicit official Marketplace Mock lane."
+            )
+        if self.acra_marketplace_poc_ownership_acceptance == "accept_eligible_poc" and (
+            self.acra_connector_mode != "api_marketplace_mock"
+            or self.acra_marketplace_ownership_overlay != "hybrid_direct_overlay"
+        ):
+            raise ValueError(
+                "POC ownership acceptance requires the Marketplace Mock hybrid overlay lane."
             )
         return self
 

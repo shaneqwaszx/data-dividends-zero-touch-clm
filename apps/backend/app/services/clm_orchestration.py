@@ -644,6 +644,16 @@ class ClmOrchestrationService:
                     code="CLM_TARGET_CONFIRMATION_REQUIRED",
                     message="A current frozen-review confirmation is required.",
                 )
+            if before_first_write and not self._poc_authority_is_current(record):
+                # D-082 F6: a review frozen on a POC acceptance needs that authority at the
+                # first irreversible write; recovery of an attempted write is unaffected.
+                raise ClmRequestError(
+                    code="CLM_NOT_READY",
+                    message=(
+                        "POC ownership acceptance is no longer current; no GoldTier target "
+                        "mutation was attempted."
+                    ),
+                )
 
             receipt = record.execution_receipt
             if receipt is None:
@@ -805,6 +815,18 @@ class ClmOrchestrationService:
         with self._lock_for(case_id):
             return self._submission_snapshot_is_current(self._require_record(case_id))
 
+    def _poc_authority_is_current(self, record: ClmOrchestrationRecord) -> bool:
+        """A snapshot frozen on a D-082 POC acceptance still has that runtime authority."""
+
+        snapshot = record.submission_snapshot
+        if (
+            snapshot is None
+            or snapshot.ownership_reference.status != OwnershipAnalysisState.REVIEW_REQUIRED
+        ):
+            return True
+        ownership = self._ownership.get(case_id=record.case_id)
+        return ownership is not None and self._ownership.poc_basis_accepted(ownership)
+
     def _submission_snapshot_is_current(self, record: ClmOrchestrationRecord) -> bool:
         snapshot = record.submission_snapshot
         if snapshot is None:
@@ -890,6 +912,9 @@ class ClmOrchestrationService:
                     record.submission_plan.environment == GoldTierProviderMode.SANDBOX
                 ),
                 classification_current=self._document_classification_current(case),
+                ownership_poc_basis_accepted=(
+                    ownership is not None and self._ownership.poc_basis_accepted(ownership)
+                ),
                 now=self._clock(),
             ),
             record.target_search_checkpoint,
@@ -1378,6 +1403,9 @@ class ClmOrchestrationService:
                     self._cases.target_provider_mode == GoldTierProviderMode.SANDBOX
                 ),
                 classification_current=self._document_classification_current(case),
+                ownership_poc_basis_accepted=(
+                    ownership is not None and self._ownership.poc_basis_accepted(ownership)
+                ),
                 now=now or self._clock(),
             ),
             search_checkpoint,
@@ -1521,6 +1549,7 @@ def _evaluate_readiness(
     reconciliation_cleared: bool = False,
     require_target_classification: bool = False,
     classification_current: bool = True,
+    ownership_poc_basis_accepted: bool = False,
 ) -> ClmReadinessAssessment:
     blockers: list[ClmBlockerCode] = []
 
@@ -1596,7 +1625,11 @@ def _evaluate_readiness(
     if ownership is None:
         ownership_stage = StageReadiness(status=ReadinessStageStatus.MISSING)
         block(ClmBlockerCode.OWNERSHIP_REQUIRED)
-    elif ownership.state == OwnershipAnalysisState.ANALYZED:
+    elif ownership.state == OwnershipAnalysisState.ANALYZED or (
+        # D-082: the ownership owner's current opt-in POC acceptance; review is retained.
+        ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+        and ownership_poc_basis_accepted
+    ):
         ownership_stage = StageReadiness(
             status=ReadinessStageStatus.READY,
             reference_id=str(ownership.analysis_id),

@@ -354,6 +354,11 @@ OfficialShareholderLookup = Literal["SHAREHOLDERS_FETCHED", "SHAREHOLDERS_CACHE_
 # D-079 discovery reason codes for an issuer whose entity-basic profile is NOT_FOUND.
 OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE = "OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE"
 OFFICIAL_SHAREHOLDERS_EMPTY = "OFFICIAL_SHAREHOLDERS_EMPTY"
+# D-081: the same retained rows, also distributed in the hybrid lane as POC equal units.
+OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS = "OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS"
+OFFICIAL_SHAREHOLDER_RETAINED_REASONS = frozenset(
+    {OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE, OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS}
+)
 
 
 class OfficialShareholderObservation(BaseModel):
@@ -374,6 +379,10 @@ class OfficialShareholderObservation(BaseModel):
     share_allotted: Decimal | None = Field(
         default=None, ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6
     )
+    # D-080: the row's own source share class and currency. Units are comparable only
+    # within one class; no class rule, weighting or denominator is implied.
+    share_type: SafeOptionalIdentifier | None = None
+    currency: SafeOptionalIdentifier | None = None
     current_interest: bool
     registration_identifier: SafeOptionalIdentifier | None = None
     provider: Literal["ACRA_REGISTRY_ACQUISITION"] = "ACRA_REGISTRY_ACQUISITION"
@@ -442,7 +451,7 @@ class OwnershipDiscoveryRecord(BaseModel):
     def official_shareholders_are_explicit(self) -> "OwnershipDiscoveryRecord":
         retained = (
             self.outcome == OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
-            and self.reason_code == OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE
+            and self.reason_code in OFFICIAL_SHAREHOLDER_RETAINED_REASONS
         )
         if retained != bool(self.official_shareholders) or retained != (
             self.official_shareholder_lookup is not None
@@ -452,6 +461,13 @@ class OwnershipDiscoveryRecord(BaseModel):
             self.official_shareholders
         ):
             raise ValueError("official shareholder rows must be unique")
+        current = [item for item in self.official_shareholders if item.current_interest]
+        if self.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS and (
+            not retained
+            or not current
+            or any(item.share_allotted is None or item.share_allotted <= 0 for item in current)
+        ):
+            raise ValueError("POC equal-unit records require retained positive current units")
         if (
             self.reason_code == OFFICIAL_SHAREHOLDERS_EMPTY
             and self.outcome != OwnershipDiscoveryOutcome.NOT_FOUND
@@ -478,6 +494,14 @@ class OwnershipDiscoveryRecord(BaseModel):
         elif self.official_legal_form is not None:
             raise ValueError("official legal form is retained only for overlay records")
         return self
+
+
+def discovery_topology_resolved(record: OwnershipDiscoveryRecord) -> bool:
+    """Holders are attached, whatever the evidence basis (registry, overlay or D-081 POC)."""
+    return record.outcome in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES or (
+        record.outcome == OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
+        and record.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
+    )
 
 
 class OwnershipDiscoveryAudit(BaseModel):
@@ -536,15 +560,18 @@ class OwnershipDiscoveryAudit(BaseModel):
             for item in self.records
             if item.outcome == OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
         ]
+        poc_records = [
+            item
+            for item in self.records
+            if item.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
+        ]
         if self.overlay_scenario_id is None:
-            if any(value is not None for value in separated) or overlay_records:
+            if any(value is not None for value in separated) or overlay_records or poc_records:
                 raise ValueError("evidence separation is retained only for hybrid overlays")
             return self
         if any(value is None for value in separated):
             raise ValueError("hybrid overlays require explicit evidence separation")
-        topology = all(
-            item.outcome in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES for item in self.records
-        )
+        topology = all(discovery_topology_resolved(item) for item in self.records)
         official = all(
             item.outcome in RESOLVED_DISCOVERY_OUTCOMES
             or item.identity_basis == "OFFICIAL_MOCK_ENTITY_PROFILE"
@@ -647,6 +674,83 @@ class ManualOwnershipReviewReceipt(BaseModel):
         return value
 
 
+# D-082: the one opt-in demonstration policy that may accept a declared POC basis.
+OWNERSHIP_POC_ACCEPTANCE_POLICY = "D082_HYBRID_POC_EQUAL_UNITS_V1"
+POC_ACCEPTANCE_REQUIRED_ISSUES = frozenset(
+    {
+        OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED,
+        OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
+    }
+)
+POC_ACCEPTANCE_ISSUES = POC_ACCEPTANCE_REQUIRED_ISSUES | {OwnershipIssueCode.UBO_REVIEW_REQUIRED}
+
+
+class OwnershipPocAcceptance(BaseModel):
+    """D-082 acceptance of a declared POC equal-unit basis at the readiness boundary.
+
+    Recorded beside the unchanged review state, issues and classifications, and bound
+    to one analysis version and its exact content. It is never ownership verification,
+    a legal UBO determination or a provisional classification, and it grants readiness
+    only while the current runtime still enables the policy.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    policy: Literal["D082_HYBRID_POC_EQUAL_UNITS_V1"]
+    accepted_at: datetime
+    case_id: UUID
+    analysis_id: UUID
+    ownership_version: int = Field(ge=1)
+    identity_registration_number: SafeOptionalIdentifier
+    identity_correction_version: int = Field(ge=0)
+    overlay_scenario_id: SafeProviderName
+    accepted_issue_codes: tuple[OwnershipIssueCode, ...] = Field(min_length=2, max_length=3)
+    poc_relationship_ids: tuple[SafeRelationshipId, ...] = Field(min_length=1, max_length=200)
+    # D1=B (R1): how many exact observed official OFFICERS Owner role records (current and
+    # ceased) were matched against the protected allowlist and kept as descriptive context.
+    # They stay in the analysis evidence; no identifier or digest is stored here, and they
+    # are neither shareholdings nor corroboration of the synthetic links.
+    descriptive_current_role_count: int = Field(default=0, ge=0, le=16)
+    descriptive_ceased_role_count: int = Field(default=0, ge=0, le=16)
+    basis_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("accepted_at")
+    @classmethod
+    def accepted_at_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("POC acceptance time must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def accepts_only_declared_poc_assumptions(self) -> "OwnershipPocAcceptance":
+        codes = set(self.accepted_issue_codes)
+        if (
+            self.accepted_issue_codes != tuple(sorted(codes))
+            or not POC_ACCEPTANCE_REQUIRED_ISSUES <= codes <= POC_ACCEPTANCE_ISSUES
+            or (OwnershipIssueCode.UBO_REVIEW_REQUIRED in codes)
+            != bool(self.descriptive_current_role_count + self.descriptive_ceased_role_count)
+            or self.poc_relationship_ids != tuple(sorted(set(self.poc_relationship_ids)))
+        ):
+            raise ValueError("POC acceptance covers only declared POC assumption issues")
+        return self
+
+
+def _poc_acceptance_is_bound(
+    acceptance: OwnershipPocAcceptance | None,
+    *,
+    analysis_id: UUID,
+    state: OwnershipAnalysisState,
+    source_classification: str,
+    manual_review_receipt: object,
+) -> bool:
+    return acceptance is None or (
+        acceptance.analysis_id == analysis_id
+        and state == OwnershipAnalysisState.REVIEW_REQUIRED
+        and source_classification == "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY"
+        and manual_review_receipt is None
+    )
+
+
 class PriorOwnershipAnalysisSnapshot(BaseModel):
     """Immutable bounded copy of a replaced terminal analysis."""
 
@@ -690,6 +794,19 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
     analyzed_at: datetime | None = None
     updated_at: datetime
     manual_review_receipt: ManualOwnershipReviewReceipt | None = None
+    poc_acceptance: OwnershipPocAcceptance | None = None
+
+    @model_validator(mode="after")
+    def poc_acceptance_is_bound(self) -> "PriorOwnershipAnalysisSnapshot":
+        if not _poc_acceptance_is_bound(
+            self.poc_acceptance,
+            analysis_id=self.analysis_id,
+            state=self.state,
+            source_classification=self.source_classification,
+            manual_review_receipt=self.manual_review_receipt,
+        ):
+            raise ValueError("a POC acceptance binds only its own hybrid review analysis")
+        return self
 
 
 class OwnershipAnalysisRecord(BaseModel):
@@ -735,8 +852,22 @@ class OwnershipAnalysisRecord(BaseModel):
         default_factory=tuple, max_length=4
     )
     manual_review_receipt: ManualOwnershipReviewReceipt | None = None
+    # D-082 only: accepted declared POC basis; the review state and issues stay intact.
+    poc_acceptance: OwnershipPocAcceptance | None = None
     error: SafeError | None = None
     created_at: datetime
     loaded_at: datetime | None = None
     analyzed_at: datetime | None = None
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def poc_acceptance_is_bound(self) -> "OwnershipAnalysisRecord":
+        if not _poc_acceptance_is_bound(
+            self.poc_acceptance,
+            analysis_id=self.analysis_id,
+            state=self.state,
+            source_classification=self.source_classification,
+            manual_review_receipt=self.manual_review_receipt,
+        ) or (self.poc_acceptance is not None and self.poc_acceptance.case_id != self.case_id):
+            raise ValueError("a POC acceptance binds only its own hybrid review analysis")
+        return self

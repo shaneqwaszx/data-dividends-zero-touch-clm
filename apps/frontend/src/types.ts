@@ -779,6 +779,9 @@ export interface OwnershipCandidate {
     | "REVIEW_REQUIRED"
     | "INDETERMINATE";
   paths: OwnershipPath[];
+  // Hybrid lanes only: the backend's comparison on the declared assumed basis. It is never
+  // a UBO classification and never changes the formal count or readiness.
+  synthetic_basis_threshold_result?: "MET" | "NOT_MET" | "INDETERMINATE" | null;
 }
 
 export type OwnershipDiscoveryOutcome =
@@ -834,6 +837,9 @@ export interface OwnershipAnalysisRecord {
   supplemental_relationships?: OwnershipRelationship[];
   supplemental_evidence?: NonNullable<OwnershipAnalysisRecord["evidence"]>;
   manual_review_receipt?: ManualOwnershipReviewReceipt | null;
+  // D-082: the persisted acceptance and whether the backend honours it now (authority).
+  poc_acceptance?: OwnershipPocAcceptance | null;
+  poc_basis_accepted?: boolean;
   prior_analyses?: Array<Pick<OwnershipAnalysisRecord, "version" | "analysis_id" | "root_party_id" | "provider_name" | "provider_environment" | "state" | "parties" | "relationships" | "candidates" | "issues" | "created_at" | "analyzed_at" | "evidence" | "manual_review_receipt" | "document_observations" | "document_bindings" | "document_discrepancies" | "source_classification" | "supplemental_parties" | "supplemental_relationships" | "supplemental_evidence">>;
   legal_form?: "COMPANY" | "BUSINESS_PARTNERSHIP" | "LLP" | "LP" | "OTHER" | null;
   evidence?: Array<{
@@ -916,6 +922,22 @@ export interface PolicyRebindMetadata {
   last_rebound_at: string | null;
   last_rationale: string | null;
   last_changed_fields: string[];
+}
+
+export interface OwnershipPocAcceptance {
+  policy: "D082_HYBRID_POC_EQUAL_UNITS_V1";
+  accepted_at: string;
+  case_id: string;
+  analysis_id: string;
+  ownership_version: number;
+  identity_registration_number: string;
+  identity_correction_version: number;
+  overlay_scenario_id: string;
+  accepted_issue_codes: string[];
+  poc_relationship_ids: string[];
+  descriptive_current_role_count: number;
+  descriptive_ceased_role_count: number;
+  basis_fingerprint: string;
 }
 
 export interface ManualOwnershipReviewReceipt {

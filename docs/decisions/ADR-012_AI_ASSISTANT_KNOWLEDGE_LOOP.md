@@ -285,27 +285,27 @@ proposal to show model text that is not an allowed line.
 
 `docs/contracts/POLICY_AUTHORITY_MATRIX.md` (review authority, reviewer separation); Q-014;
 D-073 and D-074 in `DECISION_LOG.md`; the 2026-10-06 read-only AI Assistant entry in `ARCHITECTURE.md`.
-Proposed Amendment 1 (D-081) follows below. It is not accepted; the Status section above is
+Proposed Amendment 1 (D-084) follows below. It is not accepted; the Status section above is
 updated when it is.
 
-## Amendment 1 - answer records, request lifecycle and document upload (PROPOSED, D-081)
+## Amendment 1 - answer records, request lifecycle and document upload (PROPOSED, D-084)
 
 Status: PROPOSED by the project team on 2026-10-25. Not accepted; nothing in this amendment
-is built. Each of decisions D1 to D6 in D-081 needs the repository owner's (Shane's)
-explicit acceptance before code. The amendment builds on D-080 (proposed with the feedback
+is built. Each of decisions D1 to D6 in D-084 needs the repository owner's (Shane's)
+explicit acceptance before code. The amendment builds on D-083 (proposed with the feedback
 PR: "Not helpful" with a note starts an enhancement request, and a Director writes the fix
-or closes the request with a reason). If D-080 is not accepted, this amendment is revisited
+or closes the request with a reason). If D-083 is not accepted, this amendment is revisited
 with it.
 
 Scope. All three parts stay inside the AI Assistant service and its local knowledge store
 (section A). The assistant stays read-only towards the CLM backend. Existence check: the
 knowledge store in `apps/assistant` already owns entries, versions, reviews and RM feedback
-(and, with D-080, enhancement requests), so it is extended rather than a new owner added;
+(and, with D-083, enhancement requests), so it is extended rather than a new owner added;
 the CLM backend's document pipeline is not reused for the first upload step because
 Markdown and text need no parser (D3). No new service, provider, dependency direction or
 library. Document upload is a new untrusted-input surface inside the existing owner; its
 checks are listed under Document upload. Schema v5 of the knowledge store adds the new
-tables and request states (main is at schema v3; D-080 adds v4).
+tables and request states (main is at schema v3; D-083 adds v4).
 
 ### Answer records
 
@@ -328,9 +328,9 @@ tables and request states (main is at schema v3; D-080 adds v4).
   logged. HR cannot view records.
 - Records stay in the assistant's local store. They are never sent to the model again and
   never copied into knowledge automatically; anything a Director copies into a fix is
-  redacted, as D-080 redacts a Director's fix.
+  redacted, as D-083 redacts a Director's fix.
 - **This relaxes section A and needs Shane's acceptance (D1).** Section A says the store
-  holds no CLM case data beyond redacted drafts, and D-080 redacts what an RM writes. An
+  holds no CLM case data beyond redacted drafts, and D-083 redacts what an RM writes. An
   answer record keeps the RM's question unredacted and a snapshot of case state (blocker
   codes, stage, steps done, a facts hash). The relaxation is limited by the access rule
   above and the retention below.
@@ -371,10 +371,10 @@ tables and request states (main is at schema v3; D-080 adds v4).
   against the case on every answer.
 - Entries are saved as drafts that cite the file name and the section heading (Markdown has
   no pages), with the file's fingerprint, and follow the normal review rule (D6): two
-  people, or the POC single-reviewer mode if D-080 is accepted.
+  people, or the POC single-reviewer mode if D-083 is accepted.
 - Uploading a file with the same name proposes new versions of its entries, shown as a
   diff, and retirement of entries whose sections no longer exist. Removing a file retires
-  all its entries; retirement takes two reviewers (D-074), also in D-080's single-reviewer
+  all its entries; retirement takes two reviewers (D-074), also in D-083's single-reviewer
   mode.
 - Synthetic or public documents only for the POC (D5). Real sponsor documents need the
   sponsor's and the owner's agreement first; AGENTS.md forbids tracking confidential sponsor
@@ -385,14 +385,14 @@ tables and request states (main is at schema v3; D-080 adds v4).
 ### Alternatives considered
 
 - Answer context sent back by the browser: rejected. PR #99's review showed browser-sent
-  assistant text can be faked, which is why D-080 stopped sending the conversation.
+  assistant text can be faked, which is why D-083 stopped sending the conversation.
 - No answer records: keeps the store smaller, but the Director cannot see why the AI said
   what it said, so most requests cannot be diagnosed.
 - Answer records in the CLM backend: rejected; it would add assistant writes to the case
   backend and make the CLM persistence owner hold assistant data (as in section A).
 - An external tracing tool (for example Langfuse): rejected for the POC; it adds a
   dependency and moves answer data off the assistant's machine.
-- Keep D-080's request states (open, drafted, resolved, closed): there is no owner and no
+- Keep D-083's request states (open, drafted, resolved, closed): there is no owner and no
   In progress state, so nobody is answerable for a request and two Directors can work on
   the same one.
 - Retrieval over uploaded documents without review: rejected; it would bypass the review
@@ -412,7 +412,7 @@ tables and request states (main is at schema v3; D-080 adds v4).
   mainly on the review step. The preview's used / not used marks support that review.
 - A large document can produce many drafts at once, which strains review, more so in
   single-reviewer mode.
-- Schema v5 must migrate older stores in place (v3 on main, v4 with D-080), as earlier
+- Schema v5 must migrate older stores in place (v3 on main, v4 with D-083), as earlier
   versions did.
 
 ### What stays unchanged
@@ -420,6 +420,6 @@ tables and request states (main is at schema v3; D-080 adds v4).
 - The exact-line catalog (section C): the model may only output allowed catalog lines and
   approved knowledge lines; anything else is dropped.
 - Maker-checker: two-person approval (D-074), apart from the POC single-reviewer mode if
-  D-080 is accepted; retirement always takes two reviewers.
+  D-083 is accepted; retirement always takes two reviewers.
 - Rechecks of the caller inside the SQLite write lock.
 - Read-only access towards the CLM backend: GET only, with the user's session.
