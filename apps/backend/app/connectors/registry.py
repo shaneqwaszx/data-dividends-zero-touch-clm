@@ -67,7 +67,10 @@ NormalizedRecord = TypeVar(
 
 
 def _normalize_ownership_party(
-    item: AcraOwnershipPartyPayload, provenance: RegistryEvidenceProvenance
+    item: AcraOwnershipPartyPayload,
+    provenance: RegistryEvidenceProvenance,
+    *,
+    share_class: bool = False,
 ) -> RegistryOwnershipParty:
     return RegistryOwnershipParty(
         party_id=item.party_id,
@@ -79,8 +82,17 @@ def _normalize_ownership_party(
         source_category=item.source_category,
         source_status=item.source_status,
         share_allotted=item.share_allotted,
+        share_type=item.share_type if share_class else None,
+        currency=item.currency if share_class else None,
         provenance=provenance,
     )
+
+
+def _normalize_shareholder_evidence_party(
+    item: AcraOwnershipPartyPayload, provenance: RegistryEvidenceProvenance
+) -> RegistryOwnershipParty:
+    """D-080: entity-less shareholder evidence also keeps the source share class."""
+    return _normalize_ownership_party(item, provenance, share_class=True)
 
 
 class RegistryProvider(Protocol):
@@ -183,7 +195,7 @@ class AcraRegistryProviderAdapter:
             fetch=self._connector.fetch_ownership_parties,
             payload_type=AcraOwnershipPartiesPayload,
             collection_name="ownership_parties",
-            normalize=_normalize_ownership_party,
+            normalize=_normalize_shareholder_evidence_party,
             environment=SourceEnvironment.MOCK,
         )
         return RegistryShareholderEvidence(

@@ -88,7 +88,7 @@ retraining the model. There are two kinds of entry:
   `POST /api/assistant/knowledge/guidance`; there is no in-app UI for it.
 - **Approved past resolutions**: worked examples a manager (Director, `POLICY_APPROVE`) writes
   as the fix for an RM's enhancement request ("Not helpful" with a note) and that is then
-  approved (D-080, proposed; see single-reviewer mode below). The demo seed
+  approved (D-083, proposed; see single-reviewer mode below). The demo seed
   (`seed/synthetic_resolutions.json`) is made up and labelled illustrative.
 
 ```
@@ -103,7 +103,7 @@ RM clicks "Not helpful" + note ─► redacted enhancement request
 ```
 
 **Single-reviewer mode** (`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER`, default `true` for this POC;
-D-080, proposed, needs the owner's acceptance before merge). The synthetic users have one
+D-083, proposed, needs the owner's acceptance before merge). The synthetic users have one
 Director, so with two-person review nothing a Director writes could be published. In this
 mode a reviewer may approve or reject an entry they wrote or edited; approving needs
 `"confirm_single_reviewer": true` (the Review window asks after showing the final text) and is

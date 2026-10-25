@@ -1,4 +1,4 @@
-"""D-080 (proposed): Directors handle enhancement requests end to end, and the POC's
+"""D-083 (proposed): Directors handle enhancement requests end to end, and the POC's
 single-reviewer setting (``knowledge_single_reviewer``, on by default because the synthetic
 users have one Director) lets a reviewer publish an entry they wrote or edited once they
 confirm it. Each such decision is marked single-reviewer. With the setting off, the

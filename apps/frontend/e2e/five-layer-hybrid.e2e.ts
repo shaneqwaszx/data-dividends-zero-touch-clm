@@ -88,7 +88,8 @@ test("Five-layer hybrid onboarding renders five corporate levels in the existing
     ...[company.uen, ...issuers].sort().map((uen) => ({ operation: "ENTITY_PROFILE", uen, count: uen === company.uen ? 2 : 1 })),
   ]);
 
-  // Backend/API truth labels; the unchanged UI does not render these optional fields.
+  // Backend/API truth labels. The UI shows the assumed-basis result only apart from the
+  // formal classification (asserted on the stage below).
   const ownership = await (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
   expect(ownership.state).toBe("REVIEW_REQUIRED");
   expect(ownership.source_classification).toBe("OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY");
@@ -119,6 +120,18 @@ test("Five-layer hybrid onboarding renders five corporate levels in the existing
     await expect(row).toContainText(holding);
     await expect(row).toContainText("LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL");
   }
+  // Formal provisional UBOs stay 0; the assumed-basis matches are counted and listed apart.
+  const stats = stage.locator(".ownership-analysis__stats");
+  await expect(stats.locator("div", { has: page.locator("dt", { hasText: /^Provisional UBOs$/ }) }).locator("dd")).toHaveText("0");
+  await expect(stats.locator("div", { has: page.locator("dt", { hasText: /^Assumed-basis matches$/ }) }).locator("dd")).toHaveText("2");
+  await expect(stage.getByLabel("Hierarchy summary")).toContainText("0 provisional UBOs");
+  const assumed = stage.getByRole("region", { name: "Meets the threshold on an assumed basis — review required", exact: true }).first();
+  await expect(assumed).toContainText("not verified or provisionally classified UBOs");
+  const assumedNames = assumed.locator(".ubo-card__name");
+  await expect(assumedNames).toHaveCount(2);
+  expect((await assumedNames.allTextContents()).sort()).toEqual(["BEATRICE LIM (SYNTHETIC PERSON)", "DIANA KOH (SYNTHETIC PERSON)"]);
+  await expect(assumed).toContainText("Local synthetic overlay basis");
+  await expect(assumed).not.toContainText("ALEX TAN");
   await stage.screenshot({ path: path.join(evidence, "five-layer-ownership-stage.png") });
   const person = hierarchy.getByRole("button", { name: "DIANA KOH (SYNTHETIC PERSON)", exact: true }).first();
   await person.click();
@@ -126,6 +139,8 @@ test("Five-layer hybrid onboarding renders five corporate levels in the existing
   await expect(detail).toContainText("25%");
   await expect(detail).toContainText("REVIEW_REQUIRED");
   await expect(detail).toContainText("→ INDETERMINATE");
+  await expect(detail).toContainText("Assumed-basis comparison");
+  await expect(detail).toContainText("→ MET (not a classification)");
   await expect(detail).toContainText("80% x 62.5% x 60% x 100% x 62.5% = 18.75%");
   await expect(detail).toContainText("2 retained paths reach this person");
   await expect(detail).toContainText("LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL");

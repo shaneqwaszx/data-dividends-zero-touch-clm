@@ -365,6 +365,9 @@ class _RealShareholder(BaseModel):
         max_digits=18,
         decimal_places=6,
     )
+    # D-080: untrusted source share class and currency text; never mapped or compared.
+    share_type: OptionalSourceText = Field(default=None, alias="shareType", max_length=64)
+    currency: OptionalSourceText = Field(default=None, max_length=64)
 
     @field_validator("share_allotted", mode="before")
     @classmethod
@@ -463,6 +466,8 @@ class BizfileMockOwnershipPartiesDecoder:
                     source_category=holder.shareholder_category,
                     source_status=holder.status,
                     share_allotted=holder.share_allotted,
+                    share_type=holder.share_type,
+                    currency=holder.currency,
                     ownership_percentage=None,  # NOTE: see module docstring, point 3
                 )
             )

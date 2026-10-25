@@ -372,6 +372,18 @@ The same strict decoder, response bounds, identity binding and safe errors apply
 remain source evidence without a percentage, identity or legal form. No other operation is
 dispatched, and the local synthetic composition never does this.
 
+D-080 candidate (2026-10-24): the strict shareholder decoder also reads each row's
+optional `shareType` and `currency` as untrusted text, at most 64 characters each. Only the
+entity-less shareholder evidence above keeps them; ordinary acquisition bundles drop them.
+Because the decoder is shared, a non-string, over-long or control-character value now
+rejects the whole shareholder response as malformed. This applies to ordinary COMPANY-form
+acquisitions and the diagnostic read as well, which previously ignored these fields. The
+outcome is a safe failure, never partial evidence.
+A bounded owner-authorized Mock read found SIM LIM's current rows in three classes
+(Ordinary, Preference, Others), and `coCapitalDetails` returned an explicit empty
+collection for the same UEN. No class mapping, cross-class sum or denominator follows from
+either observation.
+
 The October 1-2 bounded read-only discovery receipt is recorded in
 `docs/development/PHASE_24_ACRA_DISCOVERY.md`. It established useful Garden role
 evidence but no quantitative official sample. The private seven-page sample catalogue

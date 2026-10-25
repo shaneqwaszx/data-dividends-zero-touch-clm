@@ -358,7 +358,9 @@ Marketplace Mock lane). The default keeps the accepted flattened Garden suppleme
   (always false) and certainty `UNCERTAIN`. `synthetic_basis_threshold_result` is the
   same inclusive comparator on the declared basis: MET survives unresolved branches,
   NOT_MET needs complete topology or a sound bound; cycles, limits, person ambiguity or
-  contradictions give INDETERMINATE. It is never a classification or readiness input.
+  contradictions give INDETERMINATE. It is never a classification or readiness input. The UI
+  lists MET results separately as assumed-basis matches, never as provisional UBOs, and never
+  in the formal count.
 - **Manual replacement (D-078).** The existing creator source decisions may replace a
   hybrid analysis, including `CURRENT_EVIDENCE` retention of its synthetic graph. The
   result is a `MANUAL_DECLARATION_POC` declaration without `SYNTHETIC_OWNERSHIP_EVIDENCE`
@@ -397,3 +399,50 @@ DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
   record a provider or cache outcome with nothing retained.
 - **Persistence.** Case envelope schema 13; registry cache schema 3. The unchanged UI does
   not render the rows. Its discovery table shows the outcome label and reason code.
+- **D-080 share class (candidate, 2026-10-24).** Each row also keeps its own source
+  `share_type` and `currency`. Units are comparable only within one class. No class rule,
+  weighting, cross-class sum, denominator or percentage is implied. When an issuer's current
+  rows report more than one class, the `OWNERSHIP_DENOMINATOR_REQUIRED` message says they
+  mix share classes. Case envelope schema 14; registry cache schema 4 under
+  `MARKETPLACE_SHAREHOLDERS_V2`.
+- **Denominator status (2026-10-24 Mock read).** SIM LIM has no same-entity capital record
+  in the Mock (`coCapitalDetails` is empty), and its current rows span three classes. So no
+  *verified* percentage exists.
+- **D-081 POC equal-unit distribution (owner scope correction, candidate).** This applies in
+  the opt-in hybrid overlay lane only, to retained rows. Each active holder gets one link
+  with provenance `LOCAL_POC_ASSUMED_EQUAL_UNITS`/`LOCAL`, equal to its units divided by that
+  issuer's own total active units (the existing six-decimal rule).
+  - Withdrawn rows are excluded. Classes are pooled as equal units only in this labelled
+    illustration, and the rows keep their true classes.
+  - The record reason is `OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS`, and it counts as
+    topologically attached.
+  - Candidates stay REVIEW_REQUIRED/INDETERMINATE, and the denominator issue states the POC
+    assumption.
+  - Unusable rows attach nothing and keep the D-079 outcome.
+  - Rounded links may total slightly above 100; the coordinator then reports no bound.
+  - The creator cannot keep these links as `CURRENT_EVIDENCE`, or redeclare any of them
+    unchanged as `USER_SUPPLIED_DECLARATION` (`409 OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED`,
+    owner F1 decision). Other D-078 decisions are unchanged.
+  - Not ACRA ownership or a verified denominator.
+- **D-082 opt-in POC acceptance (candidate).** Applies only with
+  `ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc` (default `disabled`; hybrid
+  Mock lane only). An eligible new Garden analysis records `poc_acceptance` beside its
+  unchanged `REVIEW_REQUIRED` state, issues, candidates and classifications.
+  - Eligibility: the whitelisted scenario, and only the POC markers. Under D1 = B (R1 exact
+    observed set), `UBO_REVIEW_REQUIRED` must be caused only by Garden's four official
+    `OFFICERS` Owner role records, three current and one ceased. Their identities and
+    statuses must match the protected HMAC allowlist
+    (`ACRA_MARKETPLACE_POC_OFFICER_ROLE_KEY`/`_ALLOWLIST`), and any mismatch, substitution
+    or status change refuses. The roles are retained unchanged as descriptive context; they
+    are not shareholdings and do not corroborate the synthetic links.
+  - The acceptance binds case, analysis, version, identity, scenario, policy, role counts
+    and a content fingerprint. Readiness honours it only while the current composition
+    enables the policy and its allowlist still matches; the response flag
+    `poc_basis_accepted` is that backend authority.
+  - Readiness becomes READY and zero-touch completes OWNERSHIP
+    (`OWNERSHIP_POC_BASIS_ACCEPTED`). Target confirmation stays mandatory.
+  - Withdrawn authority re-raises the ownership hold on resume (F2), and the first GoldTier
+    write is refused if authority is gone after the freeze (F6).
+  - The target snapshot carries no provisional UBO ids.
+  - Case envelope 14 is extended; an exact v13 envelope rejects it. Not verification or a
+    legal UBO determination.

@@ -431,6 +431,9 @@ UBO determination. The creator remains accountable through three existing safegu
 
 An incomplete replacement still requires review. No runtime behavior changed.
 
+Narrowed by D-081 (owner F1 decision, 2026-10-24) for POC-assumed equal-unit links only:
+`CURRENT_EVIDENCE` cannot keep them, and a declaration cannot redeclare them unchanged.
+
 Authority: `USER_AUTHORIZED_POC`. Not sponsor-confirmed reviewer authority (Q-014), legal
 UBO policy (Q-004) or Marketplace ownership capability (Q-012).
 
@@ -474,7 +477,238 @@ acceptance and independent gate. Not ACRA ownership, Live or production evidence
 UBO policy (Q-004), Marketplace denominator or relationship capability (Q-012), or person
 identity authority (Q-019).
 
-## D-080 - proposed AI Assistant feedback, enhancement requests and single-reviewer POC mode (PROPOSED)
+## D-080 - owner-authorized share-class retention on official shareholder rows (candidate)
+
+Owner decision 2026-10-24, during the Sim Lim follow-through assignment. It lifts the
+D-079 deferral of `shareType`/`currency` retention.
+
+Evidence: an owner-authorized, bounded read-only verification against the official
+Marketplace **Mock** (2 token requests and 7 GETs, verified TLS). 8 of the 9 receipts
+recorded HTTP 200. The status of the first capital read was not captured. SIM LIM
+`111111111M` returned four rows:
+
+| Row | Category | Status | Units | Share type | Currency |
+|---|---|---|---|---|---|
+| 1 | Corporate | Withdrawn | 10000 | Ordinary | SINGAPORE DOLLAR |
+| 2 | Individual | Active | 900 | Ordinary | SINGAPORE DOLLAR |
+| 3 | Individual | Active | 100 | Preference | SINGAPORE DOLLAR |
+| 4 | Individual | Active | 100 | Others | SINGAPORE DOLLAR |
+
+The supported `coCapitalDetails` operation for the same UEN returned an explicit empty
+collection (recorded read: HTTP 200, 0 entities). The current rows therefore span three share classes, with no same-entity
+denominator, and units of different classes are not comparable.
+
+Decision:
+- **Retained.** Official rows read without an entity profile keep each row's own source
+  `shareType` and `currency` as untrusted bounded text, beside the existing fields.
+  - No mapping, class rule, weighting, cross-class sum, denominator or percentage is
+    created. D-079's edge, identity, recursion and readiness rules are unchanged.
+  - Ordinary acquisition bundles never carry a share class.
+- **Issue message.** When an issuer's current rows report more than one share class
+  (unreported counts as one), the `OWNERSHIP_DENOMINATOR_REQUIRED` message says that
+  current rows mix share classes.
+- **Persistence.**
+  - The cache contract key becomes `MARKETPLACE_SHAREHOLDERS_V2` (registry cache schema 4).
+    D-079 `MARKETPLACE_SHAREHOLDERS_V1` schema-3 entries stay readable without a class,
+    and are never reused or rewritten.
+  - Case envelope schema 14. An exact v13 reader rejects a share class, and an explicit
+    null keeps the D-079 meaning. Cases analysed before D-080 are not re-analysed.
+- **Local fixture.** The owner-supplied local synthetic SIM LIM fixture (D-076) declares
+  every row `Ordinary`. Its accepted flattened Garden result (D-046 equal-unit
+  derivation) is unchanged and remains labelled synthetic. It is not the official Mock's
+  class structure.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. Mock observations only, never Live or production
+evidence. This decision gives no share-class economic or control rule (Q-004),
+Marketplace denominator semantics (Q-012) or person identity authority (Q-019).
+
+## D-081 - owner scope correction: POC equal-unit distribution of official rows (candidate)
+
+Owner decision 2026-10-24 (scope correction during the Sim Lim follow-through). The owner
+restores the existing share-distribution convention, `holder active units / issuer's total
+active units x 100` (the D-046 six-decimal rule), for official rows in the **opt-in
+hybrid overlay lane** (`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay`, a
+whitelisted scenario root).
+
+This is an owner-declared POC assumption: an issuer's returned current units are its
+complete, equally weighted ownership units. ACRA has not verified an issued-share
+denominator, and no class rights are confirmed.
+
+When D-079 retains an issuer's official rows in that lane:
+- **Denominator.** The issuer's own explicitly Active rows form its denominator; it is never
+  computed across issuers.
+  - Withdrawn rows stay history.
+  - Classes are pooled as equal units for this labelled illustration only. Each row keeps
+    its true class, status and Marketplace provenance (D-080).
+- **Links.** Each active holder gets one link with the existing `quantized_unit_share`, with
+  provenance `LOCAL_POC_ASSUMED_EQUAL_UNITS` / `LOCAL`.
+  - Links merge through the existing discovery merge (issuer-scoped identity, limits, graph
+    validation).
+  - The unchanged Decimal engine computes paths, aggregation and the bound.
+- **Corporate holders.** An active corporate holder without a supplied verified UEN becomes
+  an unresolved `UNVERIFIED_UEN` branch; no identifier is inferred.
+- **Record.** The issuer record keeps outcome `PROVIDER_PARTIAL` and its rows. Its reason
+  becomes `OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS`, and it counts as topologically attached.
+  `graph_complete`, official identity and quantitative completeness stay false.
+- **Review.** Candidates stay `REVIEW_REQUIRED` / `INDETERMINATE`, with the existing labelled
+  synthetic-basis comparison. The `OWNERSHIP_DENOMINATOR_REQUIRED` issue says the percentages
+  assume equal POC units, not an ACRA denominator. Readiness and GoldTier stay blocked
+  (narrowed by D-082 for eligible cases when its opt-in policy is enabled).
+- **Failure.** Rows that cannot support the convention (no positive current units,
+  duplicate or self identifiers) or a refused merge attach nothing. D-079's retained
+  outcome is unchanged.
+- **Rounding.** Six-decimal links can total slightly above 100 (at most n × 0.0000005; six
+  equal holders give 100.000002). The unchanged coordinator then reports no unresolved
+  bound, and review stays required.
+- **Creator decisions (owner F1 decision, option B).** POC-assumed links cannot
+  independently satisfy ownership-evidence or readiness requirements. The single manual
+  replacement path (`replace_review_required_source`, inside the case lock, after the
+  existing CAS and staleness checks) refuses with `409 OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED`
+  before any replacement, confirmation reset or readiness change when:
+  - `CURRENT_EVIDENCE` would keep a graph holding POC-assumed links, directly or through an
+    earlier kept copy (followed through the retained receipts);
+  - `USER_SUPPLIED_DECLARATION` would redeclare any POC-assumed link unchanged (same parent,
+    holder and percentage).
+
+  Other D-078 decisions are unchanged. A declaration with different values, or
+  `DOCUMENT_OBSERVATIONS` matching current document observations, follows the existing
+  rules.
+- **Presentation (owner U1–U4, 2026-10-24).** The frontend shows the backend's
+  `synthetic_basis_threshold_result` as a separate "Assumed-basis matches" count and as a
+  "Meets the threshold on an assumed basis — review required" list (explorer, selected
+  holder, Review & Send).
+  - Each entry is labelled by its link provenance (POC equal-unit assumption or local
+    synthetic overlay basis).
+  - Formal provisional UBO counts, highlights, client-detail owners, readiness and GoldTier
+    are unchanged.
+- **Scope.** The default official lane, the local synthetic lane, the Garden legacy
+  supplement and the five-layer arithmetic are unchanged. Case envelope 14 (still
+  unreleased) carries the links; an exact v13 reader rejects them.
+
+Garden → SIM LIM (live-observed shape):
+- 900 / 100 / 100 of 1100 gives 81.818182 / 9.090909 / 9.090909;
+- through 62.5% that is ABCD123 51.13636375, TAN WEI LING and EFGH2345 5.681818125 each;
+- LIM CHOON HUAT stays 37.5.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. This is not ACRA ownership, a verified denominator, a
+legal UBO determination (Q-004), Marketplace denominator semantics (Q-012) or person
+identity authority (Q-019).
+
+## D-082 - opt-in POC ownership acceptance at the readiness boundary (candidate)
+
+Owner policy direction and decisions D1–D4, 2026-10-24, with the owner's design-review
+guardrails. In the approved hybrid demonstration lane, an eligible analysis whose only open
+questions are its declared POC assumptions no longer needs manual ownership verification
+before readiness. D-082 narrows D-081's "readiness stays blocked" for those cases only.
+
+- **Opt-in (D3).** `ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc`; the
+  default is `disabled`.
+  - Settings reject it outside `api_marketplace_mock` with `hybrid_direct_overlay`.
+  - The ownership service refuses it without the hybrid overlay owner.
+- **Separate record, unchanged review (D2).** A new analysis that passes eligibility gets
+  `poc_acceptance`: policy `D082_HYBRID_POC_EQUAL_UNITS_V1`, plus its case, analysis,
+  version, identity and scenario binding, the accepted issue codes, the POC link ids, the
+  descriptive officer-role counts (current and ceased; no identifier or digest), and a
+  content fingerprint of every input.
+  - State stays `REVIEW_REQUIRED`. Issues, evidence, candidates, Decimal values and formal
+    classifications (`REVIEW_REQUIRED`/`INDETERMINATE`) are unchanged.
+  - The ownership event code is `OWNERSHIP_POC_BASIS_ACCEPTED`.
+  - Terminal analyses are never re-analysed, so enabling the flag accepts no existing case.
+- **Eligibility (fail-closed).** All of these must hold:
+  - the whitelisted `GARDEN_DIRECT_OVERLAY_V1` scenario, rooted at 11111999A;
+  - an official Marketplace Mock provider (`ACRA_REGISTRY_ACQUISITION`/`MOCK`);
+  - complete topology, with no unresolved person;
+  - every retained issuer POC-distributed;
+  - only overlay or POC links;
+  - no document discrepancy that needs review, and no manual receipt;
+  - every person's assumed-basis comparison `MET` or `NOT_MET`;
+  - exactly one each of `OWNERSHIP_DENOMINATOR_REQUIRED` and `SYNTHETIC_OWNERSHIP_EVIDENCE`,
+    plus `UBO_REVIEW_REQUIRED` only under D1.
+- **D1 = B (descriptive officer roles), corrected by owner R1 decision (exact observed
+  set).** The live Marketplace Mock returns four official `OFFICERS` `ROLE = OWNER` records
+  for 11111999A: **three current and one ceased** (cessation date set). The earlier "four
+  current" assumption was incorrect, and the first implementation bound only that shape
+  (independent QG finding R1). The exception now applies only to that scenario, and only
+  when the evidence is exactly those four records:
+  - Each must be `ACRA_REGISTRY_ACQUISITION`/`MOCK`/`OFFICERS`, bound to 11111999A, with a
+    distinct officer and the adapter's stable evidence id. Exactly three must be current
+    and one `CEASED`.
+  - Their identities and expected statuses must match, in any order, a protected
+    backend-only allowlist: `ACRA_MARKETPLACE_POC_OFFICER_ROLE_KEY` and
+    `ACRA_MARKETPLACE_POC_OFFICER_ROLE_ALLOWLIST` (HMAC-SHA256 digests of each stable id
+    with `=CURRENT`/`=CEASED`).
+  - The stable id is an unsalted hash of an officer identifier, so it is treated as
+    sensitive. Only keyed digests are configured, and real values never enter the
+    repository, fixtures, reports or logs.
+  - An absent, malformed or duplicate allowlist, any substitution, addition, removal or
+    status change, a wrong issuer, operation or provenance, or a disabled policy refuses.
+  - The roles stay in the evidence with their provenance, the ceased one as history only.
+    None of them contributes to percentages, UBO calculation or classification, and
+    `UBO_REVIEW_REQUIRED` stays on the analysis.
+  - Recognising this known Mock dataset for the demonstration does not mean the officer
+    roles corroborate the synthetic shareholder relationships.
+
+  Any other role, evidence kind, count or issue stays blocking.
+- **Runtime authority (P1).** Readiness asks the ownership service, which honours a recorded
+  acceptance only while its own composition enables the policy, the case identity is
+  current, and recomputed eligibility equals the record.
+  - Disabling the setting, or restarting outside the Mock hybrid lane, restores
+    `OWNERSHIP_REVIEW_REQUIRED`, refuses target confirmation, and makes resume restore the
+    ordinary ownership hold. The audit record itself is kept.
+  - **F2.** On resume, an OWNERSHIP checkpoint completed on a no-longer-current acceptance is
+    rebuilt: the hold is raised and every earlier target-confirmation hold is withdrawn.
+    After re-enabling, a hold raised for that same analysis is obsolete, so resume returns
+    to target confirmation. Nothing advances or dispatches while authority is withdrawn.
+    The rebuild applies only to analyses carrying a POC acceptance; every other review
+    analysis keeps the existing restoration. Until that resume, the case header shows the
+    ordinary ownership-attention status, never "POC basis accepted". The UI has no
+    dedicated resume control for this operator toggle; the existing resume operation
+    clears it.
+  - **F6.** Immediately before the first irreversible GoldTier write, a snapshot frozen on a
+    POC acceptance (ownership reference `REVIEW_REQUIRED`) re-checks that authority. It
+    refuses with `CLM_NOT_READY`, attempting no target operation, if the authority has been
+    withdrawn. Normal (`ANALYZED`) dispatch and recovery of an already attempted write are
+    unchanged. The refusal is recorded as the automation's existing terminal technical
+    failure at the GoldTier stage. Re-enabling the policy does not resume it automatically,
+    and no target operation was attempted.
+- **Readiness.** CLM ownership readiness is READY (reference: the analysis id). Zero-touch
+  completes OWNERSHIP with event code `OWNERSHIP_POC_BASIS_ACCEPTED` and raises no exception.
+  - Target confirmation remains mandatory. Nothing is sent automatically.
+- **GoldTier (P1).** The Mock target snapshot records the ownership reference
+  (`REVIEW_REQUIRED`) and **no** provisional UBO ids (count 0), because only
+  `PROVISIONAL_UBO_CANDIDATE` ids enter it. Related-party preparation is also empty. No
+  target UBO payload is created, and execution idempotency/no-replay is unchanged.
+- **Freshness (P2).** Any version, content, identity or document change revokes the
+  acceptance. A creator replacement or reload creates a new analysis without one; the
+  replaced acceptance stays in `prior_analyses`. D-081 Option B still refuses keeping or
+  redeclaring the POC links.
+- **Persistence (D4).** The unreleased case envelope 14 is extended (optional field). An
+  exact v13 envelope rejects a non-null acceptance on current or prior analyses. A corrupted
+  policy fails closed. Rollback to a v13 reader already rejects every v14 POC case.
+- **UI.** Backend authority only (`poc_basis_accepted` on the ownership response):
+  - the status reads "Ownership calculated — POC basis accepted", with the technical
+    disclosure;
+  - per the owner (2026-10-24), the POC disclosure replaces any "UBO classification remains
+    review-required" warning on an accepted case. The formal classification field is
+    unchanged and still shown on each candidate;
+  - **F4.** On an accepted case, the assumed-basis section reads "Meets the threshold on an
+    assumed basis", and its explanation drops "do not clear ownership readiness" while still
+    disclosing the POC assumptions and that these are not verified legal UBO
+    determinations;
+  - the officer-role records are disclosed as descriptive context for this named exception
+    only;
+  - **F5.** Review & Send reports assessed natural persons, formal provisional UBO
+    candidates and assumed-basis matches separately (Garden: 4, 0, 2). The target snapshot
+    is unchanged;
+  - the manual form stays available.
+
+Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`, pending integrated
+acceptance and independent gate. This is not ownership verification, a legal UBO
+determination (Q-004), Marketplace denominator semantics (Q-012) or Live evidence.
+
+## D-083 - proposed AI Assistant feedback, enhancement requests and single-reviewer POC mode (PROPOSED)
 
 Status: PROPOSED by the project team on 2026-10-21. **It relaxes D-074's two-person control
 for the POC and needs the repository owner's (Shane's) explicit acceptance before merge**;

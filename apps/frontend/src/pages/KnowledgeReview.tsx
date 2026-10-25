@@ -78,7 +78,7 @@ const FOCUSABLE = "button:not([disabled]), input:not([disabled]), select:not([di
  * requests (an RM's "Not helpful" note), for which a Director writes the fix (a past case or a
  * guidance change, saved for review) or which they close with a reason. Publishing always
  * shows the final text and asks for confirmation first. In the POC's single-reviewer mode
- * (D-080) a Director may publish an entry they wrote; the Review window lists those. Shown only
+ * (D-083) a Director may publish an entry they wrote; the Review window lists those. Shown only
  * to users the backend reports as able to review; every action is checked again by the backend.
  */
 export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
@@ -90,7 +90,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
   const [fixes, setFixes] = useState<Record<number, FixDraft>>({});
   // The entry whose final text is shown for confirmation before it is published.
   const [confirming, setConfirming] = useState<KnowledgeEntry | null>(null);
-  // Whether the backend runs the POC's single-reviewer mode (D-080).
+  // Whether the backend runs the POC's single-reviewer mode (D-083).
   const [singleReviewer, setSingleReviewer] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

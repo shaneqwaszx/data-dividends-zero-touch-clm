@@ -9,7 +9,7 @@ Who someone is, and what they may do, always comes from the CLM backend (/api/au
 their own session); nothing in a request body can grant a permission. Nobody who wrote or
 edited an entry can approve or reject it, and a decision applies only to the exact content
 the reviewer was shown (both enforced by the store). The POC's single-reviewer setting
-(``knowledge_single_reviewer``, D-080, proposed; it relaxes D-074's two-person control
+(``knowledge_single_reviewer``, D-083, proposed; it relaxes D-074's two-person control
 because the synthetic users have one Director) lets a reviewer decide an entry they wrote or
 edited: an approval needs ``confirm_single_reviewer`` and is recorded as single-reviewer.
 Every review or guidance change asks the backend again inside its write transaction, so a

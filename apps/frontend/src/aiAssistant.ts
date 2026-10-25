@@ -308,7 +308,7 @@ export interface KnowledgeAccess {
   user_id: string | null;
   can_review: boolean;
   can_edit_guidance: boolean;
-  /** POC single-reviewer mode (D-080): a reviewer may publish an entry they wrote, once confirmed. */
+  /** POC single-reviewer mode (D-083): a reviewer may publish an entry they wrote, once confirmed. */
   single_reviewer?: boolean;
 }
 
@@ -336,7 +336,7 @@ export interface KnowledgeEntry {
   illustrative: boolean;
   /** What this version says; edits and decisions send it back so they apply to it only. */
   content_hash: string;
-  /** Approved by someone who wrote or edited it (single-reviewer mode, D-080). */
+  /** Approved by someone who wrote or edited it (single-reviewer mode, D-083). */
   single_reviewer: boolean;
 }
 

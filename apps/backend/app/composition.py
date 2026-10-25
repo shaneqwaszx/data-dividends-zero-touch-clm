@@ -84,7 +84,10 @@ from app.services.document_repository import (
 )
 from app.services.onboarding import EntityResolver, OnboardingService
 from app.services.onboarding_intelligence import OnboardingIntelligenceService
-from app.services.ownership_analysis import OwnershipAnalysisService
+from app.services.ownership_analysis import (
+    OwnershipAnalysisService,
+    parse_poc_officer_role_allowlist,
+)
 from app.services.ownership_discovery import OwnershipDiscoveryCoordinator
 from app.services.ownership_repository import (
     InMemoryOwnershipAnalysisRepository,
@@ -372,6 +375,10 @@ def build_ownership_analysis_service(
     hybrid = (
         official_lane and settings.acra_marketplace_ownership_overlay == "hybrid_direct_overlay"
     )
+    # D-082 opt-in, re-read at every composition: disabling it revokes acceptance.
+    poc_acceptance = (
+        hybrid and settings.acra_marketplace_poc_ownership_acceptance == "accept_eligible_poc"
+    )
     return OwnershipAnalysisService(
         cases=onboarding_service,
         provider=RegistryAcquisitionOwnershipProvider(
@@ -381,6 +388,16 @@ def build_ownership_analysis_service(
         documents=documents,
         garden_supplement_enabled=official_lane and not hybrid,
         hybrid_overlay=HybridOwnershipOverlayCatalogue() if hybrid else None,
+        poc_acceptance_enabled=poc_acceptance,
+        # R1: protected exact officer-role allowlist, consulted only under the opt-in.
+        poc_officer_roles=(
+            parse_poc_officer_role_allowlist(
+                settings.acra_marketplace_poc_officer_role_key,
+                settings.acra_marketplace_poc_officer_role_allowlist,
+            )
+            if poc_acceptance
+            else None
+        ),
         # Corporate owners are acquired separately through the same registry owner;
         # only cases with a frozen discovery policy use it.
         discovery=OwnershipDiscoveryCoordinator(onboarding_service),

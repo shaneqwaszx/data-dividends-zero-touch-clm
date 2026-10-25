@@ -491,8 +491,8 @@ def test_current_envelope_round_trips_frozen_policy_and_discovery_audit() -> Non
     snapshot = _garden_envelope()
     codec = object.__new__(MongoCaseStore)
     decoded = codec._decode(codec._encode(snapshot))  # noqa: SLF001
-    assert CASE_SNAPSHOT_SCHEMA_VERSION == 13
-    assert decoded.schema_version == 13
+    assert CASE_SNAPSHOT_SCHEMA_VERSION == 14
+    assert decoded.schema_version == 14
     assert decoded.ownership == snapshot.ownership
     assert decoded.onboarding.policy_snapshot == snapshot.onboarding.policy_snapshot
 
@@ -517,6 +517,6 @@ def test_schema_ten_envelope_cannot_carry_discovery_fields_but_reads_without_the
         key: value for key, value in encoded["ownership"].items() if key != "discovery"
     }
     decoded = codec._decode(legacy)  # noqa: SLF001
-    assert decoded.schema_version == 13
+    assert decoded.schema_version == 14
     assert decoded.onboarding.policy_snapshot.ownership_discovery is None
     assert decoded.ownership is not None and decoded.ownership.discovery is None

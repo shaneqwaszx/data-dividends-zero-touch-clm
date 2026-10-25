@@ -1,3 +1,5 @@
+import type { OwnershipAnalysisRecord, OwnershipCandidate } from "./types";
+
 /** Presentation only: never use these labels for arithmetic or classification. */
 export function formatOwnershipPercent(value: string | null | undefined): string {
   if (value == null) return "Not available";
@@ -22,4 +24,25 @@ export function formatOwnershipPercent(value: string | null | undefined): string
 // Backend calculation text retains its operators; only percentage tokens are rounded.
 export function formatOwnershipCalculation(value: string): string {
   return value.replace(/\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?%/g, token => formatOwnershipPercent(token.slice(0, -1)));
+}
+
+// D-081 presentation: only the backend's own assumed-basis result is read, never a local
+// comparison. Formal provisional UBOs stay keyed on `classification` alone.
+export function hasAssumedBasisComparison(record: OwnershipAnalysisRecord | null | undefined): boolean {
+  return record?.candidates.some(candidate => candidate.synthetic_basis_threshold_result != null) ?? false;
+}
+
+export function assumedBasisMatches(record: OwnershipAnalysisRecord | null | undefined): OwnershipCandidate[] {
+  return record?.candidates.filter(candidate => candidate.party.party_type === "NATURAL_PERSON"
+    && candidate.synthetic_basis_threshold_result === "MET"
+    && (candidate.classification === "REVIEW_REQUIRED" || candidate.classification === "INDETERMINATE")) ?? [];
+}
+
+// Named from the provenance of the links on the candidate's own retained paths.
+export function assumedBasisLabel(record: OwnershipAnalysisRecord, candidate: OwnershipCandidate): string {
+  const used = new Set(candidate.paths.flatMap(path => path.edges.map(edge => edge.relationship_id)));
+  const providers = new Set(record.relationships.filter(edge => used.has(edge.relationship_id)).map(edge => edge.provenance.provider));
+  if (providers.has("LOCAL_POC_ASSUMED_EQUAL_UNITS")) return "POC equal-unit assumption";
+  if (providers.has("LOCAL_SYNTHETIC_RELATIONSHIP")) return "Local synthetic overlay basis";
+  return "Assumed POC basis";
 }

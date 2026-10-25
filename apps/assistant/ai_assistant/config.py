@@ -37,7 +37,7 @@ class AiAssistantSettings(BaseSettings):
     # SQLite and ChromaDB under knowledge_data_dir (relative to apps/assistant; not in Git).
     knowledge_enabled: bool = True
     knowledge_data_dir: str = "data/knowledge"
-    # POC only (D-080, proposed; relaxes D-074's two-person control): the synthetic users have
+    # POC only (D-083, proposed; relaxes D-074's two-person control): the synthetic users have
     # one Director, so when true a reviewer may approve or reject an entry they wrote or
     # edited, after confirming it, and the decision is recorded as single-reviewer. False keeps
     # the two-person rule. Retiring an entry always takes two reviewers.

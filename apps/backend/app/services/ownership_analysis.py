@@ -1,7 +1,10 @@
 """Bounded ownership loading, graph traversal, aggregation, and classification."""
 
+import hmac
+import json
+import re
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -10,10 +13,13 @@ from hashlib import sha256
 from typing import Final, Never, Protocol
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, SecretStr, TypeAdapter, ValidationError
 
+from app.connectors.garden_business import GARDEN_BUSINESS_UEN
 from app.connectors.hybrid_ownership_overlay import (
+    GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
     OVERLAY_RELATIONSHIP_PROVIDER,
+    POC_EQUAL_UNITS_PROVIDER,
     HybridOverlayScenario,
     HybridOwnershipOverlayCatalogue,
     overlay_component,
@@ -28,7 +34,10 @@ from app.connectors.ownership import (
 from app.domain.documents import DocumentOwnershipObservation, DocumentProcessingRecord
 from app.domain.models import EventOutcome, OnboardingCase, SafeError
 from app.domain.ownership import (
-    TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES,
+    OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS,
+    OWNERSHIP_POC_ACCEPTANCE_POLICY,
+    POC_ACCEPTANCE_ISSUES,
+    POC_ACCEPTANCE_REQUIRED_ISSUES,
     ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
@@ -44,6 +53,7 @@ from app.domain.ownership import (
     OwnershipPathEdge,
     OwnershipPathEvidence,
     OwnershipPercent,
+    OwnershipPocAcceptance,
     OwnershipProvenance,
     OwnershipRelationship,
     OwnershipThresholdResult,
@@ -51,6 +61,7 @@ from app.domain.ownership import (
     Party,
     PartyType,
     PriorOwnershipAnalysisSnapshot,
+    discovery_topology_resolved,
 )
 from app.domain.ownership_evidence import OwnershipEvidence
 from app.domain.policy import OwnershipDiscoveryPolicySnapshot
@@ -294,6 +305,227 @@ def synthetic_basis_threshold_results(
         else:
             results[party_id] = OwnershipThresholdResult.INDETERMINATE
     return results
+
+
+# D-082: the explicitly whitelisted POC scenario, its root UEN and the observed shape of
+# its official Marketplace Mock OFFICERS Owner role records (three current, one ceased)
+# that D1=B keeps as descriptive context once their exact identities match the protected
+# allowlist. Anything else stays an ordinary review outcome.
+_POC_ACCEPTANCE_SCENARIOS: Final = {
+    GARDEN_DIRECT_OVERLAY_SCENARIO_ID: (GARDEN_BUSINESS_UEN, 3, 1)
+}
+_POC_ROLE_ALLOWLIST_ENTRY: Final = re.compile(r"^[0-9a-f]{64}=(?:CURRENT|CEASED)$")
+_POC_ACCEPTANCE_EDGE_PROVIDERS: Final = frozenset(
+    {OVERLAY_RELATIONSHIP_PROVIDER, POC_EQUAL_UNITS_PROVIDER}
+)
+_POC_BASIS_FIELDS: Final = frozenset(
+    {
+        "case_id", "analysis_id", "identity_registration_number",
+        "identity_correction_version", "source_classification", "legal_form",
+        "provider_name", "provider_environment", "root_party_id", "parties",
+        "relationships", "candidates", "issues", "evidence", "supplemental_parties",
+        "supplemental_relationships", "supplemental_evidence", "discovery",
+        "document_observations", "document_bindings", "document_discrepancies",
+        "manual_review_receipt", "threshold_percent", "threshold_comparator", "error",
+    }
+)
+
+
+@dataclass(frozen=True)
+class PocOfficerRoleAllowlist:
+    """D-082 R1: the exact observed officer role set, held only as protected keyed digests.
+
+    A role's stable evidence id is an unsalted hash of an officer identifier, so it is
+    compared only through HMAC-SHA256 under a backend-only key. Neither the key nor any
+    digest is ever logged, returned or stored on an analysis.
+    """
+
+    key: bytes = field(repr=False)
+    expected: str = field(repr=False)
+
+    def matches(self, roles: Iterable[tuple[str, str]]) -> bool:
+        observed = "\n".join(
+            sorted(
+                f"{hmac.new(self.key, evidence_id.encode(), sha256).hexdigest()}={status}"
+                for evidence_id, status in roles
+            )
+        )
+        return hmac.compare_digest(observed.encode(), self.expected.encode())
+
+
+def parse_poc_officer_role_allowlist(
+    key: SecretStr | None, allowlist: SecretStr | None
+) -> PocOfficerRoleAllowlist | None:
+    """Absent, malformed or duplicate protected configuration disables the exception."""
+
+    if key is None or allowlist is None:
+        return None
+    secret = key.get_secret_value()
+    entries = [item.strip() for item in allowlist.get_secret_value().split(",")]
+    if (
+        len(secret) < 32
+        or not all(_POC_ROLE_ALLOWLIST_ENTRY.fullmatch(item) for item in entries)
+        or len({item.split("=", 1)[0] for item in entries}) != len(entries)
+    ):
+        return None
+    return PocOfficerRoleAllowlist(key=secret.encode(), expected="\n".join(sorted(entries)))
+
+
+def _officer_role_evidence_id(party_id: str) -> str:
+    """The registry ownership adapter's stable id for an officer's role evidence."""
+
+    return "e-" + sha256(f"{party_id}:ROLE".encode()).hexdigest()[:48]
+
+
+def _poc_basis_fingerprint(record: OwnershipAnalysisRecord) -> str:
+    """Digest of every input the D-082 decision depends on; any change revokes it."""
+
+    content = record.model_dump(mode="json", include=set(_POC_BASIS_FIELDS))
+    encoded = json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
+    return sha256(encoded).hexdigest()
+
+
+def eligible_poc_acceptance(
+    record: OwnershipAnalysisRecord,
+    *,
+    accepted_at: datetime,
+    ownership_version: int,
+    officer_roles: PocOfficerRoleAllowlist | None,
+) -> OwnershipPocAcceptance | None:
+    """D-082 fail-closed eligibility: only the declared POC assumptions remain open.
+
+    The analysis must be the whitelisted hybrid scenario with a complete topology, every
+    retained issuer POC-distributed, calculated assumed-basis results, and no issue other
+    than the POC markers plus (D1=B) the review caused by exactly the observed official
+    officer Owner roles, whose identities and statuses match the protected allowlist.
+    Nothing is changed: state, issues, evidence and classifications stay.
+    """
+
+    discovery = record.discovery
+    scenario = discovery.overlay_scenario_id if discovery is not None else None
+    if scenario not in _POC_ACCEPTANCE_SCENARIOS or discovery is None:
+        return None
+    root_uen, current_roles, ceased_roles = _POC_ACCEPTANCE_SCENARIOS[scenario]
+    root = next((item for item in record.parties if item.party_id == record.root_party_id), None)
+    retained = [item for item in discovery.records if item.official_shareholders]
+    poc_edges = [
+        edge
+        for edge in record.relationships
+        if edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
+    ]
+    codes = {issue.code for issue in record.issues}
+    if (
+        record.source_classification != HYBRID_SOURCE_CLASSIFICATION
+        or record.provider_name != "ACRA_REGISTRY_ACQUISITION"
+        or record.provider_environment != OwnershipEnvironment.MOCK
+        or record.identity_registration_number != root_uen
+        or record.identity_correction_version is None
+        or root is None
+        or root.registration_number != root_uen
+        or record.legal_form in {None, RegistryLegalForm.OTHER}
+        or record.error is not None
+        or record.manual_review_receipt is not None
+        or record.supplemental_relationships
+        or discovery.topology_complete is not True
+        or discovery.unresolved_person_party_ids
+        or any(
+            item.verification_state == "REVIEW_REQUIRED" for item in record.document_discrepancies
+        )
+        or not retained
+        or any(
+            item.reason_code != OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
+            or item.official_shareholder_lookup is None
+            for item in retained
+        )
+        or not poc_edges
+        or {edge.parent_party_id for edge in poc_edges} != {item.party_id for item in retained}
+        or any(
+            edge.provenance.provider not in _POC_ACCEPTANCE_EDGE_PROVIDERS
+            for edge in record.relationships
+        )
+        or any(
+            item.provider != OVERLAY_RELATIONSHIP_PROVIDER or item.environment != "LOCAL"
+            for item in record.supplemental_evidence
+        )
+        or len(codes) != len(record.issues)
+        or not POC_ACCEPTANCE_REQUIRED_ISSUES <= codes <= POC_ACCEPTANCE_ISSUES
+        or not record.candidates
+        or any(
+            item.classification
+            not in {
+                OwnershipCandidateClassification.REVIEW_REQUIRED,
+                OwnershipCandidateClassification.INDETERMINATE,
+            }
+            or item.synthetic_basis_threshold_result
+            not in {OwnershipThresholdResult.MET, OwnershipThresholdResult.NOT_MET}
+            for item in record.candidates
+        )
+    ):
+        return None
+    # D1=B (R1): the evidence must be exactly the observed official OFFICERS Owner role
+    # records bound to the whitelisted root (three current, one ceased), and their exact
+    # identities and statuses must match the protected allowlist in any order. They are
+    # then the sole cause of the review issue; a ceased role remains history only.
+    roles = record.evidence
+    statuses = ["CEASED" if item.source_status == "CEASED" else "CURRENT" for item in roles]
+    if (
+        officer_roles is None
+        or OwnershipIssueCode.UBO_REVIEW_REQUIRED not in codes
+        or statuses.count("CURRENT") != current_roles
+        or statuses.count("CEASED") != ceased_roles
+        or len({item.party_id for item in roles}) != len(roles)
+        or len({item.evidence_id for item in roles}) != len(roles)
+        or any(
+            item.kind != "ROLE"
+            or item.raw_value.strip().upper() != "OWNER"
+            or item.source_operation != "OFFICERS"
+            or item.provider != "ACRA_REGISTRY_ACQUISITION"
+            or item.environment != "MOCK"
+            or item.entity_identifier != root_uen
+            or item.source_status not in {None, "CEASED"}
+            or item.evidence_id != _officer_role_evidence_id(item.party_id)
+            for item in roles
+        )
+        or not officer_roles.matches(
+            zip((item.evidence_id for item in roles), statuses, strict=True)
+        )
+    ):
+        return None
+    return OwnershipPocAcceptance(
+        policy=OWNERSHIP_POC_ACCEPTANCE_POLICY,
+        accepted_at=accepted_at,
+        case_id=record.case_id,
+        analysis_id=record.analysis_id,
+        ownership_version=ownership_version,
+        identity_registration_number=root_uen,
+        identity_correction_version=record.identity_correction_version,
+        overlay_scenario_id=scenario,
+        accepted_issue_codes=tuple(sorted(codes)),
+        poc_relationship_ids=tuple(sorted({edge.relationship_id for edge in poc_edges})),
+        descriptive_current_role_count=current_roles,
+        descriptive_ceased_role_count=ceased_roles,
+        basis_fingerprint=_poc_basis_fingerprint(record),
+    )
+
+
+def poc_acceptance_current(
+    record: OwnershipAnalysisRecord, officer_roles: PocOfficerRoleAllowlist | None
+) -> bool:
+    """The recorded D-082 acceptance still matches this exact analysis version."""
+
+    acceptance = record.poc_acceptance
+    return (
+        acceptance is not None
+        and record.state == OwnershipAnalysisState.REVIEW_REQUIRED
+        and acceptance.ownership_version == record.version
+        and eligible_poc_acceptance(
+            record,
+            accepted_at=acceptance.accepted_at,
+            ownership_version=acceptance.ownership_version,
+            officer_roles=officer_roles,
+        )
+        == acceptance
+    )
 
 
 class OwnershipDocumentReader(Protocol):
@@ -573,6 +805,8 @@ class OwnershipAnalysisService:
         garden_supplement_enabled: bool = False,
         discovery: OwnershipDiscoveryExpander | None = None,
         hybrid_overlay: HybridOwnershipOverlayCatalogue | None = None,
+        poc_acceptance_enabled: bool = False,
+        poc_officer_roles: PocOfficerRoleAllowlist | None = None,
         max_parties: int,
         max_relationships: int,
         max_depth: int,
@@ -604,9 +838,14 @@ class OwnershipAnalysisService:
         self._documents = documents
         if garden_supplement_enabled and hybrid_overlay is not None:
             raise ValueError("the legacy Garden supplement and hybrid overlays are exclusive")
+        if poc_acceptance_enabled and hybrid_overlay is None:
+            raise ValueError("POC ownership acceptance requires the hybrid overlay lane")
         self._garden_supplement_enabled = garden_supplement_enabled
         self._discovery = discovery
         self._hybrid_overlay = hybrid_overlay
+        self._poc_acceptance_enabled = poc_acceptance_enabled
+        # D-082 R1: the protected exact role set applies only under the opt-in policy.
+        self._poc_officer_roles = poc_officer_roles if poc_acceptance_enabled else None
         self.threshold_percent = validated_threshold
         self.max_parties = max_parties
         self.max_relationships = max_relationships
@@ -621,6 +860,23 @@ class OwnershipAnalysisService:
         """Expose the composition-owned default for an opaque provider binding."""
 
         return self._provider
+
+    def poc_basis_accepted(self, record: OwnershipAnalysisRecord) -> bool:
+        """D-082 readiness authority: a current acceptance, only while this runtime opts in.
+
+        A persisted acceptance alone grants nothing: disabling the setting or leaving the
+        Mock hybrid lane revokes it, and so does any later identity or content change.
+        """
+
+        if not self._poc_acceptance_enabled or self._hybrid_overlay is None:
+            return False
+        parent = self._cases.get_case(record.case_id)
+        return (
+            parent is not None
+            and ownership_is_current(record, parent)
+            and record.document_bindings == self._document_inputs(record.case_id)[1]
+            and poc_acceptance_current(record, self._poc_officer_roles)
+        )
 
     def load(
         self, *, case_id: UUID, provider: OwnershipProvider | None = None
@@ -714,6 +970,27 @@ class OwnershipAnalysisService:
                 raise OwnershipRequestError(
                     code="OWNERSHIP_MANUAL_REPLACEMENT_STALE",
                     message="Current document ownership evidence changed before the decision.",
+                )
+            # D-081 owner decision (F1): POC-assumed equal-unit links are illustrative. They
+            # can be neither kept as current evidence nor redeclared unchanged.
+            poc_edges = _poc_assumed_edges(current)
+            if poc_edges and (
+                review_receipt.source_selection == "CURRENT_EVIDENCE"
+                or (
+                    review_receipt.source_selection == "USER_SUPPLIED_DECLARATION"
+                    and any(
+                        (edge.parent_party_id, edge.child_party_id, edge.ownership_percent)
+                        in poc_edges
+                        for edge in source.relationships
+                    )
+                )
+            ):
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED",
+                    message=(
+                        "POC-assumed equal-unit percentages require independent ownership "
+                        "evidence; they cannot be kept or redeclared unchanged."
+                    ),
                 )
             if review_receipt.source_selection == "CURRENT_EVIDENCE" and (
                 source.root_party_id != current.root_party_id
@@ -1142,12 +1419,12 @@ class OwnershipAnalysisService:
             aggregated = aggregate_ownership_paths(calculation)
             record.issues = list(calculation.issues)
             discovery = record.discovery
-            # Overlay-attached branches are topologically resolved; their synthetic
-            # evidence basis is reported separately below.
+            # Overlay- and POC-attached branches are topologically resolved; their
+            # synthetic evidence basis is reported separately below.
             unresolved = [
                 item
                 for item in (discovery.records if discovery is not None else ())
-                if item.outcome not in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES
+                if not discovery_topology_resolved(item)
             ]
             if discovery is not None and unresolved:
                 bound = discovery.unresolved_upper_bound_percent
@@ -1175,14 +1452,37 @@ class OwnershipAnalysisService:
                 if item.official_shareholders
             ]
             if retained:
+                # D-080: units of different (or unreported) share classes are not comparable.
+                current_classes = (
+                    {row.share_type for row in item.official_shareholders if row.current_interest}
+                    for item in retained
+                )
+                mixed = any(len(classes) > 1 for classes in current_classes)
+                # D-081: hybrid-lane POC links are labelled, never an ACRA denominator. An
+                # issuer whose rows could not be distributed shows no percentage.
+                poc = sum(
+                    item.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS for item in retained
+                )
                 record.issues.append(
                     OwnershipAnalysisIssue(
                         code=OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED,
                         message=(
                             f"{sum(len(item.official_shareholders) for item in retained)} "
                             "official Marketplace Mock shareholder row(s) are retained without "
-                            "an entity profile; no authoritative denominator exists, so no "
-                            "percentage is inferred."
+                            "an entity profile; "
+                            + (
+                                ("current rows mix share classes; " if mixed else "")
+                                + "percentages shown assume equal POC units, not an ACRA "
+                                "denominator."
+                                if poc == len(retained)
+                                else ("current rows mix share classes; " if mixed else "")
+                                + f"{poc} of {len(retained)} issuers show POC-unit percentages; "
+                                "no ACRA denominator exists."
+                                if poc
+                                else ("current rows mix share classes and " if mixed else "")
+                                + "no authoritative denominator exists, so no percentage is "
+                                "inferred."
+                            )
                         ),
                         affected_party_ids=[item.party_id for item in retained][:16],
                     )
@@ -1204,12 +1504,21 @@ class OwnershipAnalysisService:
                     item.party_id
                     for item in (discovery.records if discovery is not None else ())
                     if item.outcome == OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
+                    or item.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
                 ]
+                poc_links = any(
+                    edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
+                    for edge in record.relationships
+                )
                 record.issues.append(
                     OwnershipAnalysisIssue(
                         code=OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
                         message=(
-                            "Ownership links are LOCAL_SYNTHETIC_RELATIONSHIP demonstration "
+                            "Ownership links are LOCAL_SYNTHETIC_RELATIONSHIP declarations or "
+                            "LOCAL_POC_ASSUMED_EQUAL_UNITS estimates, not ACRA-returned "
+                            "ownership; unverified issuers keep LOCAL_SYNTHETIC_IDENTITY."
+                            if poc_links
+                            else "Ownership links are LOCAL_SYNTHETIC_RELATIONSHIP demonstration "
                             "declarations, not ACRA-returned ownership; unverified issuers keep "
                             "LOCAL_SYNTHETIC_IDENTITY."
                         ),
@@ -1421,13 +1730,34 @@ class OwnershipAnalysisService:
                 ]
             record.analyzed_at = self._clock()
             if record.issues:
+                # D-082: opt-in acceptance of the declared POC basis, recorded beside the
+                # unchanged review state, issues and classifications.
+                record.poc_acceptance = (
+                    eligible_poc_acceptance(
+                        record,
+                        accepted_at=record.analyzed_at,
+                        ownership_version=record.version + 1,
+                        officer_roles=self._poc_officer_roles,
+                    )
+                    if self._poc_acceptance_enabled
+                    else None
+                )
                 record = self._record(
                     record,
                     event_type=OwnershipEventType.OWNERSHIP_REVIEW_REQUIRED,
                     state=OwnershipAnalysisState.REVIEW_REQUIRED,
                     outcome=EventOutcome.REVIEW_REQUIRED,
-                    code="OWNERSHIP_GRAPH_REVIEW_REQUIRED",
-                    message="Ownership analysis completed with issues requiring human review.",
+                    code=(
+                        "OWNERSHIP_POC_BASIS_ACCEPTED"
+                        if record.poc_acceptance is not None
+                        else "OWNERSHIP_GRAPH_REVIEW_REQUIRED"
+                    ),
+                    message=(
+                        "Ownership calculated on the declared POC basis and accepted for "
+                        "readiness by D-082; classification review is retained."
+                        if record.poc_acceptance is not None
+                        else "Ownership analysis completed with issues requiring human review."
+                    ),
                     candidate_count=len(record.candidates),
                 )
             else:
@@ -1730,10 +2060,10 @@ class OwnershipAnalysisService:
             raise OwnershipGraphError
         for relationship in source.relationships:
             provenance = relationship.provenance
-            if local_overlay and (provenance.provider, provenance.environment) == (
-                OVERLAY_RELATIONSHIP_PROVIDER,
-                OwnershipEnvironment.LOCAL,
-            ):
+            if local_overlay and (provenance.provider, provenance.environment) in {
+                (OVERLAY_RELATIONSHIP_PROVIDER, OwnershipEnvironment.LOCAL),
+                (POC_EQUAL_UNITS_PROVIDER, OwnershipEnvironment.LOCAL),
+            }:
                 continue
             if (
                 provenance.provider != metadata.provider_name
@@ -1861,6 +2191,35 @@ def _calculation_text(edges: tuple[OwnershipRelationship, ...], effective_percen
     return f"{factors} = {_format_decimal(effective_percent)}%"
 
 
+def _poc_assumed_edges(
+    record: OwnershipAnalysisRecord,
+) -> frozenset[tuple[str, str, Decimal]]:
+    """D-081 POC-assumed links behind this analysis: its own, or those it kept.
+
+    A `CURRENT_EVIDENCE` replacement copies the kept graph under the manual label, so its
+    receipt is followed back through the retained prior analyses.
+    """
+
+    priors = {item.analysis_id: item for item in record.prior_analyses}
+    analysis: OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot | None = record
+    seen: set[UUID] = set()
+    while analysis is not None and analysis.analysis_id not in seen:
+        seen.add(analysis.analysis_id)
+        edges = frozenset(
+            (edge.parent_party_id, edge.child_party_id, edge.ownership_percent)
+            for edge in (*analysis.relationships, *analysis.supplemental_relationships)
+            if edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
+        )
+        if edges:
+            return edges
+        receipt = analysis.manual_review_receipt
+        if receipt is None or receipt.source_selection != "CURRENT_EVIDENCE":
+            break
+        replaced = receipt.replaced_analysis_id
+        analysis = priors.get(replaced) if replaced is not None else None
+    return frozenset()
+
+
 def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipAnalysisSnapshot:
     """Retain bounded immutable source and decision evidence before replacement."""
 
@@ -1875,6 +2234,7 @@ def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipA
         supplemental_relationships=record.supplemental_relationships,
         supplemental_evidence=record.supplemental_evidence,
         manual_review_receipt=record.manual_review_receipt,
+        poc_acceptance=record.poc_acceptance,
         tagging=record.tagging,
         identity_registration_number=record.identity_registration_number,
         identity_correction_version=record.identity_correction_version,

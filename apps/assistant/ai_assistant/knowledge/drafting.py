@@ -1,5 +1,5 @@
 """A Director's fix for an enhancement request (an RM's "Not helpful" with a note), written as
-a past resolution linked to the request (D-080, proposed).
+a past resolution linked to the request (D-083, proposed).
 
 The Director writes the title, body and any follow-up questions; the request supplies the
 case context (blocker codes, fields, stages) and the team. The Director's text is redacted

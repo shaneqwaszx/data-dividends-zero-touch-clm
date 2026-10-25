@@ -91,5 +91,18 @@ The discovery coordinator stays the single scheduler.
 - The rows are kept on the discovery record outside the graph. The engine, path arithmetic
   and threshold classification are unchanged, and the branch stays unresolved.
 - Case envelope schema 13 records the new optional fields; v1..v12 readers reject them.
+- D-080 (candidate): the same path keeps each row's source share class and currency
+  (cache schema 4 under `MARKETPLACE_SHAREHOLDERS_V2`, case envelope schema 14). Owners,
+  scheduling and arithmetic are unchanged.
+- D-081 (candidate): in the opt-in hybrid lane only, the coordinator also turns an issuer's
+  retained current rows into labelled POC equal-unit links
+  (`official_equal_unit_component`, which reuses `quantized_unit_share`). They attach through
+  the existing merge, and the existing engine computes the paths. The engine, comparator
+  and the non-hybrid path are unchanged. The manual replacement path refuses to keep or
+  redeclare those links unchanged (owner F1 decision).
+- D-082 (candidate, opt-in, default off): an eligible Garden analysis records a separate POC
+  acceptance beside its unchanged review result. The ownership service honours it at the
+  readiness boundary only while its own composition enables the policy; discovery and the
+  engine are unchanged.
 
 Retire when an authorized provider supplies an issuer profile and same-entity denominators.

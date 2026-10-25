@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[13] = 13
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[14] = 14
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -685,12 +685,49 @@ class DurableCaseSnapshotV12(BaseModel):
         return self
 
 
+class DurableCaseSnapshotV13(BaseModel):
+    """Exact schema-13 envelope: D-079 official rows without a D-080 share class."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[13] = 13
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_share_class_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV13":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[13] = 13
+    schema_version: Literal[14] = 14
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -801,9 +838,42 @@ def reject_official_shareholder_legacy_fields(value: Any) -> None:
                 fields.get("official_shareholders")
                 or fields.get("official_shareholder_lookup") is not None
                 or str(fields.get("reason_code"))
-                in {"OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE", "OFFICIAL_SHAREHOLDERS_EMPTY"}
+                in {
+                    "OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE",
+                    "OFFICIAL_SHAREHOLDERS_EMPTY",
+                    "OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS",
+                }
             ):
                 raise ValueError("Historical schema cannot contain official shareholder evidence.")
+
+
+def reject_share_class_legacy_fields(value: Any) -> None:
+    """Schema <= 13 envelopes cannot carry D-080 share class/currency, D-081 POC links
+    or a D-082 POC acceptance.
+
+    An explicit null keeps the legacy meaning. Older schemas already reject the rows.
+    """
+    raw = _explicit_fields(value)
+    ownership = _explicit_fields(raw.get("ownership"))
+    for record in (ownership, *ownership.get("prior_analyses", ())):
+        analysis = _explicit_fields(record)
+        if analysis.get("poc_acceptance") is not None:
+            raise ValueError("Historical schema cannot contain a POC ownership acceptance.")
+        if any(
+            str(_explicit_fields(_explicit_fields(edge).get("provenance")).get("provider"))
+            == "LOCAL_POC_ASSUMED_EQUAL_UNITS"
+            for edge in analysis.get("relationships", ()) or ()
+        ):
+            raise ValueError("Historical schema cannot contain POC equal-unit links.")
+        audit = _explicit_fields(analysis.get("discovery"))
+        for item in audit.get("records", ()):
+            reason = str(_explicit_fields(item).get("reason_code"))
+            if reason == "OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS":
+                raise ValueError("Historical schema cannot contain POC equal-unit evidence.")
+            for row in _explicit_fields(item).get("official_shareholders", ()) or ():
+                fields = _explicit_fields(row)
+                if fields.get("share_type") is not None or fields.get("currency") is not None:
+                    raise ValueError("Historical schema cannot contain an official share class.")
 
 
 def reject_session2_legacy_fields(value: Any) -> None:
