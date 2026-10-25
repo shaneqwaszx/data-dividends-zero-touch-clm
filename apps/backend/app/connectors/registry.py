@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -14,7 +15,10 @@ from app.connectors.acra import (
     AcraOwnershipPartyPayload,
     AcraRelationshipsPayload,
 )
-from app.connectors.acra_api_marketplace_mock import AcraApiMarketplaceMockConnector
+from app.connectors.acra_api_marketplace_mock import (
+    AcraApiMarketplaceMockConnector,
+    AcraBusinessProfilePayload,
+)
 from app.connectors.errors import (
     AcraMalformedResponseError,
     AcraMappingError,
@@ -37,6 +41,8 @@ from app.domain.models import (
     RegistryAcquisitionBundle,
     RegistryAcquisitionIssue,
     RegistryAcquisitionStatus,
+    RegistryBusinessProfileEvidence,
+    RegistryBusinessProfileShareholder,
     RegistryEvidenceProvenance,
     RegistryOfficer,
     RegistryOperation,
@@ -47,6 +53,7 @@ from app.domain.models import (
     RegistryProviderIdentity,
     RegistryRelationship,
     RegistryRelationshipType,
+    RegistryShareCapital,
     RegistryShareholderEvidence,
     SourceEnvironment,
     SourceSystem,
@@ -121,6 +128,31 @@ class ShareholderEvidenceProvider(Protocol):
 
     def retrieve_shareholder_evidence(self, identifier: str) -> RegistryShareholderEvidence:
         """Read only the shareholder operation for one registration identifier."""
+
+
+class BusinessProfileEvidenceProvider(Protocol):
+    """D-088 capability: one issuer's businessProfile operation without an entity profile."""
+
+    cache_identity: RegistryProviderIdentity | None
+
+    @property
+    def supports_business_profile_evidence(self) -> bool: ...
+
+    def retrieve_business_profile_evidence(
+        self, identifier: str
+    ) -> RegistryBusinessProfileEvidence:
+        """Read only the businessProfile operation for one registration identifier."""
+
+
+def business_profile_holder_id(issuer_uen: str, source_id: str) -> str:
+    """Issuer-scoped pseudonymous holder identifier; the source identifier is never kept.
+
+    An unkeyed digest: it is not irreversible for small identifier spaces (an NRIC/FIN
+    format can be enumerated), so it is Mock-only pseudonymisation. Any non-Mock use
+    needs a keyed digest under a server-held secret first.
+    """
+    digest = sha256(f"{issuer_uen}\x00{source_id.strip().upper()}".encode()).hexdigest()
+    return f"BP-{digest[:24]}"
 
 
 class AcraIdentifierNotEligibleError(ValueError):
@@ -202,6 +234,84 @@ class AcraRegistryProviderAdapter:
             requested_identifier=normalized_identifier,
             operation_result=result,
             ownership_parties=parties,
+        )
+
+    @property
+    def supports_business_profile_evidence(self) -> bool:
+        """Only the official Marketplace Mock composition reads business profiles."""
+        return self.supports_shareholder_evidence
+
+    def retrieve_business_profile_evidence(
+        self, identifier: str
+    ) -> RegistryBusinessProfileEvidence:
+        """D-088: read only an issuer's own businessProfile operation.
+
+        Used only for a scenario-named corporate holder whose entity profile and
+        shareholder operation are both empty. The returned UEN is bound, every failure is
+        a safe FAILED result, and no identity, legal form or percentage is derived.
+        """
+        normalized_identifier = self._require_eligible_identifier(identifier)
+        if not self.supports_business_profile_evidence:
+            raise AcraOperationUnsupportedError
+        connector = self._connector
+        assert isinstance(connector, AcraApiMarketplaceMockConnector)
+        reference = f"acra:business_profile:{normalized_identifier}"
+        try:
+            payload = AcraBusinessProfilePayload.model_validate(
+                _untrusted_to_primitives(connector.fetch_business_profile(normalized_identifier))
+            )
+            if payload.uen.strip().upper() != normalized_identifier:
+                raise ValueError("business profile identity mismatch")
+            if not payload.entity_present:
+                return RegistryBusinessProfileEvidence(
+                    requested_identifier=normalized_identifier,
+                    status="EMPTY",
+                    environment=SourceEnvironment.MOCK,
+                    retrieved_at=payload.retrieved_at,
+                    evidence_reference=reference,
+                )
+            return RegistryBusinessProfileEvidence(
+                requested_identifier=normalized_identifier,
+                status="COMPLETE",
+                environment=SourceEnvironment.MOCK,
+                retrieved_at=payload.retrieved_at,
+                evidence_reference=reference,
+                entity_name=payload.entity_name,
+                company_type=payload.company_type,
+                status_of_company=payload.status_of_company,
+                shareholders=tuple(
+                    RegistryBusinessProfileShareholder(
+                        party_id=business_profile_holder_id(normalized_identifier, row.source_id),
+                        party_type=RegistryPartyType(row.party_type),
+                        name=row.name,
+                        source_category=row.source_category,
+                        source_status=row.source_status,
+                        number_of_shares=row.number_of_shares,
+                        share_type=row.share_type,
+                        currency=row.currency,
+                    )
+                    for row in payload.shareholders
+                ),
+                issued_share_capital=tuple(
+                    RegistryShareCapital.model_validate(line.model_dump())
+                    for line in payload.issued_share_capital
+                ),
+                paid_up_capital=tuple(
+                    RegistryShareCapital.model_validate(line.model_dump())
+                    for line in payload.paid_up_capital
+                ),
+            )
+        except ConnectorError as exc:
+            code, _ = _operation_error(exc)
+        except Exception:
+            code = "REGISTRY_OPERATION_MALFORMED_RESPONSE"
+        return RegistryBusinessProfileEvidence(
+            requested_identifier=normalized_identifier,
+            status="FAILED",
+            environment=SourceEnvironment.MOCK,
+            retrieved_at=self._clock(),
+            evidence_reference=reference,
+            error_code=code,
         )
 
     @staticmethod

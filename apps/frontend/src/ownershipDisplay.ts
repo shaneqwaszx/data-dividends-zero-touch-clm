@@ -43,6 +43,7 @@ export function assumedBasisLabel(record: OwnershipAnalysisRecord, candidate: Ow
   const used = new Set(candidate.paths.flatMap(path => path.edges.map(edge => edge.relationship_id)));
   const providers = new Set(record.relationships.filter(edge => used.has(edge.relationship_id)).map(edge => edge.provenance.provider));
   if (providers.has("LOCAL_POC_ASSUMED_EQUAL_UNITS")) return "POC equal-unit assumption";
+  if (providers.has("LOCAL_POC_ISSUED_CAPITAL_BASIS")) return "ACRA issued-capital POC basis";
   if (providers.has("LOCAL_SYNTHETIC_RELATIONSHIP")) return "Local synthetic overlay basis";
   return "Assumed POC basis";
 }

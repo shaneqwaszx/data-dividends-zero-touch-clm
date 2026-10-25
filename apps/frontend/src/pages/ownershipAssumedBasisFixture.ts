@@ -87,3 +87,69 @@ export function fiveLayerAssumedBasisFixture(): OwnershipAnalysisRecord {
     ["DIANA", "25", ["r-l2", "l2-diana"], "MET"],
   ]);
 }
+
+/** D-086: OPQ -> GARDEN BUSINESS (owner-declared 100%) -> SIM LIM, values as the backend returns them. */
+export function opqGardenSimLimFixture(): OwnershipAnalysisRecord {
+  const parties = [
+    company("ENTITY_201511222D", "OPQ PTE. LTD."), { ...company("11111999A", "GARDEN BUSINESS"), registration_number: "11111999A" },
+    company("SIMLIM", "SIM LIM PTE. LTD."),
+    person("ABCD", "ABCD123"), person("TAN", "TAN WEI LING"), person("EFGH", "EFGH2345"), person("LIM", "LIM CHOON HUAT"),
+  ];
+  const overlay = "LOCAL_SYNTHETIC_RELATIONSHIP"; const poc = "LOCAL_POC_ASSUMED_EQUAL_UNITS";
+  const declared = { ...link("o-g", "ENTITY_201511222D", "11111999A", "100.000000", overlay) };
+  declared.provenance = { ...declared.provenance, owner_declared_percentage: true };
+  const relationships = [
+    declared,
+    link("g-sim", "11111999A", "SIMLIM", "62.500000", overlay), link("g-lim", "11111999A", "LIM", "37.500000", overlay),
+    link("s-abcd", "SIMLIM", "ABCD", "81.818182", poc), link("s-tan", "SIMLIM", "TAN", "9.090909", poc), link("s-efgh", "SIMLIM", "EFGH", "9.090909", poc),
+  ];
+  const record = hybridRecord(parties, relationships, [
+    ["ABCD", "51.13636375000000", ["o-g", "g-sim", "s-abcd"], "MET"],
+    ["TAN", "5.68181812500000", ["o-g", "g-sim", "s-tan"], "NOT_MET"],
+    ["EFGH", "5.68181812500000", ["o-g", "g-sim", "s-efgh"], "NOT_MET"],
+    ["LIM", "37.500000", ["o-g", "g-lim"], "MET"],
+  ]);
+  record.legal_form = "OTHER";
+  record.discovery = {
+    method: "REGISTRY_CORPORATE_DISCOVERY_V1", trace_threshold_percent: "10.000000", ubo_threshold_percent: "25.000000",
+    max_corporate_depth: 5, call_budget_enabled: false, call_budget_max: 10, graph_complete: false,
+    classification_certainty: "UNCERTAIN", registry_lookups: 2, provider_backed_lookups: 2, cache_hits: 0,
+    records: [
+      { party_id: "11111999A", display_name: "GARDEN BUSINESS", registration_number: "11111999A", depth: 1, outcome: "LOCAL_SYNTHETIC_OVERLAY" as never, identity_basis: "OFFICIAL_MOCK_ENTITY_PROFILE", official_legal_form: "BUSINESS_PARTNERSHIP" },
+      { party_id: "SIMLIM", display_name: "SIM LIM PTE. LTD.", registration_number: "111111111M", depth: 2, outcome: "PROVIDER_PARTIAL", reason_code: "OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS" },
+    ],
+    unresolved_person_party_ids: [], overlay_scenario_id: "OPQ_GARDEN_SIM_LIM_V1", topology_complete: true,
+  };
+  return record;
+}
+
+/** D-089: OPQ -> GARDEN BUSINESS 50% and ABC COMPANY 50% (owner-declared); ABC's holder via D-088. */
+export function opqGardenAbcFixture(): OwnershipAnalysisRecord {
+  const parties = [
+    company("ENTITY_201511222D", "OPQ PTE. LTD."), { ...company("11111999A", "GARDEN BUSINESS"), registration_number: "11111999A" },
+    { ...company("201688888A", "ABC COMPANY PTE. LTD."), registration_number: "201688888A" },
+    company("SIMLIM", "SIM LIM PTE. LTD."), person("ABCHOLDER", "SYNTHETIC ABC HOLDER"),
+    person("ABCD", "ABCD123"), person("TAN", "TAN WEI LING"), person("EFGH", "EFGH2345"), person("LIM", "LIM CHOON HUAT"),
+  ];
+  const overlay = "LOCAL_SYNTHETIC_RELATIONSHIP"; const poc = "LOCAL_POC_ASSUMED_EQUAL_UNITS";
+  const declared = (id: string, child: string) => {
+    const edge = link(id, "ENTITY_201511222D", child, "50.000000", overlay);
+    edge.provenance = { ...edge.provenance, owner_declared_percentage: true };
+    return edge;
+  };
+  const relationships = [
+    declared("o-g", "11111999A"), declared("o-abc", "201688888A"),
+    link("abc-h", "201688888A", "ABCHOLDER", "100.000000", "LOCAL_POC_ISSUED_CAPITAL_BASIS"),
+    link("g-sim", "11111999A", "SIMLIM", "62.500000", overlay), link("g-lim", "11111999A", "LIM", "37.500000", overlay),
+    link("s-abcd", "SIMLIM", "ABCD", "81.818182", poc), link("s-tan", "SIMLIM", "TAN", "9.090909", poc), link("s-efgh", "SIMLIM", "EFGH", "9.090909", poc),
+  ];
+  const record = hybridRecord(parties, relationships, [
+    ["ABCHOLDER", "50.000000", ["o-abc", "abc-h"], "MET"],
+    ["ABCD", "25.568181875000", ["o-g", "g-sim", "s-abcd"], "MET"],
+    ["TAN", "2.8409090625000", ["o-g", "g-sim", "s-tan"], "NOT_MET"],
+    ["EFGH", "2.8409090625000", ["o-g", "g-sim", "s-efgh"], "NOT_MET"],
+    ["LIM", "18.750000", ["o-g", "g-lim"], "NOT_MET"],
+  ]);
+  record.legal_form = "OTHER";
+  return record;
+}
