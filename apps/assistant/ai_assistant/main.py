@@ -141,6 +141,8 @@ class ChatResponse(BaseModel):
     # The server's record of this answer (none for small talk, or with the knowledge store
     # off); "Not helpful" sends it back.
     answer_id: str | None = None
+    # A fixed small-talk reply: it never has a record, so a missing answer_id is expected.
+    small_talk: bool = False
 
 
 class HealthResponse(BaseModel):
@@ -562,6 +564,7 @@ def create_app(
                 model=None,
                 notice=None,
                 suggested_questions=suggested_questions(facts),
+                small_talk=True,
             )
         prep = prepare(body, snapshot, question)
         return record(case_id, snapshot, body, prep, *answer_with_model(prep))
@@ -581,6 +584,7 @@ def create_app(
                 model=None,
                 notice=None,
                 suggested_questions=suggestions,
+                small_talk=True,
             )
             events: Iterator[str] | AsyncIterator[str] = iter(
                 [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]

@@ -65,6 +65,7 @@ from .knowledge.store import (
     KnowledgeRuleError,
     MakerCheckerError,
     SecondReviewerError,
+    earlier_shown,
 )
 
 APPROVE = "POLICY_APPROVE"
@@ -231,15 +232,17 @@ REQUEST_CHANGED_MESSAGE = "This request was already handled. Refresh and try aga
 ANSWER_NOT_FOUND_MESSAGE = "No such answer."
 
 
-def answer_view(record: dict[str, Any]) -> dict[str, Any]:
-    """An answer record as the RM who asked, or a Director, sees it."""
+def answer_view(record: dict[str, Any], *, director: bool = False) -> dict[str, Any]:
+    """An answer record as the RM who asked, or a Director, sees it. A Director sees only
+    the earlier answers kept with the request (``earlier_shown``)."""
 
+    earlier = record["earlier_answer_ids"]
     return {
         "answer_id": record["id"],
         "case_id": record["case_id"],
         "created_at": record["created_at"],
         "question": record["question"],
-        "earlier_answer_ids": record["earlier_answer_ids"],
+        "earlier_answer_ids": earlier_shown(earlier) if director else earlier,
         "case_snapshot": record["case_snapshot"],
         "knowledge": record["knowledge"],
         "allowed_lines": record["allowed_lines"],
@@ -504,7 +507,7 @@ def knowledge_router(
             head = kb.store.answer_record(linked)
             return (
                 head is not None
-                and row["id"] in head["earlier_answer_ids"]
+                and row["id"] in earlier_shown(head["earlier_answer_ids"])
                 and (row["user_id"], row["case_id"]) == (head["user_id"], head["case_id"])
             )
 
@@ -517,7 +520,7 @@ def knowledge_router(
             )
         except AnswerNotFoundError:
             raise answer_not_found() from None
-        return answer_view(viewed)
+        return answer_view(viewed, director=True)
 
     @router.get("/assistant/knowledge/feedback/{feedback_id}/answer")
     def linked_answer(feedback_id: int, profile: Actor, request: Request) -> dict[str, Any]:

@@ -857,8 +857,75 @@
   overflow-wrap: anywhere;
 }
 
-.request-page-allowed > summary {
+.request-page-allowed > summary,
+.request-page-earlier > summary {
   cursor: pointer;
   font-weight: 600;
   font-size: 13px;
+}
+
+.request-page-earlier {
+  margin-top: 4px;
+}
+
+.request-page-earlier[open] > summary {
+  margin-bottom: 4px;
+}
+
+.request-page-fix {
+  margin-top: 16px;
+}
+
+.request-page-fix h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.knowledge-review-requests {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+/* One compact row per request; the whole row opens its request page. */
+.knowledge-review-request {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.knowledge-review-request:hover {
+  border-color: var(--color-accent-600, #a06f24);
+}
+
+.knowledge-review-request:focus-visible {
+  outline: 3px solid var(--color-accent-200, #ffe3bf);
+  outline-offset: 2px;
+}
+
+.knowledge-review-request-question {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-review-request-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-review-request .knowledge-review-meta {
+  margin: 0;
 }

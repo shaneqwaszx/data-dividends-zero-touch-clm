@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AiAssistantError,
   closeKnowledgeGap,
@@ -67,6 +67,14 @@ function draftOf(entry: KnowledgeEntry): Draft {
     replaces: entry.replaces ?? "",
     notes: "",
   };
+}
+
+/** How long ago a request was made, in whole days. */
+export function age(createdAt: string, now: number = Date.now()): string {
+  const made = Date.parse(createdAt);
+  if (Number.isNaN(made)) return "age unknown";
+  const days = Math.max(0, Math.floor((now - made) / 86_400_000));
+  return days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
 function message(error: unknown): string {
@@ -249,6 +257,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
       await draftFromKnowledgeGap(id, fixOf(fix));
       setNotice("Fix saved for review. Check it under Waiting for review, then publish it.");
       setFixes(({ [id]: _saved, ...rest }) => rest);
+      setOpenRequest(null);
       setTick((value) => value + 1);
     } catch (reason) {
       setError(message(reason));
@@ -266,12 +275,90 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
       await closeKnowledgeGap(id, why);
       setNotice("Request closed.");
       setReasons(({ [id]: _closed, ...rest }) => rest);
+      setOpenRequest(null);
       setTick((value) => value + 1);
     } catch (reason) {
       setError(message(reason));
     } finally {
       setBusy(null);
     }
+  }
+
+  // The fix for one request, written on its request page below what happened.
+  function requestFix(gap: KnowledgeGap): ReactNode {
+    const why = reasons[gap.id] ?? "";
+    const fix = fixes[gap.id] ?? EMPTY_FIX;
+    const disabled = busy !== null;
+    return (
+      <section className="knowledge-review-entry request-page-fix" aria-labelledby="request-page-fix">
+        <h3 id="request-page-fix">Fix this request</h3>
+        {error && <p className="ai-assistant-error" role="alert">{error}</p>}
+        <fieldset className="knowledge-review-fix">
+          <legend>Write the fix</legend>
+          <label>
+            Fix as
+            <select value={fix.kind} disabled={disabled} onChange={(event) => changeFix(gap.id, { kind: event.target.value as FixDraft["kind"] })}>
+              <option value="resolution">Past case</option>
+              <option value="guidance">Guidance change</option>
+            </select>
+          </label>
+          {fix.kind === "guidance" && (
+            <label>
+              Guidance to change
+              <select value={fix.changes} disabled={disabled} onChange={(event) => changeFix(gap.id, { changes: event.target.value })}>
+                <option value="">New guidance</option>
+                {approved.filter((entry) => entry.kind === "guidance").map((entry) => (
+                  <option key={entry.entry_id} value={entry.entry_id}>
+                    {entry.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label>
+            Title
+            <input value={fix.title} maxLength={200} disabled={disabled} onChange={(event) => changeFix(gap.id, { title: event.target.value })} />
+          </label>
+          <label>
+            {fix.kind === "guidance" ? "Guidance text" : "What resolves it"} (no names, UENs or addresses)
+            <textarea rows={4} maxLength={4000} value={fix.body} disabled={disabled} onChange={(event) => changeFix(gap.id, { body: event.target.value })} />
+          </label>
+          {fix.kind === "guidance" ? (
+            <label>
+              Source reference
+              <input value={fix.sourceRef} maxLength={300} disabled={disabled} onChange={(event) => changeFix(gap.id, { sourceRef: event.target.value })} />
+            </label>
+          ) : (
+            <label>
+              Follow-up questions (one per line)
+              <textarea rows={2} value={fix.followUps} disabled={disabled} onChange={(event) => changeFix(gap.id, { followUps: event.target.value })} />
+            </label>
+          )}
+          <button type="button" className="btn btn-primary" disabled={disabled || !fixReady(fix)} onClick={() => void draftFrom(gap.id)}>
+            Save the fix for review
+          </button>
+        </fieldset>
+        <label>
+          Reason for closing
+          <input
+            value={why}
+            maxLength={1000}
+            disabled={busy !== null}
+            onChange={(event) => setReasons((all) => ({ ...all, [gap.id]: event.target.value }))}
+          />
+        </label>
+        <div className="knowledge-review-actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy !== null || !why.trim()}
+            onClick={() => void close(gap.id)}
+          >
+            Close with reason
+          </button>
+        </div>
+      </section>
+    );
   }
 
   if (openRequest) {
@@ -284,7 +371,9 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
         aria-labelledby="knowledge-review-title"
       >
         <section className="knowledge-review knowledge-review-page">
-          <RequestPage gap={openRequest} onBack={() => setOpenRequest(null)} />
+          <RequestPage gap={openRequest} onBack={() => setOpenRequest(null)}>
+            {requestFix(openRequest)}
+          </RequestPage>
         </section>
       </div>
     );
@@ -433,92 +522,31 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
 
             <h3>Enhancement requests ({queue.gaps.length})</h3>
             {queue.gaps.length === 0 && <p className="ai-assistant-hint">No open enhancement requests.</p>}
-            {queue.gaps.map((gap) => {
-              const why = reasons[gap.id] ?? "";
-              const fix = fixes[gap.id] ?? EMPTY_FIX;
-              const disabled = busy !== null;
-              return (
-                <article key={gap.id} className="knowledge-review-entry" aria-label={`Enhancement request ${gap.id}`}>
-                  <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
-                  <p>{gap.note || "No note given."}</p>
-                  <button
-                    type="button"
-                    className="btn"
-                    data-open-request={gap.id}
-                    onClick={() => {
-                      returnTo.current = gap.id;
-                      setOpenRequest(gap);
-                    }}
-                  >
-                    Open request page
-                  </button>
-                  <fieldset className="knowledge-review-fix">
-                    <legend>Write the fix</legend>
-                    <label>
-                      Fix as
-                      <select value={fix.kind} disabled={disabled} onChange={(event) => changeFix(gap.id, { kind: event.target.value as FixDraft["kind"] })}>
-                        <option value="resolution">Past case</option>
-                        <option value="guidance">Guidance change</option>
-                      </select>
-                    </label>
-                    {fix.kind === "guidance" && (
-                      <label>
-                        Guidance to change
-                        <select value={fix.changes} disabled={disabled} onChange={(event) => changeFix(gap.id, { changes: event.target.value })}>
-                          <option value="">New guidance</option>
-                          {approved.filter((entry) => entry.kind === "guidance").map((entry) => (
-                            <option key={entry.entry_id} value={entry.entry_id}>
-                              {entry.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    <label>
-                      Title
-                      <input value={fix.title} maxLength={200} disabled={disabled} onChange={(event) => changeFix(gap.id, { title: event.target.value })} />
-                    </label>
-                    <label>
-                      {fix.kind === "guidance" ? "Guidance text" : "What resolves it"} (no names, UENs or addresses)
-                      <textarea rows={4} maxLength={4000} value={fix.body} disabled={disabled} onChange={(event) => changeFix(gap.id, { body: event.target.value })} />
-                    </label>
-                    {fix.kind === "guidance" ? (
-                      <label>
-                        Source reference
-                        <input value={fix.sourceRef} maxLength={300} disabled={disabled} onChange={(event) => changeFix(gap.id, { sourceRef: event.target.value })} />
-                      </label>
-                    ) : (
-                      <label>
-                        Follow-up questions (one per line)
-                        <textarea rows={2} value={fix.followUps} disabled={disabled} onChange={(event) => changeFix(gap.id, { followUps: event.target.value })} />
-                      </label>
-                    )}
-                    <button type="button" className="btn btn-primary" disabled={disabled || !fixReady(fix)} onClick={() => void draftFrom(gap.id)}>
-                      Save the fix for review
-                    </button>
-                  </fieldset>
-                  <label>
-                    Reason for closing
-                    <input
-                      value={why}
-                      maxLength={1000}
-                      disabled={busy !== null}
-                      onChange={(event) => setReasons((all) => ({ ...all, [gap.id]: event.target.value }))}
-                    />
-                  </label>
-                  <div className="knowledge-review-actions">
+            {queue.gaps.length > 0 && (
+              <ul className="knowledge-review-requests" aria-label="Enhancement requests">
+                {queue.gaps.map((gap) => (
+                  <li key={gap.id}>
+                    {/* The whole row opens the request page, where the fix is written. */}
                     <button
                       type="button"
-                      className="btn btn-ghost"
-                      disabled={busy !== null || !why.trim()}
-                      onClick={() => void close(gap.id)}
+                      className="knowledge-review-request"
+                      data-open-request={gap.id}
+                      aria-label={`Open enhancement request ${gap.id}`}
+                      onClick={() => {
+                        returnTo.current = gap.id;
+                        setOpenRequest(gap);
+                      }}
                     >
-                      Close with reason
+                      <span className="knowledge-review-request-question">{gap.question || "No question recorded"}</span>
+                      <span className="knowledge-review-request-note">{gap.note || "No note given."}</span>
+                      <span className="knowledge-review-meta">
+                        {gap.blocker_codes.join(", ") || "General"} · {age(gap.created_at)}
+                      </span>
                     </button>
-                  </div>
-                </article>
-              );
-            })}
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {(() => {
               const single = approved.filter((entry) => entry.single_reviewer);

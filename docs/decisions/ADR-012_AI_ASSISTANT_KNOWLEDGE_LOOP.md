@@ -373,7 +373,7 @@ tables and request states (main is at schema v4, from D-083).
   belongs to the same user and the same case, and refuses an unknown, expired or foreign
   id; it then links the record to the new enhancement request.
 - A record holds:
-  - the question exactly as typed;
+  - the question as the server used it: as typed, cut at the 600-character question limit;
   - the ids of the earlier answers in that chat (each has its own record);
   - the case snapshot: blocker codes, stage, steps done and a hash of the case facts;
   - the knowledge used: entry tags, ids, versions, search scores, retrieval confidence
@@ -395,7 +395,10 @@ tables and request states (main is at schema v4, from D-083).
 - Proposed retention (D2): every record not linked to a request, whether unrated or rated
   "Yes, helpful", is deleted 7 days after the answer (the helpful count in the stats is
   kept without the record). A record linked to a request is deleted 30 days after the
-  request ends, as Resolved or Closed.
+  request ends, as Resolved or Closed. When "Not helpful" links a record, the earlier
+  answers it names that the Director is shown (at most 2, the most recent, and only the same
+  user's on the same case) are kept with it and follow the same 30-day rule, even when
+  unrated; a record tied to two requests stays until both have ended.
 
 ### Request lifecycle
 
@@ -461,7 +464,7 @@ tables and request states (main is at schema v4, from D-083).
 
 ### Risks
 
-- The question is stored exactly as typed, so it may contain personal data; this relaxes
+- The question is stored as typed (cut at 600 characters), so it may contain personal data; this relaxes
   section A (see Answer records). Mitigations: Director and own-RM access only, logged
   views, and the retention in D2, which covers every record.
 - Retention runs inside the assistant; if deletion fails, records outlive the agreed period.

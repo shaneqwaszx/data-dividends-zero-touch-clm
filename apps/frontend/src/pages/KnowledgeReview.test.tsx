@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AnswerRecord } from "../aiAssistant";
-import KnowledgeReview from "./KnowledgeReview";
+import KnowledgeReview, { age } from "./KnowledgeReview";
 import { suggestedCause } from "./RequestPage";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -116,6 +116,13 @@ function button(view: HTMLElement, text: string): HTMLButtonElement {
   const found = [...view.querySelectorAll("button")].find((b) => b.textContent === text);
   if (!found) throw new Error(`no button ${text}`);
   return found;
+}
+
+/** Open a request's page from its row in the queue; the section where its fix is written. */
+async function openFix(view: HTMLElement, id: number): Promise<HTMLElement> {
+  act(() => view.querySelector<HTMLButtonElement>(`[data-open-request="${id}"]`)?.click());
+  await flush();
+  return view.querySelector('[aria-labelledby="request-page-fix"]') as HTMLElement;
 }
 
 describe("KnowledgeReview", () => {
@@ -241,7 +248,7 @@ describe("KnowledgeReview", () => {
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    const request = await openFix(view, 7);
     expect(button(request, "Close with reason").disabled).toBe(true);
     const reason = request.querySelector(":scope > label input");
     type(reason, "   ");
@@ -259,7 +266,7 @@ describe("KnowledgeReview", () => {
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    const request = await openFix(view, 7);
     const save = () => button(request, "Save the fix for review");
     expect(save().disabled).toBe(true);
     const fields = request.querySelectorAll("fieldset input, fieldset textarea");
@@ -284,7 +291,7 @@ describe("KnowledgeReview", () => {
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    const request = await openFix(view, 7);
     choose(request.querySelector("fieldset select"), "guidance");
     choose(request.querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
     const inputs = () => request.querySelectorAll("fieldset input, fieldset textarea");
@@ -356,7 +363,8 @@ describe("KnowledgeReview", () => {
     );
     const view = render();
     await flush();
-    type(view.querySelector('[aria-label="Enhancement request 7"] > label input'), "Duplicate.");
+    const request = await openFix(view, 7);
+    type(request.querySelector(":scope > label input"), "Duplicate.");
     act(() => button(view, "Close with reason").click());
     await flush();
     expect(view.querySelector("[role=alert]")?.textContent).toBe("This request was already handled. Refresh and try again.");
@@ -438,8 +446,8 @@ describe("KnowledgeReview dialog focus", () => {
     const controls = dialogControls(view);
     const [first, last] = [controls[0], controls[controls.length - 1]];
     expect(first.getAttribute("aria-label")).toBe("Close knowledge review");
-    // The last enabled control: the request's "Reason for closing" (Close with reason waits for it).
-    expect(last).toBe(view.querySelector('[aria-label="Enhancement request 7"] > label input'));
+    // The last enabled control: the request's row (its fix is written on its request page).
+    expect(last).toBe(view.querySelector('[data-open-request="7"]'));
 
     // Shift+Tab from the heading (where focus starts) goes to the last control, not out.
     expect(press("Tab", true).defaultPrevented).toBe(true);
@@ -513,8 +521,18 @@ function reviewWith(gap: Record<string, unknown>, fetched: string[], record: unk
 }
 
 function openRequestPage(view: HTMLDivElement): void {
-  const open = [...view.querySelectorAll("button")].find((b) => b.textContent === "Open request page");
-  act(() => open?.click());
+  act(() => view.querySelector<HTMLButtonElement>('[data-open-request="7"]')?.click());
+}
+
+function openEarlier(view: HTMLElement): HTMLDetailsElement | null {
+  const earlier = view.querySelector<HTMLDetailsElement>(".request-page-earlier");
+  act(() => {
+    if (earlier) {
+      earlier.open = true;
+      earlier.dispatchEvent(new Event("toggle"));
+    }
+  });
+  return earlier;
 }
 
 describe("The enhancement request page", () => {
@@ -535,15 +553,26 @@ describe("The enhancement request page", () => {
     expect(saw?.querySelector(".request-page-answer-text")?.textContent).toBe("I found 1 issue stopping the onboarding of [COMPANY].");
     expect(saw?.querySelector(".request-page-notice")?.textContent).toContain("could not be verified");
     expect(saw?.querySelector(".request-page-note")?.textContent).toBe("It did not show the two addresses.");
-    // The earlier answers of the chat, loaded on request.
-    act(() => [...(saw?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Show earlier answer 1")?.click());
+    // The earlier answers of the chat, folded under the exchange and closed by default: none is
+    // fetched (or logged as viewed) until the Director opens them.
+    const earlier = saw?.querySelector<HTMLDetailsElement>(".request-page-earlier");
+    expect(earlier?.open).toBe(false);
+    expect(earlier?.querySelector("summary")?.textContent).toBe("Earlier in this chat (1)");
+    expect(earlier?.previousElementSibling?.classList.contains("request-page-exchange")).toBe(true);
+    expect(fetched.some((url) => url.includes("/answers/"))).toBe(false);
+    openEarlier(view);
     await flush();
-    expect(saw?.textContent).toContain("What should I do next?");
-    // Back returns to the review window, with focus on the button that opened the page.
+    expect(fetched.filter((url) => url.includes("/answers/"))).toHaveLength(1);
+    expect(earlier?.textContent).toContain("What should I do next?");
+    // The fix is written on the page, below what happened.
+    const fix = view.querySelector('[aria-labelledby="request-page-fix"]');
+    expect(fix?.querySelector("legend")?.textContent).toBe("Write the fix");
+    expect(view.querySelector(".request-page-columns")?.compareDocumentPosition(fix as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // Back returns to the review window, with focus on the row that opened the page.
     act(() => [...view.querySelectorAll("button")].find((b) => b.textContent?.includes("Back to Knowledge review"))?.click());
     await flush();
     expect(view.querySelector(".knowledge-review-page")).toBeNull();
-    expect(document.activeElement?.textContent).toBe("Open request page");
+    expect(document.activeElement).toBe(view.querySelector('[data-open-request="7"]'));
   });
 
   it("explains why the AI answered this way", async () => {
@@ -606,6 +635,76 @@ describe("The enhancement request page", () => {
     expect(view.querySelector('[aria-labelledby="request-page-why"]')).toBeNull();
     expect(view.querySelector('[aria-labelledby="request-page-saw"]')).toBeNull();
     expect(fetched.some((url) => url.includes("/answer"))).toBe(false);
+  });
+});
+
+describe("The enhancement request queue and page", () => {
+  it("lists each request as one row with its question, note, blocker types and age", async () => {
+    const made = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    reviewWith({ ...GAP, answer_id: "A".repeat(22), question: "Explain the registered address difference", created_at: made }, []);
+    const view = render();
+    await flush();
+    const row = view.querySelector<HTMLButtonElement>('[data-open-request="7"]');
+    expect(row?.getAttribute("aria-label")).toBe("Open enhancement request 7");
+    expect([...(row?.children ?? [])].map((part) => part.textContent)).toEqual([
+      "Explain the registered address difference",
+      "It did not show the two addresses.",
+      "DOCUMENT_SOURCE_CONFLICT · 3 days ago",
+    ]);
+    // The fix form is no longer in the queue.
+    expect(view.querySelector("fieldset")).toBeNull();
+  });
+
+  it("says when an earlier answer is no longer available", async () => {
+    const fetched: string[] = [];
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, fetched, { ...RECORD, earlier_answer_ids: ["C".repeat(22)] });
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    const earlier = openEarlier(view);
+    await flush();
+    expect(earlier?.textContent).toContain("This earlier answer is no longer available.");
+  });
+
+  it("shows a record from the first build of answer records without breaking", async () => {
+    // Saved before allowed lines were tagged and thresholds recorded (and repaired with no
+    // shown answer): the page still renders.
+    const early = {
+      ...RECORD,
+      shown_answer: "",
+      allowed_lines: ["Registry and document differences require the current case decision; neither source automatically overrides the other."],
+      knowledge: { confidence: null, degraded: null, entries: [] },
+    };
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, [], early);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    const why = view.querySelector('[aria-labelledby="request-page-why"]');
+    expect(why?.textContent).toContain("Thresholds: not recorded");
+    expect(why?.querySelector(".request-page-allowed summary")?.textContent).toBe("All allowed lines (1)");
+    expect(why?.querySelectorAll(".request-page-allowed .request-page-tag")).toHaveLength(0);
+    expect(view.querySelector(".request-page-answer-text")?.textContent).toBe("The answer text was not kept for this record.");
+  });
+
+  it("writes the fix on a request page without a record too", async () => {
+    reviewWith({ ...GAP, answer_id: null }, []);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    expect(view.querySelector('[aria-labelledby="request-page-fix"] legend')?.textContent).toBe("Write the fix");
+  });
+});
+
+describe("age", () => {
+  it("says how many whole days ago a request was made", () => {
+    const now = Date.parse("2026-10-25T12:00:00Z");
+    expect(age("2026-10-25T01:00:00Z", now)).toBe("today");
+    expect(age("2026-10-24T11:00:00Z", now)).toBe("1 day ago");
+    expect(age("2026-10-20T12:00:00Z", now)).toBe("5 days ago");
+    expect(age("", now)).toBe("age unknown");
   });
 });
 

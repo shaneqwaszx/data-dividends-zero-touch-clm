@@ -142,9 +142,13 @@ CREATE TABLE IF NOT EXISTS answer_records (
     result TEXT NOT NULL,
     shown_answer TEXT NOT NULL,
     rated_at TEXT,
-    linked_request_id INTEGER REFERENCES feedback (id)
+    linked_request_id INTEGER REFERENCES feedback (id),
+    -- An earlier answer of a chat whose answer was marked "Not helpful": it follows that
+    -- request's retention so the Director can still open it.
+    kept_for_request_id INTEGER REFERENCES feedback (id)
 );
 CREATE INDEX IF NOT EXISTS answer_records_by_request ON answer_records (linked_request_id);
+CREATE INDEX IF NOT EXISTS answer_records_kept_for ON answer_records (kept_for_request_id);
 CREATE TABLE IF NOT EXISTS answer_record_views (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     record_id TEXT NOT NULL REFERENCES answer_records (id) ON DELETE CASCADE,
@@ -232,6 +236,16 @@ def _answer_row(row: sqlite3.Row) -> dict[str, Any]:
     for key in _ANSWER_JSON:
         item[key] = json.loads(item[key])
     return item
+
+
+# How many earlier answers of a chat a Director sees with a request (the most recent ones).
+EARLIER_KEPT = 2
+
+
+def earlier_shown(earlier_answer_ids: list[str]) -> list[str]:
+    """The earlier answers shown with a request, and kept for as long as the request is."""
+
+    return list(earlier_answer_ids)[-EARLIER_KEPT:] if EARLIER_KEPT else []
 
 
 def _days_before(now: str, days: int) -> str:
@@ -939,15 +953,35 @@ class KnowledgeStore:
                     "UPDATE answer_records SET rated_at = ?, linked_request_id = ? WHERE id = ?",
                     (now, None if helpful else feedback_id, answer_id),
                 )
+            if answer_id is not None and not helpful:
+                self._keep_earlier(db, answer_id, feedback_id, user_id=user_id, case_id=case_id)
             return feedback_id
+
+    @staticmethod
+    def _keep_earlier(
+        db: sqlite3.Connection, answer_id: str, feedback_id: int, *, user_id: str, case_id: str
+    ) -> None:
+        """Keep the earlier answers a request's record names (the last ``EARLIER_KEPT``, and
+        only this user's on this case) for as long as the request is kept."""
+
+        row = db.execute(
+            "SELECT earlier_answer_ids FROM answer_records WHERE id = ?", (answer_id,)
+        ).fetchone()
+        earlier = earlier_shown(json.loads(row[0])) if row is not None else []
+        for earlier_id in earlier:
+            db.execute(
+                "UPDATE answer_records SET kept_for_request_id = ? WHERE id = ? AND user_id = ? "
+                "AND case_id = ? AND kept_for_request_id IS NULL",
+                (feedback_id, earlier_id, user_id, case_id),
+            )
 
     def feedback(
         self, *, status: str | None = None, helpful: bool | None = None
     ) -> list[dict[str, Any]]:
-        # Each request names its answer record, if it has one (since schema v5).
+        # Each request names its answer record and question, if it has one (since schema v5).
         sql = (
-            "SELECT f.*, (SELECT a.id FROM answer_records a WHERE a.linked_request_id = f.id)"
-            " AS answer_id FROM feedback f WHERE 1 = 1"
+            "SELECT f.*, a.id AS answer_id, a.question AS question FROM feedback f "
+            "LEFT JOIN answer_records a ON a.linked_request_id = f.id WHERE 1 = 1"
         )
         args = list[Any]()
         if status is not None:
@@ -1105,18 +1139,26 @@ class KnowledgeStore:
     def _purge_answers(
         db: sqlite3.Connection, now: str, unrated_days: int, closed_days: int
     ) -> int:
-        """Delete records not linked to a request (unrated, or rated "Yes, helpful") older than
-        ``unrated_days``, and linked records whose request was resolved or closed more than
+        """Delete records tied to no request (unrated, or rated "Yes, helpful") older than
+        ``unrated_days``, and records tied to requests (as the rated answer, or as an earlier
+        answer kept for it) once every such request was resolved or closed more than
         ``closed_days`` ago. Their logged views go with them."""
 
         unlinked = db.execute(
-            "DELETE FROM answer_records WHERE linked_request_id IS NULL AND created_at < ?",
+            "DELETE FROM answer_records WHERE linked_request_id IS NULL "
+            "AND kept_for_request_id IS NULL AND created_at < ?",
             (_days_before(now, unrated_days),),
         ).rowcount
+        done = (
+            "(SELECT id FROM feedback WHERE status IN ('resolved', 'closed') "
+            "AND closed_at IS NOT NULL AND closed_at < :cutoff)"
+        )
         linked = db.execute(
-            "DELETE FROM answer_records WHERE linked_request_id IN (SELECT id FROM feedback "
-            "WHERE status IN ('resolved', 'closed') AND closed_at IS NOT NULL AND closed_at < ?)",
-            (_days_before(now, closed_days),),
+            "DELETE FROM answer_records WHERE "
+            "(linked_request_id IS NOT NULL OR kept_for_request_id IS NOT NULL) "
+            f"AND (linked_request_id IS NULL OR linked_request_id IN {done}) "
+            f"AND (kept_for_request_id IS NULL OR kept_for_request_id IN {done})",
+            {"cutoff": _days_before(now, closed_days)},
         ).rowcount
         return int(unlinked) + int(linked)
 
@@ -1157,16 +1199,24 @@ class KnowledgeStore:
 
     @staticmethod
     def _repair_5(db: sqlite3.Connection) -> None:
-        """An earlier build of this branch (never on main) stamped 5 on an answer_records
-        table without ``shown_answer``, so every new record failed to insert. Add the column
-        (stored as JSON like the others); records made before it have an empty shown answer."""
+        """Earlier builds of this branch (never on main) stamped 5 on answer_records tables
+        without ``shown_answer`` (so every new record failed to insert) or without
+        ``kept_for_request_id``. Add what is missing: records made before have an empty shown
+        answer (stored as JSON like the others) and are kept for no request."""
 
         columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
-        if columns and "shown_answer" not in columns:
+        if not columns:
+            return
+        if "shown_answer" not in columns:
             db.execute(
                 "ALTER TABLE answer_records ADD COLUMN shown_answer TEXT NOT NULL DEFAULT '\"\"'"
             )
-            db.commit()
+        if "kept_for_request_id" not in columns:
+            db.execute(
+                "ALTER TABLE answer_records ADD COLUMN kept_for_request_id INTEGER "
+                "REFERENCES feedback (id)"
+            )
+        db.commit()
 
     @staticmethod
     def _migrate_to_4(db: sqlite3.Connection) -> None:

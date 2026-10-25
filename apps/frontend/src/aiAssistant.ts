@@ -47,6 +47,8 @@ export interface AiAssistantAnswer {
   knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
   /** The server's record of this answer; feedback sends it back (none for small talk). */
   answer_id?: string | null;
+  /** A fixed small-talk reply, which never has a record. */
+  small_talk?: boolean;
 }
 
 /** The question body, with the ids of earlier answers in this chat (the server checks them). */
@@ -242,6 +244,7 @@ export async function askAiAssistantStreaming(
       && (event.model === null || typeof event.model === "string")
       && (event.notice === null || typeof event.notice === "string")
       && (event.answer_id == null || typeof event.answer_id === "string")
+      && (event.small_talk === undefined || typeof event.small_talk === "boolean")
       && Array.isArray(event.suggested_questions)
       && event.suggested_questions.every((question) => typeof question === "string")) {
       const { type: _type, ...answer } = event;
@@ -362,8 +365,10 @@ export interface KnowledgeGap {
   fields: string[];
   stages: string[];
   created_at: string;
-  /** The record of the answer the RM rated (requests made before answer records have none). */
+  /** The record of the answer the RM rated (none when it could not be saved, or from before
+   * answer records), and the question asked. */
   answer_id?: string | null;
+  question?: string | null;
 }
 
 /** Where an allowed line comes from: a fixed catalog line, one filled from the case, or knowledge. */
@@ -387,8 +392,8 @@ export interface AnswerRecord {
   knowledge: {
     confidence: "high" | "low" | "none" | null;
     degraded: boolean | null;
-    /** The minimum score an entry of each kind needs to be used. */
-    thresholds: { guidance: number; resolution: number };
+    /** The minimum score an entry of each kind needs to be used (missing on the earliest records). */
+    thresholds?: { guidance: number; resolution: number };
     entries: {
       tag: string;
       kind: "guidance" | "resolution";
@@ -399,7 +404,8 @@ export interface AnswerRecord {
       fallback: boolean;
     }[];
   };
-  allowed_lines: { text: string; source: AllowedLineSource }[];
+  /** Each allowed line and where it comes from (the earliest records kept plain lines). */
+  allowed_lines: ({ text: string; source: AllowedLineSource } | string)[];
   chosen_lines: string[];
   dropped_lines: string[];
   /** The answer as the RM saw it (a case-data answer with names and identifiers removed). */

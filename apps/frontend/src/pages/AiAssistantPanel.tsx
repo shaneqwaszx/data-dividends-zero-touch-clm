@@ -31,6 +31,8 @@ interface ChatMessage extends AiAssistantTurn {
   sources?: AiAssistantSource[];
   /** The service's record of this answer, sent back with feedback (none for small talk). */
   answerId?: string | null;
+  /** A small-talk reply: it never has a record, so nothing failed when answerId is missing. */
+  smallTalk?: boolean;
 }
 
 interface Thread {
@@ -325,6 +327,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
               note: reply.notice,
               sources: reply.sources ?? [],
               answerId: reply.answer_id ?? null,
+              smallTalk: reply.small_talk === true,
             },
           ],
           suggestions: reply.suggested_questions,
@@ -429,7 +432,8 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
           />
         </label>
         <p className="ai-assistant-hint">Your note goes to a Director. Client names, UENs and addresses are removed first.</p>
-        {!answerIdOf(messageId) && (
+        {/* Only when a record should exist: small talk never has one. */}
+        {!answerIdOf(messageId) && !thread.messages.find((item) => item.id === messageId)?.smallTalk && (
           <p className="ai-assistant-hint" role="note">
             We couldn't save the details of this answer, so the Director will only see your note.
           </p>

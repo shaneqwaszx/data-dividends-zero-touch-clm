@@ -536,6 +536,30 @@ describe("AiAssistantPanel", () => {
     expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
   });
 
+  it("does not say a record failed after small talk, which never has one", async () => {
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        return new Response(
+          `${JSON.stringify({ type: "done", answer: "Hello!", answered_by: "case_data", model: null, notice: null, suggested_questions: [], answer_id: null, small_talk: true })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
+    await flush();
+    const form = view.querySelector(".ai-assistant-feedback-form");
+    expect(form?.querySelector("textarea")).not.toBeNull();
+    expect(form?.querySelector('[role="note"]')).toBeNull();
+  });
+
   it("offers Knowledge review only to someone the backend allows to review", async () => {
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);

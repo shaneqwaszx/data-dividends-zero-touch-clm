@@ -88,7 +88,7 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
         // Like the service: "Not helpful" must name an answer it recorded for this user and case.
         if (sent.answer_id !== answerId) { json(response, { detail: { code: "NOT_FOUND", message: "No such answer." } }, 404); return; }
         gaps.push({ id: 1, note: sent.note, blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], fields: [], stages: [],
-          created_at: "2026-10-25T00:00:01+00:00", answer_id: answerId });
+          created_at: new Date().toISOString(), answer_id: answerId, question });
         json(response, { feedback_id: 1, message: "Thanks. This has been flagged so the answer can be improved." }); return;
       }
       if (url.endsWith("/knowledge/me")) {
@@ -134,10 +134,14 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
 
     // The Director opens the request page; the record is loaded (and the view logged) only then.
     await page.getByRole("button", { name: "Sign in as the Director", exact: true }).click();
-    const requestCard = page.getByRole("article", { name: "Enhancement request 1" });
-    await expect(requestCard.getByText("It did not show the two addresses.", { exact: true })).toBeVisible();
+    // One compact row per request: the question, the note, the blocker types and the age.
+    const requestRow = page.getByRole("button", { name: "Open enhancement request 1", exact: true });
+    await expect(requestRow).toContainText(question);
+    await expect(requestRow).toContainText("It did not show the two addresses.");
+    await expect(requestRow).toContainText("DOCUMENT_SOURCE_CONFLICT · today");
+    await expect(page.getByRole("group", { name: "Write the fix" })).toHaveCount(0);
     expect(recordViews).toEqual([]);
-    await requestCard.getByRole("button", { name: "Open request page", exact: true }).click();
+    await requestRow.click();
     await expect(page.getByRole("heading", { name: "Enhancement request 1" })).toBeFocused();
     const saw = page.getByRole("region", { name: "What the RM saw" });
     await expect(saw.getByText(question, { exact: true })).toBeVisible();
@@ -156,8 +160,13 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
     const [left, right] = [await saw.boundingBox(), await why.boundingBox()];
     expect(left && right && right.x > left.x + left.width - 1).toBe(true);
     expect(recordViews).toHaveLength(1);
+    // The fix is written on the request page, below what happened.
+    const fix = page.getByRole("region", { name: "Fix this request" });
+    await expect(fix.getByRole("group", { name: "Write the fix" })).toBeVisible();
+    const [columns, fixBox] = [await why.boundingBox(), await fix.boundingBox()];
+    expect(columns && fixBox && fixBox.y >= columns.y + columns.height - 1).toBe(true);
     await page.getByRole("button", { name: "← Back to Knowledge review" }).click();
-    await expect(page.getByRole("button", { name: "Open request page", exact: true })).toBeFocused();
+    await expect(requestRow).toBeFocused();
     expect(violations).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {

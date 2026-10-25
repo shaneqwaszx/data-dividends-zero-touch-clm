@@ -185,6 +185,37 @@ def test_small_talk_is_not_recorded(kb: KnowledgeBase) -> None:  # noqa: F811
         assert db.execute("SELECT COUNT(*) FROM answer_records").fetchone()[0] == 0
 
 
+def test_small_talk_says_so_so_a_missing_record_is_expected(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    assert ask(kb, FakeModel(), message="hi")["small_talk"] is True
+    reply = app_client(kb, "rm-session", FakeModel()).post(
+        f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "hi"}
+    )
+    done = json.loads(reply.text.splitlines()[-1])
+    assert done["small_talk"] is True and done["answer_id"] is None
+    assert ask(kb)["small_talk"] is False
+
+
+@pytest.mark.parametrize("path", ["chat", "chat/stream"])
+def test_an_answer_whose_record_cannot_be_saved_is_still_given(
+    kb: KnowledgeBase,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    def fail(record: dict[str, Any], *, purge_days: object = None) -> None:
+        raise sqlite3.OperationalError("table answer_records has no column named shown_answer")
+
+    monkeypatch.setattr(kb.store, "add_answer_record", fail)
+    reply = app_client(kb, "rm-session").post(
+        f"/assistant/cases/{CASE_ID}/{path}", json={"message": QUESTION}
+    )
+    assert reply.status_code == 200
+    body = json.loads(reply.text.splitlines()[-1]) if path == "chat/stream" else reply.json()
+    # The RM still gets the answer; only the record (and so its answer_id) is missing.
+    assert body["answer"] and body["answer_id"] is None and body["small_talk"] is False
+
+
 def test_earlier_answer_ids_keep_only_this_users_records_on_this_case_capped(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
@@ -449,6 +480,55 @@ def test_a_director_opens_only_the_earlier_answers_the_request_names(
     assert kb.store.answer_views(unrelated) == []
 
 
+def test_a_request_keeps_the_last_two_earlier_answers_and_shows_only_those(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    first, second, third = (ask(kb)["answer_id"] for _ in range(3))
+    answer_id = ask(kb, earlier_answer_ids=[first, second, third])["answer_id"]
+    request_id = int(rate(kb, answer_id).json()["feedback_id"])
+    kept = {
+        earlier: record(kb, earlier)["kept_for_request_id"] for earlier in (first, second, third)
+    }
+    assert kept == {first: None, second: request_id, third: request_id}
+    # Kept earlier answers are not rated by it: the RM can still rate them.
+    assert record(kb, second)["rated_at"] is None
+    director = app_client(kb, "director-session")
+    linked = director.get(f"/assistant/knowledge/feedback/{request_id}/answer").json()
+    assert linked["earlier_answer_ids"] == [second, third]
+    older = director.get(f"/assistant/knowledge/feedback/{request_id}/answers/{first}")
+    assert older.status_code == 404 and older.json() == REFUSED
+    assert kb.store.answer_views(first) == []
+    # The RM's own view still lists every earlier answer the record names.
+    own = app_client(kb, "rm-session").get(f"/assistant/answers/{answer_id}").json()
+    assert own["earlier_answer_ids"] == [first, second, third]
+
+
+def test_only_the_same_users_earlier_answers_on_the_same_case_are_kept(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    other = "K" * 22
+    kb.store.add_answer_record(blank(other, user_id="ryan-lee"))
+    answer_id = ask(kb)["answer_id"]
+    # Even if a record somehow named another user's answer, rating it keeps only own ones.
+    with sqlite3.connect(kb.store._path) as db:
+        db.execute(
+            "UPDATE answer_records SET earlier_answer_ids = ? WHERE id = ?",
+            (json.dumps([other]), answer_id),
+        )
+    rate(kb, answer_id)
+    assert record(kb, other)["kept_for_request_id"] is None
+
+
+def test_the_queue_shows_each_requests_question(kb: KnowledgeBase) -> None:  # noqa: F811
+    _, request_id = linked_request(kb)
+    rate(kb, None)  # a note without a record has no question
+    gaps = app_client(kb, "director-session").get("/assistant/knowledge/reviews").json()["gaps"]
+    assert [(gap["id"], gap["question"]) for gap in gaps] == [
+        (request_id, QUESTION),
+        (request_id + 1, None),
+    ]
+
+
 # --- retention -------------------------------------------------------------------------
 
 
@@ -487,6 +567,50 @@ def test_the_purge_removes_expired_records_and_keeps_linked_ones(
             ).fetchone()[0]
             == 0
         )
+
+
+def test_an_earlier_answer_follows_its_requests_retention(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    old = "2000-01-01T00:00:00+00:00"
+    earlier = ask(kb)["answer_id"]
+    answer_id = ask(kb, earlier_answer_ids=[earlier])["answer_id"]
+    request_id = int(rate(kb, answer_id).json()["feedback_id"])
+    age(kb, earlier, old)
+    age(kb, answer_id, old)
+    # Unrated and older than 7 days, but kept while its request is open.
+    kb.store.purge_answer_records(unrated_days=7, closed_days=30)
+    assert kb.store.answer_record(earlier) is not None
+    kb.store.close_feedback(request_id, by="director-dan", reason="Duplicate.")
+    # Closed less than 30 days ago: still kept.
+    kb.store.purge_answer_records(unrated_days=7, closed_days=30)
+    assert kb.store.answer_record(earlier) is not None
+    with sqlite3.connect(kb.store._path) as db:
+        db.execute("UPDATE feedback SET closed_at = ? WHERE id = ?", (old, request_id))
+    # 30 days after the request closed it goes, with the rated answer.
+    assert kb.store.purge_answer_records(unrated_days=7, closed_days=30) == 2
+    assert kb.store.answer_record(earlier) is None
+    assert kb.store.answer_record(answer_id) is None
+
+
+def test_an_answer_tied_to_two_requests_stays_until_both_are_done(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    old = "2000-01-01T00:00:00+00:00"
+    earlier = ask(kb)["answer_id"]
+    later = ask(kb, earlier_answer_ids=[earlier])["answer_id"]
+    kept_for = int(rate(kb, later).json()["feedback_id"])
+    own_request = int(rate(kb, earlier).json()["feedback_id"])  # rated itself afterwards
+    for answer_id in (earlier, later):
+        age(kb, answer_id, old)
+    kb.store.close_feedback(kept_for, by="director-dan", reason="Duplicate.")
+    with sqlite3.connect(kb.store._path) as db:
+        db.execute("UPDATE feedback SET closed_at = ? WHERE id = ?", (old, kept_for))
+    kb.store.purge_answer_records(unrated_days=7, closed_days=30)
+    # Its own request is still open, so it stays; the other request's answer goes.
+    assert kb.store.answer_record(earlier) is not None
+    assert kb.store.answer_record(later) is None
+    assert record(kb, earlier)["linked_request_id"] == own_request
 
 
 def test_expired_records_go_on_start_up_and_at_most_hourly(
@@ -554,7 +678,10 @@ INSERT INTO answer_records VALUES ('GGGGGGGGGGGGGGGGGGGGGG', 'c', 'maya-lim', NU
 """
 
 
-def test_a_branch_only_v5_store_without_shown_answer_records_again(tmp_path: Path) -> None:
+@pytest.mark.parametrize("shape", ["without-shown-answer", "without-kept-for"])
+def test_a_branch_only_v5_store_without_shown_answer_records_again(
+    tmp_path: Path, shape: str
+) -> None:
     # Every insert into such a store failed, so answers got no answer_id (and no "Not
     # helpful" in an earlier panel). Opening it adds the column and keeps the old records.
     from tests.test_knowledge_store import _kb
@@ -563,14 +690,20 @@ def test_a_branch_only_v5_store_without_shown_answer_records_again(tmp_path: Pat
     KnowledgeStore(path)
     with sqlite3.connect(path) as db:
         db.executescript(EARLY_V5_ANSWER_RECORDS)
+        if shape == "without-kept-for":
+            # As 07d1e82 made it: shown_answer, but no kept_for_request_id yet.
+            db.execute(
+                "ALTER TABLE answer_records ADD COLUMN shown_answer TEXT NOT NULL DEFAULT '\"\"'"
+            )
         assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
     knowledge = _kb(tmp_path)  # opening the store repairs it
     store = knowledge.store
     with sqlite3.connect(path) as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
-    assert "shown_answer" in columns
+    assert {"shown_answer", "kept_for_request_id"} <= columns
     old = store.answer_record("G" * 22)
     assert old is not None and old["shown_answer"] == "" and old["question"] == "q"
+    assert old["kept_for_request_id"] is None
     store.add_answer_record({**blank("H" * 22), "shown_answer": "Shown."})
     assert record_of(store, "H" * 22)["shown_answer"] == "Shown."
     KnowledgeStore(path)  # opening again changes nothing

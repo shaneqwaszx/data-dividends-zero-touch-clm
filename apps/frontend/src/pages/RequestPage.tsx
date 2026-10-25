@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AiAssistantError,
   type AllowedLineSource,
@@ -55,6 +55,11 @@ export function suggestedCause(record: AnswerRecord): SuggestedCause | null {
   return null;
 }
 
+/** An allowed line with its source; the earliest records kept plain lines with none. */
+function allowedLine(line: AnswerRecord["allowed_lines"][number]): { text: string; source?: AllowedLineSource } {
+  return typeof line === "string" ? { text: line } : line;
+}
+
 function errorText(reason: unknown): string {
   return reason instanceof AiAssistantError ? reason.message : "Could not load this request.";
 }
@@ -77,36 +82,56 @@ function Exchange({ record }: { record: AnswerRecord }) {
   );
 }
 
-function WhatTheRmSaw({ gap, record }: { gap: KnowledgeGap; record: AnswerRecord }) {
-  const [earlier, setEarlier] = useState<Record<string, AnswerRecord>>({});
-  const [error, setError] = useState<string | null>(null);
+/** An earlier exchange: loaded (and so logged as a view), gone, or still loading. */
+type Earlier = { record: AnswerRecord } | { missing: true } | { error: string };
 
-  function load(answerId: string): void {
-    fetchGapEarlierAnswer(gap.id, answerId)
-      .then((found) => setEarlier((all) => ({ ...all, [answerId]: found })))
-      .catch((reason: unknown) => setError(errorText(reason)));
+const MISSING_EARLIER = "This earlier answer is no longer available.";
+
+/**
+ * The earlier exchanges of the chat (at most two, which the service keeps with the request),
+ * folded and closed by default. Each is fetched, and so logged as a view, only when opened.
+ */
+function EarlierInThisChat({ gap, answerIds }: { gap: KnowledgeGap; answerIds: string[] }) {
+  const [earlier, setEarlier] = useState<Record<string, Earlier>>({});
+  const loaded = useRef(false);
+
+  function open(): void {
+    if (loaded.current) return;
+    loaded.current = true;
+    for (const answerId of answerIds) {
+      fetchGapEarlierAnswer(gap.id, answerId)
+        .then((found) => setEarlier((all) => ({ ...all, [answerId]: { record: found } })))
+        .catch((reason: unknown) =>
+          setEarlier((all) => ({
+            ...all,
+            // Deleted or never kept: say so rather than show the service's error code.
+            [answerId]: reason instanceof AiAssistantError && reason.status === 404 ? { missing: true } : { error: errorText(reason) },
+          })),
+        );
+    }
   }
 
   return (
+    <details className="request-page-earlier" onToggle={(event) => event.currentTarget.open && open()}>
+      <summary>Earlier in this chat ({answerIds.length})</summary>
+      {answerIds.map((answerId) => {
+        const item = earlier[answerId];
+        if (!item) return <p key={answerId} className="ai-assistant-hint">Loading…</p>;
+        if ("record" in item) return <Exchange key={answerId} record={item.record} />;
+        if ("missing" in item) return <p key={answerId} className="knowledge-review-meta">{MISSING_EARLIER}</p>;
+        return <p key={answerId} className="ai-assistant-error" role="alert">{item.error}</p>;
+      })}
+    </details>
+  );
+}
+
+function WhatTheRmSaw({ gap, record }: { gap: KnowledgeGap; record: AnswerRecord }) {
+  return (
     <section className="request-page-column" aria-labelledby="request-page-saw">
       <h3 id="request-page-saw">What the RM saw</h3>
-      {record.earlier_answer_ids.length > 0 && (
-        <div className="request-page-earlier">
-          <h4>Earlier in this chat</h4>
-          {record.earlier_answer_ids.map((answerId, index) =>
-            earlier[answerId] ? (
-              <Exchange key={answerId} record={earlier[answerId]} />
-            ) : (
-              <button key={answerId} type="button" className="btn" onClick={() => load(answerId)}>
-                Show earlier answer {index + 1}
-              </button>
-            ),
-          )}
-          {error && <p className="ai-assistant-error" role="alert">{error}</p>}
-        </div>
-      )}
       <h4>The question and answer</h4>
       <Exchange record={record} />
+      {record.earlier_answer_ids.length > 0 && <EarlierInThisChat gap={gap} answerIds={record.earlier_answer_ids} />}
       {record.result.answered_by === "case_data" && (
         <p className="knowledge-review-meta">Answered from the case data: names, UENs and addresses are removed here.</p>
       )}
@@ -118,8 +143,10 @@ function WhatTheRmSaw({ gap, record }: { gap: KnowledgeGap; record: AnswerRecord
 
 function WhyItAnsweredThisWay({ record }: { record: AnswerRecord }) {
   const cause = suggestedCause(record);
-  const sources = new Map(record.allowed_lines.map((line) => [line.text, line.source]));
+  const allowed = record.allowed_lines.map(allowedLine);
+  const sources = new Map(allowed.map((line) => [line.text, line.source]));
   const { knowledge, result, case_snapshot: snapshot } = record;
+  const thresholds = knowledge.thresholds;
   return (
     <section className="request-page-column" aria-labelledby="request-page-why">
       <h3 id="request-page-why">Why the AI answered this way</h3>
@@ -175,7 +202,7 @@ function WhyItAnsweredThisWay({ record }: { record: AnswerRecord }) {
 
       <h4>Knowledge searched</h4>
       <p className="knowledge-review-meta">
-        Thresholds: guidance {knowledge.thresholds.guidance}, past cases {knowledge.thresholds.resolution}
+        {thresholds ? `Thresholds: guidance ${thresholds.guidance}, past cases ${thresholds.resolution}` : "Thresholds: not recorded"}
         {knowledge.confidence && ` · confidence ${knowledge.confidence}`}
         {knowledge.degraded && " · keyword search only (the embedding model was down)"}
       </p>
@@ -190,7 +217,7 @@ function WhyItAnsweredThisWay({ record }: { record: AnswerRecord }) {
                 <td>{entry.tag}</td>
                 <td>{entry.entry_id} v{entry.version}{entry.fallback ? " (stage guidance)" : ""}</td>
                 <td>{entry.score}</td>
-                <td>{entry.kind === "guidance" ? knowledge.thresholds.guidance : knowledge.thresholds.resolution}</td>
+                <td>{thresholds ? (entry.kind === "guidance" ? thresholds.guidance : thresholds.resolution) : "–"}</td>
               </tr>
             ))}
           </tbody>
@@ -200,9 +227,9 @@ function WhyItAnsweredThisWay({ record }: { record: AnswerRecord }) {
       )}
 
       <details className="request-page-allowed">
-        <summary>All allowed lines ({record.allowed_lines.length})</summary>
+        <summary>All allowed lines ({allowed.length})</summary>
         <ul className="request-page-lines">
-          {record.allowed_lines.map((line) => (
+          {allowed.map((line) => (
             <li key={line.text}><SourceTag source={line.source} /> {line.text}</li>
           ))}
         </ul>
@@ -225,10 +252,18 @@ function WhyItAnsweredThisWay({ record }: { record: AnswerRecord }) {
 
 /**
  * The full-width page for one enhancement request: what the RM saw and why the AI answered
- * that way, from the service's answer record (opening it is a logged view). Fixes, similar
- * requests and the grouped queue come later.
+ * that way, from the service's answer record (opening it is a logged view), then the
+ * Director's fix (``children``). Similar requests and the grouped queue come later.
  */
-export default function RequestPage({ gap, onBack }: { gap: KnowledgeGap; onBack: () => void }) {
+export default function RequestPage({
+  gap,
+  onBack,
+  children,
+}: {
+  gap: KnowledgeGap;
+  onBack: () => void;
+  children?: ReactNode;
+}) {
   const [record, setRecord] = useState<AnswerRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -274,6 +309,7 @@ export default function RequestPage({ gap, onBack }: { gap: KnowledgeGap; onBack
           <WhyItAnsweredThisWay record={record} />
         </div>
       )}
+      {children}
     </div>
   );
 }
