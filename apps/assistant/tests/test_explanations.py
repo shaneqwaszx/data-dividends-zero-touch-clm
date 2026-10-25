@@ -19,6 +19,7 @@ from ai_assistant.clm_client import CaseSnapshot
 from ai_assistant.context import build_case_facts
 from ai_assistant.guardrails import (
     MAX_ANSWER_LINES,
+    MAX_ANSWER_LINES_WITH_REQUIRED,
     StreamingGuard,
     Validation,
     allowed_guidance,
@@ -746,6 +747,63 @@ def test_the_completed_answer_is_capped_dropping_optional_lines_first() -> None:
         extra[0],
     ]
     assert MAX_ANSWER_LINES == 6
+
+
+SECTION_LINES = [
+    f'Open the "{section}" section to inspect the current case evidence.'
+    for section in (
+        "Existing-customer search",
+        "Registry verification",
+        "Document verification",
+        "Ownership & UBO",
+        "GoldTier Details & Status",
+        "Final review & send",
+    )
+]
+
+
+def test_required_lines_may_take_an_answer_up_to_eight_lines() -> None:
+    required = [*SECTION_LINES, NOT_READY]  # 7 allowed lines, all required
+    validation = Validation(text=OUT_OF_SCOPE)
+    result = with_required_lines(validation, FACTS, order=required, required=required)
+    # The line that is not required goes first; the 7 required lines fit within 8.
+    assert result.text.splitlines() == required
+    assert MAX_ANSWER_LINES_WITH_REQUIRED == 8
+
+
+def test_a_line_already_streamed_to_the_rm_is_never_removed() -> None:
+    plan = topic_plan(FACTS, QUESTION)
+    assert plan is not None
+    validation = Validation(text="\n".join(SECTION_LINES))
+    result = with_required_lines(
+        validation, FACTS, order=plan.lines, required=plan.required, streamed=SECTION_LINES
+    )
+    lines = result.text.splitlines()
+    assert set(SECTION_LINES) <= set(lines)
+    # Only required lines the RM has not seen are dropped, and only past 8 lines.
+    assert len(lines) == MAX_ANSWER_LINES_WITH_REQUIRED
+    assert lines[:2] == [VALUES, ADDRESS_WHY]
+    # Without streaming, lines that are not required go first, down to 6.
+    plain = with_required_lines(validation, FACTS, order=plan.lines, required=plan.required)
+    assert plain.text.splitlines()[:4] == [VALUES, ADDRESS_WHY, ADDRESS_CHECK, OFFERED]
+    assert len(plain.text.splitlines()) == MAX_ANSWER_LINES
+
+
+def test_the_final_streamed_answer_keeps_every_line_the_rm_was_shown() -> None:
+    # Each line ends with a line break, so every one is shown while the model writes.
+    answer = "".join(f"{line}\n" for line in SECTION_LINES)
+    response = _client(FakeBackend(), FakeModel(answer=answer)).post(
+        f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": QUESTION}
+    )
+    events = [json.loads(text) for text in response.text.splitlines() if text.strip()]
+    shown = {
+        line for event in events if event["type"] == "text" for line in event["text"].splitlines()
+    }
+    assert shown == set(SECTION_LINES)
+    final = events[-1]["answer"].splitlines()
+    assert events[-1]["type"] == "done" and shown <= set(final)
+    assert len(final) == MAX_ANSWER_LINES_WITH_REQUIRED
+    assert final[:2] == [GARDEN_VALUES, ADDRESS_WHY]
 
 
 def test_only_allowed_lines_are_ever_added() -> None:

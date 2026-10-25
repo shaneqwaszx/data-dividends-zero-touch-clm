@@ -513,7 +513,7 @@ verified, approved or live, and name only sections that exist. Each stands alone
 | Registered address: "A different registered address can mean the document is older than the current ACRA record, or the company has moved." / "Before choosing an address, check the type of the document and which company it is for." | that field differs | as above; documents carry no issue date |
 | Legal name: "A different company name can be a former name, a trading name or a reading error." | that field differs | as above |
 | UEN: "A different UEN can come from a reading error or a document that belongs to another company." / "Before choosing a UEN, check that the document belongs to this company." | that field differs | as above |
-| "The document review needs a review decision for every field read from the document." / "A field read with low confidence, or a required field that could not be read, keeps the document review open." | `DOCUMENT_REVIEW_INCOMPLETE` is still needed | readiness in `services/clm_orchestration.py` |
+| "When a person reviews a document, every field read from it needs a review decision." / "A field read with low confidence, or a required field that could not be read, keeps the document review open." | `DOCUMENT_REVIEW_INCOMPLETE` is still needed | readiness in `services/clm_orchestration.py`; the first sentence describes the human-review path only (the backend can also confirm a document automatically or clear it through a reconciliation decision, `services/document_processing.py`) |
 | "The UBO check needs the company's owners and each owner's economic interest in percent." / "Ownership evidence can come from the registry, an uploaded ownership document or a manual ownership declaration." / "A manual ownership declaration needs a reviewed current document first." | `OWNERSHIP_REQUIRED` is still needed | `domain/ownership.py`, `services/manual_ownership_evidence.py` |
 
 The "can" / "can mean" sentences give general reasons; the app does not work out why a value
@@ -547,20 +547,25 @@ lines are allowed does not change.
 ### Change 4 - required lines (server)
 
 For a model answer with at least one allowed line, the server adds the topic's required
-lines the model left out, puts the answer in the topic's order (other lines after) and caps
-it at 6 lines, dropping lines that are not required first. Required: one line per blocker
-(why blocked / what next); the values, "why" and "check" lines and the offered action or
-Record correction line (a difference); the not-ready or not-offered line and every
-still-needed item (readiness, approving); the first document review sentence; up to 3
-"this is for" lines (contacts). Only allowed lines are added, in the catalog's words. An
-answer with no allowed line still gets the case-data answer.
+lines the model left out and puts the answer in the topic's order (other lines after).
+Required: one line per blocker (why blocked / what next); the values, "why" and "check" lines
+and the offered action or Record correction line (a difference); the not-ready or
+not-offered line and every still-needed item (readiness, approving); the first document
+review sentence; up to 3 "this is for" lines (contacts). Then, among lines the RM has not
+been shown yet, lines that are not required are dropped from the end until the answer has 6
+lines, and required ones until it has 8. A line already shown while the answer streamed is
+never removed, so a streamed answer can exceed 8 lines only by lines the RM has already
+read. Only allowed lines are added, in the catalog's words, and `left_out` still counts only
+model lines that were not allowed lines. An answer with no allowed line still gets the
+case-data answer.
 
 ### Change 5 - formatting-tolerant matching
 
 A model line is compared in a normal form that removes formatting only: ASCII-only
 lower-casing (look-alike letters such as the Kelvin sign never fold into Latin ones), runs of
 spaces, curly quotes, Markdown emphasis and backticks, a leading list marker and a trailing
-full stop. A line of several allowed sentences is split; every part must be allowed or the
+full stop. An unpaired `*` or `_` next to a word is removed too; that is harmless because
+only the catalog's text is shown. A line of several allowed sentences is split; every part must be allowed or the
 whole line is dropped. A bare action label stands for the catalog's `The current case offers
 "<label>".` line (only when offered to this viewer); a knowledge sentence without its tag
 stands for its tagged line (first by ranking). Lookups use one dictionary per request; work

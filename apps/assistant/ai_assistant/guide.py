@@ -218,7 +218,7 @@ FIELD_DIFFERENCE: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 # required fields). Ownership: domain/ownership.py and services/manual_ownership_evidence.py.
 READINESS_EXPLANATIONS: dict[str, tuple[str, ...]] = {
     "DOCUMENT_REVIEW_INCOMPLETE": (
-        "The document review needs a review decision for every field read from the document.",
+        "When a person reviews a document, every field read from it needs a review decision.",
         "A field read with low confidence, or a required field that could not be read, keeps "
         "the document review open.",
     ),

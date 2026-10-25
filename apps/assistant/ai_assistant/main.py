@@ -159,11 +159,22 @@ class Prepared:
 
 
 def _model_reply(
-    validation: Validation, prep: Prepared, *, model_name: str, cut_short: bool
+    validation: Validation,
+    prep: Prepared,
+    *,
+    model_name: str,
+    cut_short: bool,
+    streamed: str = "",
 ) -> "ChatResponse":
+    """The model's answer; ``streamed`` is the answer text the RM has already been shown."""
+
     if prep.plan is not None:
         validation = with_required_lines(
-            validation, prep.facts, order=prep.plan.lines, required=prep.plan.required
+            validation,
+            prep.facts,
+            order=prep.plan.lines,
+            required=prep.plan.required,
+            streamed=streamed.splitlines(),
         )
     notices = [n for n in (validation.notice(), CUT_SHORT_NOTICE if cut_short else None) if n]
     return ChatResponse(
@@ -349,12 +360,14 @@ def create_app(
         if model is not None:
             guard = StreamingGuard(prep.facts, knowledge_lines=prep.shown.lines)
             cut_short = False
+            streamed = ""  # what the RM has been shown so far
             try:
                 async with aclosing(model.stream(prep.messages)) as source:
                     async for piece in source:
                         cut_short = cut_short or piece.cut_short
                         shown = guard.feed(piece.text) if piece.text else None
                         if shown is not None:
+                            streamed = shown
                             yield line({"type": "text", "text": shown})
                 guard.finish()
                 validation = guard.validation()
@@ -362,7 +375,13 @@ def create_app(
                     notice = POLICY_NOTICE
                 if validation.text:
                     yield done(
-                        _model_reply(validation, prep, model_name=model.name, cut_short=cut_short)
+                        _model_reply(
+                            validation,
+                            prep,
+                            model_name=model.name,
+                            cut_short=cut_short,
+                            streamed=streamed,
+                        )
                     )
                     return
             except LlmUnavailableError:
@@ -370,7 +389,11 @@ def create_app(
                 partial = guard.validation()
                 if partial.text:
                     # Keep what the RM has already read, and say it stopped early.
-                    yield done(_model_reply(partial, prep, model_name=model.name, cut_short=True))
+                    yield done(
+                        _model_reply(
+                            partial, prep, model_name=model.name, cut_short=True, streamed=streamed
+                        )
+                    )
                     return
         yield done(_fallback_reply(prep, notice=notice))
 

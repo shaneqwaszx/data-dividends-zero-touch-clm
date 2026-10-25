@@ -722,17 +722,26 @@ def validate_answer(
 
 
 MAX_ANSWER_LINES = 6
+# Required lines may take an answer past MAX_ANSWER_LINES, up to this many lines.
+MAX_ANSWER_LINES_WITH_REQUIRED = 8
 
 
 def with_required_lines(
-    validation: Validation, facts: dict[str, Any], *, order: Sequence[str], required: Sequence[str]
+    validation: Validation,
+    facts: dict[str, Any],
+    *,
+    order: Sequence[str],
+    required: Sequence[str],
+    streamed: Sequence[str] = (),
 ) -> Validation:
     """Add the topic's required lines the model left out (D-090, PROPOSED).
 
     Only allowed lines are added, in the catalog's words. When any is missing, the answer is put
-    in the topic's ``order`` (other lines after, in the model's order) and capped at
-    MAX_ANSWER_LINES, dropping lines that are not required first. An empty answer stays empty:
-    the case-data answer is used instead.
+    in the topic's ``order`` (other lines after, in the model's order). Lines the RM has not
+    seen yet are then dropped from the end: lines that are not required until the answer has
+    MAX_ANSWER_LINES, then required ones until it has MAX_ANSWER_LINES_WITH_REQUIRED. A line
+    already ``streamed`` to the RM is never removed. An empty answer stays empty: the case-data
+    answer is used instead.
     """
 
     allowed = set(allowed_guidance(facts))
@@ -743,9 +752,15 @@ def with_required_lines(
         return validation
     position = {line: index for index, line in enumerate(order)}
     lines = sorted([*shown, *missing], key=lambda line: position.get(line, len(position)))
-    while len(lines) > MAX_ANSWER_LINES:
-        optional = [index for index, line in enumerate(lines) if line not in needed]
-        lines.pop(optional[-1] if optional else -1)
+    seen = set(streamed)
+    for limit, keep in (
+        (MAX_ANSWER_LINES, {*needed, *seen}),
+        (MAX_ANSWER_LINES_WITH_REQUIRED, seen),
+    ):
+        # Indices from the end, so popping one never shifts the next.
+        droppable = [index for index, line in enumerate(lines) if line not in keep]
+        while len(lines) > limit and droppable:
+            lines.pop(droppable.pop())
     text = "\n".join(lines)
     return Validation(
         text=text, left_out=validation.left_out, disclosures=_disclosures(text, facts)
