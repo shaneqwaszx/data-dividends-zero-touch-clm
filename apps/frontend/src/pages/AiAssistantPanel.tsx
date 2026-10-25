@@ -363,7 +363,6 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     if (!state.helpful && !note) return;
     const key = activeCaseId;
     const answerId = answerIdOf(messageId);
-    if (!state.helpful && !answerId) return;
     setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "sending" } }));
     // The rating, the note and which answer it is about: the conversation is not sent.
     sendAiAssistantFeedback(key, { helpful: state.helpful, note, ...(answerId ? { answer_id: answerId } : {}) })
@@ -401,12 +400,10 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
             <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, true)}>
               <ThumbIcon /> Yes, helpful
             </button>
-            {/* "Not helpful" points a Director at this answer's record, so it needs one. */}
-            {answerIdOf(messageId) && (
-              <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, false)}>
-                <ThumbIcon down /> Not helpful
-              </button>
-            )}
+            {/* Always offered: without an answer record the Director still gets the note. */}
+            <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, false)}>
+              <ThumbIcon down /> Not helpful
+            </button>
           </span>
         </div>
       );
@@ -432,6 +429,11 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
           />
         </label>
         <p className="ai-assistant-hint">Your note goes to a Director. Client names, UENs and addresses are removed first.</p>
+        {!answerIdOf(messageId) && (
+          <p className="ai-assistant-hint" role="note">
+            We couldn't save the details of this answer, so the Director will only see your note.
+          </p>
+        )}
         <div className="ai-assistant-feedback">
           <button
             type="button"

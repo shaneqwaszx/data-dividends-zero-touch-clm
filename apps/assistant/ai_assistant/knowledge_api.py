@@ -31,8 +31,9 @@ visibility HR set. An edit can narrow team and role visibility, never widen it.
 Retiring an approved entry (official guidance included) takes two reviewers: the first POST
 to /retire records the request, a different reviewer's POST confirms it.
 
-Answer records (D-084, proposed): feedback names the answer it rates (``answer_id``, needed
-for "Not helpful"). The record must be the caller's own, on the same case, unrated and not
+Answer records (D-084, proposed): feedback names the answer it rates (``answer_id``) when
+the answer has a record; "Not helpful" without one is still accepted (only the note reaches
+the Director). A named record must be the caller's own, on the same case, unrated and not
 expired; any refusal is the same "not found". The RM who asked can open their record
 (GET /assistant/answers/{id}); a Director opens it from the enhancement request it is linked
 to, with the earlier answers of that chat. HR is refused, anyone else gets "not found", and
@@ -76,15 +77,14 @@ class FeedbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     helpful: bool
     note: str = Field(default="", max_length=1000)
-    # The answer being rated: needed for "Not helpful", optional for "Yes, helpful".
+    # The answer being rated, when it has a record. Without one (the record could not be
+    # saved) "Not helpful" is still accepted: the Director then sees only the note.
     answer_id: str | None = Field(default=None, pattern=ANSWER_ID)
 
     @model_validator(mode="after")
     def _not_helpful_says_what_was_missing(self) -> "FeedbackRequest":
         if not self.helpful and not self.note.strip():
             raise ValueError("say what was missing")
-        if not self.helpful and self.answer_id is None:
-            raise ValueError("say which answer was not helpful")
         return self
 
 

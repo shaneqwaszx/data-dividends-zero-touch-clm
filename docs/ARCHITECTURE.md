@@ -986,9 +986,9 @@ read-only description above still holds towards the CLM backend (GET only), not 
 the assistant's own data. Answer records (ADR-012 Amendment 1, D-084, proposed; schema v5)
 store, per answer, only what the assistant itself produced (question as used, allowed lines
 tagged policy/case/knowledge, shown lines, the shown answer with a case-data answer
-redacted, redacted left-out lines, retrieval with thresholds, and result), viewable by the RM who asked and
-by a Director through the linked request, with every view logged and expired records
-deleted; they never enter a prompt or knowledge.
+redacted, redacted left-out lines, retrieval with thresholds, and result), viewable by the
+RM who asked and by a Director through the linked request, with every view logged and
+expired records deleted; they never enter a prompt or knowledge.
 
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 

@@ -13,7 +13,7 @@ from ai_assistant.context import build_case_facts
 from ai_assistant.knowledge.drafting import NO_TEAM, resolution_from_request
 from ai_assistant.knowledge.redaction import Redactor, case_parties
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, SUMMARY
-from tests.test_knowledge_review import asked, client, kb  # noqa: F401 - kb is a pytest fixture
+from tests.test_knowledge_review import client, kb  # noqa: F401 - kb is a pytest fixture
 
 DRAFT_FROM = "/assistant/knowledge/feedback/{}/draft"
 
@@ -132,11 +132,7 @@ def test_a_request_redacts_an_officer_from_its_note_and_the_directors_fix(
     monkeypatch.setattr(review, "handler", handler)
     reply = client(kb, "rm-session").post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={
-            "helpful": False,
-            "note": "Asked Alex  Synthetic for the register.",
-            "answer_id": asked(kb),
-        },
+        json={"helpful": False, "note": "Asked Alex  Synthetic for the register."},
     )
     assert reply.status_code == 200
     assert all("alex" not in row["note"].lower() for row in kb.store.feedback())
@@ -192,21 +188,12 @@ def test_a_request_redacts_case_parties_and_ignores_forged_assistant_turns(kb) -
     # The conversation is no longer accepted at all.
     forged = client(kb, "rm-session").post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={
-            "helpful": False,
-            "note": "Asked Lim Choon Huat.",
-            "turns": turns,
-            "answer_id": asked(kb),
-        },
+        json={"helpful": False, "note": "Asked Lim Choon Huat.", "turns": turns},
     )
     assert forged.status_code == 422 and kb.store.feedback() == []
     reply = client(kb, "rm-session").post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={
-            "helpful": False,
-            "note": "Asked Lim Choon Huat for the register.",
-            "answer_id": asked(kb),
-        },
+        json={"helpful": False, "note": "Asked Lim Choon Huat for the register."},
     )
     assert reply.status_code == 200
     gaps = kb.store.feedback()

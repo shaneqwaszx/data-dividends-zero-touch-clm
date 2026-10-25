@@ -269,8 +269,7 @@ def test_the_stream_records_only_the_checked_lines(kb: KnowledgeBase) -> None:  
 # --- rating ---------------------------------------------------------------------------
 
 
-def test_not_helpful_needs_an_answer_and_links_it(kb: KnowledgeBase) -> None:  # noqa: F811
-    assert rate(kb, None).status_code == 422
+def test_not_helpful_links_the_answer_it_names(kb: KnowledgeBase) -> None:  # noqa: F811
     answer_id = ask(kb)["answer_id"]
     reply = rate(kb, answer_id)
     assert reply.status_code == 200
@@ -278,6 +277,24 @@ def test_not_helpful_needs_an_answer_and_links_it(kb: KnowledgeBase) -> None:  #
     stored = record(kb, answer_id)
     assert stored["linked_request_id"] == request_id and stored["rated_at"]
     assert kb.store.feedback(helpful=False)[0]["answer_id"] == answer_id
+
+
+def test_not_helpful_without_an_answer_record_still_reaches_a_director(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    # The record could not be saved, so the panel sends the note alone: it is still taken.
+    reply = rate(kb, None)
+    assert reply.status_code == 200
+    assert reply.json()["message"] == "Thanks. This has been flagged so the answer can be improved."
+    request_id = reply.json()["feedback_id"]
+    [stored] = kb.store.feedback(helpful=False)
+    assert stored["note"] == "No proof list." and stored["answer_id"] is None
+    director = app_client(kb, "director-session")
+    [gap] = director.get("/assistant/knowledge/reviews").json()["gaps"]
+    assert gap["id"] == request_id and gap["answer_id"] is None
+    # There is no record to open (the request page says so) and nothing is logged.
+    linked = director.get(f"/assistant/knowledge/feedback/{request_id}/answer")
+    assert linked.status_code == 404 and linked.json() == REFUSED
 
 
 def test_yes_helpful_may_name_its_answer_without_linking_it(kb: KnowledgeBase) -> None:  # noqa: F811
@@ -514,6 +531,58 @@ def test_every_earlier_store_gains_answer_records(tmp_path: Path, version: str) 
     assert store.owned_answers(["E" * 22], user_id="maya-lim", case_id=CASE_ID) == ["E" * 22]
     KnowledgeStore(path)  # opening again changes nothing
     assert store.answer_record("E" * 22) is not None
+
+
+# answer_records as an earlier build of this branch made it: stamped 5, no shown_answer.
+EARLY_V5_ANSWER_RECORDS = """
+DROP TABLE answer_record_views; DROP TABLE answer_records;
+CREATE TABLE answer_records (
+    id TEXT PRIMARY KEY, case_id TEXT NOT NULL, user_id TEXT NOT NULL, team TEXT,
+    created_at TEXT NOT NULL, question TEXT NOT NULL, earlier_answer_ids TEXT NOT NULL,
+    case_snapshot TEXT NOT NULL, knowledge TEXT NOT NULL, allowed_lines TEXT NOT NULL,
+    chosen_lines TEXT NOT NULL, dropped_lines TEXT NOT NULL, result TEXT NOT NULL,
+    rated_at TEXT, linked_request_id INTEGER REFERENCES feedback (id)
+);
+CREATE INDEX answer_records_by_request ON answer_records (linked_request_id);
+CREATE TABLE answer_record_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id TEXT NOT NULL REFERENCES answer_records (id) ON DELETE CASCADE,
+    viewer TEXT NOT NULL, viewed_at TEXT NOT NULL
+);
+INSERT INTO answer_records VALUES ('GGGGGGGGGGGGGGGGGGGGGG', 'c', 'maya-lim', NULL,
+    '2026-10-25T05:28:46+00:00', 'q', '[]', '{}', '{}', '[]', '[]', '[]', '{}', NULL, NULL);
+"""
+
+
+def test_a_branch_only_v5_store_without_shown_answer_records_again(tmp_path: Path) -> None:
+    # Every insert into such a store failed, so answers got no answer_id (and no "Not
+    # helpful" in an earlier panel). Opening it adds the column and keeps the old records.
+    from tests.test_knowledge_store import _kb
+
+    path = tmp_path / "knowledge.sqlite3"
+    KnowledgeStore(path)
+    with sqlite3.connect(path) as db:
+        db.executescript(EARLY_V5_ANSWER_RECORDS)
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    knowledge = _kb(tmp_path)  # opening the store repairs it
+    store = knowledge.store
+    with sqlite3.connect(path) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
+    assert "shown_answer" in columns
+    old = store.answer_record("G" * 22)
+    assert old is not None and old["shown_answer"] == "" and old["question"] == "q"
+    store.add_answer_record({**blank("H" * 22), "shown_answer": "Shown."})
+    assert record_of(store, "H" * 22)["shown_answer"] == "Shown."
+    KnowledgeStore(path)  # opening again changes nothing
+    assert record_of(store, "H" * 22)["shown_answer"] == "Shown."
+    # And through the service: an answer on the repaired store gets its record again.
+    assert ask(knowledge)["answer_id"]
+
+
+def record_of(store: KnowledgeStore, answer_id: str) -> dict[str, Any]:
+    stored = store.answer_record(answer_id)
+    assert stored is not None
+    return stored
 
 
 def test_allowed_lines_are_tagged_policy_case_or_knowledge() -> None:

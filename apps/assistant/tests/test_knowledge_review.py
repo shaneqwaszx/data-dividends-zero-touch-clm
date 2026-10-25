@@ -120,24 +120,11 @@ def edit(
     )
 
 
-def asked(kb: KnowledgeBase, session: str = "rm-session", case_id: str = CASE_ID) -> str:
-    """Ask a question as ``session``: the id of the answer record (which feedback rates)."""
-
-    reply = client(kb, session).post(
-        f"/assistant/cases/{case_id}/chat", json={"message": "What should I do next?"}
-    )
-    assert reply.status_code == 200, reply.text
-    answer_id = reply.json()["answer_id"]
-    assert answer_id
-    return str(answer_id)
-
-
 def not_helpful(kb: KnowledgeBase, note: str = "No proof list.") -> int:
     """An RM's "Not helpful" with a note: an enhancement request. Returns its id."""
 
     reply = client(kb, "rm-session").post(
-        f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": note, "answer_id": asked(kb)},
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": note}
     )
     assert reply.status_code == 200, reply.text
     return int(reply.json()["feedback_id"])
@@ -210,11 +197,7 @@ def test_yes_helpful_only_records_the_rating_with_its_case_context(kb: Knowledge
 def test_not_helpful_starts_a_redacted_enhancement_request(kb: KnowledgeBase) -> None:
     reply = client(kb, "rm-session").post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={
-            "helpful": False,
-            "note": " It did not say what proof to ask GARDEN BUSINESS for. ",
-            "answer_id": asked(kb),
-        },
+        json={"helpful": False, "note": " It did not say what proof to ask GARDEN BUSINESS for. "},
     )
     assert reply.status_code == 200
     assert reply.json()["message"] == "Thanks. This has been flagged so the answer can be improved."
@@ -227,8 +210,7 @@ def test_not_helpful_starts_a_redacted_enhancement_request(kb: KnowledgeBase) ->
 @pytest.mark.parametrize("note", ["", "   ", "\n\t "], ids=["empty", "spaces", "whitespace"])
 def test_not_helpful_needs_a_note(kb: KnowledgeBase, note: str) -> None:
     reply = client(kb, "rm-session").post(
-        f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": note, "answer_id": asked(kb)},
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": note}
     )
     assert reply.status_code == 422
     assert kb.store.feedback() == []
@@ -237,7 +219,7 @@ def test_not_helpful_needs_a_note(kb: KnowledgeBase, note: str) -> None:
 def test_feedback_no_longer_takes_the_conversation(kb: KnowledgeBase) -> None:
     reply = client(kb, "rm-session").post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": "No proof list.", "turns": TURNS, "answer_id": asked(kb)},
+        json={"helpful": False, "note": "No proof list.", "turns": TURNS},
     )
     assert reply.status_code == 422
     assert kb.store.feedback() == []
@@ -378,11 +360,7 @@ def test_only_a_director_handles_enhancement_requests(kb: KnowledgeBase) -> None
 def test_stats_show_confidence_by_topic(kb: KnowledgeBase) -> None:
     rm = client(kb, "rm-session")
     for helpful, note in ((True, ""), (True, ""), (False, "No proof list.")):
-        rated = rm.post(
-            f"/assistant/cases/{CASE_ID}/feedback",
-            json={"helpful": helpful, "note": note, "answer_id": asked(kb)},
-        )
-        assert rated.status_code == 200, rated.text
+        rm.post(f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": helpful, "note": note})
     codes = kb.store.feedback()[0]["blocker_codes"]
     assert codes  # the synthetic case has blockers
     stats = client(kb, "director-session").get("/assistant/knowledge/stats").json()

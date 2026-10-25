@@ -493,16 +493,21 @@ describe("AiAssistantPanel", () => {
     expect(rated).toEqual([{ helpful: true, note: "", answer_id: "B".repeat(22) }]);
   });
 
-  it("offers Not helpful only on an answer the service recorded", async () => {
-    stubFetch(async (input: RequestInfo | URL) => {
+  it("still offers Not helpful when the answer has no record, and says only the note is sent", async () => {
+    const sent: unknown[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
       if (url.endsWith("/chat/stream")) {
-        // Small talk, or the knowledge store off: no record, so nothing for a Director to see.
+        // The record could not be saved (or small talk, or the knowledge store off).
         return new Response(
-          `${JSON.stringify({ type: "done", answer: "Hello!", answered_by: "case_data", model: null, notice: null, suggested_questions: [], answer_id: null })}\n`,
+          `${JSON.stringify({ type: "done", answer: "From ACRA (MOCK).", answered_by: "case_data", model: null, notice: null, suggested_questions: [], answer_id: null })}\n`,
           { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
         );
+      }
+      if (url.endsWith("/feedback")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ feedback_id: 3, message: "Thanks. This has been flagged so the answer can be improved." });
       }
       return json({}, 404);
     });
@@ -512,7 +517,23 @@ describe("AiAssistantPanel", () => {
     click(view.querySelector(".ai-assistant-chip"));
     await flush();
     const labels = [...view.querySelectorAll(".ai-assistant-rate button")].map((b) => b.textContent?.trim());
-    expect(labels).toEqual(["Yes, helpful"]);
+    expect(labels).toEqual(["Yes, helpful", "Not helpful"]);
+    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
+    await flush();
+    const form = view.querySelector(".ai-assistant-feedback-form");
+    expect(form?.querySelector('[role="note"]')?.textContent).toBe(
+      "We couldn't save the details of this answer, so the Director will only see your note.",
+    );
+    const note = form?.querySelector("textarea") as HTMLTextAreaElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, "It did not show the two addresses.");
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click([...(form?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === "Send"));
+    await flush();
+    // The note alone: no answer_id is made up.
+    expect(sent).toEqual([{ helpful: false, note: "It did not show the two addresses." }]);
+    expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
   });
 
   it("offers Knowledge review only to someone the backend allows to review", async () => {

@@ -12,7 +12,7 @@ import tests.test_knowledge_review as review
 from ai_assistant.knowledge.models import EntryStatus
 from ai_assistant.knowledge.service import KnowledgeBase
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, SUMMARY, _session
-from tests.test_knowledge_review import asked, client, decide, drafted, edit, fix, kb  # noqa: F401
+from tests.test_knowledge_review import client, decide, drafted, edit, fix, kb  # noqa: F401
 
 TEAM_B_CASE_ID = "5d0c3a4e-6f1b-4c2d-9e8f-7a6b5c4d3e2f"
 
@@ -94,11 +94,7 @@ def drafted_in_team_b(kb: KnowledgeBase, session: str = "director-b-session") ->
 
     reply = client(kb, "rm-b-session").post(
         f"/assistant/cases/{TEAM_B_CASE_ID}/feedback",
-        json={
-            "helpful": False,
-            "note": "Kept the registry value.",
-            "answer_id": asked(kb, "rm-b-session", TEAM_B_CASE_ID),
-        },
+        json={"helpful": False, "note": "Kept the registry value."},
     )
     assert reply.status_code == 200, reply.text
     feedback_id = reply.json()["feedback_id"]
@@ -111,8 +107,7 @@ def drafted_in_team_b(kb: KnowledgeBase, session: str = "director-b-session") ->
 
 def not_helpful(kb: KnowledgeBase, session: str, case_id: str) -> None:  # noqa: F811
     reply = client(kb, session).post(
-        f"/assistant/cases/{case_id}/feedback",
-        json={"helpful": False, "note": "No proof list.", "answer_id": asked(kb, session, case_id)},
+        f"/assistant/cases/{case_id}/feedback", json={"helpful": False, "note": "No proof list."}
     )
     assert reply.status_code == 200, reply.text
 
@@ -227,11 +222,7 @@ def test_the_full_flow_with_the_real_synthetic_roles(kb: KnowledgeBase) -> None:
     rm = client(kb, "rm-session", single_reviewer=True)
     reply = rm.post(
         f"/assistant/cases/{CASE_ID}/feedback",
-        json={
-            "helpful": False,
-            "note": "It did not say which proof to ask for.",
-            "answer_id": asked(kb),
-        },
+        json={"helpful": False, "note": "It did not say which proof to ask for."},
     )
     assert reply.status_code == 200
     request_id = reply.json()["feedback_id"]
@@ -284,8 +275,7 @@ def test_with_two_person_review_the_only_director_cannot_publish_her_own_fix(
 ) -> None:
     rm = client(kb, "rm-session")
     request_id = rm.post(
-        f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": "No proof list.", "answer_id": asked(kb)},
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": "No proof list."}
     ).json()["feedback_id"]
     olivia = client(kb, "director-global-session")
     entry = olivia.post(f"/assistant/knowledge/feedback/{request_id}/draft", json=fix()).json()

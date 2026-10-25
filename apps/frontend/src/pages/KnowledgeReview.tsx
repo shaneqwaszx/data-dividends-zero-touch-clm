@@ -441,19 +441,17 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                 <article key={gap.id} className="knowledge-review-entry" aria-label={`Enhancement request ${gap.id}`}>
                   <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
                   <p>{gap.note || "No note given."}</p>
-                  {gap.answer_id && (
-                    <button
-                      type="button"
-                      className="btn"
-                      data-open-request={gap.id}
-                      onClick={() => {
-                        returnTo.current = gap.id;
-                        setOpenRequest(gap);
-                      }}
-                    >
-                      Open request page
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn"
+                    data-open-request={gap.id}
+                    onClick={() => {
+                      returnTo.current = gap.id;
+                      setOpenRequest(gap);
+                    }}
+                  >
+                    Open request page
+                  </button>
                   <fieldset className="knowledge-review-fix">
                     <legend>Write the fix</legend>
                     <label>

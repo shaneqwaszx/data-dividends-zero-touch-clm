@@ -163,7 +163,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated: required for "Not helpful", optional for "Yes, helpful"; it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the Director then sees only the note |
 | GET | `/assistant/answers/{answer_id}` | the RM who asked | Their own answer record (view logged); HR gets 403, anyone else 404 |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
 | GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open enhancement requests (`gaps`) |
@@ -195,8 +195,10 @@ case-data answer redacted with the case Redactor), the lines left out (redacted,
 8 KiB) and how the answer was made (answered by, notices, fallback reason `model_unavailable`,
 `nothing_allowed` or `cut_short`, model, time). Browser history text is never stored, and a
 record never goes into a prompt or into knowledge. Each record can be rated once; "Not
-helpful" links it to the new enhancement request. In the Knowledge review window a Director
-opens the request as a full-width page: **What the RM saw** (question, answer and notices,
+helpful" links it to the new enhancement request. If a record could not be saved, the answer
+has no `answer_id`; "Not helpful" is still offered, the RM is told the Director will only
+see the note, and the request page says there is no answer record. In the Knowledge review
+window a Director opens the request as a full-width page: **What the RM saw** (question, answer and notices,
 the RM's note, earlier answers on request) and **Why the AI answered this way** (a
 rule-based hint, not a verdict: "Catalog gap: no allowed line matched", "No knowledge
 found" or "Missing knowledge"; shown lines tagged Policy/Case/Knowledge, left-out lines

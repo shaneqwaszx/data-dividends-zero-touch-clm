@@ -24,7 +24,6 @@ from tests.test_ai_assistant import CASE_ID, ORIGIN, FakeModel, _session
 from tests.test_knowledge_review import (  # noqa: F401
     USERS,
     _profile,
-    asked,
     client,
     decide,
     drafted,
@@ -169,8 +168,7 @@ def _retire_confirm(kb: KnowledgeBase) -> Mutation:  # noqa: F811
 
 def _close_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
     reply = client(kb, "rm-session").post(
-        f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": "No proof list.", "answer_id": asked(kb)},
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": "No proof list."}
     )
     assert reply.status_code == 200
     gap = kb.store.feedback(status="open")[0]["id"]
@@ -179,8 +177,7 @@ def _close_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
 
 def _draft_from_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
     reply = client(kb, "rm-session").post(
-        f"/assistant/cases/{CASE_ID}/feedback",
-        json={"helpful": False, "note": "No proof list.", "answer_id": asked(kb)},
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": "No proof list."}
     )
     assert reply.status_code == 200
     gap = kb.store.feedback(status="open")[0]["id"]

@@ -70,7 +70,7 @@ function Exchange({ record }: { record: AnswerRecord }) {
     <div className="request-page-exchange">
       <p className="request-page-bubble request-page-question">{record.question}</p>
       <div className="request-page-bubble request-page-answer">
-        <p className="request-page-answer-text">{record.shown_answer}</p>
+        <p className="request-page-answer-text">{record.shown_answer || "The answer text was not kept for this record."}</p>
         {record.result.notices.map((notice) => <p key={notice} className="request-page-notice">{notice}</p>)}
       </div>
     </div>
@@ -233,9 +233,13 @@ export default function RequestPage({ gap, onBack }: { gap: KnowledgeGap; onBack
   const [error, setError] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
 
+  const hasRecord = Boolean(gap.answer_id);
+
   useEffect(() => {
     // Focus the title without scrolling past the Back button above it.
     heading.current?.focus({ preventScroll: true });
+    // A note sent when the answer record could not be saved: nothing to load (or log).
+    if (!hasRecord) return;
     const controller = new AbortController();
     fetchGapAnswer(gap.id, controller.signal)
       .then(setRecord)
@@ -243,7 +247,7 @@ export default function RequestPage({ gap, onBack }: { gap: KnowledgeGap; onBack
         if (!controller.signal.aborted) setError(errorText(reason));
       });
     return () => controller.abort();
-  }, [gap.id]);
+  }, [gap.id, hasRecord]);
 
   return (
     <div className="request-page">
@@ -252,8 +256,18 @@ export default function RequestPage({ gap, onBack }: { gap: KnowledgeGap; onBack
         <h2 id="knowledge-review-title" ref={heading} tabIndex={-1}>Enhancement request {gap.id}</h2>
         <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
       </header>
+      {!hasRecord && (
+        <section className="request-page-column" aria-labelledby="request-page-no-record">
+          <h3 id="request-page-no-record">No answer record for this request</h3>
+          <p className="knowledge-review-meta">
+            The details of the answer could not be saved, so only the RM's note is shown.
+          </p>
+          <h4>The RM's note</h4>
+          <blockquote className="request-page-note">{gap.note || "No note given."}</blockquote>
+        </section>
+      )}
       {error && <p className="ai-assistant-error" role="alert">{error}</p>}
-      {!record && !error && <p className="ai-assistant-hint">Loading…</p>}
+      {hasRecord && !record && !error && <p className="ai-assistant-hint">Loading…</p>}
       {record && (
         <div className="request-page-columns">
           <WhatTheRmSaw gap={gap} record={record} />

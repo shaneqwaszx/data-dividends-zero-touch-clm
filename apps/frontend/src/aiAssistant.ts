@@ -307,7 +307,8 @@ export interface AiAssistantFeedbackResult {
 
 /**
  * "Yes, helpful" records the rating; "Not helpful" needs a note (the backend refuses an empty
- * one) and the answer's `answer_id`, and becomes an enhancement request for a Director.
+ * one) and becomes an enhancement request for a Director. Both send the answer's `answer_id`
+ * when the answer has a record; without one the Director sees only the note.
  */
 export function sendAiAssistantFeedback(
   caseId: string,

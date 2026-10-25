@@ -393,6 +393,8 @@ class KnowledgeStore:
             # shapes without every v4 column; the v4 step only adds what is missing.
             if version is not None and int(version[0]) <= 4:
                 self._migrate_to_4(db)
+            if version is not None and int(version[0]) == 5:
+                self._repair_5(db)
             db.executescript(_SCHEMA)
             db.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -1152,6 +1154,19 @@ class KnowledgeStore:
         columns = {row[1] for row in db.execute("PRAGMA table_info(entries)")}
         if "revises" not in columns:
             db.execute("ALTER TABLE entries ADD COLUMN revises INTEGER")
+
+    @staticmethod
+    def _repair_5(db: sqlite3.Connection) -> None:
+        """An earlier build of this branch (never on main) stamped 5 on an answer_records
+        table without ``shown_answer``, so every new record failed to insert. Add the column
+        (stored as JSON like the others); records made before it have an empty shown answer."""
+
+        columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
+        if columns and "shown_answer" not in columns:
+            db.execute(
+                "ALTER TABLE answer_records ADD COLUMN shown_answer TEXT NOT NULL DEFAULT '\"\"'"
+            )
+            db.commit()
 
     @staticmethod
     def _migrate_to_4(db: sqlite3.Connection) -> None:

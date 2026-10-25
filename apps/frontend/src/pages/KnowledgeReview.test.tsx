@@ -591,12 +591,21 @@ describe("The enhancement request page", () => {
     expect(view.textContent).toContain("Enhancement requests (1)");
   });
 
-  it("offers no request page for a request without a record", async () => {
-    reviewWith(GAP, []);
+  it("says a request has no answer record, shows the note, and loads nothing", async () => {
+    const fetched: string[] = [];
+    reviewWith({ ...GAP, answer_id: null }, fetched);
     const view = render();
     await flush();
-    expect(view.textContent).toContain("It did not show the two addresses.");
-    expect([...view.querySelectorAll("button")].some((b) => b.textContent === "Open request page")).toBe(false);
+    openRequestPage(view);
+    await flush();
+    expect(view.querySelector(".knowledge-review-page")).not.toBeNull();
+    const page = view.querySelector('[aria-labelledby="request-page-no-record"]');
+    expect(page?.querySelector("h3")?.textContent).toBe("No answer record for this request");
+    expect(page?.querySelector(".request-page-note")?.textContent).toBe("It did not show the two addresses.");
+    // No What happened sections, and no record request (so no view is logged).
+    expect(view.querySelector('[aria-labelledby="request-page-why"]')).toBeNull();
+    expect(view.querySelector('[aria-labelledby="request-page-saw"]')).toBeNull();
+    expect(fetched.some((url) => url.includes("/answer"))).toBe(false);
   });
 });
 
