@@ -220,6 +220,22 @@ Schema3 (D-079 candidate) holds only shareholder evidence read without an entity
 - **Rollback:** schema1/schema2 documents written by this version serialize
   `shareholder_evidence` as null, so an earlier version reading them fails closed.
 
+Schema4 (D-080 candidate) replaces schema3 for new shareholder evidence.
+- **Key:** acquisition contract `MARKETPLACE_SHAREHOLDERS_V2`.
+- **Contents:** the schema3 contents, plus each row's optional source share class and
+  currency.
+- **Legacy entries:** schema3 entries stay readable only under the V1 key and never carry
+  a class. New code never looks them up, so they are neither reused nor rewritten.
+- **Exactness:** each contract version must match its schema (V1 = 3, V2 = 4), so a
+  mismatched entry is invalid.
+- **Unchanged:** freshness, negative TTL, failure handling, locks and CAS.
+- **Rollback:** the Mongo cache store decodes every document at startup. An earlier
+  (schema-3) version therefore refuses to start against a cache written by this version.
+  It rejects schema-4 entries, and also schema-1/schema-2 entries whose ownership parties
+  serialize `share_type`/`currency` as null. The refusal is fail-closed, until that collection is
+  cleared. Separately, any case envelope v14 in the case collection makes an earlier
+  version refuse startup.
+
 One process-local exact-key owner suppresses active same-key calls, with max256 keys,
 max64 registered users per key and max45s waiter deadline (bounded test seams). Cancellation
 before/post acquisition commits no result; locks retire after the last user. Error or

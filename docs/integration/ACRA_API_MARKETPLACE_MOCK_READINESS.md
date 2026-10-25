@@ -118,3 +118,32 @@ operation coherent. Garden remains the separately bounded known special case.
 The recommended fully controlled demonstrations are the four fictional database-backed
 fixtures in [the database UAT guide](../demo/ZERO_TOUCH_DATABASE_HAPPY_PATH_UAT.md).
 They are local synthetic normalized evidence, never real ACRA catalogue entities.
+
+## Bounded Garden/SIM LIM verification - 2026-10-24
+
+The owner authorized this bounded, read-only run. It used the in-process application
+against the official Mock host, with verified TLS, no proxy inheritance and redirects
+disabled. Credentials were read only in memory and never recorded. The reads were
+allowlisted to `11111999A` and `111111111M`. There were 9 genuine requests in total: 2
+token requests and 7 GETs. 8 recorded HTTP 200; the first capital read's status was not
+captured.
+
+- **Fresh Garden onboarding** (memory persistence, Mock GoldTier, hybrid direct-only
+  overlay, running the D-079 code before share-class retention existed):
+  - Garden `entityBasicInformation` ×2;
+  - SIM LIM `entityBasicInformation` ×1, an explicit empty collection;
+  - SIM LIM `coShareholdersDetails` ×1: one entity, UEN bound, 4 rows.
+  The rows were retained as D-079 official shareholder evidence. A second fresh case
+  made 0 GETs (cache reuse).
+- **Share classes.** The 4 rows are: 1 Corporate Withdrawn (Ordinary); Active Individual
+  holdings of 900 Ordinary, 100 Preference and 100 Others; all in SINGAPORE DOLLAR. The
+  corporate row's identifier has a UEN-like shape, but the contract does not define it as
+  a registration number, so it is not used. A foreign-registration field is present.
+- **Capital.** `coCapitalDetails` for `111111111M` was read twice. The fully recorded read
+  returned HTTP 200 with an explicit empty collection (0 entities). The first read returned
+  no capital fields. No same-entity capital or denominator record exists in the Mock.
+- **Repeat read.** One `coShareholdersDetails` repeat recorded the per-row class.
+
+This is `MOCK_INTEROPERABILITY_OBSERVED` only, not a Live or production observation. It
+supplies no share-class economic or control rule, and no denominator authority. Q-012
+remains open.

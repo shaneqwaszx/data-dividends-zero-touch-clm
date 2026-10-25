@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 13,
+  "case_envelope_schema_version": 14,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -143,9 +143,9 @@ behavioral baseline. `schema_version` versions this metadata format;
 persistence constant. The D-076 source introduced case envelope v11 (optional frozen
 ownership-discovery policy and discovery audit). D-077 introduced v12 (optional hybrid
 overlay classification, per-issuer official lookup/identity basis, evidence separation and
-labelled synthetic-basis comparison). The D-079 candidate uses v13 (optional official
-shareholder rows retained without an entity profile) and strictly reads valid legacy
-v1..v12 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
+labelled synthetic-basis comparison). D-079 introduced v13 (official shareholder rows
+without an entity profile). D-080 uses v14 (their source share class) and strictly
+reads valid legacy v1..v13 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
 in `apps/backend/app/persistence/models.py` and the version-specific decoders in
 `apps/backend/app/persistence/mongo_case_store.py`. This documents existing compatibility;
 no migration or persistence behavior is changed by this refresh. Historical tests and
@@ -558,8 +558,8 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v12) owns durable case
-  state. Strict legacy v1..v11 reads preserve absent historical fields, including v4
+- One schema-versioned case envelope (current schema v14) owns durable case
+  state. Strict legacy v1..v13 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
   while newly authored records use v2. A safe non-terminal v1 continuation is rebased in
@@ -1001,3 +1001,27 @@ Candidate D-079 on `feat/sim-lim-official-shareholder-evidence-20261024`, from m
 - **Providers:** classifications are unchanged.
 - **Evidence:** offline only (AUTOMATED_OFFLINE_SIMULATION). No live Marketplace call was
   made in the implementing session.
+
+## Share-class retention on official shareholder rows - unmerged candidate, 2026-10-24
+
+Candidate D-080 on `feat/sim-lim-acra-ownership-followthrough-20261024`, from main
+`ceefe1e42d566aa5e5ce7048c5eb0e2ff93a9322` (D-079 merged).
+- **Behaviour:** D-079 rows also keep each row's source `share_type` and `currency`. When
+  current rows mix classes, the denominator-required issue says so. No arithmetic changes.
+- **Persistence:** registry cache schema 4 (`MARKETPLACE_SHAREHOLDERS_V2`); case envelope
+  schema 14.
+- **Providers:** classifications are unchanged.
+- **Evidence:** D-080 itself has offline tests only. An owner-authorized bounded
+  read-only Marketplace **Mock** run (2 token requests, 7 GETs) used the pre-D-080 (D-079)
+  code. It retained SIM LIM's four rows in a fresh Garden onboarding, observed their share
+  classes, and found `coCapitalDetails` empty. This is Mock interoperability only, never
+  Live.
+- **D-081 (same candidate, owner scope correction):** in the opt-in hybrid overlay lane
+  only, retained current rows also become labelled `LOCAL_POC_ASSUMED_EQUAL_UNITS` links.
+  Each issuer's own active units form the denominator, and the existing six-decimal rule and
+  engine apply. Garden → SIM LIM gives ABCD123 51.13636375%. Every result stays
+  REVIEW_REQUIRED, and the creator cannot keep or redeclare POC links unchanged (409);
+  nothing is ACRA-verified.
+- **D-082 (candidate, opt-in, default off):** the eligible Garden POC analysis is accepted
+  at readiness only (state, issues and classifications stay review). Target confirmation
+  is still required, and no provisional UBO id reaches the Mock snapshot.

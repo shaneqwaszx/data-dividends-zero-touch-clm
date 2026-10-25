@@ -81,7 +81,7 @@ def test_real_mongo_restart_preserves_team_scope_priority_and_provider_free_read
             raw_documents = list(collection.find({}))
             assert len(raw_documents) == 3
             assert all(type(item["schema_version"]) is int for item in raw_documents)
-            assert all(item["schema_version"] == 13 for item in raw_documents)
+            assert all(item["schema_version"] == 14 for item in raw_documents)
 
             physical = build_persistence_bundle(settings)
             try:
@@ -105,7 +105,7 @@ def test_real_mongo_restart_preserves_team_scope_priority_and_provider_free_read
             assert raw_after_rejected_mutation["onboarding"]["team_id"] == "TEAM_A"
             assert raw_after_rejected_mutation["onboarding"]["priority"] == 10
             assert type(raw_after_rejected_mutation["schema_version"]) is int
-            assert raw_after_rejected_mutation["schema_version"] == 13
+            assert raw_after_rejected_mutation["schema_version"] == 14
 
             assert [
                 item["case_id"] for item in first_a.get("/api/clm/zero-touch/cases").json()
@@ -173,7 +173,7 @@ def test_real_mongo_restart_preserves_team_scope_priority_and_provider_free_read
             assert raw_after_restart["onboarding"]["team_id"] == "TEAM_A"
             assert raw_after_restart["onboarding"]["priority"] == 10
             assert type(raw_after_restart["schema_version"]) is int
-            assert raw_after_restart["schema_version"] == 13
+            assert raw_after_restart["schema_version"] == 14
 
             cleared = second_director.patch(
                 f"/api/clm/zero-touch/cases/{a_high}/priority",

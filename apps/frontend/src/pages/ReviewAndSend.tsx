@@ -1,5 +1,6 @@
 import { formatTimestamp, isIsoTimestamp } from "../shared";
 import UboSummary from "./UboSummary";
+import { assumedBasisMatches } from "../ownershipDisplay";
 import { useEffect, useRef, type ReactNode } from "react";
 import StageDisclosure from "./StageDisclosure";
 
@@ -21,6 +22,15 @@ function label(value: string | null | undefined): string {
       .toLowerCase()
       .replace(/^./, (letter) => letter.toUpperCase())
     : "Not available";
+}
+
+// F5: assessed people, assumed-basis matches and formal provisional UBOs stay distinct.
+function ownershipCounts(ownership: OwnershipAnalysisRecord): string {
+  const people = ownership.candidates.filter((item) => item.party.party_type === "NATURAL_PERSON");
+  const provisional = people.filter((item) => item.classification === "PROVISIONAL_UBO_CANDIDATE" && item.threshold_result === "MET").length;
+  const assumed = assumedBasisMatches(ownership).length;
+  return `${people.length} natural person(s) assessed, ${provisional} provisional UBO candidate(s)`
+    + (assumed ? `, ${assumed} assumed-basis threshold match(es)` : "");
 }
 
 function displayValue(value: string | null): string {
@@ -455,7 +465,7 @@ export default function ReviewAndSend({
           <ul>
             <li>Registry: {onboardingCase.entity?.source ? `${onboardingCase.entity.source.source_system} ${label(onboardingCase.entity.source.environment)}` : "not available"}</li>
             <li>Documents: {documents.length} retained; {documents.filter((document) => document.state === "REVIEWED").length} reviewed.</li>
-            <li>Ownership: {ownership ? `${ownership.candidates.length} provisional candidate(s), ${label(ownership.provider_environment)}` : "not available"}.</li>
+            <li>Ownership: {ownership ? `${ownershipCounts(ownership)}, ${label(ownership.provider_environment)}` : "not available"}.</li>
             {ownershipReceipt && (
               <li>
                 Ownership source: user-supplied declaration retained locally.

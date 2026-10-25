@@ -191,6 +191,10 @@ class RegistryOwnershipParty(BaseModel):
     share_allotted: Decimal | None = Field(
         default=None, ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6
     )
+    # D-080: source share class and currency, kept only on entity-less shareholder
+    # evidence. Untrusted labels; units of different classes are never combined.
+    share_type: str | None = Field(default=None, min_length=1, max_length=64)
+    currency: str | None = Field(default=None, min_length=1, max_length=64)
     provenance: RegistryEvidenceProvenance
 
     @field_validator("share_allotted", mode="before")
@@ -296,6 +300,11 @@ class RegistryAcquisitionBundle(BaseModel):
                 and evidence_count != 0
             ):
                 raise ValueError("non-complete registry operations cannot retain evidence")
+        if any(
+            item.share_type is not None or item.currency is not None
+            for item in self.ownership_parties
+        ):
+            raise ValueError("share class is retained only on entity-less shareholder evidence")
 
         entity_result = results_by_operation[RegistryOperation.ENTITY_PROFILE]
         if entity_result.status != RegistryOperationStatus.COMPLETE:
@@ -445,8 +454,13 @@ class RegistryAcquisitionBundle(BaseModel):
         return self
 
 
-# Cache identity for issuer shareholder evidence read without an entity profile (D-079).
-SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: Literal["MARKETPLACE_SHAREHOLDERS_V1"] = (
+# Cache identity for issuer shareholder evidence read without an entity profile. D-080
+# rows also keep their source share class (cache schema 4); D-079 V1 entries (schema 3)
+# never carry it, stay readable and are never reused or rewritten under the new key.
+SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: Literal["MARKETPLACE_SHAREHOLDERS_V2"] = (
+    "MARKETPLACE_SHAREHOLDERS_V2"
+)
+LEGACY_SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: Literal["MARKETPLACE_SHAREHOLDERS_V1"] = (
     "MARKETPLACE_SHAREHOLDERS_V1"
 )
 
@@ -568,13 +582,14 @@ class RegistrySnapshotEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    cache_schema_version: Literal[1, 2, 3] = 1
+    cache_schema_version: Literal[1, 2, 3, 4] = 1
     cache_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     key: RegistryCacheKey
     revision: int = Field(ge=0)
     acquisition: RegistryAcquisitionBundle | None
     negative_result: Literal["NOT_FOUND"] | None = None
-    # Schema 3 only: D-079 shareholder evidence under its own contract key.
+    # Schemas 3 (D-079, V1 key) and 4 (D-080, V2 key, share class retained) only:
+    # shareholder evidence under its own contract key.
     shareholder_evidence: RegistryShareholderEvidence | None = None
     freshness_anchor: datetime
     provider_effective_at: datetime | None = None
@@ -602,19 +617,27 @@ class RegistrySnapshotEntry(BaseModel):
         ):
             raise ValueError("operation and negative cache require explicit Mock identity")
         identity = self.key.provider_identity
-        shareholder_key = (
-            identity.acquisition_contract_version == SHAREHOLDER_EVIDENCE_CONTRACT_VERSION
-        )
+        shareholder_schema = {
+            LEGACY_SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: 3,
+            SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: 4,
+        }.get(identity.acquisition_contract_version)
         if (
-            shareholder_key
+            shareholder_schema is not None
             or self.shareholder_evidence is not None
-            or self.cache_schema_version == 3
+            or self.cache_schema_version in {3, 4}
         ):
             evidence = self.shareholder_evidence
             if (
-                not shareholder_key
+                shareholder_schema is None
                 or evidence is None
-                or self.cache_schema_version != 3
+                or self.cache_schema_version != shareholder_schema
+                or (
+                    shareholder_schema == 3
+                    and any(
+                        item.share_type is not None or item.currency is not None
+                        for item in evidence.ownership_parties
+                    )
+                )
                 or self.acquisition is not None
                 or self.negative_result is not None
                 or self.provider_effective_at is not None

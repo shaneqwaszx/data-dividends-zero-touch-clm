@@ -1,9 +1,17 @@
-import { formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
+import { assumedBasisLabel, assumedBasisMatches, formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
 import type { OwnershipAnalysisRecord } from "../types";
+
+const ASSUMED_BASIS_HEADING = "Meets the threshold on an assumed basis — review required";
+// D-082 (F4): once the backend accepts the POC basis for readiness, "review required" and
+// "do not clear ownership readiness" are outdated; the POC disclosure stays.
+const ACCEPTED_ASSUMED_BASIS_HEADING = "Meets the threshold on an assumed basis";
 
 export default function UboSummary({ record }: { record: OwnershipAnalysisRecord | null }) {
   const qualified = record?.candidates.filter(candidate => candidate.party.party_type === "NATURAL_PERSON"
     && candidate.classification === "PROVISIONAL_UBO_CANDIDATE" && candidate.threshold_result === "MET") ?? [];
+  const assumed = assumedBasisMatches(record);
+  const accepted = record?.poc_basis_accepted === true;
+  const assumedHeading = accepted ? ACCEPTED_ASSUMED_BASIS_HEADING : ASSUMED_BASIS_HEADING;
   const title = "Identified UBO candidates — effective ownership ≥ current policy threshold";
   return <section className="ubo-summary" aria-label={title}>
     <header className="ubo-summary__header">
@@ -28,8 +36,25 @@ export default function UboSummary({ record }: { record: OwnershipAnalysisRecord
         </div>
         {candidate.paths.length > 20 && <p>Showing 20 retained paths. Inspect all paths in technical calculations.</p>}
       </details>
-    </li>)}</ul> : <p className="ubo-summary__empty">{record ? "No qualifying natural person is identified by the current retained classification." : "Ownership analysis is not available."}</p>}
-    {record && record.state !== "ANALYZED" && <p className="ubo-summary__warning">UBO determination requires review. Ownership evidence is incomplete or disputed; the current result is non-definitive.</p>}
+    </li>)}</ul> : <p className="ubo-summary__empty">{!record ? "Ownership analysis is not available."
+      : assumed.length ? `No natural person is formally classified as a provisional UBO; ${assumed.length} ${assumed.length === 1 ? "meets" : "meet"} the threshold only on an assumed basis (below).`
+        : "No qualifying natural person is identified by the current retained classification."}</p>}
+    {record && assumed.length > 0 && <section className="ubo-summary__assumed" aria-label={assumedHeading}>
+      <h6>{assumedHeading}</h6>
+      <p className="control-help">{accepted
+        ? "These percentages meet the configured threshold under declared POC assumptions. They are not verified legal UBO determinations or provisionally classified UBOs."
+        : "These percentages meet the configured threshold under declared POC assumptions. They are not verified or provisionally classified UBOs and do not clear ownership readiness."}</p>
+      <ul className="ubo-summary__list">{assumed.map(candidate => <li key={candidate.party.party_id} className="ubo-card">
+        <strong className="ubo-card__name">{candidate.party.display_name}</strong>
+        <span className="ubo-card__effective"><b>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</b> effective</span>
+        <dl className="ubo-card__figures">
+          <div><dt>Basis</dt><dd>{assumedBasisLabel(record, candidate)}</dd></div>
+          <div><dt>Assumed-basis comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.synthetic_basis_threshold_result}</dd></div>
+          <div><dt>Classification</dt><dd>{candidate.classification}</dd></div>
+        </dl>
+      </li>)}</ul>
+    </section>}
+    {record && record.state !== "ANALYZED" && !record.poc_basis_accepted && <p className="ubo-summary__warning">UBO determination requires review. Ownership evidence is incomplete or disputed; the current result is non-definitive.</p>}
     {record?.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="control-help">Official Marketplace Mock facts and local synthetic ownership evidence remain distinct. LOCAL_SYNTHETIC_SUPPLEMENT percentages are not official ACRA ownership values.</p>}
   </section>;
 }
