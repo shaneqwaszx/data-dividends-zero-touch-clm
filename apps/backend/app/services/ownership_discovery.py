@@ -25,9 +25,12 @@ from app.connectors.hybrid_ownership_overlay import (
     OFFICIAL_MARKETPLACE_PROFILE_REFERENCE,
     OVERLAY_RELATIONSHIP_PROVIDER,
     POC_EQUAL_UNITS_PROVIDER,
+    POC_ISSUED_CAPITAL_PROVIDER,
     HybridOverlayScenario,
     OverlayIssuer,
+    issued_capital_matches,
     official_equal_unit_component,
+    official_issued_capital_component,
     overlay_component,
 )
 from app.connectors.ownership import OwnershipSourceResult
@@ -42,11 +45,18 @@ from app.domain.models import (
     SourceEnvironment,
 )
 from app.domain.ownership import (
+    OFFICIAL_BUSINESS_PROFILE_EMPTY,
+    OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL,
+    OFFICIAL_BUSINESS_PROFILE_RETAINED,
     OFFICIAL_SHAREHOLDERS_EMPTY,
     OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS,
     OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE,
     RESOLVED_DISCOVERY_OUTCOMES,
+    OfficialBusinessProfileObservation,
+    OfficialBusinessProfileShareholder,
     OfficialEntityLookup,
+    OfficialOfficerRoleObservation,
+    OfficialShareCapitalObservation,
     OfficialShareholderLookup,
     OfficialShareholderObservation,
     OwnershipDiscoveryAudit,
@@ -75,6 +85,7 @@ from app.services.ownership_analysis import (
 from app.services.registry_acquisition import (
     RegistryAcquisitionBusyError,
     RegistryCacheError,
+    SubsidiaryBusinessProfileEvidence,
     SubsidiaryRegistryEvidence,
     SubsidiaryShareholderEvidence,
 )
@@ -123,6 +134,7 @@ class _OverlayIdentity:
     identity_basis: Literal["OFFICIAL_MOCK_ENTITY_PROFILE", "LOCAL_SYNTHETIC_IDENTITY"]
     official_entity_lookup: OfficialEntityLookup
     official_legal_form: RegistryLegalForm | None
+    officer_roles: tuple[OfficialOfficerRoleObservation, ...] = ()
 
 
 class OwnershipDiscoveryCoordinator:
@@ -410,6 +422,7 @@ class _DiscoveryRun:
         identity: _OverlayIdentity | None = None
         shareholders: tuple[OfficialShareholderObservation, ...] = ()
         shareholder_lookup: OfficialShareholderLookup | None = None
+        business_profile: OfficialBusinessProfileObservation | None = None
         try:
             evidence = self._reader.acquire_subsidiary_registry_evidence(
                 uen,
@@ -453,6 +466,18 @@ class _DiscoveryRun:
                         and self._attach_poc_distribution(node, uen, shareholders)
                     ):
                         reason = OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
+                    elif (
+                        reason == OFFICIAL_SHAREHOLDERS_EMPTY
+                        and self._overlay is not None
+                        and uen in self._overlay.business_profile_issuers
+                    ):
+                        (
+                            outcome,
+                            reason,
+                            business_profile,
+                            profile_backed,
+                        ) = self._official_business_profile(node, uen)
+                        provider_backed = provider_backed or profile_backed
                 else:
                     outcome = rejected
         if provider_backed:
@@ -460,8 +485,166 @@ class _DiscoveryRun:
         else:
             self._cache_hits += 1
         self._finalize(
-            node, outcome, depth, shares, reason, identity, shareholders, shareholder_lookup
+            node,
+            outcome,
+            depth,
+            shares,
+            reason,
+            identity,
+            shareholders,
+            shareholder_lookup,
+            business_profile,
         )
+
+    def _official_business_profile(self, node: str, uen: str) -> tuple[
+        OwnershipDiscoveryOutcome, str | None, OfficialBusinessProfileObservation | None, bool
+    ]:
+        """D-088: a scenario-named issuer's official businessProfile, in the hybrid lane only.
+
+        Read once, after the same issuer's entity profile and shareholder operation were
+        both definitively empty. Status-free rows are assumed current only when they
+        exactly equal the issuer's single compatible issued class; then they attach as
+        labelled issued-capital links. Otherwise the profile is retained unattached, and
+        any failure stops safely with nothing retained.
+        """
+        empty = (OwnershipDiscoveryOutcome.NOT_FOUND, OFFICIAL_SHAREHOLDERS_EMPTY, None, False)
+        reader = getattr(self._reader, "acquire_subsidiary_business_profile_evidence", None)
+        if reader is None:
+            return empty
+        try:
+            result: SubsidiaryBusinessProfileEvidence | None = reader(
+                uen,
+                case_policy=self._parent.policy_snapshot.registry,
+                policy_version=self._parent.policy_snapshot.catalogue_version,
+                cancelled=lambda: self._clock() >= self._deadline,
+            )
+        except RegistryAcquisitionBusyError:
+            return OwnershipDiscoveryOutcome.HARD_LIMIT, "REGISTRY_ACQUISITION_BUSY", None, True
+        except RegistryCacheError as error:
+            return OwnershipDiscoveryOutcome.CACHE_FAILURE, error.code, None, True
+        except (ConnectorError, ValueError):
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_FAILED,
+                "BUSINESS_PROFILE_PROVIDER_FAILED",
+                None,
+                True,
+            )
+        except Exception:
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_FAILED,
+                "BUSINESS_PROFILE_UNEXPECTED_FAILURE",
+                None,
+                True,
+            )
+        if result is None:
+            return empty
+        backed = result.provider_backed
+        evidence = result.evidence
+        if evidence.requested_identifier != uen or evidence.environment.value != "MOCK":
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_IDENTITY_MISMATCH", None, backed
+            )
+        if evidence.status == "FAILED":
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_FAILED,
+                evidence.error_code or "BUSINESS_PROFILE_PROVIDER_FAILED",
+                None,
+                backed,
+            )
+        if evidence.status == "EMPTY":
+            return (
+                OwnershipDiscoveryOutcome.NOT_FOUND, OFFICIAL_BUSINESS_PROFILE_EMPTY, None, backed
+            )
+        try:
+            capital = {
+                name: tuple(
+                    OfficialShareCapitalObservation(
+                        share_type=line.share_type,
+                        currency=line.currency,
+                        number_of_shares=line.number_of_shares,
+                        amount=line.amount,
+                    )
+                    for line in lines
+                )
+                for name, lines in (
+                    ("issued", evidence.issued_share_capital),
+                    ("paid_up", evidence.paid_up_capital),
+                )
+            }
+
+            def rows(assumed: bool) -> tuple[OfficialBusinessProfileShareholder, ...]:
+                return tuple(
+                    OfficialBusinessProfileShareholder(
+                        source_party_id=item.party_id,
+                        display_name=item.name,
+                        party_type=PartyType(item.party_type.value),
+                        source_category=item.source_category,
+                        provider_status=item.source_status,
+                        number_of_shares=item.number_of_shares,
+                        share_type=item.share_type,
+                        currency=item.currency,
+                        assumed_current=assumed,
+                    )
+                    for item in evidence.shareholders
+                )
+
+            def observation(assumed: bool) -> OfficialBusinessProfileObservation:
+                return OfficialBusinessProfileObservation(
+                    entity_name=evidence.entity_name or "",
+                    company_type=evidence.company_type,
+                    status_of_company=evidence.status_of_company,
+                    shareholders=rows(assumed),
+                    issued_share_capital=capital["issued"],
+                    paid_up_capital=capital["paid_up"],
+                    lookup=(
+                        "BUSINESS_PROFILE_FETCHED" if backed else "BUSINESS_PROFILE_CACHE_REUSED"
+                    ),
+                    retrieved_at=evidence.retrieved_at,
+                    evidence_reference=evidence.evidence_reference,
+                )
+
+            retained = observation(False)
+        except ValidationError:
+            return (
+                OwnershipDiscoveryOutcome.PROVIDER_INVALID,
+                "BUSINESS_PROFILE_RECORD_INVALID",
+                None,
+                backed,
+            )
+        partial = OwnershipDiscoveryOutcome.PROVIDER_PARTIAL
+        if not issued_capital_matches(
+            retained.shareholders, retained.issued_share_capital, retained.paid_up_capital
+        ):
+            return partial, OFFICIAL_BUSINESS_PROFILE_RETAINED, retained, backed
+        assumed = observation(True)
+        try:
+            component = official_issued_capital_component(
+                uen,
+                assumed,
+                issuer_party=Party(
+                    party_id=f"ENTITY_{uen}",
+                    display_name=assumed.entity_name,
+                    party_type=PartyType.LEGAL_ENTITY,
+                    registration_number=uen,
+                    country="SG",
+                ),
+                sourced_at=self._utc_clock(),
+            )
+            source = OwnershipSourceResult(
+                root_party_id=component.root_party_id,
+                parties=list(component.parties),
+                relationships=list(component.relationships),
+            )
+            validate_ownership_graph(build_ownership_graph(source))
+        except (ValidationError, OwnershipGraphError, ValueError, KeyError):
+            return partial, OFFICIAL_BUSINESS_PROFILE_RETAINED, retained, backed
+        if self._merge(node, uen, source) is not None:
+            return partial, OFFICIAL_BUSINESS_PROFILE_RETAINED, retained, backed
+        # The node's identity label follows its official profile; the links stay POC.
+        self._parties[node] = Party.model_validate(
+            {**self._parties[node].model_dump(), "display_name": assumed.entity_name}
+        )
+        return partial, OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL, assumed, backed
 
     def _official_shareholders(self, uen: str) -> tuple[
         OwnershipDiscoveryOutcome,
@@ -721,12 +904,28 @@ class _DiscoveryRun:
                     "OFFICIAL_QUANTITY_PRECLUDES_OVERLAY",
                     None,
                 )
+            # D-086 fail closed (owner decision): the issuer's official OFFICERS roles are
+            # kept beside the graph (role and status only, never identities or holdings)
+            # so POC eligibility evaluates them instead of silently dropping them.
+            try:
+                roles = tuple(
+                    OfficialOfficerRoleObservation(
+                        role=officer.role,
+                        status="CEASED" if officer.cessation_date is not None else "CURRENT",
+                        source_operation=officer.provenance.operation.value,
+                        retrieved_at=officer.provenance.retrieved_at,
+                    )
+                    for officer in bundle.officers
+                )
+            except ValidationError:
+                return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_RECORD_INVALID", None
             identity = _OverlayIdentity(
                 "OFFICIAL_MOCK_ENTITY_PROFILE",
                 "ENTITY_PROFILE_CACHE_REUSED"
                 if evidence.entity_profile_reused
                 else "ENTITY_PROFILE_FETCHED",
                 classify_registry_legal_form(bundle.entity_profile.party_type),
+                roles,
             )
             name = bundle.entity_profile.legal_name or self._parties[node].display_name
         # The node's identity name follows its identity source; links stay local.
@@ -822,6 +1021,8 @@ class _DiscoveryRun:
                             if edge.provenance.provider == OVERLAY_RELATIONSHIP_PROVIDER
                             else f"POC_EQUAL_UNITS_{scoped}"
                             if edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
+                            else f"POC_ISSUED_CAPITAL_{scoped}"
+                            if edge.provenance.provider == POC_ISSUED_CAPITAL_PROVIDER
                             else f"ACRA_REGISTRY_{scoped}"
                         ),
                         sourced_at=edge.provenance.sourced_at,
@@ -917,6 +1118,7 @@ class _DiscoveryRun:
         identity: _OverlayIdentity | None = None,
         shareholders: tuple[OfficialShareholderObservation, ...] = (),
         shareholder_lookup: OfficialShareholderLookup | None = None,
+        business_profile: OfficialBusinessProfileObservation | None = None,
     ) -> None:
         party = self._parties[node]
         share = shares.get(node)
@@ -933,8 +1135,10 @@ class _DiscoveryRun:
                 identity.official_entity_lookup if identity is not None else None
             ),
             official_legal_form=identity.official_legal_form if identity is not None else None,
+            official_officer_roles=identity.officer_roles if identity is not None else (),
             official_shareholders=shareholders,
             official_shareholder_lookup=shareholder_lookup,
+            official_business_profile=business_profile,
         )
 
     def _uen(self, node: str) -> str:

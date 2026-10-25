@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 14,
+  "case_envelope_schema_version": 15,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1025,3 +1025,27 @@ Candidate D-080 on `feat/sim-lim-acra-ownership-followthrough-20261024`, from ma
 - **D-082 (candidate, opt-in, default off):** the eligible Garden POC analysis is accepted
   at readiness only (state, issues and classifications stay review). Target confirmation
   is still required, and no provisional UBO id reaches the Mock snapshot.
+- **D-085 (candidate, same opt-in):** replaces D-082's Garden-only officer-role allowlist
+  with a reusable contract. A trusted catalogue scenario declares its accepted POC
+  assumptions, and eligibility evaluates actual review causes. Garden qualifies; the D-077
+  five-layer scenario declares nothing. Case envelope 15. A bounded read-only Marketplace
+  Mock probe (2026-10-25, 1 token + 18 GETs) found no ACRA-backed multi-layer chain
+  supportable without overriding official holder facts (`INSUFFICIENT_MARKETPLACE_MOCK_DATA`).
+- **D-086 (candidate):** the five-layer simulation is presented as "Multi-layer ownership
+  simulation calculated" (presentation-only `simulation_calculated`; readiness unchanged),
+  and an operator-selected `OPQ_GARDEN_SIM_LIM_V1` scenario links OPQ to Garden at an
+  owner-declared 100% (no units), reusing Garden's register and SIM LIM's official rows. It
+  calculates; Garden's retained Owner roles first blocked POC readiness (fail closed).
+- **D-087 (candidate):** the OPQ scenario's trusted declaration names Garden's `OWNER` roles
+  as descriptive intermediate context (`DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES`), so a fresh
+  Scenario B case with the opt-in policy is POC-accepted, ownership-READY and waits for
+  explicit target confirmation. Undeclared issuers or role kinds still block.
+- **D-088 (candidate):** official Marketplace Mock `businessProfile` read for
+  scenario-named corporate holders only (cache schema 5, contract
+  `MARKETPLACE_BUSINESS_PROFILE_V1`). Status-free rows that exactly equal one compatible
+  issued class attach as `LOCAL_POC_ISSUED_CAPITAL_BASIS` links under the declared
+  `ISSUED_CAPITAL_DENOMINATOR` assumption. One owner-authorized read: 1 token + 1 GET.
+- **D-089 (candidate):** the `OPQ_GARDEN_ABC_V1` variant (selector
+  `garden_abc_multi_holder`), owner-declared OPQ -> Garden 50% / ABC COMPANY 50%. Results:
+  ABC holder 50, ABCD123 25.568181875, LIM CHOON HUAT 18.75, TAN WEI LING and EFGH2345
+  2.8409090625. POC-accepted, ownership READY, waits for explicit confirmation.

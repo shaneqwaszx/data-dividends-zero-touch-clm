@@ -25,6 +25,8 @@ from app.connectors.acra_api_marketplace_auth import (
 from app.connectors.acra_api_marketplace_mock import ACRA_API_MARKETPLACE_MOCK_BASE_URL
 from app.connectors.acra_sandbox import AcraHttpResponse
 from app.connectors.hybrid_ownership_overlay import (
+    ABC_COMPANY_NAME,
+    ABC_COMPANY_UEN,
     FIVE_LAYER_ROOT_UEN,
     L2_UEN,
     L3_UEN,
@@ -53,10 +55,61 @@ ALLOWLISTED_UENS = frozenset(
         L5_UEN,
         GARDEN_UEN,
         SIM_LIM_UEN,
+        ABC_COMPANY_UEN,
     }
 )
 _ENTITY_PATH = "/entityQuery/entityBasicInformation"
 _SHAREHOLDERS_PATH = "/entityQuery/coShareholdersDetails"
+_BUSINESS_PROFILE_PATH = "/entityQuery/businessProfile"
+# Visibly synthetic stand-ins for the holder fields of the owner-authorized single read
+# (2026-10-25); the observed name and identifier are never recorded here.
+ABC_SYNTHETIC_HOLDER_NAME = "SYNTHETIC ABC HOLDER"
+ABC_SYNTHETIC_HOLDER_ID = "SYNTHETIC-ABC-HOLDER-1"
+
+
+def abc_business_profile() -> dict[str, object]:
+    """ABC COMPANY in the observed businessProfile shape (counts as JSON numbers 1000.0).
+
+    The single authorized Mock read returned one Individual holding 1000 ORDINARY (SGD)
+    with no status, and issued and paid-up capital of 1000 ORDINARY (SGD). Officer and
+    address blocks are omitted: the decoder never retains them.
+    """
+    return {
+        "entities": [
+            {
+                "uen": ABC_COMPANY_UEN,
+                "entityName": ABC_COMPANY_NAME,
+                "companyType": "EXEMPT PRIVATE COMPANY LIMITED BY SHARES",
+                "statusOfCompany": "LIVE COMPANY",
+                "shareholder": [
+                    {
+                        "category": "Individual",
+                        "id": ABC_SYNTHETIC_HOLDER_ID,
+                        "principalName": ABC_SYNTHETIC_HOLDER_NAME,
+                        "numberOfShares": 1000.0,
+                        "shareType": "ORDINARY",
+                        "currency": "SINGAPORE DOLLAR",
+                    }
+                ],
+                "issuedShareCapital": [
+                    {
+                        "numberOfShares": 1000.0,
+                        "amount": 1000.0,
+                        "currency": "SINGAPORE DOLLAR",
+                        "shareType": "ORDINARY",
+                    }
+                ],
+                "paidUpCapital": [
+                    {
+                        "numberOfShares": 1000.0,
+                        "amount": 1000.0,
+                        "currency": "SINGAPORE DOLLAR",
+                        "shareType": "ORDINARY",
+                    }
+                ],
+            }
+        ]
+    }
 
 
 def five_layer_root_profile() -> dict[str, object]:
@@ -134,6 +187,9 @@ class OfflineFiveLayerProtocolTransport:
         default_factory=_default_profiles
     )
     shareholders: dict[str, dict[str, object]] = field(default_factory=dict)
+    business_profiles: dict[str, dict[str, object]] = field(
+        default_factory=lambda: {ABC_COMPANY_UEN: abc_business_profile()}
+    )
     failures: dict[str, int | Exception] = field(default_factory=dict)
     token_status: int = 200
     allowlist: frozenset[str] = ALLOWLISTED_UENS
@@ -188,11 +244,15 @@ class OfflineFiveLayerProtocolTransport:
             or len(query["uen"]) != 1
             or uen not in self.allowlist
             or parsed.fragment
-            or operation not in {_ENTITY_PATH, _SHAREHOLDERS_PATH}
+            or operation not in {_ENTITY_PATH, _SHAREHOLDERS_PATH, _BUSINESS_PROFILE_PATH}
             or headers.get("token") != self._token
         ):
             raise ValueError("Offline protocol lookup is outside the allowlist")
-        label = "ENTITY_PROFILE" if operation == _ENTITY_PATH else "SHAREHOLDERS"
+        label = {
+            _ENTITY_PATH: "ENTITY_PROFILE",
+            _SHAREHOLDERS_PATH: "SHAREHOLDERS",
+            _BUSINESS_PROFILE_PATH: "BUSINESS_PROFILE",
+        }[operation]
         self.calls[(label, uen)] += 1
         failure = self.failures.get(uen)
         if isinstance(failure, Exception):
@@ -202,8 +262,10 @@ class OfflineFiveLayerProtocolTransport:
         payload: object
         if operation == _ENTITY_PATH:
             payload = self.profiles.get(uen) or {"entities": []}
-        else:
+        elif operation == _SHAREHOLDERS_PATH:
             payload = self.shareholders.get(uen, {"entities": []})
+        else:
+            payload = self.business_profiles.get(uen, {"entities": []})
         return AcraHttpResponse(
             200, payload, "application/json", len(json.dumps(payload))
         )

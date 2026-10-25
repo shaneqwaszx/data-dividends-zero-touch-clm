@@ -2,10 +2,10 @@
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.access import CasePriority, TeamId
 from app.domain.administration import TeamRecord
@@ -74,6 +74,7 @@ from app.domain.onboarding_intelligence import (
     assess_classification_consistency,
 )
 from app.domain.ownership import (
+    OWNER_DECLARED_PERCENT_SOURCE_SUFFIX,
     ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
@@ -84,7 +85,9 @@ from app.domain.ownership import (
     OwnershipDocumentBinding,
     OwnershipDocumentDiscrepancy,
     OwnershipEnvironment,
+    OwnershipPathEvidence,
     OwnershipPocAcceptance,
+    OwnershipProvenance,
     OwnershipRelationshipType,
     OwnershipSourceClassification,
     OwnershipWorkflowEvent,
@@ -565,6 +568,13 @@ class OwnershipAnalysisResponse(BaseModel):
     # D-082: the persisted acceptance (audit) and whether the backend honours it now.
     poc_acceptance: OwnershipPocAcceptance | None = None
     poc_basis_accepted: bool = False
+    # Presentation only: a declared-overlay simulation whose arithmetic completed. Never
+    # readiness, verification or acceptance.
+    simulation_calculated: bool = False
+    # D-086 presentation only: engine path products reaching intermediate entities.
+    entity_effective_interests: list["BrowserEntityEffectiveInterest"] = Field(
+        default_factory=list
+    )
     created_at: datetime
     loaded_at: datetime | None = None
     analyzed_at: datetime | None = None
@@ -572,11 +582,44 @@ class OwnershipAnalysisResponse(BaseModel):
 
     @classmethod
     def from_domain(
-        cls, record: OwnershipAnalysisRecord, *, poc_basis_accepted: bool = False
+        cls,
+        record: OwnershipAnalysisRecord,
+        *,
+        poc_basis_accepted: bool = False,
+        simulation_calculated: bool = False,
+        entity_effective_interests: dict[str, tuple[OwnershipPathEvidence, ...]] | None = None,
     ) -> "OwnershipAnalysisResponse":
         return cls.model_validate(record).model_copy(
-            update={"poc_basis_accepted": poc_basis_accepted}
+            update={
+                "poc_basis_accepted": poc_basis_accepted,
+                "simulation_calculated": simulation_calculated,
+                "entity_effective_interests": [
+                    BrowserEntityEffectiveInterest(
+                        party_id=party_id,
+                        effective_ownership_percent=sum(
+                            (path.effective_ownership_percent for path in paths),
+                            start=Decimal("0"),
+                        ),
+                        paths=list(paths),
+                    )
+                    for party_id, paths in (entity_effective_interests or {}).items()
+                ],
+            }
         )
+
+
+class BrowserEntityEffectiveInterest(BaseModel):
+    """D-086 presentation only: a legal entity's root-equivalent interest from the engine.
+
+    The exact sum of the engine's path products reaching the entity, with each path.
+    Never a UBO candidate, classification, threshold result or readiness input.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    party_id: str
+    effective_ownership_percent: Decimal
+    paths: list[OwnershipPathEvidence]
 
 
 class BrowserOwnershipProvenance(BaseModel):
@@ -587,6 +630,23 @@ class BrowserOwnershipProvenance(BaseModel):
     provider: str
     environment: OwnershipEnvironment
     sourced_at: datetime
+    # D-086: an owner-declared overlay percentage (never an ACRA quantity). Only this
+    # boolean is projected; the internal source reference itself stays server-side.
+    owner_declared_percentage: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def mark_owner_declared_percentage(cls, value: Any) -> Any:
+        if isinstance(value, OwnershipProvenance):
+            return {
+                "provider": value.provider,
+                "environment": value.environment,
+                "sourced_at": value.sourced_at,
+                "owner_declared_percentage": value.source_reference.endswith(
+                    OWNER_DECLARED_PERCENT_SOURCE_SUFFIX
+                ),
+            }
+        return value
 
 
 class BrowserOwnershipRelationship(BaseModel):

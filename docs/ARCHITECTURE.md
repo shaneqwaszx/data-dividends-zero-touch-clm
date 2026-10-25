@@ -1093,4 +1093,13 @@ D-081 candidate: in the opt-in hybrid lane only, those retained current rows als
 denominator), which the same Decimal engine then calculates. Manual replacement refuses
 to keep or redeclare them unchanged. D-082 candidate (opt-in, default off): readiness asks
 the ownership service whether a recorded POC acceptance is current; the service honours
-it only while its own composition enables the policy in the Mock hybrid lane.
+it only while its own composition enables the policy in the Mock hybrid lane. D-085
+candidate: eligibility is declared per scenario in the trusted overlay catalogue and
+recomputed from actual review causes against the composition's own catalogue; envelope 15. D-086
+candidate: the composition builds the overlay catalogue from an operator-selected OPQ
+variant (default five-layer); `simulation_calculated` is a presentation flag only. D-087
+candidate: a declaration may name intermediate issuers and role kinds whose official
+officer roles are descriptive context; nothing else changes ownership readiness. D-088
+candidate: the registry owner gains a Mock-only `businessProfile` capability (strict
+decoder, opaque holder digest, cache schema 5) used by discovery only for
+scenario-named holders; its issued-capital links are ordinary edges in the single engine.

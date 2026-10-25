@@ -32,6 +32,7 @@ from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.connectors.registry import (
     AcraIdentifierNotEligibleError,
     AcraRegistryProviderAdapter,
+    BusinessProfileEvidenceProvider,
     RegistryProvider,
     RegistryProviderRouter,
     ShareholderEvidenceProvider,
@@ -125,6 +126,7 @@ from app.services.registry_acquisition import (
     RegistryAcquisitionBusyError,
     RegistryAcquisitionCoordinator,
     RegistryCacheError,
+    SubsidiaryBusinessProfileEvidence,
     SubsidiaryRegistryEvidence,
     SubsidiaryShareholderEvidence,
 )
@@ -2019,6 +2021,54 @@ class OnboardingService:
             cancelled=cancelled,
         )
         return SubsidiaryShareholderEvidence(
+            identifier=normalized,
+            evidence=result.evidence,
+            provider_backed=not result.cache_hit,
+        )
+
+    def acquire_subsidiary_business_profile_evidence(
+        self,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None,
+        policy_version: int,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> SubsidiaryBusinessProfileEvidence | None:
+        """D-088: one corporate holder's businessProfile operation without an entity profile.
+
+        Returns `None` without any call unless the routed provider is the official
+        Marketplace Mock composition. It reuses the single registry coordinator under
+        its own contract key and never touches a case.
+        """
+
+        normalized = identifier.strip().upper()
+        if not is_eligible_singapore_uen(normalized):
+            raise AcraIdentifierNotEligibleError
+        _, provider = self._registry_router.route(
+            JurisdictionCode.SINGAPORE, decided_at=self._clock()
+        )
+        if provider is None:
+            raise AcraIdentifierNotEligibleError
+        if not getattr(provider, "supports_business_profile_evidence", False):
+            return None
+        profile_provider = cast(BusinessProfileEvidenceProvider, provider)
+        coordinator = self._registry_acquisition_coordinator
+        if coordinator is None:
+            if cancelled is not None and cancelled():
+                raise RegistryAcquisitionBusyError
+            return SubsidiaryBusinessProfileEvidence(
+                identifier=normalized,
+                evidence=profile_provider.retrieve_business_profile_evidence(normalized),
+                provider_backed=True,
+            )
+        result = coordinator.acquire_business_profile_evidence(
+            profile_provider,
+            normalized,
+            case_policy=case_policy,
+            policy_version=policy_version,
+            cancelled=cancelled,
+        )
+        return SubsidiaryBusinessProfileEvidence(
             identifier=normalized,
             evidence=result.evidence,
             provider_backed=not result.cache_hit,

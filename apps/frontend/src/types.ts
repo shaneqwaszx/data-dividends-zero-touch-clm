@@ -747,7 +747,15 @@ export interface OwnershipRelationship {
     provider: string;
     environment: "MOCK" | "LOCAL" | "SANDBOX" | "LIVE";
     sourced_at: string;
+    // D-086: an owner-declared overlay percentage (never an ACRA quantity).
+    owner_declared_percentage?: boolean;
   };
+}
+
+export interface OwnershipEntityEffectiveInterest {
+  party_id: string;
+  effective_ownership_percent: string;
+  paths: OwnershipPath[];
 }
 
 export interface OwnershipPath {
@@ -823,8 +831,27 @@ export interface OwnershipDiscoveryAudit {
     outcome: OwnershipDiscoveryOutcome;
     max_effective_percent?: string | null;
     reason_code?: string | null;
+    // Hybrid lane: the issuer's identity source and its official registry legal form.
+    identity_basis?: "OFFICIAL_MOCK_ENTITY_PROFILE" | "LOCAL_SYNTHETIC_IDENTITY" | null;
+    official_legal_form?: "COMPANY" | "BUSINESS_PARTNERSHIP" | "LLP" | "LP" | "OTHER" | null;
+    // D-088: a scenario-named issuer's official businessProfile, kept as returned.
+    official_business_profile?: {
+      entity_name: string;
+      company_type?: string | null;
+      status_of_company?: string | null;
+      shareholders: Array<{
+        display_name: string; source_category: string; provider_status?: string | null;
+        number_of_shares: string; share_type?: string | null; currency?: string | null;
+        assumed_current: boolean;
+      }>;
+      issued_share_capital: Array<{ share_type?: string | null; currency?: string | null; number_of_shares?: string | null }>;
+      source_operation: "BUSINESS_PROFILE";
+      environment: "MOCK";
+    } | null;
   }>;
   unresolved_person_party_ids: string[];
+  overlay_scenario_id?: string | null;
+  topology_complete?: boolean | null;
 }
 
 export interface OwnershipAnalysisRecord {
@@ -840,6 +867,11 @@ export interface OwnershipAnalysisRecord {
   // D-082: the persisted acceptance and whether the backend honours it now (authority).
   poc_acceptance?: OwnershipPocAcceptance | null;
   poc_basis_accepted?: boolean;
+  // Presentation only: a declared-overlay simulation whose arithmetic completed; never
+  // readiness, verification or acceptance.
+  simulation_calculated?: boolean;
+  // D-086 presentation only: engine path products reaching each intermediate entity.
+  entity_effective_interests?: OwnershipEntityEffectiveInterest[];
   prior_analyses?: Array<Pick<OwnershipAnalysisRecord, "version" | "analysis_id" | "root_party_id" | "provider_name" | "provider_environment" | "state" | "parties" | "relationships" | "candidates" | "issues" | "created_at" | "analyzed_at" | "evidence" | "manual_review_receipt" | "document_observations" | "document_bindings" | "document_discrepancies" | "source_classification" | "supplemental_parties" | "supplemental_relationships" | "supplemental_evidence">>;
   legal_form?: "COMPANY" | "BUSINESS_PARTNERSHIP" | "LLP" | "LP" | "OTHER" | null;
   evidence?: Array<{
@@ -924,8 +956,16 @@ export interface PolicyRebindMetadata {
   last_changed_fields: string[];
 }
 
+export type PocAssumption =
+  | "SIMULATED_RELATIONSHIPS"
+  | "EQUAL_UNIT_DENOMINATOR"
+  | "DESCRIPTIVE_OFFICER_ROLES"
+  | "UNCLASSIFIED_LEGAL_FORM"
+  | "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES"
+  | "ISSUED_CAPITAL_DENOMINATOR";
+
 export interface OwnershipPocAcceptance {
-  policy: "D082_HYBRID_POC_EQUAL_UNITS_V1";
+  policy: "D082_HYBRID_POC_EQUAL_UNITS_V1" | "D085_SCENARIO_DECLARED_POC_BASIS_V1";
   accepted_at: string;
   case_id: string;
   analysis_id: string;
@@ -937,6 +977,10 @@ export interface OwnershipPocAcceptance {
   poc_relationship_ids: string[];
   descriptive_current_role_count: number;
   descriptive_ceased_role_count: number;
+  descriptive_intermediate_current_role_count?: number;
+  descriptive_intermediate_ceased_role_count?: number;
+  issued_capital_relationship_ids?: string[];
+  accepted_assumptions?: PocAssumption[];
   basis_fingerprint: string;
 }
 

@@ -114,7 +114,7 @@ def test_policy_activation_restart_preserves_inflight_and_completed_case_freeze(
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(new.case_id)}
         )
-        assert raw["schema_version"] == 14
+        assert raw["schema_version"] == 15
     finally:
         second.close()
 
