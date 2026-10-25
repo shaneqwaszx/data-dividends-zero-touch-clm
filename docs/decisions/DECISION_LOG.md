@@ -750,3 +750,34 @@ edit moves the link), so a decision on another version of the same entry leaves 
 The POLICY_APPROVE mapping stays PROJECT_DEFINED_PROVISIONAL and review authority stays
 UNKNOWN_BLOCKED (Q-014). Not sponsor review policy; no CLM backend write, provider status or
 Live claim follows.
+
+## D-084 - proposed AI Assistant answer records, request lifecycle and document upload (PROPOSED)
+
+Status: PROPOSED by the project team on 2026-10-25. Not accepted, and nothing is built.
+**Each of D1 to D6 below needs the repository owner's (Shane's) explicit acceptance before
+code.** It amends ADR-012 (Amendment 1) and builds on D-083 (still proposed; its code is on
+main since PR #108). If D-083 is not accepted,
+this entry is revisited with it.
+
+All three parts stay inside the AI Assistant service and its local knowledge store (schema
+v5), and the assistant stays read-only towards the CLM backend. The exact-line catalog,
+maker-checker (D-074, with D-083's POC single-reviewer mode if accepted), the caller
+rechecks inside the SQLite write lock and read-only CLM backend access are unchanged.
+
+| # | Decision | Options | Recommendation |
+| --- | --- | --- | --- |
+| D1 | Store answer records on the assistant's machine | yes, with retention and Director-only access / no | Yes: the record is produced by the server, so it cannot be faked by the browser. Directors and the RM who asked may view it; every view is logged. **This relaxes ADR-012 section A** (no CLM case data beyond redacted drafts): the record keeps the RM's question unredacted and a snapshot of case state. |
+| D2 | Retention | 7 days for every record not linked to a request (unrated or rated "Yes, helpful"), 30 days after a linked request ends as Resolved or Closed / other | That (the team's proposal; numbers to confirm). The helpful count in the stats is kept without the record. |
+| D3 | How uploaded files are read | (a) Markdown and text only, no new library; (b) PDF and Word in the assistant, adding the backend's pinned `pypdf`, `pypdfium2` and `Pillow` and its isolated-process pattern; (c) the CLM backend extracts the text through a Director-only endpoint | (a) for the POC. (b) or (c) later, by a separate decision: (b) creates a second document parser, (c) touches the backend, a teammate's area. |
+| D4 | Who can upload | Directors only / Directors and HR | Directors only, matching review rights. |
+| D5 | Real sponsor documents | allowed with sponsor and owner agreement / synthetic and public only | Synthetic and public only for the POC. |
+| D6 | Review of uploaded entries | the same rule as other entries | The same rule: two-person, or the POC single-reviewer mode if D-083 is accepted. Retirement always takes two reviewers. |
+
+The question in an answer record is stored exactly as typed (only Directors and the RM can
+see it), which is the section A relaxation in D1; the dropped model lines are redacted and
+size-capped. Request states: New → In
+progress (one owner) → Fix waiting → Resolved, or Closed with a required reason; a rejected
+fix returns the request to In progress; one fix can resolve several requests.
+
+Authority: `PROJECT_DEFINED_PROVISIONAL`. Review authority stays UNKNOWN_BLOCKED (Q-014). Not
+sponsor review policy; no CLM backend write, provider status or Live claim follows.
