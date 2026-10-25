@@ -170,6 +170,99 @@ READINESS_NEEDS: dict[str, tuple[str, str]] = {
 
 READINESS_PLAIN = {code: need for code, (need, _) in READINESS_NEEDS.items()}
 
+# Reviewed explanation sentences (D-085, ADR-012 Amendment 2, PROPOSED). They are allowed
+# lines only when their field or readiness item is on the case (guardrails.allowed_guidance).
+# Each one stands alone, holds no case value, never says which source is right, and names
+# only sections that exist. "can"/"can mean" sentences give general reasons a value may
+# differ; they do not describe something the app worked out for this case.
+# (reasons, what to check) for any field where a document value differs from ACRA. The app
+# compares each document value with the current ACRA record (backend services/reconciliation.py).
+ANY_DIFFERENCE: tuple[tuple[str, ...], tuple[str, ...]] = (
+    (
+        "The app compares the value read from a document with the current ACRA record.",
+        "A difference between a document and ACRA can come from a reading error, an old "
+        "document or a real change.",
+    ),
+    (
+        "Before choosing a value, compare what was read with the document itself.",
+        "Choosing a value is not official verification of either source.",
+    ),
+)
+# Keyed by FIELD_LABEL values. Documents carry no issue date in this app, so the address check
+# names the document type and company, not the date.
+FIELD_DIFFERENCE: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "registered address": (
+        (
+            "A different registered address can mean the document is older than the current "
+            "ACRA record, or the company has moved.",
+        ),
+        (
+            "Before choosing an address, check the type of the document and which company it "
+            "is for.",
+        ),
+    ),
+    "legal name": (
+        ("A different company name can be a former name, a trading name or a reading error.",),
+        (),
+    ),
+    "UEN": (
+        (
+            "A different UEN can come from a reading error or a document that belongs to "
+            "another company.",
+        ),
+        ("Before choosing a UEN, check that the document belongs to this company.",),
+    ),
+}
+# Keyed by readiness code (READINESS_NEEDS). Document review: backend
+# services/clm_orchestration.py readiness (REVIEW_REQUIRED documents, low confidence, missing
+# required fields). Ownership: domain/ownership.py and services/manual_ownership_evidence.py.
+READINESS_EXPLANATIONS: dict[str, tuple[str, ...]] = {
+    "DOCUMENT_REVIEW_INCOMPLETE": (
+        "The document review finishes when every field read from the document has a review "
+        "decision.",
+        "A field read with low confidence, or a required field that could not be read, keeps "
+        "the document review open.",
+    ),
+    "OWNERSHIP_REQUIRED": (
+        "The UBO check needs the company's owners and each owner's economic interest in percent.",
+        "Ownership evidence can come from the registry, an uploaded ownership document or a "
+        "manual ownership declaration.",
+        "A manual ownership declaration needs a reviewed current document first.",
+    ),
+}
+
+
+# Fixed catalog lines (D-085, PROPOSED), each offered only under its condition
+# (guardrails.allowed_guidance). The approval line is worded so it passes the sentence checks
+# ("<action> is not offered" is the recognised negation).
+NOT_READY = "This case is not ready for GoldTier submission yet."
+APPROVAL_NOT_OFFERED = "Approving the case is not offered to you on this case."
+NO_CONTACT = "The case data does not name a contact for this."
+OUT_OF_SCOPE = "I can't answer that from this case's data."
+
+
+def who_resolves_line(item: str, who: str) -> str:
+    """Who handles a blocker, as the backend's blocker policy names the owner."""
+
+    return f"{item}: this is for {who}."
+
+
+def difference_line(row: dict[str, object]) -> str:
+    """One difference on a blocker, in the wording the case-data answer uses."""
+
+    return (
+        f'{sentence_case(str(row["field"]))}: ACRA says "{row.get("registry_value")}", '
+        f'the document says "{row.get("document_value")}".'
+    )
+
+
+def difference_explanations(field: str) -> tuple[list[str], list[str]]:
+    """(reasons, what to check) for a difference in ``field``: the field's own, then general."""
+
+    reasons, checks = FIELD_DIFFERENCE.get(field, ((), ()))
+    return [*reasons, *ANY_DIFFERENCE[0]], [*checks, *ANY_DIFFERENCE[1]]
+
+
 FIELD_LABEL = {
     "registered_address": "registered address",
     "registration_number": "UEN",

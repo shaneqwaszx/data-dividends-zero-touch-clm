@@ -453,6 +453,46 @@ describe("AiAssistantPanel", () => {
     expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
   });
 
+  it("offers Not helpful on every answer, including a one-line answer after a rated one", async () => {
+    const answers = [
+      "The current case offers \"Keep registry value\".",
+      "Document or reconciliation review required: this is for the document reviewer.",
+    ];
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("MERLION CIRCULAR LABS PTE. LTD.", "Summary of Merlion."));
+      if (url.endsWith("/chat/stream")) {
+        const answer = answers.shift();
+        return new Response(
+          `${JSON.stringify({ type: "done", answer, answered_by: "model", model: "m", notice: null, suggested_questions: ["Who should I call about this?"] })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      if (url.endsWith("/feedback")) return json({ feedback_id: 1, message: "Thanks for your feedback." });
+      return json({}, 404);
+    });
+    const buttons = (label: string) =>
+      [...view.querySelectorAll(".ai-assistant-feedback-button")].filter((b) => b.textContent?.trim() === label);
+
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    expect(buttons("Yes, helpful")).toHaveLength(1);
+    expect(buttons("Not helpful")).toHaveLength(1);
+    click(buttons("Yes, helpful")[0]);
+    await flush();
+    expect(view.textContent).toContain("Thanks for your feedback.");
+
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    expect(view.textContent).toContain("this is for the document reviewer.");
+    // The new one-line answer has no answer record and is not small talk: both buttons show.
+    expect(buttons("Yes, helpful")).toHaveLength(1);
+    expect(buttons("Not helpful")).toHaveLength(1);
+  });
+
   it("offers Knowledge review only to someone the backend allows to review", async () => {
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);

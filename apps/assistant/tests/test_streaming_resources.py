@@ -250,7 +250,7 @@ def test_limit_preserves_guarded_partial_or_deterministic_fallback(prefix: str) 
     source = Bytes([event(prefix)] + [event("x" * 1000)] * 70 + [event(finish="stop")])
     model = provider(httpx.MockTransport(lambda _: httpx.Response(200, stream=source)))
     response = _client(FakeBackend(), model).post(
-        f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "Why?"}
+        f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "Tell me about this case."}
     )
     events = [json.loads(line) for line in response.text.splitlines()]
     last = events[-1]
@@ -407,7 +407,8 @@ def test_streamed_and_whole_answer_checks_agree() -> None:
     )
     whole = validate_answer(answer, {})
     assert whole.text == "\n".join([first, second, third])
-    assert whole.left_out == 3
+    # D-085: "- {second}" is the same allowed line once its list marker is ignored.
+    assert whole.left_out == 2
     for size in (1, 2, 5, 13, len(answer)):
         guard = StreamingGuard({})
         for start in range(0, len(answer), size):

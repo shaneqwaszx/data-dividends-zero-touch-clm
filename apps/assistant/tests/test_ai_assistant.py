@@ -142,7 +142,12 @@ def test_chat_uses_the_model_with_rules_and_current_case_facts() -> None:
         "Keep registry value"
     )
     assert "csrf" not in messages[1]["content"].lower()
-    assert messages[2:] == [*history, {"role": "user", "content": "Why is this case blocked?"}]
+    # D-085: the question's topic message comes after the history, before the question.
+    assert messages[2:4] == history and messages[-1] == {
+        "role": "user",
+        "content": "Why is this case blocked?",
+    }
+    assert len(messages) == 6 and messages[4]["content"].startswith("QUESTION TOPIC:")
 
 
 def test_chat_falls_back_to_case_data_when_the_model_is_down() -> None:

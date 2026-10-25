@@ -30,7 +30,13 @@ from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
-from .guardrails import LEFT_OUT_REASON, StreamingGuard, Validation, validate_answer
+from .guardrails import (
+    LEFT_OUT_REASON,
+    StreamingGuard,
+    Validation,
+    validate_answer,
+    with_required_lines,
+)
 from .knowledge.retrieval import Retriever, case_context, settings_from
 from .knowledge.service import KnowledgeBase
 from .knowledge_answers import (
@@ -44,7 +50,7 @@ from .knowledge_answers import (
     tag_hits,
 )
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel, is_local_model_url
-from .prompts import build_messages, prefix_messages
+from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
 from .small_talk import small_talk_reply
 
 
@@ -143,6 +149,8 @@ class Prepared:
     # The checked knowledge text the RM may see: lines the model may select, titles and
     # follow-up questions (knowledge_answers.shown_knowledge).
     shown: ShownKnowledge = field(default_factory=ShownKnowledge)
+    # The question's topic: model answers always include its required lines (D-085).
+    plan: TopicPlan | None = None
 
     def sources(self, answer: str) -> list[KnowledgeSource]:
         return [
@@ -153,6 +161,10 @@ class Prepared:
 def _model_reply(
     validation: Validation, prep: Prepared, *, model_name: str, cut_short: bool
 ) -> "ChatResponse":
+    if prep.plan is not None:
+        validation = with_required_lines(
+            validation, prep.facts, order=prep.plan.lines, required=prep.plan.required
+        )
     notices = [n for n in (validation.notice(), CUT_SHORT_NOTICE if cut_short else None) if n]
     return ChatResponse(
         answer=validation.text,
@@ -278,6 +290,7 @@ def create_app(
             tagged=tagged,
             knowledge=use,
             shown=shown,
+            plan=topic_plan(facts, question),
         )
 
     def answer_with_model(prep: Prepared) -> ChatResponse:

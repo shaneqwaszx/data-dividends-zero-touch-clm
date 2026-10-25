@@ -4,21 +4,27 @@ Used for the opening message (so it is instant and always correct) and as the fa
 when the model is switched off, not installed, or too slow.
 """
 
+import re
 from typing import Any
 
-from .guide import SAME_ISSUE, SCREEN_TERMS, sentence_case
+from .guardrails import approval_offered, who_resolves_lines
+from .guide import (
+    APPROVAL_NOT_OFFERED,
+    NO_CONTACT,
+    READINESS_EXPLANATIONS,
+    SAME_ISSUE,
+    SCREEN_TERMS,
+    difference_explanations,
+    difference_line,
+    sentence_case,
+)
 
 
 def _difference_lines(blocker: dict[str, Any]) -> list[str]:
     lines = []
     for row in blocker.get("differences") or []:
-        registry = row.get("registry_value")
-        document = row.get("document_value")
-        if registry or document:
-            lines.append(
-                f'   - {sentence_case(row["field"])}: ACRA says "{registry}", '
-                f'the document says "{document}".'
-            )
+        if row.get("registry_value") or row.get("document_value"):
+            lines.append(f"   - {difference_line(row)}")
     return lines
 
 
@@ -65,7 +71,9 @@ def _needs_beyond_blockers(facts: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
-def _still_needed_answer(facts: dict[str, Any]) -> str:
+def _still_needed_answer(facts: dict[str, Any], explain: str | None = None) -> str:
+    """What is left; with ``explain`` (a readiness code), that item's explanation sentences."""
+
     if facts["overall"]["status"] == "completed":
         return "Nothing. The case completed and there are no open issues."
     lines: list[str] = []
@@ -75,7 +83,10 @@ def _still_needed_answer(facts: dict[str, Any]) -> str:
     needs = facts.get("still_needed_before_goldtier") or []
     if needs:
         lines.append("Before the case can go to GoldTier, the app still needs:")
-        lines.extend(_need_lines(needs))
+        for need in needs:
+            lines.extend(_need_lines([need]))
+            if explain and need.get("code") == explain:
+                lines.extend(f"   {line}" for line in READINESS_EXPLANATIONS.get(explain, ()))
     if not lines:
         pending = next_pending_step(facts)
         if pending:
@@ -219,6 +230,116 @@ def _readiness_answer(facts: dict[str, Any]) -> str:
     return "Not yet.\n" + _still_needed_answer(facts)
 
 
+# Other words a question may use for a field (field labels are matched as whole words).
+_FIELD_ALIASES = {"registered address": ("address",), "legal name": ("company name",)}
+
+
+def _named(field: str, text: str) -> bool:
+    names = (field.lower(), *_FIELD_ALIASES.get(field, ()))
+    return any(re.search(rf"\b{re.escape(name)}\b", text) for name in names)
+
+
+DIFFERENCE = "difference"
+DOCUMENT_REVIEW = "DOCUMENT_REVIEW_INCOMPLETE"
+OWNERSHIP = "OWNERSHIP_REQUIRED"
+APPROVE = "approve"
+CONTACT = "contact"
+READINESS = "readiness"
+BLOCKERS = "blockers"
+_BLOCKERS_QUESTION = re.compile(r"\bwhy\b|\bblock|\bstuck\b|\bnext\b|\bshould i\b|\bfix\b")
+_APPROVE_QUESTION = re.compile(r"\bapprov(?:e|ing)\b")
+_CONTACT_QUESTION = re.compile(
+    r"\bwho (?:should|do|can|to|will|handles|resolves)\b|\bcontact\b|\bcall\b|\bescalat"
+    r"|\b(?:speak|talk) to\b"
+)
+_READINESS_QUESTION = re.compile(r"\bapproved\b|\bready\b|\bsubmit\b")
+Difference = tuple[dict[str, Any], dict[str, Any]]  # (blocker, difference row)
+
+
+def _asked_differences(text: str, facts: dict[str, Any]) -> list[Difference]:
+    """The differences a question is about: the fields it names, or every one when it asks to
+    explain or mentions a difference. Empty when the case has none or the question is not
+    about them."""
+
+    rows = [
+        (blocker, row)
+        for blocker in facts["blockers"]
+        for row in blocker.get("differences") or []
+        if row.get("registry_value") or row.get("document_value")
+    ]
+    named = [(blocker, row) for blocker, row in rows if _named(str(row["field"]), text)]
+    asks = any(word in text for word in ("explain", "differen", "mismatch"))
+    return named or (rows if asks else [])
+
+
+def question_topic(question: str, facts: dict[str, Any]) -> tuple[str, list[Difference]] | None:
+    """What the question is about, for the case-data answer and to steer the model:
+    (DIFFERENCE, the differences asked about), or (kind, []) for APPROVE, CONTACT,
+    DOCUMENT_REVIEW, OWNERSHIP, READINESS and BLOCKERS (why blocked, what next); None when no
+    topic matches.
+    """
+
+    text = question.lower()
+    if _APPROVE_QUESTION.search(text):
+        return APPROVE, []
+    if _CONTACT_QUESTION.search(text):
+        return CONTACT, []
+    if "document review" in text:
+        return DOCUMENT_REVIEW, []
+    if "ownership" in text and any(word in text for word in ("evidence", "need")):
+        return OWNERSHIP, []
+    differences = _asked_differences(text, facts)
+    if differences:
+        return DIFFERENCE, differences
+    if _READINESS_QUESTION.search(text):
+        return READINESS, []
+    if facts["blockers"] and _BLOCKERS_QUESTION.search(text):
+        return BLOCKERS, []
+    return None
+
+
+def _topic_answer(kind: str, differences: list[Difference], facts: dict[str, Any]) -> str:
+    if kind == DIFFERENCE:
+        return _difference_answer(differences)
+    if kind == READINESS:
+        return _readiness_answer(facts)
+    if kind == BLOCKERS:
+        return opening_message(facts)
+    if kind == CONTACT:
+        return "\n".join(who_resolves_lines(facts) or [NO_CONTACT])
+    if kind == APPROVE:
+        rest = _still_needed_answer(facts)
+        return rest if approval_offered(facts) else f"{APPROVAL_NOT_OFFERED}\n{rest}"
+    return _still_needed_answer(facts, explain=kind)
+
+
+def _difference_answer(differences: list[Difference]) -> str:
+    """Explain the asked-about document/ACRA differences on this case.
+
+    Shows both values, the reviewed explanation sentences, the choices this RM is offered and
+    where on the page. It never says which value is right.
+    """
+
+    lines: list[str] = []
+    for blocker, row in differences:
+        field = str(row["field"])
+        where = blocker.get("where_on_the_case_page")
+        if lines:
+            lines.append("")
+        lines.append(
+            f"The {field} on the document is different from ACRA"
+            + (f" (section: {where}):" if where else ":")
+        )
+        lines.extend(_difference_lines({"differences": [row]}))
+        reasons, checks = difference_explanations(field)
+        lines.append("Why it can differ:")
+        lines.extend(f"- {line}" for line in reasons)
+        lines.append("What to check:")
+        lines.extend(f"- {line}" for line in checks)
+        lines.extend(line.strip() for line in _next_step_lines(blocker))
+    return "\n".join(lines)
+
+
 def _terms_answer(text: str) -> str | None:
     """Explain case page labels the question mentions, e.g. "canonical"."""
 
@@ -253,6 +374,8 @@ def fallback_answer(question: str, facts: dict[str, Any]) -> str:
         )
     ):
         answer = _still_needed_answer(facts)
+    elif (topic := question_topic(question, facts)) is not None:
+        answer = _topic_answer(*topic, facts)
     elif any(
         word in text
         for word in ("why", "block", "stuck", "differen", "mismatch", "next", "should i", "fix")
