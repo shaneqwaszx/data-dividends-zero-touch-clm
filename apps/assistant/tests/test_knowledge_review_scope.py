@@ -12,7 +12,7 @@ import tests.test_knowledge_review as review
 from ai_assistant.knowledge.models import EntryStatus
 from ai_assistant.knowledge.service import KnowledgeBase
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, SUMMARY, _session
-from tests.test_knowledge_review import TURNS, client, decide, edit, kb, solved  # noqa: F401
+from tests.test_knowledge_review import client, decide, drafted, edit, fix, kb  # noqa: F401
 
 TEAM_B_CASE_ID = "5d0c3a4e-6f1b-4c2d-9e8f-7a6b5c4d3e2f"
 
@@ -60,6 +60,9 @@ BACKEND_USERS = {
 }
 
 
+DIRECTOR_SESSIONS = {"director-b-session", "director-global-session", "director-global-2-session"}
+
+
 @pytest.fixture(autouse=True)
 def backend_users(monkeypatch: pytest.MonkeyPatch) -> None:
     for session, user in BACKEND_USERS.items():
@@ -75,18 +78,31 @@ def backend_users(monkeypatch: pytest.MonkeyPatch) -> None:
             if path == f"/api/onboarding/cases/{TEAM_B_CASE_ID}/documents":
                 return httpx.Response(200, json=DOCUMENTS)
             return httpx.Response(404, json={"detail": "not found"})
+        if _session(request) in DIRECTOR_SESSIONS:
+            # Directors reach TEAM_B's case too (the fix is redacted against it).
+            if path == f"/api/clm/zero-touch/cases/{TEAM_B_CASE_ID}":
+                return httpx.Response(200, json=SUMMARY)
+            if path == f"/api/onboarding/cases/{TEAM_B_CASE_ID}/documents":
+                return httpx.Response(200, json=DOCUMENTS)
         return real_handler(request)
 
     monkeypatch.setattr(review, "handler", handler)
 
 
-def solved_in_team_b(kb: KnowledgeBase) -> str:  # noqa: F811
+def drafted_in_team_b(kb: KnowledgeBase, session: str = "director-b-session") -> str:  # noqa: F811
+    """A TEAM_B RM's enhancement request, drafted into knowledge by ``session``."""
+
     reply = client(kb, "rm-b-session").post(
         f"/assistant/cases/{TEAM_B_CASE_ID}/feedback",
-        json={"helpful": True, "note": "Kept the registry value.", "turns": TURNS},
+        json={"helpful": False, "note": "Kept the registry value."},
     )
     assert reply.status_code == 200, reply.text
-    return str(reply.json()["draft_entry_id"])
+    feedback_id = reply.json()["feedback_id"]
+    drafted = client(kb, session).post(
+        f"/assistant/knowledge/feedback/{feedback_id}/draft", json=fix()
+    )
+    assert drafted.status_code == 200, drafted.text
+    return str(drafted.json()["entry_id"])
 
 
 def not_helpful(kb: KnowledgeBase, session: str, case_id: str) -> None:  # noqa: F811
@@ -99,7 +115,7 @@ def not_helpful(kb: KnowledgeBase, session: str, case_id: str) -> None:  # noqa:
 def test_a_global_director_sees_every_teams_drafts_gaps_and_stats(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
-    team_a, team_b = solved(kb), solved_in_team_b(kb)
+    team_a, team_b = drafted(kb), drafted_in_team_b(kb)
     not_helpful(kb, "rm-session", CASE_ID)
     not_helpful(kb, "rm-b-session", TEAM_B_CASE_ID)
     director = client(kb, "director-global-session")
@@ -118,7 +134,7 @@ def test_a_global_director_sees_every_teams_drafts_gaps_and_stats(
     assert [e["entry_id"] for e in own_b["pending"]] == [team_b]
     assert [gap["team"] for gap in own_b["gaps"]] == ["TEAM_B"]
     gap_b = next(gap["id"] for gap in queue["gaps"] if gap["team"] == "TEAM_B")
-    closed = director.post(f"/assistant/knowledge/feedback/{gap_b}/close")
+    closed = director.post(f"/assistant/knowledge/feedback/{gap_b}/close", json={"reason": "Dup."})
     assert closed.status_code == 200 and closed.json() == {"status": "closed"}
     still_open = [row["team"] for row in kb.store.feedback(status="open")]
     assert still_open == ["TEAM_A"]
@@ -127,7 +143,7 @@ def test_a_global_director_sees_every_teams_drafts_gaps_and_stats(
 def test_a_global_director_approves_a_team_a_rm_draft_with_the_shown_hash(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     director = client(kb, "director-global-session")
     shown = next(
         e
@@ -154,7 +170,7 @@ def test_a_global_director_approves_a_team_a_rm_draft_with_the_shown_hash(
 def test_a_global_director_cannot_decide_a_version_it_edited(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     widened = edit(
         kb, "director-global-session", entry_id, 1, visibility={"roles": [], "teams": []}
     )
@@ -171,10 +187,105 @@ def test_a_global_director_cannot_decide_a_version_it_edited(
 def test_a_team_b_rm_still_cannot_read_list_or_decide_a_team_a_draft(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     rm_b = client(kb, "rm-b-session")
     assert rm_b.get(f"/assistant/knowledge/entries/{entry_id}").status_code == 403
     assert rm_b.get("/assistant/knowledge/reviews").status_code == 403
     assert decide(kb, "rm-b-session", entry_id, 1).status_code == 403
     assert rm_b.get(f"/assistant/cases/{CASE_ID}/brief").status_code == 404
     assert kb.store.get(entry_id, 1).status == EntryStatus.PENDING_REVIEW
+
+
+def test_a_global_director_drafts_a_team_b_request_visible_to_team_b_only(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    # The draft takes the team the request came from, not the drafting Director's (none).
+    entry_id = drafted_in_team_b(kb, session="director-global-session")
+    draft = kb.store.get(entry_id, 1)
+    assert draft is not None and draft.author == "olivia-koh"
+    assert draft.visibility.teams == ("TEAM_B",)
+    assert (
+        client(kb, "director-session").get(f"/assistant/knowledge/entries/{entry_id}").status_code
+        == 404
+    )
+    approved = decide(kb, "director-b-session", entry_id, 1)
+    assert approved.status_code == 200, approved.text
+    assert [row["status"] for row in kb.store.feedback()] == ["resolved"]
+
+
+def test_the_full_flow_with_the_real_synthetic_roles(kb: KnowledgeBase) -> None:  # noqa: F811
+    """RM maya-lim says "Not helpful"; the one Director, olivia-koh, writes the fix and, in the
+    POC's single-reviewer mode, publishes it herself after confirming; the request is resolved
+    and the next similar question cites it. HR (hr-admin) cannot write the fix."""
+
+    question = {"message": "Client moved office, can I use the document address?"}
+    rm = client(kb, "rm-session", single_reviewer=True)
+    reply = rm.post(
+        f"/assistant/cases/{CASE_ID}/feedback",
+        json={"helpful": False, "note": "It did not say which proof to ask for."},
+    )
+    assert reply.status_code == 200
+    request_id = reply.json()["feedback_id"]
+
+    hr = client(kb, "hr-global-session", single_reviewer=True)
+    path = f"/assistant/knowledge/feedback/{request_id}/draft"
+    assert hr.post(path, json=fix()).status_code == 403
+
+    olivia = client(kb, "director-global-session", single_reviewer=True)
+    gaps = olivia.get("/assistant/knowledge/reviews").json()["gaps"]
+    assert [gap["id"] for gap in gaps] == [request_id]
+    written = olivia.post(
+        path,
+        json={
+            "kind": "resolution",
+            "title": "Moved office: keep the registry address",
+            "body": "ACRA was current; kept the registry value and asked for the lease.",
+        },
+    )
+    assert written.status_code == 200, written.text
+    entry = written.json()
+    assert entry["author"] == "olivia-koh"
+
+    def publish(confirm: bool) -> httpx.Response:
+        return olivia.post(
+            f"/assistant/knowledge/entries/{entry['entry_id']}/versions/1/decision",
+            json={
+                "approve": True,
+                "content_hash": entry["content_hash"],
+                "confirm_single_reviewer": confirm,
+            },
+        )
+
+    assert publish(False).json()["detail"]["code"] == "CONFIRM_SINGLE_REVIEWER"
+    published = publish(True)
+    assert published.status_code == 200, published.text
+    assert published.json()["approver"] == "olivia-koh"
+    assert published.json()["single_reviewer"] is True
+    assert [(r["reviewer"], r["single_reviewer"]) for r in kb.store.reviews(entry["entry_id"])] == [
+        ("olivia-koh", True)
+    ]
+    (row,) = kb.store.feedback()
+    assert (row["status"], row["closed_by"]) == ("resolved", "olivia-koh")
+    sources = rm.post(f"/assistant/cases/{CASE_ID}/chat", json=question).json()["sources"]
+    assert [s["title"] for s in sources if s["kind"] == "resolution"] == [entry["title"]]
+
+
+def test_with_two_person_review_the_only_director_cannot_publish_her_own_fix(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    rm = client(kb, "rm-session")
+    request_id = rm.post(
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": "No proof list."}
+    ).json()["feedback_id"]
+    olivia = client(kb, "director-global-session")
+    entry = olivia.post(f"/assistant/knowledge/feedback/{request_id}/draft", json=fix()).json()
+    refused = olivia.post(
+        f"/assistant/knowledge/entries/{entry['entry_id']}/versions/1/decision",
+        json={
+            "approve": True,
+            "content_hash": entry["content_hash"],
+            "confirm_single_reviewer": True,
+        },
+    )
+    assert refused.status_code == 403 and refused.json()["detail"]["code"] == "MAKER_CHECKER"
+    assert kb.store.feedback()[0]["status"] == "drafted"

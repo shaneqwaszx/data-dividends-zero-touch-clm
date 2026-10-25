@@ -26,10 +26,10 @@ from tests.test_knowledge_review import (  # noqa: F401
     _profile,
     client,
     decide,
+    drafted,
     edit,
     kb,
     shown_hash,
-    solved,
 )
 from tests.test_knowledge_store import HashEmbedder
 
@@ -122,7 +122,9 @@ class Backend:
         return review.handler(request)
 
     def client(self, kb: KnowledgeBase) -> TestClient:  # noqa: F811
-        settings = AiAssistantSettings(_env_file=None, llm_enabled=False)  # type: ignore[call-arg]
+        settings = AiAssistantSettings(  # type: ignore[call-arg]
+            _env_file=None, llm_enabled=False, knowledge_single_reviewer=False
+        )
         app = create_app(
             settings, clm_transport=httpx.MockTransport(self), chat_model=FakeModel(), knowledge=kb
         )
@@ -143,13 +145,13 @@ Mutation = tuple[str, str, dict[str, Any] | None]
 
 
 def _edit(kb: KnowledgeBase) -> Mutation:  # noqa: F811
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     body = {"content_hash": shown_hash(kb, entry_id, 1), "title": "Tidied title for review"}
     return "director-session", f"/assistant/knowledge/entries/{entry_id}/versions/1/edit", body
 
 
 def _decision(kb: KnowledgeBase) -> Mutation:  # noqa: F811
-    entry_id = solved(kb)
+    entry_id = drafted(kb)
     body = {"approve": True, "content_hash": shown_hash(kb, entry_id, 1)}
     return "director-session", f"/assistant/knowledge/entries/{entry_id}/versions/1/decision", body
 
@@ -170,7 +172,16 @@ def _close_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
     )
     assert reply.status_code == 200
     gap = kb.store.feedback(status="open")[0]["id"]
-    return "director-session", f"/assistant/knowledge/feedback/{gap}/close", None
+    return "director-session", f"/assistant/knowledge/feedback/{gap}/close", {"reason": "Dup."}
+
+
+def _draft_from_gap(kb: KnowledgeBase) -> Mutation:  # noqa: F811
+    reply = client(kb, "rm-session").post(
+        f"/assistant/cases/{CASE_ID}/feedback", json={"helpful": False, "note": "No proof list."}
+    )
+    assert reply.status_code == 200
+    gap = kb.store.feedback(status="open")[0]["id"]
+    return "director-session", f"/assistant/knowledge/feedback/{gap}/draft", review.fix()
 
 
 def _reindex(kb: KnowledgeBase) -> Mutation:  # noqa: F811
@@ -193,6 +204,7 @@ MUTATIONS: dict[str, Callable[[KnowledgeBase], Mutation]] = {
     "retire-request": _retire_request,
     "retire-confirm": _retire_confirm,
     "close-gap": _close_gap,
+    "draft-from-gap": _draft_from_gap,
     "reindex": _reindex,
     "propose-guidance": _propose_guidance,
 }
@@ -235,10 +247,15 @@ def test_a_caller_revoked_during_the_request_changes_nothing(
     # Nothing written: no new version, review, retire request, index task or vector; the
     # draft is still pending and the gap still open.
     assert _state(quiet_kb, tmp_path / "knowledge.sqlite3") == before
-    assert backend.me_calls == 2
+    # The route's own check, the in-transaction recheck, and for the fix to a request also
+    # the case load between them (which already fails for a revoked session or a down backend).
+    loads_case = mutation == "draft-from-gap" and revoked in {"capability", "another-user"}
+    assert backend.me_calls == (3 if loads_case else 2)
+    if loads_case:
+        assert backend.locked == [False, True]  # the refusal came from inside the write
 
 
-@pytest.mark.parametrize("mutation", ["edit", "decision", "close-gap"])
+@pytest.mark.parametrize("mutation", ["edit", "decision", "close-gap", "draft-from-gap"])
 def test_a_reviewer_moved_to_another_team_during_the_request_changes_nothing(
     quiet_kb: KnowledgeBase,
     tmp_path: Path,
@@ -264,8 +281,11 @@ def test_the_caller_is_reloaded_while_the_write_lock_is_held(
     )
     reply = backend.client(quiet_kb).post(path, json=body)
     assert reply.status_code == 200, reply.text
-    # Reindex checks once before it removes any vector, then again inside its write.
-    assert backend.locked == ([False, True] if mutation == "reindex" else [True])
+    # Reindex checks once before it removes any vector, then again inside its write. Writing
+    # the fix for a request first loads the request's case (to redact the fix against it)
+    # with the caller's session, outside the write; the recheck still runs inside it.
+    unlocked_first = mutation in {"reindex", "draft-from-gap"}
+    assert backend.locked == ([False, True] if unlocked_first else [True])
 
 
 class Refused(Exception):
@@ -333,7 +353,18 @@ STORE_CALLS: dict[str, StoreCall] = {
         "guidance.g", by="director-dan", notes="old", authorize=check
     ),
     "close_feedback": lambda store, check: store.close_feedback(
-        1, by="director-dan", authorize=check
+        1, by="director-dan", reason="Duplicate.", authorize=check
+    ),
+    "draft_request": lambda store, check: store.draft_request(
+        1,
+        lambda row: Entry(
+            entry_id="resolution.from-request",
+            kind=EntryKind.RESOLUTION,
+            title="Draft",
+            body=row["note"],
+            author="director-dan",
+        ),
+        authorize=check,
     ),
     "queue_full_reindex": lambda store, check: store.queue_full_reindex(authorize=check),
 }
@@ -391,9 +422,9 @@ def test_an_explicit_null_clears_what_a_draft_replaces(
     monkeypatch.setitem(
         USERS, "director-3-session", _profile("director-dov", "DIRECTOR", ["POLICY_APPROVE"])
     )
-    first = solved(quiet_kb)
+    first = drafted(quiet_kb)
     assert decide(quiet_kb, "director-session", first, 1).status_code == 200
-    second = solved(quiet_kb, note="Newer, clearer resolution.")
+    second = drafted(quiet_kb, note="Newer, clearer resolution.")
     replacing = edit(quiet_kb, "director-session", second, 1, replaces=first)
     assert replacing.json()["replaces"] == first
     # Leaving "replaces" out keeps it.

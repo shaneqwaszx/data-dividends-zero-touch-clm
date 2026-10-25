@@ -7,13 +7,20 @@ Rules enforced here, in one transaction per change:
   is stored as a new version written by that reviewer; the version it revises is kept,
   unchanged, and taken out of review;
 - only a reviewer who wrote no version in the chain being decided can approve or reject it
-  (maker-checker), and only the exact content they were shown (content hash);
+  (maker-checker), and only the exact content they were shown (content hash). In the POC's
+  single-reviewer mode (D-083, proposed) an author or editor may decide it too, an approval
+  only once confirmed, and the review row records it as single-reviewer;
 - an entry may only replace an entry of the same kind (a past resolution never retires
   official guidance);
 - approving a version retires the entry's previous approved version, and the entry it
   replaces, so at most one version of an entry is current;
 - only current approved versions are in the keyword index;
-- every approve/retire leaves a vector-index task, done (or retried) by the service.
+- every approve/retire leaves a vector-index task, done (or retried) by the service;
+- an RM's "Not helpful" is an enhancement request: a reviewer writes its fix or closes it
+  with a reason, only while it is open. The request is linked to the exact version of the fix
+  (``entry_id``, ``entry_version``), and a reviewer's edit moves the link to the new version.
+  Approving that version resolves the request; rejecting it opens the request again. A
+  decision on any other version of the same entry leaves the request alone.
 """
 
 import json
@@ -27,7 +34,7 @@ from typing import Any
 
 from .models import Entry, EntryKind, EntryStatus, Visibility
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _ENTRY_COLUMNS = (
     "entry_id, version, kind, status, title, body, blocker_codes, fields, stages, visibility, "
@@ -72,6 +79,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject', 'retire', 'edit')),
     notes TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    single_reviewer INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version)
 );
 CREATE TABLE IF NOT EXISTS feedback (
@@ -86,10 +94,12 @@ CREATE TABLE IF NOT EXISTS feedback (
     fields TEXT NOT NULL,
     stages TEXT NOT NULL,
     entry_id TEXT,
-    status TEXT NOT NULL CHECK (status IN ('open', 'drafted', 'closed')),
+    status TEXT NOT NULL CHECK (status IN ('open', 'drafted', 'resolved', 'closed')),
     created_at TEXT NOT NULL,
     closed_by TEXT,
-    closed_at TEXT
+    closed_at TEXT,
+    close_reason TEXT,
+    entry_version INTEGER
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS entry_text
     USING fts5 (key UNINDEXED, kind UNINDEXED, title, body, codes);
@@ -129,6 +139,10 @@ class SecondReviewerError(MakerCheckerError):
     """The same person tried to both ask for and confirm a retirement."""
 
 
+class ConfirmationRequiredError(MakerCheckerError):
+    """In single-reviewer mode, an author approved their own entry without confirming it."""
+
+
 class ContentChangedError(KnowledgeError):
     """The version was decided against content other than what it now says, or another
     request changed it first."""
@@ -165,6 +179,14 @@ def _row_to_entry(row: sqlite3.Row) -> Entry:
         created_at=row["created_at"],
         revises=row["revises"],
     )
+
+
+def _feedback_row(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    item["helpful"] = bool(item["helpful"])
+    for key in ("blocker_codes", "fields", "stages"):
+        item[key] = json.loads(item[key])
+    return item
 
 
 _FTS_TOKEN = re.compile(r"[A-Za-z0-9_]+")
@@ -308,6 +330,10 @@ class KnowledgeStore:
                 self._migrate_to_2(db)
             if version is not None and int(version[0]) < 3:
                 self._migrate_to_3(db)
+            # Also at 4: earlier builds of this branch (never on main) stamped 4 on table
+            # shapes without every v4 column; the v4 step only adds what is missing.
+            if version is not None and int(version[0]) <= 4:
+                self._migrate_to_4(db)
             db.executescript(_SCHEMA)
             db.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -437,11 +463,21 @@ class KnowledgeStore:
     def reviews(self, entry_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT entry_id, version, reviewer, decision, notes, created_at "
+                "SELECT entry_id, version, reviewer, decision, notes, created_at, single_reviewer "
                 "FROM reviews WHERE entry_id = ? ORDER BY id",
                 (entry_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**dict(row), "single_reviewer": bool(row["single_reviewer"])} for row in rows]
+
+    def single_reviewer_approvals(self) -> set[str]:
+        """Keys (``entry_id@vN``) of the versions approved by a single reviewer."""
+
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT entry_id, version FROM reviews "
+                "WHERE decision = 'approve' AND single_reviewer = 1"
+            ).fetchall()
+        return {f"{row['entry_id']}@v{row['version']}" for row in rows}
 
     def keyword_search(
         self, text: str, *, kinds: tuple[EntryKind, ...] | None = None, limit: int = 20
@@ -482,19 +518,22 @@ class KnowledgeStore:
         if not entry.author:
             raise KnowledgeError("every entry needs an author")
         with self._write(authorize) as db:
-            self._check_replaces(db, entry)
-            latest = db.execute(
-                "SELECT MAX(version) FROM entries WHERE entry_id = ?", (entry.entry_id,)
-            ).fetchone()[0]
-            stored = entry.with_changes(
-                version=(latest or 0) + 1,
-                status=status,
-                approver=None,
-                approved_at=None,
-                created_at=self._clock(),
-                revises=None,
-            )
-            self._insert(db, stored)
+            return self._add_version(db, entry, status)
+
+    def _add_version(self, db: sqlite3.Connection, entry: Entry, status: EntryStatus) -> Entry:
+        self._check_replaces(db, entry)
+        latest = db.execute(
+            "SELECT MAX(version) FROM entries WHERE entry_id = ?", (entry.entry_id,)
+        ).fetchone()[0]
+        stored = entry.with_changes(
+            version=(latest or 0) + 1,
+            status=status,
+            approver=None,
+            approved_at=None,
+            created_at=self._clock(),
+            revises=None,
+        )
+        self._insert(db, stored)
         return stored
 
     def submit(self, entry_id: str, version: int) -> Entry:
@@ -520,12 +559,16 @@ class KnowledgeStore:
         notes: str = "",
         expected_hash: str | None = None,
         authorize: Callable[[], None] | None = None,
+        single_reviewer: bool = False,
+        confirmed: bool = False,
     ) -> Entry:
         """Approve or reject a pending version.
 
-        Nobody who wrote this version, or a version it was revised from, can decide it. When
-        ``expected_hash`` is given (always, from the review API) the decision applies only if
-        the version still says exactly what the reviewer was shown.
+        Nobody who wrote this version, or a version it was revised from, can decide it, unless
+        ``single_reviewer`` (the POC setting, D-083): then they may, an approval only when
+        ``confirmed``, and the review row is marked single-reviewer. When ``expected_hash`` is
+        given (always, from the review API) the decision applies only if the version still
+        says exactly what the reviewer was shown.
         """
 
         now = self._clock()
@@ -535,17 +578,28 @@ class KnowledgeStore:
                 raise KnowledgeError("only a version pending review can be decided")
             if expected_hash is not None and expected_hash != entry.content_hash():
                 raise ContentChangedError("the version no longer says what was reviewed")
-            if not reviewer or reviewer in self._chain_authors(db, entry):
+            if not reviewer:
+                raise MakerCheckerError("a decision needs a reviewer")
+            own = reviewer in self._chain_authors(db, entry)
+            if own and not single_reviewer:
                 raise MakerCheckerError("an author or editor of an entry cannot decide it")
+            if own and approve and not confirmed:
+                raise ConfirmationRequiredError("approving your own entry must be confirmed")
             self._check_replaces(db, entry)
             decision = "approve" if approve else "reject"
             db.execute(
-                "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (entry_id, version, reviewer, decision, notes, now),
+                "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at, "
+                "single_reviewer) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (entry_id, version, reviewer, decision, notes, now, int(own)),
             )
             if not approve:
                 self._set_status(db, entry, "rejected")
+                # The request this was drafted from needs handling again.
+                db.execute(
+                    "UPDATE feedback SET status = 'open' WHERE entry_id = ? "
+                    "AND entry_version = ? AND status = 'drafted' AND helpful = 0",
+                    (entry_id, version),
+                )
                 return entry.with_changes(status=EntryStatus.REJECTED)
             # Retire what this version supersedes: the entry's own current version and, if
             # set, the current version of the entry it replaces.
@@ -557,6 +611,11 @@ class KnowledgeStore:
                     self._retire(db, _row_to_entry(old), by=reviewer, notes="replaced", now=now)
             self._set_status(
                 db, entry, "approved", extra=", approver = ?, approved_at = ?", args=(reviewer, now)
+            )
+            db.execute(
+                "UPDATE feedback SET status = 'resolved', closed_by = ?, closed_at = ? "
+                "WHERE entry_id = ? AND entry_version = ? AND status = 'drafted' AND helpful = 0",
+                (reviewer, now, entry_id, version),
             )
             approved = entry.with_changes(
                 status=EntryStatus.APPROVED, approver=reviewer, approved_at=now
@@ -742,6 +801,12 @@ class KnowledgeStore:
             # Take the revised version out of review first, and only if nobody did already.
             self._set_status(db, entry, "retired")
             self._insert(db, revised)
+            # A request whose fix this was now waits for the revised version.
+            db.execute(
+                "UPDATE feedback SET entry_version = ? WHERE entry_id = ? "
+                "AND entry_version = ? AND status = 'drafted' AND helpful = 0",
+                (revised.version, entry_id, version),
+            )
             db.execute(
                 "INSERT INTO reviews (entry_id, version, reviewer, decision, notes, created_at) "
                 "VALUES (?, ?, ?, 'edit', ?, ?)",
@@ -793,33 +858,76 @@ class KnowledgeStore:
             )
             return int(cursor.lastrowid or 0)
 
-    def feedback(self, *, status: str | None = None) -> list[dict[str, Any]]:
-        sql, args = "SELECT * FROM feedback", []
+    def feedback(
+        self, *, status: str | None = None, helpful: bool | None = None
+    ) -> list[dict[str, Any]]:
+        sql, args = "SELECT * FROM feedback WHERE 1 = 1", list[Any]()
         if status is not None:
-            sql += " WHERE status = ?"
+            sql += " AND status = ?"
             args.append(status)
+        if helpful is not None:
+            sql += " AND helpful = ?"
+            args.append(int(helpful))
         with self._connect() as db:
             rows = db.execute(sql + " ORDER BY id", args).fetchall()
-        out = []
-        for row in rows:
-            item = dict(row)
-            item["helpful"] = bool(item["helpful"])
-            for key in ("blocker_codes", "fields", "stages"):
-                item[key] = json.loads(item[key])
-            out.append(item)
-        return out
+        return [_feedback_row(row) for row in rows]
+
+    def draft_request(
+        self,
+        feedback_id: int,
+        build: Callable[[dict[str, Any]], Entry],
+        *,
+        authorize: Callable[[], None] | None = None,
+    ) -> Entry:
+        """Draft a past resolution, pending review, from an open enhancement request.
+
+        ``build`` makes the entry from the request as read inside the write lock. The request
+        is linked to the draft and leaves the open list; approving the draft resolves it,
+        rejecting it opens it again (``decide``).
+        """
+
+        with self._write(authorize) as db:
+            row = self._open_request(db, feedback_id)
+            entry = self._add_version(db, build(row), EntryStatus.PENDING_REVIEW)
+            db.execute(
+                "UPDATE feedback SET status = 'drafted', entry_id = ?, entry_version = ? "
+                "WHERE id = ?",
+                (entry.entry_id, entry.version, feedback_id),
+            )
+        return entry
 
     def close_feedback(
-        self, feedback_id: int, *, by: str, authorize: Callable[[], None] | None = None
+        self,
+        feedback_id: int,
+        *,
+        by: str,
+        reason: str,
+        authorize: Callable[[], None] | None = None,
     ) -> None:
+        """Close an open enhancement request without drafting knowledge, giving a reason."""
+
+        if not by or not reason.strip():
+            raise KnowledgeRuleError("closing a request needs a reviewer and a reason")
         with self._write(authorize) as db:
-            updated = db.execute(
-                "UPDATE feedback SET status = 'closed', closed_by = ?, closed_at = ? "
-                "WHERE id = ? AND status != 'closed'",
-                (by, self._clock(), feedback_id),
-            ).rowcount
-        if not updated:
-            raise KnowledgeError("no such open feedback")
+            self._open_request(db, feedback_id)
+            db.execute(
+                "UPDATE feedback SET status = 'closed', closed_by = ?, closed_at = ?, "
+                "close_reason = ? WHERE id = ?",
+                (by, self._clock(), reason.strip(), feedback_id),
+            )
+
+    @staticmethod
+    def _open_request(db: sqlite3.Connection, feedback_id: int) -> dict[str, Any]:
+        """The enhancement request ("Not helpful" feedback), if it is still open."""
+
+        row = db.execute(
+            "SELECT * FROM feedback WHERE id = ? AND helpful = 0", (feedback_id,)
+        ).fetchone()
+        if row is None:
+            raise KnowledgeError("no such enhancement request")
+        if row["status"] != "open":
+            raise ContentChangedError("the request was already handled")
+        return _feedback_row(row)
 
     # --- internals ------------------------------------------------------------------
 
@@ -841,7 +949,9 @@ class KnowledgeStore:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (entry_id, version) REFERENCES entries (entry_id, version)
             );
-            INSERT INTO reviews SELECT * FROM reviews_v1;
+            INSERT INTO reviews (id, entry_id, version, reviewer, decision, notes, created_at)
+                SELECT id, entry_id, version, reviewer, decision, notes, created_at
+                FROM reviews_v1;
             DROP TABLE reviews_v1;
             """
         )
@@ -853,6 +963,63 @@ class KnowledgeStore:
         columns = {row[1] for row in db.execute("PRAGMA table_info(entries)")}
         if "revises" not in columns:
             db.execute("ALTER TABLE entries ADD COLUMN revises INTEGER")
+
+    @staticmethod
+    def _migrate_to_4(db: sqlite3.Connection) -> None:
+        """Version 4 marks single-reviewer decisions (D-083): reviews gain ``single_reviewer``
+        (0 for every existing row). It also lets an enhancement request be 'resolved' (its
+        draft was approved) and records why one was closed: rebuild the feedback table.
+        Existing rows keep their values; none has a close reason or a linked fix version
+        (``entry_version``: requests are linked to the exact version of their fix). The
+        rebuild is one transaction. A store without a feedback table gets the new one from
+        the schema; one already rebuilt is left alone, except that a rebuild from before
+        ``entry_version`` existed gains that column."""
+
+        reviews = {row[1] for row in db.execute("PRAGMA table_info(reviews)")}
+        if reviews and "single_reviewer" not in reviews:
+            db.execute("ALTER TABLE reviews ADD COLUMN single_reviewer INTEGER NOT NULL DEFAULT 0")
+            db.commit()
+        existing = {row[1] for row in db.execute("PRAGMA table_info(feedback)")}
+        if not existing:
+            return
+        if "close_reason" in existing:
+            if "entry_version" not in existing:
+                db.execute("ALTER TABLE feedback ADD COLUMN entry_version INTEGER")
+                db.commit()
+            return
+        columns = (
+            "id, case_id, user_id, role, team, helpful, note, blocker_codes, fields, stages, "
+            "entry_id, status, created_at, closed_by, closed_at"
+        )
+        db.executescript(
+            f"""
+            BEGIN;
+            ALTER TABLE feedback RENAME TO feedback_v3;
+            CREATE TABLE feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT,
+                team TEXT,
+                helpful INTEGER NOT NULL,
+                note TEXT NOT NULL,
+                blocker_codes TEXT NOT NULL,
+                fields TEXT NOT NULL,
+                stages TEXT NOT NULL,
+                entry_id TEXT,
+                status TEXT NOT NULL
+                    CHECK (status IN ('open', 'drafted', 'resolved', 'closed')),
+                created_at TEXT NOT NULL,
+                closed_by TEXT,
+                closed_at TEXT,
+                close_reason TEXT,
+                entry_version INTEGER
+            );
+            INSERT INTO feedback ({columns}) SELECT {columns} FROM feedback_v3;
+            DROP TABLE feedback_v3;
+            COMMIT;
+            """
+        )
 
     def _insert(self, db: sqlite3.Connection, entry: Entry) -> None:
         db.execute(

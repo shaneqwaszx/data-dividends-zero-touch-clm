@@ -110,6 +110,9 @@ const SAFE_ERROR_MESSAGES = new Set([
   "You cannot approve or reject an entry you wrote or edited.",
   "This entry has changed or was already decided. Refresh and try again.",
   "This change is not allowed.",
+  "No such enhancement request.",
+  "This request was already handled. Refresh and try again.",
+  "Confirm that you are publishing this entry as its only reviewer.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -286,13 +289,16 @@ export async function askAiAssistantStreaming(
 
 export interface AiAssistantFeedbackResult {
   feedback_id: number;
-  draft_entry_id: string | null;
   message: string;
 }
 
+/**
+ * "Yes, helpful" records the rating; "Not helpful" needs a note (the backend refuses an empty
+ * one) and becomes an enhancement request for a Director.
+ */
 export function sendAiAssistantFeedback(
   caseId: string,
-  feedback: { helpful: boolean; note: string; turns: AiAssistantTurn[] },
+  feedback: { helpful: boolean; note: string },
   signal?: AbortSignal,
 ): Promise<AiAssistantFeedbackResult> {
   return request<AiAssistantFeedbackResult>(`/cases/${encodeURIComponent(caseId)}/feedback`, feedback, signal);
@@ -302,6 +308,8 @@ export interface KnowledgeAccess {
   user_id: string | null;
   can_review: boolean;
   can_edit_guidance: boolean;
+  /** POC single-reviewer mode (D-083): a reviewer may publish an entry they wrote, once confirmed. */
+  single_reviewer?: boolean;
 }
 
 export interface KnowledgeEntry {
@@ -328,8 +336,11 @@ export interface KnowledgeEntry {
   illustrative: boolean;
   /** What this version says; edits and decisions send it back so they apply to it only. */
   content_hash: string;
+  /** Approved by someone who wrote or edited it (single-reviewer mode, D-083). */
+  single_reviewer: boolean;
 }
 
+/** An enhancement request: an RM's "Not helpful" note, redacted, with its case context. */
 export interface KnowledgeGap {
   id: number;
   note: string;
@@ -353,6 +364,8 @@ export interface KnowledgeStats {
     helpful_rate: number | null;
     open_gaps: number;
   };
+  /** Confidence by topic: helpful and not-helpful ratings per blocker code. */
+  by_topic: Record<string, { helpful: number; not_helpful: number }>;
 }
 
 /** A reviewer's edit; `replaces: null` clears what the version replaces, leaving it out keeps it. */
@@ -369,19 +382,33 @@ export const fetchKnowledgeReviews = (signal?: AbortSignal) =>
   request<KnowledgeReviewQueue>("/knowledge/reviews", undefined, signal);
 export const fetchKnowledgeStats = (signal?: AbortSignal) =>
   request<KnowledgeStats>("/knowledge/stats", undefined, signal);
-export const fetchApprovedResolutions = (signal?: AbortSignal) =>
-  request<KnowledgeEntry[]>("/knowledge/entries?kind=resolution", undefined, signal);
+/** Every approved entry the reviewer may see (guidance and past resolutions). */
+export const fetchApprovedEntries = (signal?: AbortSignal) =>
+  request<KnowledgeEntry[]>("/knowledge/entries", undefined, signal);
 // An edit is saved as a new version that a different reviewer must approve.
 export const editKnowledgeEntry = (entry: KnowledgeEntry, edit: KnowledgeEdit) =>
   request<KnowledgeEntry>(`${entryPath(entry.entry_id, entry.version)}/edit`, {
     content_hash: entry.content_hash,
     ...edit,
   });
-export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, notes: string) =>
+// Approve and Reject apply to exactly the content shown (its hash). `confirmed`: the reviewer
+// saw the final text and confirmed publishing it; in single-reviewer mode the backend needs
+// it before an author or editor can publish their own entry.
+export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, notes: string, confirmed = false) =>
   request<KnowledgeEntry>(`${entryPath(entry.entry_id, entry.version)}/decision`, {
     approve,
     content_hash: entry.content_hash,
     notes,
+    confirm_single_reviewer: confirmed,
   });
-export const closeKnowledgeGap = (feedbackId: number) =>
-  request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, {});
+/** A Director's fix for an enhancement request: a past case or a guidance change. */
+export type KnowledgeFix =
+  | { kind: "resolution"; title: string; body: string; follow_ups: string[] }
+  | { kind: "guidance"; title: string; body: string; source_ref: string; entry_id?: string };
+
+// Saves the fix, linked to the request, for review like any other entry: publishing it
+// resolves the request, rejecting it opens the request again.
+export const draftFromKnowledgeGap = (feedbackId: number, fix: KnowledgeFix) =>
+  request<KnowledgeEntry>(`/knowledge/feedback/${feedbackId}/draft`, fix);
+export const closeKnowledgeGap = (feedbackId: number, reason: string) =>
+  request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, { reason });
