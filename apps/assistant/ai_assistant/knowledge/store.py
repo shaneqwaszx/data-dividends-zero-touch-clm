@@ -44,7 +44,7 @@ SCHEMA_VERSION = 5
 _ENTRY_COLUMNS = (
     "entry_id, version, kind, status, title, body, blocker_codes, fields, stages, visibility, "
     "follow_ups, effective_from, replaces, author, approver, approved_at, source_ref, "
-    "illustrative, content_hash, created_at, revises"
+    "illustrative, content_hash, created_at, revises, started_from_answer"
 )
 
 _SCHEMA = """
@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS entries (
     content_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
     revises INTEGER,
+    started_from_answer INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (entry_id, version)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_current_version
@@ -228,6 +229,7 @@ def _row_to_entry(row: sqlite3.Row) -> Entry:
         illustrative=bool(row["illustrative"]),
         created_at=row["created_at"],
         revises=row["revises"],
+        started_from_answer=bool(row["started_from_answer"]),
     )
 
 
@@ -409,6 +411,8 @@ class KnowledgeStore:
                 self._migrate_to_4(db)
             if version is not None and int(version[0]) == 5:
                 self._repair_5(db)
+            if version is not None:
+                self._add_entry_origin(db)
             db.executescript(_SCHEMA)
             db.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -1198,6 +1202,19 @@ class KnowledgeStore:
             db.execute("ALTER TABLE entries ADD COLUMN revises INTEGER")
 
     @staticmethod
+    def _add_entry_origin(db: sqlite3.Connection) -> None:
+        """Version 5 marks a fix started from the AI's answer (``started_from_answer``, 0 for
+        every existing version). Every earlier store, and earlier builds of this branch that
+        already stamped 5, gains the column."""
+
+        columns = {row[1] for row in db.execute("PRAGMA table_info(entries)")}
+        if columns and "started_from_answer" not in columns:
+            db.execute(
+                "ALTER TABLE entries ADD COLUMN started_from_answer INTEGER NOT NULL DEFAULT 0"
+            )
+            db.commit()
+
+    @staticmethod
     def _repair_5(db: sqlite3.Connection) -> None:
         """Earlier builds of this branch (never on main) stamped 5 on answer_records tables
         without ``shown_answer`` (so every new record failed to insert) or without
@@ -1278,7 +1295,7 @@ class KnowledgeStore:
     def _insert(self, db: sqlite3.Connection, entry: Entry) -> None:
         db.execute(
             f"INSERT INTO entries ({_ENTRY_COLUMNS}) VALUES "
-            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 entry.entry_id,
                 entry.version,
@@ -1301,6 +1318,7 @@ class KnowledgeStore:
                 entry.content_hash(),
                 entry.created_at,
                 entry.revises,
+                int(entry.started_from_answer),
             ),
         )
 

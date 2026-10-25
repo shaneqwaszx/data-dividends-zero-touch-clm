@@ -6,6 +6,7 @@ import {
   draftFromKnowledgeGap,
   editKnowledgeEntry,
   fetchApprovedEntries,
+  fetchFixStart,
   fetchKnowledgeAccess,
   fetchKnowledgeReviews,
   fetchKnowledgeStats,
@@ -26,14 +27,26 @@ interface FixDraft {
   sourceRef: string;
   /** Guidance only: the existing guidance entry to change ("" for new guidance). */
   changes: string;
+  /** The AI's left-out lines the form was started from (empty when started blank or cleared). */
+  startLines: string[];
 }
 
-const EMPTY_FIX: FixDraft = { kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "" };
+const EMPTY_FIX: FixDraft = { kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "", startLines: [] };
+
+// The Redactor's placeholders, which the Director rewrites in general terms.
+const PLACEHOLDER = /\[(?:COMPANY|UEN|ADDRESS|PERSON|ID|EMAIL|PHONE|POSTAL|UNIT)\]/g;
+
+/** The body a fix starts with: a guidance change starts from its current approved text. */
+function startingBody(startLines: string[], current?: KnowledgeEntry): string {
+  return [current?.body ?? "", ...startLines].filter(Boolean).join("\n");
+}
 
 function fixOf(draft: FixDraft): KnowledgeFix {
+  // Sent only when the fix was started from the AI's answer (the server checks it has one).
+  const started = draft.startLines.length > 0 ? { started_from_answer: true } : {};
   if (draft.kind === "resolution") {
     const followUps = draft.followUps.split("\n").map((line) => line.trim()).filter(Boolean);
-    return { kind: "resolution", title: draft.title.trim(), body: draft.body.trim(), follow_ups: followUps };
+    return { kind: "resolution", title: draft.title.trim(), body: draft.body.trim(), follow_ups: followUps, ...started };
   }
   return {
     kind: "guidance",
@@ -41,6 +54,7 @@ function fixOf(draft: FixDraft): KnowledgeFix {
     body: draft.body.trim(),
     source_ref: draft.sourceRef.trim(),
     ...(draft.changes ? { entry_id: draft.changes } : {}),
+    ...started,
   };
 }
 
@@ -155,6 +169,24 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     if (openRequest || returnTo.current === null) return;
     dialog.current?.querySelector<HTMLElement>(`[data-open-request="${returnTo.current}"]`)?.focus();
     returnTo.current = null;
+  }, [openRequest]);
+
+  // Opening a request with an answer record starts its fix from the AI's left-out lines,
+  // unless the Director already wrote something. Nothing is saved until Save.
+  useEffect(() => {
+    if (!openRequest?.answer_id || fixes[openRequest.id]) return;
+    const id = openRequest.id;
+    const controller = new AbortController();
+    fetchFixStart(id, controller.signal)
+      .then((start) => {
+        if (controller.signal.aborted || start.lines.length === 0) return;
+        setFixes((all) =>
+          all[id] ? all : { ...all, [id]: { ...EMPTY_FIX, title: start.title, body: startingBody(start.lines), startLines: start.lines } },
+        );
+      })
+      .catch(() => undefined); // the form simply starts empty
+    return () => controller.abort();
+    // Runs when a request page opens, not on every keystroke in its form.
   }, [openRequest]);
 
   useEffect(() => {
@@ -295,9 +327,27 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
         {error && <p className="ai-assistant-error" role="alert">{error}</p>}
         <fieldset className="knowledge-review-fix">
           <legend>Write the fix</legend>
+          {fix.startLines.length > 0 && (
+            <div className="knowledge-review-started" role="note">
+              <p>Started from the AI's answer. Rewrite it as general guidance and remove anything specific to this client.</p>
+              <button type="button" className="btn btn-ghost" disabled={disabled} onClick={() => setFixes((all) => ({ ...all, [gap.id]: EMPTY_FIX }))}>
+                Clear
+              </button>
+            </div>
+          )}
           <label>
             Fix as
-            <select value={fix.kind} disabled={disabled} onChange={(event) => changeFix(gap.id, { kind: event.target.value as FixDraft["kind"] })}>
+            <select
+              value={fix.kind}
+              disabled={disabled}
+              onChange={(event) =>
+                changeFix(gap.id, {
+                  kind: event.target.value as FixDraft["kind"],
+                  changes: "",
+                  ...(fix.startLines.length ? { body: startingBody(fix.startLines) } : {}),
+                })
+              }
+            >
               <option value="resolution">Past case</option>
               <option value="guidance">Guidance change</option>
             </select>
@@ -305,7 +355,18 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
           {fix.kind === "guidance" && (
             <label>
               Guidance to change
-              <select value={fix.changes} disabled={disabled} onChange={(event) => changeFix(gap.id, { changes: event.target.value })}>
+              <select
+                value={fix.changes}
+                disabled={disabled}
+                onChange={(event) => {
+                  const current = approved.find((entry) => entry.entry_id === event.target.value);
+                  // Changing existing guidance starts from its approved text, the AI's lines below it.
+                  changeFix(gap.id, {
+                    changes: event.target.value,
+                    ...(fix.startLines.length ? { body: startingBody(fix.startLines, current) } : {}),
+                  });
+                }}
+              >
                 <option value="">New guidance</option>
                 {approved.filter((entry) => entry.kind === "guidance").map((entry) => (
                   <option key={entry.entry_id} value={entry.entry_id}>
@@ -323,6 +384,15 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
             {fix.kind === "guidance" ? "Guidance text" : "What resolves it"} (no names, UENs or addresses)
             <textarea rows={4} maxLength={4000} value={fix.body} disabled={disabled} onChange={(event) => changeFix(gap.id, { body: event.target.value })} />
           </label>
+          {(() => {
+            const placeholders = [...new Set(fix.body.match(PLACEHOLDER) ?? [])];
+            return placeholders.length > 0 ? (
+              <p className="knowledge-review-placeholders">
+                Rewrite these in general terms:{" "}
+                {placeholders.map((placeholder) => <mark key={placeholder}>{placeholder}</mark>)}
+              </p>
+            ) : null;
+          })()}
           {fix.kind === "guidance" ? (
             <label>
               Source reference
@@ -427,6 +497,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                   <p className="knowledge-review-meta">
                     {entry.kind === "guidance" ? "Guidance" : "Past resolution"} · by {entry.author}
                     {entry.revises !== null ? ` · edited from version ${entry.revises}` : ""}
+                    {entry.started_from_answer ? " · started from the AI's answer" : ""}
                     {entry.blocker_codes.length ? ` · ${entry.blocker_codes.join(", ")}` : ""}
                   </p>
                   <label>

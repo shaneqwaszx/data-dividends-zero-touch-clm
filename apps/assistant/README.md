@@ -175,6 +175,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request |
 | POST | `/assistant/knowledge/feedback/{id}/close` | Director | Close an open enhancement request; `reason` is required |
 | GET | `/assistant/knowledge/feedback/{id}/answer` | Director | "What happened": the answer record linked to the request (view logged) |
+| GET | `/assistant/knowledge/feedback/{id}/fix-start` | Director | Where the fix can start: a title from the blocker type and the AI's left-out lines (and any shown model line that is not an allowed line), one sentence per line, redacted against the request's case; no notices or fixed disclaimers, no model call, nothing saved. A logged view of the record; 404 without one (the form starts empty) |
 | GET | `/assistant/knowledge/feedback/{id}/answers/{answer_id}` | Director | One of the (at most 2, most recent) earlier answers that record names (view logged); any other id is 404 |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
 | POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
@@ -206,7 +207,11 @@ opened, and the RM's note), **Why the AI answered this way** (a rule-based hint,
 verdict: "Catalog gap: no allowed line matched", "No knowledge found" or "Missing
 knowledge"; shown lines tagged Policy/Case/Knowledge, left-out lines crossed out, knowledge
 with scores and thresholds, all allowed lines, the case at the time) and, below them, the
-fix. Records tied to no request are deleted after `AI_ASSISTANT_ANSWER_RECORD_UNRATED_DAYS`
+fix. When the request has a record, the fix starts from the AI's left-out lines (a guidance
+change from its current approved text with those lines below), with the Redactor's
+placeholders marked and a **Clear** button; nothing is saved until Save, and the save rules
+are unchanged. A version saved from it records `started_from_answer`, shown in its review
+history and on its review card. Records tied to no request are deleted after `AI_ASSISTANT_ANSWER_RECORD_UNRATED_DAYS`
 (7). A record linked to a request, and the up to 2 earlier answers kept with it
 (`kept_for_request_id`, same user and case), are deleted
 `AI_ASSISTANT_ANSWER_RECORD_CLOSED_DAYS` (30) after the request was resolved or closed (a

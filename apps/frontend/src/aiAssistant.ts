@@ -355,6 +355,8 @@ export interface KnowledgeEntry {
   content_hash: string;
   /** Approved by someone who wrote or edited it (single-reviewer mode, D-083). */
   single_reviewer: boolean;
+  /** A Director's fix whose text was started from the request's answer record. */
+  started_from_answer?: boolean;
 }
 
 /** An enhancement request: an RM's "Not helpful" note, redacted, with its case context. */
@@ -473,9 +475,20 @@ export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, no
     confirm_single_reviewer: confirmed,
   });
 /** A Director's fix for an enhancement request: a past case or a guidance change. */
-export type KnowledgeFix =
+export type KnowledgeFix = (
   | { kind: "resolution"; title: string; body: string; follow_ups: string[] }
-  | { kind: "guidance"; title: string; body: string; source_ref: string; entry_id?: string };
+  | { kind: "guidance"; title: string; body: string; source_ref: string; entry_id?: string }
+) & { started_from_answer?: boolean };
+
+/** Where a fix can start: a title from the blocker type and the AI's left-out lines, redacted. */
+export interface KnowledgeFixStart {
+  title: string;
+  lines: string[];
+}
+
+// Read only (a logged view of the record); "not found" for a request without one.
+export const fetchFixStart = (feedbackId: number, signal?: AbortSignal) =>
+  request<KnowledgeFixStart>(`/knowledge/feedback/${feedbackId}/fix-start`, undefined, signal);
 
 // Saves the fix, linked to the request, for review like any other entry: publishing it
 // resolves the request, rejecting it opens the request again.

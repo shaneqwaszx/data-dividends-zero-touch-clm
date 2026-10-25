@@ -13,6 +13,7 @@ copied into knowledge.
 import hashlib
 import json
 import logging
+import re
 import secrets
 import threading
 import time
@@ -112,6 +113,51 @@ def capped_dropped(lines: Sequence[str], redact: Callable[[str], str]) -> list[s
         kept.append(text)
         size += length
     return kept
+
+
+# Where one sentence ends and the next starts, and a list marker the model put before a line.
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_LIST_MARKER = re.compile(r"^(?:[-*•]|\d{1,3}[.)])\s+")
+
+
+def fix_title(blocker_codes: Sequence[str]) -> str:
+    """A starting title for a Director's fix: the request's first blocker type, in words."""
+
+    code = next((str(code) for code in blocker_codes if code), "")
+    return code.replace("_", " ").strip().capitalize() or "General"
+
+
+def fix_start_lines(record: dict[str, Any], redact: Callable[[str], str]) -> list[str]:
+    """What a Director's fix can start from: the lines the AI wrote that were left out, and
+    any shown model line that is not an allowed line, one sentence per line, redacted.
+
+    Notices and the catalog's fixed disclaimers (policy lines) are left out: they are the
+    app's wording, not something the AI knew. Nothing is generated; it is the record's text.
+    """
+
+    allowed = {
+        line["text"] if isinstance(line, dict) else str(line)
+        for line in record.get("allowed_lines") or []
+    }
+    written = [
+        *(record.get("dropped_lines") or []),
+        *(line for line in record.get("chosen_lines") or [] if line not in allowed),
+    ]
+    skip = {*POLICY_LINES, *((record.get("result") or {}).get("notices") or [])}
+    lines: list[str] = []
+    for text in written:
+        if str(text).strip() in skip:
+            continue
+        # Redact the whole line before splitting it: a name such as "... PTE. LTD." would
+        # otherwise be cut at its full stop and escape the Redactor.
+        for sentence in _SENTENCE_END.split(redact(str(text).strip())):
+            sentence = _LIST_MARKER.sub("", sentence.strip())
+            if not sentence or sentence in skip:
+                continue
+            cleaned = redact(sentence)
+            if cleaned not in lines:
+                lines.append(cleaned)
+    return lines
 
 
 class AnswerRecorder:

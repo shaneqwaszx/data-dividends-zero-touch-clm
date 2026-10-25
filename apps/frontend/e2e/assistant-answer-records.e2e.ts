@@ -99,6 +99,10 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
         json(response, { entries: {}, feedback: { total: gaps.length, helpful: 0, not_helpful: gaps.length, helpful_rate: 0, open_gaps: gaps.length }, by_topic: {} }); return;
       }
       if (url.endsWith("/knowledge/entries")) { json(response, []); return; }
+      if (url.endsWith("/knowledge/feedback/1/fix-start")) {
+        // Like the service: the record's left-out line, redacted; no model call, nothing saved.
+        json(response, { title: "Document source conflict", lines: record.dropped_lines }); return;
+      }
       if (url.endsWith("/knowledge/feedback/1/answer")) {
         if (!gaps.length) { json(response, { detail: { code: "NOT_FOUND", message: "No such answer." } }, 404); return; }
         recordViews.push(url);
@@ -163,6 +167,11 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
     // The fix is written on the request page, below what happened.
     const fix = page.getByRole("region", { name: "Fix this request" });
     await expect(fix.getByRole("group", { name: "Write the fix" })).toBeVisible();
+    // Started from the AI's answer, with the placeholders to rewrite marked; nothing saved yet.
+    await expect(fix.getByRole("note")).toContainText("Started from the AI's answer.");
+    await expect(fix.getByRole("textbox", { name: "Title" })).toHaveValue("Document source conflict");
+    await expect(fix.getByRole("textbox", { name: /What resolves it/ })).toHaveValue(record.dropped_lines[0]);
+    await expect(fix.locator(".knowledge-review-placeholders mark")).toHaveText(["[ADDRESS]"]);
     const [columns, fixBox] = [await why.boundingBox(), await fix.boundingBox()];
     expect(columns && fixBox && fixBox.y >= columns.y + columns.height - 1).toBe(true);
     await page.getByRole("button", { name: "← Back to Knowledge review" }).click();

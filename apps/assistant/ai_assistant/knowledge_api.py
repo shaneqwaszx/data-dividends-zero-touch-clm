@@ -49,7 +49,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .answer_records import ANSWER_ID
+from .answer_records import ANSWER_ID, fix_start_lines, fix_title
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .context import build_case_facts
 from .knowledge.drafting import resolution_from_request
@@ -142,6 +142,9 @@ class FixRequest(BaseModel):
     fields: list[str] | None = Field(default=None, max_length=20)
     stages: list[str] | None = Field(default=None, max_length=20)
     visibility: VisibilityBody | None = None
+    # The Director started from the request's answer record (the fix-start lines). Recorded
+    # on the saved version only when the request has a record.
+    started_from_answer: bool = False
 
     @model_validator(mode="after")
     def _fits_its_kind(self) -> "FixRequest":
@@ -215,6 +218,7 @@ def entry_view(entry: Entry, *, single_reviewer: bool = False) -> dict[str, Any]
         "created_at": entry.created_at,
         "source_ref": entry.source_ref,
         "illustrative": entry.illustrative,
+        "started_from_answer": entry.started_from_answer,
         "content_hash": entry.content_hash(),
         # This version was approved by someone who wrote or edited it (single-reviewer mode).
         "single_reviewer": single_reviewer,
@@ -486,6 +490,13 @@ def knowledge_router(
         """A Director's view of the record linked to an open request, or of one of the
         earlier answers it names (``answer_id``). Logged; "not found" otherwise."""
 
+        return answer_view(request_record(feedback_id, answer_id, profile, request), director=True)
+
+    def request_record(
+        feedback_id: int, answer_id: str | None, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        """The record behind ``request_answer``, with the view logged."""
+
         reach = request_in_scope(feedback_id)
         require(profile, APPROVE)
         reach(profile)
@@ -520,11 +531,28 @@ def knowledge_router(
             )
         except AnswerNotFoundError:
             raise answer_not_found() from None
-        return answer_view(viewed, director=True)
+        return viewed
 
     @router.get("/assistant/knowledge/feedback/{feedback_id}/answer")
     def linked_answer(feedback_id: int, profile: Actor, request: Request) -> dict[str, Any]:
         return request_answer(feedback_id, None, profile, request)
+
+    @router.get("/assistant/knowledge/feedback/{feedback_id}/fix-start")
+    def fix_start(feedback_id: int, profile: Actor, request: Request) -> dict[str, Any]:
+        """Where a Director's fix can start: a title from the blocker type and the lines the
+        AI wrote that were left out (or shown though not allowed), redacted against the
+        request's case loaded with this Director's own session. Reading the record is a
+        logged view; a request without one is "not found" (the form starts empty). No model
+        is called and nothing is saved: the fix is saved, and checked, only on Save."""
+
+        record = request_record(feedback_id, None, profile, request)
+        row = next(row for row in team_feedback(profile, helpful=False) if row["id"] == feedback_id)
+        snapshot = load_case(UUID(row["case_id"]), request)
+        redact = Redactor(build_case_facts(snapshot), parties=case_parties(snapshot.summary)).redact
+        return {
+            "title": fix_title(row["blocker_codes"]),
+            "lines": fix_start_lines(record, redact),
+        }
 
     @router.get("/assistant/knowledge/feedback/{feedback_id}/answers/{answer_id}")
     def earlier_answer(
@@ -737,12 +765,12 @@ def knowledge_router(
         # parties (loaded with this Director's own session; a case they cannot load stops the
         # change), then the identifier patterns. The reviewer sees the result before it can go
         # live.
-        case_id = next(
-            row["case_id"]
-            for row in team_feedback(profile, helpful=False)
-            if row["id"] == feedback_id
+        request_row = next(
+            row for row in team_feedback(profile, helpful=False) if row["id"] == feedback_id
         )
-        snapshot = load_case(UUID(case_id), request)
+        # Only a request with an answer record can have a fix started from it.
+        started = body.started_from_answer and request_row["answer_id"] is not None
+        snapshot = load_case(UUID(request_row["case_id"]), request)
         redact = Redactor(build_case_facts(snapshot), parties=case_parties(snapshot.summary)).redact
 
         def build(row: dict[str, Any]) -> Entry:
@@ -754,7 +782,7 @@ def knowledge_router(
                     body=body.body,
                     redact=redact,
                     follow_ups=body.follow_ups,
-                )
+                ).with_changes(started_from_answer=started)
             assert target is not None
             current = kb.store.current(target)
             visibility = (
@@ -779,6 +807,7 @@ def knowledge_router(
                 visibility=visibility,
                 source_ref=body.source_ref,
                 author=author,
+                started_from_answer=started,
             )
 
         try:

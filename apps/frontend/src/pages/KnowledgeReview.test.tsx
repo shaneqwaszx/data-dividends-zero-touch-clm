@@ -698,6 +698,114 @@ describe("The enhancement request queue and page", () => {
   });
 });
 
+describe("A fix started from the AI's answer", () => {
+  const START = { title: "Document source conflict", lines: ["Ask [COMPANY] for the tenancy agreement.", "Then check [ADDRESS] on it."] };
+  const CURRENT = { ...GUIDANCE, body: "Keep the registry address until the client confirms the move." };
+
+  function prefillBackend(calls: { url: string; body: unknown }[], gap: Record<string, unknown> = { ...GAP, answer_id: "A".repeat(22) }) {
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      fetched.push(url);
+      if (init?.method === "POST") calls.push({ url, body: JSON.parse(String(init.body)) });
+      if (url.endsWith("/knowledge/reviews")) return json({ pending: [{ ...PENDING, started_from_answer: true }], gaps: [gap] });
+      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 1, helpful: 0, not_helpful: 1, helpful_rate: 0, open_gaps: 1 }, by_topic: {} });
+      if (url.endsWith("/knowledge/entries")) return json([CURRENT]);
+      if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
+      if (url.endsWith("/knowledge/feedback/7/answer")) return json(RECORD);
+      if (url.endsWith("/knowledge/feedback/7/fix-start")) return json(START);
+      if (url.endsWith("/draft")) return json({ ...PENDING, entry_id: "resolution.new" });
+      return json({}, 404);
+    }));
+    return fetched;
+  }
+
+  async function openWithStart(): Promise<HTMLElement> {
+    const view = render();
+    await flush();
+    act(() => view.querySelector<HTMLButtonElement>('[data-open-request="7"]')?.click());
+    await flush();
+    return view;
+  }
+
+  const fixArea = (view: HTMLElement) => view.querySelector('[aria-labelledby="request-page-fix"]') as HTMLElement;
+  const bodyOf = (view: HTMLElement) => fixArea(view).querySelectorAll<HTMLTextAreaElement>("fieldset textarea")[0];
+
+  it("prefills the title and the AI's left-out lines, says so and marks the placeholders", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    const fix = fixArea(view);
+    expect(fix.querySelector<HTMLInputElement>("fieldset input")?.value).toBe("Document source conflict");
+    expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
+    expect(fix.querySelector('[role="note"] p')?.textContent).toBe(
+      "Started from the AI's answer. Rewrite it as general guidance and remove anything specific to this client.",
+    );
+    expect([...fix.querySelectorAll(".knowledge-review-placeholders mark")].map((mark) => mark.textContent)).toEqual(["[COMPANY]", "[ADDRESS]"]);
+    // Nothing is saved until Save.
+    expect(calls).toEqual([]);
+  });
+
+  it("records on Save that the fix started from the AI's answer", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    act(() => button(fixArea(view), "Save the fix for review").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual(["/knowledge/feedback/7/draft"]);
+    expect(calls[0].body).toEqual({
+      kind: "resolution",
+      title: "Document source conflict",
+      body: "Ask the client for the tenancy agreement for the new address.",
+      follow_ups: [],
+      started_from_answer: true,
+    });
+  });
+
+  it("Clear empties the form, and a fix saved after it is not marked", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    act(() => button(fixArea(view), "Clear").click());
+    expect(bodyOf(view).value).toBe("");
+    expect(fixArea(view).querySelector('[role="note"]')).toBeNull();
+    const inputs = () => fixArea(view).querySelectorAll("fieldset input, fieldset textarea");
+    type(inputs()[0], "Proof list for moved offices");
+    type(inputs()[1], "Ask for the tenancy agreement before changing the address.");
+    act(() => button(fixArea(view), "Save the fix for review").click());
+    await flush();
+    expect(calls[0].body).not.toHaveProperty("started_from_answer");
+  });
+
+  it("starts a guidance change from its current approved text, with the AI's lines below", async () => {
+    prefillBackend([]);
+    const view = await openWithStart();
+    choose(fixArea(view).querySelector("fieldset select"), "guidance");
+    expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
+    choose(fixArea(view).querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
+    expect(bodyOf(view).value).toBe(
+      "Keep the registry address until the client confirms the move.\nAsk [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.",
+    );
+  });
+
+  it("gives a request without an answer record an empty form and asks for no start", async () => {
+    const fetched = prefillBackend([], { ...GAP, answer_id: null });
+    const view = await openWithStart();
+    expect(bodyOf(view).value).toBe("");
+    expect(fixArea(view).querySelector('[role="note"]')).toBeNull();
+    expect(fetched.some((url) => url.includes("/fix-start"))).toBe(false);
+  });
+
+  it("shows in the review queue that a version started from the AI's answer", async () => {
+    prefillBackend([]);
+    const view = render();
+    await flush();
+    const card = view.querySelector('[aria-label="Review Draft: Document or reconciliation review required"]');
+    expect(card?.querySelector(".knowledge-review-meta")?.textContent).toContain("· started from the AI's answer");
+  });
+});
+
 describe("age", () => {
   it("says how many whole days ago a request was made", () => {
     const now = Date.parse("2026-10-25T12:00:00Z");
