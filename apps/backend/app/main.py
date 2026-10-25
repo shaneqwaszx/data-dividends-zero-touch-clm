@@ -3151,7 +3151,10 @@ def create_app(
                 detail=detail.model_dump(mode="json", exclude_none=True),
             ) from None
         return OwnershipAnalysisResponse.from_domain(
-            record, poc_basis_accepted=active_ownership.poc_basis_accepted(record)
+            record,
+            poc_basis_accepted=active_ownership.poc_basis_accepted(record),
+            simulation_calculated=active_ownership.simulation_calculated(record),
+            entity_effective_interests=active_ownership.entity_effective_interests(record),
         )
 
     @application.get(
@@ -3177,7 +3180,10 @@ def create_app(
                 )
             )
         return OwnershipAnalysisResponse.from_domain(
-            record, poc_basis_accepted=active_ownership.poc_basis_accepted(record)
+            record,
+            poc_basis_accepted=active_ownership.poc_basis_accepted(record),
+            simulation_calculated=active_ownership.simulation_calculated(record),
+            entity_effective_interests=active_ownership.entity_effective_interests(record),
         )
 
     @application.get(

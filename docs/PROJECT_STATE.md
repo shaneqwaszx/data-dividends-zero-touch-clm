@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 14,
+  "case_envelope_schema_version": 15,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1025,3 +1025,15 @@ Candidate D-080 on `feat/sim-lim-acra-ownership-followthrough-20261024`, from ma
 - **D-082 (candidate, opt-in, default off):** the eligible Garden POC analysis is accepted
   at readiness only (state, issues and classifications stay review). Target confirmation
   is still required, and no provisional UBO id reaches the Mock snapshot.
+- **D-085 (candidate, same opt-in):** replaces D-082's Garden-only officer-role allowlist
+  with a reusable contract. A trusted catalogue scenario declares its accepted POC
+  assumptions, and eligibility evaluates actual review causes. Garden qualifies; the D-077
+  five-layer scenario declares nothing. Case envelope 15. A bounded read-only Marketplace
+  Mock probe (2026-10-25, 1 token + 18 GETs) found no ACRA-backed multi-layer chain
+  supportable without overriding official holder facts (`INSUFFICIENT_MARKETPLACE_MOCK_DATA`).
+- **D-086 (candidate):** the five-layer simulation is presented as "Multi-layer ownership
+  simulation calculated" (presentation-only `simulation_calculated`; readiness unchanged),
+  and an operator-selected `OPQ_GARDEN_SIM_LIM_V1` scenario links OPQ to Garden at an
+  owner-declared 100% (no units), reusing Garden's register and SIM LIM's official rows. It
+  calculates but stays in review: Garden's retained Owner roles block POC readiness (fail
+  closed pending an owner decision).

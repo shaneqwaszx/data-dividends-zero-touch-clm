@@ -1515,8 +1515,8 @@ def test_schema_fourteen_round_trip_and_older_schemas_reject_later_evidence(
     codec = object.__new__(MongoCaseStore)
     encoded = codec._encode(snapshot_of(onboarding, record))  # noqa: SLF001
     decoded = codec._decode(encoded)  # noqa: SLF001
-    assert decoded.schema_version == 14
-    assert list(range(1, 15)) == _SUPPORTED_SCHEMA_VERSIONS
+    assert decoded.schema_version == 15
+    assert list(range(1, 16)) == _SUPPORTED_SCHEMA_VERSIONS
     assert decoded.ownership is not None and decoded.ownership == record
     assert {row.share_type for row in sim_lim(decoded.ownership).official_shareholders} == {
         "Ordinary"
@@ -1536,13 +1536,13 @@ def test_schema_fourteen_round_trip_and_older_schemas_reject_later_evidence(
     assert sim_lim(retained).reason_code == OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE
     d079 = without_share_class(codec._encode(snapshot_of(onboarding, retained)))  # noqa: SLF001
     legacy = codec._decode(d079)  # noqa: SLF001
-    assert legacy.schema_version == 14 and legacy.ownership is not None
+    assert legacy.schema_version == 15 and legacy.ownership is not None
     assert {row.share_type for row in sim_lim(legacy.ownership).official_shareholders} == {None}
     # An exact schema-12 envelope can never carry D-079 evidence at all...
     with pytest.raises(PersistenceDataInvalidError):
         codec._decode({**d079, "schema_version": 12})  # noqa: SLF001
     # ...while ordinary schema-12 content still reads into the current form.
-    assert codec._decode({**encoded, "schema_version": 12, "ownership": None}).schema_version == 14  # noqa: SLF001
+    assert codec._decode({**encoded, "schema_version": 12, "ownership": None}).schema_version == 15  # noqa: SLF001
 
 
 def test_a_cached_empty_profile_with_a_fresh_shareholder_read_counts_as_provider_backed() -> None:

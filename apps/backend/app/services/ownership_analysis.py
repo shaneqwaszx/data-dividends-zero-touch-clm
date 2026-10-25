@@ -1,10 +1,8 @@
 """Bounded ownership loading, graph traversal, aggregation, and classification."""
 
-import hmac
 import json
-import re
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -13,11 +11,9 @@ from hashlib import sha256
 from typing import Final, Never, Protocol
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, SecretStr, TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app.connectors.garden_business import GARDEN_BUSINESS_UEN
 from app.connectors.hybrid_ownership_overlay import (
-    GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
     OVERLAY_RELATIONSHIP_PROVIDER,
     POC_EQUAL_UNITS_PROVIDER,
     HybridOverlayScenario,
@@ -36,8 +32,6 @@ from app.domain.models import EventOutcome, OnboardingCase, SafeError
 from app.domain.ownership import (
     OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS,
     OWNERSHIP_POC_ACCEPTANCE_POLICY,
-    POC_ACCEPTANCE_ISSUES,
-    POC_ACCEPTANCE_REQUIRED_ISSUES,
     ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
@@ -60,6 +54,7 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
     PartyType,
+    PocAssumption,
     PriorOwnershipAnalysisSnapshot,
     discovery_topology_resolved,
 )
@@ -307,16 +302,15 @@ def synthetic_basis_threshold_results(
     return results
 
 
-# D-082: the explicitly whitelisted POC scenario, its root UEN and the observed shape of
-# its official Marketplace Mock OFFICERS Owner role records (three current, one ceased)
-# that D1=B keeps as descriptive context once their exact identities match the protected
-# allowlist. Anything else stays an ordinary review outcome.
-_POC_ACCEPTANCE_SCENARIOS: Final = {
-    GARDEN_DIRECT_OVERLAY_SCENARIO_ID: (GARDEN_BUSINESS_UEN, 3, 1)
+# D-085: which declared assumption each link provenance exercises. Any other link kind
+# (an official ACRA edge, a manual declaration) is outside every POC acceptance.
+_POC_ACCEPTANCE_EDGE_ASSUMPTIONS: Final = {
+    OVERLAY_RELATIONSHIP_PROVIDER: PocAssumption.SIMULATED_RELATIONSHIPS,
+    POC_EQUAL_UNITS_PROVIDER: PocAssumption.EQUAL_UNIT_DENOMINATOR,
 }
-_POC_ROLE_ALLOWLIST_ENTRY: Final = re.compile(r"^[0-9a-f]{64}=(?:CURRENT|CEASED)$")
-_POC_ACCEPTANCE_EDGE_PROVIDERS: Final = frozenset(
-    {OVERLAY_RELATIONSHIP_PROVIDER, POC_EQUAL_UNITS_PROVIDER}
+_OWNERSHIP_LIKE_ROLES: Final = frozenset({"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"})
+_UNRESOLVED_EVIDENCE_KINDS: Final = frozenset(
+    {"GROUP_SHAREHOLDER", "UNKNOWN", "CONTROL", "MEMBERSHIP_INTEREST", "ECONOMIC_INTEREST"}
 )
 _POC_BASIS_FIELDS: Final = frozenset(
     {
@@ -332,43 +326,89 @@ _POC_BASIS_FIELDS: Final = frozenset(
 
 
 @dataclass(frozen=True)
-class PocOfficerRoleAllowlist:
-    """D-082 R1: the exact observed officer role set, held only as protected keyed digests.
+class _ReviewCauses:
+    """Every evidence cause behind the single registry review issue, kept separate.
 
-    A role's stable evidence id is an unsalted hash of an officer identifier, so it is
-    compared only through HMAC-SHA256 under a backend-only key. Neither the key nor any
-    digest is ever logged, returned or stored on an analysis.
+    The analysis records one issue code chosen by priority (a legal form of OTHER masks
+    every other cause), so POC acceptance evaluates these causes, never the code alone.
     """
 
-    key: bytes = field(repr=False)
-    expected: str = field(repr=False)
+    unquantified: tuple[OwnershipEvidence, ...]
+    contradictory: tuple[OwnershipEvidence, ...]
+    has_conflict: bool
+    has_unbound: bool
+    has_unsupported_activity: bool
+    unresolved_kinds: bool
+    unresolved_roles: tuple[OwnershipEvidence, ...]
 
-    def matches(self, roles: Iterable[tuple[str, str]]) -> bool:
-        observed = "\n".join(
-            sorted(
-                f"{hmac.new(self.key, evidence_id.encode(), sha256).hexdigest()}={status}"
-                for evidence_id, status in roles
-            )
+
+def _review_causes(record: OwnershipAnalysisRecord) -> _ReviewCauses:
+    entities = {party.party_id: party.registration_number for party in record.parties}
+    unquantified: list[OwnershipEvidence] = []
+    contradictory: list[OwnershipEvidence] = []
+    for item in record.evidence:
+        if item.kind not in {"SHARE_UNITS", "DIRECT_PERCENTAGE"}:
+            continue
+        scalar = _scalar_percentage(item, record.evidence)
+        edges = [
+            edge
+            for edge in record.relationships
+            if item.entity_identifier is not None
+            and edge.child_party_id == item.party_id
+            and entities[edge.parent_party_id] == item.entity_identifier
+        ]
+        if scalar is None or len(edges) != 1:
+            unquantified.append(item)
+        elif edges[0].ownership_percent != scalar:
+            contradictory.append(item)
+    garden_fixture_graph = (
+        record.source_classification == "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+        and record.identity_registration_number == "11111999A"
+        and bool(record.supplemental_relationships)
+        and tuple(record.relationships) == record.supplemental_relationships
+    )
+    unresolved_roles = tuple(
+        item
+        for item in record.evidence
+        if item.kind == "ROLE"
+        # Official officer roles are retained descriptive context, not quantitative
+        # ownership authority for the validated Garden fixture.
+        and not (
+            garden_fixture_graph
+            and item.provider == "ACRA_REGISTRY_ACQUISITION"
+            and item.source_operation == "OFFICERS"
         )
-        return hmac.compare_digest(observed.encode(), self.expected.encode())
+        and item.raw_value.strip().upper() in _OWNERSHIP_LIKE_ROLES
+        and not any(
+            item.entity_identifier is not None
+            and edge.child_party_id == item.party_id
+            and entities[edge.parent_party_id] == item.entity_identifier
+            for edge in record.relationships
+        )
+    )
+    return _ReviewCauses(
+        unquantified=tuple(unquantified),
+        contradictory=tuple(contradictory),
+        has_conflict=any(item.kind == "CONFLICT" for item in record.evidence),
+        has_unbound=any(item.entity_identifier is None for item in record.evidence),
+        has_unsupported_activity=any(
+            (item.kind == "DIRECT_PERCENTAGE" and item.source_status is not None)
+            or (item.kind == "SHARE_UNITS" and item.source_status not in {None, "ACTIVE"})
+            for item in record.evidence
+        ),
+        unresolved_kinds=any(item.kind in _UNRESOLVED_EVIDENCE_KINDS for item in record.evidence),
+        unresolved_roles=unresolved_roles,
+    )
 
 
-def parse_poc_officer_role_allowlist(
-    key: SecretStr | None, allowlist: SecretStr | None
-) -> PocOfficerRoleAllowlist | None:
-    """Absent, malformed or duplicate protected configuration disables the exception."""
+def _intermediate_ownership_like_roles(discovery: OwnershipDiscoveryAudit) -> bool:
+    """D-086: any ownership-like official officer role retained on an overlay issuer."""
 
-    if key is None or allowlist is None:
-        return None
-    secret = key.get_secret_value()
-    entries = [item.strip() for item in allowlist.get_secret_value().split(",")]
-    if (
-        len(secret) < 32
-        or not all(_POC_ROLE_ALLOWLIST_ENTRY.fullmatch(item) for item in entries)
-        or len({item.split("=", 1)[0] for item in entries}) != len(entries)
-    ):
-        return None
-    return PocOfficerRoleAllowlist(key=secret.encode(), expected="\n".join(sorted(entries)))
+    return any(
+        role.role.strip().upper() in _OWNERSHIP_LIKE_ROLES
+        for item in discovery.records
+        for role in item.official_officer_roles
+    )
 
 
 def _officer_role_evidence_id(party_id: str) -> str:
@@ -378,7 +418,7 @@ def _officer_role_evidence_id(party_id: str) -> str:
 
 
 def _poc_basis_fingerprint(record: OwnershipAnalysisRecord) -> str:
-    """Digest of every input the D-082 decision depends on; any change revokes it."""
+    """Digest of every input the POC acceptance depends on; any change revokes it."""
 
     content = record.model_dump(mode="json", include=set(_POC_BASIS_FIELDS))
     encoded = json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
@@ -388,24 +428,31 @@ def _poc_basis_fingerprint(record: OwnershipAnalysisRecord) -> str:
 def eligible_poc_acceptance(
     record: OwnershipAnalysisRecord,
     *,
+    scenario: HybridOverlayScenario | None,
     accepted_at: datetime,
     ownership_version: int,
-    officer_roles: PocOfficerRoleAllowlist | None,
 ) -> OwnershipPocAcceptance | None:
-    """D-082 fail-closed eligibility: only the declared POC assumptions remain open.
+    """D-085 fail-closed eligibility: only the scenario's declared assumptions remain open.
 
-    The analysis must be the whitelisted hybrid scenario with a complete topology, every
-    retained issuer POC-distributed, calculated assumed-basis results, and no issue other
-    than the POC markers plus (D1=B) the review caused by exactly the observed official
-    officer Owner roles, whose identities and statuses match the protected allowlist.
-    Nothing is changed: state, issues, evidence and classifications stay.
+    The trusted catalogue declaration (project code, never a case field) lists the
+    accepted assumptions, and each accepts exactly one review cause. The analysis must
+    belong to that scenario's official Mock root, have a complete topology built only
+    from declared link kinds over issuers that are not locally named, calculated
+    assumed-basis results, and no other cause, issue or defect. Nothing is changed:
+    state, issues, evidence and classifications stay.
     """
 
     discovery = record.discovery
-    scenario = discovery.overlay_scenario_id if discovery is not None else None
-    if scenario not in _POC_ACCEPTANCE_SCENARIOS or discovery is None:
+    declaration = scenario.poc_acceptance if scenario is not None else None
+    if (
+        scenario is None
+        or declaration is None
+        or discovery is None
+        or discovery.overlay_scenario_id != scenario.scenario_id
+    ):
         return None
-    root_uen, current_roles, ceased_roles = _POC_ACCEPTANCE_SCENARIOS[scenario]
+    declared = declaration.accepted_assumptions
+    root_uen = scenario.root_uen
     root = next((item for item in record.parties if item.party_id == record.root_party_id), None)
     retained = [item for item in discovery.records if item.official_shareholders]
     poc_edges = [
@@ -413,7 +460,13 @@ def eligible_poc_acceptance(
         for edge in record.relationships
         if edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
     ]
+    link_assumptions = {
+        _POC_ACCEPTANCE_EDGE_ASSUMPTIONS.get(edge.provenance.provider)
+        for edge in record.relationships
+    }
     codes = {issue.code for issue in record.issues}
+    causes = _review_causes(record)
+    legal_form_other = record.legal_form == RegistryLegalForm.OTHER
     if (
         record.source_classification != HYBRID_SOURCE_CLASSIFICATION
         or record.provider_name != "ACRA_REGISTRY_ACQUISITION"
@@ -422,7 +475,8 @@ def eligible_poc_acceptance(
         or record.identity_correction_version is None
         or root is None
         or root.registration_number != root_uen
-        or record.legal_form in {None, RegistryLegalForm.OTHER}
+        or record.legal_form is None
+        or (legal_form_other and PocAssumption.UNCLASSIFIED_LEGAL_FORM not in declared)
         or record.error is not None
         or record.manual_review_receipt is not None
         or record.supplemental_relationships
@@ -431,24 +485,47 @@ def eligible_poc_acceptance(
         or any(
             item.verification_state == "REVIEW_REQUIRED" for item in record.document_discrepancies
         )
-        or not retained
+        # A locally named issuer is a fabricated identity, never a declared assumption.
+        or any(item.identity_basis == "LOCAL_SYNTHETIC_IDENTITY" for item in discovery.records)
+        # D-086 fail closed: an intermediate issuer's ownership-like official officer roles
+        # are not covered by any declared assumption (open owner question).
+        or _intermediate_ownership_like_roles(discovery)
+        or not link_assumptions
+        or not link_assumptions <= declared
         or any(
             item.reason_code != OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
             or item.official_shareholder_lookup is None
             for item in retained
         )
-        or not poc_edges
         or {edge.parent_party_id for edge in poc_edges} != {item.party_id for item in retained}
-        or any(
-            edge.provenance.provider not in _POC_ACCEPTANCE_EDGE_PROVIDERS
-            for edge in record.relationships
-        )
         or any(
             item.provider != OVERLAY_RELATIONSHIP_PROVIDER or item.environment != "LOCAL"
             for item in record.supplemental_evidence
         )
+        # Genuine evidence defects stay blocking whatever the recorded issue code says.
+        or causes.unquantified
+        or causes.contradictory
+        or causes.has_conflict
+        or causes.has_unbound
+        or causes.has_unsupported_activity
+        or causes.unresolved_kinds
+        or (causes.unresolved_roles and PocAssumption.DESCRIPTIVE_OFFICER_ROLES not in declared)
+        or len(causes.unresolved_roles) > 16
+        # Retained root evidence is only official Mock officer roles, kept as context;
+        # none is a shareholding, a percentage or a classification input.
+        or any(
+            item.kind != "ROLE"
+            or item.source_operation != "OFFICERS"
+            or item.provider != "ACRA_REGISTRY_ACQUISITION"
+            or item.environment != "MOCK"
+            or item.entity_identifier != root_uen
+            or item.source_status not in {None, "CEASED"}
+            or item.evidence_id != _officer_role_evidence_id(item.party_id)
+            for item in record.evidence
+        )
+        or len({item.party_id for item in record.evidence}) != len(record.evidence)
+        or len({item.evidence_id for item in record.evidence}) != len(record.evidence)
         or len(codes) != len(record.issues)
-        or not POC_ACCEPTANCE_REQUIRED_ISSUES <= codes <= POC_ACCEPTANCE_ISSUES
         or not record.candidates
         or any(
             item.classification
@@ -462,35 +539,25 @@ def eligible_poc_acceptance(
         )
     ):
         return None
-    # D1=B (R1): the evidence must be exactly the observed official OFFICERS Owner role
-    # records bound to the whitelisted root (three current, one ceased), and their exact
-    # identities and statuses must match the protected allowlist in any order. They are
-    # then the sole cause of the review issue; a ceased role remains history only.
-    roles = record.evidence
-    statuses = ["CEASED" if item.source_status == "CEASED" else "CURRENT" for item in roles]
-    if (
-        officer_roles is None
-        or OwnershipIssueCode.UBO_REVIEW_REQUIRED not in codes
-        or statuses.count("CURRENT") != current_roles
-        or statuses.count("CEASED") != ceased_roles
-        or len({item.party_id for item in roles}) != len(roles)
-        or len({item.evidence_id for item in roles}) != len(roles)
-        or any(
-            item.kind != "ROLE"
-            or item.raw_value.strip().upper() != "OWNER"
-            or item.source_operation != "OFFICERS"
-            or item.provider != "ACRA_REGISTRY_ACQUISITION"
-            or item.environment != "MOCK"
-            or item.entity_identifier != root_uen
-            or item.source_status not in {None, "CEASED"}
-            or item.evidence_id != _officer_role_evidence_id(item.party_id)
-            for item in roles
-        )
-        or not officer_roles.matches(
-            zip((item.evidence_id for item in roles), statuses, strict=True)
-        )
-    ):
+    exercised = {item for item in link_assumptions if item is not None}
+    if causes.unresolved_roles:
+        exercised.add(PocAssumption.DESCRIPTIVE_OFFICER_ROLES)
+    if legal_form_other:
+        exercised.add(PocAssumption.UNCLASSIFIED_LEGAL_FORM)
+    # One registry review issue is recorded by priority: legal form OTHER masks roles.
+    expected = {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE}
+    if poc_edges:
+        expected.add(OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED)
+    if legal_form_other:
+        expected.add(OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED)
+    elif causes.unresolved_roles:
+        expected.add(OwnershipIssueCode.UBO_REVIEW_REQUIRED)
+    if codes != expected:
         return None
+    statuses = [
+        "CEASED" if item.source_status == "CEASED" else "CURRENT"
+        for item in causes.unresolved_roles
+    ]
     return OwnershipPocAcceptance(
         policy=OWNERSHIP_POC_ACCEPTANCE_POLICY,
         accepted_at=accepted_at,
@@ -499,19 +566,23 @@ def eligible_poc_acceptance(
         ownership_version=ownership_version,
         identity_registration_number=root_uen,
         identity_correction_version=record.identity_correction_version,
-        overlay_scenario_id=scenario,
+        overlay_scenario_id=scenario.scenario_id,
         accepted_issue_codes=tuple(sorted(codes)),
         poc_relationship_ids=tuple(sorted({edge.relationship_id for edge in poc_edges})),
-        descriptive_current_role_count=current_roles,
-        descriptive_ceased_role_count=ceased_roles,
+        descriptive_current_role_count=statuses.count("CURRENT"),
+        descriptive_ceased_role_count=statuses.count("CEASED"),
+        accepted_assumptions=tuple(sorted(exercised)),
         basis_fingerprint=_poc_basis_fingerprint(record),
     )
 
 
 def poc_acceptance_current(
-    record: OwnershipAnalysisRecord, officer_roles: PocOfficerRoleAllowlist | None
+    record: OwnershipAnalysisRecord, scenario: HybridOverlayScenario | None
 ) -> bool:
-    """The recorded D-082 acceptance still matches this exact analysis version."""
+    """The recorded acceptance still matches this exact analysis version and policy.
+
+    A D-082 record never matches: eligibility is recomputed under D-085 only.
+    """
 
     acceptance = record.poc_acceptance
     return (
@@ -520,11 +591,79 @@ def poc_acceptance_current(
         and acceptance.ownership_version == record.version
         and eligible_poc_acceptance(
             record,
+            scenario=scenario,
             accepted_at=acceptance.accepted_at,
             ownership_version=acceptance.ownership_version,
-            officer_roles=officer_roles,
         )
         == acceptance
+    )
+
+
+# Issues a completed declared-overlay simulation may carry: its synthetic-evidence marker,
+# the root legal form's unsupported formal method, and the root's descriptive role review.
+_SIMULATION_ISSUES: Final = frozenset(
+    {
+        OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
+        OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED,
+        OwnershipIssueCode.UBO_REVIEW_REQUIRED,
+    }
+)
+
+
+def simulation_calculation_complete(record: OwnershipAnalysisRecord) -> bool:
+    """Presentation only: a declared-overlay simulation whose arithmetic fully completed.
+
+    True when every link is a declared LOCAL_SYNTHETIC_RELATIONSHIP, the topology is
+    complete, every person has a calculated assumed-basis result, and no genuine evidence
+    defect, contradiction or other issue remains (causes are recomputed, never inferred
+    from the masked review code). It grants no readiness, verification or acceptance.
+    """
+
+    discovery = record.discovery
+    if (
+        record.state != OwnershipAnalysisState.REVIEW_REQUIRED
+        or record.source_classification != HYBRID_SOURCE_CLASSIFICATION
+        or discovery is None
+        or discovery.overlay_scenario_id is None
+        or discovery.topology_complete is not True
+        or discovery.unresolved_person_party_ids
+        or record.error is not None
+        or record.manual_review_receipt is not None
+        or record.supplemental_relationships
+        or any(
+            item.verification_state == "REVIEW_REQUIRED" for item in record.document_discrepancies
+        )
+        or not record.relationships
+        or any(
+            edge.provenance.provider != OVERLAY_RELATIONSHIP_PROVIDER
+            for edge in record.relationships
+        )
+        or not record.candidates
+        or any(
+            item.synthetic_basis_threshold_result
+            not in {OwnershipThresholdResult.MET, OwnershipThresholdResult.NOT_MET}
+            for item in record.candidates
+        )
+    ):
+        return False
+    codes = [issue.code for issue in record.issues]
+    causes = _review_causes(record)
+    return (
+        not _intermediate_ownership_like_roles(discovery)
+        and OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE in codes
+        and set(codes) <= _SIMULATION_ISSUES
+        and len(set(codes)) == len(codes)
+        and not (
+            causes.unquantified
+            or causes.contradictory
+            or causes.has_conflict
+            or causes.has_unbound
+            or causes.has_unsupported_activity
+            or causes.unresolved_kinds
+        )
+        # A role cause must be the visible role review, never one masked by legal form OTHER.
+        and bool(causes.unresolved_roles)
+        == (OwnershipIssueCode.UBO_REVIEW_REQUIRED in codes)
     )
 
 
@@ -549,6 +688,11 @@ class PathCalculation:
     issues: tuple[OwnershipAnalysisIssue, ...]
     # Exact unrounded sum of path products reaching each legal entity without owners.
     unresolved_entity_shares: dict[str, Decimal] = field(default_factory=dict)
+    # D-086 presentation only: the same traversal's path products reaching each
+    # intermediate legal entity. Never a candidate, classification or readiness input.
+    entity_paths_by_party: dict[str, tuple[OwnershipPathEvidence, ...]] = field(
+        default_factory=dict
+    )
 
 
 def build_ownership_graph(source: OwnershipSourceResult) -> OwnershipGraph:
@@ -603,8 +747,13 @@ def calculate_ownership_paths(
     max_depth: int,
     max_paths_per_candidate: int,
     max_total_paths: int,
+    include_entity_paths: bool = False,
 ) -> PathCalculation:
-    """Iteratively enumerate unique bounded root-to-natural-person paths."""
+    """Iteratively enumerate unique bounded root-to-natural-person paths.
+
+    `include_entity_paths` (D-086 presentation only, off for analysis, discovery and
+    advice) also records the product already reaching each intermediate legal entity.
+    """
 
     paths: dict[str, list[OwnershipPathEvidence]] = defaultdict(list)
     path_keys: set[tuple[str, ...]] = set()
@@ -616,6 +765,7 @@ def calculate_ownership_paths(
     explored_path_states = 0
     traversal_limit_reached = False
     entity_shares: dict[str, Decimal] = defaultdict(Decimal)
+    entity_paths: dict[str, list[OwnershipPathEvidence]] = defaultdict(list)
 
     def add_issue(code: OwnershipIssueCode, message: str, party_ids: tuple[str, ...]) -> None:
         key = (code, party_ids)
@@ -709,6 +859,28 @@ def calculate_ownership_paths(
                 )
                 continue
 
+            if include_entity_paths and child.party_type == PartyType.LEGAL_ENTITY:
+                # D-086 presentation only: record the product already reaching this entity.
+                entity_percent = next_fraction * Decimal("100")
+                entity_paths[child_id].append(
+                    OwnershipPathEvidence(
+                        path_id=_path_id(tuple(item.relationship_id for item in next_edges)),
+                        edges=[
+                            OwnershipPathEdge(
+                                relationship_id=item.relationship_id,
+                                parent_party_id=item.parent_party_id,
+                                parent_display_name=graph.parties[item.parent_party_id].display_name,
+                                child_party_id=item.child_party_id,
+                                child_display_name=graph.parties[item.child_party_id].display_name,
+                                ownership_percent=item.ownership_percent,
+                            )
+                            for item in next_edges
+                        ],
+                        effective_ownership_percent=entity_percent,
+                        is_direct=len(next_edges) == 1,
+                        calculation=_calculation_text(next_edges, entity_percent),
+                    )
+                )
             stack.append((child_id, next_edges, visited | {child_id}, next_fraction))
 
         if traversal_limit_reached:
@@ -726,6 +898,10 @@ def calculate_ownership_paths(
             )
         ),
         unresolved_entity_shares=dict(sorted(entity_shares.items())),
+        entity_paths_by_party={
+            party_id: tuple(sorted(items, key=lambda item: item.path_id))
+            for party_id, items in sorted(entity_paths.items())
+        },
     )
 
 
@@ -806,7 +982,6 @@ class OwnershipAnalysisService:
         discovery: OwnershipDiscoveryExpander | None = None,
         hybrid_overlay: HybridOwnershipOverlayCatalogue | None = None,
         poc_acceptance_enabled: bool = False,
-        poc_officer_roles: PocOfficerRoleAllowlist | None = None,
         max_parties: int,
         max_relationships: int,
         max_depth: int,
@@ -844,8 +1019,6 @@ class OwnershipAnalysisService:
         self._discovery = discovery
         self._hybrid_overlay = hybrid_overlay
         self._poc_acceptance_enabled = poc_acceptance_enabled
-        # D-082 R1: the protected exact role set applies only under the opt-in policy.
-        self._poc_officer_roles = poc_officer_roles if poc_acceptance_enabled else None
         self.threshold_percent = validated_threshold
         self.max_parties = max_parties
         self.max_relationships = max_relationships
@@ -862,10 +1035,11 @@ class OwnershipAnalysisService:
         return self._provider
 
     def poc_basis_accepted(self, record: OwnershipAnalysisRecord) -> bool:
-        """D-082 readiness authority: a current acceptance, only while this runtime opts in.
+        """POC readiness authority: a current acceptance, only while this runtime opts in.
 
-        A persisted acceptance alone grants nothing: disabling the setting or leaving the
-        Mock hybrid lane revokes it, and so does any later identity or content change.
+        A persisted acceptance alone grants nothing: disabling the setting, leaving the
+        Mock hybrid lane or removing the scenario's catalogue declaration revokes it, and
+        so does any later identity or content change.
         """
 
         if not self._poc_acceptance_enabled or self._hybrid_overlay is None:
@@ -875,8 +1049,71 @@ class OwnershipAnalysisService:
             parent is not None
             and ownership_is_current(record, parent)
             and record.document_bindings == self._document_inputs(record.case_id)[1]
-            and poc_acceptance_current(record, self._poc_officer_roles)
+            and poc_acceptance_current(record, self._poc_scenario(record))
         )
+
+    def simulation_calculated(self, record: OwnershipAnalysisRecord) -> bool:
+        """Presentation only (see `simulation_calculation_complete`); never readiness."""
+
+        return simulation_calculation_complete(record)
+
+    def entity_effective_interests(
+        self, record: OwnershipAnalysisRecord
+    ) -> dict[str, tuple[OwnershipPathEvidence, ...]]:
+        """Presentation only: the engine's path products reaching each intermediate entity.
+
+        Recomputed from the analysed record with the same traversal and safety limits; it
+        is never stored, classified or used for readiness. Empty (fail closed) when the
+        record is not analysed, the traversal was bounded (path or depth limit), a cycle
+        was excluded, any entity total exceeds 100 (over-allocation), or the evidence
+        cannot be built, so nothing partial or impossible is shown as an interest.
+        """
+
+        if (
+            record.state
+            not in {OwnershipAnalysisState.ANALYZED, OwnershipAnalysisState.REVIEW_REQUIRED}
+            or record.root_party_id is None
+            or not record.relationships
+        ):
+            return {}
+        try:
+            calculation = calculate_ownership_paths(
+                build_ownership_graph(
+                    OwnershipSourceResult(
+                        root_party_id=record.root_party_id,
+                        parties=list(record.parties),
+                        relationships=list(record.relationships),
+                    )
+                ),
+                max_depth=self.max_depth,
+                max_paths_per_candidate=self.max_paths_per_candidate,
+                max_total_paths=self.max_total_paths,
+                include_entity_paths=True,
+            )
+        except (OwnershipGraphError, ValidationError, KeyError):
+            return {}
+        if any(
+            issue.code
+            in {
+                OwnershipIssueCode.PATH_LIMIT_EXCEEDED,
+                OwnershipIssueCode.MAXIMUM_DEPTH_EXCEEDED,
+                OwnershipIssueCode.CYCLE_DETECTED,
+            }
+            for issue in calculation.issues
+        ) or any(
+            sum((path.effective_ownership_percent for path in paths), start=Decimal("0"))
+            > Decimal("100")
+            for paths in calculation.entity_paths_by_party.values()
+        ):
+            return {}
+        return calculation.entity_paths_by_party
+
+    def _poc_scenario(self, record: OwnershipAnalysisRecord) -> HybridOverlayScenario | None:
+        """This composition's own trusted declaration for the analysis's scenario."""
+
+        if self._hybrid_overlay is None or record.discovery is None:
+            return None
+        return self._hybrid_overlay.scenario(record.discovery.overlay_scenario_id)
 
     def load(
         self, *, case_id: UUID, provider: OwnershipProvider | None = None
@@ -1579,25 +1816,9 @@ class OwnershipAnalysisService:
                                      "disagree; originals are retained for creator review."),
                         )
                     )
-            entities = {party.party_id: party.registration_number for party in record.parties}
-            unquantified: list[OwnershipEvidence] = []
-            contradictory: list[OwnershipEvidence] = []
-            for item in record.evidence:
-                if item.kind not in {"SHARE_UNITS", "DIRECT_PERCENTAGE"}:
-                    continue
-                scalar = _scalar_percentage(item, record.evidence)
-                edges = [
-                    edge
-                    for edge in record.relationships
-                    if item.entity_identifier is not None
-                    and edge.child_party_id == item.party_id
-                    and entities[edge.parent_party_id] == item.entity_identifier
-                ]
-                if scalar is None or len(edges) != 1:
-                    unquantified.append(item)
-                elif edges[0].ownership_percent != scalar:
-                    contradictory.append(item)
-            if contradictory:
+            causes = _review_causes(record)
+            unquantified = list(causes.unquantified)
+            if causes.contradictory:
                 record.issues.append(
                     OwnershipAnalysisIssue(
                         code=OwnershipIssueCode.CONTRADICTORY_OWNERSHIP_EVIDENCE,
@@ -1605,48 +1826,10 @@ class OwnershipAnalysisService:
                         "both are retained and require review.",
                     )
                 )
-            has_conflict = any(item.kind == "CONFLICT" for item in record.evidence)
-            has_unbound = any(item.entity_identifier is None for item in record.evidence)
-            has_unsupported_activity = any(
-                (item.kind == "DIRECT_PERCENTAGE" and item.source_status is not None)
-                or (item.kind == "SHARE_UNITS" and item.source_status not in {None, "ACTIVE"})
-                for item in record.evidence
-            )
-            garden_fixture_graph = (
-                record.source_classification == "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
-                and record.identity_registration_number == "11111999A"
-                and bool(record.supplemental_relationships)
-                and tuple(record.relationships) == record.supplemental_relationships
-            )
-            has_unresolved_semantics = any(
-                item.kind
-                in {
-                    "GROUP_SHAREHOLDER",
-                    "UNKNOWN",
-                    "CONTROL",
-                    "MEMBERSHIP_INTEREST",
-                    "ECONOMIC_INTEREST",
-                }
-                or (
-                    item.kind == "ROLE"
-                    # Official officer roles are retained descriptive context, not
-                    # quantitative ownership authority for the validated Garden fixture.
-                    and not (
-                        garden_fixture_graph
-                        and item.provider == "ACRA_REGISTRY_ACQUISITION"
-                        and item.source_operation == "OFFICERS"
-                    )
-                    and item.raw_value.strip().upper()
-                    in {"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"}
-                    and not any(
-                        item.entity_identifier is not None
-                        and edge.child_party_id == item.party_id
-                        and entities[edge.parent_party_id] == item.entity_identifier
-                        for edge in record.relationships
-                    )
-                )
-                for item in record.evidence
-            )
+            has_conflict = causes.has_conflict
+            has_unbound = causes.has_unbound
+            has_unsupported_activity = causes.has_unsupported_activity
+            has_unresolved_semantics = causes.unresolved_kinds or bool(causes.unresolved_roles)
             if (
                 not record.relationships
                 or unquantified
@@ -1730,14 +1913,14 @@ class OwnershipAnalysisService:
                 ]
             record.analyzed_at = self._clock()
             if record.issues:
-                # D-082: opt-in acceptance of the declared POC basis, recorded beside the
-                # unchanged review state, issues and classifications.
+                # D-085: opt-in acceptance of the scenario's declared POC basis, recorded
+                # beside the unchanged review state, issues and classifications.
                 record.poc_acceptance = (
                     eligible_poc_acceptance(
                         record,
+                        scenario=self._poc_scenario(record),
                         accepted_at=record.analyzed_at,
                         ownership_version=record.version + 1,
-                        officer_roles=self._poc_officer_roles,
                     )
                     if self._poc_acceptance_enabled
                     else None
@@ -1753,8 +1936,8 @@ class OwnershipAnalysisService:
                         else "OWNERSHIP_GRAPH_REVIEW_REQUIRED"
                     ),
                     message=(
-                        "Ownership calculated on the declared POC basis and accepted for "
-                        "readiness by D-082; classification review is retained."
+                        "Ownership calculated on the scenario's declared POC basis and "
+                        "accepted for readiness by D-085; classification review is retained."
                         if record.poc_acceptance is not None
                         else "Ownership analysis completed with issues requiring human review."
                     ),

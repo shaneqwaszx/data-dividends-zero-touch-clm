@@ -47,6 +47,7 @@ from app.domain.ownership import (
     OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE,
     RESOLVED_DISCOVERY_OUTCOMES,
     OfficialEntityLookup,
+    OfficialOfficerRoleObservation,
     OfficialShareholderLookup,
     OfficialShareholderObservation,
     OwnershipDiscoveryAudit,
@@ -123,6 +124,7 @@ class _OverlayIdentity:
     identity_basis: Literal["OFFICIAL_MOCK_ENTITY_PROFILE", "LOCAL_SYNTHETIC_IDENTITY"]
     official_entity_lookup: OfficialEntityLookup
     official_legal_form: RegistryLegalForm | None
+    officer_roles: tuple[OfficialOfficerRoleObservation, ...] = ()
 
 
 class OwnershipDiscoveryCoordinator:
@@ -721,12 +723,28 @@ class _DiscoveryRun:
                     "OFFICIAL_QUANTITY_PRECLUDES_OVERLAY",
                     None,
                 )
+            # D-086 fail closed (owner decision): the issuer's official OFFICERS roles are
+            # kept beside the graph (role and status only, never identities or holdings)
+            # so POC eligibility evaluates them instead of silently dropping them.
+            try:
+                roles = tuple(
+                    OfficialOfficerRoleObservation(
+                        role=officer.role,
+                        status="CEASED" if officer.cessation_date is not None else "CURRENT",
+                        source_operation=officer.provenance.operation.value,
+                        retrieved_at=officer.provenance.retrieved_at,
+                    )
+                    for officer in bundle.officers
+                )
+            except ValidationError:
+                return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_RECORD_INVALID", None
             identity = _OverlayIdentity(
                 "OFFICIAL_MOCK_ENTITY_PROFILE",
                 "ENTITY_PROFILE_CACHE_REUSED"
                 if evidence.entity_profile_reused
                 else "ENTITY_PROFILE_FETCHED",
                 classify_registry_legal_form(bundle.entity_profile.party_type),
+                roles,
             )
             name = bundle.entity_profile.legal_name or self._parties[node].display_name
         # The node's identity name follows its identity source; links stay local.
@@ -933,6 +951,7 @@ class _DiscoveryRun:
                 identity.official_entity_lookup if identity is not None else None
             ),
             official_legal_form=identity.official_legal_form if identity is not None else None,
+            official_officer_roles=identity.officer_roles if identity is not None else (),
             official_shareholders=shareholders,
             official_shareholder_lookup=shareholder_lookup,
         )

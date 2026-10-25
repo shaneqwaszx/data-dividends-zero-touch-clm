@@ -33,16 +33,16 @@ class Settings(BaseSettings):
     acra_marketplace_ownership_overlay: Literal[
         "garden_legacy_supplement", "hybrid_direct_overlay"
     ] = "garden_legacy_supplement"
-    # D-082 opt-in demonstration policy, hybrid lane only: an eligible analysis is accepted
-    # on its declared POC equal-unit basis at the readiness boundary. Never verification.
+    # D-085 opt-in demonstration policy, hybrid lane only: an analysis is accepted on its
+    # whitelisted scenario's declared POC basis at the readiness boundary. Never verification.
     acra_marketplace_poc_ownership_acceptance: Literal["disabled", "accept_eligible_poc"] = (
         "disabled"
     )
-    # D-082 R1 protected values: a backend-only HMAC key and the keyed digests of the exact
-    # observed Garden officer Owner roles with their expected statuses. Absent or malformed
-    # values disable the officer-role exception; never logged or exposed.
-    acra_marketplace_poc_officer_role_key: SecretStr | None = None
-    acra_marketplace_poc_officer_role_allowlist: SecretStr | None = None
+    # D-086 operator selector, hybrid lane only: which whitelisted scenario the OPQ root
+    # uses. The historical five-layer simulation stays the default; never a case field.
+    acra_marketplace_opq_scenario: Literal["five_layer_simulation", "garden_sim_lim_chain"] = (
+        "five_layer_simulation"
+    )
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
@@ -158,6 +158,13 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "POC ownership acceptance requires the Marketplace Mock hybrid overlay lane."
+            )
+        if self.acra_marketplace_opq_scenario != "five_layer_simulation" and (
+            self.acra_connector_mode != "api_marketplace_mock"
+            or self.acra_marketplace_ownership_overlay != "hybrid_direct_overlay"
+        ):
+            raise ValueError(
+                "An OPQ scenario variant requires the Marketplace Mock hybrid overlay lane."
             )
         return self
 

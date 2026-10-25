@@ -258,7 +258,11 @@ class OwnershipPathEdge(BaseModel):
 
 
 class OwnershipPathEvidence(BaseModel):
-    """Ordered path and exact effective ownership for one natural person."""
+    """Ordered path and exact effective ownership for one natural person.
+
+    D-086: the same shape also carries a presentation-only path to an intermediate legal
+    entity; such a path is never a candidate, classification or readiness input.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
@@ -361,6 +365,23 @@ OFFICIAL_SHAREHOLDER_RETAINED_REASONS = frozenset(
 )
 
 
+class OfficialOfficerRoleObservation(BaseModel):
+    """One official Marketplace Mock OFFICERS role of an overlay issuer, kept beside the graph.
+
+    D-086 (owner decision, fail closed): role and status only. Never an identity, a
+    holding, an edge or a percentage; POC eligibility evaluates it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    role: Annotated[str, BeforeValidator(_normalize_safe_text), StringConstraints(max_length=64)]
+    status: Literal["CURRENT", "CEASED"]
+    source_operation: Literal["OFFICERS"]
+    provider: Literal["ACRA_REGISTRY_ACQUISITION"] = "ACRA_REGISTRY_ACQUISITION"
+    environment: Literal["MOCK"] = "MOCK"
+    retrieved_at: datetime
+
+
 class OfficialShareholderObservation(BaseModel):
     """One official Marketplace Mock shareholder row kept beside the graph (D-079).
 
@@ -441,11 +462,21 @@ class OwnershipDiscoveryRecord(BaseModel):
     )
     official_entity_lookup: OfficialEntityLookup | None = None
     official_legal_form: RegistryLegalForm | None = None
+    # D-086: an official-profile overlay issuer's OFFICERS roles, kept beside the graph.
+    official_officer_roles: tuple[OfficialOfficerRoleObservation, ...] = Field(
+        default=(), max_length=32
+    )
     # D-079 only: official shareholder rows retained without an entity profile.
     official_shareholders: tuple[OfficialShareholderObservation, ...] = Field(
         default=(), max_length=64
     )
     official_shareholder_lookup: OfficialShareholderLookup | None = None
+
+    @model_validator(mode="after")
+    def official_officer_roles_need_an_official_profile(self) -> "OwnershipDiscoveryRecord":
+        if self.official_officer_roles and self.identity_basis != "OFFICIAL_MOCK_ENTITY_PROFILE":
+            raise ValueError("official officer roles require an official entity profile")
+        return self
 
     @model_validator(mode="after")
     def official_shareholders_are_explicit(self) -> "OwnershipDiscoveryRecord":
@@ -674,8 +705,15 @@ class ManualOwnershipReviewReceipt(BaseModel):
         return value
 
 
-# D-082: the one opt-in demonstration policy that may accept a declared POC basis.
-OWNERSHIP_POC_ACCEPTANCE_POLICY = "D082_HYBRID_POC_EQUAL_UNITS_V1"
+# D-086: the source-reference suffix that marks an owner-declared overlay percentage.
+OWNER_DECLARED_PERCENT_SOURCE_SUFFIX = "_OWNER_DECLARED_PERCENT"
+
+
+# D-082: the original Garden-only opt-in policy. Its records stay readable, but a runtime
+# never records or honours it any more (D-085 recomputes eligibility under its own policy).
+LEGACY_D082_POC_ACCEPTANCE_POLICY = "D082_HYBRID_POC_EQUAL_UNITS_V1"
+# D-085: the reusable scenario-declared policy that replaces D-082 for new analyses.
+OWNERSHIP_POC_ACCEPTANCE_POLICY = "D085_SCENARIO_DECLARED_POC_BASIS_V1"
 POC_ACCEPTANCE_REQUIRED_ISSUES = frozenset(
     {
         OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED,
@@ -685,8 +723,32 @@ POC_ACCEPTANCE_REQUIRED_ISSUES = frozenset(
 POC_ACCEPTANCE_ISSUES = POC_ACCEPTANCE_REQUIRED_ISSUES | {OwnershipIssueCode.UBO_REVIEW_REQUIRED}
 
 
+class PocAssumption(StrEnum):
+    """D-085: one declared POC assumption a trusted scenario may accept.
+
+    Each assumption accepts exactly one review cause; every other cause stays blocking.
+    """
+
+    # Project-declared LOCAL_SYNTHETIC_RELATIONSHIP links between identified issuers.
+    SIMULATED_RELATIONSHIPS = "SIMULATED_RELATIONSHIPS"
+    # D-081 equal-unit links over an issuer's own current official Mock rows.
+    EQUAL_UNIT_DENOMINATOR = "EQUAL_UNIT_DENOMINATOR"
+    # Official Mock officer ownership-like roles of the root kept as descriptive context.
+    DESCRIPTIVE_OFFICER_ROLES = "DESCRIPTIVE_OFFICER_ROLES"
+    # A root registry legal form with no supported formal UBO method (OTHER).
+    UNCLASSIFIED_LEGAL_FORM = "UNCLASSIFIED_LEGAL_FORM"
+
+
+POC_ASSUMPTION_ISSUES: dict[PocAssumption, OwnershipIssueCode] = {
+    PocAssumption.SIMULATED_RELATIONSHIPS: OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE,
+    PocAssumption.EQUAL_UNIT_DENOMINATOR: OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED,
+    PocAssumption.DESCRIPTIVE_OFFICER_ROLES: OwnershipIssueCode.UBO_REVIEW_REQUIRED,
+    PocAssumption.UNCLASSIFIED_LEGAL_FORM: OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED,
+}
+
+
 class OwnershipPocAcceptance(BaseModel):
-    """D-082 acceptance of a declared POC equal-unit basis at the readiness boundary.
+    """Opt-in acceptance of a declared POC basis at the readiness boundary.
 
     Recorded beside the unchanged review state, issues and classifications, and bound
     to one analysis version and its exact content. It is never ownership verification,
@@ -696,7 +758,7 @@ class OwnershipPocAcceptance(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    policy: Literal["D082_HYBRID_POC_EQUAL_UNITS_V1"]
+    policy: Literal["D082_HYBRID_POC_EQUAL_UNITS_V1", "D085_SCENARIO_DECLARED_POC_BASIS_V1"]
     accepted_at: datetime
     case_id: UUID
     analysis_id: UUID
@@ -704,14 +766,15 @@ class OwnershipPocAcceptance(BaseModel):
     identity_registration_number: SafeOptionalIdentifier
     identity_correction_version: int = Field(ge=0)
     overlay_scenario_id: SafeProviderName
-    accepted_issue_codes: tuple[OwnershipIssueCode, ...] = Field(min_length=2, max_length=3)
-    poc_relationship_ids: tuple[SafeRelationshipId, ...] = Field(min_length=1, max_length=200)
-    # D1=B (R1): how many exact observed official OFFICERS Owner role records (current and
-    # ceased) were matched against the protected allowlist and kept as descriptive context.
-    # They stay in the analysis evidence; no identifier or digest is stored here, and they
-    # are neither shareholdings nor corroboration of the synthetic links.
+    accepted_issue_codes: tuple[OwnershipIssueCode, ...] = Field(min_length=1, max_length=4)
+    poc_relationship_ids: tuple[SafeRelationshipId, ...] = Field(default=(), max_length=200)
+    # Descriptive count of the official OFFICERS ownership-like role records (current and
+    # ceased) kept as context. They stay in the analysis evidence; no identifier or digest
+    # is stored here, and they are neither shareholdings nor corroboration of the links.
     descriptive_current_role_count: int = Field(default=0, ge=0, le=16)
     descriptive_ceased_role_count: int = Field(default=0, ge=0, le=16)
+    # D-085 only: the declared assumptions this analysis actually exercised.
+    accepted_assumptions: tuple[PocAssumption, ...] = Field(default=(), max_length=4)
     basis_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
 
     @field_validator("accepted_at")
@@ -724,11 +787,38 @@ class OwnershipPocAcceptance(BaseModel):
     @model_validator(mode="after")
     def accepts_only_declared_poc_assumptions(self) -> "OwnershipPocAcceptance":
         codes = set(self.accepted_issue_codes)
+        roles = bool(self.descriptive_current_role_count + self.descriptive_ceased_role_count)
+        assumptions = set(self.accepted_assumptions)
+        if self.policy == LEGACY_D082_POC_ACCEPTANCE_POLICY:
+            valid = (
+                POC_ACCEPTANCE_REQUIRED_ISSUES <= codes <= POC_ACCEPTANCE_ISSUES
+                and (OwnershipIssueCode.UBO_REVIEW_REQUIRED in codes) == roles
+                and bool(self.poc_relationship_ids)
+                and not assumptions
+            )
+        else:
+            # Exactly the synthetic-evidence marker plus one issue per exercised
+            # assumption; equal-unit links exist exactly when that assumption does. The
+            # one registry review issue is chosen by priority, so OTHER masks the roles.
+            expected = {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE} | {
+                POC_ASSUMPTION_ISSUES[item] for item in assumptions
+            }
+            if PocAssumption.UNCLASSIFIED_LEGAL_FORM in assumptions:
+                expected.discard(OwnershipIssueCode.UBO_REVIEW_REQUIRED)
+            valid = (
+                self.accepted_assumptions == tuple(sorted(assumptions))
+                and bool(
+                    assumptions
+                    & {PocAssumption.SIMULATED_RELATIONSHIPS, PocAssumption.EQUAL_UNIT_DENOMINATOR}
+                )
+                and codes == expected
+                and (PocAssumption.DESCRIPTIVE_OFFICER_ROLES in assumptions) == roles
+                and (PocAssumption.EQUAL_UNIT_DENOMINATOR in assumptions)
+                == bool(self.poc_relationship_ids)
+            )
         if (
-            self.accepted_issue_codes != tuple(sorted(codes))
-            or not POC_ACCEPTANCE_REQUIRED_ISSUES <= codes <= POC_ACCEPTANCE_ISSUES
-            or (OwnershipIssueCode.UBO_REVIEW_REQUIRED in codes)
-            != bool(self.descriptive_current_role_count + self.descriptive_ceased_role_count)
+            not valid
+            or self.accepted_issue_codes != tuple(sorted(codes))
             or self.poc_relationship_ids != tuple(sorted(set(self.poc_relationship_ids)))
         ):
             raise ValueError("POC acceptance covers only declared POC assumption issues")

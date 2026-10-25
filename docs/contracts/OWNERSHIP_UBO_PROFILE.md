@@ -446,3 +446,54 @@ DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
   - The target snapshot carries no provisional UBO ids.
   - Case envelope 14 is extended; an exact v13 envelope rejects it. Not verification or a
     legal UBO determination.
+  - **Superseded by D-085 for new analyses.** The officer-role allowlist settings are
+    removed; a recorded D-082 acceptance stays readable but is never honoured again.
+- **D-085 scenario-declared POC acceptance (candidate).** Same opt-in, default and lane as
+  D-082, policy `D085_SCENARIO_DECLARED_POC_BASIS_V1`.
+  - **Trusted declaration.** A catalogue scenario (`hybrid_ownership_overlay.py`, project
+    code, never a case field) may declare `poc_acceptance`: a `quantity_basis` and the
+    accepted assumptions. Each assumption accepts exactly one review cause:
+    `SIMULATED_RELATIONSHIPS` (`LOCAL_SYNTHETIC_RELATIONSHIP` links →
+    `SYNTHETIC_OWNERSHIP_EVIDENCE`), `EQUAL_UNIT_DENOMINATOR` (D-081 links →
+    `OWNERSHIP_DENOMINATOR_REQUIRED`), `DESCRIPTIVE_OFFICER_ROLES` (root official `OFFICERS`
+    ownership-like roles → `UBO_REVIEW_REQUIRED`) and `UNCLASSIFIED_LEGAL_FORM` (root legal
+    form `OTHER` → `OWNERSHIP_METHOD_UNSUPPORTED`). Garden declares the first three. The
+    historical D-077 five-layer scenario (fictional units, `LOCAL_SYNTHETIC_IDENTITY` names)
+    declares nothing and always stays in review.
+  - **Eligibility (fail-closed).** The analysis's recorded scenario resolves in the
+    runtime's own catalogue to a declaring scenario; root identity, official Mock provider,
+    identity binding, no error, no manual receipt, no supplemental links, complete topology,
+    no unresolved person, no document discrepancy needing review; no locally named issuer
+    identity; every link kind declared; every retained issuer POC-distributed; root
+    evidence only official Mock `OFFICERS` roles bound to the root with stable ids; every
+    candidate review-classified with a calculated assumed-basis result.
+  - **Causes, not codes.** The single registry review issue is chosen by priority (legal
+    form `OTHER` masks every other cause), so eligibility recomputes the causes:
+    unquantified, contradictory, conflicting, unbound or status-unsupported evidence and
+    non-role unresolved semantics always block. The issue set must equal exactly the set the
+    exercised assumptions imply.
+  - **Record.** As D-082, plus `accepted_assumptions` (the exercised ones). Role counts are
+    descriptive; no identity, digest or key is stored or configured.
+  - Readiness, F2/F6, freshness, target snapshot and D-081 Option B behave as for D-082.
+    Removing the scenario's declaration revokes authority like disabling the setting.
+  - Case envelope **15**; an exact v14 reader rejects a D-085 acceptance (it still reads a
+    D-082 one). Not verification or a legal UBO determination.
+- **D-086 dual demonstrations (candidate).**
+  - `simulation_calculated` (response, presentation only): true for a hybrid analysis built
+    only from declared `LOCAL_SYNTHETIC_RELATIONSHIP` links whose arithmetic fully completed
+    with no genuine defect (causes recomputed). It never affects readiness or acceptance.
+  - `entity_effective_interests` (response, presentation only): for each intermediate legal
+    entity, the exact sum of the engine's own path products reaching it, plus each path.
+    Recorded only on the engine's opt-in flag, recomputed with the same limits, withheld on
+    a path or depth limit, cycle or any entity total above 100, never stored, and never a
+    candidate, classification or readiness input.
+  - Overlay issuers may use `OWNER_DECLARED_COMPLETE_PERCENTAGES`: per-holder declared
+    percentages, no units or unit evidence, all active, totalling exactly 100. Links carry
+    `LOCAL_SYNTHETIC_RELATIONSHIP` with a `_OWNER_DECLARED_PERCENT` source reference; the
+    browser sees only `provenance.owner_declared_percentage`.
+  - An official-profile overlay issuer keeps its OFFICERS roles as discovery
+    `official_officer_roles` (role, status, Mock provenance; no identity). Ownership-like
+    intermediate roles block POC acceptance (fail closed; extension is an open owner question).
+  - `OPQ_GARDEN_SIM_LIM_V1` is selected only by the operator setting
+    `ACRA_MARKETPLACE_OPQ_SCENARIO=garden_sim_lim_chain`; the five-layer scenario stays the
+    default. Not ACRA ownership.

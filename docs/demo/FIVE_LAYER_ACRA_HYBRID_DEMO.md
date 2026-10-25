@@ -114,8 +114,10 @@ official identity is incomplete, and quantitative evidence is local synthetic. I
 3. The case stops at `WAITING_FOR_REVIEW` / `OWNERSHIP`. The document is auto-confirmed,
    and reconciliation is MATCHED (address REGISTRY_ONLY).
 4. Open **Ownership & UBO**. The existing, unchanged components render the case.
-   *Ownership structure* shows **5 layers**, 11 parties and the banner *Partial or
-   disputed ownership evidence — review required*. The indented hierarchy shows
+   *Ownership structure* shows **5 layers**, 11 parties and the neutral banner
+   **Multi-layer ownership simulation calculated** (D-086, backend
+   `simulation_calculated`), followed by a separate explanation that the formal UBO
+   classification and readiness remain review-required. The indented hierarchy shows
    OPQ PTE. LTD. (source `ACRA_REGISTRY_ACQUISITION · MOCK`), then L2 *Holds 80% of
    OPQ PTE. LTD.*, L3 *Holds 62.5%*, L4A *Holds 60%* / L4B *Holds 40%*, and L5
    *Holds 100%* / *50%*. Every link's source column reads
@@ -199,6 +201,36 @@ counts/flags. Its `evidence_class` is derived from the recorded receipts:
 - `AUTHENTICATION_FAILED`: the token request or a read returned 401/403.
 - `TRANSPORT_FAILURE`: no HTTP response was received.
 - `NO_SUCCESSFUL_READ`: anything else without a successful read.
+
+## 7a. Scenario B: OPQ -> GARDEN BUSINESS -> SIM LIM (D-086, explicitly selected)
+
+A separate three-entity demonstration on the same OPQ root. Select it explicitly with
+`ACRA_MARKETPLACE_OPQ_SCENARIO=garden_sim_lim_chain` (default `five_layer_simulation`)
+together with `ACRA_CONNECTOR_MODE=api_marketplace_mock` and
+`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay`. Only one OPQ scenario is active
+per runtime.
+
+| Level | Entity | Identity evidence | Link to parent |
+|---|---|---|---|
+| L1 | OPQ PTE. LTD. `201511222D` | Official Marketplace Mock root profile (legal form read as `OTHER`: decoder gap, disclosed) | — |
+| L2 | GARDEN BUSINESS `11111999A` | Official profile, `BUSINESS_PARTNERSHIP` (shown as "Business partnership") | **100%, owner-declared** `LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL · owner-declared percentage` |
+| L3 | SIM LIM PTE. LTD. `111111111M` | Operation-scoped name from its official shareholder rows (no entity profile) | 62.5%, Garden's owner-supplied register (unchanged) |
+| Persons | ABCD123 900 Ordinary, TAN WEI LING 100 Preference, EFGH2345 100 Others (active; withdrawn 10000 excluded) | Official `coShareholdersDetails` rows | `LOCAL_POC_ASSUMED_EQUAL_UNITS` 81.818182 / 9.090909 / 9.090909 |
+
+Effective interests (unchanged engine): ABCD123 51.13636375%, LIM CHOON HUAT 37.5% (via
+Garden), TAN WEI LING and EFGH2345 5.681818125% each. The 100% is a demonstration
+assumption: no share units exist for it, and it is never an ACRA quantity. The hierarchy
+labels the link "owner-declared percentage". Intermediate entities show their engine-path
+effective interests (Garden 100%, SIM LIM 62.5%); in the five-layer scenario L2 80%, L3 50%,
+L4A 30%, L4B 20% and L5 40% (30% + 10% across the diamond). These are presentation values,
+not UBO classifications.
+
+**Readiness (owner decision: fail closed).** Garden's four official OFFICERS Owner roles are
+kept on its discovery record. Because no declared assumption covers an intermediate
+issuer's ownership-like roles, Scenario B is **not POC-ready** even with
+`ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc`. It calculates and displays,
+stays REVIEW_REQUIRED, and stops at OWNERSHIP with no target confirmation offered. Whether
+`DESCRIPTIVE_OFFICER_ROLES` may extend to such roles is an open owner question (D-086).
 
 ## 8. Garden under the same concept
 
@@ -285,22 +317,22 @@ unchanged as a declaration. Nothing is replaced, and readiness stays blocked. Cl
 blocker needs independent evidence: a declaration with supported values, or matching
 document observations, under the existing rules.
 
-**Optional D-082 demonstration policy.** To show Garden reaching final review without
+**Optional POC acceptance policy (D-085).** To show Garden reaching final review without
 manual ownership verification, also set
-`ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc` (default `disabled`), plus
-the protected officer-role allowlist `ACRA_MARKETPLACE_POC_OFFICER_ROLE_KEY` and
-`ACRA_MARKETPLACE_POC_OFFICER_ROLE_ALLOWLIST` in your own backend env file (syntax in
-`.env.example`; never commit, print or share the values). Then onboard a **new** Garden
-case. Existing cases are never accepted retroactively, and without a matching allowlist
-Garden stays under ordinary review.
+`ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc` (default `disabled`). No
+other setting is needed; the D-082 officer-role key/allowlist settings were removed and are
+ignored if still present. Then onboard a **new** Garden case. Existing cases (including
+D-082-accepted ones) are never accepted retroactively. The five-layer scenario declares no
+POC acceptance and stays under ordinary review.
 - The Ownership & UBO status reads **Ownership calculated — POC basis accepted**, and the
   explorer shows "Calculated — POC basis accepted".
 - The analysis stays REVIEW_REQUIRED, with 0 provisional UBOs and 2 assumed-basis matches.
 - Readiness shows no blockers. Final review & send still requires the explicit **Confirm
   and send to Mock GoldTier**, and the Mock snapshot carries no provisional UBO ids.
 - Garden's four official OFFICERS Owner role records (three current, one ceased) are kept
-  unchanged as descriptive context for this named POC exception only. They must match the
-  allowlist exactly, and they do not corroborate the synthetic shareholder links.
+  unchanged as descriptive context under the scenario's declared
+  `DESCRIPTIVE_OFFICER_ROLES` assumption. They do not corroborate the synthetic
+  shareholder links.
 - The manual form stays available, and the Option B refusals above still apply.
 
 Restarting without the setting, or outside the hybrid lane, revokes readiness:

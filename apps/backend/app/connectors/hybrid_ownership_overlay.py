@@ -46,12 +46,14 @@ from app.domain.models import (
     SourceEnvironment,
 )
 from app.domain.ownership import (
+    OWNER_DECLARED_PERCENT_SOURCE_SUFFIX,
     OfficialShareholderObservation,
     OwnershipEnvironment,
     OwnershipProvenance,
     OwnershipRelationship,
     Party,
     PartyType,
+    PocAssumption,
 )
 from app.domain.ownership_evidence import OwnershipEvidence, OwnershipEvidenceKind
 
@@ -64,6 +66,11 @@ OFFICIAL_MARKETPLACE_PROFILE_REFERENCE = (
     ACRA_API_MARKETPLACE_MOCK_BASE_URL + ACRA_API_MARKETPLACE_MOCK_ENTITY_PATH
 )
 GARDEN_DIRECT_OVERLAY_SCENARIO_ID = "GARDEN_DIRECT_OVERLAY_V1"
+# D-086: the explicitly selected OPQ -> GARDEN -> SIM LIM variant and the reference suffix
+# that technically marks an owner-declared relationship percentage.
+OPQ_GARDEN_SIM_LIM_SCENARIO_ID = "OPQ_GARDEN_SIM_LIM_V1"
+OWNER_DECLARED_PERCENT_SUFFIX = OWNER_DECLARED_PERCENT_SOURCE_SUFFIX
+OpqScenarioVariant = Literal["five_layer_simulation", "garden_sim_lim_chain"]
 FIVE_LAYER_SCENARIO_ID = "FIVE_LAYER_MARKETPLACE_HYBRID_V1"
 FIVE_LAYER_ROOT_UEN = "201511222D"
 
@@ -75,7 +82,12 @@ _Name = Annotated[str, StringConstraints(min_length=1, max_length=160)]
 
 
 class OverlayHolder(BaseModel):
-    """One declared direct holder row; never an official ACRA schema claim."""
+    """One declared direct holder row; never an official ACRA schema claim.
+
+    `category` uses the registry's holder vocabulary: "Corporate" is any non-individual
+    holder with a UEN (a graph LEGAL_ENTITY node). It never asserts an incorporated
+    company; the holder's official legal form stays on its own registry evidence.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -83,11 +95,18 @@ class OverlayHolder(BaseModel):
     holder_name: _Name
     category: Literal["Corporate", "Individual"]
     registration_number: str | None = None
-    share_units: Decimal = Field(gt=Decimal("0"), max_digits=18, decimal_places=6)
+    share_units: Decimal | None = Field(
+        default=None, gt=Decimal("0"), max_digits=18, decimal_places=6
+    )
+    # Owner-declared percentage issuers only (D-086): a declared relationship percentage,
+    # never a share quantity, a registry value or an ACRA observation.
+    declared_percent: Decimal | None = Field(
+        default=None, gt=Decimal("0"), le=Decimal("100"), max_digits=12, decimal_places=6
+    )
     share_class: Literal["ORDINARY"] = "ORDINARY"
     status: Literal["Active", "Withdrawn"] = "Active"
 
-    @field_validator("share_units", mode="before")
+    @field_validator("share_units", "declared_percent", mode="before")
     @classmethod
     def exact_units(cls, value: object) -> object:
         if isinstance(value, (float, bool)):
@@ -96,6 +115,8 @@ class OverlayHolder(BaseModel):
 
     @model_validator(mode="after")
     def corporate_identity(self) -> OverlayHolder:
+        if (self.share_units is None) == (self.declared_percent is None):
+            raise ValueError("an overlay holder declares exactly one of units or a percentage")
         corporate = self.category == "Corporate"
         if corporate != (self.registration_number is not None):
             raise ValueError("only corporate overlay holders carry a registration number")
@@ -108,16 +129,24 @@ class OverlayHolder(BaseModel):
 
 
 class OverlayIssuer(BaseModel):
-    """One issuer's complete declared same-class register for the scenario."""
+    """One issuer's complete declared register for the scenario.
+
+    Either a same-class unit register (units / declared active total) or, under D-086, an
+    owner-declared complete percentage register: every holder is active, carries only a
+    declared percentage, and the percentages total exactly 100 so no unknown remainder
+    is hidden. Neither is ever an ACRA quantity.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     issuer_uen: _HolderId
     local_display_name: _Name
-    declared_active_units: Decimal = Field(gt=Decimal("0"), max_digits=18, decimal_places=6)
-    denominator_basis: Literal["LOCAL_DECLARED_COMPLETE_SAME_CLASS"] = (
-        "LOCAL_DECLARED_COMPLETE_SAME_CLASS"
+    declared_active_units: Decimal | None = Field(
+        default=None, gt=Decimal("0"), max_digits=18, decimal_places=6
     )
+    denominator_basis: Literal[
+        "LOCAL_DECLARED_COMPLETE_SAME_CLASS", "OWNER_DECLARED_COMPLETE_PERCENTAGES"
+    ] = "LOCAL_DECLARED_COMPLETE_SAME_CLASS"
     holders: tuple[OverlayHolder, ...] = Field(min_length=1, max_length=32)
 
     @field_validator("declared_active_units", mode="before")
@@ -137,11 +166,42 @@ class OverlayIssuer(BaseModel):
         active = [item for item in self.holders if item.status == "Active"]
         if not active:
             raise ValueError("an overlay issuer requires at least one active holder")
+        if self.denominator_basis == "OWNER_DECLARED_COMPLETE_PERCENTAGES":
+            if (
+                self.declared_active_units is not None
+                or len(active) != len(self.holders)
+                or any(item.declared_percent is None for item in self.holders)
+                or sum((item.declared_percent or Decimal("0") for item in active), Decimal("0"))
+                != Decimal("100")
+            ):
+                raise ValueError("an owner-declared percentage register must total exactly 100")
+            return self
+        if any(item.share_units is None for item in self.holders):
+            raise ValueError("a same-class unit register declares units for every holder")
         # The declared denominator must be exactly the complete active same-class total;
         # an arbitrary numerator set never becomes a denominator.
-        if sum((item.share_units for item in active), Decimal("0")) != self.declared_active_units:
+        if (
+            sum((item.share_units or Decimal("0") for item in active), Decimal("0"))
+            != self.declared_active_units
+        ):
             raise ValueError("declared overlay denominator disagrees with active holdings")
         return self
+
+
+class PocAcceptanceDeclaration(BaseModel):
+    """D-085: the reviewed POC basis a trusted scenario may have accepted at readiness.
+
+    Project-controlled code, never a case field. `quantity_basis` names where every
+    declared unit came from; a scenario whose units are fictional demonstration input
+    declares nothing and is never accepted. Each assumption accepts one review cause.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    quantity_basis: Literal[
+        "OWNER_SUPPLIED_DIRECT_REGISTER", "OWNER_DECLARED_PERCENTAGE_AND_DIRECT_REGISTER"
+    ]
+    accepted_assumptions: frozenset[PocAssumption] = Field(min_length=1)
 
 
 class HybridOverlayScenario(BaseModel):
@@ -152,12 +212,20 @@ class HybridOverlayScenario(BaseModel):
     scenario_id: _ScenarioId
     root_uen: _HolderId
     issuers: tuple[OverlayIssuer, ...] = Field(min_length=1, max_length=16)
+    poc_acceptance: PocAcceptanceDeclaration | None = None
 
     @model_validator(mode="after")
     def bounded_catalogue(self) -> HybridOverlayScenario:
         uens = [item.issuer_uen for item in self.issuers]
         if len(set(uens)) != len(uens) or self.root_uen not in uens:
             raise ValueError("overlay scenarios require unique issuers including the root")
+        if (
+            self.poc_acceptance is not None
+            and PocAssumption.SIMULATED_RELATIONSHIPS
+            not in self.poc_acceptance.accepted_assumptions
+        ):
+            # Declared overlay links always exist, so they must be declared assumptions.
+            raise ValueError("an accepting overlay scenario declares its simulated links")
         return self
 
     def issuer(self, uen: str) -> OverlayIssuer | None:
@@ -188,9 +256,16 @@ def overlay_component(
     relationships: list[OwnershipRelationship] = []
     shares: list[OwnershipEvidence] = []
     active = [item for item in issuer.holders if item.status == "Active"]
+    declared = issuer.denominator_basis == "OWNER_DECLARED_COMPLETE_PERCENTAGES"
     for index, holder in enumerate(active, start=1):
         corporate = holder.category == "Corporate"
-        percentage = quantized_unit_share(holder.share_units, issuer.declared_active_units)
+        if declared:
+            # D-086: the owner-declared relationship percentage itself; no units exist.
+            assert holder.declared_percent is not None
+            percentage = holder.declared_percent
+        else:
+            assert holder.share_units is not None and issuer.declared_active_units is not None
+            percentage = quantized_unit_share(holder.share_units, issuer.declared_active_units)
         parties.append(
             Party(
                 party_id=holder.holder_id,
@@ -210,11 +285,16 @@ def overlay_component(
                 provenance=OwnershipProvenance(
                     provider=OVERLAY_RELATIONSHIP_PROVIDER,
                     environment=OwnershipEnvironment.LOCAL,
-                    source_reference=f"HYBRID_OVERLAY_{scenario.scenario_id}_{relationship_id}",
+                    source_reference=(
+                        f"HYBRID_OVERLAY_{scenario.scenario_id}_{relationship_id}"
+                        + (OWNER_DECLARED_PERCENT_SUFFIX if declared else "")
+                    ),
                     sourced_at=sourced_at,
                 ),
             )
         )
+        if declared or holder.share_units is None:
+            continue
         shares.append(
             OwnershipEvidence(
                 evidence_id="e-"
@@ -350,6 +430,13 @@ class HybridOwnershipOverlayCatalogue:
     def scenarios(self) -> tuple[HybridOverlayScenario, ...]:
         return tuple(self._by_root.values())
 
+    def scenario(self, scenario_id: str | None) -> HybridOverlayScenario | None:
+        """The catalogue's own declaration for a recorded scenario id, or nothing."""
+
+        return next(
+            (item for item in self._by_root.values() if item.scenario_id == scenario_id), None
+        )
+
     def root_scenario(self, case: OnboardingCase, now: datetime) -> HybridOverlayScenario | None:
         scenario = self._by_root.get(case.requested_uen.strip().upper())
         if scenario is None or not official_marketplace_root_is_eligible(
@@ -382,7 +469,7 @@ def _garden_direct_issuer() -> OverlayIssuer:
         issuer_uen=GARDEN_BUSINESS_UEN,
         local_display_name=GARDEN_BUSINESS_NAME,
         declared_active_units=sum(
-            (item.share_units for item in holders if item.status == "Active"), Decimal("0")
+            (row.share_allotted for row in rows if row.status == "Active"), Decimal("0")
         ),
         holders=holders,
     )
@@ -468,15 +555,79 @@ FIVE_LAYER_ISSUERS: tuple[OverlayIssuer, ...] = (
     ),
 )
 
-HYBRID_OVERLAY_SCENARIOS: tuple[HybridOverlayScenario, ...] = (
-    HybridOverlayScenario(
-        scenario_id=GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
-        root_uen=GARDEN_BUSINESS_UEN,
-        issuers=(_garden_direct_issuer(),),
-    ),
-    HybridOverlayScenario(
-        scenario_id=FIVE_LAYER_SCENARIO_ID,
-        root_uen=FIVE_LAYER_ROOT_UEN,
-        issuers=FIVE_LAYER_ISSUERS,
+GARDEN_DIRECT_SCENARIO = HybridOverlayScenario(
+    scenario_id=GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
+    root_uen=GARDEN_BUSINESS_UEN,
+    issuers=(_garden_direct_issuer(),),
+    # D-085: the owner-supplied Garden direct register (D-076), SIM LIM's own official
+    # rows under D-081 and the root's official officer Owner roles as context.
+    poc_acceptance=PocAcceptanceDeclaration(
+        quantity_basis="OWNER_SUPPLIED_DIRECT_REGISTER",
+        accepted_assumptions=frozenset(
+            {
+                PocAssumption.SIMULATED_RELATIONSHIPS,
+                PocAssumption.EQUAL_UNIT_DENOMINATOR,
+                PocAssumption.DESCRIPTIVE_OFFICER_ROLES,
+            }
+        ),
     ),
 )
+# Historical D-077 demonstration: fictional units and LOCAL_SYNTHETIC_IDENTITY names
+# below the root, so it declares no POC acceptance and always stays in review.
+FIVE_LAYER_SCENARIO = HybridOverlayScenario(
+    scenario_id=FIVE_LAYER_SCENARIO_ID,
+    root_uen=FIVE_LAYER_ROOT_UEN,
+    issuers=FIVE_LAYER_ISSUERS,
+)
+# D-086 (owner decision 2026-10-25): OPQ's official root -> GARDEN BUSINESS (official
+# BUSINESS_PARTNERSHIP profile) at an owner-declared 100%, then Garden's unchanged
+# owner-supplied direct register, then SIM LIM's own official Marketplace rows (D-081).
+# Only the relationships are declared; no identity or share quantity is invented.
+OPQ_GARDEN_SIM_LIM_SCENARIO = HybridOverlayScenario(
+    scenario_id=OPQ_GARDEN_SIM_LIM_SCENARIO_ID,
+    root_uen=FIVE_LAYER_ROOT_UEN,
+    issuers=(
+        OverlayIssuer(
+            issuer_uen=FIVE_LAYER_ROOT_UEN,
+            local_display_name="OPQ PTE. LTD.",
+            denominator_basis="OWNER_DECLARED_COMPLETE_PERCENTAGES",
+            holders=(
+                OverlayHolder(
+                    holder_id=GARDEN_BUSINESS_UEN,
+                    holder_name=GARDEN_BUSINESS_NAME,
+                    category="Corporate",
+                    registration_number=GARDEN_BUSINESS_UEN,
+                    declared_percent=Decimal("100"),
+                ),
+            ),
+        ),
+        GARDEN_DIRECT_SCENARIO.issuers[0],
+    ),
+    # The root's official legal form is unclassified (OTHER); its officer roles are
+    # non-ownership roles, so no descriptive-role assumption is declared.
+    poc_acceptance=PocAcceptanceDeclaration(
+        quantity_basis="OWNER_DECLARED_PERCENTAGE_AND_DIRECT_REGISTER",
+        accepted_assumptions=frozenset(
+            {
+                PocAssumption.SIMULATED_RELATIONSHIPS,
+                PocAssumption.EQUAL_UNIT_DENOMINATOR,
+                PocAssumption.UNCLASSIFIED_LEGAL_FORM,
+            }
+        ),
+    ),
+)
+_OPQ_VARIANTS: dict[str, HybridOverlayScenario] = {
+    "five_layer_simulation": FIVE_LAYER_SCENARIO,
+    "garden_sim_lim_chain": OPQ_GARDEN_SIM_LIM_SCENARIO,
+}
+
+
+def hybrid_overlay_scenarios(
+    opq_variant: OpqScenarioVariant = "five_layer_simulation",
+) -> tuple[HybridOverlayScenario, ...]:
+    """The trusted catalogue: Garden plus exactly one operator-selected OPQ scenario."""
+
+    return (GARDEN_DIRECT_SCENARIO, _OPQ_VARIANTS[opq_variant])
+
+
+HYBRID_OVERLAY_SCENARIOS: tuple[HybridOverlayScenario, ...] = hybrid_overlay_scenarios()

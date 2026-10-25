@@ -1263,6 +1263,9 @@ test("review-ready actions render after authoritative current document evidence 
     return (await response.json() as { status: string }).status;
   }, { timeout: 120_000 }).toBe("WAITING_FOR_REVIEW");
 
+  // Leave the case page first: its own documents fetch would otherwise satisfy this wait
+  // and lose its body when the navigation below discards that document.
+  await page.goto("about:blank");
   const documentsResponse = page.waitForResponse((response) => (
     response.request().method() === "GET"
       && new URL(response.url()).pathname === `/api/onboarding/cases/${caseId}/documents`

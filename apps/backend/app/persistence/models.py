@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[14] = 14
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[15] = 15
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -722,12 +722,49 @@ class DurableCaseSnapshotV13(BaseModel):
         return self
 
 
+class DurableCaseSnapshotV14(BaseModel):
+    """Exact schema-14 envelope: D-080..D-082 evidence without a D-085 acceptance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[14] = 14
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_scenario_poc_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate(
+            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV14":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[14] = 14
+    schema_version: Literal[15] = 15
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -874,6 +911,29 @@ def reject_share_class_legacy_fields(value: Any) -> None:
                 fields = _explicit_fields(row)
                 if fields.get("share_type") is not None or fields.get("currency") is not None:
                     raise ValueError("Historical schema cannot contain an official share class.")
+
+
+def reject_scenario_poc_legacy_fields(value: Any) -> None:
+    """Schema <= 14 envelopes cannot carry a D-085 scenario-declared POC acceptance.
+
+    A D-082 acceptance stays readable in schema 14; explicit empty assumptions keep the
+    legacy meaning. Older schemas already reject every acceptance.
+    """
+    raw = _explicit_fields(value)
+    ownership = _explicit_fields(raw.get("ownership"))
+    for record in (ownership, *ownership.get("prior_analyses", ())):
+        acceptance = _explicit_fields(_explicit_fields(record).get("poc_acceptance"))
+        if (
+            str(acceptance.get("policy")) == "D085_SCENARIO_DECLARED_POC_BASIS_V1"
+            or acceptance.get("accepted_assumptions")
+        ):
+            raise ValueError("Historical schema cannot contain a D-085 POC acceptance.")
+        audit = _explicit_fields(_explicit_fields(record).get("discovery"))
+        if any(
+            _explicit_fields(item).get("official_officer_roles")
+            for item in audit.get("records", ()) or ()
+        ):
+            raise ValueError("Historical schema cannot contain D-086 officer role observations.")
 
 
 def reject_session2_legacy_fields(value: Any) -> None:
