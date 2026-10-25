@@ -857,6 +857,13 @@
   overflow-wrap: anywhere;
 }
 
+/* Headings and numbers never break inside a word; only the entry name wraps. */
+.request-page-table th,
+.request-page-table td:not(:nth-child(2)) {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
 .request-page-allowed > summary,
 .request-page-earlier > summary {
   cursor: pointer;
@@ -879,6 +886,10 @@
 .request-page-fix h3 {
   margin: 0;
   font-size: 15px;
+}
+
+.request-page-fix .knowledge-review-fix > button {
+  align-self: flex-start;
 }
 
 .knowledge-review-requests {
