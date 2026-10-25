@@ -24,8 +24,10 @@ from app.connectors.errors import ConnectorError
 from app.connectors.hybrid_ownership_overlay import (
     OFFICIAL_MARKETPLACE_PROFILE_REFERENCE,
     OVERLAY_RELATIONSHIP_PROVIDER,
+    POC_EQUAL_UNITS_PROVIDER,
     HybridOverlayScenario,
     OverlayIssuer,
+    official_equal_unit_component,
     overlay_component,
 )
 from app.connectors.ownership import OwnershipSourceResult
@@ -41,9 +43,9 @@ from app.domain.models import (
 )
 from app.domain.ownership import (
     OFFICIAL_SHAREHOLDERS_EMPTY,
+    OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS,
     OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE,
     RESOLVED_DISCOVERY_OUTCOMES,
-    TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES,
     OfficialEntityLookup,
     OfficialShareholderLookup,
     OfficialShareholderObservation,
@@ -55,6 +57,7 @@ from app.domain.ownership import (
     OwnershipRelationship,
     Party,
     PartyType,
+    discovery_topology_resolved,
 )
 from app.domain.ownership_evidence import OwnershipEvidence
 from app.domain.policy import OwnershipDiscoveryPolicySnapshot, RegistryPolicySnapshot
@@ -312,9 +315,7 @@ class _DiscoveryRun:
             unresolved_person_party_ids=ambiguous[:32],
             overlay_scenario_id=self._overlay.scenario_id if self._overlay is not None else None,
             topology_complete=(
-                all(item.outcome in TOPOLOGY_RESOLVED_DISCOVERY_OUTCOMES for item in records)
-                if hybrid
-                else None
+                all(discovery_topology_resolved(item) for item in records) if hybrid else None
             ),
             official_identity_complete=(
                 all(
@@ -446,6 +447,12 @@ class _DiscoveryRun:
                         shareholder_backed,
                     ) = self._official_shareholders(uen)
                     provider_backed = provider_backed or shareholder_backed
+                    if (
+                        shareholders
+                        and self._overlay is not None
+                        and self._attach_poc_distribution(node, uen, shareholders)
+                    ):
+                        reason = OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
                 else:
                     outcome = rejected
         if provider_backed:
@@ -465,9 +472,10 @@ class _DiscoveryRun:
     ]:
         """D-079: keep a NOT_FOUND issuer's official shareholder rows beside the graph.
 
-        Only the official Marketplace lane answers. Rows never become parties, edges,
-        identity or percentages, so the branch stays unresolved; any failure stops safely
-        with nothing retained. The read belongs to the same issuer lookup.
+        Only the official Marketplace lane answers. Rows never become identity or
+        official percentages; only the hybrid lane may derive labelled POC links from
+        them (D-081, `_attach_poc_distribution`). Any failure stops safely with nothing
+        retained. The read belongs to the same issuer lookup.
         """
         not_found = (OwnershipDiscoveryOutcome.NOT_FOUND, None, (), None, False)
         reader = getattr(self._reader, "acquire_subsidiary_shareholder_evidence", None)
@@ -528,6 +536,8 @@ class _DiscoveryRun:
                     source_category=item.source_category,
                     source_status=item.source_status,
                     share_allotted=item.share_allotted,
+                    share_type=item.share_type,
+                    currency=item.currency,
                     current_interest=(
                         item.source_status is not None
                         and item.source_status.strip().casefold() == "active"
@@ -550,6 +560,38 @@ class _DiscoveryRun:
             "SHAREHOLDERS_FETCHED" if backed else "SHAREHOLDERS_CACHE_REUSED",
             backed,
         )
+
+    def _attach_poc_distribution(
+        self, node: str, uen: str, rows: tuple[OfficialShareholderObservation, ...]
+    ) -> bool:
+        """D-081: attach the retained rows as POC equal-unit links in the hybrid lane.
+
+        Only this issuer's own current rows form its denominator. Any row set that cannot
+        support the convention, or a graph merge refusal, attaches nothing and leaves the
+        D-079 retained-evidence outcome in place.
+        """
+        try:
+            component = official_equal_unit_component(
+                uen,
+                rows,
+                issuer_party=Party(
+                    party_id=f"ENTITY_{uen}",
+                    display_name=self._parties[node].display_name,
+                    party_type=PartyType.LEGAL_ENTITY,
+                    registration_number=uen,
+                    country="SG",
+                ),
+                sourced_at=self._utc_clock(),
+            )
+            source = OwnershipSourceResult(
+                root_party_id=component.root_party_id,
+                parties=list(component.parties),
+                relationships=list(component.relationships),
+            )
+            validate_ownership_graph(build_ownership_graph(source))
+        except (ValidationError, OwnershipGraphError, ValueError, KeyError):
+            return False
+        return self._merge(node, uen, source) is None
 
     def _classify(
         self, uen: str, bundle: RegistryAcquisitionBundle | None
@@ -778,6 +820,8 @@ class _DiscoveryRun:
                         source_reference=(
                             f"HYBRID_OVERLAY_{scoped}"
                             if edge.provenance.provider == OVERLAY_RELATIONSHIP_PROVIDER
+                            else f"POC_EQUAL_UNITS_{scoped}"
+                            if edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
                             else f"ACRA_REGISTRY_{scoped}"
                         ),
                         sourced_at=edge.provenance.sourced_at,

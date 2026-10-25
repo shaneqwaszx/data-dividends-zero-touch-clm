@@ -2838,7 +2838,17 @@ class ZeroTouchOrchestrator:
                 or self._ownership.document_dependency_is_obsolete(
                     case_id=case_id, evidence_version=item.evidence_version,
                 )
+                or self._ownership_hold_now_poc_accepted(case_id, item)
             )
+        )
+
+    def _ownership_hold_now_poc_accepted(self, case_id: UUID, item: BusinessException) -> bool:
+        """D-082 F2: a hold raised while the policy was off, on the same analysis now accepted."""
+        ownership = self._ownership.get(case_id=case_id)
+        return (
+            ownership is not None
+            and item.evidence_version == f"ownership:{ownership.analysis_id}:{ownership.version}"
+            and self._ownership.poc_basis_accepted(ownership)
         )
 
     def _recover_obsolete_registry_ownership_locked(
@@ -2865,14 +2875,25 @@ class ZeroTouchOrchestrator:
             return record
         ownership = self._ownership.get(case_id=record.case_id)
         current_review = (
-            ownership is not None and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+            ownership is not None
+            and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+            and not self._ownership.poc_basis_accepted(ownership)
+        )
+        # D-082 F2: only an analysis carrying a POC acceptance can complete OWNERSHIP while
+        # REVIEW_REQUIRED; once that acceptance is not current, its checkpoint is unproved.
+        # Every other review analysis keeps the existing restoration below.
+        poc_revoked = (
+            AutomationStage.OWNERSHIP in record.completed_stages
+            and current_review
+            and ownership is not None
+            and ownership.poc_acceptance is not None
         )
         unproved_ownership_checkpoint = (
             AutomationStage.OWNERSHIP in record.completed_stages
             and (ownership is None or ownership.state in {
                 OwnershipAnalysisState.LOADED, OwnershipAnalysisState.FAILED,
             })
-        )
+        ) or poc_revoked
         if not obsolete and not unproved_ownership_checkpoint:
             # A durable ownership result can precede its automation checkpoint.
             # Restore that owned dependency even beside an independent later blocker.
@@ -2912,7 +2933,14 @@ class ZeroTouchOrchestrator:
                 item.exception_id in obsolete
                 or (
                     item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
-                    and item.evidence_version in stale_confirmation_versions
+                    and (
+                        item.evidence_version in stale_confirmation_versions
+                        # A revoked POC acceptance withdraws any earlier confirmation hold.
+                        or (
+                            poc_revoked
+                            and item.evidence_version.startswith("target-confirmation:")
+                        )
+                    )
                 )
             ):
                 item.status = BusinessExceptionStatus.CANCELLED
@@ -3147,7 +3175,10 @@ class ZeroTouchOrchestrator:
                         code=exc.code,
                         message="Ownership processing could not progress safely.",
                     )
-                if ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED:
+                # D-082: a current opt-in POC acceptance completes the stage below with
+                # its own audit code; every other review outcome raises the exception.
+                poc_accepted = self._ownership.poc_basis_accepted(ownership)
+                if ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED and not poc_accepted:
                     if self._intelligence_evaluator is not None:
                         intelligence = self._intelligence_evaluator(case_id)
                         if intelligence is not None:
@@ -3160,7 +3191,7 @@ class ZeroTouchOrchestrator:
                         code=(ownership.error.code if ownership.error else "OWNERSHIP_FAILED"),
                         message="Ownership processing stopped after a technical failure.",
                     )
-                if ownership.state == OwnershipAnalysisState.ANALYZED:
+                if ownership.state == OwnershipAnalysisState.ANALYZED or poc_accepted:
                     intelligence = (
                         self._intelligence_evaluator(case_id)
                         if self._intelligence_evaluator is not None
@@ -3172,8 +3203,17 @@ class ZeroTouchOrchestrator:
                         record,
                         stage=AutomationStage.OWNERSHIP,
                         event_type=AutomationEventType.OWNERSHIP_AUTOMATED,
-                        code="OWNERSHIP_AUTOMATED",
-                        message="Deterministic ownership analysis completed automatically.",
+                        code=(
+                            "OWNERSHIP_POC_BASIS_ACCEPTED"
+                            if poc_accepted
+                            else "OWNERSHIP_AUTOMATED"
+                        ),
+                        message=(
+                            "Ownership calculated; the declared POC basis was accepted by "
+                            "D-082. Classification review is retained."
+                            if poc_accepted
+                            else "Deterministic ownership analysis completed automatically."
+                        ),
                         started_at=started_at,
                     )
                     if (

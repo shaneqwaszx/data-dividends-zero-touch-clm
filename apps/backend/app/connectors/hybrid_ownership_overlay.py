@@ -46,6 +46,7 @@ from app.domain.models import (
     SourceEnvironment,
 )
 from app.domain.ownership import (
+    OfficialShareholderObservation,
     OwnershipEnvironment,
     OwnershipProvenance,
     OwnershipRelationship,
@@ -56,6 +57,9 @@ from app.domain.ownership_evidence import OwnershipEvidence, OwnershipEvidenceKi
 
 OVERLAY_RELATIONSHIP_PROVIDER = "LOCAL_SYNTHETIC_RELATIONSHIP"
 OVERLAY_SOURCE_OPERATION = "LOCAL_HYBRID_OVERLAY"
+# D-081: links derived in the hybrid lane from official Marketplace units under the
+# owner-declared POC assumption that current units are complete and equally weighted.
+POC_EQUAL_UNITS_PROVIDER = "LOCAL_POC_ASSUMED_EQUAL_UNITS"
 OFFICIAL_MARKETPLACE_PROFILE_REFERENCE = (
     ACRA_API_MARKETPLACE_MOCK_BASE_URL + ACRA_API_MARKETPLACE_MOCK_ENTITY_PATH
 )
@@ -237,6 +241,66 @@ def overlay_component(
         parties=tuple(parties),
         relationships=tuple(relationships),
         share_evidence=tuple(shares),
+    )
+
+
+def official_equal_unit_component(
+    issuer_uen: str,
+    rows: tuple[OfficialShareholderObservation, ...],
+    *,
+    issuer_party: Party,
+    sourced_at: datetime,
+) -> OverlayComponent:
+    """D-081: distribute one issuer's own current official units under the POC assumption.
+
+    The same six-decimal equal-unit rule as the overlay, over this issuer's explicitly
+    Active rows only: withdrawn rows stay history, classes are pooled as equal units only
+    for this labelled illustration, and no registration identifier is inferred. Raises
+    ValueError when the rows cannot support the convention.
+    """
+
+    active = [item for item in rows if item.current_interest]
+    if not active or any(
+        item.share_allotted is None or item.share_allotted <= 0 for item in active
+    ):
+        raise ValueError("POC distribution requires positive units on every current row")
+    identifiers = [item.source_party_id.strip().upper() for item in rows]
+    if len(set(identifiers)) != len(identifiers) or issuer_uen in identifiers:
+        raise ValueError("POC distribution holder identifiers must be unique and external")
+    units = [item.share_allotted or Decimal("0") for item in active]
+    total = sum(units, Decimal("0"))
+    parties = [issuer_party]
+    relationships: list[OwnershipRelationship] = []
+    for index, (holder, holder_units) in enumerate(zip(active, units, strict=True), start=1):
+        corporate = holder.party_type == PartyType.LEGAL_ENTITY
+        parties.append(
+            Party(
+                party_id=holder.source_party_id,
+                display_name=holder.display_name,
+                party_type=holder.party_type,
+                registration_number=holder.registration_identifier if corporate else None,
+            )
+        )
+        relationship_id = f"POC_{issuer_uen}_{index}"
+        relationships.append(
+            OwnershipRelationship(
+                relationship_id=relationship_id,
+                parent_party_id=issuer_party.party_id,
+                child_party_id=holder.source_party_id,
+                ownership_percent=quantized_unit_share(holder_units, total),
+                provenance=OwnershipProvenance(
+                    provider=POC_EQUAL_UNITS_PROVIDER,
+                    environment=OwnershipEnvironment.LOCAL,
+                    source_reference=f"POC_EQUAL_UNITS_{relationship_id}",
+                    sourced_at=sourced_at,
+                ),
+            )
+        )
+    return OverlayComponent(
+        root_party_id=issuer_party.party_id,
+        parties=tuple(parties),
+        relationships=tuple(relationships),
+        share_evidence=(),
     )
 
 

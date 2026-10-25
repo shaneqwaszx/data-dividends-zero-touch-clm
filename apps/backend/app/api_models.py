@@ -84,6 +84,7 @@ from app.domain.ownership import (
     OwnershipDocumentBinding,
     OwnershipDocumentDiscrepancy,
     OwnershipEnvironment,
+    OwnershipPocAcceptance,
     OwnershipRelationshipType,
     OwnershipSourceClassification,
     OwnershipWorkflowEvent,
@@ -561,14 +562,21 @@ class OwnershipAnalysisResponse(BaseModel):
     events: list[OwnershipWorkflowEvent]
     error: SafeError | None = None
     manual_review_receipt: ManualOwnershipReviewReceipt | None = None
+    # D-082: the persisted acceptance (audit) and whether the backend honours it now.
+    poc_acceptance: OwnershipPocAcceptance | None = None
+    poc_basis_accepted: bool = False
     created_at: datetime
     loaded_at: datetime | None = None
     analyzed_at: datetime | None = None
     updated_at: datetime
 
     @classmethod
-    def from_domain(cls, record: OwnershipAnalysisRecord) -> "OwnershipAnalysisResponse":
-        return cls.model_validate(record)
+    def from_domain(
+        cls, record: OwnershipAnalysisRecord, *, poc_basis_accepted: bool = False
+    ) -> "OwnershipAnalysisResponse":
+        return cls.model_validate(record).model_copy(
+            update={"poc_basis_accepted": poc_basis_accepted}
+        )
 
 
 class BrowserOwnershipProvenance(BaseModel):
