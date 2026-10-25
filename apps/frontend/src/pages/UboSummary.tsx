@@ -54,7 +54,9 @@ export default function UboSummary({ record }: { record: OwnershipAnalysisRecord
         </dl>
       </li>)}</ul>
     </section>}
-    {record && record.state !== "ANALYZED" && !record.poc_basis_accepted && <p className="ubo-summary__warning">UBO determination requires review. Ownership evidence is incomplete or disputed; the current result is non-definitive.</p>}
+    {record && record.state !== "ANALYZED" && !record.poc_basis_accepted && (record.simulation_calculated
+      ? <p className="ubo-summary__warning">UBO determination requires review. These values come from a calculated simulation on declared synthetic relationships; they are not verified ownership.</p>
+      : <p className="ubo-summary__warning">UBO determination requires review. Ownership evidence is incomplete or disputed; the current result is non-definitive.</p>)}
     {record?.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="control-help">Official Marketplace Mock facts and local synthetic ownership evidence remain distinct. LOCAL_SYNTHETIC_SUPPLEMENT percentages are not official ACRA ownership values.</p>}
   </section>;
 }

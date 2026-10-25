@@ -23,7 +23,7 @@ def _events(response: httpx.Response) -> list[dict[str, Any]]:
 
 def test_prompt_is_small_and_keeps_the_facts_the_rm_needs() -> None:
     messages = build_messages(FACTS, [], "What should I do next?")
-    # D-085: the question's topic message is bounded on its own; the rest was about 11,900.
+    # D-090: the question's topic message is bounded on its own; the rest was about 11,900.
     topic = [m["content"] for m in messages if m["content"].startswith("QUESTION TOPIC:")]
     assert len(topic) == 1 and len(topic[0]) < 1000
     assert sum(len(m["content"]) for m in messages) - len(topic[0]) < 9000

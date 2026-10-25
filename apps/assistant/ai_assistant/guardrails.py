@@ -3,7 +3,7 @@
 Generated prose is untrusted, including paraphrases. Only allowed lines may be displayed, in
 their own words (the owner's G6 direction, ADR-012). A model line is matched ignoring
 formatting only, and may be several allowed lines in a row; otherwise it is dropped whole
-(see ``_Catalog``, D-085, PROPOSED). The allowed lines are:
+(see ``_Catalog``, D-090, PROPOSED). The allowed lines are:
 
 1. the catalog (``allowed_guidance``): trusted templates filled only from this request's
    backend projection, and reviewed explanation sentences for the fields and readiness items
@@ -15,7 +15,7 @@ formatting only, and may be several allowed lines in a row; otherwise it is drop
 
 Document/company values, history, free model prose and paraphrases never extend the allowed
 lines, except that each difference on a blocker is offered in one fixed template with both
-values quoted (``difference_value_lines``, D-085, PROPOSED). The deterministic case-data
+values quoted (``difference_value_lines``, D-090, PROPOSED). The deterministic case-data
 answer handles unsupported responses. This is bounded statement selection, not general
 semantic verification.
 
@@ -120,7 +120,7 @@ def who_resolves_lines(facts: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(lines))
 
 
-# A document value is untrusted text (D-085, PROPOSED): it may appear only inside the
+# A document value is untrusted text (D-090, PROPOSED): it may appear only inside the
 # difference template, in quotes, on one line, short, and when the whole line passes the
 # sentence checks (so a value that reads as an action or an approval is not offered).
 MAX_DIFFERENCE_VALUE = 120
@@ -604,7 +604,7 @@ def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-# --- matching model lines to allowed lines (D-085, PROPOSED) -----------------------------
+# --- matching model lines to allowed lines (D-090, PROPOSED) -----------------------------
 #
 # A model line is compared in a normal form that ignores formatting only: case (ASCII letters
 # only, so look-alike letters from other scripts never fold into Latin ones), runs of spaces,
@@ -712,7 +712,7 @@ MAX_ANSWER_LINES = 6
 def with_required_lines(
     validation: Validation, facts: dict[str, Any], *, order: Sequence[str], required: Sequence[str]
 ) -> Validation:
-    """Add the topic's required lines the model left out (D-085, PROPOSED).
+    """Add the topic's required lines the model left out (D-090, PROPOSED).
 
     Only allowed lines are added, in the catalog's words. When any is missing, the answer is put
     in the topic's ``order`` (other lines after, in the model's order) and capped at

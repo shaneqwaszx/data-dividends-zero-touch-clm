@@ -1,4 +1,4 @@
-"""D-082 opt-in POC ownership acceptance in the hybrid Marketplace Mock lane.
+"""Opt-in POC ownership acceptance in the hybrid Marketplace Mock lane (D-082, D-085).
 
 The acceptance is recorded beside an unchanged REVIEW_REQUIRED analysis and grants
 readiness only while the current runtime enables the policy. Every journey is offline:
@@ -7,13 +7,11 @@ synthetic Marketplace Mock protocol transport, in-memory persistence and Mock Go
 
 from __future__ import annotations
 
-import hmac
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -47,7 +45,14 @@ from app.composition import (
     build_ownership_analysis_service,
 )
 from app.config import Settings
-from app.connectors.hybrid_ownership_overlay import FIVE_LAYER_SCENARIO_ID, POC_EQUAL_UNITS_PROVIDER
+from app.connectors.hybrid_ownership_overlay import (
+    FIVE_LAYER_SCENARIO_ID,
+    GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
+    POC_EQUAL_UNITS_PROVIDER,
+    HybridOverlayScenario,
+    HybridOwnershipOverlayCatalogue,
+    PocAcceptanceDeclaration,
+)
 from app.connectors.registry_ownership import _evidence_id
 from app.domain.ownership import (
     OFFICIAL_SHAREHOLDERS_WITHOUT_ENTITY_PROFILE,
@@ -62,10 +67,17 @@ from app.domain.ownership import (
     OwnershipPocAcceptance,
     OwnershipProvenance,
     OwnershipThresholdResult,
+    PocAssumption,
 )
+from app.domain.registry_legal_form import RegistryLegalForm
 from app.main import create_app
 from app.persistence.composition import build_persistence_bundle
-from app.persistence.models import DurableCaseSnapshot, reject_share_class_legacy_fields
+from app.persistence.models import (
+    DurableCaseSnapshot,
+    DurableCaseSnapshotV14,
+    reject_scenario_poc_legacy_fields,
+    reject_share_class_legacy_fields,
+)
 from app.persistence.mongo_case_store import _SUPPORTED_SCHEMA_VERSIONS
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import InMemoryClmOrchestrationRepository
@@ -73,7 +85,6 @@ from app.services.ownership_analysis import (
     OwnershipAnalysisService,
     _officer_role_evidence_id,
     eligible_poc_acceptance,
-    parse_poc_officer_role_allowlist,
     poc_acceptance_current,
 )
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
@@ -84,26 +95,25 @@ POC_CODES = [
     "SYNTHETIC_OWNERSHIP_EVIDENCE",
     "UBO_REVIEW_REQUIRED",
 ]
-# Synthetic, test-only protected values. The fixture's four Garden officer roles mirror the
-# observed Mock shape: SYNTHETIC-ROLE-1..3 current and SYNTHETIC-ROLE-4 ceased.
-ROLE_KEY = "synthetic-test-only-officer-role-hmac-key"
-OBSERVED = {1: "CURRENT", 2: "CURRENT", 3: "CURRENT", 4: "CEASED"}
-
-
-def observed_roles() -> Any:
-    return parse_poc_officer_role_allowlist(SecretStr(ROLE_KEY), SecretStr(allowlist()))
+GARDEN_ASSUMPTIONS = [
+    "DESCRIPTIVE_OFFICER_ROLES",
+    "EQUAL_UNIT_DENOMINATOR",
+    "SIMULATED_RELATIONSHIPS",
+]
+# The fixture's four Garden officer roles mirror the observed Mock shape:
+# SYNTHETIC-ROLE-1..3 current and SYNTHETIC-ROLE-4 ceased.
 
 
 def role_id(index: int) -> str:
     return _evidence_id(f"SYNTHETIC-ROLE-{index}", "ROLE")
 
 
-def digest(evidence_id: str, key: str = ROLE_KEY) -> str:
-    return hmac.new(key.encode(), evidence_id.encode(), sha256).hexdigest()
+def garden_scenario() -> HybridOverlayScenario:
+    """The trusted catalogue's own Garden declaration."""
 
-
-def allowlist(statuses: dict[int, str] = OBSERVED, key: str = ROLE_KEY) -> str:
-    return ",".join(f"{digest(role_id(index), key)}={status}" for index, status in statuses.items())
+    scenario = HybridOwnershipOverlayCatalogue().scenario(GARDEN_DIRECT_OVERLAY_SCENARIO_ID)
+    assert scenario is not None and scenario.poc_acceptance is not None
+    return scenario
 
 
 def lane(acceptance: str = ACCEPT, **update: Any) -> Settings:
@@ -120,8 +130,6 @@ def lane(acceptance: str = ACCEPT, **update: Any) -> Settings:
         "demo_controls_enabled": False,
         "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),
         "acra_api_marketplace_mock_secret_key": SecretStr("synthetic-offline-key"),
-        "acra_marketplace_poc_officer_role_key": SecretStr(ROLE_KEY),
-        "acra_marketplace_poc_officer_role_allowlist": SecretStr(allowlist()),
     }
     values.update(update)
     return Settings(**values)
@@ -394,9 +402,10 @@ def test_an_eligible_garden_case_is_accepted_at_readiness_with_every_value_prese
             "poc_relationship_ids",
             "descriptive_current_role_count",
             "descriptive_ceased_role_count",
+            "accepted_assumptions",
         )
     } == {
-        "policy": "D082_HYBRID_POC_EQUAL_UNITS_V1",
+        "policy": "D085_SCENARIO_DECLARED_POC_BASIS_V1",
         "case_id": case_id,
         "analysis_id": ownership["analysis_id"],
         "ownership_version": ownership["version"],
@@ -411,6 +420,7 @@ def test_an_eligible_garden_case_is_accepted_at_readiness_with_every_value_prese
         ),
         "descriptive_current_role_count": 3,
         "descriptive_ceased_role_count": 1,
+        "accepted_assumptions": GARDEN_ASSUMPTIONS,
     }
     assert ownership["poc_basis_accepted"] is True
     assert (
@@ -541,7 +551,7 @@ def test_readiness_authority_belongs_to_the_current_composition() -> None:
         # The persisted acceptance is unchanged audit evidence and grants nothing here.
         assert ownership.get(case_id=case_id) == record
         assert poc_acceptance_current(
-            record, observed_roles()
+            record, garden_scenario()
         ) and not ownership.poc_basis_accepted(record)
         revoked = restarted.evaluate(case_id=case_id).readiness
         assert revoked.ownership.status == "REVIEW_REQUIRED"
@@ -567,51 +577,21 @@ def test_enabling_the_policy_never_accepts_an_existing_review_case() -> None:
     assert "OWNERSHIP_REVIEW_REQUIRED" in clm.evaluate(case_id=case_id).readiness.blockers
 
 
-# --- P1 D1=B: only the whitelisted Garden scenario and its known officer roles -------
+# --- D-085: a reusable scenario-declared contract, evaluated on actual review causes ---
 
 
 def _role(record: OwnershipAnalysisRecord, **update: Any) -> Any:
     return record.evidence[0].model_copy(update=update)
 
 
-MUTATIONS: dict[str, Any] = {
-    "a fifth official owner role": lambda r: {
-        "evidence": (*r.evidence, _role(r, evidence_id=role_id(5), party_id="SYNTHETIC-ROLE-5"))
-    },
-    "one substituted identity": lambda r: {
-        "evidence": (_role(r, evidence_id=role_id(9), party_id="SYNTHETIC-ROLE-9"), *r.evidence[1:])
-    },
-    # QG probe B: every identity replaced while the observed shape (3 current, 1 ceased) holds.
-    "four unknown identities in the observed shape": lambda r: {
-        "evidence": tuple(
-            item.model_copy(
-                update={
-                    "party_id": f"SYNTHETIC-UNKNOWN-{index}",
-                    "evidence_id": _evidence_id(f"SYNTHETIC-UNKNOWN-{index}", "ROLE"),
-                }
-            )
-            for index, item in enumerate(r.evidence, start=1)
-        )
-    },
-    "the ceased role becoming current": lambda r: {
-        "evidence": (*r.evidence[:3], r.evidence[3].model_copy(update={"source_status": None}))
-    },
-    "the ceased status on a different role": lambda r: {
-        "evidence": (
-            _role(r, source_status="CEASED"),
-            *r.evidence[1:3],
-            r.evidence[3].model_copy(update={"source_status": None}),
-        )
-    },
+# Genuine defects, or causes no declaration accepts: every one stays blocking.
+BLOCKING: dict[str, Any] = {
     "a duplicated role record": lambda r: {"evidence": (r.evidence[0], *r.evidence[:3])},
     "an evidence id not derived from its officer": lambda r: {
         "evidence": (_role(r, evidence_id=role_id(9)), *r.evidence[1:])
     },
     "an unknown role status": lambda r: {
         "evidence": (*r.evidence[:3], r.evidence[3].model_copy(update={"source_status": "ACTIVE"}))
-    },
-    "a role that is not an owner": lambda r: {
-        "evidence": (_role(r, raw_value="PARTNER"), *r.evidence[1:])
     },
     "a role bound to another entity": lambda r: {
         "evidence": (_role(r, entity_identifier="201511222D"), *r.evidence[1:])
@@ -622,13 +602,22 @@ MUTATIONS: dict[str, Any] = {
     "a role from another operation": lambda r: {
         "evidence": (_role(r, source_operation="OWNERSHIP_PARTIES"), *r.evidence[1:])
     },
-    "a current role ceasing": lambda r: {
-        "evidence": (_role(r, source_status="CEASED"), *r.evidence[1:])
+    "a role from a Live provider": lambda r: {
+        "evidence": (_role(r, environment="LIVE"), *r.evidence[1:])
     },
     "share-unit evidence": lambda r: {
         "evidence": (*r.evidence[1:], _role(r, kind="SHARE_UNITS", raw_value="1"))
     },
-    "only three known roles": lambda r: {"evidence": r.evidence[1:]},
+    "unresolved control evidence": lambda r: {
+        "evidence": (*r.evidence[1:], _role(r, kind="CONTROL", raw_value="CONTROL"))
+    },
+    "conflicting evidence": lambda r: {
+        "evidence": (*r.evidence[1:], _role(r, kind="CONFLICT", raw_value="CONFLICT"))
+    },
+    "evidence without an entity binding": lambda r: {
+        "evidence": (_role(r, entity_identifier=None), *r.evidence[1:])
+    },
+    # The review issue then has no remaining cause: the issue set no longer reconciles.
     "no officer role records": lambda r: {"evidence": ()},
     "an unrelated contradiction": lambda r: {
         "issues": [
@@ -652,6 +641,18 @@ MUTATIONS: dict[str, Any] = {
             ),
         ]
     },
+    "an undeclared legal-form issue": lambda r: {
+        "issues": [
+            *r.issues,
+            OwnershipAnalysisIssue(
+                code=OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED, message="Synthetic."
+            ),
+        ]
+    },
+    "a legal form with no method and no declaration": lambda r: {
+        "legal_form": RegistryLegalForm.OTHER
+    },
+    "no registry legal form": lambda r: {"legal_form": None},
     "no synthetic-evidence marker": lambda r: {
         "issues": [
             item
@@ -675,6 +676,11 @@ MUTATIONS: dict[str, Any] = {
     "an incomplete topology": lambda r: {
         "discovery": r.discovery.model_copy(update={"topology_complete": False})
     },
+    "an unresolved person identity": lambda r: {
+        "discovery": r.discovery.model_copy(
+            update={"unresolved_person_party_ids": (r.candidates[0].party.party_id,)}
+        )
+    },
     "an issuer without POC distribution": lambda r: {
         "discovery": r.discovery.model_copy(
             update={
@@ -687,8 +693,20 @@ MUTATIONS: dict[str, Any] = {
             }
         )
     },
+    "a locally named issuer identity": lambda r: {
+        "discovery": r.discovery.model_copy(
+            update={
+                "records": tuple(
+                    item.model_copy(update={"identity_basis": "LOCAL_SYNTHETIC_IDENTITY"})
+                    for item in r.discovery.records
+                )
+            }
+        )
+    },
     "another root": lambda r: {"identity_registration_number": "201511222D"},
+    "no identity binding": lambda r: {"identity_correction_version": None},
     "a Live provider": lambda r: {"provider_environment": OwnershipEnvironment.LIVE},
+    "a manual provider": lambda r: {"provider_name": "MANUAL_DECLARATION_POC"},
     "a non-overlay link": lambda r: {
         "relationships": [
             r.relationships[0].model_copy(
@@ -724,31 +742,172 @@ MUTATIONS: dict[str, Any] = {
     },
 }
 
+# D-085 removed the exact Garden identity allowlist: official Mock officer roles of the root
+# with a different identity, count or status are still descriptive context. They change the
+# analysis content, so a recorded acceptance never survives them.
+IDENTITY_ONLY: dict[str, Any] = {
+    "a fifth official owner role": lambda r: {
+        "evidence": (*r.evidence, _role(r, evidence_id=role_id(5), party_id="SYNTHETIC-ROLE-5"))
+    },
+    "one substituted identity": lambda r: {
+        "evidence": (_role(r, evidence_id=role_id(9), party_id="SYNTHETIC-ROLE-9"), *r.evidence[1:])
+    },
+    "four unknown identities in the observed shape": lambda r: {
+        "evidence": tuple(
+            item.model_copy(
+                update={
+                    "party_id": f"SYNTHETIC-UNKNOWN-{index}",
+                    "evidence_id": _evidence_id(f"SYNTHETIC-UNKNOWN-{index}", "ROLE"),
+                }
+            )
+            for index, item in enumerate(r.evidence, start=1)
+        )
+    },
+    "the ceased role becoming current": lambda r: {
+        "evidence": (*r.evidence[:3], r.evidence[3].model_copy(update={"source_status": None}))
+    },
+    "a current role ceasing": lambda r: {
+        "evidence": (_role(r, source_status="CEASED"), *r.evidence[1:])
+    },
+    "only three roles": lambda r: {"evidence": r.evidence[1:]},
+    "a partner role": lambda r: {"evidence": (_role(r, raw_value="PARTNER"), *r.evidence[1:])},
+}
 
-@pytest.mark.parametrize("name", sorted(MUTATIONS))
-def test_only_the_known_garden_roles_and_poc_markers_are_accepted(name: str) -> None:
-    _, ownership, record = accepted_record()
+
+def _evaluate(record: OwnershipAnalysisRecord, scenario: Any = None) -> Any:
     acceptance = record.poc_acceptance
     assert acceptance is not None
-    baseline = eligible_poc_acceptance(
+    return eligible_poc_acceptance(
         record,
+        scenario=garden_scenario() if scenario is None else scenario,
         accepted_at=acceptance.accepted_at,
-        ownership_version=record.version,
-        officer_roles=observed_roles(),
+        ownership_version=acceptance.ownership_version,
     )
-    assert baseline == acceptance and poc_acceptance_current(record, observed_roles())
-    mutated = record.model_copy(update=MUTATIONS[name](record))
-    assert (
-        eligible_poc_acceptance(
-            mutated,
-            accepted_at=acceptance.accepted_at,
-            ownership_version=record.version,
-            officer_roles=observed_roles(),
-        )
-        is None
-    )
-    assert not poc_acceptance_current(mutated, observed_roles())
+
+
+@pytest.mark.parametrize("name", sorted(BLOCKING))
+def test_genuine_defects_and_undeclared_causes_stay_blocking(name: str) -> None:
+    _, ownership, record = accepted_record()
+    assert _evaluate(record) == record.poc_acceptance
+    assert poc_acceptance_current(record, garden_scenario())
+    mutated = record.model_copy(update=BLOCKING[name](record))
+    assert _evaluate(mutated) is None
+    assert not poc_acceptance_current(mutated, garden_scenario())
     assert not ownership.poc_basis_accepted(mutated)
+
+
+@pytest.mark.parametrize("name", sorted(IDENTITY_ONLY))
+def test_officer_role_identity_no_longer_gates_acceptance_but_still_revokes(name: str) -> None:
+    _, ownership, record = accepted_record()
+    mutated = record.model_copy(update=IDENTITY_ONLY[name](record))
+    fresh = _evaluate(mutated)
+    # The same contract accepts the changed descriptive context on a new analysis...
+    assert fresh is not None
+    assert fresh.accepted_assumptions == record.poc_acceptance.accepted_assumptions
+    assert (fresh.descriptive_current_role_count, fresh.descriptive_ceased_role_count) == (
+        sum(1 for item in mutated.evidence if item.source_status is None),
+        sum(1 for item in mutated.evidence if item.source_status == "CEASED"),
+    )
+    # ...but the recorded acceptance is bound to the exact old content and is revoked.
+    assert fresh.basis_fingerprint != record.poc_acceptance.basis_fingerprint
+    assert not poc_acceptance_current(mutated, garden_scenario())
+    assert not ownership.poc_basis_accepted(mutated)
+
+
+def _declaring(*assumptions: PocAssumption, scenario_id: str | None = None) -> Any:
+    base = garden_scenario()
+    return HybridOverlayScenario.model_validate(
+        {
+            **base.model_dump(),
+            "scenario_id": scenario_id or base.scenario_id,
+            "poc_acceptance": PocAcceptanceDeclaration(
+                quantity_basis="OWNER_SUPPLIED_DIRECT_REGISTER",
+                accepted_assumptions=frozenset(assumptions),
+            ),
+        }
+    )
+
+
+def test_acceptance_follows_the_trusted_declaration_not_a_case_field() -> None:
+    _, ownership, record = accepted_record()
+    every = (
+        PocAssumption.SIMULATED_RELATIONSHIPS,
+        PocAssumption.EQUAL_UNIT_DENOMINATOR,
+        PocAssumption.DESCRIPTIVE_OFFICER_ROLES,
+    )
+    # Declaring an extra, unexercised assumption changes nothing about the decision.
+    assert _evaluate(record, _declaring(*every, PocAssumption.UNCLASSIFIED_LEGAL_FORM)) == (
+        record.poc_acceptance
+    )
+    # Each exercised assumption must be declared; a missing one keeps the case blocked.
+    for missing in every:
+        declared = [item for item in every if item != missing]
+        if PocAssumption.SIMULATED_RELATIONSHIPS not in declared:
+            with pytest.raises(ValidationError, match="declares its simulated links"):
+                _declaring(*declared)
+            continue
+        assert _evaluate(record, _declaring(*declared)) is None
+    # A scenario without a declaration (the historical five-layer one), an absent scenario
+    # or a declaration under another scenario id never accepts.
+    assert _evaluate(record, garden_scenario().model_copy(update={"poc_acceptance": None})) is None
+    assert eligible_poc_acceptance(
+        record,
+        scenario=None,
+        accepted_at=record.poc_acceptance.accepted_at,
+        ownership_version=record.version,
+    ) is None
+    assert _evaluate(record, _declaring(*every, scenario_id="ANOTHER_SCENARIO_V1")) is None
+    # Removing the catalogue declaration at runtime withdraws the readiness authority.
+    assert ownership.poc_basis_accepted(record)
+    with patch.object(ownership, "_poc_scenario", return_value=None):
+        assert not ownership.poc_basis_accepted(record)
+
+
+def test_the_historical_five_layer_scenario_declares_no_acceptance() -> None:
+    catalogue = HybridOwnershipOverlayCatalogue()
+    five_layer = catalogue.scenario(FIVE_LAYER_SCENARIO_ID)
+    assert five_layer is not None and five_layer.poc_acceptance is None
+    assert catalogue.scenario("UNKNOWN_SCENARIO") is None
+    assert catalogue.scenario(None) is None
+
+
+def test_a_legal_form_without_a_method_is_accepted_only_when_declared() -> None:
+    _, _, record = accepted_record()
+    every = (
+        PocAssumption.SIMULATED_RELATIONSHIPS,
+        PocAssumption.EQUAL_UNIT_DENOMINATOR,
+        PocAssumption.DESCRIPTIVE_OFFICER_ROLES,
+    )
+    # The single registry review issue is chosen by priority: OTHER masks the role cause.
+    other = record.model_copy(
+        update={
+            "legal_form": RegistryLegalForm.OTHER,
+            "issues": [
+                OwnershipAnalysisIssue(
+                    code=OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED, message="Synthetic."
+                )
+                if item.code == OwnershipIssueCode.UBO_REVIEW_REQUIRED
+                else item
+                for item in record.issues
+            ],
+        }
+    )
+    assert _evaluate(other, _declaring(*every)) is None
+    accepted = _evaluate(other, _declaring(*every, PocAssumption.UNCLASSIFIED_LEGAL_FORM))
+    assert accepted is not None
+    assert list(accepted.accepted_assumptions) == sorted(
+        [*every, PocAssumption.UNCLASSIFIED_LEGAL_FORM]
+    )
+    assert list(accepted.accepted_issue_codes) == [
+        "OWNERSHIP_DENOMINATOR_REQUIRED",
+        "OWNERSHIP_METHOD_UNSUPPORTED",
+        "SYNTHETIC_OWNERSHIP_EVIDENCE",
+    ]
+    # A masked genuine defect (unquantified share units) still blocks under OTHER.
+    defective = other.model_copy(
+        update={"evidence": (*other.evidence[1:], _role(other, kind="SHARE_UNITS", raw_value="1"))}
+    )
+    assert _evaluate(defective, _declaring(*every, PocAssumption.UNCLASSIFIED_LEGAL_FORM)) is None
 
 
 def test_the_officer_roles_stay_retained_and_unreconciled() -> None:
@@ -829,7 +988,7 @@ def test_the_ceased_role_never_changes_calculated_ownership() -> None:
     assert [item.code for item in observed.issues] == [item.code for item in all_current.issues]
 
 
-def test_the_exact_role_set_matches_independent_of_response_order() -> None:
+def test_the_role_set_is_accepted_independent_of_response_order() -> None:
     transport = garden_transport()
     profile: Any = transport.profiles[GARDEN]
     officers = profile["entities"][0]["entityOfficersRecord"]["officerAppointmentDetails"]
@@ -839,147 +998,67 @@ def test_the_exact_role_set_matches_independent_of_response_order() -> None:
     assert record.poc_acceptance is not None
 
 
-@pytest.mark.parametrize(
-    "update",
-    [
-        {"acra_marketplace_poc_officer_role_key": None},
-        {"acra_marketplace_poc_officer_role_allowlist": None},
-        {"acra_marketplace_poc_officer_role_key": SecretStr("too-short-key")},
-        {
-            "acra_marketplace_poc_officer_role_key": SecretStr(
-                "another-synthetic-test-only-key-value"
-            )
-        },
-        {
-            "acra_marketplace_poc_officer_role_allowlist": SecretStr(
-                allowlist().replace("=CEASED", "=ENDED")
-            )
-        },
-        {"acra_marketplace_poc_officer_role_allowlist": SecretStr(allowlist().upper())},
-        {
-            "acra_marketplace_poc_officer_role_allowlist": SecretStr(
-                allowlist() + "," + allowlist().split(",")[0]
-            )
-        },
-        {
-            "acra_marketplace_poc_officer_role_allowlist": SecretStr(
-                allowlist({1: "CURRENT", 2: "CURRENT", 4: "CEASED"})
-            )
-        },
-        {
-            "acra_marketplace_poc_officer_role_allowlist": SecretStr(
-                allowlist({**OBSERVED, 5: "CURRENT"})
-            )
-        },
-        {
-            "acra_marketplace_poc_officer_role_allowlist": SecretStr(
-                allowlist({1: "CURRENT", 2: "CURRENT", 9: "CURRENT", 4: "CEASED"})
-            )
-        },
-        {
-            "acra_marketplace_poc_officer_role_allowlist": SecretStr(
-                allowlist({1: "CEASED", 2: "CURRENT", 3: "CURRENT", 4: "CURRENT"})
-            )
-        },
-        {
-            "acra_marketplace_poc_officer_role_allowlist": SecretStr(
-                allowlist(dict.fromkeys(range(1, 5), "CURRENT"))
-            )
-        },
-    ],
-    ids=[
-        "missing-key",
-        "missing-allowlist",
-        "short-key",
-        "different-key",
-        "malformed-status",
-        "malformed-digest",
-        "duplicate-entry",
-        "missing-role",
-        "additional-role",
-        "substituted-identity",
-        "status-on-another-role",
-        "all-current",
-    ],
-)
-def test_role_configuration_and_identity_mismatches_fail_closed(update: dict) -> None:
-    _, _, accepted = accepted_record()
-    onboarding, ownership = service_lane(**update)
-    record = analysed(onboarding, ownership)
-    assert (record.state, record.poc_acceptance) == (OwnershipAnalysisState.REVIEW_REQUIRED, None)
-    assert not ownership.poc_basis_accepted(record)
-    # Nothing but the acceptance differs: issues, evidence and calculations are unchanged.
-    assert candidate_values(record) == candidate_values(accepted)
+@pytest.mark.parametrize("ceased", [(), (1,), (3, 4)], ids=["none", "one-other", "two"])
+def test_other_observed_role_statuses_are_accepted_with_truthful_counts(
+    ceased: tuple[int, ...],
+) -> None:
+    _, _, observed = accepted_record()
+    record = analysed(*service_lane(transport=garden_transport(ceased=ceased)))
+    assert record.poc_acceptance is not None
+    assert (
+        record.poc_acceptance.descriptive_current_role_count,
+        record.poc_acceptance.descriptive_ceased_role_count,
+    ) == (4 - len(ceased), len(ceased))
+    assert candidate_values(record) == candidate_values(observed)
     assert [item.code for item in record.issues] == POC_CODES
-    assert len(record.evidence) == 4
 
 
-def test_fixture_roles_that_differ_from_the_observed_statuses_fail_closed() -> None:
-    for ceased in ((), (1,), (3, 4)):
-        record = analysed(*service_lane(transport=garden_transport(ceased=ceased)))
-        assert record.poc_acceptance is None
-
-
-def test_the_allowlist_is_ignored_without_the_opt_in_hybrid_policy() -> None:
-    onboarding, _ = service_lane()
-    for settings in (
-        lane("disabled"),
-        lane("disabled", acra_marketplace_ownership_overlay="garden_legacy_supplement"),
-        lane(
-            "disabled",
-            acra_connector_mode="mock",
-            acra_marketplace_ownership_overlay="garden_legacy_supplement",
-        ),
+def test_removed_officer_role_settings_are_not_required_and_are_ignored() -> None:
+    # Regression 13: no protected officer-role values exist; acceptance needs none.
+    assert not {
+        "acra_marketplace_poc_officer_role_key",
+        "acra_marketplace_poc_officer_role_allowlist",
+    } & set(Settings.model_fields)
+    record = analysed(*service_lane())
+    assert record.poc_acceptance is not None
+    # A stale owner .env value is ignored like any unknown setting, never an error.
+    with patch.dict(
+        "os.environ",
+        {
+            "ACRA_MARKETPLACE_POC_OFFICER_ROLE_KEY": "stale-synthetic-value",
+            "ACRA_MARKETPLACE_POC_OFFICER_ROLE_ALLOWLIST": "stale-synthetic-value",
+        },
     ):
-        service = build_ownership_analysis_service(onboarding, settings)
-        assert service._poc_officer_roles is None
-    record = analysed(*service_lane("disabled"))
-    assert record.poc_acceptance is None
+        settings = lane()
+    assert "stale-synthetic-value" not in repr(settings.model_dump())
+    example = (Path(__file__).resolve().parents[3] / ".env.example").read_text(encoding="utf-8")
+    assert "ACRA_MARKETPLACE_POC_OFFICER_ROLE_KEY=" not in example.splitlines()
+    assert "ACRA_MARKETPLACE_POC_OFFICER_ROLE_ALLOWLIST=" not in example.splitlines()
 
 
-def test_the_officer_role_identity_is_the_adapters_stable_id() -> None:
+def test_the_officer_role_identity_is_the_adapters_stable_id_and_never_exposed() -> None:
     assert _officer_role_evidence_id("SYNTHETIC-ROLE-1") == _evidence_id("SYNTHETIC-ROLE-1", "ROLE")
-    parsed = parse_poc_officer_role_allowlist(SecretStr(ROLE_KEY), SecretStr(allowlist()))
-    assert parsed is not None
-    assert parsed.matches(
-        [
-            (role_id(4), "CEASED"),
-            (role_id(2), "CURRENT"),
-            (role_id(3), "CURRENT"),
-            (role_id(1), "CURRENT"),
-        ]
-    )
-    assert not parsed.matches([(role_id(index), "CURRENT") for index in range(1, 5)])
-
-
-def test_protected_role_values_are_never_exposed() -> None:
-    protected = [ROLE_KEY, *(digest(role_id(index)) for index in range(1, 5))]
-    settings = lane()
-    parsed = parse_poc_officer_role_allowlist(
-        settings.acra_marketplace_poc_officer_role_key,
-        settings.acra_marketplace_poc_officer_role_allowlist,
-    )
     _, _, client, case_id = accepted_case()
     ownership = ownership_of(client, case_id)
-    rendered = " ".join(
-        (
-            repr(settings),
-            str(settings.model_dump()),
-            repr(parsed),
-            json.dumps(ownership),
-            json.dumps(summary_of(client, case_id)),
-        )
-    )
-    for value in protected:
-        assert value not in rendered
     # The acceptance itself names no role identity: counts only.
     acceptance = json.dumps(ownership["poc_acceptance"])
     for index in range(1, 5):
         assert role_id(index) not in acceptance
-    example = (Path(__file__).resolve().parents[3] / ".env.example").read_text(encoding="utf-8")
-    lines = example.splitlines()
-    assert "ACRA_MARKETPLACE_POC_OFFICER_ROLE_KEY=" in lines
-    assert "ACRA_MARKETPLACE_POC_OFFICER_ROLE_ALLOWLIST=" in lines
+        assert f"SYNTHETIC-ROLE-{index}" not in acceptance
+
+
+def test_a_recorded_d082_acceptance_is_never_honoured_after_d085() -> None:
+    # Regression 18: a historical D-082 record stays readable audit evidence only.
+    _, ownership, record = accepted_record()
+    acceptance = record.poc_acceptance
+    assert acceptance is not None
+    legacy = acceptance.model_copy(
+        update={"policy": "D082_HYBRID_POC_EQUAL_UNITS_V1", "accepted_assumptions": ()}
+    )
+    OwnershipPocAcceptance.model_validate(legacy.model_dump())
+    historical = record.model_copy(update={"poc_acceptance": legacy})
+    assert not poc_acceptance_current(historical, garden_scenario())
+    assert not ownership.poc_basis_accepted(historical)
 
 
 # --- F2 and F6: runtime authority changes against the workflow and target writes ------
@@ -1087,7 +1166,7 @@ def test_the_authority_requires_the_current_document_binding(
     # every consumer, including the analyze response, before any reload.
     rebound = (OwnershipDocumentBinding(document_id=uuid4(), event_count=1),)
     monkeypatch.setattr(ownership, "_document_inputs", lambda case_id: ((), rebound))
-    assert poc_acceptance_current(record, observed_roles())
+    assert poc_acceptance_current(record, garden_scenario())
     assert not ownership.poc_basis_accepted(record)
 
 
@@ -1122,7 +1201,7 @@ def test_the_acceptance_is_bound_to_its_case_version_content_and_identity() -> N
         ),
         record.model_copy(update={"poc_acceptance": None}),
     ):
-        assert not poc_acceptance_current(changed, observed_roles())
+        assert not poc_acceptance_current(changed, garden_scenario())
         assert not ownership.poc_basis_accepted(changed)
 
 
@@ -1200,6 +1279,11 @@ def test_acceptance_records_validate_their_own_authority_and_binding() -> None:
         {"accepted_issue_codes": tuple(reversed(acceptance.accepted_issue_codes))},
         {"descriptive_current_role_count": 0, "descriptive_ceased_role_count": 0},
         {"poc_relationship_ids": ()},
+        {"accepted_assumptions": ()},
+        {"accepted_assumptions": tuple(reversed(acceptance.accepted_assumptions))},
+        {"accepted_assumptions": ("DESCRIPTIVE_OFFICER_ROLES",)},
+        {"accepted_assumptions": (*acceptance.accepted_assumptions, "UNCLASSIFIED_LEGAL_FORM")},
+        {"policy": "D082_HYBRID_POC_EQUAL_UNITS_V1"},
         {"basis_fingerprint": "not-a-digest"},
         {"accepted_at": datetime(2026, 10, 24, 12, 0)},
     ):
@@ -1216,16 +1300,41 @@ def test_acceptance_records_validate_their_own_authority_and_binding() -> None:
             OwnershipAnalysisRecord.model_validate({**encoded, **update})
 
 
-def test_the_acceptance_round_trips_in_schema_fourteen_and_never_in_schema_thirteen() -> None:
+def test_the_acceptance_round_trips_in_schema_fifteen_and_never_in_older_schemas() -> None:
     onboarding, ownership, record = accepted_record()
-    assert max(_SUPPORTED_SCHEMA_VERSIONS) == 14
+    assert max(_SUPPORTED_SCHEMA_VERSIONS) == 15
     encoded = snapshot_of(onboarding, record).model_dump(mode="json")
-    assert encoded["schema_version"] == 14
+    assert encoded["schema_version"] == 15
     restored = DurableCaseSnapshot.model_validate(encoded).ownership
     assert restored == record
     assert restored is not None and ownership.poc_basis_accepted(restored)
-    with pytest.raises(ValidationError):
-        DurableCaseSnapshot.model_validate({**encoded, "schema_version": 13})
+    for older in (13, 14):
+        with pytest.raises(ValidationError):
+            DurableCaseSnapshot.model_validate({**encoded, "schema_version": older})
+    # The exact schema-14 reader rejects a D-085 acceptance, on current and prior analyses,
+    # and still reads a D-082 one (never honoured by a D-085 runtime).
+    with pytest.raises(ValidationError, match="D-085 POC acceptance"):
+        DurableCaseSnapshotV14.model_validate({**encoded, "schema_version": 14})
+    d085 = encoded["ownership"]["poc_acceptance"]
+    for legacy in (
+        {"ownership": {"poc_acceptance": d085}},
+        {"ownership": {"prior_analyses": [{"poc_acceptance": d085}]}},
+        {"ownership": {"poc_acceptance": {"accepted_assumptions": ["SIMULATED_RELATIONSHIPS"]}}},
+    ):
+        with pytest.raises(ValueError, match="D-085 POC acceptance"):
+            reject_scenario_poc_legacy_fields(legacy)
+    d082 = {**d085, "policy": "D082_HYBRID_POC_EQUAL_UNITS_V1", "accepted_assumptions": []}
+    reject_scenario_poc_legacy_fields({"ownership": {"poc_acceptance": d082}})
+    reject_scenario_poc_legacy_fields({"ownership": {"poc_acceptance": None}})
+    legacy_case = DurableCaseSnapshotV14.model_validate(
+        {
+            **encoded,
+            "schema_version": 14,
+            "ownership": {**encoded["ownership"], "poc_acceptance": d082},
+        }
+    ).to_current()
+    assert legacy_case.ownership is not None
+    assert not ownership.poc_basis_accepted(legacy_case.ownership)
     # The exact schema-13 guard rejects the acceptance itself, on current and prior analyses.
     acceptance = encoded["ownership"]["poc_acceptance"]
     for legacy in (

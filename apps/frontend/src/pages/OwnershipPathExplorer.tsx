@@ -189,7 +189,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
         <span className={`ownership-analysis__state${record.state === "ANALYZED" ? " is-complete" : " is-review"}`}>{record.state.replaceAll("_", " ")}</span>
       </div>
       <dl className="ownership-analysis__stats">
-        <div><dt>Analysis state</dt><dd>{record.state === "ANALYZED" ? "Calculable" : record.poc_basis_accepted ? "Calculated — POC basis accepted" : "Needs review"}</dd></div>
+        <div><dt>Analysis state</dt><dd>{record.state === "ANALYZED" ? "Calculable" : record.poc_basis_accepted ? "Calculated — POC basis accepted" : record.simulation_calculated ? "Simulation calculated — review required" : "Needs review"}</dd></div>
         <div><dt>Threshold</dt><dd>{record.threshold_comparator === "GREATER_THAN_OR_EQUAL_TO" ? "≥" : record.threshold_comparator} {formatOwnershipPercent(record.threshold_percent)}</dd></div>
         <div><dt>People assessed</dt><dd>{record.candidates.length}</dd></div>
         <div><dt>Provisional UBOs</dt><dd>{record.candidates.filter(item => item.party.party_type === "NATURAL_PERSON" && item.classification === "PROVISIONAL_UBO_CANDIDATE" && item.threshold_result === "MET").length}</dd></div>
@@ -203,7 +203,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
         <strong>Ownership information required</strong>
         <span>Ownership is unavailable from current registry evidence. Use Add structured ownership details or Upload ownership evidence to provide reviewed client evidence for UBO analysis.</span>
       </div>}
-      <p className="s2-ownership-summary">{record.candidates.length} retained natural-person candidate{record.candidates.length === 1 ? "" : "s"} · {record.parties.length} parties · {record.relationships.length} direct relationships. {record.state === "ANALYZED" ? "Calculable provisional view." : record.poc_basis_accepted ? "Calculated on the accepted POC basis." :"Incomplete or disputed evidence requires review."}</p>
+      <p className="s2-ownership-summary">{record.candidates.length} retained natural-person candidate{record.candidates.length === 1 ? "" : "s"} · {record.parties.length} parties · {record.relationships.length} direct relationships. {record.state === "ANALYZED" ? "Calculable provisional view." : record.poc_basis_accepted ? "Calculated on the accepted POC basis." : record.simulation_calculated ? "Simulation calculated on declared synthetic relationships; review required." : "Incomplete or disputed evidence requires review."}</p>
       {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
       <UboSummary record={record} />
       <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); if (candidate?.party.party_id !== partyId) setInspectionOpen(false); }} />

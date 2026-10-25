@@ -149,7 +149,7 @@ class Prepared:
     # The checked knowledge text the RM may see: lines the model may select, titles and
     # follow-up questions (knowledge_answers.shown_knowledge).
     shown: ShownKnowledge = field(default_factory=ShownKnowledge)
-    # The question's topic: model answers always include its required lines (D-085).
+    # The question's topic: model answers always include its required lines (D-090).
     plan: TopicPlan | None = None
 
     def sources(self, answer: str) -> list[KnowledgeSource]:

@@ -170,7 +170,7 @@ READINESS_NEEDS: dict[str, tuple[str, str]] = {
 
 READINESS_PLAIN = {code: need for code, (need, _) in READINESS_NEEDS.items()}
 
-# Reviewed explanation sentences (D-085, ADR-012 Amendment 2, PROPOSED). They are allowed
+# Reviewed explanation sentences (D-090, ADR-012 Amendment 2, PROPOSED). They are allowed
 # lines only when their field or readiness item is on the case (guardrails.allowed_guidance).
 # Each one stands alone, holds no case value, never says which source is right, and names
 # only sections that exist. "can"/"can mean" sentences give general reasons a value may
@@ -232,7 +232,7 @@ READINESS_EXPLANATIONS: dict[str, tuple[str, ...]] = {
 }
 
 
-# Fixed catalog lines (D-085, PROPOSED), each offered only under its condition
+# Fixed catalog lines (D-090, PROPOSED), each offered only under its condition
 # (guardrails.allowed_guidance). The approval line is worded so it passes the sentence checks
 # ("<action> is not offered" is the recognised negation).
 NOT_READY = "This case is not ready for GoldTier submission yet."

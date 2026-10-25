@@ -1,4 +1,4 @@
-"""Explanations without free model text (D-085, ADR-012 Amendment 2, PROPOSED).
+"""Explanations without free model text (D-090, ADR-012 Amendment 2, PROPOSED).
 
 1. The no-model answer to "Explain the X difference" explains that difference.
 2. Reviewed explanation sentences are allowed lines only when their field or readiness item
@@ -313,7 +313,7 @@ STAYS_OPEN = "The difference stays open until a person decides."
 def test_a_knowledge_sentence_without_its_tag_is_shown_with_it() -> None:
     lines = knowledge_lines(FACTS, [("G1", f"{DECIDES} {STAYS_OPEN}")])
     assert lines == [f"{DECIDES} [G1]", f"{STAYS_OPEN} [G1]"]
-    # The real line the model wrote (request 5), dropped before D-085.
+    # The real line the model wrote (request 5), dropped before D-090.
     assert _shown(f"{DECIDES} {STAYS_OPEN}", lines=lines) == "\n".join(lines)
     assert _shown(f"**{DECIDES}**", lines=lines) == lines[0]
     assert _shown(f"{DECIDES} [g1]", lines=lines) == lines[0]

@@ -407,7 +407,7 @@ def test_streamed_and_whole_answer_checks_agree() -> None:
     )
     whole = validate_answer(answer, {})
     assert whole.text == "\n".join([first, second, third])
-    # D-085: "- {second}" is the same allowed line once its list marker is ignored.
+    # D-090: "- {second}" is the same allowed line once its list marker is ignored.
     assert whole.left_out == 2
     for size in (1, 2, 5, 13, len(answer)):
         guard = StreamingGuard({})

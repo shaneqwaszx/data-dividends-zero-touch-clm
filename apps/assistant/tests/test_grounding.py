@@ -186,7 +186,7 @@ def test_free_prose_is_never_shown_even_when_every_fact_in_it_is_true() -> None:
     # Each of these passes the sentence checks, but model prose is not an allowed line.
     for answer in ("Keep the registry value.", "The UEN is 11111999A."):
         assert validate_answer(answer, FACTS).text == ""
-    # D-085: without its final full stop OFFERED is the same allowed line, shown as the catalog
+    # D-090: without its final full stop OFFERED is the same allowed line, shown as the catalog
     # wrote it.
     assert validate_answer(OFFERED[:-1], FACTS).text == OFFERED
 

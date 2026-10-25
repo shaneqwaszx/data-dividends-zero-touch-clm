@@ -12,11 +12,17 @@ from time import monotonic
 from pydantic import ValidationError
 
 from app.connectors.errors import ConnectorError
-from app.connectors.registry import RegistryProvider, ShareholderEvidenceProvider
+from app.connectors.registry import (
+    BusinessProfileEvidenceProvider,
+    RegistryProvider,
+    ShareholderEvidenceProvider,
+)
 from app.domain.models import (
+    BUSINESS_PROFILE_EVIDENCE_CONTRACT_VERSION,
     SHAREHOLDER_EVIDENCE_CONTRACT_VERSION,
     RegistryAcquisitionBundle,
     RegistryAcquisitionStatus,
+    RegistryBusinessProfileEvidence,
     RegistryCacheKey,
     RegistryEvidenceBinding,
     RegistryEvidenceDisposition,
@@ -121,6 +127,23 @@ class SubsidiaryShareholderEvidence:
 
     identifier: str
     evidence: RegistryShareholderEvidence
+    provider_backed: bool
+
+
+@dataclass(frozen=True)
+class RegistryBusinessProfileAcquisitionResult:
+    """D-088 business profile evidence; `cache_hit` means no provider call was made."""
+
+    evidence: RegistryBusinessProfileEvidence
+    cache_hit: bool
+
+
+@dataclass(frozen=True)
+class SubsidiaryBusinessProfileEvidence:
+    """Read-only D-088 business profile evidence for one corporate holder."""
+
+    identifier: str
+    evidence: RegistryBusinessProfileEvidence
     provider_backed: bool
 
 
@@ -328,6 +351,123 @@ class RegistryAcquisitionCoordinator:
             except BaseException:
                 flight.failure = RegistryAcquisitionBusyError
                 raise
+
+    def acquire_business_profile_evidence(
+        self,
+        provider: BusinessProfileEvidenceProvider,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None = None,
+        policy_version: int = 0,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> RegistryBusinessProfileAcquisitionResult:
+        """Cache-first D-088 business profile evidence under its own contract key.
+
+        The same repository, key locks and CAS writes as the shareholder contract: fresh
+        COMPLETE evidence follows the freshness policy, fresh EMPTY evidence the
+        definitive negative TTL, and a failed read is returned but never cached.
+        """
+        if cancelled is not None and cancelled():
+            raise RegistryAcquisitionBusyError
+        identity = provider.cache_identity
+        if identity is None:
+            return RegistryBusinessProfileAcquisitionResult(
+                evidence=provider.retrieve_business_profile_evidence(identifier),
+                cache_hit=False,
+            )
+        if identity.environment != SourceEnvironment.MOCK:
+            raise RegistryCacheInvalidError
+        policy = (
+            self._policy
+            if case_policy is None
+            else RegistryFreshnessPolicy(
+                policy_id="MOCK_ACRA_APPROVED_POLICY",
+                version=policy_version,
+                duration_seconds=case_policy.freshness_seconds,
+            )
+        )
+        negative_seconds = case_policy.negative_seconds if case_policy is not None else 600
+        key = RegistryCacheKey(
+            provider_identity=RegistryProviderIdentity(
+                provider=identity.provider,
+                environment=identity.environment,
+                acquisition_contract_version=BUSINESS_PROFILE_EVIDENCE_CONTRACT_VERSION,
+                dataset_namespace=identity.dataset_namespace,
+            ),
+            normalized_identifier=identifier.strip().upper(),
+        )
+        with self._key_lock(key.digest, cancelled=cancelled) as flight:
+            if flight.failure is not None:
+                raise flight.failure() from None
+            try:
+                return self._acquire_business_profile_locked(
+                    provider, key, policy, negative_seconds, cancelled
+                )
+            except (ConnectorError, RegistryCacheError) as error:
+                flight.failure = type(error)
+                raise
+            except BaseException:
+                flight.failure = RegistryAcquisitionBusyError
+                raise
+
+    def _acquire_business_profile_locked(
+        self,
+        provider: BusinessProfileEvidenceProvider,
+        key: RegistryCacheKey,
+        policy: RegistryFreshnessPolicy,
+        negative_seconds: int,
+        cancelled: Callable[[], bool] | None,
+    ) -> RegistryBusinessProfileAcquisitionResult:
+        now = self._utc_now()
+        entry = self._read(key)
+        if entry is not None:
+            self._validate_entry_for_use(entry, key, now)
+            cached = entry.business_profile_evidence
+            if cached is None:
+                raise RegistryCacheInvalidError
+            fresh = (
+                registry_negative_cache_is_fresh(entry.freshness_anchor, now, negative_seconds)
+                if cached.status == "EMPTY"
+                else registry_cache_window_is_fresh(
+                    policy.expires_at(entry.freshness_anchor), now
+                )
+            )
+            if fresh:
+                return RegistryBusinessProfileAcquisitionResult(
+                    evidence=cached.model_copy(deep=True), cache_hit=True
+                )
+        if cancelled is not None and cancelled():
+            raise RegistryAcquisitionBusyError
+        evidence = provider.retrieve_business_profile_evidence(key.normalized_identifier)
+        bound_at = self._utc_now()
+        if cancelled is not None and cancelled():
+            raise RegistryAcquisitionBusyError
+        if (
+            evidence.requested_identifier != key.normalized_identifier
+            or evidence.retrieved_at > bound_at
+        ):
+            raise RegistryCacheInvalidError
+        if evidence.status != "FAILED":
+            if evidence.status == "COMPLETE" and bound_at >= policy.expires_at(
+                evidence.retrieved_at
+            ):
+                raise RegistryCacheInvalidError
+            self._write(
+                RegistrySnapshotEntry(
+                    cache_schema_version=5,
+                    cache_id=key.digest,
+                    key=key,
+                    revision=entry.revision if entry is not None else 0,
+                    acquisition=None,
+                    business_profile_evidence=evidence,
+                    freshness_anchor=evidence.retrieved_at,
+                    written_at=bound_at,
+                ),
+                current=entry,
+            )
+        return RegistryBusinessProfileAcquisitionResult(
+            evidence=evidence.model_copy(deep=True), cache_hit=False
+        )
 
     def _acquire_shareholders_locked(
         self,

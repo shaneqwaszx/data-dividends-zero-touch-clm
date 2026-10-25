@@ -11,7 +11,7 @@ flow is amended by D-083 (proposed): drafts no longer come from "Solved it" / "Y
 a Director writes the fix for an enhancement request ("Not helpful" with a note). **D-083 also
 relaxes D-074's two-person control for the POC (single-reviewer mode, below) and needs the
 owner's (Shane's) explicit acceptance before merge.**
-Amendment 2 (D-085, proposed) adds explanation sentences, fixed lines and value templates to
+Amendment 2 (D-090, proposed) adds explanation sentences, fixed lines and value templates to
 the catalog (one of them relaxes section C), steers the model by question topic, adds each
 topic's required lines and matches model lines ignoring formatting only; **it also needs
 Shane's explicit acceptance before merge.**
@@ -486,7 +486,7 @@ tables and request states (main is at schema v4, from D-083).
 - Rechecks of the caller inside the SQLite write lock.
 - Read-only access towards the CLM backend: GET only, with the user's session.
 
-## Amendment 2 - explanations, topic steering and required lines (PROPOSED, D-085)
+## Amendment 2 - explanations, topic steering and required lines (PROPOSED, D-090)
 
 Status: PROPOSED by the project team on 2026-10-26, built ahead of acceptance on branch
 `feat/ai-assistant-explanations`. **It needs the repository owner's (Shane's) explicit

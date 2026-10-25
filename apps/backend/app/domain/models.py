@@ -502,6 +502,116 @@ class RegistryShareholderEvidence(BaseModel):
         return self
 
 
+# D-088: cache identity for one issuer's official Marketplace Mock `businessProfile`
+# read (cache schema 5), separate from every entity and shareholder contract.
+BUSINESS_PROFILE_EVIDENCE_CONTRACT_VERSION: Literal["MARKETPLACE_BUSINESS_PROFILE_V1"] = (
+    "MARKETPLACE_BUSINESS_PROFILE_V1"
+)
+_BUSINESS_PROFILE_TEXT = Field(min_length=1, max_length=160)
+_SHARE_COUNT = Field(ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6)
+
+
+class RegistryBusinessProfileShareholder(BaseModel):
+    """One official `businessProfile` shareholder row; never an identity or percentage.
+
+    `party_id` is an opaque issuer-scoped digest: the source holder identifier is not
+    kept. `source_status` is the provider-returned status, which this operation omits.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    party_id: str = Field(pattern=r"^BP-[0-9a-f]{24}$")
+    party_type: RegistryPartyType
+    name: str = _BUSINESS_PROFILE_TEXT
+    source_category: str = Field(min_length=1, max_length=64)
+    source_status: str | None = Field(default=None, min_length=1, max_length=64)
+    number_of_shares: Decimal = _SHARE_COUNT
+    share_type: str | None = Field(default=None, min_length=1, max_length=64)
+    currency: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @field_validator("number_of_shares", mode="before")
+    @classmethod
+    def exact_share_count(cls, value: object) -> object:
+        if isinstance(value, (float, bool)):
+            raise ValueError("share counts must be exact")
+        return value
+
+
+class RegistryShareCapital(BaseModel):
+    """One official `businessProfile` issued or paid-up capital line, as returned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    share_type: str | None = Field(default=None, min_length=1, max_length=64)
+    currency: str | None = Field(default=None, min_length=1, max_length=64)
+    number_of_shares: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False,
+                                             max_digits=18, decimal_places=6)
+    amount: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False,
+                                   max_digits=24, decimal_places=6)
+
+    @field_validator("number_of_shares", "amount", mode="before")
+    @classmethod
+    def exact_capital(cls, value: object) -> object:
+        if isinstance(value, (float, bool)):
+            raise ValueError("capital values must be exact")
+        return value
+
+
+class RegistryBusinessProfileEvidence(BaseModel):
+    """One issuer's own official Marketplace Mock `businessProfile` read (D-088).
+
+    Read only for a scenario-named corporate holder whose entity-basic profile and
+    shareholder operation are both empty. It keeps the company identity labels, the
+    shareholder rows and the issued/paid-up capital exactly as returned; it derives no
+    canonical identity, legal form, percentage or relationship.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    requested_identifier: str = Field(min_length=1, max_length=32)
+    status: Literal["COMPLETE", "EMPTY", "FAILED"]
+    provider: SourceSystem = SourceSystem.ACRA
+    environment: SourceEnvironment
+    retrieved_at: datetime
+    evidence_reference: str = Field(pattern=r"^acra:business_profile:[A-Z0-9]{1,32}$")
+    error_code: str | None = Field(default=None, min_length=1, max_length=64)
+    entity_name: str | None = Field(default=None, min_length=1, max_length=160)
+    company_type: str | None = Field(default=None, min_length=1, max_length=160)
+    status_of_company: str | None = Field(default=None, min_length=1, max_length=80)
+    shareholders: tuple[RegistryBusinessProfileShareholder, ...] = Field(
+        default=(), max_length=64
+    )
+    issued_share_capital: tuple[RegistryShareCapital, ...] = Field(default=(), max_length=16)
+    paid_up_capital: tuple[RegistryShareCapital, ...] = Field(default=(), max_length=16)
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def retrieved_at_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @model_validator(mode="after")
+    def validate_business_profile(self) -> "RegistryBusinessProfileEvidence":
+        if self.evidence_reference != f"acra:business_profile:{self.requested_identifier}":
+            raise ValueError("business profile evidence reference disagrees with its issuer")
+        content = (
+            self.entity_name is not None
+            or self.company_type is not None
+            or self.status_of_company is not None
+            or self.shareholders
+            or self.issued_share_capital
+            or self.paid_up_capital
+        )
+        if self.status == "COMPLETE" and (self.entity_name is None or self.error_code):
+            raise ValueError("complete business profile evidence requires its entity name")
+        if self.status == "EMPTY" and (content or self.error_code):
+            raise ValueError("empty business profile evidence carries no content")
+        if self.status == "FAILED" and (content or self.error_code is None):
+            raise ValueError("failed business profile evidence carries only its error")
+        if len({item.party_id for item in self.shareholders}) != len(self.shareholders):
+            raise ValueError("business profile shareholder rows must be unique")
+        return self
+
+
 class RegistryEvidenceDisposition(StrEnum):
     """Truthful reason a complete shared snapshot was bound to one case."""
 
@@ -582,7 +692,7 @@ class RegistrySnapshotEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    cache_schema_version: Literal[1, 2, 3, 4] = 1
+    cache_schema_version: Literal[1, 2, 3, 4, 5] = 1
     cache_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     key: RegistryCacheKey
     revision: int = Field(ge=0)
@@ -591,6 +701,8 @@ class RegistrySnapshotEntry(BaseModel):
     # Schemas 3 (D-079, V1 key) and 4 (D-080, V2 key, share class retained) only:
     # shareholder evidence under its own contract key.
     shareholder_evidence: RegistryShareholderEvidence | None = None
+    # Schema 5 (D-088) only: business profile evidence under its own contract key.
+    business_profile_evidence: RegistryBusinessProfileEvidence | None = None
     freshness_anchor: datetime
     provider_effective_at: datetime | None = None
     written_at: datetime
@@ -617,6 +729,33 @@ class RegistrySnapshotEntry(BaseModel):
         ):
             raise ValueError("operation and negative cache require explicit Mock identity")
         identity = self.key.provider_identity
+        business_profile_key = (
+            identity.acquisition_contract_version == BUSINESS_PROFILE_EVIDENCE_CONTRACT_VERSION
+        )
+        if (
+            business_profile_key
+            or self.business_profile_evidence is not None
+            or self.cache_schema_version == 5
+        ):
+            profile = self.business_profile_evidence
+            if (
+                not business_profile_key
+                or profile is None
+                or self.cache_schema_version != 5
+                or profile.status == "FAILED"
+                or self.acquisition is not None
+                or self.negative_result is not None
+                or self.shareholder_evidence is not None
+                or self.provider_effective_at is not None
+                or identity.environment != SourceEnvironment.MOCK
+                or profile.requested_identifier != self.key.normalized_identifier
+                or profile.provider != identity.provider
+                or profile.environment != identity.environment
+                or self.freshness_anchor != profile.retrieved_at
+                or self.written_at < profile.retrieved_at
+            ):
+                raise ValueError("business profile cache entries hold only Mock profile evidence")
+            return self
         shareholder_schema = {
             LEGACY_SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: 3,
             SHAREHOLDER_EVIDENCE_CONTRACT_VERSION: 4,

@@ -17,7 +17,7 @@ from scripts.mongo_test_safety import (
 )
 from scripts.slice_b_registry_fixture import GARDEN_FIELDS
 from test_ownership_discovery_policy import _legacy_catalogue_with_history
-from test_poc_ownership_acceptance import ROLE_KEY, allowlist, garden_transport
+from test_poc_ownership_acceptance import garden_transport
 from test_slice_b_registry_demo import start
 from test_zero_touch_exception_remediation import successful
 
@@ -122,7 +122,7 @@ def test_garden_discovery_survives_restart_with_issuer_cache_and_current_envelop
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(case.case_id)}
         )
-        assert raw is not None and raw["schema_version"] == 14
+        assert raw is not None and raw["schema_version"] == 15
         identity = RegistryProviderIdentity(
             provider=SourceSystem.ACRA,
             environment=SourceEnvironment.MOCK,
@@ -214,7 +214,7 @@ def test_hybrid_five_layer_record_survives_restart_and_rejects_schema_eleven(phy
         assert second.ownership.get_for_case(case.case_id) == record
         collection = client[hybrid.mongo_database][hybrid.mongo_case_collection]
         raw = collection.find_one({"_id": str(case.case_id)})
-        assert raw is not None and raw["schema_version"] == 14
+        assert raw is not None and raw["schema_version"] == 15
         assert raw["ownership"]["discovery"]["overlay_scenario_id"] == (
             "FIVE_LAYER_MARKETPLACE_HYBRID_V1"
         )
@@ -332,7 +332,7 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
         database = client[hybrid.mongo_database]
         collection = database[hybrid.mongo_case_collection]
         raw = collection.find_one({"_id": str(case.case_id)})
-        assert raw is not None and raw["schema_version"] == 14
+        assert raw is not None and raw["schema_version"] == 15
         cache = database[hybrid.mongo_registry_cache_collection]
         assert (
             cache.count_documents(
@@ -401,9 +401,6 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
         "idp_connector_mode": "local_pdf_text",
         "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),
         "acra_api_marketplace_mock_secret_key": SecretStr("synthetic-offline-key"),
-        # Synthetic, test-only protected allowlist for the fixture's observed role set.
-        "acra_marketplace_poc_officer_role_key": SecretStr(ROLE_KEY),
-        "acra_marketplace_poc_officer_role_allowlist": SecretStr(allowlist()),
     }
     enabled = settings.model_copy(
         update={**hybrid, "acra_marketplace_poc_ownership_acceptance": "accept_eligible_poc"}
@@ -443,8 +440,13 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
             "TARGET_CONFIRMATION_REQUIRED"
         ]
     raw = collection.find_one({"_id": case_id})
-    assert raw is not None and raw["schema_version"] == 14
-    assert raw["ownership"]["poc_acceptance"]["policy"] == "D082_HYBRID_POC_EQUAL_UNITS_V1"
+    assert raw is not None and raw["schema_version"] == 15
+    assert raw["ownership"]["poc_acceptance"]["policy"] == "D085_SCENARIO_DECLARED_POC_BASIS_V1"
+    assert raw["ownership"]["poc_acceptance"]["accepted_assumptions"] == [
+        "DESCRIPTIVE_OFFICER_ROLES",
+        "EQUAL_UNIT_DENOMINATOR",
+        "SIMULATED_RELATIONSHIPS",
+    ]
 
     for restarted in (disabled, legacy, local_mock):
         with application(restarted) as other:

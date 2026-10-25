@@ -47,7 +47,13 @@ async def test_demo_load_analyze_get_and_candidate_contract() -> None:
         "provider",
         "environment",
         "sourced_at",
+        "owner_declared_percentage",
     }
+    # D-086: only an owner-declared overlay percentage sets the boolean.
+    assert not any(
+        item["provenance"]["owner_declared_percentage"]
+        for item in analyzed.json()["relationships"]
+    )
 
 
 @pytest.mark.anyio

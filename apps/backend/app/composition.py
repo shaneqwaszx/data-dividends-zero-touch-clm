@@ -39,7 +39,10 @@ from app.connectors.goldtier_xpi import (
     GoldTierXpiSandboxConnector,
     HttpxGoldTierXpiTransport,
 )
-from app.connectors.hybrid_ownership_overlay import HybridOwnershipOverlayCatalogue
+from app.connectors.hybrid_ownership_overlay import (
+    HybridOwnershipOverlayCatalogue,
+    hybrid_overlay_scenarios,
+)
 from app.connectors.local_ocr import TesseractOcrAdapter
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MOCK_ACRA_DATASET_NAMESPACE, MockAcraConnector
@@ -84,10 +87,7 @@ from app.services.document_repository import (
 )
 from app.services.onboarding import EntityResolver, OnboardingService
 from app.services.onboarding_intelligence import OnboardingIntelligenceService
-from app.services.ownership_analysis import (
-    OwnershipAnalysisService,
-    parse_poc_officer_role_allowlist,
-)
+from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_discovery import OwnershipDiscoveryCoordinator
 from app.services.ownership_repository import (
     InMemoryOwnershipAnalysisRepository,
@@ -375,7 +375,7 @@ def build_ownership_analysis_service(
     hybrid = (
         official_lane and settings.acra_marketplace_ownership_overlay == "hybrid_direct_overlay"
     )
-    # D-082 opt-in, re-read at every composition: disabling it revokes acceptance.
+    # D-085 opt-in, re-read at every composition: disabling it revokes acceptance.
     poc_acceptance = (
         hybrid and settings.acra_marketplace_poc_ownership_acceptance == "accept_eligible_poc"
     )
@@ -387,17 +387,15 @@ def build_ownership_analysis_service(
         ),
         documents=documents,
         garden_supplement_enabled=official_lane and not hybrid,
-        hybrid_overlay=HybridOwnershipOverlayCatalogue() if hybrid else None,
-        poc_acceptance_enabled=poc_acceptance,
-        # R1: protected exact officer-role allowlist, consulted only under the opt-in.
-        poc_officer_roles=(
-            parse_poc_officer_role_allowlist(
-                settings.acra_marketplace_poc_officer_role_key,
-                settings.acra_marketplace_poc_officer_role_allowlist,
+        # D-086: the operator-selected OPQ scenario; the five-layer simulation by default.
+        hybrid_overlay=(
+            HybridOwnershipOverlayCatalogue(
+                hybrid_overlay_scenarios(settings.acra_marketplace_opq_scenario)
             )
-            if poc_acceptance
+            if hybrid
             else None
         ),
+        poc_acceptance_enabled=poc_acceptance,
         # Corporate owners are acquired separately through the same registry owner;
         # only cases with a frozen discovery policy use it.
         discovery=OwnershipDiscoveryCoordinator(onboarding_service),

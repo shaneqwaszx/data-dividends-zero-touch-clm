@@ -33,7 +33,7 @@ from tests.test_knowledge_store import _kb
 CHAT = f"/assistant/cases/{CASE_ID}/chat"
 STREAM = f"/assistant/cases/{CASE_ID}/chat/stream"
 QUESTION = {"message": "Can I use the document address?"}
-# D-085: no question topic, so the stand-in model's answer is shown without required lines.
+# D-090: no question topic, so the stand-in model's answer is shown without required lines.
 NO_TOPIC_QUESTION = {"message": "Can I use the document value instead of ACRA's?"}
 ADDRESS_RULE = 'For an address, the only source decision offered is "Keep registry value".'
 _LINE = re.compile(r" \[[GP]\d+\]$")
@@ -158,7 +158,7 @@ def test_a_paraphrase_part_or_retag_of_a_knowledge_line_is_never_shown(kb: Knowl
         body = _client(FakeModel(answer=answer), kb).post(CHAT, json=NO_TOPIC_QUESTION).json()
         assert body["answered_by"] == "case_data", answer
         assert body["notice"].startswith("The model response could not be verified")
-    # D-085: without its tag, or with a list marker, it is the same line, shown with its tag.
+    # D-090: without its tag, or with a list marker, it is the same line, shown with its tag.
     for answer in (ADDRESS_RULE, f"- {line}"):
         body = _client(FakeModel(answer=answer), kb).post(CHAT, json=NO_TOPIC_QUESTION).json()
         assert body["answered_by"] == "model" and body["answer"] == line, answer

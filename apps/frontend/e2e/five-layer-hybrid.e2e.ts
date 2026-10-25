@@ -106,7 +106,13 @@ test("Five-layer hybrid onboarding renders five corporate levels in the existing
   const hierarchy = stage.getByRole("table", { name: "Ownership hierarchy", exact: true });
   await expect(hierarchy).toBeVisible();
   await expect(stage.getByLabel("Hierarchy summary")).toContainText("5 layers");
-  await expect(stage.getByText("Partial or disputed ownership evidence — review required.", { exact: true })).toBeVisible();
+  // The completed simulation is reported as calculated (backend presentation flag), never as
+  // a generic calculation error; the review state and synthetic sources stay disclosed.
+  expect(ownership.simulation_calculated).toBe(true);
+  expect(ownership.poc_basis_accepted).toBe(false);
+  await expect(stage.getByText("Multi-layer ownership simulation calculated", { exact: true })).toBeVisible();
+  await expect(stage.getByText(/^The five-layer ownership structure and effective interests have been calculated using declared synthetic relationships/)).toBeVisible();
+  await expect(stage.getByText("Partial or disputed ownership evidence — review required.", { exact: true })).toHaveCount(0);
   const root = hierarchy.getByRole("row").filter({ has: page.getByRole("button", { name: company.name, exact: true }) }).first();
   await expect(root).toContainText("ACRA_REGISTRY_ACQUISITION · MOCK");
   // L1 -> L2 -> L3 -> L4A -> L5: each company row shows its holding and LOCAL link source.

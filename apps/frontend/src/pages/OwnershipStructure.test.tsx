@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OwnershipAnalysisRecord } from "../types";
-import { fiveLayerAssumedBasisFixture, gardenAssumedBasisFixture } from "./ownershipAssumedBasisFixture";
+import { fiveLayerAssumedBasisFixture, gardenAssumedBasisFixture, opqGardenAbcFixture, opqGardenSimLimFixture } from "./ownershipAssumedBasisFixture";
 import OwnershipPathExplorer from "./OwnershipPathExplorer";
 import { ownershipStructureFixture } from "./ownershipStructureFixture";
 import validSourceRecord from "./ownershipValidIdentityFixture.json";
@@ -207,6 +207,79 @@ describe("Ownership structure entity labels and D-081 verification wording", () 
     expect(host.textContent).toContain(GENERIC_WARNING);
   });
 
+  it("five-layer simulation: the backend's calculated status replaces the generic warning, review stays", () => {
+    const record = { ...fiveLayerAssumedBasisFixture(), simulation_calculated: true };
+    record.issues = [...record.issues, { code: "OWNERSHIP_METHOD_UNSUPPORTED", message: "Synthetic.", affected_party_ids: [] }] as OwnershipAnalysisRecord["issues"];
+    render(record);
+    const banner = host.querySelector<HTMLElement>(".ownership-structure .ds-banner")!;
+    expect(banner.querySelector("strong")!.textContent).toBe("Multi-layer ownership simulation calculated");
+    expect(banner.classList.contains("ds-banner-warn")).toBe(false);
+    expect(banner.textContent).toContain("The two-layer ownership structure and effective interests have been calculated using declared synthetic relationships and the existing Decimal engine. This demonstrates recursive ownership tracing and aggregation, not verified ACRA ownership.");
+    expect(banner.textContent).toContain("The formal UBO classification and ownership readiness remain review-required");
+    expect(banner.textContent).toContain("The root's registry legal form has no supported formal UBO method.");
+    expect(host.textContent).not.toContain(GENERIC_WARNING);
+    expect(host.textContent).not.toContain("POC basis accepted");
+    // Values, sources and the formal review classification are unchanged.
+    expect(effective("BEATRICE LIM (SYNTHETIC PERSON)")).toEqual(["37.5%"]);
+    expect(host.textContent).toContain("LOCAL_SYNTHETIC_RELATIONSHIP");
+    expect(host.querySelector(".ubo-summary__warning")!.textContent).toBe("UBO determination requires review. These values come from a calculated simulation on declared synthetic relationships; they are not verified ownership.");
+    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
+  });
+
+  it("OPQ -> Garden -> SIM LIM: the owner-declared 100% is marked and Garden keeps its partnership form", () => {
+    render(opqGardenSimLimFixture());
+    expect(effective("OPQ PTE. LTD.")).toEqual(["Root entity — N/A"]);
+    expect(effective("GARDEN BUSINESS")).toEqual(["100% — direct holding in client"]);
+    expect(effective("SIM LIM PTE. LTD.")).toEqual(["Not calculated for indirect corporate holders"]);
+    expect(effective("ABCD123")).toEqual(["51.14%"]);
+    expect(effective("LIM CHOON HUAT")).toEqual(["37.5%"]);
+    const rowOf = (name: string) => [...host.querySelectorAll<HTMLElement>('[aria-label="Ownership hierarchy"] [role="row"]')]
+      .find(row => row.querySelector(".ownership-node__body > button")?.textContent === name)!;
+    expect(rowOf("GARDEN BUSINESS").querySelector('[data-label="Type"]')!.textContent).toBe("Business partnership");
+    expect(rowOf("OPQ PTE. LTD.").querySelector('[data-label="Type"]')!.textContent).toBe("Company");
+    expect(rowOf("SIM LIM PTE. LTD.").querySelector('[data-label="Type"]')!.textContent).toBe("Company");
+    expect(rowOf("GARDEN BUSINESS").querySelector('[data-label="Source"]')!.textContent).toBe("LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL · owner-declared percentage");
+    expect(rowOf("SIM LIM PTE. LTD.").querySelector('[data-label="Source"]')!.textContent).toBe("LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL");
+    expect(rowOf("ABCD123").querySelector('[data-label="Source"]')!.textContent).toBe("LOCAL_POC_ASSUMED_EQUAL_UNITS · LOCAL");
+    expect(holderText("GARDEN BUSINESS")).toContain("Source: LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL · owner-declared percentage");
+  });
+
+  it("entity effective interests come only from the backend engine paths, including diamonds", () => {
+    const record = fiveLayerAssumedBasisFixture();
+    record.parties.push(company("L3", "FIVE LAYER L3 INVESTMENTS (SYNTHETIC)"), company("L4", "FIVE LAYER L4 (SYNTHETIC)"));
+    record.relationships.push(link(record, "l2-l3", "L2", "L3", "50"), link(record, "l2-l4", "L2", "L4", "25"), link(record, "l4-l3", "L4", "L3", "40"));
+    const names: Record<string, string> = Object.fromEntries(record.parties.map(party => [party.party_id, party.display_name]));
+    const path = (ids: string[], percent: string) => {
+      const edges = ids.map(id => record.relationships.find(edge => edge.relationship_id === id)!);
+      return { path_id: `path-${ids.join("-")}`, is_direct: ids.length === 1, effective_ownership_percent: percent, calculation: `${edges.map(edge => `${edge.ownership_percent}%`).join(" x ")} = ${percent}%`,
+        edges: edges.map(edge => ({ ...edge, parent_display_name: names[edge.parent_party_id], child_display_name: names[edge.child_party_id] })) };
+    };
+    record.entity_effective_interests = [
+      { party_id: "L2", effective_ownership_percent: "80", paths: [path(["r-l2"], "80")] },
+      { party_id: "L4", effective_ownership_percent: "20", paths: [path(["r-l2", "l2-l4"], "20")] },
+      { party_id: "L3", effective_ownership_percent: "48", paths: [path(["r-l2", "l2-l3"], "40"), path(["r-l2", "l2-l4", "l4-l3"], "8")] },
+    ];
+    render(record);
+    expect(effective("FIVE LAYER L2 HOLDINGS (SYNTHETIC)")).toEqual(["80%"]);
+    expect(effective("FIVE LAYER L4 (SYNTHETIC)")).toEqual(["20%"]);
+    expect(effective("FIVE LAYER L3 INVESTMENTS (SYNTHETIC)").sort()).toEqual(["40%", "8%"]);
+    expect(host.textContent).not.toContain("Not calculated for indirect corporate holders");
+    expect(host.textContent).not.toContain("Not calculated — held through multiple paths");
+    const detail = holderText("FIVE LAYER L3 INVESTMENTS (SYNTHETIC)");
+    expect(detail).toContain("Aggregate effective in root (all retained paths)48% (calculated interest; not a UBO classification)");
+    expect(detail).toContain("2 retained paths reach this entity.");
+    expect(detail).toContain("Calculation:");
+    // The root keeps its label and person values are unchanged.
+    expect(effective("OPQ PTE. LTD.")).toEqual(["Root entity — N/A"]);
+    expect(effective("BEATRICE LIM (SYNTHETIC PERSON)")).toEqual(["37.5%"]);
+  });
+
+  it("the simulation status is never inferred: without the backend flag the general warning stays", () => {
+    render({ ...fiveLayerAssumedBasisFixture(), simulation_calculated: false });
+    expect(host.textContent).toContain(GENERIC_WARNING);
+    expect(host.textContent).not.toContain("Multi-layer ownership simulation calculated");
+  });
+
   it("labels diamond paths, cycles and unlinked entities without inventing values", () => {
     const record = ownershipStructureFixture(); record.state = "REVIEW_REQUIRED";
     record.parties.push(company("left", "Synthetic left holding"), company("shared", "Synthetic shared holding"), company("loose", "Synthetic unlinked entity"));
@@ -233,19 +306,20 @@ describe("Ownership structure entity labels and D-081 verification wording", () 
   });
 });
 
-describe("D-082 POC basis accepted by the backend", () => {
+describe("D-085 POC basis accepted by the backend", () => {
   const ACCEPTED = "Ownership calculated — POC basis accepted";
   function acceptedGarden(accepted = true): OwnershipAnalysisRecord {
     return {
       ...gardenAssumedBasisFixture(),
       poc_basis_accepted: accepted,
       poc_acceptance: accepted ? {
-        policy: "D082_HYBRID_POC_EQUAL_UNITS_V1", accepted_at: "2026-10-24T00:00:00Z",
+        policy: "D085_SCENARIO_DECLARED_POC_BASIS_V1", accepted_at: "2026-10-24T00:00:00Z",
         case_id: "case", analysis_id: "analysis", ownership_version: 5,
         identity_registration_number: "11111999A", identity_correction_version: 0,
         overlay_scenario_id: "GARDEN_DIRECT_OVERLAY_V1",
         accepted_issue_codes: ["OWNERSHIP_DENOMINATOR_REQUIRED", "SYNTHETIC_OWNERSHIP_EVIDENCE", "UBO_REVIEW_REQUIRED"],
         poc_relationship_ids: ["poc-1"], descriptive_current_role_count: 3, descriptive_ceased_role_count: 1,
+        accepted_assumptions: ["DESCRIPTIVE_OFFICER_ROLES", "EQUAL_UNIT_DENOMINATOR", "SIMULATED_RELATIONSHIPS"],
         basis_fingerprint: "0".repeat(64),
       } : null,
     };
@@ -261,7 +335,9 @@ describe("D-082 POC basis accepted by the backend", () => {
     expect(banner.classList.contains("ds-banner-warn")).toBe(false);
     expect(banner.textContent).toContain("Official share denominators and share-class rights remain unverified.");
     expect(banner.textContent).toContain("This is not verified ownership or a legal UBO determination. Target confirmation is still required before any GoldTier send.");
-    expect(banner.textContent).toContain("The official Marketplace Mock officer Owner role records (3 current, 1 ceased) are retained unchanged and recognised as descriptive context for this named POC exception only. They do not corroborate the synthetic shareholder relationships.");
+    expect(banner.textContent).toContain("The official Marketplace Mock officer ownership role records (3 current, 1 ceased) are retained unchanged as descriptive context only. They do not corroborate the synthetic shareholder relationships.");
+    expect(banner.textContent).toContain("declared POC assumptions of this whitelisted demonstration scenario");
+    expect(banner.textContent).not.toContain("no supported formal UBO method");
     // F4: outdated review wording is gone; the POC disclosure stays.
     expect(host.querySelector('section[aria-label="Meets the threshold on an assumed basis"]')).not.toBeNull();
     expect(host.textContent).not.toContain("do not clear ownership readiness");
@@ -277,6 +353,104 @@ describe("D-082 POC basis accepted by the backend", () => {
     // The formal backend classification itself is unchanged and still shown per candidate.
     expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
     expect(host.querySelectorAll(".ownership-structure__row.is-ubo")).toHaveLength(0);
+  });
+
+  it("discloses an accepted unclassified legal form without changing the classification", () => {
+    const record = acceptedGarden();
+    render({
+      ...record,
+      poc_acceptance: {
+        ...record.poc_acceptance!,
+        accepted_issue_codes: ["OWNERSHIP_DENOMINATOR_REQUIRED", "OWNERSHIP_METHOD_UNSUPPORTED", "SYNTHETIC_OWNERSHIP_EVIDENCE"],
+        accepted_assumptions: ["DESCRIPTIVE_OFFICER_ROLES", "EQUAL_UNIT_DENOMINATOR", "SIMULATED_RELATIONSHIPS", "UNCLASSIFIED_LEGAL_FORM"],
+      },
+    });
+    const banner = host.querySelector<HTMLElement>(".ownership-structure .ds-banner")!;
+    expect(banner.textContent).toContain("The registry legal form has no supported formal UBO method; the declared POC arithmetic is shown without a formal classification.");
+    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
+  });
+
+  it("D-087 OPQ chain: accepted with intermediate-role and declared-link disclosures, no review warning", () => {
+    const record = opqGardenSimLimFixture();
+    render({
+      ...record,
+      poc_basis_accepted: true,
+      poc_acceptance: {
+        ...acceptedGarden().poc_acceptance!,
+        overlay_scenario_id: "OPQ_GARDEN_SIM_LIM_V1", identity_registration_number: "201511222D",
+        accepted_issue_codes: ["OWNERSHIP_DENOMINATOR_REQUIRED", "OWNERSHIP_METHOD_UNSUPPORTED", "SYNTHETIC_OWNERSHIP_EVIDENCE"],
+        descriptive_current_role_count: 0, descriptive_ceased_role_count: 0,
+        descriptive_intermediate_current_role_count: 3, descriptive_intermediate_ceased_role_count: 1,
+        accepted_assumptions: ["DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES", "EQUAL_UNIT_DENOMINATOR", "SIMULATED_RELATIONSHIPS", "UNCLASSIFIED_LEGAL_FORM"],
+      },
+    });
+    const banner = host.querySelector<HTMLElement>(".ownership-structure .ds-banner")!;
+    expect(banner.querySelector("strong")!.textContent).toBe(ACCEPTED);
+    expect(banner.classList.contains("ds-banner-warn")).toBe(false);
+    expect(banner.textContent).toContain("An intermediate entity's official Marketplace Mock officer ownership role records (3 current, 1 ceased) are retained unchanged as descriptive context only. They are not shareholdings and do not corroborate the synthetic relationships.");
+    expect(banner.textContent).toContain("Ownership calculations are accepted for this demonstration using ACRA Marketplace Mock observations and explicitly declared synthetic relationships, including an owner-declared percentage. This is not a verified legal UBO determination.");
+    expect(banner.textContent).toContain("no supported formal UBO method");
+    expect(banner.textContent).toContain("Target confirmation is still required before any GoldTier send.");
+    // The root has no ownership-like roles, so no root role disclosure is shown.
+    expect(banner.textContent).not.toContain("The official Marketplace Mock officer ownership role records (");
+    expect(host.querySelector(".ownership-structure .ds-banner-warn")).toBeNull();
+    expect(host.textContent).not.toContain("Ownership calculated — verification required");
+    expect(host.textContent).not.toContain("Multi-layer ownership simulation calculated");
+    expect(host.textContent).not.toContain(GENERIC_WARNING);
+    expect(host.textContent).not.toContain("do not clear ownership readiness");
+    expect(host.querySelector(".ubo-summary__warning")).toBeNull();
+    expect(analysisStat("Analysis state")).toBe("Calculated — POC basis accepted");
+    // Values, provenance and the formal classification are unchanged.
+    expect(effective("ABCD123")).toEqual(["51.14%"]);
+    expect(effective("LIM CHOON HUAT")).toEqual(["37.5%"]);
+    expect(holderText("GARDEN BUSINESS")).toContain("Source: LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL · owner-declared percentage");
+    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
+  });
+
+  it("D-088/D-089 multi-holder: accepted with issued-capital and declared-link disclosures", () => {
+    const record = opqGardenAbcFixture();
+    render({
+      ...record,
+      poc_basis_accepted: true,
+      poc_acceptance: {
+        ...acceptedGarden().poc_acceptance!,
+        overlay_scenario_id: "OPQ_GARDEN_ABC_V1", identity_registration_number: "201511222D",
+        accepted_issue_codes: ["OWNERSHIP_DENOMINATOR_REQUIRED", "OWNERSHIP_METHOD_UNSUPPORTED", "SYNTHETIC_OWNERSHIP_EVIDENCE"],
+        descriptive_current_role_count: 0, descriptive_ceased_role_count: 0,
+        descriptive_intermediate_current_role_count: 3, descriptive_intermediate_ceased_role_count: 1,
+        issued_capital_relationship_ids: ["201688888A.BPIC_201688888A_1"],
+        accepted_assumptions: ["DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES", "EQUAL_UNIT_DENOMINATOR", "ISSUED_CAPITAL_DENOMINATOR", "SIMULATED_RELATIONSHIPS", "UNCLASSIFIED_LEGAL_FORM"],
+      },
+    });
+    const banner = host.querySelector<HTMLElement>(".ownership-structure .ds-banner")!;
+    expect(banner.querySelector("strong")!.textContent).toBe(ACCEPTED);
+    expect(banner.classList.contains("ds-banner-warn")).toBe(false);
+    expect(banner.textContent).toContain("An issuer's holder percentages use its official ACRA Marketplace Mock business profile share quantities over its issued share capital. The profile returned no holder status; treating the holding as current is a declared POC assumption.");
+    expect(banner.textContent).toContain("including an owner-declared percentage. This is not a verified legal UBO determination.");
+    expect(banner.textContent).toContain("(3 current, 1 ceased)");
+    expect(host.querySelector(".ownership-structure .ds-banner-warn")).toBeNull();
+    expect(host.querySelector(".ubo-summary__warning")).toBeNull();
+    expect(host.textContent).not.toContain("Ownership calculated — verification required");
+    expect(effective("SYNTHETIC ABC HOLDER")).toEqual(["50%"]);
+    expect(effective("ABCD123")).toEqual(["25.57%"]);
+    expect(effective("LIM CHOON HUAT")).toEqual(["18.75%"]);
+    expect(holderText("SYNTHETIC ABC HOLDER")).toContain("Source: LOCAL_POC_ISSUED_CAPITAL_BASIS · LOCAL · from ACRA Mock business profile");
+    expect(holderText("ABC COMPANY PTE. LTD.")).toContain("Source: LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL · owner-declared percentage");
+    const assumed = host.querySelector(".ubo-summary__assumed")!.textContent!;
+    expect(assumed).toContain("ACRA issued-capital POC basis");
+    expect(assumed).toContain("ClassificationREVIEW_REQUIRED");
+  });
+
+  it("an OPQ case without backend acceptance keeps the review warning (D-087 QG F3)", () => {
+    for (const record of [opqGardenSimLimFixture(), opqGardenAbcFixture()]) {
+      render({ ...record, poc_basis_accepted: false, poc_acceptance: null });
+      expect(host.textContent).not.toContain(ACCEPTED);
+      expect(host.querySelector(".ownership-structure .ds-banner-warn")).not.toBeNull();
+      expect(host.querySelector(".ubo-summary__warning")!.textContent).toContain("UBO determination requires review");
+      expect(analysisStat("Analysis state")).toBe("Needs review");
+      act(() => root.unmount()); host.remove();
+    }
+    render();
   });
 
   it("never infers acceptance from the record: only the backend flag shows it", () => {

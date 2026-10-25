@@ -3209,8 +3209,8 @@ class ZeroTouchOrchestrator:
                             else "OWNERSHIP_AUTOMATED"
                         ),
                         message=(
-                            "Ownership calculated; the declared POC basis was accepted by "
-                            "D-082. Classification review is retained."
+                            "Ownership calculated; the scenario's declared POC basis was "
+                            "accepted by D-085. Classification review is retained."
                             if poc_accepted
                             else "Deterministic ownership analysis completed automatically."
                         ),
