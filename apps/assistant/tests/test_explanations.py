@@ -826,6 +826,17 @@ def test_the_service_adds_required_lines_to_a_model_answer(path: str) -> None:
     )
     assert body["answered_by"] == "model"
     assert body["answer"].splitlines() == [GARDEN_VALUES, ADDRESS_WHY, ADDRESS_CHECK, OFFERED]
+    # The model chose only OFFERED; the service reports which lines it added, by position.
+    assert body["added_lines"] == [0, 1, 2]
+
+
+def test_a_model_answer_with_nothing_added_reports_no_added_lines() -> None:
+    body = (
+        _client(FakeBackend(), FakeModel(answer=OFFERED))
+        .post(f"/assistant/cases/{CASE_ID}/chat", json={"message": "Tell me about this case."})
+        .json()
+    )
+    assert body["answer"] == OFFERED and body["added_lines"] == []
 
 
 # The prompt ---------------------------------------------------------------------------------

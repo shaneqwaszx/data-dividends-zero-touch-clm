@@ -554,10 +554,15 @@ not-offered line and every still-needed item (readiness, approving); the first d
 review sentence; up to 3 "this is for" lines (contacts). Then, among lines the RM has not
 been shown yet, lines that are not required are dropped from the end until the answer has 6
 lines, and required ones until it has 8. A line already shown while the answer streamed is
-never removed, so a streamed answer can exceed 8 lines only by lines the RM has already
-read. Only allowed lines are added, in the catalog's words, and `left_out` still counts only
-model lines that were not allowed lines. An answer with no allowed line still gets the
-case-data answer.
+never removed. The limits apply only when lines are added: an answer with nothing missing is
+returned as the model chose it (rule 16 asks the model for at most 6 lines), so it can be
+longer, but every line is still an allowed line. When lines are added, the answer is put in
+the topic's order, so an added line can appear above lines the RM has already read. Only
+allowed lines are added, in the catalog's words, and `left_out` still counts only model lines
+that were not allowed lines. The reply's `added_lines` gives the positions of the added lines
+(never their text), so the evaluation harness (#115) scores only the model's own selection;
+the metrics' `kept_lines` likewise counts the model lines kept, not the added ones. An answer
+with no allowed line still gets the case-data answer.
 
 ### Change 5 - formatting-tolerant matching
 
