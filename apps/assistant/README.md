@@ -344,13 +344,84 @@ cd apps/assistant
 ../../.venv/bin/python scripts/speed_test.py
 ```
 
+## Observability (off by default)
+
+`AI_ASSISTANT_TELEMETRY` (`off` by default) controls content-free metrics for each explicit
+question (`ai_assistant/telemetry.py`). With `log`, every `/chat` or `/chat/stream` answer,
+small talk and fallbacks included, writes one JSON line on the `ai_assistant.metrics` logger
+(standard error unless that logger is configured).
+
+A record holds only counts, sizes, timings, closed-vocabulary codes and opaque references:
+route, `answered_by`, fallback reason (`small_talk`, `model_disabled`, `model_unavailable`,
+`policy_no_allowed_line`, `stream_partial`), model name, prompt version (a hash of the prompt
+builder, rules and page terms), characters per prompt part, history turns, retrieval
+confidence with each retrieved entry's kind, version, score and an opaque reference (a hash
+of its id), allowed catalog and knowledge lines, kept and left-out lines, cited sources,
+cut short, cancelled, and timings (retrieval, first model piece, first answer text shown,
+total). It never holds the question, history, answer, an allowed line, a title, a name, a
+case or document value, a user id or the case id. Every field is checked when the record is
+built: a value that is not content-free is refused, the record is dropped and counted, and
+the refusal never quotes the value. A failing sink never changes the answer, and with
+telemetry off no record is built. Tests and the offline harness pass their own sink to
+`create_app(metrics=...)`.
+
+Limits: `cancelled` means the stream ended without its final event reaching the client,
+which covers a client that disconnected and an unexpected server error mid-stream alike.
+A request whose case cannot be loaded, or whose question preparation fails, has no record,
+and neither has a `/chat` request that ends in an unexpected server error.
+
+## Offline evaluation (no model spend)
+
+`assistant_eval/` measures which allowed lines answers select, offline and deterministically.
+It runs the real service over synthetic scenarios (`tests/fixtures/eval/scenarios.json`: 16
+single-question scenarios and 5 four-turn conversations, built from the saved Garden fixtures
+with the synthetic variants in `assistant_eval/variants.py`), with a fake CLM backend, a
+temporary knowledge base (repository guidance and the illustrative seed) and the
+code-default settings (environment and `.env` ignored for the measured app; importing
+`ai_assistant.main` still builds that module's own app from them, as it always has). The
+knowledge store's clock and retrieval's "now" (`create_app(retrieval_clock=...)`) are both
+fixed, so the frozen snapshots do not change with the date. Embeddings are off, so
+retrieval runs in its keyword-and-context mode; the snapshots say so.
+
+```
+cd apps/assistant
+../../.venv/bin/python scripts/evaluate_answers.py check        # frozen snapshots still current?
+../../.venv/bin/python scripts/evaluate_answers.py worksheet    # allowed lines per question, for labelling
+../../.venv/bin/python scripts/evaluate_answers.py run --model self-test-perfect
+```
+
+| File | What it is |
+|---|---|
+| `tests/fixtures/eval/snapshots.json` | What each of the 84 questions offers the model: allowed lines with stable ids (`C-` catalog, `K-` knowledge by entry, version and sentence, independent of its `[Gn]` tag), retrieval, part sizes and a prompt fingerprint without history. `check` reports drift after a prompt, catalog or retrieval change; drifted questions are left out of gold scores |
+| `tests/fixtures/eval/gold.json` | **Stubs only.** Gold labels (`relevant`, `primary`, `must_not`, `expect_fallback`) are written by the owner/team, never by the harness; `lock` then freezes them in `gold.lock.json` |
+
+Scores need no model as judge: fallback rate and reasons, line validity, unsafe display
+(shown lines that are not allowed lines; must be 0), cut-short rate, latency, prompt size,
+stability across repetitions and conversation-versus-single consistency, and, with gold,
+precision/recall/F1, primary hits, must-not violations, expected case-data answers and
+citations. Every report starts with its kind:
+
+- `EVALUATOR_SELF_TEST`: a fixed-rule selector (`self-test-perfect`, `-random`, `-prose`,
+  `-injection`) with synthetic self-test gold. It checks the harness and says nothing about
+  any model.
+- `MODEL_RUN_UNLABELLED`: a local model without locked owner gold; label-free measures only.
+- `MODEL_EVALUATION`: a local model against locked owner/team gold (synthetic data, LOCAL
+  evidence).
+
+`run --model local` uses the service's own adapter and is refused unless the URL is a
+literal loopback address and no proxy is configured (environment variables or the system
+proxy settings the HTTP client reads). There is no remote or paid model path. The runtime
+package never imports `assistant_eval`; `create_app(on_prepared=..., retrieval_clock=...)`
+are the in-process seams the harness uses, and neither is ever set from settings. Reports go
+to `data/eval/` (not in Git).
+
 ## Tests
 
 ```
 cd apps/assistant
 ../../.venv/bin/python -m pytest
-../../.venv/bin/python -m ruff check ai_assistant tests
-../../.venv/bin/python -m mypy ai_assistant
+../../.venv/bin/python -m ruff check ai_assistant assistant_eval tests scripts
+../../.venv/bin/python -m mypy ai_assistant assistant_eval
 ```
 
 ## Not in Phase 1

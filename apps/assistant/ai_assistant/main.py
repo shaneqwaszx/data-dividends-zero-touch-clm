@@ -21,8 +21,9 @@ import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Annotated, Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
@@ -32,13 +33,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from .answer_records import (
     ANSWER_ID,
     AnswerRecorder,
-    FallbackReason,
     allowed_lines,
     capped_dropped,
     case_snapshot,
     knowledge_used,
     new_answer_id,
 )
+from .answer_records import FallbackReason as RecordReason
 from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
@@ -47,6 +48,7 @@ from .guardrails import (
     LEFT_OUT_REASON,
     StreamingGuard,
     Validation,
+    allowed_guidance,
     validate_answer,
 )
 from .knowledge.redaction import Redactor, case_parties
@@ -65,6 +67,21 @@ from .knowledge_answers import (
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel, is_local_model_url
 from .prompts import build_messages, prefix_messages
 from .small_talk import small_talk_reply
+from .telemetry import (
+    PARTS,
+    AnsweredBy,
+    AnswerMetrics,
+    FallbackReason,
+    MetricsRecorder,
+    MetricsSink,
+    RetrievalMetrics,
+    RetrievedEntry,
+    Route,
+    describe_messages,
+    entry_ref,
+    prompt_version,
+    sink_for,
+)
 
 
 class ChatTurn(BaseModel):
@@ -167,20 +184,61 @@ class Prepared:
     messages: list[dict[str, str]]
     fallback: str
     suggestions: list[str]
-    # The question as the model got it (after the max_question_chars cut), and when work on
-    # it started (time.monotonic), for the answer record.
-    question: str = ""
-    started: float = 0.0
     tagged: list[TaggedHit] = field(default_factory=list)
     knowledge: KnowledgeUse | None = None
     # The checked knowledge text the RM may see: lines the model may select, titles and
     # follow-up questions (knowledge_answers.shown_knowledge).
     shown: ShownKnowledge = field(default_factory=ShownKnowledge)
+    # How long knowledge retrieval took (metrics only).
+    retrieval_ms: int | None = None
+    # The question as the model got it (after the max_question_chars cut), and when work on
+    # it started (time.monotonic), for the answer record.
+    question: str = ""
+    started: float = 0.0
 
     def sources(self, answer: str) -> list[KnowledgeSource]:
         return [
             KnowledgeSource(**source) for source in sources_for(self.tagged, answer, self.shown)
         ]
+
+
+@dataclass
+class _Outcome:
+    """What happened to one answer, kept only for its content-free metrics (telemetry.py)."""
+
+    answered_by: AnsweredBy = "case_data"
+    fallback_reason: FallbackReason = "none"
+    kept_lines: int = 0
+    left_out_lines: int = 0
+    cited_sources: int = 0
+    cut_short: bool = False
+    cancelled: bool = False
+    first_piece_at: float | None = None
+    first_line_at: float | None = None
+    # The check of the model's text, if it got one (the answer record keeps its left-out
+    # lines); never part of the metrics.
+    validation: Validation | None = None
+
+    def answered(self, response: "ChatResponse") -> "ChatResponse":
+        self.answered_by = response.answered_by
+        self.cited_sources = sum(1 for source in response.sources if source.cited)
+        return response
+
+    def selected(self, validation: Validation) -> None:
+        self.kept_lines = len(validation.text.splitlines())
+        self.left_out_lines = validation.left_out
+        self.validation = validation
+
+    def record_reason(self) -> RecordReason | None:
+        """Why the answer is not a full model answer, as the answer record says it."""
+
+        if self.fallback_reason in ("model_disabled", "model_unavailable"):
+            return "model_unavailable"
+        if self.fallback_reason == "policy_no_allowed_line":
+            return "nothing_allowed"
+        if self.fallback_reason == "stream_partial" or self.cut_short:
+            return "cut_short"
+        return None
 
 
 def _model_reply(
@@ -220,10 +278,23 @@ def create_app(
     clm_transport: httpx.BaseTransport | None = None,
     chat_model: ChatModel | None = None,
     knowledge: KnowledgeBase | None = None,
+    metrics: MetricsSink | None = None,
+    on_prepared: Callable[[Prepared], None] | None = None,
+    retrieval_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
+    """``metrics`` overrides the ``telemetry`` setting (tests, offline evaluation).
+
+    ``on_prepared`` and ``retrieval_clock`` are in-process seams for the offline evaluation
+    harness only, never set from settings. ``on_prepared`` sees each question's case facts,
+    prompt and allowed lines, so it must not be given anything that keeps non-synthetic
+    data. ``retrieval_clock`` fixes "now" for knowledge recency so a frozen evaluation does
+    not change with the date; left out, retrieval uses the current time as before.
+    """
+
     config = settings or AiAssistantSettings()
+    recorder = MetricsRecorder(metrics if metrics is not None else sink_for(config.telemetry))
     retriever = (
-        Retriever(knowledge, settings_from(config))
+        Retriever(knowledge, settings_from(config), clock=retrieval_clock)
         if knowledge is not None and config.knowledge_enabled
         else None
     )
@@ -277,7 +348,7 @@ def create_app(
             for turn in body.history[-config.max_history_messages :]
         ]
 
-    recorder = (
+    answers = (
         AnswerRecorder(
             knowledge.store,
             unrated_days=config.answer_record_unrated_days,
@@ -286,9 +357,9 @@ def create_app(
         if knowledge is not None and config.knowledge_enabled
         else None
     )
-    if recorder is not None:
+    if answers is not None:
         try:
-            recorder.purge()  # expired answer records go on start-up
+            answers.purge()  # expired answer records go on start-up
         except Exception:
             log.exception("answer record purge failed")
 
@@ -298,28 +369,28 @@ def create_app(
         body: ChatRequest,
         prep: Prepared,
         response: ChatResponse,
-        validation: Validation | None,
-        reason: FallbackReason | None,
+        outcome: _Outcome,
     ) -> ChatResponse:
         """Save the answer record and put its id on the reply. Only what this request
         produced is saved: the browser's history text never is, and of the earlier answer
         ids it sent only this user's records on this case are kept."""
 
-        if recorder is None:
+        if answers is None:
             return response
         profile = snapshot.actor.get("profile") or {}
         user = profile.get("user_id")
         if not user:
             return response
+        validation = outcome.validation
         try:
             limit = config.max_history_messages
-            earlier = recorder.store.owned_answers(
+            earlier = answers.store.owned_answers(
                 body.earlier_answer_ids[-limit:] if limit else [],
                 user_id=str(user),
                 case_id=str(case_id),
             )
             redact = Redactor(prep.facts, parties=case_parties(snapshot.summary)).redact
-            answer_id = recorder.save(
+            answer_id = answers.save(
                 {
                     "id": new_answer_id(),
                     "case_id": str(case_id),
@@ -355,7 +426,7 @@ def create_app(
                     "result": {
                         "answered_by": response.answered_by,
                         "notices": [response.notice] if response.notice else [],
-                        "fallback_reason": reason,
+                        "fallback_reason": outcome.record_reason(),
                         "left_out": validation.left_out if validation else 0,
                         "model": model.name if model is not None else None,
                         "elapsed_ms": round((time.monotonic() - prep.started) * 1000),
@@ -374,13 +445,16 @@ def create_app(
         use: KnowledgeUse | None = None
         profile = snapshot.actor.get("profile") or {}
         role, team = profile.get("role"), profile.get("team_id")
+        retrieval_ms: int | None = None
         if retriever is not None:
+            began = time.monotonic()
             try:
                 retrieval = retriever.retrieve(question, case_context(facts), role=role, team=team)
                 tagged = approved_knowledge(tag_hits(retrieval), role=role, team=team)
                 use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
             except Exception:  # knowledge is optional: never let it break an answer
                 log.exception("knowledge retrieval failed")
+            retrieval_ms = round((time.monotonic() - began) * 1000)
         shown = shown_knowledge(tagged, facts)
         fallback = fallback_answer(question, facts)
         summary = guidance_summary(tagged, shown)
@@ -392,7 +466,7 @@ def create_app(
         for suggestion in [*shown.follow_ups, *base[3:]]:
             if suggestion not in suggestions:
                 suggestions.append(suggestion)
-        return Prepared(
+        prepared = Prepared(
             facts=facts,
             messages=build_messages(
                 facts, history_of(body), question, knowledge=knowledge_message(tagged, shown)
@@ -402,38 +476,93 @@ def create_app(
             tagged=tagged,
             knowledge=use,
             shown=shown,
+            retrieval_ms=retrieval_ms,
             question=question,
             started=started,
         )
+        if on_prepared is not None:
+            on_prepared(prepared)
+        return prepared
 
-    def answer_with_model(
-        prep: Prepared,
-    ) -> tuple[ChatResponse, Validation | None, FallbackReason | None]:
-        """The reply, the check of the model's text (if it got one), and why the answer is not
-        a full model answer (None when it is)."""
+    def emit(route: Route, started: float, outcome: _Outcome, prep: Prepared | None) -> None:
+        """Record this answer's content-free metrics (only built when telemetry is on)."""
 
+        def build() -> AnswerMetrics:
+            def since(moment: float | None) -> int | None:
+                return None if moment is None else max(0, round((moment - started) * 1000))
+
+            parts, history = (
+                describe_messages(prep.messages) if prep else (dict.fromkeys(PARTS, 0), 0)
+            )
+            retrieval = None
+            if prep is not None and prep.knowledge is not None:
+                retrieval = RetrievalMetrics(
+                    confidence=prep.knowledge.confidence,
+                    degraded=prep.knowledge.degraded,
+                    entries=tuple(
+                        RetrievedEntry(
+                            kind=item.hit.entry.kind.value,
+                            ref=entry_ref(item.hit.entry.entry_id),
+                            version=item.hit.entry.version,
+                            score=float(item.hit.score),
+                            fallback=item.hit.fallback,
+                        )
+                        for item in prep.tagged
+                    ),
+                )
+            return AnswerMetrics(
+                request_id=uuid4().hex,
+                route=route,
+                answered_by=outcome.answered_by,
+                fallback_reason=outcome.fallback_reason,
+                model=model.name
+                if model is not None and outcome.fallback_reason != "small_talk"
+                else None,
+                prompt_version=prompt_version(),
+                part_chars=parts,
+                message_count=len(prep.messages) if prep else 0,
+                history_turns=history,
+                retrieval=retrieval,
+                allowed_catalog_lines=len(allowed_guidance(prep.facts)) if prep else 0,
+                allowed_knowledge_lines=len(prep.shown.lines) if prep else 0,
+                kept_lines=outcome.kept_lines,
+                left_out_lines=outcome.left_out_lines,
+                cited_sources=outcome.cited_sources,
+                cut_short=outcome.cut_short,
+                cancelled=outcome.cancelled,
+                timings_ms={
+                    "retrieval": prep.retrieval_ms if prep else None,
+                    "first_model_piece": since(outcome.first_piece_at),
+                    "first_displayed_line": since(outcome.first_line_at),
+                    "total": since(time.monotonic()),
+                },
+            )
+
+        recorder.record(build)
+
+    def answer_with_model(prep: Prepared, outcome: _Outcome) -> ChatResponse:
         notice = FALLBACK_NOTICE
-        reason: FallbackReason = "model_unavailable"
-        checked: Validation | None = None
-        if model is not None:
+        if model is None:
+            outcome.fallback_reason = "model_disabled"
+        else:
             try:
                 reply = model.complete(prep.messages)
                 validation = validate_answer(
                     reply.text, prep.facts, knowledge_lines=prep.shown.lines
                 )
+                outcome.selected(validation)
                 if not validation.text:
-                    notice, reason, checked = POLICY_NOTICE, "nothing_allowed", validation
+                    notice = POLICY_NOTICE
+                    outcome.fallback_reason = "policy_no_allowed_line"
                     raise LlmUnavailableError("no allowed line in the model reply")
-                return (
-                    _model_reply(
-                        validation, prep, model_name=model.name, cut_short=reply.cut_short
-                    ),
-                    validation,
-                    "cut_short" if reply.cut_short else None,
+                outcome.cut_short = reply.cut_short
+                return outcome.answered(
+                    _model_reply(validation, prep, model_name=model.name, cut_short=reply.cut_short)
                 )
             except LlmUnavailableError:
-                pass
-        return _fallback_reply(prep, notice=notice), checked, reason
+                if outcome.fallback_reason == "none":
+                    outcome.fallback_reason = "model_unavailable"
+        return outcome.answered(_fallback_reply(prep, notice=notice))
 
     warmed: dict[str, float] = {}
     warm_lock = threading.Lock()
@@ -461,7 +590,8 @@ def create_app(
 
     async def stream_answer(
         prep: Prepared,
-        finish: Callable[[ChatResponse, Validation | None, FallbackReason | None], ChatResponse],
+        started: float,
+        finish: Callable[[ChatResponse, _Outcome], ChatResponse],
     ) -> AsyncIterator[str]:
         """The answer as newline-delimited JSON: "text" updates while the model writes,
         then one "done" with the final answer (the same fields as the /chat reply).
@@ -470,51 +600,70 @@ def create_app(
         def line(event: dict[str, object]) -> str:
             return json.dumps(event, ensure_ascii=False) + "\n"
 
-        def done(
-            response: ChatResponse,
-            validation: Validation | None = None,
-            reason: FallbackReason | None = None,
-        ) -> str:
-            return line({"type": "done", **finish(response, validation, reason).model_dump()})
+        def done(response: ChatResponse) -> str:
+            # The first answer text the RM sees: a streamed line, else this final answer.
+            if outcome.first_line_at is None:
+                outcome.first_line_at = time.monotonic()
+            return line(
+                {"type": "done", **finish(outcome.answered(response), outcome).model_dump()}
+            )
 
-        notice = FALLBACK_NOTICE
-        reason: FallbackReason = "model_unavailable"
-        checked: Validation | None = None
-        if model is not None:
-            guard = StreamingGuard(prep.facts, knowledge_lines=prep.shown.lines)
-            cut_short = False
-            try:
-                async with aclosing(model.stream(prep.messages)) as source:
-                    async for piece in source:
-                        cut_short = cut_short or piece.cut_short
-                        shown = guard.feed(piece.text) if piece.text else None
-                        if shown is not None:
-                            yield line({"type": "text", "text": shown})
-                guard.finish()
-                validation = guard.validation()
-                if not validation.text:
-                    notice, reason, checked = POLICY_NOTICE, "nothing_allowed", validation
-                if validation.text:
-                    yield done(
-                        _model_reply(validation, prep, model_name=model.name, cut_short=cut_short),
-                        validation,
-                        "cut_short" if cut_short else None,
-                    )
-                    return
-            except LlmUnavailableError:
-                # Only lines completed before the failure; an unfinished line is not shown.
-                partial = guard.validation()
-                if partial.text:
-                    # Keep what the RM has already read, and say it stopped early.
-                    yield done(
-                        _model_reply(partial, prep, model_name=model.name, cut_short=True),
-                        partial,
-                        "cut_short",
-                    )
-                    return
-                if partial.left_out:
-                    checked = partial
-        yield done(_fallback_reply(prep, notice=notice), checked, reason)
+        outcome = _Outcome()
+        # Set only after the final event was taken by the client; otherwise it disconnected.
+        delivered = False
+        try:
+            notice = FALLBACK_NOTICE
+            if model is None:
+                outcome.fallback_reason = "model_disabled"
+            else:
+                guard = StreamingGuard(prep.facts, knowledge_lines=prep.shown.lines)
+                cut_short = False
+                try:
+                    async with aclosing(model.stream(prep.messages)) as source:
+                        async for piece in source:
+                            if piece.text and outcome.first_piece_at is None:
+                                outcome.first_piece_at = time.monotonic()
+                            cut_short = cut_short or piece.cut_short
+                            shown = guard.feed(piece.text) if piece.text else None
+                            if shown is not None:
+                                if outcome.first_line_at is None:
+                                    outcome.first_line_at = time.monotonic()
+                                yield line({"type": "text", "text": shown})
+                    guard.finish()
+                    validation = guard.validation()
+                    outcome.selected(validation)
+                    if not validation.text:
+                        notice = POLICY_NOTICE
+                        outcome.fallback_reason = "policy_no_allowed_line"
+                    if validation.text:
+                        outcome.cut_short = cut_short
+                        yield done(
+                            _model_reply(
+                                validation, prep, model_name=model.name, cut_short=cut_short
+                            )
+                        )
+                        delivered = True
+                        return
+                except LlmUnavailableError:
+                    # Only lines completed before the failure; an unfinished line is not shown.
+                    partial = guard.validation()
+                    outcome.selected(partial)
+                    if partial.text:
+                        # Keep what the RM has already read, and say it stopped early.
+                        outcome.fallback_reason = "stream_partial"
+                        outcome.cut_short = True
+                        yield done(
+                            _model_reply(partial, prep, model_name=model.name, cut_short=True)
+                        )
+                        delivered = True
+                        return
+                    if outcome.fallback_reason == "none":
+                        outcome.fallback_reason = "model_unavailable"
+            yield done(_fallback_reply(prep, notice=notice))
+            delivered = True
+        finally:
+            outcome.cancelled = not delivered
+            emit("stream", started, outcome, prep)
 
     if knowledge is not None and config.knowledge_enabled:
         from .knowledge_api import knowledge_router
@@ -553,11 +702,13 @@ def create_app(
 
     @app.post("/assistant/cases/{case_id}/chat", response_model=ChatResponse)
     def chat(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> ChatResponse:
+        started = time.monotonic()
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
         quick = small_talk_reply(question, facts)
         if quick is not None:
             # Greetings and thanks get an instant reply; the model is not called.
+            emit("chat", started, _Outcome(fallback_reason="small_talk"), None)
             return ChatResponse(
                 answer=quick,
                 answered_by="case_data",
@@ -567,17 +718,22 @@ def create_app(
                 small_talk=True,
             )
         prep = prepare(body, snapshot, question)
-        return record(case_id, snapshot, body, prep, *answer_with_model(prep))
+        outcome = _Outcome()
+        response = record(case_id, snapshot, body, prep, answer_with_model(prep, outcome), outcome)
+        emit("chat", started, outcome, prep)
+        return response
 
     @app.post("/assistant/cases/{case_id}/chat/stream")
     def chat_stream(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> StreamingResponse:
         """Like /chat, but the answer appears while the model is still writing it."""
 
+        started = time.monotonic()
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
         suggestions = suggested_questions(facts)
         quick = small_talk_reply(question, facts)
         if quick is not None:
+            emit("stream", started, _Outcome(fallback_reason="small_talk"), None)
             reply = ChatResponse(
                 answer=quick,
                 answered_by="case_data",
@@ -592,14 +748,10 @@ def create_app(
         else:
             prep = prepare(body, snapshot, question)
 
-            def finish(
-                response: ChatResponse,
-                validation: Validation | None,
-                reason: FallbackReason | None,
-            ) -> ChatResponse:
-                return record(case_id, snapshot, body, prep, response, validation, reason)
+            def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
+                return record(case_id, snapshot, body, prep, response, outcome)
 
-            events = stream_answer(prep, finish)
+            events = stream_answer(prep, started, finish)
         return StreamingResponse(
             events,
             media_type="application/x-ndjson",

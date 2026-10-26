@@ -1,0 +1,764 @@
+{
+ "kind": "owner",
+ "note": "STUB - NOT LABELLED. Gold labels are written by the owner/team only (decision A-6). Fill relevant/primary/must_not/expect_fallback with line ids from snapshots.json (scripts/evaluate_answers.py worksheet), set status to labelled and labelled_by, then run scripts/evaluate_answers.py lock.",
+ "schema": "assistant-eval-gold/1",
+ "snapshot_sha256": "9341411d512d3beb413d358c86c7d7b55a383c3881d1f6d71f7c1fac81bc82d0",
+ "turns": {
+  "C01#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C01#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C01#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C01#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C02#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C02#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C02#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C02#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C03#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C03#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C03#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C03#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C04#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C04#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C04#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C04#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C05#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C05#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C05#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "C05#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S01#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S01#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S01#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S01#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S02#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S02#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S02#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S02#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S03#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S03#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S03#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S03#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S04#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S04#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S04#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S04#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S05#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S05#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S05#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S05#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S06#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S06#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S06#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S06#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S07#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S07#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S07#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S07#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S08#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S08#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S08#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S08#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S09#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S09#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S09#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S09#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S10#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S10#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S10#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S10#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S11#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S11#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S11#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S11#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S12#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S12#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S12#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S12#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S13#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S13#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S13#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S13#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S14#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S14#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S14#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S14#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S15#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S15#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S15#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S15#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S16#0": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S16#1": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S16#2": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  },
+  "S16#3": {
+   "expect_fallback": null,
+   "labelled_by": null,
+   "must_not": [],
+   "notes": "",
+   "primary": [],
+   "relevant": [],
+   "status": "stub"
+  }
+ }
+}
