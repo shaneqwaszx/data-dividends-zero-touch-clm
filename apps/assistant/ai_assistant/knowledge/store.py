@@ -47,7 +47,19 @@ _ENTRY_COLUMNS = (
     "illustrative, content_hash, created_at, revises, started_from_answer"
 )
 
-_SCHEMA = """
+# The earlier answers of a chat shown with a request: each follows the retention of every
+# request that shows it, so a Director can still open it.
+_ANSWER_KEEPS = """
+CREATE TABLE IF NOT EXISTS answer_record_keeps (
+    record_id TEXT NOT NULL REFERENCES answer_records (id) ON DELETE CASCADE,
+    request_id INTEGER NOT NULL REFERENCES feedback (id),
+    PRIMARY KEY (record_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS answer_record_keeps_by_request ON answer_record_keeps (request_id);
+"""
+
+_SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS entries (
     entry_id TEXT NOT NULL,
@@ -143,20 +155,19 @@ CREATE TABLE IF NOT EXISTS answer_records (
     result TEXT NOT NULL,
     shown_answer TEXT NOT NULL,
     rated_at TEXT,
-    linked_request_id INTEGER REFERENCES feedback (id),
-    -- An earlier answer of a chat whose answer was marked "Not helpful": it follows that
-    -- request's retention so the Director can still open it.
-    kept_for_request_id INTEGER REFERENCES feedback (id)
+    linked_request_id INTEGER REFERENCES feedback (id)
 );
 CREATE INDEX IF NOT EXISTS answer_records_by_request ON answer_records (linked_request_id);
-CREATE INDEX IF NOT EXISTS answer_records_kept_for ON answer_records (kept_for_request_id);
-CREATE TABLE IF NOT EXISTS answer_record_views (
+"""
+    + _ANSWER_KEEPS
+    + """CREATE TABLE IF NOT EXISTS answer_record_views (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     record_id TEXT NOT NULL REFERENCES answer_records (id) ON DELETE CASCADE,
     viewer TEXT NOT NULL,
     viewed_at TEXT NOT NULL
 );
 """
+)
 
 # The JSON columns of an answer record.
 _ANSWER_JSON = (
@@ -974,10 +985,21 @@ class KnowledgeStore:
         earlier = earlier_shown(json.loads(row[0])) if row is not None else []
         for earlier_id in earlier:
             db.execute(
-                "UPDATE answer_records SET kept_for_request_id = ? WHERE id = ? AND user_id = ? "
-                "AND case_id = ? AND kept_for_request_id IS NULL",
+                "INSERT OR IGNORE INTO answer_record_keeps (record_id, request_id) "
+                "SELECT id, ? FROM answer_records WHERE id = ? AND user_id = ? AND case_id = ?",
                 (feedback_id, earlier_id, user_id, case_id),
             )
+
+    def kept_for(self, answer_id: str) -> list[int]:
+        """The requests an earlier answer is kept for, in order."""
+
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT request_id FROM answer_record_keeps WHERE record_id = ? "
+                "ORDER BY request_id",
+                (answer_id,),
+            ).fetchall()
+        return [int(row[0]) for row in rows]
 
     def feedback(
         self, *, status: str | None = None, helpful: bool | None = None
@@ -1148,20 +1170,22 @@ class KnowledgeStore:
         answer kept for it) once every such request was resolved or closed more than
         ``closed_days`` ago. Their logged views go with them."""
 
+        keeps = "SELECT 1 FROM answer_record_keeps k WHERE k.record_id = answer_records.id"
         unlinked = db.execute(
             "DELETE FROM answer_records WHERE linked_request_id IS NULL "
-            "AND kept_for_request_id IS NULL AND created_at < ?",
+            f"AND NOT EXISTS ({keeps}) AND created_at < ?",
             (_days_before(now, unrated_days),),
         ).rowcount
         done = (
             "(SELECT id FROM feedback WHERE status IN ('resolved', 'closed') "
             "AND closed_at IS NOT NULL AND closed_at < :cutoff)"
         )
+        # Tied to at least one request, and every request it is tied to is done.
         linked = db.execute(
             "DELETE FROM answer_records WHERE "
-            "(linked_request_id IS NOT NULL OR kept_for_request_id IS NOT NULL) "
+            f"(linked_request_id IS NOT NULL OR EXISTS ({keeps})) "
             f"AND (linked_request_id IS NULL OR linked_request_id IN {done}) "
-            f"AND (kept_for_request_id IS NULL OR kept_for_request_id IN {done})",
+            f"AND NOT EXISTS ({keeps} AND k.request_id NOT IN {done})",
             {"cutoff": _days_before(now, closed_days)},
         ).rowcount
         return int(unlinked) + int(linked)
@@ -1217,9 +1241,11 @@ class KnowledgeStore:
     @staticmethod
     def _repair_5(db: sqlite3.Connection) -> None:
         """Earlier builds of this branch (never on main) stamped 5 on answer_records tables
-        without ``shown_answer`` (so every new record failed to insert) or without
-        ``kept_for_request_id``. Add what is missing: records made before have an empty shown
-        answer (stored as JSON like the others) and are kept for no request."""
+        without ``shown_answer`` (so every new record failed to insert), and one kept an
+        earlier answer for a single request in a ``kept_for_request_id`` column. Add the
+        column (records made before have an empty shown answer, stored as JSON like the
+        others) and move those links into ``answer_record_keeps``; the old column, if any, is
+        left in place and no longer read."""
 
         columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
         if not columns:
@@ -1228,10 +1254,12 @@ class KnowledgeStore:
             db.execute(
                 "ALTER TABLE answer_records ADD COLUMN shown_answer TEXT NOT NULL DEFAULT '\"\"'"
             )
-        if "kept_for_request_id" not in columns:
+        db.executescript(_ANSWER_KEEPS)
+        if "kept_for_request_id" in columns:
             db.execute(
-                "ALTER TABLE answer_records ADD COLUMN kept_for_request_id INTEGER "
-                "REFERENCES feedback (id)"
+                "INSERT OR IGNORE INTO answer_record_keeps (record_id, request_id) "
+                "SELECT id, kept_for_request_id FROM answer_records "
+                "WHERE kept_for_request_id IS NOT NULL"
             )
         db.commit()
 

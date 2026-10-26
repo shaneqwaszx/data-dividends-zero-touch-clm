@@ -214,7 +214,7 @@ refuses the fix, until every placeholder is rewritten in general terms; nothing 
 until Save, and the other save rules are unchanged. A version saved from it records `started_from_answer`, shown in its review
 history and on its review card. Records tied to no request are deleted after `AI_ASSISTANT_ANSWER_RECORD_UNRATED_DAYS`
 (7). A record linked to a request, and the up to 2 earlier answers kept with it
-(`kept_for_request_id`, same user and case), are deleted
+(`answer_record_keeps`, same user and case; one row per request that shows it), are deleted
 `AI_ASSISTANT_ANSWER_RECORD_CLOSED_DAYS` (30) after the request was resolved or closed (a
 record tied to two requests waits for both): on start-up and at most hourly with a new
 record.

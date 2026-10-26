@@ -31,17 +31,33 @@ interface FixDraft {
   startLines: string[];
   /** The title it was started with (from the blocker type), for a past case or new guidance. */
   startTitle: string;
+  /** The title and text the form last filled in itself: only those are replaced on a change
+   * of "Fix as" or of the guidance, never what the Director wrote. */
+  autoTitle: string;
+  autoBody: string;
 }
 
-const EMPTY_FIX: FixDraft = { kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "", startLines: [], startTitle: "" };
+const EMPTY_FIX: FixDraft = {
+  kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "", startLines: [], startTitle: "", autoTitle: "", autoBody: "",
+};
+
+/** The title and text to fill in, unless the Director already changed what was filled in. */
+function refill(draft: FixDraft, title: string, body: string): Partial<FixDraft> {
+  return {
+    ...(draft.title === draft.autoTitle ? { title, autoTitle: title } : {}),
+    ...(draft.body === draft.autoBody ? { body, autoBody: body } : {}),
+  };
+}
 
 // A redaction placeholder ([ADDRESS], [COMPANY] or any [UPPERCASE] token the Redactor makes;
 // knowledge tags like [G1] have digits). The service refuses a fix that keeps one.
 const PLACEHOLDER = /\[[A-Z][A-Z_]*\]/g;
 
-/** The placeholders still in a fix, in order, each once. */
+/** The placeholders still in a fix, in order, each once (follow-ups only for a past case,
+ * the only kind that has them). */
 function placeholdersIn(draft: FixDraft): string[] {
-  return [...new Set([draft.title, draft.body, draft.followUps].flatMap((text) => text.match(PLACEHOLDER) ?? []))];
+  const texts = draft.kind === "resolution" ? [draft.title, draft.body, draft.followUps] : [draft.title, draft.body];
+  return [...new Set(texts.flatMap((text) => text.match(PLACEHOLDER) ?? []))];
 }
 
 /** The body a fix starts with: a guidance change starts from its current approved text. */
@@ -191,7 +207,18 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
         setFixes((all) =>
           all[id]
             ? all
-            : { ...all, [id]: { ...EMPTY_FIX, title: start.title, body: startingBody(start.lines), startLines: start.lines, startTitle: start.title } },
+            : {
+                ...all,
+                [id]: {
+                  ...EMPTY_FIX,
+                  title: start.title,
+                  body: startingBody(start.lines),
+                  startLines: start.lines,
+                  startTitle: start.title,
+                  autoTitle: start.title,
+                  autoBody: startingBody(start.lines),
+                },
+              },
         );
       })
       .catch(() => undefined); // the form simply starts empty
@@ -354,7 +381,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                 changeFix(gap.id, {
                   kind: event.target.value as FixDraft["kind"],
                   changes: "",
-                  ...(fix.startLines.length ? { title: fix.startTitle, body: startingBody(fix.startLines) } : {}),
+                  ...(fix.startLines.length ? refill(fix, fix.startTitle, startingBody(fix.startLines)) : {}),
                 })
               }
             >
@@ -375,9 +402,9 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                   changeFix(gap.id, {
                     changes: event.target.value,
                     ...(current
-                      ? { title: current.title, body: startingBody(fix.startLines, current) }
+                      ? refill(fix, current.title, startingBody(fix.startLines, current))
                       : fix.startLines.length
-                        ? { title: fix.startTitle, body: startingBody(fix.startLines) }
+                        ? refill(fix, fix.startTitle, startingBody(fix.startLines))
                         : {}),
                   });
                 }}

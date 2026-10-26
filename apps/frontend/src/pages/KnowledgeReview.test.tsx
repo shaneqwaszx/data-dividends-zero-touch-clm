@@ -823,6 +823,54 @@ describe("A fix started from the AI's answer", () => {
     expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
   });
 
+  it("keeps what the Director rewrote when the kind or the guidance changes", async () => {
+    prefillBackend([]);
+    const view = await openWithStart();
+    const title = () => fixArea(view).querySelector<HTMLInputElement>("fieldset input");
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    choose(fixArea(view).querySelector("fieldset select"), "guidance");
+    choose(fixArea(view).querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
+    // The rewritten text stays; the untouched title follows the chosen guidance.
+    expect(bodyOf(view).value).toBe("Ask the client for the tenancy agreement for the new address.");
+    expect(title()?.value).toBe("Registered address differs from ACRA");
+    type(title(), "Moved office proof");
+    choose(fixArea(view).querySelector("fieldset select"), "resolution");
+    expect(title()?.value).toBe("Moved office proof");
+  });
+
+  it("does not block a guidance change over follow-ups it does not show", async () => {
+    prefillBackend([]);
+    const view = await openWithStart();
+    const inputs = () => fixArea(view).querySelectorAll("fieldset input, fieldset textarea");
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    type(inputs()[2], "Is [UEN] right?"); // follow-ups, a past case's field
+    expect(button(fixArea(view), "Save the fix for review").disabled).toBe(true);
+    choose(fixArea(view).querySelector("fieldset select"), "guidance");
+    type(fixArea(view).querySelectorAll("fieldset input")[1], "docs/decisions/DECISION_LOG.md#D-030");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")).toBeNull();
+    expect(button(fixArea(view), "Save the fix for review").disabled).toBe(false);
+  });
+
+  it("does not overwrite what the Director typed before the start arrived", async () => {
+    let arrive: (value: Response) => void = () => undefined;
+    const rest = (() => {
+      prefillBackend([]);
+      return globalThis.fetch;
+    })();
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/fix-start") ? new Promise<Response>((resolve) => { arrive = resolve; }) : rest(input, init),
+    ));
+    const view = await openWithStart();
+    type(fixArea(view).querySelector("fieldset input"), "My own title");
+    await act(async () => {
+      arrive(json(START));
+    });
+    await flush();
+    expect(fixArea(view).querySelector<HTMLInputElement>("fieldset input")?.value).toBe("My own title");
+    expect(bodyOf(view).value).toBe("");
+    expect(fixArea(view).querySelector('[role="note"]')).toBeNull();
+  });
+
   it("gives a request without an answer record an empty form and asks for no start", async () => {
     const fetched = prefillBackend([], { ...GAP, answer_id: null });
     const view = await openWithStart();

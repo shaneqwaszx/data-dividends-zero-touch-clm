@@ -268,3 +268,69 @@ def test_every_earlier_store_gains_the_origin_column(tmp_path: Path, version: st
         columns = {row[1] for row in db.execute("PRAGMA table_info(entries)")}
         stamped = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
     assert "started_from_answer" in columns and stamped == str(SCHEMA_VERSION)
+
+
+# --- gate R1 ------------------------------------------------------------------------------
+
+
+def test_a_reviewer_edit_may_not_add_a_placeholder(kb: KnowledgeBase) -> None:  # noqa: F811
+    request_id = request_with_dropped_lines(kb)
+    entry = save(kb, request_id, body="Ask for the lease first.", started_from_answer=True).json()
+    refused = review.edit(
+        kb, "director-2-session", entry["entry_id"], entry["version"], body="Ask [ADDRESS] first."
+    )
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == {
+        "code": "PLACEHOLDER_NOT_REWRITTEN",
+        "message": "Rewrite [ADDRESS] in general terms before saving.",
+    }
+    assert [v.version for v in kb.store.versions(entry["entry_id"])] == [entry["version"]]
+
+
+def test_an_edit_of_any_other_entry_may_still_add_one_as_on_main(kb: KnowledgeBase) -> None:  # noqa: F811
+    request_id = request_with_dropped_lines(kb)
+    entry = save(kb, request_id, body="Ask for the lease first.").json()
+    edited = review.edit(
+        kb,
+        "director-2-session",
+        entry["entry_id"],
+        entry["version"],
+        follow_ups=["What about the ownership step for UEN [UEN]?"],
+    )
+    assert edited.status_code == 200, edited.text
+
+
+def test_a_reviewer_edit_may_keep_a_placeholder_redaction_made(kb: KnowledgeBase) -> None:  # noqa: F811
+    # Redaction on save turned the client's name into [COMPANY]; a reviewer may edit other
+    # wording around it (whether to publish it stays the reviewer's judgement).
+    request_id = request_with_dropped_lines(kb)
+    entry = save(kb, request_id, body="Ask GARDEN BUSINESS for the lease.").json()
+    assert entry["body"] == "Ask [COMPANY] for the lease."
+    edited = review.edit(
+        kb,
+        "director-2-session",
+        entry["entry_id"],
+        entry["version"],
+        body="Ask [COMPANY] for the signed lease.",
+    )
+    assert edited.status_code == 200, edited.text
+
+
+def test_no_view_is_logged_when_the_case_cannot_be_loaded(
+    kb: KnowledgeBase,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_id = request_with_dropped_lines(kb)
+    answer_id = entry_answer(kb, request_id)
+    original = review.handler
+
+    def no_case(request: Any) -> Any:
+        if request.url.path.startswith("/api/clm/zero-touch/cases/"):
+            import httpx
+
+            return httpx.Response(403, json={"detail": "forbidden"})
+        return original(request)
+
+    monkeypatch.setattr(review, "handler", no_case)
+    assert fix_start(kb, request_id).status_code >= 400
+    assert kb.store.answer_views(answer_id) == []

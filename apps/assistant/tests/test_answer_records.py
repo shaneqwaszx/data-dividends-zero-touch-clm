@@ -486,10 +486,8 @@ def test_a_request_keeps_the_last_two_earlier_answers_and_shows_only_those(
     first, second, third = (ask(kb)["answer_id"] for _ in range(3))
     answer_id = ask(kb, earlier_answer_ids=[first, second, third])["answer_id"]
     request_id = int(rate(kb, answer_id).json()["feedback_id"])
-    kept = {
-        earlier: record(kb, earlier)["kept_for_request_id"] for earlier in (first, second, third)
-    }
-    assert kept == {first: None, second: request_id, third: request_id}
+    kept = {earlier: kb.store.kept_for(earlier) for earlier in (first, second, third)}
+    assert kept == {first: [], second: [request_id], third: [request_id]}
     # Kept earlier answers are not rated by it: the RM can still rate them.
     assert record(kb, second)["rated_at"] is None
     director = app_client(kb, "director-session")
@@ -516,7 +514,7 @@ def test_only_the_same_users_earlier_answers_on_the_same_case_are_kept(
             (json.dumps([other]), answer_id),
         )
     rate(kb, answer_id)
-    assert record(kb, other)["kept_for_request_id"] is None
+    assert kb.store.kept_for(other) == []
 
 
 def test_the_queue_shows_each_requests_question(kb: KnowledgeBase) -> None:  # noqa: F811
@@ -613,6 +611,38 @@ def test_an_answer_tied_to_two_requests_stays_until_both_are_done(
     assert record(kb, earlier)["linked_request_id"] == own_request
 
 
+def test_an_earlier_answer_shown_by_two_requests_stays_until_both_are_done(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    # Gate R1-F1: A1 is shown with R1, and again with a later R2 of the same chat.
+    old = "2000-01-01T00:00:00+00:00"
+    earlier = ask(kb)["answer_id"]
+    first = ask(kb, earlier_answer_ids=[earlier])["answer_id"]
+    second = ask(kb, earlier_answer_ids=[earlier, first])["answer_id"]
+    one = int(rate(kb, first).json()["feedback_id"])
+    two = int(rate(kb, second).json()["feedback_id"])
+    assert kb.store.kept_for(earlier) == [one, two]
+    for answer_id in (earlier, first, second):
+        age(kb, answer_id, old)
+    kb.store.close_feedback(one, by="director-dan", reason="Duplicate.")
+    with sqlite3.connect(kb.store._path) as db:
+        db.execute("UPDATE feedback SET closed_at = ? WHERE id = ?", (old, one))
+    kb.store.purge_answer_records(unrated_days=7, closed_days=30)
+    # R1 is long done, R2 is open: the earlier answer stays and R2's Director can open it.
+    assert kb.store.answer_record(earlier) is not None
+    assert kb.store.answer_record(first) is not None  # shown with R2 as an earlier answer too
+    director = app_client(kb, "director-session")
+    opened = director.get(f"/assistant/knowledge/feedback/{two}/answers/{earlier}")
+    assert opened.status_code == 200
+    kb.store.close_feedback(two, by="director-dan", reason="Duplicate.")
+    with sqlite3.connect(kb.store._path) as db:
+        db.execute("UPDATE feedback SET closed_at = ? WHERE id = ?", (old, two))
+    kb.store.purge_answer_records(unrated_days=7, closed_days=30)
+    assert [kb.store.answer_record(a) for a in (earlier, first, second)] == [None, None, None]
+    with sqlite3.connect(kb.store._path) as db:
+        assert db.execute("SELECT COUNT(*) FROM answer_record_keeps").fetchone()[0] == 0
+
+
 def test_expired_records_go_on_start_up_and_at_most_hourly(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
@@ -650,7 +680,7 @@ def test_every_earlier_store_gains_answer_records(tmp_path: Path, version: str) 
             str(SCHEMA_VERSION)
         )
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
-    assert {"answer_records", "answer_record_views"} <= tables
+    assert {"answer_records", "answer_record_views", "answer_record_keeps"} <= tables
     store.add_answer_record(blank("E" * 22))
     assert store.owned_answers(["E" * 22], user_id="maya-lim", case_id=CASE_ID) == ["E" * 22]
     KnowledgeStore(path)  # opening again changes nothing
@@ -659,7 +689,7 @@ def test_every_earlier_store_gains_answer_records(tmp_path: Path, version: str) 
 
 # answer_records as an earlier build of this branch made it: stamped 5, no shown_answer.
 EARLY_V5_ANSWER_RECORDS = """
-DROP TABLE answer_record_views; DROP TABLE answer_records;
+DROP TABLE answer_record_keeps; DROP TABLE answer_record_views; DROP TABLE answer_records;
 CREATE TABLE answer_records (
     id TEXT PRIMARY KEY, case_id TEXT NOT NULL, user_id TEXT NOT NULL, team TEXT,
     created_at TEXT NOT NULL, question TEXT NOT NULL, earlier_answer_ids TEXT NOT NULL,
@@ -678,7 +708,7 @@ INSERT INTO answer_records VALUES ('GGGGGGGGGGGGGGGGGGGGGG', 'c', 'maya-lim', NU
 """
 
 
-@pytest.mark.parametrize("shape", ["without-shown-answer", "without-kept-for"])
+@pytest.mark.parametrize("shape", ["without-shown-answer", "with-kept-for-column"])
 def test_a_branch_only_v5_store_without_shown_answer_records_again(
     tmp_path: Path, shape: str
 ) -> None:
@@ -690,20 +720,27 @@ def test_a_branch_only_v5_store_without_shown_answer_records_again(
     KnowledgeStore(path)
     with sqlite3.connect(path) as db:
         db.executescript(EARLY_V5_ANSWER_RECORDS)
-        if shape == "without-kept-for":
-            # As 07d1e82 made it: shown_answer, but no kept_for_request_id yet.
-            db.execute(
-                "ALTER TABLE answer_records ADD COLUMN shown_answer TEXT NOT NULL DEFAULT '\"\"'"
+        if shape == "with-kept-for-column":
+            # As 41c7e91 made it: shown_answer, and one kept_for_request_id column (no table).
+            db.executescript(
+                "ALTER TABLE answer_records ADD COLUMN shown_answer TEXT NOT NULL DEFAULT '\"\"';"
+                "ALTER TABLE answer_records ADD COLUMN kept_for_request_id INTEGER;"
+                "INSERT INTO feedback (case_id, user_id, role, team, helpful, note, blocker_codes,"
+                " fields, stages, entry_id, status, created_at) VALUES ('c', 'maya-lim', NULL,"
+                " NULL, 0, 'n', '[]', '[]', '[]', NULL, 'open', '2026-10-25T05:30:00+00:00');"
+                "UPDATE answer_records SET kept_for_request_id = last_insert_rowid();"
             )
         assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
     knowledge = _kb(tmp_path)  # opening the store repairs it
     store = knowledge.store
     with sqlite3.connect(path) as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
-    assert {"shown_answer", "kept_for_request_id"} <= columns
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
+    assert "shown_answer" in columns and "answer_record_keeps" in tables
     old = store.answer_record("G" * 22)
     assert old is not None and old["shown_answer"] == "" and old["question"] == "q"
-    assert old["kept_for_request_id"] is None
+    # A link the single column held moves into the table.
+    assert store.kept_for("G" * 22) == ([1] if shape == "with-kept-for-column" else [])
     store.add_answer_record({**blank("H" * 22), "shown_answer": "Shown."})
     assert record_of(store, "H" * 22)["shown_answer"] == "Shown."
     KnowledgeStore(path)  # opening again changes nothing

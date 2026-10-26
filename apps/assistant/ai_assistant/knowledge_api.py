@@ -243,6 +243,16 @@ def placeholders_left(*texts: str) -> list[str]:
     return list(dict.fromkeys(m.group(0) for text in texts for m in PLACEHOLDER.finditer(text)))
 
 
+def placeholder_refused(left: list[str]) -> HTTPException:
+    return HTTPException(
+        422,
+        detail={
+            "code": "PLACEHOLDER_NOT_REWRITTEN",
+            "message": f"Rewrite {', '.join(left)} in general terms before saving.",
+        },
+    )
+
+
 REQUEST_CHANGED_MESSAGE = "This request was already handled. Refresh and try again."
 ANSWER_NOT_FOUND_MESSAGE = "No such answer."
 
@@ -556,10 +566,16 @@ def knowledge_router(
         logged view; a request without one is "not found" (the form starts empty). No model
         is called and nothing is saved: the fix is saved, and checked, only on Save."""
 
-        record = request_record(feedback_id, None, profile, request)
+        reach = request_in_scope(feedback_id)
+        require(profile, APPROVE)
+        reach(profile)
         row = next(row for row in team_feedback(profile, helpful=False) if row["id"] == feedback_id)
+        if row["answer_id"] is None:
+            raise answer_not_found()
+        # The case first: if this Director cannot load it, nothing is read or logged.
         snapshot = load_case(UUID(row["case_id"]), request)
         redact = Redactor(build_case_facts(snapshot), parties=case_parties(snapshot.summary)).redact
+        record = request_record(feedback_id, None, profile, request)
         return {
             "title": fix_title(row["blocker_codes"]),
             "lines": fix_start_lines(record, redact),
@@ -659,6 +675,21 @@ def knowledge_router(
 
         require(profile, APPROVE)
         reach(profile)
+        # A fix started from the AI's answer may not gain a placeholder in an edit either
+        # (one left by redaction on save stays the reviewer's to judge). Other entries keep
+        # main's behaviour, where a reviewer may add one (e.g. a follow-up about "[UEN]").
+        shown = kb.store.get(entry_id, version)
+        if shown is not None and shown.started_from_answer:
+            had = set(placeholders_left(shown.title, shown.body, *shown.follow_ups))
+            added = [
+                token
+                for token in placeholders_left(
+                    body.title or "", body.body or "", *(body.follow_ups or ())
+                )
+                if token not in had
+            ]
+            if added:
+                raise placeholder_refused(added)
         changes: dict[str, Any] = {}
         for name in ("title", "body", "replaces"):
             value = getattr(body, name)
@@ -775,13 +806,7 @@ def knowledge_router(
         # this client's details and would read as a rule about "[ADDRESS]".
         left = placeholders_left(body.title, body.body, *body.follow_ups)
         if left:
-            raise HTTPException(
-                422,
-                detail={
-                    "code": "PLACEHOLDER_NOT_REWRITTEN",
-                    "message": f"Rewrite {', '.join(left)} in general terms before saving.",
-                },
-            )
+            raise placeholder_refused(left)
         author = user_id(profile)
         # The fix is written from a client's case: redact it against that case's values and
         # parties (loaded with this Director's own session; a case they cannot load stops the

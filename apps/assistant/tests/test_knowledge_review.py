@@ -781,7 +781,9 @@ def test_directors_can_retire_with_two_people_and_see_stats(kb: KnowledgeBase) -
 
 
 # Seeding uses the current store; an older shape has none of the schema v5 tables.
-DROP_V5_TABLES = "DROP TABLE answer_record_views; DROP TABLE answer_records;"
+DROP_V5_TABLES = (
+    "DROP TABLE answer_record_keeps; DROP TABLE answer_record_views; DROP TABLE answer_records;"
+)
 
 
 def test_a_store_from_before_this_change_is_migrated(tmp_path: Path) -> None:

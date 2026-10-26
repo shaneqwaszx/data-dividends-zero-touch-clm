@@ -781,6 +781,14 @@ size-capped. Request states: New → In
 progress (one owner) → Fix waiting → Resolved, or Closed with a required reason; a rejected
 fix returns the request to In progress; one fix can resolve several requests.
 
+As built ahead of acceptance (store schema v5, see ADR-012 Amendment 1): the queue lists
+each request with the RM's question, which is not a logged view (opening the record is);
+up to 2 earlier answers are kept per request in `answer_record_keeps`; a Director's fix can
+start from the record (`fix-start`: the AI's left-out lines, redacted, no model call,
+nothing saved) and the saved version records `started_from_answer`; a fix that keeps a
+redaction placeholder is refused (422 `PLACEHOLDER_NOT_REWRITTEN`). Each is part of what
+Shane accepts or rejects with D-084.
+
 Authority: `PROJECT_DEFINED_PROVISIONAL`. Review authority stays UNKNOWN_BLOCKED (Q-014). Not
 sponsor review policy; no CLM backend write, provider status or Live claim follows.
 
