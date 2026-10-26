@@ -284,6 +284,23 @@ class LedgerStatus:
         return self.cap - self.committed
 
 
+@dataclass(frozen=True)
+class ClosedCall:
+    """One closed call, content-free (Phase B verification and evaluation reports)."""
+
+    call_id: int
+    state: str
+    reserved_micro_usd: int
+    charged_micro_usd: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    reasoning_tokens: int | None
+    generation_ref: str | None
+    verification: str
+    error_class: str | None
+    anomaly_bits: int
+
+
 def _hex32() -> str:
     return secrets.token_hex(16)
 
@@ -724,6 +741,53 @@ class BudgetLedger:
 
         result: CallBudget = self._transaction(close)
         return result
+
+    # -- Phase B serving-provider verification (D-092, proposed) --
+
+    def closed_calls_after(self, call_id: int) -> list[ClosedCall]:
+        """Closed calls with an id above ``call_id``, oldest first."""
+
+        def read(connection: sqlite3.Connection) -> list[ClosedCall]:
+            rows = connection.execute(
+                "SELECT id, state, reserved_micro_usd, charged_micro_usd, prompt_tokens,"
+                " completion_tokens, reasoning_tokens, generation_ref, verification,"
+                " error_class, anomaly_bits FROM calls WHERE id > ? AND state != 'open'"
+                " ORDER BY id",
+                (call_id,),
+            ).fetchall()
+            return [ClosedCall(*row) for row in rows]
+
+        result: list[ClosedCall] = self._transaction(read)
+        return result
+
+    def last_call_id(self) -> int:
+        def read(connection: sqlite3.Connection) -> int:
+            value = connection.execute("SELECT COALESCE(MAX(id), 0) FROM calls").fetchone()[0]
+            return int(value)
+
+        result: int = self._transaction(read)
+        return result
+
+    def record_verification(self, call_id: int, *, verified: bool, breaker_code: str) -> None:
+        """Move one closed, unverified call to ``verified`` or ``quarantined``. Quarantine
+        opens the breaker with ``breaker_code`` (an existing code, so the schema is unchanged).
+        A call is verified at most once; anything else is refused."""
+
+        if breaker_code not in ("routing_anomaly", "reconcile_drift"):
+            raise LedgerError("INVALID_INPUT", "unknown verification breaker code")
+
+        def mark(connection: sqlite3.Connection) -> None:
+            row = connection.execute(
+                "SELECT state, verification FROM calls WHERE id = ?", (call_id,)
+            ).fetchone()
+            if row is None or row[0] == "open" or row[1] != "unverified":
+                raise LedgerError("INVALID_INPUT", "the call cannot be verified")
+            state = "verified" if verified else "quarantined"
+            connection.execute("UPDATE calls SET verification = ? WHERE id = ?", (state, call_id))
+            if not verified:
+                self._open_breaker(connection, breaker_code)
+
+        self._transaction(mark)
 
     # -- operator actions (scripts/budget_ledger.py) --
 

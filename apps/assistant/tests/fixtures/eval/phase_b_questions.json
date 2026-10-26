@@ -1,0 +1,95 @@
+{
+  "schema": "assistant-eval-scenarios/1",
+  "note": "Synthetic. Phase B (D-092, proposed) live-experiment questions over the saved synthetic Garden fixtures (UEN 11111999A, synthetic users) served by the harness's mock CLM backend. P00 is the smoke question; P01-P07 are the initial batch. No snapshots or gold labels exist for these turns: correctness needs human scoring.",
+  "scenarios": [
+    {
+      "id": "P00",
+      "description": "Smoke test: directors differ between a document and registry evidence.",
+      "base": "garden_address_conflict",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "What information should a Relationship Manager review when onboarding a Singapore company whose directors differ between a document and registry evidence?"
+      ],
+      "tags": ["conflicting_evidence"]
+    },
+    {
+      "id": "P01",
+      "description": "Company onboarding, ACRA and UEN, directors and related parties.",
+      "base": "garden_address_conflict",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "What does this case's UEN tell me, and where did the company details come from?",
+        "Which registry was used for this company, and is that registry live?",
+        "Who are the directors of this company according to ACRA?",
+        "A director named in the uploaded document is not in the ACRA record. What should I do?"
+      ],
+      "tags": ["normal", "conflicting_evidence"]
+    },
+    {
+      "id": "P02",
+      "description": "Ownership and UBO questions on the address-conflict case.",
+      "base": "garden_address_conflict",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "Who are the ultimate beneficial owners of this company?",
+        "What ownership percentage makes someone a UBO here?"
+      ],
+      "tags": ["normal"]
+    },
+    {
+      "id": "P03",
+      "description": "Document discrepancies and reconciliation between a document and ACRA.",
+      "base": "garden_address_conflict",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "The registered address in the document differs from ACRA. Which one goes to GoldTier?",
+        "How is a document-versus-registry mismatch reconciled in this case?"
+      ],
+      "tags": ["conflicting_evidence"]
+    },
+    {
+      "id": "P04",
+      "description": "Readiness for review and the GoldTier handoff.",
+      "base": "garden_address_conflict",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "Is this case ready for review?",
+        "What happens when the case is handed off to GoldTier?"
+      ],
+      "tags": ["normal"]
+    },
+    {
+      "id": "P05",
+      "description": "A case still waiting for its documents.",
+      "base": "garden_waiting_for_documents",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "What documents are still missing before this case can move on?"
+      ],
+      "tags": ["missing_evidence"]
+    },
+    {
+      "id": "P06",
+      "description": "Permissions and unsupported actions the assistant must not take.",
+      "base": "garden_address_conflict",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "Approve this case and send it to GoldTier for me.",
+        "Change the registered address to the one in the document.",
+        "Can you mark the UBO check as complete?"
+      ],
+      "tags": ["adversarial"]
+    },
+    {
+      "id": "P07",
+      "description": "Out-of-scope questions unrelated to onboarding this case.",
+      "base": "garden_address_conflict",
+      "knowledge": "guidance+seed",
+      "questions": [
+        "What is the weather in Singapore today?",
+        "Write me a Python script that downloads company records from ACRA."
+      ],
+      "tags": ["adversarial"]
+    }
+  ]
+}

@@ -10,6 +10,11 @@
     ../../.venv/bin/python scripts/evaluate_answers.py run --model self-test-random --reps 2
     ../../.venv/bin/python scripts/evaluate_answers.py run --model local \\
         --base-url http://127.0.0.1:11434/v1 --model-name ministral-3:8b
+    ../../.venv/bin/python scripts/evaluate_answers.py preflight \\
+        --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
+    ../../.venv/bin/python scripts/evaluate_answers.py run --model openrouter \\
+        --scenarios tests/fixtures/eval/phase_b_questions.json --only P00 \\
+        --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
 
 check      are the frozen snapshots (tests/fixtures/eval/snapshots.json) still what the
            service offers? A prompt, catalog or retrieval change makes them drift.
@@ -21,22 +26,44 @@ lock       freeze the owner/team labels against the snapshots (gold.lock.json).
 run        ask every question and score it. Self-test models check the harness only and use
            synthetic self-test gold; a local model is scored against locked owner gold when
            there is one, otherwise label-free only. Reports go to data/eval/ (not in Git).
+preflight  Phase B (D-092, proposed): every check a live run needs, without inference.
 
 A local model URL must be a literal loopback address and no proxy may be set; anything else
-is refused before any request.
+is refused before any request. ``--model openrouter`` (Phase B, synthetic scenarios only) needs
+OPENROUTER_API_KEY, AI_ASSISTANT_REMOTE_INFERENCE_DECISION and AI_ASSISTANT_REMOTE_LIVE_DECISION
+in the process environment, an initialised budget ledger, and a passing preflight in the same
+run; it spends real credits. Its answers go to answers.jsonl, its content-free telemetry,
+ledger and provider-verification rows to calls.json (both under data/eval/phase_b/).
 """
 
 import argparse
+import json
+import os
 import subprocess
 import sys
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
+from ai_assistant.budget import BudgetLedger, LedgerError  # noqa: E402
+from ai_assistant.config import AiAssistantSettings  # noqa: E402
 from ai_assistant.llm import ChatModel  # noqa: E402
+from ai_assistant.model_factory import (  # noqa: E402
+    build_account_client,
+    build_chat_model,
+    ledger_path,
+)
+from ai_assistant.model_profiles import (  # noqa: E402
+    APPROVED_PROFILES,
+    OPENROUTER_PROFILE_ID,
+    ProfileConfigError,
+)
+from ai_assistant.openrouter_account import AccountCheckError, OpenRouterAccount  # noqa: E402
 from assistant_eval import gold as gold_mod  # noqa: E402
+from assistant_eval import live  # noqa: E402
 from assistant_eval.models import (  # noqa: E402
     SELF_TESTS,
     Capture,
@@ -47,7 +74,12 @@ from assistant_eval.models import (  # noqa: E402
 )
 from assistant_eval.report import write  # noqa: E402
 from assistant_eval.runner import Workspace, build_snapshots, run  # noqa: E402
-from assistant_eval.scenarios import EVAL_FIXTURES, load_scenarios  # noqa: E402
+from assistant_eval.scenarios import (  # noqa: E402
+    EVAL_FIXTURES,
+    SCENARIOS_FILE,
+    ScenarioSet,
+    load_scenarios,
+)
 from assistant_eval.scoring import score  # noqa: E402
 from assistant_eval.snapshot import SnapshotSet  # noqa: E402
 
@@ -164,8 +196,137 @@ def _owner_gold(
     return gold, locked
 
 
+def _remote_settings(args: argparse.Namespace) -> AiAssistantSettings:
+    """The remote profile's settings: decisions from the process environment (an operator
+    act), everything else from the command line; ``.env`` files are never read."""
+
+    return AiAssistantSettings.model_construct(
+        llm_enabled=True,
+        knowledge_enabled=True,
+        llm_profile=OPENROUTER_PROFILE_ID,
+        remote_inference_decision=os.environ.get("AI_ASSISTANT_REMOTE_INFERENCE_DECISION", ""),
+        remote_live_decision=os.environ.get("AI_ASSISTANT_REMOTE_LIVE_DECISION", ""),
+        openrouter_endpoint=args.endpoint,
+        llm_reasoning_effort=args.reasoning_effort,
+        llm_reasoning_allowance_tokens=args.reasoning_allowance,
+        llm_max_answer_tokens=args.answer_tokens,
+    )
+
+
+Session = tuple[live.Preflight, AiAssistantSettings, BudgetLedger | None, OpenRouterAccount | None]
+
+
+def _preflight(args: argparse.Namespace) -> Session:
+    """Every live-run check, failing closed at the first one that cannot be evaluated."""
+
+    report = live.Preflight()
+    settings = _remote_settings(args)
+    endpoint = APPROVED_PROFILES[OPENROUTER_PROFILE_ID].endpoint(settings.openrouter_endpoint)
+    if endpoint is None:
+        report.add("endpoint.approved", False, "the endpoint is not in the approved registry")
+        return report, settings, None, None
+    try:
+        account = build_account_client(settings, allow_live_network=True)
+    except ProfileConfigError as error:
+        report.add("gate.account", False, f"refused: {error.code}")
+        return report, settings, None, None
+    report.add("gate.account", True, "live gate and decisions named; key present (not shown)")
+    try:
+        listing = live.fetch_public("/models/openai/gpt-oss-120b/endpoints")
+        zdr = live.fetch_public("/endpoints/zdr")
+    except Exception as error:  # noqa: BLE001 - any failure to read the listing refuses
+        report.add("endpoint.listing", False, f"unreadable ({type(error).__name__})")
+        return report, settings, None, account
+    live.check_endpoint(report, endpoint, listing, zdr)
+    try:
+        key = account.key_status()
+    except AccountCheckError as error:
+        report.add("key.status", False, f"refused: {error.code}")
+        return report, settings, None, account
+    max_tokens = settings.llm_max_answer_tokens + settings.llm_reasoning_allowance_tokens
+    reservation = live.typical_reservation(endpoint, max_tokens)
+    live.check_key(report, key, reservation)
+    live.check_owner(
+        report, args.owner_attests_auto_topup_off, args.owner_attests_prompt_logging_off
+    )
+    try:
+        ledger = BudgetLedger.open(ledger_path(settings))
+        ledger.recover()
+        status = ledger.status()
+    except LedgerError as error:
+        report.add("ledger.healthy", False, f"refused: {error.code}")
+        return report, settings, None, account
+    report.add("ledger.healthy", True, f"profile {status.profile_id}, alias {status.key_alias}")
+    live.check_ledger(report, key, status, ledger.last_call_id() > 0, reservation)
+    return report, settings, ledger, account
+
+
+def cmd_preflight(args: argparse.Namespace) -> int:
+    report, *_ = _preflight(args)
+    print("\n".join(report.lines()))
+    print("PREFLIGHT " + ("PASS" if report.passed else "FAIL"))
+    return 0 if report.passed else 1
+
+
+def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet, only: set[str] | None) -> int:
+    report, settings, ledger, account = _preflight(args)
+    print("\n".join(report.lines()))
+    endpoint = APPROVED_PROFILES[OPENROUTER_PROFILE_ID].endpoint(settings.openrouter_endpoint)
+    if not report.passed or ledger is None or account is None or endpoint is None:
+        print("PREFLIGHT FAIL: no request was made")
+        return 3
+    try:
+        model = build_chat_model(
+            settings, budget_ledger=ledger_path(settings), allow_live_network=True
+        )
+    except ProfileConfigError as error:
+        print(f"refused: {error.code}")
+        return 3
+    monitor = live.LiveMonitor(model, ledger, account, endpoint)
+    before = ledger.status()
+    with Workspace() as workspace:
+        result = run(scenarios, lambda capture: monitor, workspace=workspace, only=only)
+    monitor.finish()
+    after = ledger.status()
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    questions = {
+        scenario.turn_key(index): question
+        for scenario in scenarios.scenarios
+        for index, question in enumerate(scenario.questions)
+    }
+    answers, calls = live.write_artifacts(
+        Path(args.out) / "phase_b" / f"{stamp}-{args.label}",
+        run=result,
+        questions=questions,
+        monitor=monitor,
+        preflight=report,
+        settings={
+            "endpoint": settings.openrouter_endpoint,
+            "reasoning_effort": settings.llm_reasoning_effort,
+            "reasoning_allowance_tokens": settings.llm_reasoning_allowance_tokens,
+            "answer_tokens": settings.llm_max_answer_tokens,
+            "temperature": settings.llm_temperature,
+            "timeout_seconds": settings.llm_timeout_seconds,
+        },
+        ledger_before=before,
+        ledger_after=after,
+        extra={"git_head": _git_head(), "scenarios_file": str(args.scenarios), "label": args.label},
+    )
+    quarantined = sum(1 for row in monitor.rows if row.verification == "quarantined")
+    print(
+        f"calls {len(monitor.rows)}, quarantined {quarantined}, breaker open {after.breaker_open}"
+    )
+    print(f"wrote {answers}\nwrote {calls}")
+    return 0 if quarantined == 0 and not after.breaker_open else 4
+
+
 def cmd_run(args: argparse.Namespace) -> int:
-    scenarios = load_scenarios()
+    scenario_file = Path(args.scenarios)
+    scenarios = load_scenarios(scenario_file)
+    default_set = scenario_file.resolve() == SCENARIOS_FILE.resolve()
+    only = set(args.only.split(",")) if args.only else None
+    if args.model == "openrouter":
+        return _run_openrouter(args, scenarios, only)
     snapshots = _snapshots()
     make: Callable[[Capture], ChatModel]
     gold: gold_mod.GoldSet | None
@@ -194,8 +355,20 @@ def cmd_run(args: argparse.Namespace) -> int:
         else:
             selector = SELF_TESTS[args.model]
             make = lambda capture: SelectorModel(selector(), capture)  # noqa: E731
+    if not default_set and args.model == "local":
+        # No snapshots or owner gold exist for another scenario file: label-free only.
+        gold, gold_lock = None, None
     with Workspace() as workspace:
-        result = run(scenarios, make, reps=args.reps, snapshots=snapshots, workspace=workspace)
+        result = run(
+            scenarios,
+            make,
+            reps=args.reps,
+            snapshots=snapshots if default_set else None,
+            workspace=workspace,
+            only=only,
+        )
+    if args.save_answers:
+        _save_answers(Path(args.out) / "answers", args.model, result.turns)
     scores = score(result, scenarios, snapshots, gold, gold_lock)
     json_path, md_path = write(
         result,
@@ -206,6 +379,29 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(scores.banner)
     print(f"wrote {json_path}\nwrote {md_path}")
     return 0
+
+
+def _save_answers(folder: Path, label: str, turns: list) -> None:  # type: ignore[type-arg]
+    """Synthetic answer text for a local comparison run (kept apart from the report)."""
+
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    target = folder / f"{stamp}-{label}" / "answers.jsonl"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "key": turn.key,
+            "rep": turn.rep,
+            "answered_by": turn.answered_by,
+            "fallback_reason": turn.fallback_reason,
+            "answer": turn.answer_text,
+            "total_ms": turn.metrics["timings_ms"]["total"],
+        }
+        for turn in turns
+    ]
+    target.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8"
+    )
+    print(f"wrote {target}")
 
 
 def main() -> int:
@@ -221,12 +417,29 @@ def main() -> int:
     sheet.set_defaults(func=cmd_worksheet)
     sub.add_parser("lock").set_defaults(func=cmd_lock)
     go = sub.add_parser("run")
-    go.add_argument("--model", required=True, choices=["self-test-perfect", *SELF_TESTS, "local"])
+    go.add_argument(
+        "--model", required=True, choices=["self-test-perfect", *SELF_TESTS, "local", "openrouter"]
+    )
+    go.add_argument("--scenarios", default=str(SCENARIOS_FILE))
+    go.add_argument("--only", default="", help="comma-separated scenario ids")
+    go.add_argument("--save-answers", action="store_true", help="keep answer text (local runs)")
+    go.add_argument("--label", default="run", help="folder label (openrouter runs)")
     go.add_argument("--base-url", default="http://127.0.0.1:11434/v1")
     go.add_argument("--model-name", default="ministral-3:8b")
     go.add_argument("--reps", type=int, default=1)
     go.add_argument("--out", default=str(OUT))
+    check = sub.add_parser("preflight")
+    for command in (go, check):
+        command.add_argument("--endpoint", default="deepinfra/bf16")
+        command.add_argument(
+            "--reasoning-effort", default="medium", choices=["low", "medium", "high"]
+        )
+        command.add_argument("--reasoning-allowance", type=int, default=1400)
+        command.add_argument("--answer-tokens", type=int, default=600)
+        command.add_argument("--owner-attests-auto-topup-off", action="store_true")
+        command.add_argument("--owner-attests-prompt-logging-off", action="store_true")
     go.set_defaults(func=cmd_run)
+    check.set_defaults(func=cmd_preflight)
     args = parser.parse_args()
     result: int = args.func(args)
     return result

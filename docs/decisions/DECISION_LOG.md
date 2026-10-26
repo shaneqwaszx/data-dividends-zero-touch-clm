@@ -1175,3 +1175,24 @@ GET-only CLM access with the user's session, loopback-only embeddings and warm-u
 no automatic learning from feedback. Authority: `PROJECT_DEFINED_PROVISIONAL`. The remote
 profile is `DORMANT` (mock-transport tests only). Not sponsor policy; no CLM backend write,
 provider status or Live claim follows.
+
+## D-092 - AI Assistant Phase B synthetic-only live experiment (PROPOSED)
+
+Status: PROPOSED by the project team on 2026-10-27 under the repository owner's Phase B
+directive ("start GPT-OSS 120B experimentation": synthetic prompts only, at most US$1 of
+inference credits in the initial batch, no credit purchase or auto top-up, no customer,
+sponsor or production data, no deployment). Builds on D-091 (accepted for the dormant A2
+scope). Not accepted until the owner says so; not sponsor policy.
+
+| # | Proposed decision |
+| --- | --- |
+| P1 | One approved endpoint record, `deepinfra/bf16` for `openai/gpt-oss-120b`, from the public endpoint listing and ZDR list read 2026-10-26T17:05Z (prices US$0.037/M input, US$0.17/M output, no request price, maximum completion 117,964; the only DeepInfra endpoint; ZDR-listed). No evidence that `max_tokens` bounds reasoning there, so reservations use the maximum completion. |
+| P2 | Lock L1 also accepts a live marker when the caller passes `allow_live_network` and `AI_ASSISTANT_REMOTE_LIVE_DECISION` names `D-092`. Only the evaluation harness passes it; the service never does, so only synthetic fixture cases served by the harness's mock CLM backend can reach OpenRouter. L2 to L4, the D-091 interlock and the request policy (one pinned slug, no fallbacks, `data_collection: deny`, `zdr`, `max_price`, reasoning excluded) are unchanged. |
+| P3 | Read-only account checks: `GET /api/v1/key` (limit, reset period, usage) and `GET /api/v1/generation` (serving provider, model, total cost; no content). Every live run first passes a fail-closed preflight (public listing re-verified the same day, non-resetting key limit, ledger cap at most US$1.00 above the key's opening usage with that usage reconciled, owner attestation that auto top-up and prompt logging are off). |
+| P4 | Every call is verified from generation metadata after its turn; a provider, model or cost mismatch, or missing metadata, quarantines the call and opens the ledger breaker, which stops the batch. |
+| P5 | Synthetic answers are stored only in a local evaluation artifact (`answers.jsonl`), apart from content-free telemetry, ledger and verification rows (`calls.json`), both git-ignored. |
+
+Not decided here: any non-synthetic data, a hosted or service-side remote model, user model
+selection, a second endpoint, a larger budget, or changes to prompts, retrieval, the
+exact-line guard or CLM rules (each needs its own decision). Evidence classification of any
+live result: `SANDBOX`-like external evaluation on synthetic data; never `LIVE` CLM behaviour.

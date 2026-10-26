@@ -1,9 +1,13 @@
 """The one place that turns settings into a chat model (``ChatModel``).
 
 The default profile returns exactly the adapter the service always built. The remote profile
-is dormant (D-091, proposed) and refuses to compose unless every lock holds:
+is dormant (D-091) and refuses to compose unless every lock holds:
 
-    L1  an in-memory mock transport is injected (a real network transport is refused)
+    L1  an in-memory mock transport is injected; or, for Phase B only (D-092, proposed), the
+        caller sets ``allow_live_network`` to True AND AI_ASSISTANT_REMOTE_LIVE_DECISION names
+        the live decision. Only the evaluation harness passes that argument (its cases are
+        synthetic fixtures served by a mock CLM backend); the service never does, so a running
+        service cannot reach the network whatever its settings say.
     L2  the registry holds an approved endpoint record for the selected endpoint slug,
         and that slug was shown to identify exactly one endpoint of the model
     L3  AI_ASSISTANT_REMOTE_INFERENCE_DECISION equals the recorded decision id
@@ -28,13 +32,16 @@ from .llm import ChatModel, OpenAICompatibleChatModel
 from .model_profiles import (
     APPROVED_PROFILES,
     ENDPOINT_SLUG,
+    LIVE_DECISION_ID,
     MAX_REMOTE_TOKENS,
     MIN_REASONING_ALLOWANCE,
+    OPENROUTER_PROFILE_ID,
     REMOTE_DECISION_ID,
     ModelProfile,
     ProfileConfigError,
 )
-from .openrouter import OpenRouterChatModel, require_offline_transport
+from .openrouter import LIVE_NETWORK, OpenRouterChatModel, require_offline_transport
+from .openrouter_account import OpenRouterAccount
 
 CREDENTIAL_VARIABLE = "OPENROUTER_API_KEY"
 _CREDENTIAL = re.compile(r"[\x21-\x7e]{1,256}")
@@ -94,6 +101,29 @@ def resolve_remote_credential(environ: Mapping[str, str]) -> SecretStr:
     return SecretStr(value)
 
 
+def _live_or_mock(settings: AiAssistantSettings, transport: object, allow_live: bool) -> object:
+    """L1 for both the model and the account checks: a mock transport, or the live marker
+    when the caller asked for it and the live decision is named (never both)."""
+
+    if allow_live is True:
+        if transport is not None:
+            raise ProfileConfigError(
+                "TRANSPORT_NOT_ALLOWED", "a live run must not also inject a transport"
+            )
+        if settings.remote_live_decision != LIVE_DECISION_ID:
+            raise ProfileConfigError(
+                "LIVE_INTERLOCK",
+                "AI_ASSISTANT_REMOTE_LIVE_DECISION does not name the required decision",
+            )
+        return LIVE_NETWORK
+    if transport is None:
+        raise ProfileConfigError(
+            "PROFILE_DORMANT", "the remote profile is dormant and cannot reach a network"
+        )
+    require_offline_transport(transport)
+    return transport
+
+
 def _local(settings: AiAssistantSettings, adapter: Callable[..., ChatModel]) -> ChatModel:
     return adapter(
         base_url=settings.llm_base_url,
@@ -112,13 +142,10 @@ def _remote(
     transport: object,
     environ: Mapping[str, str] | None,
     budget_ledger: Path | None,
+    allow_live_network: bool,
 ) -> ChatModel:
-    # L1: dormant in this build. Only an in-memory mock transport may be used.
-    if transport is None:
-        raise ProfileConfigError(
-            "PROFILE_DORMANT", "the remote profile is dormant and cannot reach a network"
-        )
-    require_offline_transport(transport)
+    # L1: an in-memory mock transport, or the Phase B live gate (both halves, never both modes).
+    transport = _live_or_mock(settings, transport, allow_live_network)
     for name in _BOUNDED:
         if not _within_declared_bounds(settings, name):
             raise ProfileConfigError(
@@ -208,12 +235,14 @@ def build_chat_model(
     environ: Mapping[str, str] | None = None,
     registry: Mapping[str, ModelProfile] = APPROVED_PROFILES,
     budget_ledger: Path | None = None,
+    allow_live_network: bool = False,
 ) -> ChatModel:
     """The configured chat model. Validation runs here, not only in pydantic, because some
     callers build settings without validators (``model_construct``).
 
     ``local_adapter`` is the default profile's adapter class (the service passes its own
-    reference, so the default composition is exactly what it always was)."""
+    reference, so the default composition is exactly what it always was).
+    ``allow_live_network`` is for the evaluation harness only (see L1 above)."""
 
     profile = registry.get(settings.llm_profile)
     if profile is None:
@@ -223,5 +252,34 @@ def build_chat_model(
     if profile.adapter == "openai_compatible":
         return _local(settings, local_adapter)
     return _remote(
-        settings, profile, transport=transport, environ=environ, budget_ledger=budget_ledger
+        settings,
+        profile,
+        transport=transport,
+        environ=environ,
+        budget_ledger=budget_ledger,
+        allow_live_network=allow_live_network,
     )
+
+
+def build_account_client(
+    settings: AiAssistantSettings,
+    *,
+    transport: object = None,
+    environ: Mapping[str, str] | None = None,
+    allow_live_network: bool = False,
+) -> OpenRouterAccount:
+    """Phase B read-only account checks (key limit, generation metadata), behind the same
+    profile, decision and live interlocks as the remote model; the key is read last."""
+
+    if settings.llm_profile != OPENROUTER_PROFILE_ID:
+        raise ProfileConfigError(
+            "PROFILE_UNKNOWN", "AI_ASSISTANT_LLM_PROFILE is not the remote profile"
+        )
+    transport = _live_or_mock(settings, transport, allow_live_network)
+    if settings.remote_inference_decision != REMOTE_DECISION_ID:
+        raise ProfileConfigError(
+            "DECISION_INTERLOCK",
+            "AI_ASSISTANT_REMOTE_INFERENCE_DECISION does not name the required decision",
+        )
+    credential = resolve_remote_credential(os.environ if environ is None else environ)
+    return OpenRouterAccount(credential, transport=transport)

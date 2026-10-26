@@ -26,12 +26,15 @@ class AiAssistantSettings(BaseSettings):
     llm_max_answer_tokens: int = Field(default=600, ge=16, le=4000)
 
     # Model profile (model_profiles.py). The default is the adapter above, unchanged. The
-    # remote profile (D-091, proposed) is dormant in this build: it refuses to start against a
-    # real network whatever is set here, and it never reads AI_ASSISTANT_LLM_API_KEY.
+    # remote profile (D-091) is dormant in the service: it refuses to start against a real
+    # network whatever is set here, and it never reads AI_ASSISTANT_LLM_API_KEY. Only the
+    # evaluation harness may open the Phase B live gate (D-092, proposed), for synthetic cases.
     llm_profile: str = "local_openai_compatible"
     # Remote profile only: the decision id that must be named, one approved endpoint slug,
     # the reasoning effort and its token allowance, and the largest prompt it may send.
     remote_inference_decision: str = ""
+    # Phase B only: must name the live decision as well, and the caller must be the harness.
+    remote_live_decision: str = ""
     openrouter_endpoint: str = ""
     llm_reasoning_effort: str = ""
     llm_reasoning_allowance_tokens: int = Field(default=0, ge=0, le=4000)

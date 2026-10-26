@@ -22,6 +22,7 @@ from ai_assistant.main import create_app
 from ai_assistant.model_factory import build_chat_model, resolve_remote_credential
 from ai_assistant.model_profiles import (
     APPROVED_PROFILES,
+    DEEPINFRA_BF16,
     LOCAL_PROFILE_ID,
     OPENROUTER_PROFILE,
     OPENROUTER_PROFILE_ID,
@@ -107,12 +108,13 @@ def test_the_remote_profile_composes_only_when_every_lock_holds() -> None:
 # --- the production registry ---------------------------------------------------------------
 
 
-def test_the_production_registry_approves_no_remote_endpoint() -> None:
+def test_the_production_registry_approves_exactly_the_phase_b_endpoint() -> None:
     profile = APPROVED_PROFILES[OPENROUTER_PROFILE_ID]
 
     assert profile is OPENROUTER_PROFILE
     assert profile.dormant and profile.requires_budget and profile.boundary == "external"
-    assert profile.endpoints == ()
+    # Phase B (D-092, proposed): one reviewed endpoint record; tests/test_phase_b_live.py.
+    assert profile.endpoints == (DEEPINFRA_BF16,)
     assert set(APPROVED_PROFILES) == {LOCAL_PROFILE_ID, OPENROUTER_PROFILE_ID}
     with pytest.raises(TypeError):
         APPROVED_PROFILES["extra"] = TEST_PROFILE  # type: ignore[index]

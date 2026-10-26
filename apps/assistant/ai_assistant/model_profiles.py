@@ -5,8 +5,9 @@ remote profile, one approved endpoint and values inside the profile's bounds. Se
 never add a model, a URL, an endpoint or a price.
 
     local_openai_compatible   the default: today's OpenAI-compatible adapter, unchanged
-    openrouter_gpt_oss_120b   DORMANT (D-091, proposed): no approved endpoint exists, and the
-                              adapter only accepts an in-memory mock transport
+    openrouter_gpt_oss_120b   DORMANT (D-091) unless the Phase B live gate (D-092, proposed)
+                              is opened by the evaluation harness for synthetic cases only;
+                              one approved endpoint, ``deepinfra/bf16``
 
 An OpenRouter provider slug such as ``deepinfra`` matches every endpoint of that provider
 (all variants and regions). An endpoint record therefore names the full endpoint slug
@@ -30,6 +31,9 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL_ID = "openai/gpt-oss-120b"
 # The value AI_ASSISTANT_REMOTE_INFERENCE_DECISION must hold before the remote profile composes.
 REMOTE_DECISION_ID = "D-091"
+# The value AI_ASSISTANT_REMOTE_LIVE_DECISION must hold before a real network transport is used
+# (Phase B synthetic-only experiment). The service never opens it; see model_factory.py.
+LIVE_DECISION_ID = "D-092"
 # Answer tokens plus the reasoning allowance, for any remote request.
 MAX_REMOTE_TOKENS = 4000
 MIN_REASONING_ALLOWANCE = 256
@@ -143,6 +147,24 @@ class ModelProfile:
         return next((item for item in self.endpoints if item.slug == slug), None)
 
 
+# The public endpoint listing for openai/gpt-oss-120b and the public ZDR endpoint list,
+# both read 2026-10-26T17:05Z (24 endpoints, all ZDR-listed; see D-092). The tag
+# ``deepinfra/bf16`` was the only DeepInfra endpoint, so the slug identified one endpoint.
+# No request, cache-write or internal-reasoning price was listed. No endpoint-specific
+# evidence says max_tokens bounds reasoning, so the reservation uses the 117,964 maximum.
+DEEPINFRA_BF16 = ApprovedEndpoint(
+    slug="deepinfra/bf16",
+    prompt_price_per_m=Decimal("0.037"),
+    completion_price_per_m=Decimal("0.17"),
+    request_price=Decimal("0"),
+    max_completion_tokens=117964,
+    max_tokens_includes_reasoning=False,
+    slug_unique_for_model=True,
+    evidence_date=date(2026, 10, 26),
+    quantization="bf16",
+    provider_name="DeepInfra",
+)
+
 LOCAL_PROFILE = ModelProfile(
     profile_id=LOCAL_PROFILE_ID,
     adapter="openai_compatible",
@@ -162,8 +184,9 @@ OPENROUTER_PROFILE = ModelProfile(
     ),
     model_id=OPENROUTER_MODEL_ID,
     base_url=OPENROUTER_BASE_URL,
-    # No endpoint is approved in Phase A2. Adding one needs a reviewed Phase B change.
-    endpoints=(),
+    # Phase B (D-092, proposed): one endpoint, re-read from the public listing by
+    # scripts/phase_b_preflight.py before every live run (a mismatch refuses the run).
+    endpoints=(DEEPINFRA_BF16,),
     requires_budget=True,
     dormant=True,
 )

@@ -1,0 +1,586 @@
+"""Phase B live gate, account checks and provider verification (D-092, proposed).
+
+Everything here is offline: the live gate is checked up to the point where a client would be
+built, account checks and the harness run against ``httpx.MockTransport``, and the suite's
+socket guard (conftest) refuses any real connection. The key is a sentinel searched for in
+every output.
+"""
+
+import json
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+
+from ai_assistant.budget import BudgetLedger, BudgetRefusedError, LedgerError, reservation_for
+from ai_assistant.model_factory import build_account_client, build_chat_model
+from ai_assistant.model_profiles import (
+    APPROVED_PROFILES,
+    DEEPINFRA_BF16,
+    LIVE_DECISION_ID,
+    OPENROUTER_MODEL_ID,
+    OPENROUTER_PROFILE_ID,
+    ProfileConfigError,
+)
+from ai_assistant.openrouter import (
+    LIVE_NETWORK,
+    OpenRouterChatModel,
+    require_allowed_transport,
+    require_offline_transport,
+)
+from ai_assistant.openrouter_account import AccountCheckError, KeyStatus, OpenRouterAccount
+from assistant_eval import live
+from assistant_eval.runner import Workspace, run
+from assistant_eval.scenarios import EVAL_FIXTURES, load_scenarios
+from tests.remote_fixtures import (
+    ENDPOINT,
+    ENVIRON,
+    SENTINEL_KEY,
+    TEST_REGISTRY,
+    Chunks,
+    happy_stream,
+    new_ledger,
+    remote_settings,
+)
+
+ASSISTANT_DIR = Path(__file__).resolve().parents[1]
+PHASE_B_QUESTIONS = EVAL_FIXTURES / "phase_b_questions.json"
+
+
+def _live_settings(**changes: Any) -> Any:
+    return remote_settings(**{"remote_live_decision": LIVE_DECISION_ID, **changes})
+
+
+def _code(error: pytest.ExceptionInfo[BaseException]) -> str:
+    assert SENTINEL_KEY not in str(error.value)
+    return str(getattr(error.value, "code", ""))
+
+
+# --- the approved endpoint -------------------------------------------------------------------
+
+
+def test_registry_holds_exactly_the_recorded_endpoint() -> None:
+    profile = APPROVED_PROFILES[OPENROUTER_PROFILE_ID]
+    assert profile.endpoints == (DEEPINFRA_BF16,)
+    record = DEEPINFRA_BF16
+    assert record.slug == "deepinfra/bf16" and record.provider_name == "DeepInfra"
+    assert (record.prompt_price_per_m, record.completion_price_per_m) == (
+        Decimal("0.037"),
+        Decimal("0.17"),
+    )
+    assert record.request_price == 0 and record.quantization == "bf16"
+    # No endpoint evidence that max_tokens bounds reasoning: reserve the listed maximum.
+    assert record.max_completion_tokens == 117964 and not record.max_tokens_includes_reasoning
+
+
+def test_reservation_for_the_recorded_endpoint_is_conservative() -> None:
+    messages = [{"role": "system", "content": "x" * 10_000}, {"role": "user", "content": "q"}]
+    reservation = reservation_for(messages, DEEPINFRA_BF16, 2000)
+    assert reservation.output_bound_tokens == 117964
+    # 11,065 prompt-bound tokens x 0.037/M + 117,964 x 0.17/M, rounded up to micro-USD.
+    assert reservation.micro_usd == 20464
+
+
+# --- L1: the live gate -----------------------------------------------------------------------
+
+
+def test_marker_is_not_an_offline_transport() -> None:
+    with pytest.raises(ProfileConfigError) as error:
+        require_offline_transport(LIVE_NETWORK)
+    assert _code(error) == "TRANSPORT_NOT_ALLOWED"
+    assert require_allowed_transport(LIVE_NETWORK) is None
+    with httpx.HTTPTransport() as real:  # closed at once: the suite runs near handle limits
+        others = (object(), real, httpx.BaseTransport(), httpx.AsyncHTTPTransport)
+        for other in others:
+            with pytest.raises(ProfileConfigError):
+                require_allowed_transport(other)
+
+
+@pytest.mark.parametrize(
+    ("changes", "kwargs", "code"),
+    [
+        ({}, {}, "PROFILE_DORMANT"),  # live decision named, but the caller did not ask
+        ({"remote_live_decision": ""}, {"allow_live_network": True}, "LIVE_INTERLOCK"),
+        ({"remote_live_decision": "D-091"}, {"allow_live_network": True}, "LIVE_INTERLOCK"),
+        ({"remote_live_decision": "d-092"}, {"allow_live_network": True}, "LIVE_INTERLOCK"),
+        ({}, {"allow_live_network": 1}, "PROFILE_DORMANT"),  # only the literal True opens it
+        ({"remote_inference_decision": ""}, {"allow_live_network": True}, "DECISION_INTERLOCK"),
+        (
+            {"openrouter_endpoint": "deepinfra"},
+            {"allow_live_network": True},
+            "ENDPOINT_NOT_APPROVED",
+        ),
+    ],
+)
+def test_live_gate_refusals(
+    tmp_path: Path, changes: dict[str, Any], kwargs: dict[str, Any], code: str
+) -> None:
+    settings = _live_settings(**{"openrouter_endpoint": DEEPINFRA_BF16.slug, **changes})
+    with pytest.raises(ProfileConfigError) as error:
+        build_chat_model(
+            settings,
+            environ=ENVIRON,
+            budget_ledger=new_ledger(tmp_path / "ledger.sqlite3"),
+            **kwargs,
+        )
+    assert _code(error) == code
+
+
+def test_live_gate_refuses_an_injected_transport_too(tmp_path: Path) -> None:
+    with pytest.raises(ProfileConfigError) as error:
+        build_chat_model(
+            _live_settings(openrouter_endpoint=DEEPINFRA_BF16.slug),
+            transport=httpx.MockTransport(lambda _: httpx.Response(500)),
+            environ=ENVIRON,
+            budget_ledger=new_ledger(tmp_path / "ledger.sqlite3"),
+            allow_live_network=True,
+        )
+    assert _code(error) == "TRANSPORT_NOT_ALLOWED"
+
+
+def test_live_gate_keeps_the_ledger_and_credential_locks(tmp_path: Path) -> None:
+    settings = _live_settings(openrouter_endpoint=DEEPINFRA_BF16.slug)
+    with pytest.raises(ProfileConfigError) as error:
+        build_chat_model(
+            settings, environ=ENVIRON, budget_ledger=tmp_path / "none", allow_live_network=True
+        )
+    assert _code(error) == "LEDGER_UNAVAILABLE"
+    with pytest.raises(ProfileConfigError) as error:
+        build_chat_model(
+            settings,
+            environ={},
+            budget_ledger=new_ledger(tmp_path / "ledger.sqlite3"),
+            allow_live_network=True,
+        )
+    assert _code(error) == "CREDENTIAL_MISSING"
+
+
+class _NoClient:
+    """Stands in for httpx's client classes: records the arguments and refuses to connect."""
+
+    calls: list[dict[str, Any]] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        _NoClient.calls.append(kwargs)
+        raise httpx.ConnectError("blocked in tests")
+
+
+def test_open_gate_builds_a_guarded_live_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = build_chat_model(
+        _live_settings(openrouter_endpoint=DEEPINFRA_BF16.slug),
+        environ=ENVIRON,
+        budget_ledger=new_ledger(tmp_path / "ledger.sqlite3"),
+        allow_live_network=True,
+    )
+    assert type(model).__name__ == "BudgetedChatModel"
+    inner = model._inner  # type: ignore[attr-defined]
+    assert isinstance(inner, OpenRouterChatModel) and inner.live
+    assert SENTINEL_KEY not in repr(model)
+    payload = inner.payload([{"role": "user", "content": "q"}], stream=True)
+    provider = payload["provider"]
+    assert provider["only"] == provider["order"] == ["deepinfra/bf16"]
+    assert provider["allow_fallbacks"] is False and provider["data_collection"] == "deny"
+    assert provider["zdr"] is True and provider["require_parameters"] is True
+    assert provider["quantizations"] == ["bf16"]
+    assert payload["reasoning"] == {"effort": "low", "exclude": True}
+    # The client is httpx's own (no transport injected), without proxies or redirects.
+    _NoClient.calls.clear()
+    monkeypatch.setattr("ai_assistant.openrouter.httpx.Client", _NoClient)
+    with pytest.raises(Exception) as error:
+        model.complete([{"role": "user", "content": "q"}])
+    assert SENTINEL_KEY not in str(error.value)
+    assert _NoClient.calls == [
+        {"timeout": 90.0, "transport": None, "trust_env": False, "follow_redirects": False}
+    ]
+    # The failed attempt was charged at its reservation; nothing was left open.
+    status = BudgetLedger.open(tmp_path / "ledger.sqlite3").status()
+    assert status.open_calls == 0 and status.local_charged > 0
+
+
+def test_the_service_never_opens_the_live_gate() -> None:
+    """The running service builds its model without ``allow_live_network``; only the harness
+    passes it, and only for its synthetic fixture cases."""
+
+    users = [
+        path.relative_to(ASSISTANT_DIR).as_posix()
+        for folder in ("ai_assistant", "assistant_eval", "scripts")
+        for path in (ASSISTANT_DIR / folder).rglob("*.py")
+        if "allow_live_network=True" in path.read_text(encoding="utf-8")
+    ]
+    assert users == ["scripts/evaluate_answers.py"]
+    main = (ASSISTANT_DIR / "ai_assistant" / "main.py").read_text(encoding="utf-8")
+    assert "allow_live_network" not in main and "LIVE_NETWORK" not in main
+
+
+# --- account checks --------------------------------------------------------------------------
+
+
+class _Account:
+    """A mock OpenRouter account API."""
+
+    def __init__(self, responses: list[httpx.Response]) -> None:
+        self.responses = responses
+        self.requests: list[httpx.Request] = []
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return self.responses.pop(0)
+
+    def client(self) -> OpenRouterAccount:
+        return build_account_client(
+            remote_settings(), transport=httpx.MockTransport(self.handler), environ=ENVIRON
+        )
+
+
+KEY_BODY = {
+    "data": {
+        "label": "sk-or-v1-abc...xyz",
+        "limit": 1.5,
+        "limit_reset": None,
+        "limit_remaining": 1.25,
+        "usage": 0.25,
+        "budgets": [],
+    }
+}
+
+
+def test_key_status_keeps_only_limit_and_usage() -> None:
+    account = _Account([httpx.Response(200, json=KEY_BODY)])
+    status = account.client().key_status()
+    assert status == KeyStatus(Decimal("1.5"), None, Decimal("1.25"), Decimal("0.25"))
+    assert "label" not in repr(status) and "sk-or" not in repr(status)
+    request = account.requests[0]
+    assert request.method == "GET" and str(request.url) == "https://openrouter.ai/api/v1/key"
+    assert request.headers["authorization"] == "Bearer " + SENTINEL_KEY
+    assert request.content == b""
+
+
+@pytest.mark.parametrize(
+    ("response", "code"),
+    [
+        (httpx.Response(401, json={"error": {"message": "bad key " + SENTINEL_KEY}}), "http_401"),
+        (httpx.Response(200, content=b"not json"), "malformed"),
+        (httpx.Response(200, json={"data": {"usage": "1"}}), "malformed"),
+        (httpx.Response(200, json={"data": {"usage": -1}}), "malformed"),
+        (httpx.Response(200, content=b"x" * (70 * 1024)), "too_large"),
+    ],
+)
+def test_key_status_failures_are_closed_codes(response: httpx.Response, code: str) -> None:
+    with pytest.raises(AccountCheckError) as error:
+        _Account([response]).client().key_status()
+    assert error.value.code == code and SENTINEL_KEY not in str(error.value)
+
+
+def _generation(**changes: Any) -> dict[str, Any]:
+    data = {
+        "id": "gen-1761-test",
+        "model": OPENROUTER_MODEL_ID,
+        "provider_name": "Fictional Provider",
+        "total_cost": 0.00072,
+        "tokens_prompt": 3000,
+        "tokens_completion": 450,
+        "native_tokens_reasoning": 300,
+        "cancelled": False,
+        "finish_reason": "stop",
+        "workspace_id": "ignored",
+    }
+    data.update(changes)
+    return {"data": data}
+
+
+def test_generation_waits_while_unpublished_then_reads_metadata_only() -> None:
+    sleeps: list[float] = []
+    account = _Account([httpx.Response(404, json={}), httpx.Response(200, json=_generation())])
+    client = build_account_client(
+        remote_settings(), transport=httpx.MockTransport(account.handler), environ=ENVIRON
+    )
+    client._sleep = sleeps.append
+    facts = client.generation("gen-1761-test")
+    assert facts.provider_name == "Fictional Provider" and facts.total_cost_usd == Decimal(
+        "0.00072"
+    )
+    assert sleeps == [2.0] and len(account.requests) == 2
+    assert all(
+        str(r.url) == "https://openrouter.ai/api/v1/generation?id=gen-1761-test"
+        for r in account.requests
+    )
+
+
+def test_generation_refuses_a_bad_reference_without_a_request() -> None:
+    account = _Account([])
+    with pytest.raises(AccountCheckError) as error:
+        account.client().generation("../key")
+    assert error.value.code == "bad_reference" and account.requests == []
+
+
+def test_account_client_has_the_same_gates() -> None:
+    mock = httpx.MockTransport(lambda _: httpx.Response(500))
+    with pytest.raises(ProfileConfigError) as error:
+        build_account_client(remote_settings(llm_profile="local_openai_compatible"), transport=mock)
+    assert _code(error) == "PROFILE_UNKNOWN"
+    with pytest.raises(ProfileConfigError) as error:
+        build_account_client(remote_settings(), environ=ENVIRON)
+    assert _code(error) == "PROFILE_DORMANT"
+    with pytest.raises(ProfileConfigError) as error:
+        build_account_client(remote_settings(), environ=ENVIRON, allow_live_network=True)
+    assert _code(error) == "LIVE_INTERLOCK"
+    with pytest.raises(ProfileConfigError) as error:
+        build_account_client(
+            remote_settings(remote_inference_decision=""), transport=mock, environ=ENVIRON
+        )
+    assert _code(error) == "DECISION_INTERLOCK"
+    with pytest.raises(ProfileConfigError) as error:
+        build_account_client(remote_settings(), transport=mock, environ={})
+    assert _code(error) == "CREDENTIAL_MISSING"
+
+
+# --- preflight checks ------------------------------------------------------------------------
+
+
+def _listing(**changes: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    row = {
+        "tag": "deepinfra/bf16",
+        "model_id": OPENROUTER_MODEL_ID,
+        "provider_name": "DeepInfra",
+        "quantization": "bf16",
+        "max_completion_tokens": 117964,
+        "pricing": {"prompt": "0.000000037", "completion": "0.00000017", "discount": 0},
+        "supported_parameters": ["reasoning", "max_tokens", "temperature"],
+    }
+    row.update(changes)
+    others = [{"tag": "groq"}, {"tag": "deepinfra-other"}]
+    zdr = {"data": [{"tag": "deepinfra/bf16", "model_id": OPENROUTER_MODEL_ID}]}
+    return {"data": {"endpoints": [row, *others]}}, zdr
+
+
+def test_endpoint_check_passes_on_the_recorded_listing() -> None:
+    report = live.Preflight()
+    live.check_endpoint(report, DEEPINFRA_BF16, *_listing())
+    assert report.passed, report.lines()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"pricing": {"prompt": "0.00000004", "completion": "0.00000017"}},
+        {"pricing": {"prompt": "0.000000037", "completion": "0.00000017", "request": "0.001"}},
+        {
+            "pricing": {
+                "prompt": "0.000000037",
+                "completion": "0.00000017",
+                "internal_reasoning": "0.000001",
+            }
+        },
+        {"max_completion_tokens": 131072},
+        {"provider_name": "Other"},
+        {"supported_parameters": ["max_tokens"]},
+    ],
+)
+def test_endpoint_check_fails_on_any_change(changes: dict[str, Any]) -> None:
+    report = live.Preflight()
+    live.check_endpoint(report, DEEPINFRA_BF16, *_listing(**changes))
+    assert not report.passed
+
+
+def test_endpoint_check_fails_when_not_unique_or_not_zdr() -> None:
+    listing, zdr = _listing()
+    listing["data"]["endpoints"].append({"tag": "deepinfra/bf16/eu"})
+    report = live.Preflight()
+    live.check_endpoint(report, DEEPINFRA_BF16, listing, zdr)
+    assert not report.passed
+    listing, _ = _listing()
+    report = live.Preflight()
+    live.check_endpoint(report, DEEPINFRA_BF16, listing, {"data": []})
+    assert not report.passed
+
+
+def _ledger_status(tmp_path: Path, cap: int, opening: int) -> Any:
+    return BudgetLedger.open(new_ledger(tmp_path / "l.sqlite3", cap=cap, opening=opening)).status()
+
+
+def test_key_and_ledger_check_passes_for_a_one_dollar_allocation(tmp_path: Path) -> None:
+    status = _ledger_status(tmp_path, cap=1_250_000, opening=250_000)
+    key = KeyStatus(Decimal("1.5"), None, Decimal("1.25"), Decimal("0.25"))
+    report = live.Preflight()
+    live.check_key_and_ledger(report, key, status, has_calls=False, reservation_micro=30_000)
+    assert report.passed, report.lines()
+
+
+@pytest.mark.parametrize(
+    ("key", "cap", "opening"),
+    [
+        (KeyStatus(None, None, None, Decimal("0.25")), 1_250_000, 250_000),  # no key limit
+        (
+            KeyStatus(Decimal("1.5"), "monthly", Decimal("1.25"), Decimal("0.25")),
+            1_250_000,
+            250_000,
+        ),
+        (KeyStatus(Decimal("1.5"), None, Decimal("0.01"), Decimal("0.25")), 1_250_000, 250_000),
+        (KeyStatus(Decimal("5"), None, Decimal("4.75"), Decimal("0.25")), 1_250_001, 250_000),
+        (KeyStatus(Decimal("1.5"), None, Decimal("1.2"), Decimal("0.30")), 1_250_000, 250_000),
+    ],
+)
+def test_key_and_ledger_check_fails_closed(
+    tmp_path: Path, key: KeyStatus, cap: int, opening: int
+) -> None:
+    status = _ledger_status(tmp_path, cap=cap, opening=opening)
+    report = live.Preflight()
+    live.check_key_and_ledger(report, key, status, has_calls=False, reservation_micro=30_000)
+    assert not report.passed
+
+
+def test_owner_attestations_are_required() -> None:
+    for flags in ((False, True), (True, False), (False, False)):
+        report = live.Preflight()
+        live.check_owner(report, *flags)
+        assert not report.passed
+    report = live.Preflight()
+    live.check_owner(report, True, True)
+    assert report.passed
+
+
+# --- verification and the harness ------------------------------------------------------------
+
+
+def _completed_call(tmp_path: Path, usage_cost: float = 0.00072) -> tuple[BudgetLedger, Any]:
+    path = new_ledger(tmp_path / "ledger.sqlite3")
+    usage = {  # within the bounds of the one-word prompt below
+        "prompt_tokens": 500,
+        "completion_tokens": 450,
+        "cost": usage_cost,
+        "completion_tokens_details": {"reasoning_tokens": 300},
+    }
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, stream=Chunks(happy_stream(usage=usage)))
+    )
+    model = build_chat_model(
+        remote_settings(),
+        transport=transport,
+        environ=ENVIRON,
+        registry=TEST_REGISTRY,
+        budget_ledger=path,
+    )
+    ledger = BudgetLedger.open(path)
+    return ledger, model
+
+
+def _settle_one(ledger: BudgetLedger, model: Any) -> Any:
+    import anyio
+
+    async def go() -> None:
+        async for _ in model.stream([{"role": "user", "content": "q"}]):
+            pass
+
+    anyio.run(go)
+    return ledger.closed_calls_after(0)[-1]
+
+
+def _metadata_account(**changes: Any) -> OpenRouterAccount:
+    account = _Account([httpx.Response(200, json=_generation(**changes))])
+    return account.client()
+
+
+def test_verified_call(tmp_path: Path) -> None:
+    ledger, model = _completed_call(tmp_path)
+    call = _settle_one(ledger, model)
+    row = live.verify_call(call, ENDPOINT, _metadata_account(), ledger, "P00#0@0")
+    assert row.verification == "verified" and row.provider_name == "Fictional Provider"
+    assert ledger.closed_calls_after(0)[-1].verification == "verified"
+    assert not ledger.status().breaker_open
+    with pytest.raises(LedgerError):
+        ledger.record_verification(call.call_id, verified=True, breaker_code="routing_anomaly")
+
+
+@pytest.mark.parametrize(
+    ("changes", "breaker"),
+    [
+        ({"provider_name": "Other Provider"}, "routing_anomaly"),
+        ({"provider_name": None}, "routing_anomaly"),
+        ({"model": "openai/gpt-oss-20b"}, "routing_anomaly"),
+        ({"total_cost": 0.0009}, "reconcile_drift"),
+    ],
+)
+def test_mismatch_quarantines_and_stops_the_batch(
+    tmp_path: Path, changes: dict[str, Any], breaker: str
+) -> None:
+    ledger, model = _completed_call(tmp_path)
+    call = _settle_one(ledger, model)
+    row = live.verify_call(call, ENDPOINT, _metadata_account(**changes), ledger, "P00#0@0")
+    assert row.verification == "quarantined"
+    status = ledger.status()
+    assert status.breaker_open and status.breaker_code == breaker
+    with pytest.raises(BudgetRefusedError):  # the breaker refuses the next call, no request
+        _settle_one(ledger, model)
+
+
+def test_unpublished_metadata_quarantines(tmp_path: Path) -> None:
+    ledger, model = _completed_call(tmp_path)
+    call = _settle_one(ledger, model)
+    account = _Account([httpx.Response(404, json={})] * 8).client()
+    account._sleep = lambda _: None
+    row = live.verify_call(call, ENDPOINT, account, ledger, "P00#0@0")
+    assert row.verification == "quarantined" and row.verification_note == "metadata not_published"
+    assert ledger.status().breaker_open
+
+
+def test_harness_run_separates_answers_from_telemetry(tmp_path: Path) -> None:
+    """The live path end to end with mock transports: verification per turn, the answer text
+    only in answers.jsonl, and calls.json content-free."""
+
+    path = new_ledger(tmp_path / "ledger.sqlite3")
+    reply = "This answer text must stay out of calls.json\n"
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, stream=Chunks(happy_stream(text=reply)))
+    )
+    model = build_chat_model(
+        remote_settings(),
+        transport=transport,
+        environ=ENVIRON,
+        registry=TEST_REGISTRY,
+        budget_ledger=path,
+    )
+    ledger = BudgetLedger.open(path)
+    account = _Account([httpx.Response(200, json=_generation()) for _ in range(4)]).client()
+    monitor = live.LiveMonitor(model, ledger, account, ENDPOINT)
+    scenarios = load_scenarios(PHASE_B_QUESTIONS)
+    before = ledger.status()
+    with Workspace() as workspace:
+        result = run(scenarios, lambda capture: monitor, workspace=workspace, only={"P02"})
+    monitor.finish()
+    assert [turn.key for turn in result.turns] == ["P02#0", "P02#1"]
+    assert [row.verification for row in monitor.rows] == ["verified", "verified"]
+    assert [row.turn for row in monitor.rows] == ["P02#0@0", "P02#1@0"]
+    answers, calls = live.write_artifacts(
+        tmp_path / "out",
+        run=result,
+        questions={"P02#0": "Who are the ultimate beneficial owners of this company?"},
+        monitor=monitor,
+        preflight=live.Preflight(),
+        settings={"endpoint": ENDPOINT.slug},
+        ledger_before=before,
+        ledger_after=ledger.status(),
+        extra={},
+    )
+    calls_text = calls.read_text(encoding="utf-8")
+    assert "must stay out" not in calls_text and "beneficial owners" not in calls_text
+    assert SENTINEL_KEY not in calls_text and SENTINEL_KEY not in answers.read_text(
+        encoding="utf-8"
+    )
+    assert json.loads(calls_text)["spent_usd"] == "0.001440"
+    rows = [json.loads(line) for line in answers.read_text(encoding="utf-8").splitlines()]
+    assert rows[0]["question"].startswith("Who are the ultimate") and len(rows) == 2
+
+
+def test_phase_b_questions_are_synthetic_fixture_cases() -> None:
+    scenarios = load_scenarios(PHASE_B_QUESTIONS)
+    assert [s.id for s in scenarios.scenarios] == [f"P0{i}" for i in range(8)]
+    assert len(scenarios.turn_keys()) == 17
+    # Only the saved synthetic Garden fixtures (served by the harness's mock CLM backend).
+    assert {s.base for s in scenarios.scenarios} <= {
+        "garden_address_conflict",
+        "garden_waiting_for_documents",
+    }
