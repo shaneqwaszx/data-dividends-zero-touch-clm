@@ -29,6 +29,10 @@ interface ChatMessage extends AiAssistantTurn {
   /** An answer that is still being written. */
   streaming?: boolean;
   sources?: AiAssistantSource[];
+  /** The service's record of this answer, sent back with feedback (none for small talk). */
+  answerId?: string | null;
+  /** A small-talk reply: it never has a record, so nothing failed when answerId is missing. */
+  smallTalk?: boolean;
 }
 
 interface Thread {
@@ -280,6 +284,8 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     const history: AiAssistantTurn[] = thread.messages
       .filter((item) => !item.brief && !item.streaming)
       .map(({ role, content }) => ({ role, content }));
+    // Only the ids of earlier answers: the service keeps its own records of what it said.
+    const earlierAnswerIds = thread.messages.flatMap((item) => (item.answerId ? [item.answerId] : []));
     const draftId = newId();
     updateThread(key, (current) => ({
       ...current,
@@ -306,6 +312,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
         }));
       },
       controller.signal,
+      earlierAnswerIds,
     )
       .then((reply) => {
         if (controller.signal.aborted) return;
@@ -319,6 +326,8 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
               content: reply.answer,
               note: reply.notice,
               sources: reply.sources ?? [],
+              answerId: reply.answer_id ?? null,
+              smallTalk: reply.small_talk === true,
             },
           ],
           suggestions: reply.suggested_questions,
@@ -356,9 +365,10 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     const note = state.note.trim();
     if (!state.helpful && !note) return;
     const key = activeCaseId;
+    const answerId = answerIdOf(messageId);
     setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "sending" } }));
-    // Only the rating and the note: the conversation is not sent.
-    sendAiAssistantFeedback(key, { helpful: state.helpful, note })
+    // The rating, the note and which answer it is about: the conversation is not sent.
+    sendAiAssistantFeedback(key, { helpful: state.helpful, note, ...(answerId ? { answer_id: answerId } : {}) })
       .then((result) =>
         setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "sent", message: result.message } })),
       )
@@ -379,6 +389,10 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     goToCaseSection(title);
   }
 
+  function answerIdOf(messageId: string): string | null {
+    return thread.messages.find((item) => item.id === messageId)?.answerId ?? null;
+  }
+
   function feedbackControls(messageId: string): ReactNode {
     const state = feedback[messageId];
     if (!state) {
@@ -389,6 +403,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
             <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, true)}>
               <ThumbIcon /> Yes, helpful
             </button>
+            {/* Always offered: without an answer record the Director still gets the note. */}
             <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, false)}>
               <ThumbIcon down /> Not helpful
             </button>
@@ -417,6 +432,12 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
           />
         </label>
         <p className="ai-assistant-hint">Your note goes to a Director. Client names, UENs and addresses are removed first.</p>
+        {/* Only when a record should exist: small talk never has one. */}
+        {!answerIdOf(messageId) && !thread.messages.find((item) => item.id === messageId)?.smallTalk && (
+          <p className="ai-assistant-hint" role="note">
+            We couldn't save the details of this answer, so the Director will only see your note.
+          </p>
+        )}
         <div className="ai-assistant-feedback">
           <button
             type="button"

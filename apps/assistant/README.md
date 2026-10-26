@@ -163,19 +163,61 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422) |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the Director then sees only the note |
+| GET | `/assistant/answers/{answer_id}` | the RM who asked | Their own answer record (view logged); HR gets 403, anyone else 404 |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
-| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open enhancement requests (`gaps`) |
+| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open enhancement requests (`gaps`, each with its `answer_id` and question; listing them is not a logged record view, opening the record is) |
 | GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
 | GET | `/assistant/knowledge/entries/{id}` | Director (every team), HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
 | POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author (or the author after confirming, in single-reviewer mode) | Approve or reject; `confirm_single_reviewer` confirms publishing your own entry |
 | POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
-| POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request |
+| POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request. Text that still contains a redaction placeholder (`[ADDRESS]`, `[COMPANY]` or any `[UPPERCASE]` token) is a 422 `PLACEHOLDER_NOT_REWRITTEN` ("Rewrite [ADDRESS], [COMPANY] in general terms before saving."); `started_from_answer` marks a fix started from the record |
 | POST | `/assistant/knowledge/feedback/{id}/close` | Director | Close an open enhancement request; `reason` is required |
+| GET | `/assistant/knowledge/feedback/{id}/answer` | Director | "What happened": the answer record linked to the request (view logged) |
+| GET | `/assistant/knowledge/feedback/{id}/fix-start` | Director | Where the fix can start: a title from the blocker type and the AI's left-out lines (and any shown model line that is not an allowed line), one sentence per line, redacted against the request's case; no notices or fixed disclaimers, no model call, nothing saved. A logged view of the record; 404 without one (the form starts empty) |
+| GET | `/assistant/knowledge/feedback/{id}/answers/{answer_id}` | Director | One of the (at most 2, most recent) earlier answers that record names (view logged); any other id is 404 |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
 | POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
 | GET | `/assistant/knowledge/stats` | Director | Entry counts, how helpful answers were, and confidence by topic (helpful / not helpful per blocker code) |
+
+### Answer records
+
+Every answer except small talk is saved as an answer record (`answer_records.py`, store
+schema v5; D-084, proposed) and the reply carries its `answer_id` (in the final `done` event
+for /chat/stream). A record holds only what the server produced or received in that request:
+the question as the model got it (after the 600-character cut), the ids of earlier answers
+in the chat that the server found to be this user's on this case (at most
+`max_history_messages`), the case's blocker codes, stage, steps and a facts hash, the
+knowledge retrieved (tag, kind, entry, version, scores, the score thresholds, confidence,
+degraded), the allowed lines each tagged policy (a fixed catalog line), case (a catalog line
+filled from this case) or knowledge, the lines shown, the answer as the RM saw it (a
+case-data answer redacted with the case Redactor), the lines left out (redacted, at most
+8 KiB) and how the answer was made (answered by, notices, fallback reason `model_unavailable`,
+`nothing_allowed` or `cut_short`, model, time). Browser history text is never stored, and a
+record never goes into a prompt or into knowledge. Each record can be rated once; "Not
+helpful" links it to the new enhancement request. If a record could not be saved, the answer
+has no `answer_id`; "Not helpful" is still offered, the RM is told the Director will only
+see the note, and the request page says there is no answer record (a small-talk reply,
+marked `small_talk`, never has one, so the panel says nothing about it). The Knowledge
+review window lists each request as one row (question, note, blocker types, age); the row
+opens the request as a full-width page: **What the RM saw** (question, answer and notices,
+then "Earlier in this chat (N)", up to 2 earlier exchanges, folded and fetched only when
+opened, and the RM's note), **Why the AI answered this way** (a rule-based hint, not a
+verdict: "Catalog gap: no allowed line matched", "No knowledge found" or "Missing
+knowledge"; shown lines tagged Policy/Case/Knowledge, left-out lines crossed out, knowledge
+with scores and thresholds, all allowed lines, the case at the time) and, below them, the
+fix. When the request has a record, the fix starts from the AI's left-out lines (a guidance
+change from its current title and approved text with those lines below), with the
+Redactor's placeholders marked and a **Clear** button. Save stays disabled, and the service
+refuses the fix, until every placeholder is rewritten in general terms; nothing is saved
+until Save, and the other save rules are unchanged. A version saved from it records `started_from_answer`, shown in its review
+history and on its review card. Records tied to no request are deleted after `AI_ASSISTANT_ANSWER_RECORD_UNRATED_DAYS`
+(7). A record linked to a request, and the up to 2 earlier answers kept with it
+(`answer_record_keeps`, same user and case; one row per request that shows it), are deleted
+`AI_ASSISTANT_ANSWER_RECORD_CLOSED_DAYS` (30) after the request was resolved or closed (a
+record tied to two requests waits for both): on start-up and at most hourly with a new
+record.
 
 ### In the app
 
@@ -191,8 +233,9 @@ see a **Review** button that opens the Knowledge review window.
    case [P1], shown as chips.
 3. Click **Not helpful** and say what was missing, naming the client.
 4. Sign in as the Director (olivia-koh), open **Review**: under **Enhancement requests** the
-   note has the client's name replaced with `[COMPANY]`. Under **Write the fix**, write what
-   resolves it as a past case and **Save the fix for review**.
+   request's row shows the note with the client's name replaced with `[COMPANY]`. Open the
+   row; under **Write the fix**, write what resolves it as a past case and **Save the fix for
+   review**.
 5. Under **Waiting for review**, click **Approve**, check the final text and **Confirm and
    publish** (single-reviewer mode; it is listed under **Published by a single reviewer**).
 6. Back as an RM on a similar case, ask again: the new resolution is now cited.

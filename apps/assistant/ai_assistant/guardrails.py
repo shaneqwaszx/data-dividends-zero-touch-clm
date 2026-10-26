@@ -45,6 +45,7 @@ phrasings are not recognised.
 """
 
 import bisect
+import dataclasses
 import json
 import re
 from collections.abc import Iterable, Sequence
@@ -587,6 +588,9 @@ class Validation:
     left_out: int = 0
     # Short notices the RM should see with the answer.
     disclosures: tuple[str, ...] = ()
+    # The left-out lines themselves, for the answer record only (never shown to the RM).
+    # A read-only record of what was not kept: it takes no part in selecting lines.
+    dropped: tuple[str, ...] = dataclasses.field(default=(), compare=False, repr=False)
 
     def notice(self) -> str | None:
         parts = list(self.disclosures)
@@ -709,16 +713,23 @@ def validate_answer(
     catalog = _Catalog(facts, knowledge_lines)
     kept: dict[str, None] = {}
     left_out = 0
+    dropped: list[str] = []
     for line in answer.splitlines():
         if not line.strip():
             continue
         selected = catalog.select(line)
         if selected is None:
             left_out += 1
+            dropped.append(line.strip())
         else:
             kept.update(dict.fromkeys(selected))
     text = "\n".join(kept)
-    return Validation(text=text, left_out=left_out, disclosures=_disclosures(text, facts))
+    return Validation(
+        text=text,
+        left_out=left_out,
+        disclosures=_disclosures(text, facts),
+        dropped=tuple(dropped),
+    )
 
 
 MAX_ANSWER_LINES = 6
@@ -763,7 +774,10 @@ def with_required_lines(
             lines.pop(droppable.pop())
     text = "\n".join(lines)
     return Validation(
-        text=text, left_out=validation.left_out, disclosures=_disclosures(text, facts)
+        text=text,
+        left_out=validation.left_out,
+        disclosures=_disclosures(text, facts),
+        dropped=validation.dropped,
     )
 
 
@@ -792,6 +806,7 @@ class StreamingGuard:
         self._pending: list[str] = []  # the unfinished line, in pieces
         self._accepted: dict[str, None] = {}
         self._left_out = 0
+        self._dropped: list[str] = []
         self._total_bytes = 0
 
     @property
@@ -806,6 +821,7 @@ class StreamingGuard:
         selected = self._catalog.select(line)
         if selected is None:
             self._left_out += 1
+            self._dropped.append(line.strip())
         else:
             self._accepted.update(dict.fromkeys(selected))
 
@@ -845,5 +861,8 @@ class StreamingGuard:
 
         text = self.text
         return Validation(
-            text=text, left_out=self._left_out, disclosures=_disclosures(text, self._facts)
+            text=text,
+            left_out=self._left_out,
+            disclosures=_disclosures(text, self._facts),
+            dropped=tuple(self._dropped),
         )

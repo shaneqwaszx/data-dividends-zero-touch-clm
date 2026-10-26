@@ -30,6 +30,14 @@ visibility HR set. An edit can narrow team and role visibility, never widen it.
 
 Retiring an approved entry (official guidance included) takes two reviewers: the first POST
 to /retire records the request, a different reviewer's POST confirms it.
+
+Answer records (D-084, proposed): feedback names the answer it rates (``answer_id``) when
+the answer has a record; "Not helpful" without one is still accepted (only the note reaches
+the Director). A named record must be the caller's own, on the same case, unrated and not
+expired; any refusal is the same "not found". The RM who asked can open their record
+(GET /assistant/answers/{id}); a Director opens it from the enhancement request it is linked
+to, with the earlier answers of that chat. HR is refused, anyone else gets "not found", and
+every view is logged.
 """
 
 import re
@@ -41,6 +49,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .answer_records import ANSWER_ID, fix_start_lines, fix_title
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .context import build_case_facts
 from .knowledge.drafting import resolution_from_request
@@ -49,12 +58,14 @@ from .knowledge.redaction import Redactor, case_parties
 from .knowledge.retrieval import case_context
 from .knowledge.service import KnowledgeBase
 from .knowledge.store import (
+    AnswerNotFoundError,
     ConfirmationRequiredError,
     ContentChangedError,
     KnowledgeError,
     KnowledgeRuleError,
     MakerCheckerError,
     SecondReviewerError,
+    earlier_shown,
 )
 
 APPROVE = "POLICY_APPROVE"
@@ -67,6 +78,9 @@ class FeedbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     helpful: bool
     note: str = Field(default="", max_length=1000)
+    # The answer being rated, when it has a record. Without one (the record could not be
+    # saved) "Not helpful" is still accepted: the Director then sees only the note.
+    answer_id: str | None = Field(default=None, pattern=ANSWER_ID)
 
     @model_validator(mode="after")
     def _not_helpful_says_what_was_missing(self) -> "FeedbackRequest":
@@ -128,6 +142,9 @@ class FixRequest(BaseModel):
     fields: list[str] | None = Field(default=None, max_length=20)
     stages: list[str] | None = Field(default=None, max_length=20)
     visibility: VisibilityBody | None = None
+    # The Director started from the request's answer record (the fix-start lines). Recorded
+    # on the saved version only when the request has a record.
+    started_from_answer: bool = False
 
     @model_validator(mode="after")
     def _fits_its_kind(self) -> "FixRequest":
@@ -201,6 +218,7 @@ def entry_view(entry: Entry, *, single_reviewer: bool = False) -> dict[str, Any]
         "created_at": entry.created_at,
         "source_ref": entry.source_ref,
         "illustrative": entry.illustrative,
+        "started_from_answer": entry.started_from_answer,
         "content_hash": entry.content_hash(),
         # This version was approved by someone who wrote or edited it (single-reviewer mode).
         "single_reviewer": single_reviewer,
@@ -214,7 +232,51 @@ NOT_FOUND_MESSAGE = "No such entry."
 SECOND_REVIEWER_MESSAGE = "A different reviewer must confirm this."
 CONFIRM_MESSAGE = "Confirm that you are publishing this entry as its only reviewer."
 REQUEST_NOT_FOUND_MESSAGE = "No such enhancement request."
+# A redaction placeholder such as [ADDRESS] or [COMPANY] (any [UPPERCASE] token the Redactor
+# makes; knowledge tags like [G1] have digits and do not match).
+PLACEHOLDER = re.compile(r"\[[A-Z][A-Z_]*\]")
+
+
+def placeholders_left(*texts: str) -> list[str]:
+    """The redaction placeholders still in a Director's fix, in order, each once."""
+
+    return list(dict.fromkeys(m.group(0) for text in texts for m in PLACEHOLDER.finditer(text)))
+
+
+def placeholder_refused(left: list[str]) -> HTTPException:
+    return HTTPException(
+        422,
+        detail={
+            "code": "PLACEHOLDER_NOT_REWRITTEN",
+            "message": f"Rewrite {', '.join(left)} in general terms before saving.",
+        },
+    )
+
+
 REQUEST_CHANGED_MESSAGE = "This request was already handled. Refresh and try again."
+ANSWER_NOT_FOUND_MESSAGE = "No such answer."
+
+
+def answer_view(record: dict[str, Any], *, director: bool = False) -> dict[str, Any]:
+    """An answer record as the RM who asked, or a Director, sees it. A Director sees only
+    the earlier answers kept with the request (``earlier_shown``)."""
+
+    earlier = record["earlier_answer_ids"]
+    return {
+        "answer_id": record["id"],
+        "case_id": record["case_id"],
+        "created_at": record["created_at"],
+        "question": record["question"],
+        "earlier_answer_ids": earlier_shown(earlier) if director else earlier,
+        "case_snapshot": record["case_snapshot"],
+        "knowledge": record["knowledge"],
+        "allowed_lines": record["allowed_lines"],
+        "chosen_lines": record["chosen_lines"],
+        "dropped_lines": record["dropped_lines"],
+        "result": record["result"],
+        "shown_answer": record["shown_answer"],
+        "rated": record["rated_at"] is not None,
+    }
 
 
 def guidance_id(title: str) -> str:
@@ -237,6 +299,7 @@ def knowledge_router(
     check_origin: Callable[[Request], None],
     load_case: Callable[..., CaseSnapshot],
     single_reviewer: bool = False,
+    answer_days: int = 7,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -357,6 +420,18 @@ def knowledge_router(
 
         return reach
 
+    def answer_not_found() -> HTTPException:
+        return HTTPException(404, detail={"code": "NOT_FOUND", "message": ANSWER_NOT_FOUND_MESSAGE})
+
+    def same_user(request: Request, profile: dict[str, Any]) -> Callable[[], None]:
+        """For the store, inside the write: the caller is still the same signed-in user."""
+
+        def authorize() -> None:
+            if user_id(actor(request)) != user_id(profile):
+                raise HTTPException(401, detail={"code": "AUTHENTICATION_REQUIRED"})
+
+        return authorize
+
     def request_refused(exc: KnowledgeError) -> HTTPException:
         if isinstance(exc, ContentChangedError):
             return HTTPException(
@@ -376,18 +451,24 @@ def knowledge_router(
         ctx = case_context(facts)
         # Redacted before it is stored: a Director reads the note of an enhancement request.
         note = Redactor(facts, parties=parties).redact(body.note.strip())
-        feedback_id = kb.store.add_feedback(
-            case_id=str(case_id),
-            user_id=user_id(profile),
-            role=profile.get("role"),
-            team=team(profile),
-            helpful=body.helpful,
-            note=note,
-            blocker_codes=ctx.blocker_codes,
-            fields=ctx.fields,
-            stages=ctx.stages,
-            entry_id=None,
-        )
+        try:
+            feedback_id = kb.store.add_feedback(
+                case_id=str(case_id),
+                user_id=user_id(profile),
+                role=profile.get("role"),
+                team=team(profile),
+                helpful=body.helpful,
+                note=note,
+                blocker_codes=ctx.blocker_codes,
+                fields=ctx.fields,
+                stages=ctx.stages,
+                entry_id=None,
+                answer_id=body.answer_id,
+                answer_days=answer_days,
+            )
+        except AnswerNotFoundError:
+            # Someone else's, another case's, expired, already rated or made up: all alike.
+            raise answer_not_found() from None
         return FeedbackResponse(
             feedback_id=feedback_id,
             message=(
@@ -398,6 +479,115 @@ def knowledge_router(
                 else "Thanks. This has been flagged so the answer can be improved."
             ),
         )
+
+    # --- answer records ---------------------------------------------------------------
+
+    @router.get("/assistant/answers/{answer_id}")
+    def own_answer(answer_id: str, profile: Actor, request: Request) -> dict[str, Any]:
+        """The RM's own record of an answer they were given (the view is logged)."""
+
+        if profile.get("role") == "HR":
+            require(profile, "CASE_ACCESS")  # HR has no case access: 403
+        me_id = user_id(profile)
+        record = kb.store.answer_record(answer_id) if re.fullmatch(ANSWER_ID, answer_id) else None
+        if record is None or record["user_id"] != me_id:
+            raise answer_not_found()
+        # The case must still be theirs to open (their own session; GET only).
+        load_case(UUID(record["case_id"]), request)
+        try:
+            viewed = kb.store.view_answer(
+                answer_id,
+                viewer=me_id,
+                allow=lambda row: row["user_id"] == me_id,
+                authorize=same_user(request, profile),
+            )
+        except AnswerNotFoundError:
+            raise answer_not_found() from None
+        return answer_view(viewed)
+
+    def request_answer(
+        feedback_id: int, answer_id: str | None, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        """A Director's view of the record linked to an open request, or of one of the
+        earlier answers it names (``answer_id``). Logged; "not found" otherwise."""
+
+        return answer_view(request_record(feedback_id, answer_id, profile, request), director=True)
+
+    def request_record(
+        feedback_id: int, answer_id: str | None, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        """The record behind ``request_answer``, with the view logged."""
+
+        reach = request_in_scope(feedback_id)
+        require(profile, APPROVE)
+        reach(profile)
+        linked = next(
+            (
+                row["answer_id"]
+                for row in team_feedback(profile, helpful=False)
+                if row["id"] == feedback_id
+            ),
+            None,
+        )
+        if linked is None:
+            raise answer_not_found()
+        wanted = linked if answer_id is None else answer_id
+
+        def allow(row: dict[str, Any]) -> bool:
+            if row["id"] == linked:
+                return True
+            head = kb.store.answer_record(linked)
+            return (
+                head is not None
+                and row["id"] in earlier_shown(head["earlier_answer_ids"])
+                and (row["user_id"], row["case_id"]) == (head["user_id"], head["case_id"])
+            )
+
+        try:
+            viewed = kb.store.view_answer(
+                wanted,
+                viewer=user_id(profile),
+                allow=allow,
+                authorize=recheck(request, profile, APPROVE, reach),
+            )
+        except AnswerNotFoundError:
+            raise answer_not_found() from None
+        return viewed
+
+    @router.get("/assistant/knowledge/feedback/{feedback_id}/answer")
+    def linked_answer(feedback_id: int, profile: Actor, request: Request) -> dict[str, Any]:
+        return request_answer(feedback_id, None, profile, request)
+
+    @router.get("/assistant/knowledge/feedback/{feedback_id}/fix-start")
+    def fix_start(feedback_id: int, profile: Actor, request: Request) -> dict[str, Any]:
+        """Where a Director's fix can start: a title from the blocker type and the lines the
+        AI wrote that were left out (or shown though not allowed), redacted against the
+        request's case loaded with this Director's own session. Reading the record is a
+        logged view; a request without one is "not found" (the form starts empty). No model
+        is called and nothing is saved: the fix is saved, and checked, only on Save."""
+
+        reach = request_in_scope(feedback_id)
+        require(profile, APPROVE)
+        reach(profile)
+        row = next(row for row in team_feedback(profile, helpful=False) if row["id"] == feedback_id)
+        if row["answer_id"] is None:
+            raise answer_not_found()
+        # The case first: if this Director cannot load it, nothing is read or logged.
+        snapshot = load_case(UUID(row["case_id"]), request)
+        redact = Redactor(build_case_facts(snapshot), parties=case_parties(snapshot.summary)).redact
+        record = request_record(feedback_id, None, profile, request)
+        return {
+            "title": fix_title(row["blocker_codes"]),
+            "lines": fix_start_lines(record, redact),
+        }
+
+    @router.get("/assistant/knowledge/feedback/{feedback_id}/answers/{answer_id}")
+    def earlier_answer(
+        feedback_id: int, answer_id: str, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        if not re.fullmatch(ANSWER_ID, answer_id):
+            raise answer_not_found()
+        return request_answer(feedback_id, answer_id, profile, request)
 
     # --- who may do what (for the UI; the endpoints check again) --------------------
 
@@ -485,6 +675,21 @@ def knowledge_router(
 
         require(profile, APPROVE)
         reach(profile)
+        # A fix started from the AI's answer may not gain a placeholder in an edit either
+        # (one left by redaction on save stays the reviewer's to judge). Other entries keep
+        # main's behaviour, where a reviewer may add one (e.g. a follow-up about "[UEN]").
+        shown = kb.store.get(entry_id, version)
+        if shown is not None and shown.started_from_answer:
+            had = set(placeholders_left(shown.title, shown.body, *shown.follow_ups))
+            added = [
+                token
+                for token in placeholders_left(
+                    body.title or "", body.body or "", *(body.follow_ups or ())
+                )
+                if token not in had
+            ]
+            if added:
+                raise placeholder_refused(added)
         changes: dict[str, Any] = {}
         for name in ("title", "body", "replaces"):
             value = getattr(body, name)
@@ -597,17 +802,22 @@ def knowledge_router(
 
         require(profile, APPROVE)
         reach(profile)
+        # A fix started from the AI's answer must not keep its placeholders: they stand for
+        # this client's details and would read as a rule about "[ADDRESS]".
+        left = placeholders_left(body.title, body.body, *body.follow_ups)
+        if left:
+            raise placeholder_refused(left)
         author = user_id(profile)
         # The fix is written from a client's case: redact it against that case's values and
         # parties (loaded with this Director's own session; a case they cannot load stops the
         # change), then the identifier patterns. The reviewer sees the result before it can go
         # live.
-        case_id = next(
-            row["case_id"]
-            for row in team_feedback(profile, helpful=False)
-            if row["id"] == feedback_id
+        request_row = next(
+            row for row in team_feedback(profile, helpful=False) if row["id"] == feedback_id
         )
-        snapshot = load_case(UUID(case_id), request)
+        # Only a request with an answer record can have a fix started from it.
+        started = body.started_from_answer and request_row["answer_id"] is not None
+        snapshot = load_case(UUID(request_row["case_id"]), request)
         redact = Redactor(build_case_facts(snapshot), parties=case_parties(snapshot.summary)).redact
 
         def build(row: dict[str, Any]) -> Entry:
@@ -619,7 +829,7 @@ def knowledge_router(
                     body=body.body,
                     redact=redact,
                     follow_ups=body.follow_ups,
-                )
+                ).with_changes(started_from_answer=started)
             assert target is not None
             current = kb.store.current(target)
             visibility = (
@@ -644,6 +854,7 @@ def knowledge_router(
                 visibility=visibility,
                 source_ref=body.source_ref,
                 author=author,
+                started_from_answer=started,
             )
 
         try:

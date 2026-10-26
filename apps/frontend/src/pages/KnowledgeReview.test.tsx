@@ -4,7 +4,9 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import KnowledgeReview from "./KnowledgeReview";
+import type { AnswerRecord } from "../aiAssistant";
+import KnowledgeReview, { age } from "./KnowledgeReview";
+import { suggestedCause } from "./RequestPage";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -114,6 +116,13 @@ function button(view: HTMLElement, text: string): HTMLButtonElement {
   const found = [...view.querySelectorAll("button")].find((b) => b.textContent === text);
   if (!found) throw new Error(`no button ${text}`);
   return found;
+}
+
+/** Open a request's page from its row in the queue; the section where its fix is written. */
+async function openFix(view: HTMLElement, id: number): Promise<HTMLElement> {
+  act(() => view.querySelector<HTMLButtonElement>(`[data-open-request="${id}"]`)?.click());
+  await flush();
+  return view.querySelector('[aria-labelledby="request-page-fix"]') as HTMLElement;
 }
 
 describe("KnowledgeReview", () => {
@@ -239,7 +248,7 @@ describe("KnowledgeReview", () => {
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    const request = await openFix(view, 7);
     expect(button(request, "Close with reason").disabled).toBe(true);
     const reason = request.querySelector(":scope > label input");
     type(reason, "   ");
@@ -257,7 +266,7 @@ describe("KnowledgeReview", () => {
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    const request = await openFix(view, 7);
     const save = () => button(request, "Save the fix for review");
     expect(save().disabled).toBe(true);
     const fields = request.querySelectorAll("fieldset input, fieldset textarea");
@@ -282,7 +291,7 @@ describe("KnowledgeReview", () => {
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    const request = view.querySelector('[aria-label="Enhancement request 7"]') as HTMLElement;
+    const request = await openFix(view, 7);
     choose(request.querySelector("fieldset select"), "guidance");
     choose(request.querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
     const inputs = () => request.querySelectorAll("fieldset input, fieldset textarea");
@@ -354,7 +363,8 @@ describe("KnowledgeReview", () => {
     );
     const view = render();
     await flush();
-    type(view.querySelector('[aria-label="Enhancement request 7"] > label input'), "Duplicate.");
+    const request = await openFix(view, 7);
+    type(request.querySelector(":scope > label input"), "Duplicate.");
     act(() => button(view, "Close with reason").click());
     await flush();
     expect(view.querySelector("[role=alert]")?.textContent).toBe("This request was already handled. Refresh and try again.");
@@ -436,8 +446,8 @@ describe("KnowledgeReview dialog focus", () => {
     const controls = dialogControls(view);
     const [first, last] = [controls[0], controls[controls.length - 1]];
     expect(first.getAttribute("aria-label")).toBe("Close knowledge review");
-    // The last enabled control: the request's "Reason for closing" (Close with reason waits for it).
-    expect(last).toBe(view.querySelector('[aria-label="Enhancement request 7"] > label input'));
+    // The last enabled control: the request's row (its fix is written on its request page).
+    expect(last).toBe(view.querySelector('[data-open-request="7"]'));
 
     // Shift+Tab from the heading (where focus starts) goes to the last control, not out.
     expect(press("Tab", true).defaultPrevented).toBe(true);
@@ -455,5 +465,457 @@ describe("KnowledgeReview dialog focus", () => {
     (document.activeElement as HTMLElement).blur();
     expect(press("Tab").defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(first);
+  });
+});
+
+const RECORD = {
+  answer_id: "A".repeat(22),
+  case_id: "case-1",
+  created_at: "2026-10-25T00:00:00+00:00",
+  question: "Explain the registered address difference",
+  earlier_answer_ids: ["B".repeat(22)],
+  case_snapshot: { blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], stage: "Documents", steps_done: 3, steps_total: 10, facts_hash: "f".repeat(64) },
+  knowledge: {
+    confidence: "low",
+    degraded: false,
+    thresholds: { guidance: 0.3, resolution: 0.4 },
+    entries: [{ tag: "G1", kind: "guidance", entry_id: "guidance.environments", version: 1, score: 0.31, parts: {}, fallback: true }],
+  },
+  allowed_lines: [
+    { text: "Registry and document differences require the current case decision.", source: "policy" },
+    { text: 'The current case offers "Keep registry value".', source: "case" },
+    { text: "Ask for a certified copy of the register [G1].", source: "knowledge" },
+  ],
+  chosen_lines: [],
+  dropped_lines: ["The document says [ADDRESS] but ACRA says [ADDRESS]."],
+  shown_answer: "I found 1 issue stopping the onboarding of [COMPANY].",
+  result: {
+    answered_by: "case_data",
+    notices: ["The model response could not be verified, so this answer comes from the case data."],
+    fallback_reason: "nothing_allowed",
+    left_out: 1,
+    model: "m",
+    elapsed_ms: 2300,
+  },
+  rated: true,
+};
+
+const GAP = { id: 7, note: "It did not show the two addresses.", blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], fields: [], stages: [], created_at: "" };
+
+function reviewWith(gap: Record<string, unknown>, fetched: string[], record: unknown = RECORD) {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    fetched.push(url);
+    if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [gap] });
+    if (url.endsWith("/knowledge/stats")) {
+      return json({ entries: {}, feedback: { total: 1, helpful: 0, not_helpful: 1, helpful_rate: 0, open_gaps: 1 }, by_topic: {} });
+    }
+    if (url.endsWith("/knowledge/entries")) return json([]);
+    if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
+    if (url.endsWith("/knowledge/feedback/7/answer")) return json(record);
+    if (url.endsWith(`/knowledge/feedback/7/answers/${"B".repeat(22)}`)) {
+      return json({ ...RECORD, answer_id: "B".repeat(22), question: "What should I do next?", shown_answer: "Keep the registry value.", result: { ...RECORD.result, notices: [] } });
+    }
+    return json({}, 404);
+  }));
+}
+
+function openRequestPage(view: HTMLDivElement): void {
+  act(() => view.querySelector<HTMLButtonElement>('[data-open-request="7"]')?.click());
+}
+
+function openEarlier(view: HTMLElement): HTMLDetailsElement | null {
+  const earlier = view.querySelector<HTMLDetailsElement>(".request-page-earlier");
+  act(() => {
+    if (earlier) {
+      earlier.open = true;
+      earlier.dispatchEvent(new Event("toggle"));
+    }
+  });
+  return earlier;
+}
+
+describe("The enhancement request page", () => {
+  it("opens full width, loads the record only then, and shows what the RM saw", async () => {
+    const fetched: string[] = [];
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, fetched);
+    const view = render();
+    await flush();
+    // Nothing is fetched (and so no view is logged) until the Director opens the request.
+    expect(fetched.some((url) => url.includes("/answer"))).toBe(false);
+    openRequestPage(view);
+    await flush();
+    expect(fetched.filter((url) => url.endsWith("/knowledge/feedback/7/answer"))).toHaveLength(1);
+    expect(view.querySelector(".knowledge-review-page")).not.toBeNull();
+    expect(document.activeElement?.textContent).toBe("Enhancement request 7");
+    const saw = view.querySelector('[aria-labelledby="request-page-saw"]');
+    expect(saw?.querySelector(".request-page-question")?.textContent).toBe("Explain the registered address difference");
+    expect(saw?.querySelector(".request-page-answer-text")?.textContent).toBe("I found 1 issue stopping the onboarding of [COMPANY].");
+    expect(saw?.querySelector(".request-page-notice")?.textContent).toContain("could not be verified");
+    expect(saw?.querySelector(".request-page-note")?.textContent).toBe("It did not show the two addresses.");
+    // The earlier answers of the chat, folded under the exchange and closed by default: none is
+    // fetched (or logged as viewed) until the Director opens them.
+    const earlier = saw?.querySelector<HTMLDetailsElement>(".request-page-earlier");
+    expect(earlier?.open).toBe(false);
+    expect(earlier?.querySelector("summary")?.textContent).toBe("Earlier in this chat (1)");
+    expect(earlier?.previousElementSibling?.classList.contains("request-page-exchange")).toBe(true);
+    expect(fetched.some((url) => url.includes("/answers/"))).toBe(false);
+    openEarlier(view);
+    await flush();
+    expect(fetched.filter((url) => url.includes("/answers/"))).toHaveLength(1);
+    expect(earlier?.textContent).toContain("What should I do next?");
+    // The fix is written on the page, below what happened.
+    const fix = view.querySelector('[aria-labelledby="request-page-fix"]');
+    expect(fix?.querySelector("legend")?.textContent).toBe("Write the fix");
+    expect(view.querySelector(".request-page-columns")?.compareDocumentPosition(fix as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // Back returns to the review window, with focus on the row that opened the page.
+    act(() => [...view.querySelectorAll("button")].find((b) => b.textContent?.includes("Back to Knowledge review"))?.click());
+    await flush();
+    expect(view.querySelector(".knowledge-review-page")).toBeNull();
+    expect(document.activeElement).toBe(view.querySelector('[data-open-request="7"]'));
+  });
+
+  it("explains why the AI answered this way", async () => {
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, []);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    const why = view.querySelector('[aria-labelledby="request-page-why"]');
+    const cause = why?.querySelector('[aria-label="Suggested cause"]');
+    expect(cause?.querySelector(".request-page-cause-label")?.textContent).toBe("Rule-based hint, not a verdict");
+    expect(cause?.querySelector(".request-page-cause-title")?.textContent).toBe("Catalog gap: no allowed line matched");
+    const dropped = why?.querySelector("del");
+    expect(dropped?.textContent).toBe("The document says [ADDRESS] but ACRA says [ADDRESS].");
+    expect(dropped?.nextElementSibling?.textContent).toContain("Not an allowed line");
+    const rows = [...(why?.querySelectorAll(".request-page-table tbody tr") ?? [])].map((row) => row.textContent);
+    expect(rows).toEqual(["G1guidance.environments v1 (stage guidance)0.310.3"]);
+    const allowed = why?.querySelector(".request-page-allowed");
+    expect(allowed?.querySelector("summary")?.textContent).toBe("All allowed lines (3)");
+    expect([...(allowed?.querySelectorAll(".request-page-tag") ?? [])].map((tag) => tag.textContent)).toEqual(["Policy", "Case", "Knowledge"]);
+    expect(why?.textContent).toContain("3 of 10 done");
+  });
+
+  it("tags the lines shown to the RM by where they come from", async () => {
+    const shown = { ...RECORD, chosen_lines: ['The current case offers "Keep registry value".'], dropped_lines: [], result: { ...RECORD.result, answered_by: "model", fallback_reason: null, left_out: 0 } };
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, [], shown);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    const line = view.querySelector('[aria-labelledby="request-page-why"] .request-page-lines li');
+    expect(line?.querySelector(".request-page-tag")?.textContent).toBe("Case");
+    expect(line?.textContent).toContain("Keep registry value");
+  });
+
+  it("Escape on the request page goes back to the review window", async () => {
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, []);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    act(() => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    await flush();
+    expect(view.querySelector(".knowledge-review-page")).toBeNull();
+    expect(view.textContent).toContain("Enhancement requests (1)");
+  });
+
+  it("says a request has no answer record, shows the note, and loads nothing", async () => {
+    const fetched: string[] = [];
+    reviewWith({ ...GAP, answer_id: null }, fetched);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    expect(view.querySelector(".knowledge-review-page")).not.toBeNull();
+    const page = view.querySelector('[aria-labelledby="request-page-no-record"]');
+    expect(page?.querySelector("h3")?.textContent).toBe("No answer record for this request");
+    expect(page?.querySelector(".request-page-note")?.textContent).toBe("It did not show the two addresses.");
+    // No What happened sections, and no record request (so no view is logged).
+    expect(view.querySelector('[aria-labelledby="request-page-why"]')).toBeNull();
+    expect(view.querySelector('[aria-labelledby="request-page-saw"]')).toBeNull();
+    expect(fetched.some((url) => url.includes("/answer"))).toBe(false);
+  });
+});
+
+describe("The enhancement request queue and page", () => {
+  it("lists each request as one row with its question, note, blocker types and age", async () => {
+    const made = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    reviewWith({ ...GAP, answer_id: "A".repeat(22), question: "Explain the registered address difference", created_at: made }, []);
+    const view = render();
+    await flush();
+    const row = view.querySelector<HTMLButtonElement>('[data-open-request="7"]');
+    expect(row?.getAttribute("aria-label")).toBe("Open enhancement request 7");
+    expect([...(row?.children ?? [])].map((part) => part.textContent)).toEqual([
+      "Explain the registered address difference",
+      "It did not show the two addresses.",
+      "DOCUMENT_SOURCE_CONFLICT · 3 days ago",
+    ]);
+    // The fix form is no longer in the queue.
+    expect(view.querySelector("fieldset")).toBeNull();
+  });
+
+  it("says when an earlier answer is no longer available", async () => {
+    const fetched: string[] = [];
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, fetched, { ...RECORD, earlier_answer_ids: ["C".repeat(22)] });
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    const earlier = openEarlier(view);
+    await flush();
+    expect(earlier?.textContent).toContain("This earlier answer is no longer available.");
+  });
+
+  it("shows a record from the first build of answer records without breaking", async () => {
+    // Saved before allowed lines were tagged and thresholds recorded (and repaired with no
+    // shown answer): the page still renders.
+    const early = {
+      ...RECORD,
+      shown_answer: "",
+      allowed_lines: ["Registry and document differences require the current case decision; neither source automatically overrides the other."],
+      knowledge: { confidence: null, degraded: null, entries: [] },
+    };
+    reviewWith({ ...GAP, answer_id: "A".repeat(22) }, [], early);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    const why = view.querySelector('[aria-labelledby="request-page-why"]');
+    expect(why?.textContent).toContain("Thresholds: not recorded");
+    expect(why?.querySelector(".request-page-allowed summary")?.textContent).toBe("All allowed lines (1)");
+    expect(why?.querySelectorAll(".request-page-allowed .request-page-tag")).toHaveLength(0);
+    expect(view.querySelector(".request-page-answer-text")?.textContent).toBe("The answer text was not kept for this record.");
+  });
+
+  it("writes the fix on a request page without a record too", async () => {
+    reviewWith({ ...GAP, answer_id: null }, []);
+    const view = render();
+    await flush();
+    openRequestPage(view);
+    await flush();
+    expect(view.querySelector('[aria-labelledby="request-page-fix"] legend')?.textContent).toBe("Write the fix");
+  });
+});
+
+describe("A fix started from the AI's answer", () => {
+  const START = { title: "Document source conflict", lines: ["Ask [COMPANY] for the tenancy agreement.", "Then check [ADDRESS] on it."] };
+  const CURRENT = { ...GUIDANCE, body: "Keep the registry address until the client confirms the move." };
+
+  function prefillBackend(calls: { url: string; body: unknown }[], gap: Record<string, unknown> = { ...GAP, answer_id: "A".repeat(22) }) {
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      fetched.push(url);
+      if (init?.method === "POST") calls.push({ url, body: JSON.parse(String(init.body)) });
+      if (url.endsWith("/knowledge/reviews")) return json({ pending: [{ ...PENDING, started_from_answer: true }], gaps: [gap] });
+      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 1, helpful: 0, not_helpful: 1, helpful_rate: 0, open_gaps: 1 }, by_topic: {} });
+      if (url.endsWith("/knowledge/entries")) return json([CURRENT]);
+      if (url.endsWith("/knowledge/me")) return json({ user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true });
+      if (url.endsWith("/knowledge/feedback/7/answer")) return json(RECORD);
+      if (url.endsWith("/knowledge/feedback/7/fix-start")) return json(START);
+      if (url.endsWith("/draft")) return json({ ...PENDING, entry_id: "resolution.new" });
+      return json({}, 404);
+    }));
+    return fetched;
+  }
+
+  async function openWithStart(): Promise<HTMLElement> {
+    const view = render();
+    await flush();
+    act(() => view.querySelector<HTMLButtonElement>('[data-open-request="7"]')?.click());
+    await flush();
+    return view;
+  }
+
+  const fixArea = (view: HTMLElement) => view.querySelector('[aria-labelledby="request-page-fix"]') as HTMLElement;
+  const bodyOf = (view: HTMLElement) => fixArea(view).querySelectorAll<HTMLTextAreaElement>("fieldset textarea")[0];
+
+  it("prefills the title and the AI's left-out lines, says so and marks the placeholders", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    const fix = fixArea(view);
+    expect(fix.querySelector<HTMLInputElement>("fieldset input")?.value).toBe("Document source conflict");
+    expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
+    expect(fix.querySelector('[role="note"] p')?.textContent).toBe(
+      "Started from the AI's answer. Rewrite it as general guidance and remove anything specific to this client.",
+    );
+    expect([...fix.querySelectorAll(".knowledge-review-placeholders mark")].map((mark) => mark.textContent)).toEqual(["[COMPANY]", "[ADDRESS]"]);
+    // Nothing is saved until Save.
+    expect(calls).toEqual([]);
+  });
+
+  it("does not allow Save while a placeholder is left, and says which to rewrite", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    const save = () => button(fixArea(view), "Save the fix for review");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")?.textContent).toBe(
+      "Rewrite [COMPANY], [ADDRESS] in general terms before saving.",
+    );
+    expect(save().disabled).toBe(true);
+    act(() => save().click());
+    await flush();
+    expect(calls).toEqual([]);
+    // One left (any [UPPERCASE] token counts, in the title too): still not allowed.
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    type(fixArea(view).querySelector("fieldset input"), "Lease for [NAME]");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")?.textContent).toBe(
+      "Rewrite [NAME] in general terms before saving.",
+    );
+    expect(save().disabled).toBe(true);
+    // A knowledge tag is not a placeholder.
+    type(fixArea(view).querySelector("fieldset input"), "Lease for a moved office [G1]");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")).toBeNull();
+    expect(save().disabled).toBe(false);
+  });
+
+  it("records on Save that the fix started from the AI's answer", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    act(() => button(fixArea(view), "Save the fix for review").click());
+    await flush();
+    expect(calls.map((call) => call.url.split("/api/assistant")[1])).toEqual(["/knowledge/feedback/7/draft"]);
+    expect(calls[0].body).toEqual({
+      kind: "resolution",
+      title: "Document source conflict",
+      body: "Ask the client for the tenancy agreement for the new address.",
+      follow_ups: [],
+      started_from_answer: true,
+    });
+  });
+
+  it("Clear empties the form, and a fix saved after it is not marked", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    prefillBackend(calls);
+    const view = await openWithStart();
+    act(() => button(fixArea(view), "Clear").click());
+    expect(bodyOf(view).value).toBe("");
+    expect(fixArea(view).querySelector('[role="note"]')).toBeNull();
+    const inputs = () => fixArea(view).querySelectorAll("fieldset input, fieldset textarea");
+    type(inputs()[0], "Proof list for moved offices");
+    type(inputs()[1], "Ask for the tenancy agreement before changing the address.");
+    act(() => button(fixArea(view), "Save the fix for review").click());
+    await flush();
+    expect(calls[0].body).not.toHaveProperty("started_from_answer");
+  });
+
+  it("starts a guidance change from its current title and approved text, with the AI's lines below", async () => {
+    prefillBackend([]);
+    const view = await openWithStart();
+    const title = () => fixArea(view).querySelector<HTMLInputElement>("fieldset input")?.value;
+    choose(fixArea(view).querySelector("fieldset select"), "guidance");
+    // New guidance: what the fix was started with.
+    expect(title()).toBe("Document source conflict");
+    expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
+    choose(fixArea(view).querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
+    // Existing guidance keeps its own title, not the blocker type.
+    expect(title()).toBe("Registered address differs from ACRA");
+    expect(bodyOf(view).value).toBe(
+      "Keep the registry address until the client confirms the move.\nAsk [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.",
+    );
+    // Back to new guidance: the started title and text again.
+    choose(fixArea(view).querySelectorAll("fieldset select")[1], "");
+    expect(title()).toBe("Document source conflict");
+    expect(bodyOf(view).value).toBe("Ask [COMPANY] for the tenancy agreement.\nThen check [ADDRESS] on it.");
+  });
+
+  it("keeps what the Director rewrote when the kind or the guidance changes", async () => {
+    prefillBackend([]);
+    const view = await openWithStart();
+    const title = () => fixArea(view).querySelector<HTMLInputElement>("fieldset input");
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    choose(fixArea(view).querySelector("fieldset select"), "guidance");
+    choose(fixArea(view).querySelectorAll("fieldset select")[1], "guidance.address-mismatch");
+    // The rewritten text stays; the untouched title follows the chosen guidance.
+    expect(bodyOf(view).value).toBe("Ask the client for the tenancy agreement for the new address.");
+    expect(title()?.value).toBe("Registered address differs from ACRA");
+    type(title(), "Moved office proof");
+    choose(fixArea(view).querySelector("fieldset select"), "resolution");
+    expect(title()?.value).toBe("Moved office proof");
+  });
+
+  it("does not block a guidance change over follow-ups it does not show", async () => {
+    prefillBackend([]);
+    const view = await openWithStart();
+    const inputs = () => fixArea(view).querySelectorAll("fieldset input, fieldset textarea");
+    type(bodyOf(view), "Ask the client for the tenancy agreement for the new address.");
+    type(inputs()[2], "Is [UEN] right?"); // follow-ups, a past case's field
+    expect(button(fixArea(view), "Save the fix for review").disabled).toBe(true);
+    choose(fixArea(view).querySelector("fieldset select"), "guidance");
+    type(fixArea(view).querySelectorAll("fieldset input")[1], "docs/decisions/DECISION_LOG.md#D-030");
+    expect(fixArea(view).querySelector(".knowledge-review-placeholders")).toBeNull();
+    expect(button(fixArea(view), "Save the fix for review").disabled).toBe(false);
+  });
+
+  it("does not overwrite what the Director typed before the start arrived", async () => {
+    let arrive: (value: Response) => void = () => undefined;
+    const rest = (() => {
+      prefillBackend([]);
+      return globalThis.fetch;
+    })();
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/fix-start") ? new Promise<Response>((resolve) => { arrive = resolve; }) : rest(input, init),
+    ));
+    const view = await openWithStart();
+    type(fixArea(view).querySelector("fieldset input"), "My own title");
+    await act(async () => {
+      arrive(json(START));
+    });
+    await flush();
+    expect(fixArea(view).querySelector<HTMLInputElement>("fieldset input")?.value).toBe("My own title");
+    expect(bodyOf(view).value).toBe("");
+    expect(fixArea(view).querySelector('[role="note"]')).toBeNull();
+  });
+
+  it("gives a request without an answer record an empty form and asks for no start", async () => {
+    const fetched = prefillBackend([], { ...GAP, answer_id: null });
+    const view = await openWithStart();
+    expect(bodyOf(view).value).toBe("");
+    expect(fixArea(view).querySelector('[role="note"]')).toBeNull();
+    expect(fetched.some((url) => url.includes("/fix-start"))).toBe(false);
+  });
+
+  it("shows in the review queue that a version started from the AI's answer", async () => {
+    prefillBackend([]);
+    const view = render();
+    await flush();
+    const card = view.querySelector('[aria-label="Review Draft: Document or reconciliation review required"]');
+    expect(card?.querySelector(".knowledge-review-meta")?.textContent).toContain("· started from the AI's answer");
+  });
+});
+
+describe("age", () => {
+  it("says how many whole days ago a request was made", () => {
+    const now = Date.parse("2026-10-25T12:00:00Z");
+    expect(age("2026-10-25T01:00:00Z", now)).toBe("today");
+    expect(age("2026-10-24T11:00:00Z", now)).toBe("1 day ago");
+    expect(age("2026-10-20T12:00:00Z", now)).toBe("5 days ago");
+    expect(age("", now)).toBe("age unknown");
+  });
+});
+
+describe("suggestedCause", () => {
+  const base = RECORD as unknown as AnswerRecord;
+  const used = { ...base.knowledge };
+  const none = { ...base.knowledge, entries: [] };
+
+  it("follows the three rules in order", () => {
+    expect(suggestedCause({ ...base, chosen_lines: [], dropped_lines: ["x"], knowledge: none })?.title)
+      .toBe("Catalog gap: no allowed line matched");
+    expect(suggestedCause({ ...base, chosen_lines: ["a"], dropped_lines: [], result: { ...base.result, left_out: 0, fallback_reason: null }, knowledge: none })?.title)
+      .toBe("No knowledge found");
+    expect(suggestedCause({ ...base, chosen_lines: ["a"], dropped_lines: ["x"], result: { ...base.result, left_out: 1, fallback_reason: null }, knowledge: used })?.title)
+      .toBe("Missing knowledge");
+    expect(suggestedCause({ ...base, chosen_lines: ["a"], dropped_lines: [], result: { ...base.result, left_out: 0, fallback_reason: null }, knowledge: used }))
+      .toBeNull();
+  });
+
+  it("gives no hint when the model was not available", () => {
+    expect(suggestedCause({ ...base, chosen_lines: [], dropped_lines: [], result: { ...base.result, left_out: 0, fallback_reason: "model_unavailable" }, knowledge: none }))
+      .toBeNull();
   });
 });

@@ -780,16 +780,23 @@ def test_directors_can_retire_with_two_people_and_see_stats(kb: KnowledgeBase) -
     }
 
 
+# Seeding uses the current store; an older shape has none of the schema v5 tables.
+DROP_V5_TABLES = (
+    "DROP TABLE answer_record_keeps; DROP TABLE answer_record_views; DROP TABLE answer_records;"
+)
+
+
 def test_a_store_from_before_this_change_is_migrated(tmp_path: Path) -> None:
     import sqlite3
 
     path = tmp_path / "old.sqlite3"
     KnowledgeStore(path)
     with sqlite3.connect(path) as db:
+        db.executescript(DROP_V5_TABLES)
         db.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
     assert store.entries() == []
 
 
@@ -859,7 +866,8 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
     seeded.decide(rule.entry_id, 1, reviewer="director-dan", approve=True)
     with sqlite3.connect(path) as db:
         db.executescript(
-            "ALTER TABLE reviews RENAME TO reviews_v4;"
+            DROP_V5_TABLES
+            + "ALTER TABLE reviews RENAME TO reviews_v4;"
             + V3_REVIEWS
             + "INSERT INTO reviews SELECT id, entry_id, version, reviewer, decision, notes,"
             " created_at FROM reviews_v4; DROP TABLE reviews_v4;"
@@ -878,7 +886,7 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
         before = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
         after = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
         assert (
             db.execute("SELECT name FROM sqlite_master WHERE name = 'feedback_v3'").fetchone()
@@ -969,7 +977,12 @@ def test_a_branch_only_v4_store_gains_its_missing_columns(tmp_path: Path, shape:
         entry_id=None,
     )
     with sqlite3.connect(path) as db:
-        db.executescript(EARLY_V4_SHAPES[shape])  # the version stays '4'
+        # A v4 store: no v5 tables, stamped '4', and missing this shape's v4 columns.
+        db.executescript(
+            DROP_V5_TABLES
+            + "UPDATE meta SET value = '4' WHERE key = 'schema_version';"
+            + EARLY_V4_SHAPES[shape]
+        )
         assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
     store = KnowledgeStore(path)  # repairs
     with sqlite3.connect(path) as db:
