@@ -275,6 +275,8 @@ Characters per request part for the saved synthetic fixtures (role `CLIENT_ONBOA
 
 Case-facts breakdown (address-conflict fixture, 6,026 chars of JSON): catalog lines 1,444; documents (extracted values) 1,285; blockers 863; steps 621; recent events 366; discrepancies 306; still-needed 289; company 244; page sections 144; overall 93; readiness 92; viewer 45; GoldTier 25.
 
+> **Correction (2026-10-26, Phase A1).** The waiting-for-documents rows above were measured with the address case's three documents attached. The repository tests and the A1 evaluation snapshots pair that fixture with no documents, which gives 3,307 characters of case facts instead of 4,605. See `AI_ASSISTANT_PHASE_A1_TOKEN_BREAKDOWN.md` for the corrected, snapshot-based breakdown. The other figures in this section are unaffected.
+
 **Estimated tokens (ESTIMATE, 3–4 chars/token, tokenizer not run):** about 2,100–3,900 input tokens per request on these fixtures. Exact counts are UNKNOWN until a tokenizer or provider `usage` is captured.
 
 The earlier speed work's "about 35% fewer characters" claim is consistent with the measurement: the old full fact sheet is 9,094 chars versus 6,073 now for the same fixture (−33%).

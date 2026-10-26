@@ -992,7 +992,8 @@ A-7) adds two assistant-internal parts and changes no answer. `ai_assistant/tele
 owns content-free per-answer metrics: off by default, built only when a sink is in use, every
 field validated as a count, timing, closed code or opaque hash, and a failing sink never
 reaches the answer. `main.py` records one metric per explicit question through that seam and
-gains `create_app(metrics=, on_prepared=)` injection seams that are never set from settings.
+gains `create_app(metrics=, on_prepared=, retrieval_clock=)` injection seams that are
+never set from settings (the clock seam defaults to the current time, as before).
 `assistant_eval/` is a separate, dev-only package that drives the real `create_app` over
 synthetic scenarios with a mock CLM transport, a temporary knowledge base and code-default
 settings, and scores line selection deterministically; `ai_assistant` never imports it and its

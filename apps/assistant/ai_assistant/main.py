@@ -18,6 +18,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
@@ -236,18 +237,21 @@ def create_app(
     knowledge: KnowledgeBase | None = None,
     metrics: MetricsSink | None = None,
     on_prepared: Callable[[Prepared], None] | None = None,
+    retrieval_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     """``metrics`` overrides the ``telemetry`` setting (tests, offline evaluation).
 
-    ``on_prepared`` is an in-process seam for the offline evaluation harness only: it sees
-    each question's case facts, prompt and allowed lines. It is never set from settings and
-    must not be given anything that keeps non-synthetic data.
+    ``on_prepared`` and ``retrieval_clock`` are in-process seams for the offline evaluation
+    harness only, never set from settings. ``on_prepared`` sees each question's case facts,
+    prompt and allowed lines, so it must not be given anything that keeps non-synthetic
+    data. ``retrieval_clock`` fixes "now" for knowledge recency so a frozen evaluation does
+    not change with the date; left out, retrieval uses the current time as before.
     """
 
     config = settings or AiAssistantSettings()
     recorder = MetricsRecorder(metrics if metrics is not None else sink_for(config.telemetry))
     retriever = (
-        Retriever(knowledge, settings_from(config))
+        Retriever(knowledge, settings_from(config), clock=retrieval_clock)
         if knowledge is not None and config.knowledge_enabled
         else None
     )

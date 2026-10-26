@@ -3,8 +3,8 @@
 | Item | Value |
 |---|---|
 | Date | 2026-10-26 |
-| Source revision | `feat/assistant-phase-a1-20261026` at product commit `d860153` (tree `f17e645`) |
-| Inputs | `apps/assistant/tests/fixtures/eval/snapshots.json` (84 frozen questions, sha256 `c931f58eec30c8b2…`) and harness telemetry (`MemorySink` `part_chars`) from offline runs |
+| Source revision | `feat/assistant-phase-a1-20261026`, remediated content after Quality Gate finding F-1 (retrieval clock fixed in the harness) |
+| Inputs | `apps/assistant/tests/fixtures/eval/snapshots.json` (84 frozen questions, sha256 `9341411d512d3beb…`, rebuilt after F-1) and harness telemetry (`MemorySink` `part_chars`) from offline runs |
 | Retrieval mode | Embeddings off (keyword + case context), as recorded in the snapshots |
 | Model calls / OpenRouter requests / spend | none / none (not even metadata) / US$0.00 |
 
@@ -56,12 +56,16 @@ steps 621; recent events 366; discrepancies 306; still needed before GoldTier 28
 History is what the panel sends back: earlier questions and the answers the user saw,
 trimmed by the service to 8 messages and 2,400 characters (700 per turn).
 
-| Turn | Mean total chars (answers = 2 allowed lines) | Mean history chars | Mean total chars (answers = case-data fallback) | Mean / max history chars |
+| Turn | Mean total chars (answers = 2 allowed lines) | Mean / max history chars | Mean total chars (answers = case-data fallback) | Mean / max history chars |
 |---|---|---|---|---|
-| 1 | 9,187 | 0 | 9,187 | 0 / 0 |
-| 2 | 9,538 | 189 | 9,820 | 470 / 726 |
-| 3 | 9,715 | 377 | 10,341 | 1,003 / 1,453 |
-| 4 | 9,816 | 575 | 10,745 | 1,503 / 2,178 |
+| 1 | 9,187 | 0 / 0 | 9,187 | 0 / 0 |
+| 2 | 9,540 | 190 / 229 | 9,820 | 470 / 726 |
+| 3 | 9,739 | 401 / 448 | 10,341 | 1,003 / 1,453 |
+| 4 | 9,864 | 623 / 689 | 10,745 | 1,503 / 2,178 |
+
+The two-line answers are the evaluator self-test rule's lines (the first catalog line and the
+first knowledge line where one is offered), standing in for a short model selection; they
+are not a model result.
 
 History is small when answers are short allowed-line selections, and grows fastest when the
 model fails and the long case-data answer is sent back as history. The 2,400-character cap

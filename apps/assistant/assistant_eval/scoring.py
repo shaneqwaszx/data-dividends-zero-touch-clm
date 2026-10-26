@@ -8,7 +8,11 @@ Because an answer can only show allowed lines, most measures are exact:
   same question asked late in a conversation and on its own;
 - gold-based (only with gold): precision, recall and F1 of the shown lines against the
   relevant lines, primary-line hits, must-not violations, correct case-data answers, and
-  whether cited entries are relevant ones.
+  whether the model's cited entries are relevant ones.
+
+Conventions: a question where nothing was shown has precision 0 (and so F1 0) when it had
+relevant lines; two selections that are both empty (both answers fell back) count as
+consistent (Jaccard 1.0). Owner gold is used only once its lock verifies.
 
 Result kinds keep evaluator checks apart from model results:
 
@@ -24,7 +28,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import Any, Literal
 
-from .gold import GoldSet
+from .gold import GoldError, GoldLock, GoldSet, verify
 from .runner import RunResult, TurnResult
 from .scenarios import ScenarioSet
 from .snapshot import SnapshotSet
@@ -168,7 +172,8 @@ def gold_based(
         if turn.answered_by == "model" and turn.cited_entries:
             cited_turns += 1
             cited_correct += set(turn.cited_entries) <= _entries_of(label.relevant, snapshots)
-    precision_micro = _rate(tp, shown_total)
+    # Nothing shown where something was relevant is precision 0, not "undefined".
+    precision_micro = _rate(tp, shown_total) if shown_total else (0.0 if relevant_total else None)
     recall_micro = _rate(tp, relevant_total)
     f1_micro: float | None = None
     if precision_micro is not None and recall_micro is not None:
@@ -227,9 +232,14 @@ def score(
     scenario_set: ScenarioSet,
     snapshots: SnapshotSet,
     gold: GoldSet | None = None,
+    gold_lock: GoldLock | None = None,
 ) -> Scores:
-    """Score a run. ``gold`` must already be verified (``gold.verify``) when it is owner gold."""
+    """Score a run. Owner gold is used only with its lock, which is verified here."""
 
+    if gold is not None and gold.kind == "owner":
+        if gold_lock is None:
+            raise GoldError("owner gold is used only once it is locked")
+        verify(gold, gold_lock, snapshots)
     kind = result_kind(run.model, gold)
     tags_of = {
         scenario.turn_key(index): scenario.tags

@@ -3,12 +3,16 @@
 For each scenario the runner serves its synthetic case from a fake CLM backend
 (``httpx.MockTransport``), builds the knowledge the scenario names in a temporary folder
 (official guidance from the repository, plus the illustrative seed), and asks each question
-on ``/chat/stream`` exactly as the chat panel does. The knowledge store's clock is fixed so
-prompts do not change from day to day. Embeddings are off (no local model is assumed), so
+on ``/chat/stream`` exactly as the chat panel does. Both clocks are fixed to the same
+instant, so a frozen evaluation is a function of code and fixtures only: the knowledge
+store's (approval dates in the prompt) and retrieval's "now" (recency in the scores,
+``create_app(retrieval_clock=)``). Embeddings are off (no local model is assumed), so
 retrieval runs in its documented keyword-and-context mode; the snapshot records that.
 
-Settings are the code defaults: environment variables and ``.env`` files are ignored, so a
-developer's own configuration cannot change what is measured.
+The measured app uses the code-default settings: environment variables and ``.env`` files
+are ignored, so a developer's own configuration cannot change what is measured. (Importing
+``ai_assistant.main`` still builds that module's own app from the environment, as it
+always has; the harness never uses that app.)
 """
 
 import json
@@ -16,6 +20,7 @@ import shutil
 import tempfile
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
@@ -46,6 +51,7 @@ from .snapshot import (
 from .variants import CaseInputs, case_inputs
 
 STORE_CLOCK = "2026-10-26T00:00:00+00:00"
+EVAL_NOW = datetime.fromisoformat(STORE_CLOCK)
 EMBEDDER = "none (embeddings off: keyword and case-context retrieval)"
 ORIGIN = "http://127.0.0.1:5173"
 SESSION = "eval-session"
@@ -219,6 +225,7 @@ def run(
                 knowledge=space.knowledge(scenario.knowledge),
                 metrics=sink,
                 on_prepared=capture,
+                retrieval_clock=lambda: EVAL_NOW,
             )
             with TestClient(app, headers={"Origin": ORIGIN}) as client:
                 client.cookies.set("clm_session", SESSION)
@@ -305,6 +312,7 @@ def manifest(scenario_set: ScenarioSet) -> dict[str, str]:
         "prompt_version": prompt_version(),
         "embedder": EMBEDDER,
         "store_clock": STORE_CLOCK,
+        "retrieval_clock": STORE_CLOCK,
         "settings": "code defaults (environment and .env ignored)",
         "route": "/chat/stream",
         "scenarios": str(len(scenario_set.scenarios)),

@@ -153,13 +153,15 @@ def cmd_lock(_: argparse.Namespace) -> int:
     return 0
 
 
-def _owner_gold(snapshots: SnapshotSet) -> gold_mod.GoldSet | None:
+def _owner_gold(
+    snapshots: SnapshotSet,
+) -> tuple[gold_mod.GoldSet, gold_mod.GoldLock] | None:
     gold = _gold()
     if gold is None or not LOCK.exists():
         return None
     locked = gold_mod.GoldLock.model_validate_json(LOCK.read_text(encoding="utf-8"))
     gold_mod.verify(gold, locked, snapshots)
-    return gold
+    return gold, locked
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -167,6 +169,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     snapshots = _snapshots()
     make: Callable[[Capture], ChatModel]
     gold: gold_mod.GoldSet | None
+    gold_lock: gold_mod.GoldLock | None = None
     if args.model == "local":
         try:
             model = local_model(base_url=args.base_url, model=args.model_name)
@@ -175,10 +178,11 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 2
         make = lambda capture: model  # noqa: E731
         try:
-            gold = _owner_gold(snapshots)
+            owner = _owner_gold(snapshots)
         except gold_mod.GoldError as exc:
             print(f"owner gold not used: {exc}")
-            gold = None
+            owner = None
+        gold, gold_lock = owner if owner is not None else (None, None)
     else:
         gold = gold_mod.self_test_gold(snapshots)
         if args.model == "self-test-perfect":
@@ -192,7 +196,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             make = lambda capture: SelectorModel(selector(), capture)  # noqa: E731
     with Workspace() as workspace:
         result = run(scenarios, make, reps=args.reps, snapshots=snapshots, workspace=workspace)
-    scores = score(result, scenarios, snapshots, gold)
+    scores = score(result, scenarios, snapshots, gold, gold_lock)
     json_path, md_path = write(
         result,
         scores,

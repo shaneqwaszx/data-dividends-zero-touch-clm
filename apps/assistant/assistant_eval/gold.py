@@ -168,8 +168,10 @@ def verify(gold: GoldSet, gold_lock: GoldLock, snapshots: SnapshotSet) -> None:
 def self_test_gold(snapshots: SnapshotSet) -> GoldSet:
     """Gold made by a fixed rule, to check the evaluator only (never model quality).
 
-    Rule: the first offered line of each question is primary and relevant, the second is
-    relevant too, and the last offered line is must_not (when there are at least three).
+    Rule: the first offered line of each question is primary and relevant; the first offered
+    knowledge line is relevant too (or, when no knowledge was offered, the second line), so
+    knowledge selection and citations are exercised; the last offered line is must_not when
+    it is not already relevant and there are at least three lines.
     """
 
     turns: dict[str, GoldTurn] = {}
@@ -180,11 +182,17 @@ def self_test_gold(snapshots: SnapshotSet) -> GoldSet:
                 status="labelled", expect_fallback=True, labelled_by=SELF_TEST_LABELLER
             )
             continue
+        knowledge = [item.id for item in frozen.offered if item.tag is not None]
+        relevant = [ids[0]]
+        second = knowledge[0] if knowledge else (ids[1] if len(ids) > 1 else None)
+        if second is not None and second not in relevant:
+            relevant.append(second)
+        last = ids[-1]
         turns[key] = GoldTurn(
             status="labelled",
-            relevant=tuple(ids[:2]),
+            relevant=tuple(relevant),
             primary=(ids[0],),
-            must_not=(ids[-1],) if len(ids) >= 3 else (),
+            must_not=(last,) if len(ids) >= 3 and last not in relevant else (),
             expect_fallback=False,
             labelled_by=SELF_TEST_LABELLER,
         )

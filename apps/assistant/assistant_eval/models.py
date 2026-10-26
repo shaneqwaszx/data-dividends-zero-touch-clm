@@ -5,13 +5,14 @@ fixed rule (all gold lines, random lines, free prose, an injected instruction). 
 are labelled ``EVALUATOR_SELF_TEST`` and say nothing about any real model.
 
 A real model can only be a **local** one: its URL must be a literal loopback address
-(``ai_assistant.llm.is_local_model_url``) and no proxy may be configured in the environment,
-so the case facts in the prompt cannot leave the machine. Anything else is refused before a
-request is made.
+(``ai_assistant.llm.is_local_model_url``) and no proxy may be configured, in the environment
+or in the system settings the HTTP client reads, so the case facts in the prompt cannot
+leave the machine. Anything else is refused before a request is made.
 """
 
 import os
 import random
+import urllib.request
 from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
@@ -200,6 +201,14 @@ def local_model(
     env = os.environ if environ is None else environ
     if any(env.get(name) for name in PROXY_VARIABLES):
         raise RemoteModelRefusedError("unset proxy variables before evaluating a local model")
+    # The adapter's HTTP client also honours system proxies (the Windows registry and macOS
+    # settings, through urllib), so those must be empty too.
+    if environ is None and any(
+        value
+        for scheme, value in urllib.request.getproxies().items()
+        if scheme in ("http", "https", "all")
+    ):
+        raise RemoteModelRefusedError("remove system proxies before evaluating a local model")
     return OpenAICompatibleChatModel(
         base_url=base_url,
         model=model,

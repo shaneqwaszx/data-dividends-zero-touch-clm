@@ -7,7 +7,8 @@
 | Worktree | `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-a1-20261026` |
 | Branch | `feat/assistant-phase-a1-20261026` (no upstream set; not pushed at time of writing) |
 | `BASE_SHA` = `origin/main` at start | `1d039865bf5197a76add7f733128829bb05019ac` (fetched 2026-10-26) |
-| Candidate commit / tree | `d86015384b62c56c98739e6348b32cb0b4f15c24` / `f17e645cc1389f7d19ea7b07814d927c4d6038ff` |
+| First candidate (QG FAIL, F-1) | product `d86015384b62c56c98739e6348b32cb0b4f15c24` (tree `f17e645`), docs `7effd00a8d53df90c344fa510aeca66130cf1394` (tree `5a00fd2`) |
+| Remediated candidate (R1) | the remediation commit on top of `7effd00` (identity recorded by the re-QG; section 10 lists what changed) |
 | Change classes | `AUTH_RBAC_SECURITY` (logging), `ARCHITECTURE_REFACTOR` (new seams, dev-only package), `CI_TOOLING` (repository script), `DOCS_ONLY` |
 | Remote model calls / OpenRouter calls / spend | none / none / US$0.00 |
 
@@ -70,22 +71,22 @@ byte), the Phase A planner (A1 decisions recorded) and the investigation report.
 | External provider / provider status | None | — |
 | Architecture | New owner of per-answer metrics (`telemetry.py`), two `create_app` injection seams never set from settings, a dev-only package `assistant_eval` that `ai_assistant` never imports | `test_the_runtime_package_never_imports_the_harness`; ARCHITECTURE entry |
 
-## 3. Verification evidence (candidate tree `f17e645`)
+## 3. Verification evidence (remediated R1 content; earlier first-candidate rows marked)
 
 | Check | Command (from `apps/assistant` unless stated; repo `.venv`; `PYTHONPATH` pinned to the worktree) | Result |
 |---|---|---|
 | Baseline assistant suite on `1d03986` (before any change) | `python -m pytest --junitxml=…` | 1,190 tests: 1,183 passed, **7 failed** — all `OSError: [Errno 24] Too many open files` in `test_streaming_resources.py` (`test_loopback_total_deadline[*]` ×5, `test_real_chunked_http_enforces_budgets[oversized, many-frames]`); the same file alone: **80 passed** |
-| Full assistant suite on candidate | same | 1,270 tests: **1,263 passed, the same 7 environment failures**, 0 skipped, 161 s; `test_streaming_resources.py` alone: **80 passed** |
-| New tests | `pytest tests/test_telemetry.py tests/test_eval_harness.py` | **80 passed** (50 + 30) after the final snapshot format change |
-| Ruff | `ruff check ai_assistant assistant_eval tests scripts`; `ruff format --check …` | pass; 76 files formatted |
-| mypy (strict) | `mypy ai_assistant assistant_eval`; `mypy scripts/evaluate_answers.py` | no issues (36 + 1 files) |
-| Backend integration | `apps/backend`: `pytest tests/test_ai_assistant_main_integration.py` | **2 passed** (`mock`, `sandbox`) |
-| Frontend assistant tests | `apps/frontend`: `npx vitest run` on the 7 assistant test files | **7 files, 87 tests passed** (`node_modules` linked by a junction to the primary checkout's identical lockfile install; git-ignored) |
-| Assistant E2E | `apps/frontend`: `CLM_E2E_BACKEND_ORIGIN=http://127.0.0.1:8999 npx playwright test e2e/assistant-streaming.e2e.ts` | **1 passed**. The variable is only parsed by the test's network policy (`allowDirectBackend: false`); `run_e2e.py` normally supplies it |
-| Secret scan | `python scripts/check_secrets.py` (repo root) | pass (before commit; rerun in pre-PR) |
-| Architecture / project state | `python scripts/check_architecture.py`; `python scripts/check_project_state.py` | PASS / PASS |
-| Whitespace | `git diff --check`; trailing-space, tab and final-newline scan of every new file | clean |
-| Snapshot currency | `python scripts/evaluate_answers.py check` | current (84 turns, sha256 `c931f58eec30c8b2…`) |
+| Full assistant suite, R1 | same | 1,275 tests: **1,268 passed, the same 7 environment failures** (failure set identical to the baseline by junit comparison), 0 skipped, 159 s; `test_streaming_resources.py` alone: **80 passed**. (First candidate `f17e645`: 1,270 tests, 1,263 passed, same 7.) |
+| New tests, R1 | `pytest tests/test_telemetry.py tests/test_eval_harness.py` | **85 passed** (50 + 35) |
+| Ruff, R1 | `ruff check ai_assistant assistant_eval tests scripts`; `ruff format --check …` | pass; 76 files formatted |
+| mypy (strict), R1 | `mypy ai_assistant assistant_eval`; `mypy scripts/evaluate_answers.py` | no issues (36 + 1 files) |
+| Backend integration, R1 | `apps/backend`: `pytest tests/test_ai_assistant_main_integration.py` | **2 passed** (`mock`, `sandbox`) |
+| Frontend assistant tests (first candidate; reused) | `apps/frontend`: `npx vitest run` on the 7 assistant test files | **7 files, 87 tests passed** (`node_modules` linked by a junction to the primary checkout's identical lockfile install; git-ignored). R1 changes no frontend file and no API, so this evidence is reused |
+| Assistant E2E (first candidate; reused) | `apps/frontend`: `CLM_E2E_BACKEND_ORIGIN=http://127.0.0.1:8999 npx playwright test e2e/assistant-streaming.e2e.ts` | **1 passed**. The variable is only parsed by the test's network policy (`allowDirectBackend: false`); `run_e2e.py` normally supplies it. The test renders the panel against its own synthetic server, so R1 does not affect it |
+| Secret scan, R1 | `python scripts/check_secrets.py` (repo root) | pass (rerun in pre-PR) |
+| Architecture / project state, R1 | `python scripts/check_architecture.py`; `python scripts/check_project_state.py` | PASS / PASS |
+| Whitespace, R1 | `git diff --check`; trailing-space and tab scan of new and changed Markdown | clean |
+| Snapshot currency, R1 | `python scripts/evaluate_answers.py check` | current (84 turns, sha256 `9341411d512d3beb…`); independent of the date by `test_snapshots_do_not_change_with_the_date[1, 180]`. (The first candidate's "current" result, sha256 `c931f58e…`, was only true near build time: QG F-1.) |
 | `pre_pr_check.py` | — | NOT RUN YET (runs after the gate, on the committed integrated state) |
 | Hosted CI | — | NOT EXECUTED (assistant tests are not in `ci.yml`; hosted CI has been billing-blocked) |
 
@@ -105,15 +106,16 @@ raw ASGI with an `http.disconnect`).
 
 ### Evaluator self-test results (E0) — NOT model results
 
-All runs: 84 questions, embeddings off, synthetic self-test gold (fixed rule), result kind
-`EVALUATOR_SELF_TEST`.
+All runs: 84 questions, embeddings off, both clocks fixed (R1), synthetic self-test gold
+(fixed rule: first offered line, plus the first knowledge line where one is offered), result
+kind `EVALUATOR_SELF_TEST`. Re-run after remediation R1.
 
-| Self-test selector | Line validity | Fallback rate | Unsafe display | F1 (micro) | Notes |
-|---|---|---|---|---|---|
-| perfect (gold lines) | 1.0 | 0.0 | 0 | 1.0 | primary hit 1.0; consistency 1.0 |
-| random (seed 7, 2 reps) | 1.0 | 0.0 | 0 | 0.0786 | stability 0.058; reproducible for the seed |
-| free prose | 0.0 | 1.0 (`policy_no_allowed_line`) | 0 | — | nothing shown |
-| injected instruction + 1 allowed line | 0.2 | 0.0 | 0 | 0.667 | the 4 injected lines never shown |
+| Self-test selector | Line validity | Fallback rate | Unsafe display | F1 (micro) | Citations scored / correct | Notes |
+|---|---|---|---|---|---|---|
+| perfect (gold lines) | 1.0 | 0.0 | 0 | 1.0 | 77 / 1.0 | primary hit 1.0; consistency 1.0 |
+| random (seed 7, 2 reps) | 1.0 | 0.0 | 0 | 0.0762 | 139 / 0.10 | stability 0.058; 19 must-not hits; reproducible for the seed |
+| free prose | 0.0 | 1.0 (`policy_no_allowed_line`) | 0 | 0.0 (precision 0.0) | 0 / — | nothing shown |
+| injected instruction + 1 allowed line | 0.2 | 0.0 | 0 | 0.667 | 0 / — | the 4 injected lines never shown |
 
 These show the scorer and guards behave as their rules predict. They say nothing about
 Ministral, GPT-OSS or any other model.
@@ -129,6 +131,10 @@ round-trip and tamper refusal (in-memory, test-only labels); six incoherent gold
 refused; gold naming unoffered lines refused; drift flagged and excluded; five non-loopback
 URLs refused; proxy variables refused; runtime never imports the harness; reports start
 with their kind. A module-wide socket guard fails any non-loopback connection attempt.
+Added in R1: snapshots unchanged when the wall clock moves +1 and +180 days (fails without
+the F-1 fix, confirmed); the connection guard also covers asyncio connections and name
+lookups, with its own self-check; owner gold is scored only with a verified lock; nothing
+shown scores precision 0; system proxies refused; E0 now scores citations.
 
 ## 5. Deviations from the plan
 
@@ -147,11 +153,21 @@ with their kind. A module-wide socket guard fails any non-loopback connection at
    do it, and drifted questions are excluded from gold scores.
 7. Owner gold labels do not exist (A-6); E1 (local model baseline) is deferred (A-7). The
    labelling worksheet is generated on demand into `data/eval/` (not tracked).
-8. The retriever's recency score uses the wall clock while the store clock is fixed, so
-   retrieval scores decay slowly over months; `check` reports any resulting drift.
+8. ~~The retriever's recency score uses the wall clock while the store clock is fixed, so
+   retrieval scores decay slowly over months.~~ **Withdrawn (QG F-1):** that claim was wrong
+   (scores shifted within hours, and `check` failed later the same day). Since R1 the
+   harness fixes retrieval's "now" too (`create_app(retrieval_clock=)`), so snapshots are a
+   function of code and fixtures only; see section 10.
 9. Correction to the investigation report's section 5.2: the waiting-for-documents fixture
    was measured with the address case's documents attached; the repository tests (and the
-   snapshots) pair it with no documents (facts 3,307 characters, not 4,605).
+   snapshots) pair it with no documents (facts 3,307 characters, not 4,605). The investigation
+   report now carries a correction note there.
+10. Knowledge profiles are `none`, `guidance` and `guidance+seed`; the planned
+    `guidance+seed+fix` profile (feedback-enabled comparison, E6) is not built in A1.
+11. Telemetry has no `profile` field (there is no model profile before A2).
+12. Telemetry records `cited_sources` (a count), not the cited tags.
+13. Retrieved entries are recorded by an opaque `ref` (hash of the entry id), not by
+    `entry_id@vN`, because ids can carry title words (A-3).
 
 ## 6. Risks and coordination
 
@@ -198,7 +214,31 @@ opportunities. It is analysis only; it changes no code.
 
 ## 9. Next action
 
-Independent Quality Gate on the branch head (product commit `d860153`, tree `f17e645`, plus
-the documentation commit with these reports); then latest-main integration,
-`pre_pr_check.py` on the committed state, and A1 publication as a separate PR (never merged
-by the implementer). A2 is not started.
+Fresh independent re-QG on the remediated candidate (section 10); then latest-main
+integration, `pre_pr_check.py` on the committed state, and A1 publication as a separate PR
+(never merged by the implementer). A2 is not started.
+
+## 10. Remediation R1 (after independent QG FAIL on `7effd00`)
+
+The gate (`AI_ASSISTANT_PHASE_A1_QUALITY_GATE.md`) failed A1 on one blocking finding and
+listed low findings. Only those findings, their regressions and the evidence they invalidate
+were changed.
+
+| Finding | Disposition | Change |
+|---|---|---|
+| **F-1** (blocking): snapshots depended on the wall clock through retrieval recency | **Fixed** | `create_app(retrieval_clock=None)` passes a clock to the existing `Retriever(clock=)`; left out, behaviour is exactly as before (`datetime.now(UTC)`). The harness passes the store clock's instant (`runner.EVAL_NOW`); the manifest records `retrieval_clock`. Snapshots and gold stubs rebuilt (8 snapshot lines changed; still 0 labels). New test rebuilds with the wall clock moved +1 and +180 days and compares the SHA; it fails without the fix (checked by temporarily removing the clock) and passes with it. Deviation 8 withdrawn; currency evidence refreshed |
+| L1: socket guard missed asyncio connects | Fixed | Guard also wraps `asyncio` `create_connection` and `socket.getaddrinfo`; a self-check proves it refuses an async connect, a blocking connect and a remote name lookup |
+| L2: self-test gold never exercised knowledge/citations | Fixed | Rule now includes the first offered knowledge line; E0 asserts citations are scored and correct |
+| L3: `cancelled` semantics; requests without a record | Documented | README "Observability" limits paragraph |
+| L4: module-level app still reads env/.env on import | Documented | `runner.py` docstring and README |
+| L5: unlisted planner deviations | Documented | Deviations 10–13 |
+| L6: `score()` trusted the caller to verify the lock | Fixed | `score(..., gold_lock=)` refuses owner gold without a lock and verifies it; CLI passes the lock; test added |
+| L7: F1 / consistency conventions | Fixed / documented | Nothing shown with relevant lines is precision 0 (F1 0); both-empty selections count as consistent (scoring docstring) |
+| L8: permissive model-name pattern | Accepted | Operator configuration only; unchanged |
+| L9: investigation report kept the uncorrected 4,605 figure | Fixed | Correction note in its section 5.2 |
+| L10: proxy check read environment variables only | Fixed | `local_model` also refuses system proxies (`urllib.request.getproxies`, which reads the Windows registry); test added |
+
+`main.py` changed only by the clock seam (one parameter, one pass-through, docstring); the
+parity tests (`test_answers_are_byte_identical_with_and_without_metrics`,
+`test_the_model_is_sent_the_same_messages_with_metrics_on`, the full existing suite) were
+rerun (section 3).

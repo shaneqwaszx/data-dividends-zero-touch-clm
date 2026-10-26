@@ -322,14 +322,22 @@ the refusal never quotes the value. A failing sink never changes the answer, and
 telemetry off no record is built. Tests and the offline harness pass their own sink to
 `create_app(metrics=...)`.
 
+Limits: `cancelled` means the stream ended without its final event reaching the client,
+which covers a client that disconnected and an unexpected server error mid-stream alike.
+A request whose case cannot be loaded, or whose question preparation fails, has no record,
+and neither has a `/chat` request that ends in an unexpected server error.
+
 ## Offline evaluation (no model spend)
 
 `assistant_eval/` measures which allowed lines answers select, offline and deterministically.
 It runs the real service over synthetic scenarios (`tests/fixtures/eval/scenarios.json`: 16
 single-question scenarios and 5 four-turn conversations, built from the saved Garden fixtures
 with the synthetic variants in `assistant_eval/variants.py`), with a fake CLM backend, a
-temporary knowledge base (repository guidance and the illustrative seed, fixed store clock)
-and the code-default settings (environment and `.env` ignored). Embeddings are off, so
+temporary knowledge base (repository guidance and the illustrative seed) and the
+code-default settings (environment and `.env` ignored for the measured app; importing
+`ai_assistant.main` still builds that module's own app from them, as it always has). The
+knowledge store's clock and retrieval's "now" (`create_app(retrieval_clock=...)`) are both
+fixed, so the frozen snapshots do not change with the date. Embeddings are off, so
 retrieval runs in its keyword-and-context mode; the snapshots say so.
 
 ```
@@ -358,10 +366,11 @@ citations. Every report starts with its kind:
   evidence).
 
 `run --model local` uses the service's own adapter and is refused unless the URL is a
-literal loopback address and no proxy variable is set. There is no remote or paid model
-path. The runtime package never imports `assistant_eval`; `create_app(on_prepared=...)` is
-the in-process seam the harness uses to see each prepared question, and it is never set from
-settings. Reports go to `data/eval/` (not in Git).
+literal loopback address and no proxy is configured (environment variables or the system
+proxy settings the HTTP client reads). There is no remote or paid model path. The runtime
+package never imports `assistant_eval`; `create_app(on_prepared=..., retrieval_clock=...)`
+are the in-process seams the harness uses, and neither is ever set from settings. Reports go
+to `data/eval/` (not in Git).
 
 ## Tests
 
