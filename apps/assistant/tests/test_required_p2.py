@@ -207,7 +207,7 @@ def test_stream_partial_or_fallback_on_model_failure(prefix: str, failure: str) 
     events = [
         json.loads(line)
         for line in client.post(
-            f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "Why?"}
+            f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "Tell me about this case."}
         ).text.splitlines()
     ]
     assert events[-1]["type"] == "done"

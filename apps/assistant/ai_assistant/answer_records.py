@@ -4,10 +4,10 @@ answer, so a Director can see why the AI said what it said.
 A record holds only what this request produced or received: the question as the server used
 it, the ids of earlier answers it checked belong to the same user and case, the case state,
 the knowledge retrieved (with the score thresholds), the allowed lines tagged by where they
-come from, the lines kept, the answer as the RM saw it (a case-data answer redacted), the lines
-left out (redacted with the case Redactor and capped), and how the answer was made.
-Browser-sent history text is never stored. Records are never put into a prompt and never
-copied into knowledge.
+come from, the lines kept and the answer as the RM saw it (all redacted except the fixed
+policy lines, since D-090 catalog lines can carry case values), the lines left out (redacted
+with the case Redactor and capped), and how the answer was made. Browser-sent history text is
+never stored. Records are never put into a prompt and never copied into knowledge.
 """
 
 import hashlib
@@ -21,6 +21,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
 from .guardrails import allowed_guidance
+from .guide import NO_CONTACT
 from .knowledge.retrieval import case_context
 from .knowledge.store import KnowledgeStore
 from .knowledge_answers import TaggedHit
@@ -33,8 +34,9 @@ PURGE_INTERVAL_SECONDS = 3600.0
 FallbackReason = Literal["model_unavailable", "nothing_allowed", "cut_short"]
 LineSource = Literal["policy", "case", "knowledge"]
 
-# The catalog's fixed lines (the same on every case): what it gives with no case facts.
-POLICY_LINES = frozenset(allowed_guidance({}))
+# The catalog's fixed lines (the same on every case): what it gives with no case facts, except
+# "no contact named", which is offered only when the case names no owner (D-090).
+POLICY_LINES = frozenset(allowed_guidance({})) - {NO_CONTACT}
 
 log = logging.getLogger("ai_assistant")
 
@@ -58,9 +60,19 @@ def case_snapshot(facts: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def allowed_lines(facts: dict[str, Any], knowledge_lines: Sequence[str]) -> list[dict[str, str]]:
+def allowed_lines(
+    facts: dict[str, Any],
+    knowledge_lines: Sequence[str],
+    redact: Callable[[str], str] | None = None,
+) -> list[dict[str, str]]:
     """The allowed lines of this answer, each tagged by where it comes from: a fixed catalog
-    line (policy), a catalog line filled from this case (case), or approved knowledge."""
+    line (policy), a catalog line that depends on this case (case), or approved knowledge.
+
+    With ``redact``, every line except the fixed policy lines is stored redacted: since D-090
+    some catalog lines carry ACRA and document values, which a record may not keep (ADR-012
+    section A, D-084). The record's chosen lines and shown answer are redacted the same way,
+    so they still match these lines.
+    """
 
     knowledge = set(knowledge_lines)
     lines = dict.fromkeys([*allowed_guidance(facts), *knowledge_lines])
@@ -69,7 +81,8 @@ def allowed_lines(facts: dict[str, Any], knowledge_lines: Sequence[str]) -> list
         source: LineSource = (
             "knowledge" if line in knowledge else "policy" if line in POLICY_LINES else "case"
         )
-        sources.append({"text": line, "source": source})
+        text = redact(line) if redact is not None and source != "policy" else line
+        sources.append({"text": text, "source": source})
     return sources
 
 

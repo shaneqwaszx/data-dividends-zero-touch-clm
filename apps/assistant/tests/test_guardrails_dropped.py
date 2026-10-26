@@ -2,9 +2,11 @@
 changed nothing the output policy keeps, counts or shows.
 
 ``_MainValidate`` and ``_MainGuard`` are the selection code of ``validate_answer`` and
-``StreamingGuard`` as on main before the change (5de7f24), kept here word for word apart
-from names. Every answer and every way of streaming it must give the same kept lines,
-left-out count, shown text, disclosures and stream updates as that code.
+``StreamingGuard`` without ``dropped``, kept here word for word apart from names. They were
+first pinned to the exact matching of 5de7f24; D-090 (ADR-012 Amendment 2) replaced that with
+formatting-tolerant matching (``_Catalog``), so they now follow that selection code.
+Every answer and every way of streaming it must give the same kept lines, left-out count,
+shown text, disclosures and stream updates as that code.
 """
 
 import itertools
@@ -20,7 +22,7 @@ from ai_assistant.guardrails import (
     MAX_MODEL_TEXT_BYTES,
     StreamingGuard,
     Validation,
-    _allowed,
+    _Catalog,
     _disclosures,
     allowed_guidance,
     validate_answer,
@@ -36,15 +38,17 @@ KNOWLEDGE = ("Ask for a certified copy of the register [G1].",)
 def _main_validate(
     answer: str, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()
 ) -> Validation:
-    allowed = _allowed(facts, knowledge_lines)
+    catalog = _Catalog(facts, knowledge_lines)
     kept: dict[str, None] = {}
     left_out = 0
     for line in answer.splitlines():
-        line = line.strip()
-        if line in allowed:
-            kept[line] = None
-        elif line:
+        if not line.strip():
+            continue
+        selected = catalog.select(line)
+        if selected is None:
             left_out += 1
+        else:
+            kept.update(dict.fromkeys(selected))
     text = "\n".join(kept)
     return Validation(text=text, left_out=left_out, disclosures=_disclosures(text, facts))
 
@@ -52,18 +56,20 @@ def _main_validate(
 class _MainGuard:
     def __init__(self, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()) -> None:
         self._facts = facts
-        self._allowed = _allowed(facts, knowledge_lines)
+        self._catalog = _Catalog(facts, knowledge_lines)
         self._pending: list[str] = []
         self._accepted: dict[str, None] = {}
         self._left_out = 0
         self._total_bytes = 0
 
     def _accept(self, line: str) -> None:
-        line = line.strip()
-        if line in self._allowed:
-            self._accepted[line] = None
-        elif line:
+        if not line.strip():
+            return
+        selected = self._catalog.select(line)
+        if selected is None:
             self._left_out += 1
+        else:
+            self._accepted.update(dict.fromkeys(selected))
 
     def feed(self, text: str) -> str | None:
         if self._total_bytes + len(text) > MAX_MODEL_TEXT_BYTES:
@@ -139,9 +145,9 @@ def test_validate_answer_keeps_shows_and_counts_exactly_as_before(answer: str) -
     _same(new, old)
     assert new == old  # ``dropped`` takes no part in equality
     # The record holds exactly the left-out lines, in order.
-    allowed = _allowed(FACTS, KNOWLEDGE)
+    catalog = _Catalog(FACTS, KNOWLEDGE)
     expected = [line.strip() for line in answer.splitlines() if line.strip()]
-    assert list(new.dropped) == [line for line in expected if line not in allowed]
+    assert list(new.dropped) == [line for line in expected if catalog.select(line) is None]
     assert len(new.dropped) == new.left_out
 
 

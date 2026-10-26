@@ -50,6 +50,7 @@ from .guardrails import (
     Validation,
     allowed_guidance,
     validate_answer,
+    with_required_lines,
 )
 from .knowledge.redaction import Redactor, case_parties
 from .knowledge.retrieval import Retriever, case_context, settings_from
@@ -65,7 +66,7 @@ from .knowledge_answers import (
     tag_hits,
 )
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel, is_local_model_url
-from .prompts import build_messages, prefix_messages
+from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
 from .small_talk import small_talk_reply
 from .telemetry import (
     PARTS,
@@ -155,6 +156,9 @@ class ChatResponse(BaseModel):
     # Retrieved guidance and past cases, and how confident retrieval was.
     sources: list[KnowledgeSource] = Field(default_factory=list)
     knowledge: KnowledgeUse | None = None
+    # Positions (0-based) of answer lines the service added as the topic's required lines,
+    # not chosen by the model (D-090). Positions only, never text.
+    added_lines: list[int] = Field(default_factory=list)
     # The server's record of this answer (none for small talk, or with the knowledge store
     # off); "Not helpful" sends it back.
     answer_id: str | None = None
@@ -189,6 +193,8 @@ class Prepared:
     # The checked knowledge text the RM may see: lines the model may select, titles and
     # follow-up questions (knowledge_answers.shown_knowledge).
     shown: ShownKnowledge = field(default_factory=ShownKnowledge)
+    # The question's topic: model answers always include its required lines (D-090).
+    plan: TopicPlan | None = None
     # How long knowledge retrieval took (metrics only).
     retrieval_ms: int | None = None
     # The question as the model got it (after the max_question_chars cut), and when work on
@@ -242,8 +248,24 @@ class _Outcome:
 
 
 def _model_reply(
-    validation: Validation, prep: Prepared, *, model_name: str, cut_short: bool
+    validation: Validation,
+    prep: Prepared,
+    *,
+    model_name: str,
+    cut_short: bool,
+    streamed: str = "",
 ) -> "ChatResponse":
+    """The model's answer; ``streamed`` is the answer text the RM has already been shown."""
+
+    chosen = set(validation.text.splitlines())
+    if prep.plan is not None:
+        validation = with_required_lines(
+            validation,
+            prep.facts,
+            order=prep.plan.lines,
+            required=prep.plan.required,
+            streamed=streamed.splitlines(),
+        )
     notices = [n for n in (validation.notice(), CUT_SHORT_NOTICE if cut_short else None) if n]
     return ChatResponse(
         answer=validation.text,
@@ -257,6 +279,9 @@ def _model_reply(
         ),
         sources=prep.sources(validation.text),
         knowledge=prep.knowledge,
+        added_lines=[
+            index for index, line in enumerate(validation.text.splitlines()) if line not in chosen
+        ],
     )
 
 
@@ -408,18 +433,18 @@ def create_app(
                             "resolution": config.retrieval_min_score_resolution,
                         },
                     ),
-                    "allowed_lines": allowed_lines(prep.facts, prep.shown.lines),
-                    # Model answers only: the checked lines the RM was shown.
+                    # Redacted: since D-090 catalog lines can carry ACRA and document values
+                    # (ADR-012 section A allows a record no case values beyond the snapshot).
+                    "allowed_lines": allowed_lines(prep.facts, prep.shown.lines, redact),
+                    # Model answers only: the checked lines the RM was shown, redacted alike.
                     "chosen_lines": (
-                        response.answer.splitlines() if response.answered_by == "model" else []
-                    ),
-                    # The answer as the RM saw it: a model answer is its checked lines; a
-                    # case-data answer is fixed wording filled from the case, so it is redacted.
-                    "shown_answer": (
-                        response.answer
+                        [redact(line) for line in response.answer.splitlines()]
                         if response.answered_by == "model"
-                        else redact(response.answer)
+                        else []
                     ),
+                    # The answer as the RM saw it, redacted: a case-data answer is filled from
+                    # the case, and a model answer's catalog lines can be too.
+                    "shown_answer": redact(response.answer),
                     "dropped_lines": (
                         capped_dropped(validation.dropped, redact) if validation else []
                     ),
@@ -476,6 +501,7 @@ def create_app(
             tagged=tagged,
             knowledge=use,
             shown=shown,
+            plan=topic_plan(facts, question),
             retrieval_ms=retrieval_ms,
             question=question,
             started=started,
@@ -618,6 +644,7 @@ def create_app(
             else:
                 guard = StreamingGuard(prep.facts, knowledge_lines=prep.shown.lines)
                 cut_short = False
+                streamed = ""  # what the RM has been shown so far
                 try:
                     async with aclosing(model.stream(prep.messages)) as source:
                         async for piece in source:
@@ -628,6 +655,7 @@ def create_app(
                             if shown is not None:
                                 if outcome.first_line_at is None:
                                     outcome.first_line_at = time.monotonic()
+                                streamed = shown
                                 yield line({"type": "text", "text": shown})
                     guard.finish()
                     validation = guard.validation()
@@ -639,7 +667,11 @@ def create_app(
                         outcome.cut_short = cut_short
                         yield done(
                             _model_reply(
-                                validation, prep, model_name=model.name, cut_short=cut_short
+                                validation,
+                                prep,
+                                model_name=model.name,
+                                cut_short=cut_short,
+                                streamed=streamed,
                             )
                         )
                         delivered = True
@@ -653,7 +685,13 @@ def create_app(
                         outcome.fallback_reason = "stream_partial"
                         outcome.cut_short = True
                         yield done(
-                            _model_reply(partial, prep, model_name=model.name, cut_short=True)
+                            _model_reply(
+                                partial,
+                                prep,
+                                model_name=model.name,
+                                cut_short=True,
+                                streamed=streamed,
+                            )
                         )
                         delivered = True
                         return

@@ -214,7 +214,7 @@ def test_remote_explicit_question_remains_a_separate_boundary(streaming: bool) -
     assert browser.get(BRIEF).status_code == 200
     assert requests == []
     path = f"/assistant/cases/{CASE_ID}/chat" + ("/stream" if streaming else "")
-    reply = browser.post(path, json={"message": "What next?"})
+    reply = browser.post(path, json={"message": "Tell me about this case."})
     assert reply.status_code == 200
     body = json.loads(reply.text.splitlines()[-1]) if streaming else reply.json()
     assert body["answered_by"] == "model" and body["answer"] == FakeModel.ANSWER

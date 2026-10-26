@@ -10,16 +10,39 @@ same between questions. The model server can then reuse its earlier reading of t
     2. case facts       - same for every question about this case, until the case changes
     3. chat history     - grows by one turn per question
     4. knowledge        - allowed lines from retrieved guidance and past cases (tagged)
-    5. page terms       - only the glossary entries this question asks about
-    6. the question
+    5. question topic   - the question's topic (a difference, the document review, ownership,
+                          readiness, approval, who to contact) and its allowed lines to give
+                          first
+    6. page terms       - only the glossary entries this question asks about
+    7. the question
 """
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
+from .briefing import (
+    APPROVE,
+    BLOCKERS,
+    CONTACT,
+    DIFFERENCE,
+    DOCUMENT_REVIEW,
+    READINESS,
+    question_topic,
+)
 from .context import readable_time as when
-from .guardrails import allowed_guidance, compact_facts
+from .guardrails import allowed_guidance, compact_facts, who_resolves_lines
+from .guide import (
+    ANY_DIFFERENCE,
+    APPROVAL_NOT_OFFERED,
+    FIELD_DIFFERENCE,
+    NO_CONTACT,
+    NOT_READY,
+    READINESS_EXPLANATIONS,
+    READINESS_NEEDS,
+    difference_line,
+)
 from .instructions import system_prompt
 
 # The rules live in instructions/persona_and_rules.md so they can be edited as plain text.
@@ -61,11 +84,14 @@ def _steps_for_model(steps: list[dict[str, Any]]) -> dict[str, Any]:
     return {"done": done, "not_done": others}
 
 
-def _blocker_for_model(blocker: dict[str, Any]) -> dict[str, Any]:
+def _blocker_for_model(blocker: dict[str, Any], allowed: set[str]) -> dict[str, Any]:
+    """The blocker, without what is already an allowed line (its explanation, difference values)."""
+
+    explanation = blocker.get("plain_explanation") or blocker.get("app_explanation")
     view = {
         "title": blocker.get("title"),
         "stage": blocker.get("stage"),
-        "explanation": blocker.get("plain_explanation") or blocker.get("app_explanation"),
+        "explanation": None if explanation in allowed else explanation,
         "what_is_needed": blocker.get("what_is_needed"),
         "actions_available_to_this_user": blocker.get("actions_available_to_this_user"),
         "screens_to_open": blocker.get("screens_to_open"),
@@ -79,6 +105,7 @@ def _blocker_for_model(blocker: dict[str, Any]) -> dict[str, Any]:
                 "document_value": row.get("document_value"),
             }
             for row in blocker.get("differences") or []
+            if difference_line(row) not in allowed
         ],
     }
     return view
@@ -125,11 +152,14 @@ def _document_review_for_model(review: dict[str, Any] | None) -> dict[str, Any] 
 
 
 def facts_for_model(facts: dict[str, Any]) -> dict[str, Any]:
-    """A short view of the case facts for the model; nothing new, only less."""
+    """A short view of the case facts for the model; nothing new, only less. Facts that are
+    already word for word in an allowed line are not repeated."""
 
     readiness = facts.get("readiness") or {}
+    guidance = allowed_guidance(facts)
+    allowed = set(guidance)
     view = {
-        "allowed_guidance": allowed_guidance(facts),
+        "allowed_guidance": guidance,
         "viewer": facts.get("viewer"),
         "company": facts.get("company"),
         "overall": {
@@ -138,8 +168,14 @@ def facts_for_model(facts: dict[str, Any]) -> dict[str, Any]:
             if key != "current_stage"
         },
         "steps": _steps_for_model(facts.get("steps") or []),
-        "blockers": [_blocker_for_model(blocker) for blocker in facts.get("blockers") or []],
-        "still_needed_before_goldtier": facts.get("still_needed_before_goldtier"),
+        "blockers": [
+            _blocker_for_model(blocker, allowed) for blocker in facts.get("blockers") or []
+        ],
+        "still_needed_before_goldtier": [
+            need
+            for need in facts.get("still_needed_before_goldtier") or []
+            if f"{need.get('what')} (section: {need.get('where_on_the_case_page')})" not in allowed
+        ],
         "system_problem": facts.get("system_problem"),
         "readiness_sections": readiness.get("sections"),
         "discrepancies": [
@@ -160,7 +196,11 @@ def facts_for_model(facts: dict[str, Any]) -> dict[str, Any]:
             f"{when(event.get('when'))}: {event.get('what')}"
             for event in (facts.get("timeline") or [])[-MAX_TIMELINE_FOR_MODEL:]
         ],
-        "case_page_sections": facts.get("case_page_sections"),
+        "case_page_sections": [
+            section
+            for section in facts.get("case_page_sections") or []
+            if _open_section(section) not in allowed
+        ],
     }
     compacted: dict[str, Any] = compact_facts(view)
     return compacted
@@ -183,6 +223,156 @@ def terms_for_question(facts: dict[str, Any], question: str) -> dict[str, str]:
         if term in text or (words & term_words):
             found[term] = meaning
     return found
+
+
+def _open_section(where: object) -> str:
+    return f'Open the "{where}" section to inspect the current case evidence.'
+
+
+def _offered(blocker: dict[str, Any]) -> list[str]:
+    return [
+        f'The current case offers "{action.get("label")}".'
+        for action in blocker.get("actions_available_to_this_user") or []
+    ]
+
+
+def _correction_line(facts: dict[str, Any], field: str) -> str | None:
+    """The "Record correction" line, when the RM is offered it for this field."""
+
+    for row in (facts.get("document_field_review") or {}).get("fields") or []:
+        if row.get("field") == field and "Record correction" in (row.get("choices") or []):
+            return (
+                'Document verification offers "Record correction" to review the extracted '
+                "field; this does not decide registry/document precedence."
+            )
+    return None
+
+
+def _difference_topic(facts: dict[str, Any], differences: list[Any]) -> tuple[list[str], list[str]]:
+    """Per difference: the values, one "why" line (the field's own when there is one), one
+    "check" line, one general line, the offered actions, and where to act. Required: the
+    values, the "why" and "check" lines, the offered actions and the Record correction line."""
+
+    general_why, _ = ANY_DIFFERENCE[0]
+    general_check, not_verification = ANY_DIFFERENCE[1]
+    wanted: list[str] = []
+    required: list[str] = []
+    for blocker, row in differences:
+        field = str(row["field"])
+        reasons, checks = FIELD_DIFFERENCE.get(field, ((), ()))
+        correction = _correction_line(facts, field)
+        must = [
+            difference_line(row),
+            reasons[0] if reasons else general_why,
+            checks[0] if checks else general_check,
+        ]
+        actions = [*_offered(blocker), *([correction] if correction else [])]
+        wanted.extend([*must, not_verification, *actions])
+        if not correction:
+            wanted.append(_open_section(blocker.get("where_on_the_case_page")))
+        required.extend([*must, *actions])
+    return wanted, required
+
+
+def _blocker_topic(facts: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Each blocker, what this RM can do about it and where; then what else is needed.
+    Required: one line per blocker."""
+
+    wanted: list[str] = []
+    required: list[str] = []
+    for blocker in facts.get("blockers") or []:
+        if blocker.get("plain_explanation"):
+            wanted.append(str(blocker["plain_explanation"]))
+            required.append(str(blocker["plain_explanation"]))
+        wanted.extend(_offered(blocker))
+        if blocker.get("why_no_action"):
+            wanted.append("No action is currently available to you for this blocker.")
+        wanted.append(_open_section(blocker.get("where_on_the_case_page")))
+    wanted.extend(_still_needed_lines(facts))  # repeats are dropped in topic_plan
+    return wanted, required
+
+
+def _still_needed_lines(facts: dict[str, Any]) -> list[str]:
+    lines = [
+        str(blocker["plain_explanation"])
+        for blocker in facts.get("blockers") or []
+        if blocker.get("plain_explanation")
+    ]
+    lines.extend(
+        f"{need.get('what')} (section: {need.get('where_on_the_case_page')})"
+        for need in facts.get("still_needed_before_goldtier") or []
+    )
+    return lines
+
+
+def _topic_lines(
+    kind: str, differences: list[Any], facts: dict[str, Any]
+) -> tuple[str, list[str], list[str]]:
+    """(what the question is about, the topic's lines in order, the lines an answer needs)."""
+
+    if kind == DIFFERENCE:
+        fields = list(dict.fromkeys(str(row["field"]) for _, row in differences))
+        about = " and ".join(f"the {field} difference" for field in fields)
+        return about, *_difference_topic(facts, differences)
+    if kind in (READINESS, APPROVE):
+        first = NOT_READY if kind == READINESS else APPROVAL_NOT_OFFERED
+        lines = [first, *_still_needed_lines(facts)]
+        about = "whether the case is ready or approved" if kind == READINESS else "approving it"
+        return about, lines, lines
+    if kind == CONTACT:
+        owners = who_resolves_lines(facts)
+        return "who to contact", [*owners, NO_CONTACT], owners[:MAX_CONTACT_LINES]
+    if kind == BLOCKERS:
+        return "what is blocking the case and what to do", *_blocker_topic(facts)
+    what, where = READINESS_NEEDS[kind]
+    about = "the document review" if kind == DOCUMENT_REVIEW else "ownership evidence"
+    explanations = READINESS_EXPLANATIONS[kind]
+    required = list(explanations[:1]) if kind == DOCUMENT_REVIEW else []
+    return about, [f"{what} (section: {where})", *explanations, _open_section(where)], required
+
+
+# At most this many "this is for ..." lines are required in an answer about contacts.
+MAX_CONTACT_LINES = 3
+
+
+@dataclass(frozen=True)
+class TopicPlan:
+    """The question's topic: its allowed lines in order, and those an answer must contain."""
+
+    about: str
+    lines: tuple[str, ...]
+    required: tuple[str, ...]
+
+
+def topic_plan(facts: dict[str, Any], question: str) -> TopicPlan | None:
+    """The plan for the question's topic (see briefing.question_topic), or None.
+
+    Only lines already in allowed_guidance are used; which lines are allowed is unchanged.
+    """
+
+    topic = question_topic(question, facts)
+    if topic is None:
+        return None
+    about, wanted, required = _topic_lines(*topic, facts)
+    allowed = set(allowed_guidance(facts))
+    lines = tuple(line for line in dict.fromkeys(wanted) if line in allowed)
+    if not lines:
+        return None
+    return TopicPlan(about, lines, tuple(line for line in dict.fromkeys(required) if line in lines))
+
+
+def topic_message(facts: dict[str, Any], question: str) -> str | None:
+    """Steer the model to the topic's allowed lines. None when no topic matches (rule 17 then
+    covers questions the case data cannot answer)."""
+
+    plan = topic_plan(facts, question)
+    if plan is None:
+        return None
+    return (
+        f"QUESTION TOPIC: {plan.about}. Answer with the allowed lines below, copied exactly, one "
+        "per line, in this order. Leave out only a line that does not answer the question.\n"
+        + "\n".join(plan.lines)
+    )
 
 
 def trim_history(history: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -226,6 +416,9 @@ def build_messages(
     if knowledge:
         # After the history: it changes with every question, so the cached start stays put.
         messages.append({"role": "system", "content": knowledge})
+    topic = topic_message(facts, question)
+    if topic:
+        messages.append({"role": "system", "content": topic})
     terms = terms_for_question(facts, question)
     if terms:
         messages.append(

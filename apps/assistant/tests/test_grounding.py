@@ -184,14 +184,17 @@ def test_only_allowed_lines_are_kept_and_the_rm_is_told() -> None:
 
 def test_free_prose_is_never_shown_even_when_every_fact_in_it_is_true() -> None:
     # Each of these passes the sentence checks, but model prose is not an allowed line.
-    for answer in ("Keep the registry value.", "The UEN is 11111999A.", OFFERED[:-1]):
+    for answer in ("Keep the registry value.", "The UEN is 11111999A."):
         assert validate_answer(answer, FACTS).text == ""
+    # D-090: without its final full stop OFFERED is the same allowed line, shown as the catalog
+    # wrote it.
+    assert validate_answer(OFFERED[:-1], FACTS).text == OFFERED
 
 
 def test_chat_reply_reports_the_checks_and_tells_the_rm() -> None:
     model = FakeModel(answer=f"{OFFERED}\nThen approve the case.")
     reply = _client(FakeBackend(), model).post(
-        f"/assistant/cases/{CASE_ID}/chat", json={"message": "What next?"}
+        f"/assistant/cases/{CASE_ID}/chat", json={"message": "Tell me about this case."}
     )
     body = reply.json()
     assert body["answer"] == OFFERED
@@ -202,7 +205,7 @@ def test_chat_reply_reports_the_checks_and_tells_the_rm() -> None:
 def test_a_streamed_line_that_is_not_allowed_is_never_shown() -> None:
     model = FakeModel(answer=f"{OFFERED}\nThen approve the case.\n{OPEN_OWNERSHIP}")
     response = _client(FakeBackend(), model).post(
-        f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "What next?"}
+        f"/assistant/cases/{CASE_ID}/chat/stream", json={"message": "Tell me about this case."}
     )
     events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
     assert all("approve" not in json.dumps(event).lower() for event in events[:-1])
