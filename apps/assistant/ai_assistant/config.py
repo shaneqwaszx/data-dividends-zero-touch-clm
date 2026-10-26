@@ -1,5 +1,7 @@
 """AI Assistant settings, read from AI_ASSISTANT_* environment variables or apps/assistant/.env."""
 
+from typing import Literal
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -60,3 +62,7 @@ class AiAssistantSettings(BaseSettings):
 
     max_history_messages: int = Field(default=8, ge=0, le=20)
     max_question_chars: int = Field(default=600, ge=20, le=4000)
+
+    # Content-free metrics for each explicit question (telemetry.py): off by default; "log"
+    # writes one JSON line per answer with counts, sizes, timings and codes only.
+    telemetry: Literal["off", "log"] = "off"

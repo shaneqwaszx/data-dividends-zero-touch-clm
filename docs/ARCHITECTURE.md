@@ -985,6 +985,22 @@ merged (main `5d9fd14`), so the knowledge store is current main; the 2026-10-06
 read-only description above still holds towards the CLM backend (GET only), not for
 the assistant's own data.
 
+## AI Assistant Phase A1 metrics and offline evaluation — 2026-10-26 (candidate)
+
+Owner-authorized Phase A1 (planner `AI_ASSISTANT_PHASE_A_PLAN.md`, decisions A-1, A-3, A-6,
+A-7) adds two assistant-internal parts and changes no answer. `ai_assistant/telemetry.py`
+owns content-free per-answer metrics: off by default, built only when a sink is in use, every
+field validated as a count, timing, closed code or opaque hash, and a failing sink never
+reaches the answer. `main.py` records one metric per explicit question through that seam and
+gains `create_app(metrics=, on_prepared=)` injection seams that are never set from settings.
+`assistant_eval/` is a separate, dev-only package that drives the real `create_app` over
+synthetic scenarios with a mock CLM transport, a temporary knowledge base and code-default
+settings, and scores line selection deterministically; `ai_assistant` never imports it and its
+only model path is a literal-loopback local model. Gold labels are owner/team-owned (stubs only
+in Git). No route, response schema, notice, output guard, prompt, retrieval, provider,
+persistence owner or CLM dependency changes; the model request is unchanged. No remote
+inference, Live claim or sponsor approval follows.
+
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 
 Originally assigned from main `529efea`, OnboardingService now supports both definitive
