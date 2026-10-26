@@ -60,9 +60,19 @@ def case_snapshot(facts: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def allowed_lines(facts: dict[str, Any], knowledge_lines: Sequence[str]) -> list[dict[str, str]]:
+def allowed_lines(
+    facts: dict[str, Any],
+    knowledge_lines: Sequence[str],
+    redact: Callable[[str], str] | None = None,
+) -> list[dict[str, str]]:
     """The allowed lines of this answer, each tagged by where it comes from: a fixed catalog
-    line (policy), a catalog line filled from this case (case), or approved knowledge."""
+    line (policy), a catalog line that depends on this case (case), or approved knowledge.
+
+    With ``redact``, every line except the fixed policy lines is stored redacted: since D-090
+    some catalog lines carry ACRA and document values, which a record may not keep (ADR-012
+    section A, D-084). The record's chosen lines and shown answer are redacted the same way,
+    so they still match these lines.
+    """
 
     knowledge = set(knowledge_lines)
     lines = dict.fromkeys([*allowed_guidance(facts), *knowledge_lines])
@@ -71,7 +81,8 @@ def allowed_lines(facts: dict[str, Any], knowledge_lines: Sequence[str]) -> list
         source: LineSource = (
             "knowledge" if line in knowledge else "policy" if line in POLICY_LINES else "case"
         )
-        sources.append({"text": line, "source": source})
+        text = redact(line) if redact is not None and source != "policy" else line
+        sources.append({"text": text, "source": source})
     return sources
 
 

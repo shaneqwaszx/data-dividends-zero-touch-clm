@@ -433,18 +433,18 @@ def create_app(
                             "resolution": config.retrieval_min_score_resolution,
                         },
                     ),
-                    "allowed_lines": allowed_lines(prep.facts, prep.shown.lines),
-                    # Model answers only: the checked lines the RM was shown.
+                    # Redacted: since D-090 catalog lines can carry ACRA and document values
+                    # (ADR-012 section A allows a record no case values beyond the snapshot).
+                    "allowed_lines": allowed_lines(prep.facts, prep.shown.lines, redact),
+                    # Model answers only: the checked lines the RM was shown, redacted alike.
                     "chosen_lines": (
-                        response.answer.splitlines() if response.answered_by == "model" else []
-                    ),
-                    # The answer as the RM saw it: a model answer is its checked lines; a
-                    # case-data answer is fixed wording filled from the case, so it is redacted.
-                    "shown_answer": (
-                        response.answer
+                        [redact(line) for line in response.answer.splitlines()]
                         if response.answered_by == "model"
-                        else redact(response.answer)
+                        else []
                     ),
+                    # The answer as the RM saw it, redacted: a case-data answer is filled from
+                    # the case, and a model answer's catalog lines can be too.
+                    "shown_answer": redact(response.answer),
                     "dropped_lines": (
                         capped_dropped(validation.dropped, redact) if validation else []
                     ),

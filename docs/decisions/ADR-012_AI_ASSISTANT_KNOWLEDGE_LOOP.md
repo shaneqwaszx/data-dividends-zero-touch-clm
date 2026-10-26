@@ -555,6 +555,11 @@ differs, and they never read as a finding about this case.
 All values come from the backend projection, never from the model. A line with a changed
 value, another case's values or an invented owner is not an allowed line and is dropped.
 
+Answer records (D-084) store these lines redacted: every non-policy line in a record's allowed
+lines, and a model answer's chosen lines and shown answer, go through the same Redactor as the
+case-data answer. So the values reach the RM's screen but not the record, and ADR-012 section A
+is unchanged by this amendment.
+
 ### Change 3 - topic steering (prompt only)
 
 The no-model answer's topic detection (`briefing.question_topic`) names the question's topic

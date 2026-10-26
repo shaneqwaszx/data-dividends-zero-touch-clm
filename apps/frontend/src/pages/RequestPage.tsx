@@ -192,7 +192,7 @@ function WhyItAnsweredThisWay({ record }: { record: AnswerRecord }) {
           {record.dropped_lines.map((line, index) => (
             <li key={`${index}-${line}`}>
               <del>{line}</del>
-              <span className="request-page-reason">Not an allowed line: only exact allowed lines are shown.</span>
+              <span className="request-page-reason">Not an allowed line: only allowed lines are shown, in the catalog's own words.</span>
             </li>
           ))}
         </ul>

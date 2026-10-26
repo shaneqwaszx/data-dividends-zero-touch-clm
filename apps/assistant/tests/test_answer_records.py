@@ -782,3 +782,46 @@ def test_a_case_data_answer_is_kept_as_shown_but_redacted(kb: KnowledgeBase) -> 
     assert "11111999A" not in stored["shown_answer"]
     assert "GARDEN BUSINESS" not in stored["shown_answer"].upper()
     assert stored["result"]["notices"] == [reply["notice"]]
+
+
+# D-090 catalog lines in records (QG R5-B1, R5-M1) ----------------------------------------
+
+DIFFERENCE_QUESTION = "Explain the registered address difference"
+RAW_VALUES = ("OFFICIAL MOCK STREET", "GARDEN WALK", "123456", "018919", "11111999A")
+
+
+def _raw(texts: list[str]) -> list[str]:
+    return [text for text in texts if any(value in text for value in RAW_VALUES)]
+
+
+def test_a_record_keeps_no_acra_or_document_values_from_catalog_lines(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    from ai_assistant.answer_records import fix_start_lines
+
+    reply = ask(
+        kb,
+        FakeModel(answer='The current case offers "Keep registry value".'),
+        message=DIFFERENCE_QUESTION,
+    )
+    # The RM sees the values: the service added the topic's required lines to the answer.
+    assert "18 GARDEN WALK" in reply["answer"] and reply["added_lines"] == [0, 1, 2]
+    stored = record(kb, reply["answer_id"])
+    # The record keeps every shown line, the added ones too, but never the values.
+    assert len(stored["chosen_lines"]) == len(reply["answer"].splitlines()) == 4
+    assert _raw(stored["chosen_lines"]) == []
+    assert _raw([stored["shown_answer"]]) == []
+    assert _raw([line["text"] for line in stored["allowed_lines"]]) == []
+    assert "[ADDRESS]" in stored["shown_answer"]
+    # Redacted alike, chosen lines still match allowed lines: nothing becomes a fix start.
+    assert fix_start_lines(stored, lambda text: text) == []
+
+
+def test_a_case_data_record_keeps_no_values_from_catalog_lines(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    reply = ask(kb, FakeModel(fail=True), message=DIFFERENCE_QUESTION)
+    stored = record(kb, reply["answer_id"])
+    assert reply["answered_by"] == "case_data" and stored["chosen_lines"] == []
+    assert _raw([stored["shown_answer"]]) == []
+    assert _raw([line["text"] for line in stored["allowed_lines"]]) == []
