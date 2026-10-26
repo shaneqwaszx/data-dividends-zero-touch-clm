@@ -1,0 +1,227 @@
+"""The one place that turns settings into a chat model (``ChatModel``).
+
+The default profile returns exactly the adapter the service always built. The remote profile
+is dormant (D-091, proposed) and refuses to compose unless every lock holds:
+
+    L1  an in-memory mock transport is injected (a real network transport is refused)
+    L2  the registry holds an approved endpoint record for the selected endpoint slug,
+        and that slug was shown to identify exactly one endpoint of the model
+    L3  AI_ASSISTANT_REMOTE_INFERENCE_DECISION equals the recorded decision id
+    L4  an initialised, healthy budget ledger exists (see ``budget.py``)
+
+Every refusal is a ``ProfileConfigError`` with a closed code and a message that names the
+setting, never its value. ``OPENROUTER_API_KEY`` is read last, only for the remote profile,
+only after all other checks pass, and only from the process environment.
+"""
+
+import math
+import os
+import re
+from collections.abc import Callable, Mapping
+from pathlib import Path
+
+from pydantic import SecretStr
+
+from .budget import LEASE_GRACE_SECONDS, BudgetedChatModel, BudgetLedger, LedgerError
+from .config import AiAssistantSettings
+from .llm import ChatModel, OpenAICompatibleChatModel
+from .model_profiles import (
+    APPROVED_PROFILES,
+    ENDPOINT_SLUG,
+    MAX_REMOTE_TOKENS,
+    MIN_REASONING_ALLOWANCE,
+    REMOTE_DECISION_ID,
+    ModelProfile,
+    ProfileConfigError,
+)
+from .openrouter import OpenRouterChatModel, require_offline_transport
+
+CREDENTIAL_VARIABLE = "OPENROUTER_API_KEY"
+_CREDENTIAL = re.compile(r"[\x21-\x7e]{1,256}")
+_DEFAULTS = AiAssistantSettings.model_fields
+ASSISTANT_DIR = Path(__file__).resolve().parents[1]
+
+
+def ledger_path(settings: AiAssistantSettings) -> Path:
+    """The ledger file, relative to apps/assistant unless absolute (git-ignored data/)."""
+
+    path = Path(settings.budget_ledger_path)
+    return path if path.is_absolute() else ASSISTANT_DIR / path
+
+
+# Numeric settings the remote profile uses, re-checked against their declared bounds because
+# settings built with ``model_construct`` skip pydantic's own checks.
+_BOUNDED = (
+    "llm_timeout_seconds",
+    "llm_temperature",
+    "llm_max_answer_tokens",
+    "llm_reasoning_allowance_tokens",
+    "remote_max_prompt_bytes",
+    "budget_max_in_flight",
+    "budget_settle_lag_seconds",
+)
+
+
+def _within_declared_bounds(settings: AiAssistantSettings, name: str) -> bool:
+    field = _DEFAULTS[name]
+    value = getattr(settings, name)
+    expected = type(field.default)
+    if isinstance(value, bool) or not isinstance(value, expected | int):
+        return False
+    if expected is int and not isinstance(value, int):
+        return False
+    if not math.isfinite(value):
+        return False
+    for bound in field.metadata:  # pydantic's Gt/Ge/Lt/Le markers from Field(...)
+        gt, ge = getattr(bound, "gt", None), getattr(bound, "ge", None)
+        lt, le = getattr(bound, "lt", None), getattr(bound, "le", None)
+        if (gt is not None and not value > gt) or (ge is not None and not value >= ge):
+            return False
+        if (lt is not None and not value < lt) or (le is not None and not value <= le):
+            return False
+    return True
+
+
+def resolve_remote_credential(environ: Mapping[str, str]) -> SecretStr:
+    """The remote key from the process environment, checked offline for shape only."""
+
+    value = environ.get(CREDENTIAL_VARIABLE)
+    if not isinstance(value, str) or not _CREDENTIAL.fullmatch(value):
+        raise ProfileConfigError(
+            "CREDENTIAL_MISSING",
+            f"{CREDENTIAL_VARIABLE} is missing or malformed for the remote profile",
+        )
+    return SecretStr(value)
+
+
+def _local(settings: AiAssistantSettings, adapter: Callable[..., ChatModel]) -> ChatModel:
+    return adapter(
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        credential=settings.llm_api_key.get_secret_value(),
+        timeout_seconds=settings.llm_timeout_seconds,
+        temperature=settings.llm_temperature,
+        max_answer_tokens=settings.llm_max_answer_tokens,
+    )
+
+
+def _remote(
+    settings: AiAssistantSettings,
+    profile: ModelProfile,
+    *,
+    transport: object,
+    environ: Mapping[str, str] | None,
+    budget_ledger: Path | None,
+) -> ChatModel:
+    # L1: dormant in this build. Only an in-memory mock transport may be used.
+    if transport is None:
+        raise ProfileConfigError(
+            "PROFILE_DORMANT", "the remote profile is dormant and cannot reach a network"
+        )
+    require_offline_transport(transport)
+    for name in _BOUNDED:
+        if not _within_declared_bounds(settings, name):
+            raise ProfileConfigError(
+                "SETTING_OUT_OF_BOUNDS", f"AI_ASSISTANT_{name.upper()} is outside its bounds"
+            )
+    if settings.llm_base_url != _DEFAULTS["llm_base_url"].default:
+        raise ProfileConfigError(
+            "BASE_URL_OVERRIDE", "AI_ASSISTANT_LLM_BASE_URL must not be set for the remote profile"
+        )
+    if settings.llm_model != _DEFAULTS["llm_model"].default:
+        raise ProfileConfigError(
+            "MODEL_OVERRIDE", "AI_ASSISTANT_LLM_MODEL must not be set for the remote profile"
+        )
+    # L3: a deliberate operator act naming the decision that would allow remote inference.
+    if settings.remote_inference_decision != REMOTE_DECISION_ID:
+        raise ProfileConfigError(
+            "DECISION_INTERLOCK",
+            "AI_ASSISTANT_REMOTE_INFERENCE_DECISION does not name the required decision",
+        )
+    # L2: exactly one approved endpoint, identified by its full slug.
+    slug = settings.openrouter_endpoint
+    if not ENDPOINT_SLUG.fullmatch(slug):
+        raise ProfileConfigError(
+            "ENDPOINT_SLUG_INVALID", "AI_ASSISTANT_OPENROUTER_ENDPOINT is not one endpoint slug"
+        )
+    endpoint = profile.endpoint(slug)
+    if endpoint is None:
+        raise ProfileConfigError(
+            "ENDPOINT_NOT_APPROVED", "AI_ASSISTANT_OPENROUTER_ENDPOINT is not an approved endpoint"
+        )
+    if not endpoint.slug_unique_for_model:
+        raise ProfileConfigError(
+            "ENDPOINT_NOT_UNIQUE", "the endpoint slug is not shown to identify one endpoint"
+        )
+    if settings.llm_reasoning_effort not in profile.capabilities.reasoning_efforts:
+        raise ProfileConfigError(
+            "REASONING_EFFORT_INVALID", "AI_ASSISTANT_LLM_REASONING_EFFORT is not supported"
+        )
+    allowance = settings.llm_reasoning_allowance_tokens
+    if allowance < MIN_REASONING_ALLOWANCE:
+        raise ProfileConfigError(
+            "REASONING_ALLOWANCE_INVALID",
+            "AI_ASSISTANT_LLM_REASONING_ALLOWANCE_TOKENS is below the minimum",
+        )
+    if settings.llm_max_answer_tokens + allowance > min(
+        MAX_REMOTE_TOKENS, endpoint.max_completion_tokens
+    ):
+        raise ProfileConfigError(
+            "MAX_TOKENS_TOO_LARGE", "answer tokens plus the reasoning allowance are too large"
+        )
+    # L4: an initialised, healthy lifetime ledger. It is never created here.
+    try:
+        ledger = BudgetLedger.open(budget_ledger or ledger_path(settings))
+        ledger_profile = ledger.status().profile_id
+    except LedgerError:
+        raise ProfileConfigError(
+            "LEDGER_UNAVAILABLE", "the remote profile needs an initialised, healthy budget ledger"
+        ) from None
+    if ledger_profile != profile.profile_id:
+        raise ProfileConfigError("LEDGER_UNAVAILABLE", "the budget ledger is for another profile")
+    credential = resolve_remote_credential(os.environ if environ is None else environ)
+    adapter = OpenRouterChatModel(
+        endpoint=endpoint,
+        credential=credential,
+        timeout_seconds=settings.llm_timeout_seconds,
+        temperature=settings.llm_temperature,
+        answer_tokens=settings.llm_max_answer_tokens,
+        reasoning_effort=settings.llm_reasoning_effort,
+        reasoning_allowance_tokens=allowance,
+        max_prompt_bytes=settings.remote_max_prompt_bytes,
+        transport=transport,
+    )
+    # A remote model is never returned without its budget guard.
+    return BudgetedChatModel(
+        adapter,
+        ledger,
+        max_in_flight=settings.budget_max_in_flight,
+        lease_seconds=settings.llm_timeout_seconds + LEASE_GRACE_SECONDS,
+    )
+
+
+def build_chat_model(
+    settings: AiAssistantSettings,
+    *,
+    local_adapter: Callable[..., ChatModel] = OpenAICompatibleChatModel,
+    transport: object = None,
+    environ: Mapping[str, str] | None = None,
+    registry: Mapping[str, ModelProfile] = APPROVED_PROFILES,
+    budget_ledger: Path | None = None,
+) -> ChatModel:
+    """The configured chat model. Validation runs here, not only in pydantic, because some
+    callers build settings without validators (``model_construct``).
+
+    ``local_adapter`` is the default profile's adapter class (the service passes its own
+    reference, so the default composition is exactly what it always was)."""
+
+    profile = registry.get(settings.llm_profile)
+    if profile is None:
+        raise ProfileConfigError(
+            "PROFILE_UNKNOWN", "AI_ASSISTANT_LLM_PROFILE is not a known profile"
+        )
+    if profile.adapter == "openai_compatible":
+        return _local(settings, local_adapter)
+    return _remote(
+        settings, profile, transport=transport, environ=environ, budget_ledger=budget_ledger
+    )

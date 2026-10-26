@@ -489,7 +489,8 @@ def test_a_log_sink_writes_one_json_line_per_answer() -> None:
     assert len(lines) == 2
     for line in lines:
         data = json.loads(line)
-        assert data["metrics_version"] == 1
+        # Version 2 (Phase A2, D-091 proposed) added content-free usage and budget fields.
+        assert data["metrics_version"] == 2
         assert set(data) == set(AnswerMetrics.__dataclass_fields__)
 
 

@@ -640,3 +640,31 @@ this amendment the RM still sees only allowed lines, in the catalog's own words:
 - The values template shows untrusted document text, quoted; the filters above limit it, and
   the case-data answer already showed the same values.
 - The cap can drop a model line the RM would have found useful; required lines are kept first.
+
+## Amendment 3 - external-model architecture revisit: dormant external inference profile and budget guard (PROPOSED, D-091)
+
+Status: PROPOSED on 2026-10-26. Not accepted. It records how the revisit condition "any
+non-local embedding or model endpoint" is handled for one dormant model endpoint and does not
+satisfy that condition for activation. Amendment 2 (D-090) is PR #114's, merged before this one.
+
+Context. ADR-012 assumed a local model. Phase A2 adds code for one external inference profile
+(OpenRouter, `openai/gpt-oss-120b`) that is dormant, plus a lifetime budget guard.
+
+Decision. (1) The `ChatModel` port is unchanged; providers are selected from a code-defined
+registry through one factory; business logic does not branch on providers. (2) The remote
+profile would receive exactly the messages the local model receives; no data minimisation,
+prompt, retrieval or catalog change is part of this amendment. (3) The remote profile cannot
+run until a Phase B decision and a reviewed change open its locks. (4) Embeddings stay
+loopback-only; warm-up never targets a remote URL. (5) Sections A and C are unchanged,
+including the exact-line catalog. (6) No user model selection and no shared deployment.
+
+Revisit before Phase B: data classification and disclosure scope (O1, O2/Q-013), the pinned
+endpoint, its uniqueness and same-day ZDR evidence, serving-provider verification, budget
+semantics, whether a broker is acceptable, evaluation acceptance thresholds. Revisit before any
+production or team-wide use: hosted deployment, shared budget, key distribution, retention of
+remote-run records.
+
+Consequences. A new external trust boundary exists in code; a new local persistence owner (the
+budget ledger, separate from the knowledge store); a new offline operator script; stricter
+secret scanning. Rollback: remove the profile entry; the default profile has no ledger and no
+new file.

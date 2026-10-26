@@ -1008,6 +1008,22 @@ in Git). No route, response schema, notice, output guard, prompt, retrieval, pro
 persistence owner or CLM dependency changes; the model request is unchanged. No remote
 inference, Live claim or sponsor approval follows.
 
+## AI Assistant Phase A2 dormant remote profile and budget guard — 2026-10-26 (candidate)
+
+Owner-authorized offline Phase A2 (planner
+`AI_ASSISTANT_PHASE_A2_GOVERNANCE_AND_IMPLEMENTATION_PLAN.md` Rev 1, OD-1 to OD-9; D-091 and
+ADR-012 Amendment 3 PROPOSED) keeps `ChatModel` as the only application-facing model port and
+adds an inference layer that business logic does not see: a code-defined profile registry
+(`model_profiles.py`), one composition factory (`model_factory.py`), a dormant OpenRouter
+adapter (`openrouter.py`) that accepts only an in-memory mock transport, and a lifetime budget
+guard (`budget.py`). The guard is a new assistant-local persistence owner: a git-ignored SQLite
+ledger separate from the knowledge store (whose schema v5 belongs to D-084). The default
+profile builds the same adapter as before; prompts, retrieval, the exact-line guard,
+fallbacks, notices, routes, answer records and GET-only CLM access are unchanged. The remote
+profile is DORMANT (mock-transport tests only) and is not recorded as a `PROJECT_STATE.md`
+provider. No remote inference, spend, data transmission, model selection or Live claim
+follows.
+
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 
 Originally assigned from main `529efea`, OnboardingService now supports both definitive

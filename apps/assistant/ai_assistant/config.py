@@ -25,6 +25,23 @@ class AiAssistantSettings(BaseSettings):
     # reply. If an answer reaches it, the RM is told the answer was cut short.
     llm_max_answer_tokens: int = Field(default=600, ge=16, le=4000)
 
+    # Model profile (model_profiles.py). The default is the adapter above, unchanged. The
+    # remote profile (D-091, proposed) is dormant in this build: it refuses to start against a
+    # real network whatever is set here, and it never reads AI_ASSISTANT_LLM_API_KEY.
+    llm_profile: str = "local_openai_compatible"
+    # Remote profile only: the decision id that must be named, one approved endpoint slug,
+    # the reasoning effort and its token allowance, and the largest prompt it may send.
+    remote_inference_decision: str = ""
+    openrouter_endpoint: str = ""
+    llm_reasoning_effort: str = ""
+    llm_reasoning_allowance_tokens: int = Field(default=0, ge=0, le=4000)
+    remote_max_prompt_bytes: int = Field(default=32768, ge=1024, le=262144)
+    # Remote profile only: the lifetime budget ledger (budget.py; path relative to
+    # apps/assistant, not in Git). The cap lives in the ledger, never in settings.
+    budget_ledger_path: str = "data/budget/ledger.sqlite3"
+    budget_max_in_flight: int = Field(default=1, ge=1, le=4)
+    budget_settle_lag_seconds: int = Field(default=600, ge=0, le=86400)
+
     # Browser pages allowed to call the AI assistant (the Vite dev server by default).
     allowed_origins: list[str] = Field(
         default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]

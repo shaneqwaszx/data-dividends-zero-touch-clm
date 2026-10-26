@@ -4,6 +4,7 @@ import json
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass
+from decimal import ROUND_CEILING, Decimal
 from ipaddress import ip_address
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -51,8 +52,121 @@ MAX_SSE_FRAME_BYTES = 64 * 1024
 MAX_STREAM_BYTES = 1024 * 1024
 
 
+def message_bytes(messages: list[dict[str, str]]) -> int:
+    """UTF-8 bytes of every message's role and content. For a byte-level BPE tokenizer this
+    bounds the content tokens; template tokens are not included."""
+
+    return sum(
+        len(str(message.get("role", "")).encode("utf-8", "surrogatepass"))
+        + len(str(message.get("content", "")).encode("utf-8", "surrogatepass"))
+        for message in messages
+    )
+
+
 class LlmUnavailableError(Exception):
     """The model could not answer (not running, not installed, too slow, bad reply)."""
+
+
+@dataclass(frozen=True)
+class ModelUsage:
+    """What a provider reported for one call: counts, cost and an opaque reference only.
+
+    The local adapter never fills this. ``cost`` is in provider credits (USD-denominated);
+    ``generation_ref`` is kept by the budget ledger and never reaches telemetry. Anomalies
+    are closed codes, never provider text.
+    """
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cached_tokens: int | None = None
+    cost: Decimal | None = None
+    generation_ref: str | None = None
+    anomalies: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CallBudget:
+    """What the budget guard did for one call, in integer micro-USD (content-free)."""
+
+    outcome: str
+    reserved_micro_usd: int = 0
+    charged_micro_usd: int | None = None
+
+
+# Closed vocabularies shared by provider adapters, the budget guard and telemetry.
+MODEL_ERROR_CLASSES = frozenset(
+    {
+        "bad_request",
+        "auth",
+        "payment",
+        "payment_key_limit",
+        "forbidden",
+        "not_allowed",
+        "timeout",
+        "rate_limited",
+        "upstream",
+        "no_provider",
+        "http_other",
+        "transport",
+        "protocol",
+        "upstream_midstream",
+        "content_filter",
+        "empty_content",
+        "prompt_too_large",
+        "budget_refused",
+    }
+)
+BUDGET_OUTCOMES = frozenset(
+    {
+        "settled",
+        "unsettled",
+        "refused_cap",
+        "refused_breaker",
+        "refused_busy",
+        "refused_ledger",
+        "refused_reservation",
+    }
+)
+# Anomalies that mean a call may have run somewhere other than the pinned endpoint.
+ROUTING_ANOMALIES = frozenset({"model_mismatch", "provider_mismatch"})
+MODEL_ANOMALIES = frozenset(
+    {
+        *ROUTING_ANOMALIES,
+        "usage_missing",
+        "usage_malformed",
+        "usage_repeated",
+        "content_after_finish",
+        "finish_mismatch",
+        "read_through_incomplete",
+        "generation_ref_invalid",
+    }
+)
+_MICRO = Decimal("0.000001")
+
+
+def micro_usd(value: Decimal) -> int:
+    """A non-negative USD amount in whole micro-USD, rounded up (never under-counts)."""
+
+    return int((value / _MICRO).to_integral_value(rounding=ROUND_CEILING))
+
+
+class ModelCallError(LlmUnavailableError):
+    """A call that failed with a known class (closed code), plus what is known about its cost."""
+
+    def __init__(
+        self,
+        error_class: str,
+        *,
+        usage: ModelUsage | None = None,
+        budget: CallBudget | None = None,
+    ) -> None:
+        if error_class not in MODEL_ERROR_CLASSES:
+            raise ValueError("unknown model error class")
+        super().__init__(f"model call failed: {error_class}")
+        self.error_class = error_class
+        self.usage = usage
+        self.budget = budget
 
 
 @dataclass(frozen=True)
@@ -60,6 +174,10 @@ class ModelAnswer:
     text: str
     # True when the model stopped because it reached the answer-length safety limit.
     cut_short: bool = False
+    # Filled only by adapters that report them (never by the local adapter).
+    usage: ModelUsage | None = None
+    finish_reason: str | None = None
+    budget: CallBudget | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +186,10 @@ class Piece:
 
     text: str = ""
     cut_short: bool = False
+    # Only on the last piece, and only from adapters that report them.
+    usage: ModelUsage | None = None
+    finish_reason: str | None = None
+    budget: CallBudget | None = None
 
 
 class ChatModel(Protocol):

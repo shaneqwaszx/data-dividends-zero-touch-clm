@@ -415,6 +415,51 @@ package never imports `assistant_eval`; `create_app(on_prepared=..., retrieval_c
 are the in-process seams the harness uses, and neither is ever set from settings. Reports go
 to `data/eval/` (not in Git).
 
+## Model profiles and budget guard (remote profile dormant)
+
+Phase A2 (D-091, proposed) adds a code-defined model registry
+(`ai_assistant/model_profiles.py`) and one composition point (`ai_assistant/model_factory.py`).
+The default profile, `local_openai_compatible`, builds exactly the adapter described above with
+the same arguments, so the default model request is byte-identical
+(`tests/test_default_request_golden.py`). Prompts, retrieval, the exact-line guard, fallbacks,
+notices and routes are unchanged.
+
+The `openrouter_gpt_oss_120b` profile is **dormant**: no endpoint is approved, and in this
+build it cannot reach a network. It composes only if all four locks hold, and a running
+service cannot open the first two:
+
+| Lock | Condition |
+|---|---|
+| L1 | the injected transport object is exactly `httpx.MockTransport`; a real, async or subclassed transport, or any other transport object, is refused. The check is on the transport's type: a mock's handler is test code and is not inspected, and the test suite's network guard fails any connection it would make |
+| L2 | the registry holds an approved record for the full endpoint slug (`provider[/variant][/region][/tier]`; a base provider slug matches every endpoint of that provider), shown to identify one endpoint |
+| L3 | `AI_ASSISTANT_REMOTE_INFERENCE_DECISION` names the decision id |
+| L4 | an initialised, healthy budget ledger exists (the service never creates one) |
+
+The `OPENROUTER_API_KEY` variable is read only from the process environment, only for this
+profile and only after every other check. It is never read from `.env`, never sent to the
+local model and never logged. Nothing in this build sends a request to OpenRouter.
+
+Budget guard (`ai_assistant/budget.py`, `scripts/budget_ledger.py`): a git-ignored SQLite
+ledger counts one key's cumulative usage in micro-USD, the usage before the ledger existed
+included. Each call reserves a labelled worst case first (content tokens bounded by UTF-8
+bytes, template tokens by an engineering allowance, prices and output by the endpoint record;
+not a proven maximum), is settled from the provider's `usage.cost`, and anything uncertain is
+charged at its full reservation. Missing usage, a cost or token count above the bound, a
+routing anomaly, a refusing provider error or an abandoned call opens a breaker that an
+operator closes only after reconciling against the provider's usage. A missing, corrupt,
+newer or inconsistent ledger is refused, never recreated or repaired. Plan:
+`.ai-pipeline/001_planner/AI_ASSISTANT_PHASE_A2_GOVERNANCE_AND_IMPLEMENTATION_PLAN.md`,
+sections 5 to 8.
+
+```
+cd apps/assistant
+../../.venv/bin/python scripts/budget_ledger.py --ledger PATH status   # amounts and codes only
+```
+
+Metrics version 2 adds content-free profile, requested endpoint, usage, budget and error-class
+fields; telemetry stays off by default. The test suite fails on any connection to a host that
+is not this machine (`tests/conftest.py`).
+
 ## Tests
 
 ```
