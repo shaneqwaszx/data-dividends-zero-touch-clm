@@ -185,6 +185,20 @@ def test_a_provider_error_is_charged_in_full_and_may_open_the_breaker(
     assert _status(path).breaker_open is opens
 
 
+def test_a_refusal_with_a_slow_error_body_opens_the_breaker_on_chat(tmp_path: Path) -> None:
+    """Re-QG N-1: /chat (non-stream) and /chat/stream treat a refusal the same way."""
+
+    from tests.test_openrouter_adapter import SlowError
+
+    path = new_ledger(tmp_path / "ledger.sqlite3")
+    provider = Provider(lambda _: httpx.Response(402, stream=SlowError()))
+    with pytest.raises(ModelCallError) as raised:
+        _guarded(provider, path, llm_timeout_seconds=0.3).complete(MESSAGES)
+
+    assert raised.value.error_class == "payment"
+    assert _status(path).breaker_code == "provider_error"
+
+
 def test_a_mid_stream_error_is_settled_once(tmp_path: Path) -> None:
     path = new_ledger(tmp_path / "ledger.sqlite3")
     model = _guarded(streaming(sse(chunk("x"), chunk("", "error"))), path)

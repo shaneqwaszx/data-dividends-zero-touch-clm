@@ -320,7 +320,14 @@ class OpenRouterChatModel:
                 try:
                     status = response.status_code
                     if status != 200:
-                        error_body = self._bounded_body(response, MAX_ERROR_BODY_BYTES, deadline)
+                        # As on the stream path: a slow or broken error body never hides the
+                        # status (a refusal must still be classed, and may open the breaker).
+                        try:
+                            error_body = self._bounded_body(
+                                response, MAX_ERROR_BODY_BYTES, deadline
+                            )
+                        except (ModelCallError, httpx.HTTPError, httpx.StreamError):
+                            error_body = b""
                         raise ModelCallError(
                             _status_class(status, error_body[:MAX_ERROR_BODY_BYTES])
                         )

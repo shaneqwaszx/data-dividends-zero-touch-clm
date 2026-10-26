@@ -487,6 +487,37 @@ class Gzipped(httpx.SyncByteStream):
         yield bytes([0x1F, 0x8B, 0x08, 0x00]) + b"compressed-bytes"
 
 
+class SlowError(httpx.SyncByteStream):
+    def __iter__(self) -> Any:
+        import time
+
+        time.sleep(0.5)
+        yield b'{"error": {"code": 0}}'
+
+
+class BrokenError(httpx.SyncByteStream):
+    def __iter__(self) -> Any:
+        raise httpx.ReadError("connection reset")
+        yield b""  # pragma: no cover
+
+
+@pytest.mark.parametrize(
+    ("status", "error_class"),
+    [(401, "auth"), (402, "payment"), (403, "forbidden"), (429, "rate_limited")],
+)
+@pytest.mark.parametrize("body", [SlowError, BrokenError])
+def test_a_slow_or_broken_error_body_keeps_the_status_class(
+    status: int, error_class: str, body: type[httpx.SyncByteStream]
+) -> None:
+    """Re-QG N-1: the non-stream path classes a refusal by its status, as the stream path does."""
+
+    provider = Provider(lambda _: httpx.Response(status, stream=body()))
+    failure = _complete_error(_model(provider, llm_timeout_seconds=0.3))
+
+    assert failure.error_class == error_class
+    _one_request(provider)
+
+
 def test_a_compressed_non_stream_reply_is_refused() -> None:
     provider = Provider(
         lambda _: httpx.Response(200, stream=Gzipped(), headers={"content-encoding": "gzip"})

@@ -38,7 +38,11 @@ SOURCE_CODE_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx"}
 RUNTIME_VALUE_REFERENCE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$")
 ASSISTANT_CREDENTIALS = "OPENROUTER_API_KEY|AI_ASSISTANT_LLM_API_KEY"
 # A whole angle-bracket placeholder (which may contain spaces), or a run without quotes.
-CREDENTIAL_VALUE = r"(<[^<>\n]{1,64}>|[^\"'\s#]*)"
+# A placeholder only counts when it is the whole value (optionally followed by Markdown
+# punctuation); `<x>literal` is a literal.
+CREDENTIAL_VALUE = (
+    r"(<[^<>\n]{1,64}>(?=[.,;:)\]}*_]*(?:$|[\s\"'`#]))|[^\"'\s#]*)"
+)
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@
 | Date | 2026-10-26 |
 | Role | Stage 1 implementation plus owner-assigned integrated offline verification. Not an independent Quality Gate |
 | Authority | Owner authorisation "AI Assistant Phase A2 implementation" (OD-1 to OD-9 approved for offline A2, with safeguards S1–S3); planner `.ai-pipeline/001_planner/AI_ASSISTANT_PHASE_A2_GOVERNANCE_AND_IMPLEMENTATION_PLAN.md` Rev 1 |
-| Candidate (integrated) | Worktree `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-a2-int-20261026`, branch `feat/assistant-phase-a2-20261026-int`, base `7d6a31aa196cff23c0b5b1fd4e5e31cf9bce0efc` (latest `origin/main`, PR #113 merged). Implementation commit `5245bbe` (independent QG PASS with six low findings); Quality Gate remediation R1 committed on top (section 10); not pushed |
+| Candidate (integrated) | Worktree `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-a2-int-20261026`, branch `feat/assistant-phase-a2-20261026-int`, base `7d6a31aa196cff23c0b5b1fd4e5e31cf9bce0efc` (latest `origin/main`, PR #113 merged). Implementation commit `5245bbe` (independent QG PASS with six low findings); Quality Gate remediation R1 `ee8a658` (re-QG PASS with two low findings) and remediation R2 committed on top (sections 10 and 11); not pushed |
 | Pre-integration copy | Worktree `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-a2-20261026`, branch `feat/assistant-phase-a2-20261026`, base `769c149`, uncommitted, unchanged since integration (historical; not the candidate) |
 | Change classes | `EXTERNAL_PROVIDER`, `AUTH_RBAC_SECURITY`, `PERSISTENCE` (assistant-local SQLite only), `ARCHITECTURE_REFACTOR`, `CI_TOOLING`, `DOCS_ONLY` |
 | Spend / remote activity | US$0.00. No OpenRouter inference, key, generation, endpoint or account request; no real ledger; `OPENROUTER_API_KEY` never read |
@@ -141,3 +141,14 @@ were left as they are.
 The default local adapter, prompts, retrieval, the exact-line guard, routes, notices and
 answer records are untouched by R1. The re-verification run and the frozen remediation commit
 are recorded in the commit message and the re-QG report.
+
+## 11. Re-QG remediation R2 (2026-10-26)
+
+The independent re-QG on `ee8a658` (tree `177645d0`) returned **PASS**: F-1 to F-6 closed, two
+new low findings introduced by R1. The owner authorised a bounded remediation of N-1 and N-2
+followed by a fresh independent re-QG. Only those two findings were changed.
+
+| Finding | Change | Tests |
+|---|---|---|
+| N-1 a slow or broken error body hid a refusal's status on the non-stream path | `OpenRouterChatModel.complete()` reads the error body like the stream path: a timeout or read error during that bounded read keeps the status class, so trip-class refusals still open the breaker on `/chat` | `test_a_slow_or_broken_error_body_keeps_the_status_class` (401/402/403/429 x slow/broken), `test_a_refusal_with_a_slow_error_body_opens_the_breaker_on_chat` |
+| N-2 a literal glued to an angle placeholder was not flagged | `CREDENTIAL_VALUE` accepts the placeholder only when it is the whole value, optionally followed by Markdown punctuation; `<x>literal` is captured whole and flagged again | `test_a_literal_glued_to_a_placeholder_is_still_a_finding`, `test_a_placeholder_followed_by_punctuation_is_still_a_placeholder` |

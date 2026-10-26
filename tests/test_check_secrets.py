@@ -220,6 +220,33 @@ class SecretScannerTests(unittest.TestCase):
 
         self.assertEqual(CHECK_SECRETS.scan_file(path), [])
 
+    def test_a_literal_glued_to_a_placeholder_is_still_a_finding(self) -> None:
+        """Re-QG N-2: only a whole angle-bracket value is a placeholder."""
+
+        literal = "LITERAL" + "998877"
+        lines = [
+            f"{self.REMOTE}=<x>{literal}",
+            f'{self.REMOTE}="<placeholder>{literal}"',
+            f"{self.REMOTE}: <a>{literal}",
+            f'os.environ["{self.REMOTE}"] = "<x>{literal}"',
+        ]
+        path = self._temporary_file("glued.env", chr(10).join(lines))
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(sorted(line for _, line in findings), [1, 2, 3, 4])
+        self.assertNotIn(literal, repr(findings))
+
+    def test_a_placeholder_followed_by_punctuation_is_still_a_placeholder(self) -> None:
+        lines = [
+            f"| `{self.REMOTE}=<key>`, set it in the shell |",
+            f"Set {self.REMOTE}=<your key>.",
+            f"{self.REMOTE}=<key>;",
+        ]
+        path = self._temporary_file("guide.md", chr(10).join(lines))
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [])
+
     def test_main_never_prints_an_assistant_credential_value(self) -> None:
         fake_value = "fixture_not_a_real_value_" + "112233"
         path = self._temporary_file("local.env", f"{self.REMOTE}={fake_value}\n")
