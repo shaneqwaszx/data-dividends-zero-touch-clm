@@ -1132,12 +1132,24 @@ applied to model text in place of matching.
 Authority: `PROJECT_DEFINED_PROVISIONAL`. Not sponsor review policy; no CLM backend write,
 provider status or Live claim follows.
 
-## D-091 - proposed AI Assistant dormant external inference profile and lifetime budget guard (PROPOSED)
+## D-091 - AI Assistant dormant external inference profile and lifetime budget guard (ACCEPTED, dormant A2 scope only)
 
-Status: PROPOSED by the project team on 2026-10-26, built offline under the owner's Phase A2
-implementation authorisation (OD-1 to OD-9). Not accepted. It amends ADR-012 (Amendment 3).
-Each of X1 to X9 needs the repository owner's (Shane's) explicit acceptance before merge.
-D-090 and ADR-012 Amendment 2 are PR #114's, merged before this one.
+Status: ACCEPTED by the repository owner on 2026-10-26 for the offline, dormant Phase A2
+implementation only. Proposed by the project team on 2026-10-26 and built offline under the
+owner's Phase A2 implementation authorisation (OD-1 to OD-9). It amends ADR-012
+(Amendment 3, accepted for the same scope). The owner accepted X1 to X9 and Amendment 3 "for
+the dormant Phase A2 architecture and offline-only controls" in the PR #116 governance
+acceptance
+([comment](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/116#issuecomment-6416329653))
+and reaffirmed it for the merged head
+([comment](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/116#issuecomment-6417214539)).
+PR #116 merged as `63cb662`. **Accepting A2 does not authorise external inference
+activation**: the approved endpoint registry stays empty, the four locks stay closed, and no
+remote or OpenRouter request, paid trial, real or sponsor data transmission, remote
+embedding, hosted team deployment or user model switching is approved. Activation needs the
+separate Phase B owner decisions below. The acceptance does not cover D-083, D-084 or D-090,
+does not change the authority label below and is not sponsor policy. D-090 and ADR-012
+Amendment 2 are PR #114's, merged before this one.
 
 **What A2 does not do.** It does not enable remote inference, approve sending customer,
 sponsor or case data to any external provider, approve any API spending, approve
@@ -1146,7 +1158,7 @@ deployment, change the AI Assistant's responsibilities or use cases, or relax th
 output guard. Any future remote activation needs separate owner decisions (Phase B) and the
 applicable sponsor governance (Q-013) for anything beyond synthetic data.
 
-| # | Decision | Recommendation |
+| # | Decision | Accepted decision (dormant A2 scope) |
 | --- | --- | --- |
 | X1 | Dormant remote profile | `openrouter_gpt_oss_120b` refuses composition unless four locks hold: an in-memory mock transport (L1), an approved endpoint record (L2; none exists), the interlock value `D-091` (L3) and an initialised healthy ledger (L4). |
 | X2 | Approved model registry | Code-defined profiles with explicit capabilities and per-endpoint records (full endpoint slug, listed prices, output ceilings, documented guarantees, uniqueness evidence). Settings select a profile and one endpoint only. |
