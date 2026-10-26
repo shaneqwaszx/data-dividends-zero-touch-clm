@@ -17,6 +17,12 @@ Owner decisions recorded 2026-10-26 (owner authorisation for Phase A1):
 - **A-7:** no local model is installed during the initial A1 implementation (E1 deferred).
 - A-2, A-4, A-5 and A-8 (A2 scope) remain deferred. A2 needs a separate owner authorisation
   covering D-090, ADR-012, the OpenRouter security boundary and the lifetime budget guard.
+- **A2 follow-up F-A2-1:** the owner provisioned the OpenRouter key as `OPENROUTER_API_KEY`
+  (workspace `FYP - AI Assistant`, key `CLM - AI Assistant`; credential provisioning only,
+  not authorisation to call or spend). The settings loader reads only `AI_ASSISTANT_*`
+  variables, so that variable is ignored today. WP3 (section 8.2) must decide how the
+  dormant `openrouter` profile obtains its key (for example, read `OPENROUTER_API_KEY` only
+  when that profile is selected) and must never send it to the default local model.
 
 ## 1. Identity and authority
 
