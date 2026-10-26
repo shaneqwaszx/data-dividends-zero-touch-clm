@@ -159,18 +159,22 @@ class RunResult:
     turns: list[TurnResult]
 
 
-def _shown(answer: str, offered: dict[str, str]) -> tuple[tuple[str, ...], int]:
+def _shown(
+    answer: str, offered: dict[str, str], added: frozenset[int] = frozenset()
+) -> tuple[tuple[str, ...], int]:
     by_text = {text: line_id for line_id, text in offered.items()}
     shown: list[str] = []
     unmapped = 0
-    for line in answer.splitlines():
+    for index, line in enumerate(answer.splitlines()):
         line = line.strip()
         if not line:
             continue
-        if line in by_text:
-            shown.append(by_text[line])
-        else:
+        if line not in by_text:
+            # Counted wherever it is: the service's added_lines claim is not trusted here.
             unmapped += 1
+        elif index not in added:
+            # Required lines the service added (D-090) are not the model's selection.
+            shown.append(by_text[line])
     return tuple(shown), unmapped
 
 
@@ -270,7 +274,10 @@ def _scenario(
             raise RuntimeError("the service did not prepare and record this question")
         offered = {item.id: text for _, item, text in offered_lines(prep)}
         answer = str(done.get("answer") or "")
-        shown, unmapped = _shown(answer, offered) if done["answered_by"] == "model" else ((), 0)
+        added = frozenset(done.get("added_lines") or [])
+        shown, unmapped = (
+            _shown(answer, offered, added) if done["answered_by"] == "model" else ((), 0)
+        )
         tags = {item.tag: item.hit.entry.entry_id for item in prep.tagged}
         cited = tuple(
             tags[source["tag"]]

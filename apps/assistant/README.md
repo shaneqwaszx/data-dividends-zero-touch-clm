@@ -191,8 +191,8 @@ in the chat that the server found to be this user's on this case (at most
 `max_history_messages`), the case's blocker codes, stage, steps and a facts hash, the
 knowledge retrieved (tag, kind, entry, version, scores, the score thresholds, confidence,
 degraded), the allowed lines each tagged policy (a fixed catalog line), case (a catalog line
-filled from this case) or knowledge, the lines shown, the answer as the RM saw it (a
-case-data answer redacted with the case Redactor), the lines left out (redacted, at most
+filled from this case) or knowledge, the lines shown and the answer as the RM saw it (all
+redacted with the case Redactor except the fixed policy lines, D-090), the lines left out (redacted, at most
 8 KiB) and how the answer was made (answered by, notices, fallback reason `model_unavailable`,
 `nothing_allowed` or `cut_short`, model, time). Browser history text is never stored, and a
 record never goes into a prompt or into knowledge. Each record can be rated once; "Not

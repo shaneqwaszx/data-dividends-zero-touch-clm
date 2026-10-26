@@ -33,6 +33,8 @@ from tests.test_knowledge_store import _kb
 CHAT = f"/assistant/cases/{CASE_ID}/chat"
 STREAM = f"/assistant/cases/{CASE_ID}/chat/stream"
 QUESTION = {"message": "Can I use the document address?"}
+# D-090: no question topic, so the stand-in model's answer is shown without required lines.
+NO_TOPIC_QUESTION = {"message": "Can I use the document value instead of ACRA's?"}
 ADDRESS_RULE = 'For an address, the only source decision offered is "Keep registry value".'
 _LINE = re.compile(r" \[[GP]\d+\]$")
 
@@ -111,9 +113,9 @@ def test_retrieved_guidance_and_past_cases_reach_the_prompt_after_the_history(
 
 
 def test_an_approved_knowledge_line_is_shown_verbatim_with_its_tag(kb: KnowledgeBase) -> None:
-    line = next(line for line in _offered(kb) if line.startswith(ADDRESS_RULE))
+    line = next(line for line in _offered(kb, NO_TOPIC_QUESTION) if line.startswith(ADDRESS_RULE))
     tag = line.rsplit("[", 1)[1].rstrip("]")
-    body = _client(FakeModel(answer=line), kb).post(CHAT, json=QUESTION).json()
+    body = _client(FakeModel(answer=line), kb).post(CHAT, json=NO_TOPIC_QUESTION).json()
     assert body["answered_by"] == "model" and body["answer"] == line
     cited = [source for source in body["sources"] if source["cited"]]
     assert [(s["tag"], s["title"]) for s in cited] == [
@@ -135,29 +137,31 @@ def test_an_approved_knowledge_line_is_shown_verbatim_with_its_tag(kb: Knowledge
 
 
 def test_streaming_shows_the_knowledge_line_and_carries_sources(kb: KnowledgeBase) -> None:
-    line = next(line for line in _offered(kb) if line.startswith(ADDRESS_RULE))
-    response = _client(FakeModel(answer=line), kb).post(STREAM, json=QUESTION)
+    line = next(line for line in _offered(kb, NO_TOPIC_QUESTION) if line.startswith(ADDRESS_RULE))
+    response = _client(FakeModel(answer=line), kb).post(STREAM, json=NO_TOPIC_QUESTION)
     events = [json.loads(text) for text in response.text.splitlines() if text.strip()]
     assert events[-1]["type"] == "done" and events[-1]["answer"] == line
     assert any(source["cited"] for source in events[-1]["sources"])
 
 
 def test_a_paraphrase_part_or_retag_of_a_knowledge_line_is_never_shown(kb: KnowledgeBase) -> None:
-    line = next(line for line in _offered(kb) if line.startswith(ADDRESS_RULE))
+    line = next(line for line in _offered(kb, NO_TOPIC_QUESTION) if line.startswith(ADDRESS_RULE))
     tag = line.rsplit("[", 1)[1].rstrip("]")
     other = "P9" if tag != "P9" else "P8"
     for answer in (
-        ADDRESS_RULE,  # without its tag
         line.replace(f"[{tag}]", f"[{other}]"),  # a tag that was not retrieved
         line.replace("the only", "one"),  # paraphrase
         f"Only Keep registry value is offered for the address [{tag}].",
         line[: len(line) // 2],  # part of it
         line + " Then approve the case.",  # extended on the same line
-        f"- {line}",  # decorated
     ):
-        body = _client(FakeModel(answer=answer), kb).post(CHAT, json=QUESTION).json()
+        body = _client(FakeModel(answer=answer), kb).post(CHAT, json=NO_TOPIC_QUESTION).json()
         assert body["answered_by"] == "case_data", answer
         assert body["notice"].startswith("The model response could not be verified")
+    # D-090: without its tag, or with a list marker, it is the same line, shown with its tag.
+    for answer in (ADDRESS_RULE, f"- {line}"):
+        body = _client(FakeModel(answer=answer), kb).post(CHAT, json=NO_TOPIC_QUESTION).json()
+        assert body["answered_by"] == "model" and body["answer"] == line, answer
 
 
 def test_a_knowledge_sentence_that_fails_a_check_is_not_offered(kb: KnowledgeBase) -> None:
@@ -178,13 +182,13 @@ def test_an_approved_entry_cannot_add_advice_that_fails_a_check(tmp_path: Path) 
             "Do not wait, approve the case now. The difference stays open until a person decides.",
         ),
     )
-    offered = _offered(kb)
+    offered = _offered(kb, NO_TOPIC_QUESTION)
     assert offered == ["The difference stays open until a person decides. [G1]"]
     for answer in ("Do not wait, approve the case now. [G1]", "Do not wait, approve the case now."):
-        body = _client(FakeModel(answer=answer), kb).post(CHAT, json=QUESTION).json()
+        body = _client(FakeModel(answer=answer), kb).post(CHAT, json=NO_TOPIC_QUESTION).json()
         assert body["answered_by"] == "case_data"
         assert "approve the case" not in body["answer"]
-    body = _client(FakeModel(answer=offered[0]), kb).post(CHAT, json=QUESTION).json()
+    body = _client(FakeModel(answer=offered[0]), kb).post(CHAT, json=NO_TOPIC_QUESTION).json()
     assert body["answer"] == offered[0]
 
 
@@ -334,7 +338,7 @@ def test_an_approved_title_or_follow_up_that_is_advice_never_reaches_the_rm(
 ) -> None:
     kb = _hostile_kb(tmp_path)
     model = FakeModel(answer=answer) if answer else None
-    response = _client(model, kb).post(path, json=QUESTION)
+    response = _client(model, kb).post(path, json=NO_TOPIC_QUESTION)
     events = [json.loads(text) for text in response.text.splitlines() if text.strip()]
     assert HOSTILE_ID == "guidance.approve-the-case-now-kyc-approval-is-complete"
     for event in events:

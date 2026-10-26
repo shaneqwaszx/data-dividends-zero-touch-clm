@@ -11,6 +11,10 @@ flow is amended by D-083 (proposed): drafts no longer come from "Solved it" / "Y
 a Director writes the fix for an enhancement request ("Not helpful" with a note). **D-083 also
 relaxes D-074's two-person control for the POC (single-reviewer mode, below) and needs the
 owner's (Shane's) explicit acceptance before merge.**
+Amendment 2 (D-090, proposed) adds explanation sentences, fixed lines and value templates to
+the catalog (one of them relaxes section C), steers the model by question topic, adds each
+topic's required lines and matches model lines ignoring formatting only; **it also needs
+Shane's explicit acceptance before merge.**
 
 ## Date
 
@@ -504,11 +508,144 @@ tables and request states (main is at schema v4, from D-083).
 - Rechecks of the caller inside the SQLite write lock.
 - Read-only access towards the CLM backend: GET only, with the user's session.
 
+## Amendment 2 - explanations, topic steering and required lines (PROPOSED, D-090)
+
+Status: PROPOSED by the project team on 2026-10-26, built ahead of acceptance on branch
+`feat/ai-assistant-explanations`. **It needs the repository owner's (Shane's) explicit
+acceptance before merge, including the section C relaxation in change 2.** It amends
+section C only. It builds on D-084 (Amendment 1, proposed); PR 2's `Validation.dropped` is
+merged in when that PR lands.
+
+Why. On a real request ("Explain the registered address difference", request 5) the RM saw
+the opening summary again: the no-model answer sent every question with "differen" or "why"
+to the opening message, the catalog had no line explaining a difference, and the model's
+correct lines were dropped for formatting (`**"Keep registry value"**`, a knowledge sentence
+copied without its `[G1]` tag, a bare `Keep registry value.`). A manual test then showed
+answers that were safe but long, repetitive or off topic, and varied from run to run.
+
+### Change 1 - reviewed explanation sentences (`guide.py`)
+
+Sentences with no case values, which never say which source is right or that anything is
+verified, approved or live, and name only sections that exist. Each stands alone and passes
+`sentence_problem` on the synthetic Merlion case (test).
+
+| Lines | Offered when | Source |
+| --- | --- | --- |
+| "The app compares the value read from a document with the current ACRA record." / "A difference between a document and ACRA can come from a reading error, an old document or a real change." / "Before choosing a value, compare what was read with the document itself." / "Choosing a value is not official verification of either source." | any field differs on a blocker | `services/reconciliation.py` |
+| Registered address: "A different registered address can mean the document is older than the current ACRA record, or the company has moved." / "Before choosing an address, check the type of the document and which company it is for." | that field differs | as above; documents carry no issue date |
+| Legal name: "A different company name can be a former name, a trading name or a reading error." | that field differs | as above |
+| UEN: "A different UEN can come from a reading error or a document that belongs to another company." / "Before choosing a UEN, check that the document belongs to this company." | that field differs | as above |
+| "When a person reviews a document, every field read from it needs a review decision." / "A field read with low confidence, or a required field that could not be read, keeps the document review open." | `DOCUMENT_REVIEW_INCOMPLETE` is still needed | readiness in `services/clm_orchestration.py`; the first sentence describes the human-review path only (the backend can also confirm a document automatically or clear it through a reconciliation decision, `services/document_processing.py`) |
+| "The UBO check needs the company's owners and each owner's economic interest in percent." / "Ownership evidence can come from the registry, an uploaded ownership document or a manual ownership declaration." / "A manual ownership declaration needs a reviewed current document first." | `OWNERSHIP_REQUIRED` is still needed | `domain/ownership.py`, `services/manual_ownership_evidence.py` |
+
+The "can" / "can mean" sentences give general reasons; the app does not work out why a value
+differs, and they never read as a finding about this case.
+
+### Change 2 - fixed lines and templates filled from the backend projection
+
+| Line | Offered when |
+| --- | --- |
+| `<Field>: ACRA says "<registry value>", the document says "<document value>".` (one per difference; the case-data answer's wording) | a blocker shows the difference, both values are single-line, at most 120 characters, without straight or typographic double quotes (which could close the template's quotes) or unsupported characters, and the whole line passes the sentence checks (which catch only their listed phrasings; other wording stays inside the quotes as the document's value). **This relaxes section C** ("document values never extend the allowed lines"): the document value is untrusted text, shown only quoted inside this template. Otherwise the difference stays model data only. |
+| "This case is not ready for GoldTier submission yet." | the readiness facts list a blocker (or a blocker is open) and the case is not completed |
+| "Approving the case is not offered to you on this case." | the case is not ready (as above) and no approve-type action is offered to this viewer. A ready case reaches Review & Send, whose Send is the app's final human approval, so the line is never offered there. Worded so the sentence checks recognise the negation ("<action> is not offered"); the requested "is not an action offered" failed them. |
+| `<blocker title>: this is for <who resolves it>.` | for each blocker whose owner is one the blocker policy names (`guide.OWNER`), with the title checked like a difference value (including no double quotes of either kind) |
+| "The case data does not name a contact for this." | no blocker has such an owner line |
+| "I can't answer that from this case's data." | always |
+
+All values come from the backend projection, never from the model. A line with a changed
+value, another case's values or an invented owner is not an allowed line and is dropped.
+
+Answer records (D-084) store these lines redacted: every non-policy line in a record's allowed
+lines, and a model answer's chosen lines and shown answer, go through the same Redactor as the
+case-data answer. So the values reach the RM's screen but not the record, and ADR-012 section A
+is unchanged by this amendment.
+
+### Change 3 - topic steering (prompt only)
+
+The no-model answer's topic detection (`briefing.question_topic`) names the question's topic
+in a prompt message and lists that topic's allowed lines in order: why blocked / what next,
+a field difference, readiness ("approved", "ready", "submit"), approving, who to contact,
+the document review, ownership evidence. The rules ask for at most 6 lines, the answer first,
+no repeats, at most one related disclaimer, and, when no topic is given and no line answers,
+"I can't answer that from this case's data." with at most 2 relevant lines. The model's view
+of the case no longer repeats facts that are already word for word an allowed line. Which
+lines are allowed does not change.
+
+### Change 4 - required lines (server)
+
+For a model answer with at least one allowed line, the server adds the topic's required
+lines the model left out and puts the answer in the topic's order (other lines after).
+Required: one line per blocker (why blocked / what next); the values, "why" and "check" lines
+and the offered action or Record correction line (a difference); the not-ready or
+not-offered line and every still-needed item (readiness, approving); the first document
+review sentence; up to 3 "this is for" lines (contacts). Then, among lines the RM has not
+been shown yet, lines that are not required are dropped from the end until the answer has 6
+lines, and required ones until it has 8. A line already shown while the answer streamed is
+never removed. The limits apply only when lines are added: an answer with nothing missing is
+returned as the model chose it (rule 16 asks the model for at most 6 lines), so it can be
+longer, but every line is still an allowed line. When lines are added, the answer is put in
+the topic's order, so an added line can appear above lines the RM has already read. Only
+allowed lines are added, in the catalog's words, and `left_out` still counts only model lines
+that were not allowed lines. The reply's `added_lines` gives the positions of the added lines
+(never their text), so the evaluation harness (#115) scores only the model's own selection;
+the metrics' `kept_lines` likewise counts the model lines kept, not the added ones. They differ
+in when they look: `kept_lines` counts the model's lines before unseen lines are trimmed to
+the 6/8 limits, while the harness scores the final answer, so a model line removed by that
+trim is counted in `kept_lines` but never scored. A topic's required lines are the service's
+choice: gold labels should not list them as `must_not`, because when the service adds one the
+harness skips it (a required line the model chose itself is still scored, and any line at an
+added position that is not an offered line is still counted). An
+answer with no allowed line still gets the case-data answer.
+
+### Change 5 - formatting-tolerant matching
+
+A model line is compared in a normal form that removes formatting only: ASCII-only
+lower-casing (look-alike letters such as the Kelvin sign never fold into Latin ones), runs of
+spaces, curly quotes, Markdown emphasis and backticks, a leading list marker and a trailing
+full stop. An unpaired `*` or `_` next to a word is removed too; that is harmless because
+only the catalog's text is shown. A line of several allowed sentences is split; every part must be allowed or the
+whole line is dropped. A bare action label stands for the catalog's `The current case offers
+"<label>".` line (only when offered to this viewer); a knowledge sentence without its tag
+stands for its tagged line (first by ranking). Lookups use one dictionary per request; work
+per line is bounded by its length times the largest number of sentences in one allowed line.
+The sentence checks are never applied to model text in place of matching.
+
+### Why this keeps G6
+
+The owner's rule is that nothing the model writes is shown unless it is an allowed line. After
+this amendment the RM still sees only allowed lines, in the catalog's own words:
+
+- explanation sentences and fixed lines are reviewed catalog text, offered only under their
+  condition;
+- templates are catalog wording filled from the backend projection; the model cannot change a
+  value, owner or title in them;
+- topic steering changes only what the model is asked to choose, not what may be shown;
+- required lines are added by the server from the same allowed lines, never from model text;
+- matching removes formatting, not words: an added, removed or changed word (including a
+  look-alike letter) drops the line, and the catalog's text is what is shown.
+
+### Alternatives considered
+
+- Fuzzy or semantic matching: rejected; it would show text that is not an allowed line.
+- Showing the model's own formatting: rejected; the catalog's text is what was reviewed.
+- Explanations only in the no-model answer: the model could not use them.
+- Answering every topic question without the model: possible later; it would make the model
+  optional for these questions. Required lines keep the model's choice and remove the
+  run-to-run gaps.
+
+### Risks
+
+- A general reason may not apply to a given case; the "can" wording and the "check" lines
+  keep the RM checking the document.
+- The values template shows untrusted document text, quoted; the filters above limit it, and
+  the case-data answer already showed the same values.
+- The cap can drop a model line the RM would have found useful; required lines are kept first.
+
 ## Amendment 3 - external-model architecture revisit: dormant external inference profile and budget guard (PROPOSED, D-091)
 
 Status: PROPOSED on 2026-10-26. Not accepted. It records how the revisit condition "any
 non-local embedding or model endpoint" is handled for one dormant model endpoint and does not
-satisfy that condition for activation. Amendment 2 is reserved by PR #114 (D-090).
+satisfy that condition for activation. Amendment 2 (D-090) is PR #114's, merged before this one.
 
 Context. ADR-012 assumed a local model. Phase A2 adds code for one external inference profile
 (OpenRouter, `openai/gpt-oss-120b`) that is dormant, plus a lifetime budget guard.

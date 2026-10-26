@@ -649,7 +649,11 @@ def test_a_remote_answer_through_the_service_records_content_free_v2_metrics() -
     reply = client.post(CHAT, json={"message": "What should I do next?"}).json()
 
     assert done["answered_by"] == "model" and reply["answered_by"] == "model"
-    assert done["answer"] == ALLOWED and reply["answer"] == ALLOWED
+    # The model's line, plus any of the topic's required lines the service adds (D-090).
+    for answer in (done, reply):
+        lines = answer["answer"].splitlines()
+        assert lines.index(ALLOWED) not in answer["added_lines"]
+    answer_lines = {line for answer in (done, reply) for line in answer["answer"].splitlines()}
     for record in sink.records:
         assert record.profile == "openrouter_gpt_oss_120b"
         assert record.requested_endpoint == ENDPOINT.slug
@@ -658,7 +662,8 @@ def test_a_remote_answer_through_the_service_records_content_free_v2_metrics() -
         assert record.finish_reason == "stop" and record.provider_error_class is None
         text = record.to_json()
         assert "gen-1761-test" not in text and SENTINEL_KEY not in text
-        assert "What should I do next" not in text and ALLOWED not in text
+        assert "What should I do next" not in text
+        assert not any(line in text for line in answer_lines)
 
 
 def test_reasoning_that_uses_the_whole_limit_keeps_todays_notice() -> None:

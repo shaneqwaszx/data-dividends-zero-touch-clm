@@ -1,18 +1,23 @@
 """Exact output policy over current backend actions, reviewed explanations and approved knowledge.
 
-Generated prose is untrusted, including paraphrases. Only whole model lines that exactly equal
-an allowed line may be displayed (the owner's G6 direction, ADR-012). The allowed lines are:
+Generated prose is untrusted, including paraphrases. Only allowed lines may be displayed, in
+their own words (the owner's G6 direction, ADR-012). A model line is matched ignoring
+formatting only, and may be several allowed lines in a row; otherwise it is dropped whole
+(see ``_Catalog``, D-090, PROPOSED). The allowed lines are:
 
 1. the catalog (``allowed_guidance``): trusted templates filled only from this request's
-   backend projection;
+   backend projection, and reviewed explanation sentences for the fields and readiness items
+   on this case (guide.py);
 2. knowledge lines (``knowledge_lines``): each sentence of an approved knowledge entry that
    retrieval returned for this user and case, verbatim and followed by its tag
    ("<sentence> [G1]"), and only when the sentence passes the sentence checks below against
    this case's facts.
 
 Document/company values, history, free model prose and paraphrases never extend the allowed
-lines. The deterministic case-data answer handles unsupported responses. This is bounded
-statement selection, not general semantic verification.
+lines, except that each difference on a blocker is offered in one fixed template with both
+values quoted (``difference_value_lines``, D-090, PROPOSED). The deterministic case-data
+answer handles unsupported responses. This is bounded statement selection, not general
+semantic verification.
 
 For knowledge, two-person approval of every version is the robust control. The sentence
 checks are a secondary, best-effort filter on approved knowledge text (sentences, and the
@@ -47,8 +52,111 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .guide import CASE_PAGE_SECTIONS, DOCUMENT_REVIEW_CHOICES, READINESS_NEEDS, RULE_PLAIN
+from .guide import (
+    APPROVAL_NOT_OFFERED,
+    CASE_PAGE_SECTIONS,
+    DOCUMENT_REVIEW_CHOICES,
+    NO_CONTACT,
+    NOT_READY,
+    OUT_OF_SCOPE,
+    OWNER,
+    READINESS_EXPLANATIONS,
+    READINESS_NEEDS,
+    RULE_PLAIN,
+    difference_explanations,
+    difference_line,
+    who_resolves_line,
+)
 from .llm import LlmUnavailableError
+
+
+def difference_fields(facts: dict[str, Any]) -> list[str]:
+    """Fields (as labelled in the facts) where a blocker shows a document value unlike ACRA's."""
+
+    fields: dict[str, None] = {}
+    for blocker in facts.get("blockers") or []:
+        for row in blocker.get("differences") or []:
+            if row.get("field") and (row.get("registry_value") or row.get("document_value")):
+                fields[str(row["field"])] = None
+    return list(fields)
+
+
+def not_ready(facts: dict[str, Any]) -> bool:
+    """The readiness facts say the case cannot go to GoldTier yet."""
+
+    if (facts.get("overall") or {}).get("status") == "completed":
+        return False
+    readiness = facts.get("readiness") or {}
+    return bool(readiness.get("blockers") or facts.get("blockers"))
+
+
+def approval_offered(facts: dict[str, Any]) -> bool:
+    """An approve-type action is among the actions this RM is offered on this case."""
+
+    return any(_APPROVE_LABEL.search(label) for label in allowed_actions(facts))
+
+
+def approval_not_offered(facts: dict[str, Any]) -> bool:
+    """Approving is not open to this RM: the case is not ready and no approve-type action is
+    offered. A ready case reaches Review & Send, whose Send is the app's final human approval,
+    so the "not offered" line is never offered there (QG F2)."""
+
+    return not_ready(facts) and not approval_offered(facts)
+
+
+# Straight and typographic double quotes: matching treats them alike, so either one inside a
+# filled-in value could close the template's own quotes (QG F1).
+_TEMPLATE_QUOTES = ('"', "\u201c", "\u201d")
+
+
+def _safe_template_text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= MAX_DIFFERENCE_VALUE
+        and not any(quote in value for quote in _TEMPLATE_QUOTES)
+        and not _UNSUPPORTED_CHARACTER.search(value)
+    )
+
+
+def who_resolves_lines(facts: dict[str, Any]) -> list[str]:
+    """'<blocker title>: this is for <owner>.' for each blocker whose owner the policy names."""
+
+    lines: list[str] = []
+    ctx: Context | None = None
+    for blocker in facts.get("blockers") or []:
+        title, who = blocker.get("title"), blocker.get("who_resolves")
+        if who not in OWNER.values() or not _safe_template_text(title):
+            continue
+        line = who_resolves_line(str(title), str(who))
+        ctx = ctx or Context(facts)
+        if _check(line, ctx) is None:
+            lines.append(line)
+    return list(dict.fromkeys(lines))
+
+
+# A document value is untrusted text (D-090, PROPOSED): it may appear only inside the
+# difference template, in quotes it cannot close, on one line, short, and when the whole line
+# passes the sentence checks. Those catch only the phrasings they list (actions not offered,
+# the listed authority and Live claims); other wording, such as "approved" or "verified by
+# ACRA", stays inside the quotes as the document's value.
+MAX_DIFFERENCE_VALUE = 120
+
+
+def difference_value_lines(facts: dict[str, Any]) -> list[str]:
+    """'<Field>: ACRA says "<value>", the document says "<value>".' for each difference."""
+
+    lines: list[str] = []
+    ctx: Context | None = None
+    for blocker in facts.get("blockers") or []:
+        for row in blocker.get("differences") or []:
+            values = (row.get("registry_value"), row.get("document_value"))
+            if not row.get("field") or not all(_safe_template_text(value) for value in values):
+                continue
+            line = difference_line(row)
+            ctx = ctx or Context(facts)
+            if _check(line, ctx) is None:
+                lines.append(line)
+    return lines
 
 
 def compact_facts(value: Any) -> Any:
@@ -81,6 +189,11 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
         for what, where in READINESS_NEEDS.values():
             if need.get("what") == what and need.get("where_on_the_case_page") == where:
                 allowed.append(f"{what} (section: {where})")
+        allowed.extend(READINESS_EXPLANATIONS.get(str(need.get("code")), ()))
+    allowed.extend(difference_value_lines(facts))
+    for field in difference_fields(facts):
+        reasons, checks = difference_explanations(field)
+        allowed.extend([*reasons, *checks])
     for blocker in facts.get("blockers") or []:
         explanation = blocker.get("plain_explanation")
         if explanation in RULE_PLAIN.values():
@@ -102,6 +215,12 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
                 )
     for section in CASE_PAGE_SECTIONS:
         allowed.append(f'Open the "{section}" section to inspect the current case evidence.')
+    if not_ready(facts):
+        allowed.append(NOT_READY)
+    if approval_not_offered(facts):
+        allowed.append(APPROVAL_NOT_OFFERED)
+    allowed.extend(who_resolves_lines(facts) or [NO_CONTACT])
+    allowed.append(OUT_OF_SCOPE)
     return list(dict.fromkeys(allowed))
 
 
@@ -148,6 +267,7 @@ _ACCEPT = r"(?:accept|accepts|accepted|accepting)"
 _REJECT = r"(?:reject|rejects|rejected|rejecting)"
 _RECORD = r"(?:record|records|recorded|recording)"
 _APPROVE = r"(?:approv(?:e|es|ed|ing)|authori[sz](?:e|es|ed|ing))"
+_APPROVE_LABEL = re.compile(rf"\b{_APPROVE}\b")
 _SUBMIT = r"(?:submit|submits|submitted|submitting|send|sends|sent|sending)"
 _RESEND = r"(?:resend|resends|resending|resubmit|resubmits|resubmitting|re-send|re-submit)"
 # Any tense counts: a past case described as "they used the document value" is still an
@@ -503,35 +623,161 @@ def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-def _allowed(facts: dict[str, Any], knowledge_lines: Sequence[str]) -> set[str]:
-    return {*allowed_guidance(facts), *knowledge_lines}
+# --- matching model lines to allowed lines (D-090, PROPOSED) -----------------------------
+#
+# A model line is compared in a normal form that ignores formatting only: case (ASCII letters
+# only, so look-alike letters from other scripts never fold into Latin ones), runs of spaces,
+# straight or curly quotes, Markdown emphasis and backticks, a leading list marker and a
+# trailing full stop. What is shown is always the allowed line's own text, never the model's.
+
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_CURLY_QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
+_MODEL_LIST_MARKER = re.compile(r"^(?:[-*•]|\d{1,3}[.)]) +")
+_STRONG = re.compile(r"\*\*|__|`")
+# A single * or _ that opens or closes emphasis (not one inside a word, like snake_case).
+_EMPHASIS = re.compile(r"(?<![\w*])[*_](?=\S)|(?<=\S)[*_](?![\w*])")
+# Sentence ends, and ")" so a "(section: ...)" line can be followed by another line.
+_MODEL_SENTENCE = re.compile(r"(?<=[.!?)]) ")
+_OFFERED = re.compile(r'^The current case offers "(.+)"\.$')
+_TAGGED = re.compile(r"^(.+) \[[GP]\d+\]$")
+
+
+def _plain(text: str) -> str:
+    """``text`` without formatting, keeping its final full stop (sentences are re-joined)."""
+
+    text = text.strip().translate(_CURLY_QUOTES)
+    text = _EMPHASIS.sub("", _STRONG.sub("", text))
+    text = _MODEL_LIST_MARKER.sub("", text.strip())
+    return _SPACES.sub(" ", text).strip().translate(_ASCII_LOWER)
+
+
+def _key(plain: str) -> str:
+    return plain[:-1] if plain.endswith(".") else plain
+
+
+class _Catalog:
+    """The allowed lines of one request, looked up by normal form (one dict, built once)."""
+
+    def __init__(self, facts: dict[str, Any], knowledge_lines: Sequence[str]) -> None:
+        guidance = allowed_guidance(facts)
+        self.lines: dict[str, str] = {}
+        for line in [*guidance, *knowledge_lines]:
+            self.lines.setdefault(_key(_plain(line)), line)
+        # A bare action label stands for the catalog's line offering that action, which
+        # exists only when this RM is offered it on this case.
+        for line in guidance:
+            offered = _OFFERED.match(line)
+            if offered:
+                self.lines.setdefault(_key(_plain(offered.group(1))), line)
+        # A knowledge sentence without its tag stands for the first offered line (by ranking)
+        # with that sentence; it is shown with the tag.
+        for line in knowledge_lines:
+            tagged = _TAGGED.match(line)
+            if tagged:
+                self.lines.setdefault(_key(_plain(tagged.group(1))), line)
+        # The most sentences one allowed line has, so a model line is split in bounded work.
+        self.max_parts = max(
+            (len(_MODEL_SENTENCE.split(_plain(line))) for line in self.lines.values()), default=1
+        )
+
+    def select(self, line: str) -> list[str] | None:
+        """The allowed lines a model line stands for, or None when any part is not allowed.
+
+        A line that is several allowed lines is split at sentence ends; from each sentence the
+        longest run (up to ``max_parts`` sentences) that is an allowed line is taken.
+        """
+
+        parts = _MODEL_SENTENCE.split(_plain(line))
+        found: list[str] = []
+        start = 0
+        while start < len(parts):
+            for end in range(min(len(parts), start + self.max_parts), start, -1):
+                match = self.lines.get(_key(" ".join(parts[start:end])))
+                if match is not None:
+                    found.append(match)
+                    start = end
+                    break
+            else:
+                return None
+        return found
 
 
 def validate_answer(
     answer: str, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()
 ) -> Validation:
-    """Select exact allowed lines; unknown wording cannot become operational advice.
+    """Select allowed lines (see _Catalog); unknown wording cannot become operational advice.
 
     ``knowledge_lines`` must come from ``knowledge_lines()`` for this request.
     """
 
-    allowed = _allowed(facts, knowledge_lines)
+    catalog = _Catalog(facts, knowledge_lines)
     kept: dict[str, None] = {}
     left_out = 0
     dropped: list[str] = []
     for line in answer.splitlines():
-        line = line.strip()
-        if line in allowed:
-            kept[line] = None
-        elif line:
+        if not line.strip():
+            continue
+        selected = catalog.select(line)
+        if selected is None:
             left_out += 1
-            dropped.append(line)
+            dropped.append(line.strip())
+        else:
+            kept.update(dict.fromkeys(selected))
     text = "\n".join(kept)
     return Validation(
         text=text,
         left_out=left_out,
         disclosures=_disclosures(text, facts),
         dropped=tuple(dropped),
+    )
+
+
+MAX_ANSWER_LINES = 6
+# Required lines may take an answer past MAX_ANSWER_LINES, up to this many lines.
+MAX_ANSWER_LINES_WITH_REQUIRED = 8
+
+
+def with_required_lines(
+    validation: Validation,
+    facts: dict[str, Any],
+    *,
+    order: Sequence[str],
+    required: Sequence[str],
+    streamed: Sequence[str] = (),
+) -> Validation:
+    """Add the topic's required lines the model left out (D-090, PROPOSED).
+
+    Only allowed lines are added, in the catalog's words. When any is missing, the answer is put
+    in the topic's ``order`` (other lines after, in the model's order). Lines the RM has not
+    seen yet are then dropped from the end: lines that are not required until the answer has
+    MAX_ANSWER_LINES, then required ones until it has MAX_ANSWER_LINES_WITH_REQUIRED. A line
+    already ``streamed`` to the RM is never removed. An empty answer stays empty: the case-data
+    answer is used instead.
+    """
+
+    allowed = set(allowed_guidance(facts))
+    shown = validation.text.splitlines()
+    needed = [line for line in dict.fromkeys(required) if line in allowed]
+    missing = [line for line in needed if line not in shown]
+    if not shown or not missing:
+        return validation
+    position = {line: index for index, line in enumerate(order)}
+    lines = sorted([*shown, *missing], key=lambda line: position.get(line, len(position)))
+    seen = set(streamed)
+    for limit, keep in (
+        (MAX_ANSWER_LINES, {*needed, *seen}),
+        (MAX_ANSWER_LINES_WITH_REQUIRED, seen),
+    ):
+        # Indices from the end, so popping one never shifts the next.
+        droppable = [index for index, line in enumerate(lines) if line not in keep]
+        while len(lines) > limit and droppable:
+            lines.pop(droppable.pop())
+    text = "\n".join(lines)
+    return Validation(
+        text=text,
+        left_out=validation.left_out,
+        disclosures=_disclosures(text, facts),
+        dropped=validation.dropped,
     )
 
 
@@ -556,7 +802,7 @@ class StreamingGuard:
 
     def __init__(self, facts: dict[str, Any], *, knowledge_lines: Sequence[str] = ()) -> None:
         self._facts = facts
-        self._allowed = _allowed(facts, knowledge_lines)
+        self._catalog = _Catalog(facts, knowledge_lines)
         self._pending: list[str] = []  # the unfinished line, in pieces
         self._accepted: dict[str, None] = {}
         self._left_out = 0
@@ -570,12 +816,14 @@ class StreamingGuard:
         return "".join(self._pending)
 
     def _accept(self, line: str) -> None:
-        line = line.strip()
-        if line in self._allowed:
-            self._accepted[line] = None
-        elif line:
+        if not line.strip():
+            return
+        selected = self._catalog.select(line)
+        if selected is None:
             self._left_out += 1
-            self._dropped.append(line)
+            self._dropped.append(line.strip())
+        else:
+            self._accepted.update(dict.fromkeys(selected))
 
     def feed(self, text: str) -> str | None:
         if self._total_bytes + len(text) > MAX_MODEL_TEXT_BYTES:

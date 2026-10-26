@@ -1107,12 +1107,37 @@ available.
 Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`. Simulation data, not
 ACRA-verified ownership.
 
+## D-090 - proposed AI Assistant explanations, topic steering and required lines (PROPOSED)
+
+Status: PROPOSED by the project team on 2026-10-26, built ahead of acceptance on branch
+`feat/ai-assistant-explanations`. **It needs the repository owner's (Shane's) explicit
+acceptance before merge, in particular E2, which relaxes ADR-012 section C.** It amends
+ADR-012 section C (Amendment 2, which lists every line and its source) and builds on D-084
+(proposed).
+
+| # | Decision | Recommendation |
+| --- | --- | --- |
+| E1 | Reviewed explanation sentences in the catalog: per field (registered address, legal name, UEN, any difference) when that field differs on a blocker; per readiness item (document review, ownership evidence) when it is still needed | Yes. No case values, never says which source is right or that anything is verified; each cites a backend source and passes `sentence_problem` on the Merlion case. "can" sentences are general reasons, not app behaviour. |
+| E2 | **Relaxes ADR-012 section C:** `<Field>: ACRA says "<value>", the document says "<value>".` per difference | Yes, only when both values are single-line, at most 120 characters, without straight or typographic double quotes or unsupported characters, and the line passes the sentence checks; otherwise not offered. Answer records (D-084) store such lines redacted, so ADR-012 section A is unchanged. |
+| E3 | Fixed lines: "This case is not ready for GoldTier submission yet." (readiness facts list a blocker, case not completed); "Approving the case is not offered to you on this case." (case not ready and no approve-type action offered; never on a ready case, where Review & Send's Send is the final human approval); `<blocker title>: this is for <owner>.` (owner named by the blocker policy, title checked like a value), else "The case data does not name a contact for this."; "I can't answer that from this case's data." (always) | Yes. Each passes the sentence checks on Merlion. |
+| E4 | Topic steering in the prompt (why blocked / what next, difference, readiness, approving, contacts, document review, ownership) and answer rules (at most 6 lines, answer first, no repeats, one related disclaimer, the "can't answer" line when nothing answers) | Yes. The allowed set is unchanged. |
+| E5 | Required lines: the server adds the topic's required lines the model left out, in topic order; unseen lines that are not required are dropped down to 6 lines, unseen required ones down to 8, and a line already streamed to the RM is never removed; the reply's `added_lines` gives the added lines' positions | Yes. Only allowed lines, in the catalog's words; an answer with no allowed line still gets the case-data answer. |
+| E6 | Formatting-tolerant matching (ASCII case, spaces, quotes, Markdown emphasis and backticks, list marker, trailing full stop; split into allowed sentences or drop the line); a bare offered action label and an untagged knowledge sentence stand for their catalog lines | Yes. The catalog's text is shown, never the model's. |
+
+Why this keeps G6: the RM still sees only allowed lines, in the catalog's own words. Templates
+are filled from the backend projection, required lines come from the same allowed set, and
+any added, removed or changed word drops a model line. Sentence checks are still never
+applied to model text in place of matching.
+
+Authority: `PROJECT_DEFINED_PROVISIONAL`. Not sponsor review policy; no CLM backend write,
+provider status or Live claim follows.
+
 ## D-091 - proposed AI Assistant dormant external inference profile and lifetime budget guard (PROPOSED)
 
 Status: PROPOSED by the project team on 2026-10-26, built offline under the owner's Phase A2
 implementation authorisation (OD-1 to OD-9). Not accepted. It amends ADR-012 (Amendment 3).
 Each of X1 to X9 needs the repository owner's (Shane's) explicit acceptance before merge.
-D-090 and ADR-012 Amendment 2 are reserved by PR #114.
+D-090 and ADR-012 Amendment 2 are PR #114's, merged before this one.
 
 **What A2 does not do.** It does not enable remote inference, approve sending customer,
 sponsor or case data to any external provider, approve any API spending, approve

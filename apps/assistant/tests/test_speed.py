@@ -23,7 +23,10 @@ def _events(response: httpx.Response) -> list[dict[str, Any]]:
 
 def test_prompt_is_small_and_keeps_the_facts_the_rm_needs() -> None:
     messages = build_messages(FACTS, [], "What should I do next?")
-    assert sum(len(m["content"]) for m in messages) < 8000  # was about 11,900 characters
+    # D-090: the question's topic message is bounded on its own; the rest was about 11,900.
+    topic = [m["content"] for m in messages if m["content"].startswith("QUESTION TOPIC:")]
+    assert len(topic) == 1 and len(topic[0]) < 1000
+    assert sum(len(m["content"]) for m in messages) - len(topic[0]) < 9000
     facts = messages[1]["content"]
     for needed in ("Keep registry value", "11111999A", "18 GARDEN WALK", "Ownership & UBO"):
         assert needed in facts
@@ -62,7 +65,9 @@ def test_answer_streams_in_finished_sentences_then_ends_with_the_full_answer() -
     first = 'The current case offers "Keep registry value".'
     second = 'Open the "Ownership & UBO" section to inspect the current case evidence.'
     model = FakeModel(answer=first + "\n" + second)
-    response = _client(FakeBackend(), model).post(STREAM, json={"message": "What next?"})
+    response = _client(FakeBackend(), model).post(
+        STREAM, json={"message": "Tell me about this case."}
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/x-ndjson")
@@ -78,7 +83,9 @@ def test_a_sentence_the_guardrails_drop_is_never_shown_while_streaming() -> None
     model = FakeModel(
         answer='Click "Approve case" now.\nThe current case offers "Keep registry value".'
     )
-    events = _events(_client(FakeBackend(), model).post(STREAM, json={"message": "What next?"}))
+    events = _events(
+        _client(FakeBackend(), model).post(STREAM, json={"message": "Tell me about this case."})
+    )
     assert all("Approve case" not in json.dumps(event) for event in events)
     assert events[-1]["answer"] == 'The current case offers "Keep registry value".'
 

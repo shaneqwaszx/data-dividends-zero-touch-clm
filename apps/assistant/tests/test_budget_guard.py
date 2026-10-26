@@ -138,7 +138,9 @@ def test_a_remote_answer_is_settled_at_its_reported_cost(tmp_path: Path) -> None
     client = _app(_guarded(streaming(happy_stream(ALLOWED + "\n")), path), metrics=sink)
     done = _done(client.post(STREAM, json=QUESTION))
 
-    assert done["answered_by"] == "model" and done["answer"] == ALLOWED
+    # The model's line, plus any of the topic's required lines the service adds (D-090).
+    lines = done["answer"].splitlines()
+    assert done["answered_by"] == "model" and lines.index(ALLOWED) not in done["added_lines"]
     status = _status(path)
     assert (status.local_charged, status.open_reserved, status.open_calls) == (720, 0, 0)
     record = sink.records[0]
