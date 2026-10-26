@@ -20,7 +20,12 @@ Rules enforced here, in one transaction per change:
   with a reason, only while it is open. The request is linked to the exact version of the fix
   (``entry_id``, ``entry_version``), and a reviewer's edit moves the link to the new version.
   Approving that version resolves the request; rejecting it opens the request again. A
-  decision on any other version of the same entry leaves the request alone.
+  decision on any other version of the same entry leaves the request alone;
+- an answer record (schema v5, D-084, proposed) is written once and never changed, apart
+  from being rated: it may be rated once, by the user who asked, on the same case, before it
+  expires, and "Not helpful" links it to the new request. Expired records are deleted:
+  unlinked ones some days after the answer, linked ones some days after their request was
+  resolved or closed. Every view of a record is logged.
 """
 
 import json
@@ -28,21 +33,33 @@ import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .models import Entry, EntryKind, EntryStatus, Visibility
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _ENTRY_COLUMNS = (
     "entry_id, version, kind, status, title, body, blocker_codes, fields, stages, visibility, "
     "follow_ups, effective_from, replaces, author, approver, approved_at, source_ref, "
-    "illustrative, content_hash, created_at, revises"
+    "illustrative, content_hash, created_at, revises, started_from_answer"
 )
 
-_SCHEMA = """
+# The earlier answers of a chat shown with a request: each follows the retention of every
+# request that shows it, so a Director can still open it.
+_ANSWER_KEEPS = """
+CREATE TABLE IF NOT EXISTS answer_record_keeps (
+    record_id TEXT NOT NULL REFERENCES answer_records (id) ON DELETE CASCADE,
+    request_id INTEGER NOT NULL REFERENCES feedback (id),
+    PRIMARY KEY (record_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS answer_record_keeps_by_request ON answer_record_keeps (request_id);
+"""
+
+_SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS entries (
     entry_id TEXT NOT NULL,
@@ -67,6 +84,7 @@ CREATE TABLE IF NOT EXISTS entries (
     content_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
     revises INTEGER,
+    started_from_answer INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (entry_id, version)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_current_version
@@ -121,7 +139,47 @@ CREATE TABLE IF NOT EXISTS retire_requests (
     created_at TEXT NOT NULL,
     PRIMARY KEY (entry_id, version)
 );
+CREATE TABLE IF NOT EXISTS answer_records (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    team TEXT,
+    created_at TEXT NOT NULL,
+    question TEXT NOT NULL,
+    earlier_answer_ids TEXT NOT NULL,
+    case_snapshot TEXT NOT NULL,
+    knowledge TEXT NOT NULL,
+    allowed_lines TEXT NOT NULL,
+    chosen_lines TEXT NOT NULL,
+    dropped_lines TEXT NOT NULL,
+    result TEXT NOT NULL,
+    shown_answer TEXT NOT NULL,
+    rated_at TEXT,
+    linked_request_id INTEGER REFERENCES feedback (id)
+);
+CREATE INDEX IF NOT EXISTS answer_records_by_request ON answer_records (linked_request_id);
 """
+    + _ANSWER_KEEPS
+    + """CREATE TABLE IF NOT EXISTS answer_record_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id TEXT NOT NULL REFERENCES answer_records (id) ON DELETE CASCADE,
+    viewer TEXT NOT NULL,
+    viewed_at TEXT NOT NULL
+);
+"""
+)
+
+# The JSON columns of an answer record.
+_ANSWER_JSON = (
+    "earlier_answer_ids",
+    "case_snapshot",
+    "knowledge",
+    "allowed_lines",
+    "chosen_lines",
+    "dropped_lines",
+    "result",
+    "shown_answer",
+)
 
 # How long a write waits for another writer to finish before reporting a stale request.
 _BUSY_TIMEOUT_SECONDS = 10.0
@@ -146,6 +204,10 @@ class ConfirmationRequiredError(MakerCheckerError):
 class ContentChangedError(KnowledgeError):
     """The version was decided against content other than what it now says, or another
     request changed it first."""
+
+
+class AnswerNotFoundError(KnowledgeError):
+    """No answer record the caller may rate or view (whatever the reason)."""
 
 
 class KnowledgeRuleError(KnowledgeError):
@@ -178,7 +240,31 @@ def _row_to_entry(row: sqlite3.Row) -> Entry:
         illustrative=bool(row["illustrative"]),
         created_at=row["created_at"],
         revises=row["revises"],
+        started_from_answer=bool(row["started_from_answer"]),
     )
+
+
+def _answer_row(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    for key in _ANSWER_JSON:
+        item[key] = json.loads(item[key])
+    return item
+
+
+# How many earlier answers of a chat a Director sees with a request (the most recent ones).
+EARLIER_KEPT = 2
+
+
+def earlier_shown(earlier_answer_ids: list[str]) -> list[str]:
+    """The earlier answers shown with a request, and kept for as long as the request is."""
+
+    return list(earlier_answer_ids)[-EARLIER_KEPT:] if EARLIER_KEPT else []
+
+
+def _days_before(now: str, days: int) -> str:
+    """The store-clock timestamp ``days`` before ``now`` (both ISO 8601, same format)."""
+
+    return (datetime.fromisoformat(now) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
 def _feedback_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -334,6 +420,10 @@ class KnowledgeStore:
             # shapes without every v4 column; the v4 step only adds what is missing.
             if version is not None and int(version[0]) <= 4:
                 self._migrate_to_4(db)
+            if version is not None and int(version[0]) == 5:
+                self._repair_5(db)
+            if version is not None:
+                self._add_entry_origin(db)
             db.executescript(_SCHEMA)
             db.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -835,8 +925,24 @@ class KnowledgeStore:
         fields: tuple[str, ...],
         stages: tuple[str, ...],
         entry_id: str | None,
+        answer_id: str | None = None,
+        answer_days: int = 7,
     ) -> int:
+        """Record a rating. With ``answer_id`` it rates that answer record, which must be
+        this user's, on this case, not rated yet and not older than ``answer_days``
+        (``AnswerNotFoundError`` otherwise, whatever the reason). "Not helpful" links the
+        record to the new request."""
+
         with self._write() as db:
+            now = self._clock()
+            if answer_id is not None:
+                record = db.execute(
+                    "SELECT 1 FROM answer_records WHERE id = ? AND user_id = ? AND case_id = ? "
+                    "AND rated_at IS NULL AND created_at >= ?",
+                    (answer_id, user_id, case_id, _days_before(now, answer_days)),
+                ).fetchone()
+                if record is None:
+                    raise AnswerNotFoundError("no such answer")
             cursor = db.execute(
                 "INSERT INTO feedback (case_id, user_id, role, team, helpful, note, "
                 "blocker_codes, fields, stages, entry_id, status, created_at) "
@@ -853,23 +959,65 @@ class KnowledgeStore:
                     json.dumps(list(stages)),
                     entry_id,
                     "drafted" if entry_id else "open",
-                    self._clock(),
+                    now,
                 ),
             )
-            return int(cursor.lastrowid or 0)
+            feedback_id = int(cursor.lastrowid or 0)
+            if answer_id is not None:
+                db.execute(
+                    "UPDATE answer_records SET rated_at = ?, linked_request_id = ? WHERE id = ?",
+                    (now, None if helpful else feedback_id, answer_id),
+                )
+            if answer_id is not None and not helpful:
+                self._keep_earlier(db, answer_id, feedback_id, user_id=user_id, case_id=case_id)
+            return feedback_id
+
+    @staticmethod
+    def _keep_earlier(
+        db: sqlite3.Connection, answer_id: str, feedback_id: int, *, user_id: str, case_id: str
+    ) -> None:
+        """Keep the earlier answers a request's record names (the last ``EARLIER_KEPT``, and
+        only this user's on this case) for as long as the request is kept."""
+
+        row = db.execute(
+            "SELECT earlier_answer_ids FROM answer_records WHERE id = ?", (answer_id,)
+        ).fetchone()
+        earlier = earlier_shown(json.loads(row[0])) if row is not None else []
+        for earlier_id in earlier:
+            db.execute(
+                "INSERT OR IGNORE INTO answer_record_keeps (record_id, request_id) "
+                "SELECT id, ? FROM answer_records WHERE id = ? AND user_id = ? AND case_id = ?",
+                (feedback_id, earlier_id, user_id, case_id),
+            )
+
+    def kept_for(self, answer_id: str) -> list[int]:
+        """The requests an earlier answer is kept for, in order."""
+
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT request_id FROM answer_record_keeps WHERE record_id = ? "
+                "ORDER BY request_id",
+                (answer_id,),
+            ).fetchall()
+        return [int(row[0]) for row in rows]
 
     def feedback(
         self, *, status: str | None = None, helpful: bool | None = None
     ) -> list[dict[str, Any]]:
-        sql, args = "SELECT * FROM feedback WHERE 1 = 1", list[Any]()
+        # Each request names its answer record and question, if it has one (since schema v5).
+        sql = (
+            "SELECT f.*, a.id AS answer_id, a.question AS question FROM feedback f "
+            "LEFT JOIN answer_records a ON a.linked_request_id = f.id WHERE 1 = 1"
+        )
+        args = list[Any]()
         if status is not None:
-            sql += " AND status = ?"
+            sql += " AND f.status = ?"
             args.append(status)
         if helpful is not None:
-            sql += " AND helpful = ?"
+            sql += " AND f.helpful = ?"
             args.append(int(helpful))
         with self._connect() as db:
-            rows = db.execute(sql + " ORDER BY id", args).fetchall()
+            rows = db.execute(sql + " ORDER BY f.id", args).fetchall()
         return [_feedback_row(row) for row in rows]
 
     def draft_request(
@@ -929,6 +1077,119 @@ class KnowledgeStore:
             raise ContentChangedError("the request was already handled")
         return _feedback_row(row)
 
+    # --- answer records (schema v5) --------------------------------------------------
+
+    def add_answer_record(
+        self, record: dict[str, Any], *, purge_days: tuple[int, int] | None = None
+    ) -> None:
+        """Store a new answer record (insert only; its id must be new). With ``purge_days``
+        (unrated, closed), expired records are deleted in the same write."""
+
+        with self._write() as db:
+            now = self._clock()
+            if purge_days is not None:
+                self._purge_answers(db, now, *purge_days)
+            db.execute(
+                "INSERT INTO answer_records (id, case_id, user_id, team, created_at, question, "
+                + ", ".join(_ANSWER_JSON)
+                + ") VALUES ("
+                + ", ".join("?" * (6 + len(_ANSWER_JSON)))
+                + ")",
+                (
+                    record["id"],
+                    record["case_id"],
+                    record["user_id"],
+                    record["team"],
+                    now,
+                    record["question"],
+                    *(json.dumps(record[key]) for key in _ANSWER_JSON),
+                ),
+            )
+
+    def owned_answers(self, ids: list[str], *, user_id: str, case_id: str) -> list[str]:
+        """The ids, in order and without repeats, of this user's records on this case."""
+
+        wanted = list(dict.fromkeys(ids))
+        if not wanted:
+            return []
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT id FROM answer_records WHERE user_id = ? AND case_id = ? AND id IN ("
+                + ", ".join("?" * len(wanted))
+                + ")",
+                (user_id, case_id, *wanted),
+            ).fetchall()
+        found = {row["id"] for row in rows}
+        return [answer_id for answer_id in wanted if answer_id in found]
+
+    def answer_record(self, answer_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM answer_records WHERE id = ?", (answer_id,)).fetchone()
+        return _answer_row(row) if row is not None else None
+
+    def view_answer(
+        self,
+        answer_id: str,
+        *,
+        viewer: str,
+        allow: Callable[[dict[str, Any]], bool],
+        authorize: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        """The record, if ``allow`` lets this viewer see it, with the view logged in the same
+        write (``AnswerNotFoundError`` otherwise, and nothing is logged)."""
+
+        with self._write(authorize) as db:
+            row = db.execute("SELECT * FROM answer_records WHERE id = ?", (answer_id,)).fetchone()
+            record = _answer_row(row) if row is not None else None
+            if record is None or not allow(record):
+                raise AnswerNotFoundError("no such answer")
+            db.execute(
+                "INSERT INTO answer_record_views (record_id, viewer, viewed_at) VALUES (?, ?, ?)",
+                (answer_id, viewer, self._clock()),
+            )
+        return record
+
+    def answer_views(self, answer_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT viewer, viewed_at FROM answer_record_views WHERE record_id = ? ORDER BY id",
+                (answer_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def purge_answer_records(self, *, unrated_days: int, closed_days: int) -> int:
+        with self._write() as db:
+            return self._purge_answers(db, self._clock(), unrated_days, closed_days)
+
+    @staticmethod
+    def _purge_answers(
+        db: sqlite3.Connection, now: str, unrated_days: int, closed_days: int
+    ) -> int:
+        """Delete records tied to no request (unrated, or rated "Yes, helpful") older than
+        ``unrated_days``, and records tied to requests (as the rated answer, or as an earlier
+        answer kept for it) once every such request was resolved or closed more than
+        ``closed_days`` ago. Their logged views go with them."""
+
+        keeps = "SELECT 1 FROM answer_record_keeps k WHERE k.record_id = answer_records.id"
+        unlinked = db.execute(
+            "DELETE FROM answer_records WHERE linked_request_id IS NULL "
+            f"AND NOT EXISTS ({keeps}) AND created_at < ?",
+            (_days_before(now, unrated_days),),
+        ).rowcount
+        done = (
+            "(SELECT id FROM feedback WHERE status IN ('resolved', 'closed') "
+            "AND closed_at IS NOT NULL AND closed_at < :cutoff)"
+        )
+        # Tied to at least one request, and every request it is tied to is done.
+        linked = db.execute(
+            "DELETE FROM answer_records WHERE "
+            f"(linked_request_id IS NOT NULL OR EXISTS ({keeps})) "
+            f"AND (linked_request_id IS NULL OR linked_request_id IN {done}) "
+            f"AND NOT EXISTS ({keeps} AND k.request_id NOT IN {done})",
+            {"cutoff": _days_before(now, closed_days)},
+        ).rowcount
+        return int(unlinked) + int(linked)
+
     # --- internals ------------------------------------------------------------------
 
     @staticmethod
@@ -963,6 +1224,44 @@ class KnowledgeStore:
         columns = {row[1] for row in db.execute("PRAGMA table_info(entries)")}
         if "revises" not in columns:
             db.execute("ALTER TABLE entries ADD COLUMN revises INTEGER")
+
+    @staticmethod
+    def _add_entry_origin(db: sqlite3.Connection) -> None:
+        """Version 5 marks a fix started from the AI's answer (``started_from_answer``, 0 for
+        every existing version). Every earlier store, and earlier builds of this branch that
+        already stamped 5, gains the column."""
+
+        columns = {row[1] for row in db.execute("PRAGMA table_info(entries)")}
+        if columns and "started_from_answer" not in columns:
+            db.execute(
+                "ALTER TABLE entries ADD COLUMN started_from_answer INTEGER NOT NULL DEFAULT 0"
+            )
+            db.commit()
+
+    @staticmethod
+    def _repair_5(db: sqlite3.Connection) -> None:
+        """Earlier builds of this branch (never on main) stamped 5 on answer_records tables
+        without ``shown_answer`` (so every new record failed to insert), and one kept an
+        earlier answer for a single request in a ``kept_for_request_id`` column. Add the
+        column (records made before have an empty shown answer, stored as JSON like the
+        others) and move those links into ``answer_record_keeps``; the old column, if any, is
+        left in place and no longer read."""
+
+        columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
+        if not columns:
+            return
+        if "shown_answer" not in columns:
+            db.execute(
+                "ALTER TABLE answer_records ADD COLUMN shown_answer TEXT NOT NULL DEFAULT '\"\"'"
+            )
+        db.executescript(_ANSWER_KEEPS)
+        if "kept_for_request_id" in columns:
+            db.execute(
+                "INSERT OR IGNORE INTO answer_record_keeps (record_id, request_id) "
+                "SELECT id, kept_for_request_id FROM answer_records "
+                "WHERE kept_for_request_id IS NOT NULL"
+            )
+        db.commit()
 
     @staticmethod
     def _migrate_to_4(db: sqlite3.Connection) -> None:
@@ -1024,7 +1323,7 @@ class KnowledgeStore:
     def _insert(self, db: sqlite3.Connection, entry: Entry) -> None:
         db.execute(
             f"INSERT INTO entries ({_ENTRY_COLUMNS}) VALUES "
-            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 entry.entry_id,
                 entry.version,
@@ -1047,6 +1346,7 @@ class KnowledgeStore:
                 entry.content_hash(),
                 entry.created_at,
                 entry.revises,
+                int(entry.started_from_answer),
             ),
         )
 

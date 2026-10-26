@@ -655,3 +655,321 @@
 .knowledge-review-final {
   white-space: pre-wrap;
 }
+
+/* An enhancement request as a full-width page inside the Knowledge review dialog. */
+.knowledge-review-backdrop.knowledge-review-backdrop-page {
+  align-items: stretch;
+  padding: 0;
+}
+
+.knowledge-review.knowledge-review-page {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  padding: 16px clamp(16px, 3vw, 40px) 32px;
+}
+
+.request-page-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.request-page-header h2 {
+  margin: 4px 0 0;
+}
+
+.request-page-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .request-page-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.request-page-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 10px;
+  background: #fff;
+  min-width: 0;
+}
+
+.request-page-column h3 {
+  margin: 0 0 4px;
+}
+
+.request-page-column h4 {
+  margin: 10px 0 2px;
+  font-size: 13px;
+}
+
+.request-page-exchange,
+.request-page-earlier {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.request-page-bubble {
+  max-width: 90%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+.request-page-question {
+  align-self: flex-end;
+  background: var(--color-accent-100, #fff3e4);
+  border: 1px solid var(--color-accent-200, #ffe3bf);
+}
+
+.request-page-answer {
+  background: var(--color-surface-muted, #ecebeb);
+}
+
+.request-page-answer-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.request-page-notice {
+  margin: 6px 0 0;
+  color: var(--color-text-muted, #5f5a52);
+  font-size: 12px;
+}
+
+.request-page-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--color-accent-200, #ffe3bf);
+  overflow-wrap: anywhere;
+}
+
+.request-page-cause {
+  padding: 10px 12px;
+  border: 1px solid var(--color-accent-200, #ffe3bf);
+  border-radius: 8px;
+  background: var(--color-accent-100, #fff3e4);
+  color: var(--color-accent-700, #6b4a12);
+}
+
+.request-page-cause p {
+  margin: 0;
+}
+
+.request-page-cause-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.request-page-cause-title {
+  margin: 2px 0 4px !important;
+  font-weight: 700;
+}
+
+.request-page-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.request-page-facts dt {
+  color: var(--color-text-muted, #5f5a52);
+}
+
+.request-page-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.request-page-lines {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.request-page-lines li + li {
+  margin-top: 4px;
+}
+
+.request-page-lines del {
+  color: #9b2c2c;
+}
+
+.request-page-reason {
+  display: block;
+  color: var(--color-text-muted, #5f5a52);
+  font-size: 12px;
+}
+
+.request-page-tag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--color-divider, #d7d3d3);
+}
+
+.request-page-tag-policy {
+  background: #eef2f7;
+}
+
+.request-page-tag-case {
+  background: var(--color-accent-100, #fff3e4);
+}
+
+.request-page-tag-knowledge {
+  background: #eaf5ec;
+}
+
+.request-page-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.request-page-table th,
+.request-page-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-divider, #d7d3d3);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* Headings and numbers never break inside a word; only the entry name wraps. */
+.request-page-table th,
+.request-page-table td:not(:nth-child(2)) {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.request-page-allowed > summary,
+.request-page-earlier > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.request-page-earlier {
+  margin-top: 4px;
+}
+
+.request-page-earlier[open] > summary {
+  margin-bottom: 4px;
+}
+
+.request-page-fix {
+  margin-top: 16px;
+}
+
+.request-page-fix h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.request-page-fix .knowledge-review-fix > button {
+  align-self: flex-start;
+}
+
+/* The fix was started from the AI's answer: say so, with a way to start over. */
+.knowledge-review-started {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-accent-200, #ffe3bf);
+  border-radius: 8px;
+  background: var(--color-accent-100, #fff3e4);
+  font-size: 13px;
+}
+
+.knowledge-review-started p {
+  flex: 1 1 240px;
+  margin: 0;
+}
+
+.knowledge-review-placeholders {
+  margin: 0;
+  font-size: 13px;
+}
+
+.knowledge-review-placeholders mark {
+  margin-right: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--color-accent-200, #ffe3bf);
+  color: var(--color-accent-700, #7d5411);
+  font-weight: 600;
+}
+
+.knowledge-review-requests {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+/* One compact row per request; the whole row opens its request page. */
+.knowledge-review-request {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-divider, #d7d3d3);
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.knowledge-review-request:hover {
+  border-color: var(--color-accent-600, #a06f24);
+}
+
+.knowledge-review-request:focus-visible {
+  outline: 3px solid var(--color-accent-200, #ffe3bf);
+  outline-offset: 2px;
+}
+
+.knowledge-review-request-question {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-review-request-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-review-request .knowledge-review-meta {
+  margin: 0;
+}

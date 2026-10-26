@@ -81,6 +81,9 @@ class Entry:
     # The version this one was revised from by a reviewer's edit (None for an original).
     # Everyone who wrote a version in that chain is barred from deciding it.
     revises: int | None = None
+    # A Director's fix whose text was started from the request's answer record (the AI's
+    # left-out lines); kept by versions edited from it. Not part of what the entry says.
+    started_from_answer: bool = False
 
     @property
     def key(self) -> str:

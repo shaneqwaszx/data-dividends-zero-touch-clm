@@ -295,7 +295,12 @@ publishing, remains required before approval.
 
 ## Migration and retirement implications
 
-Opening an older store migrates it (v1 -> v2 -> v3 -> v4). Code from before v4 can still
+Opening an older store migrates it (v1 -> v2 -> v3 -> v4 -> v5, the last proposed with
+D-084: answer-record tables and `entries.started_from_answer`, default 0, added to every
+earlier shape and to earlier branch-only v5 shapes). Code from before v5 can still open a v5
+store: it rewrites the schema version to 4, does not read the new tables and inserts
+entries by naming its columns, so the new column takes its default; the v5 code then
+reopens it unchanged. Code from before v4 can still
 open a v4 store (it names the feedback and review columns it writes), but it rewrites the
 schema version to 3, enforces two-person review again, drafts from "Yes, helpful" again and
 closes requests without a reason; the v4 code then leaves the already migrated tables as
@@ -373,7 +378,7 @@ tables and request states (main is at schema v4, from D-083).
   belongs to the same user and the same case, and refuses an unknown, expired or foreign
   id; it then links the record to the new enhancement request.
 - A record holds:
-  - the question exactly as typed;
+  - the question as the server used it: as typed, cut at the 600-character question limit;
   - the ids of the earlier answers in that chat (each has its own record);
   - the case snapshot: blocker codes, stage, steps done and a hash of the case facts;
   - the knowledge used: entry tags, ids, versions, search scores, retrieval confidence
@@ -395,7 +400,24 @@ tables and request states (main is at schema v4, from D-083).
 - Proposed retention (D2): every record not linked to a request, whether unrated or rated
   "Yes, helpful", is deleted 7 days after the answer (the helpful count in the stats is
   kept without the record). A record linked to a request is deleted 30 days after the
-  request ends, as Resolved or Closed.
+  request ends, as Resolved or Closed. When "Not helpful" links a record, the earlier
+  answers it names that the Director is shown (at most 2, the most recent, and only the same
+  user's on the same case) are kept with it and follow the same 30-day rule, even when
+  unrated; a record tied to two requests stays until both have ended.
+- As built (proposed with D-084; schema v5): `answer_records`, `answer_record_views` and
+  `answer_record_keeps` (one row per earlier answer and the request it is shown with). The
+  Director's queue lists each request with the RM's question; listing the queue is not a
+  logged view of the record, opening the record is.
+- The Director's fix can start from the record: `GET .../feedback/{id}/fix-start` returns a
+  title from the blocker type and the AI's left-out lines (and any shown model line that is
+  not an allowed line), one sentence per line, redacted against the request's case loaded
+  with the Director's own session. It is a logged view, calls no model and saves nothing.
+  The saved version records `entries.started_from_answer`, shown in its review history; the
+  flag is not part of what the entry says (its content hash).
+- A fix whose title, text or follow-ups still contain a redaction placeholder (`[ADDRESS]`,
+  `[COMPANY]` or any `[UPPERCASE]` token) is refused with 422 `PLACEHOLDER_NOT_REWRITTEN`,
+  and an edit of a version started from the record may not add one. Placeholders that
+  redaction makes on save are kept as before and stay the reviewer's to judge.
 
 ### Request lifecycle
 
@@ -461,7 +483,7 @@ tables and request states (main is at schema v4, from D-083).
 
 ### Risks
 
-- The question is stored exactly as typed, so it may contain personal data; this relaxes
+- The question is stored as typed (cut at 600 characters), so it may contain personal data; this relaxes
   section A (see Answer records). Mitigations: Director and own-RM access only, logged
   views, and the retention in D2, which covers every record.
 - Retention runs inside the assistant; if deletion fails, records outlive the agreed period.

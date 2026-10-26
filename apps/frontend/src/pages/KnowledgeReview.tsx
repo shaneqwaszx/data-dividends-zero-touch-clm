@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AiAssistantError,
   closeKnowledgeGap,
@@ -6,14 +6,17 @@ import {
   draftFromKnowledgeGap,
   editKnowledgeEntry,
   fetchApprovedEntries,
+  fetchFixStart,
   fetchKnowledgeAccess,
   fetchKnowledgeReviews,
   fetchKnowledgeStats,
   type KnowledgeEntry,
   type KnowledgeFix,
+  type KnowledgeGap,
   type KnowledgeReviewQueue,
   type KnowledgeStats,
 } from "../aiAssistant";
+import RequestPage from "./RequestPage";
 
 /** The fix a Director is writing for an enhancement request. */
 interface FixDraft {
@@ -24,14 +27,50 @@ interface FixDraft {
   sourceRef: string;
   /** Guidance only: the existing guidance entry to change ("" for new guidance). */
   changes: string;
+  /** The AI's left-out lines the form was started from (empty when started blank or cleared). */
+  startLines: string[];
+  /** The title it was started with (from the blocker type), for a past case or new guidance. */
+  startTitle: string;
+  /** The title and text the form last filled in itself: only those are replaced on a change
+   * of "Fix as" or of the guidance, never what the Director wrote. */
+  autoTitle: string;
+  autoBody: string;
 }
 
-const EMPTY_FIX: FixDraft = { kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "" };
+const EMPTY_FIX: FixDraft = {
+  kind: "resolution", title: "", body: "", followUps: "", sourceRef: "", changes: "", startLines: [], startTitle: "", autoTitle: "", autoBody: "",
+};
+
+/** The title and text to fill in, unless the Director already changed what was filled in. */
+function refill(draft: FixDraft, title: string, body: string): Partial<FixDraft> {
+  return {
+    ...(draft.title === draft.autoTitle ? { title, autoTitle: title } : {}),
+    ...(draft.body === draft.autoBody ? { body, autoBody: body } : {}),
+  };
+}
+
+// A redaction placeholder ([ADDRESS], [COMPANY] or any [UPPERCASE] token the Redactor makes;
+// knowledge tags like [G1] have digits). The service refuses a fix that keeps one.
+const PLACEHOLDER = /\[[A-Z][A-Z_]*\]/g;
+
+/** The placeholders still in a fix, in order, each once (follow-ups only for a past case,
+ * the only kind that has them). */
+function placeholdersIn(draft: FixDraft): string[] {
+  const texts = draft.kind === "resolution" ? [draft.title, draft.body, draft.followUps] : [draft.title, draft.body];
+  return [...new Set(texts.flatMap((text) => text.match(PLACEHOLDER) ?? []))];
+}
+
+/** The body a fix starts with: a guidance change starts from its current approved text. */
+function startingBody(startLines: string[], current?: KnowledgeEntry): string {
+  return [current?.body ?? "", ...startLines].filter(Boolean).join("\n");
+}
 
 function fixOf(draft: FixDraft): KnowledgeFix {
+  // Sent only when the fix was started from the AI's answer (the server checks it has one).
+  const started = draft.startLines.length > 0 ? { started_from_answer: true } : {};
   if (draft.kind === "resolution") {
     const followUps = draft.followUps.split("\n").map((line) => line.trim()).filter(Boolean);
-    return { kind: "resolution", title: draft.title.trim(), body: draft.body.trim(), follow_ups: followUps };
+    return { kind: "resolution", title: draft.title.trim(), body: draft.body.trim(), follow_ups: followUps, ...started };
   }
   return {
     kind: "guidance",
@@ -39,11 +78,12 @@ function fixOf(draft: FixDraft): KnowledgeFix {
     body: draft.body.trim(),
     source_ref: draft.sourceRef.trim(),
     ...(draft.changes ? { entry_id: draft.changes } : {}),
+    ...started,
   };
 }
 
 function fixReady(draft: FixDraft): boolean {
-  const ready = draft.title.trim().length >= 3 && draft.body.trim().length >= 10;
+  const ready = draft.title.trim().length >= 3 && draft.body.trim().length >= 10 && placeholdersIn(draft).length === 0;
   return draft.kind === "resolution" ? ready : ready && draft.sourceRef.trim().length >= 3;
 }
 
@@ -65,6 +105,14 @@ function draftOf(entry: KnowledgeEntry): Draft {
     replaces: entry.replaces ?? "",
     notes: "",
   };
+}
+
+/** How long ago a request was made, in whole days. */
+export function age(createdAt: string, now: number = Date.now()): string {
+  const made = Date.parse(createdAt);
+  if (Number.isNaN(made)) return "age unknown";
+  const days = Math.max(0, Math.floor((now - made) / 86_400_000));
+  return days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
 function message(error: unknown): string {
@@ -98,6 +146,11 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
   const [tick, setTick] = useState(0);
   const dialog = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  // The enhancement request open as a full-width page, and the one to return focus to.
+  const [openRequest, setOpenRequest] = useState<KnowledgeGap | null>(null);
+  const openRequestRef = useRef<KnowledgeGap | null>(null);
+  openRequestRef.current = openRequest;
+  const returnTo = useRef<number | null>(null);
 
   // A modal dialog: focus moves into it when it opens and back to what opened it on close.
   useEffect(() => {
@@ -113,7 +166,9 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        // On a request page, Escape goes back to the review window first.
+        if (openRequestRef.current) setOpenRequest(null);
+        else onClose();
         return;
       }
       if (event.key !== "Tab" || !dialog.current) return;
@@ -132,6 +187,44 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  // Back from a request page: focus returns to the button that opened it.
+  useEffect(() => {
+    if (openRequest || returnTo.current === null) return;
+    dialog.current?.querySelector<HTMLElement>(`[data-open-request="${returnTo.current}"]`)?.focus();
+    returnTo.current = null;
+  }, [openRequest]);
+
+  // Opening a request with an answer record starts its fix from the AI's left-out lines,
+  // unless the Director already wrote something. Nothing is saved until Save.
+  useEffect(() => {
+    if (!openRequest?.answer_id || fixes[openRequest.id]) return;
+    const id = openRequest.id;
+    const controller = new AbortController();
+    fetchFixStart(id, controller.signal)
+      .then((start) => {
+        if (controller.signal.aborted || start.lines.length === 0) return;
+        setFixes((all) =>
+          all[id]
+            ? all
+            : {
+                ...all,
+                [id]: {
+                  ...EMPTY_FIX,
+                  title: start.title,
+                  body: startingBody(start.lines),
+                  startLines: start.lines,
+                  startTitle: start.title,
+                  autoTitle: start.title,
+                  autoBody: startingBody(start.lines),
+                },
+              },
+        );
+      })
+      .catch(() => undefined); // the form simply starts empty
+    return () => controller.abort();
+    // Runs when a request page opens, not on every keystroke in its form.
+  }, [openRequest]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -233,6 +326,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
       await draftFromKnowledgeGap(id, fixOf(fix));
       setNotice("Fix saved for review. Check it under Waiting for review, then publish it.");
       setFixes(({ [id]: _saved, ...rest }) => rest);
+      setOpenRequest(null);
       setTick((value) => value + 1);
     } catch (reason) {
       setError(message(reason));
@@ -250,12 +344,158 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
       await closeKnowledgeGap(id, why);
       setNotice("Request closed.");
       setReasons(({ [id]: _closed, ...rest }) => rest);
+      setOpenRequest(null);
       setTick((value) => value + 1);
     } catch (reason) {
       setError(message(reason));
     } finally {
       setBusy(null);
     }
+  }
+
+  // The fix for one request, written on its request page below what happened.
+  function requestFix(gap: KnowledgeGap): ReactNode {
+    const why = reasons[gap.id] ?? "";
+    const fix = fixes[gap.id] ?? EMPTY_FIX;
+    const disabled = busy !== null;
+    return (
+      <section className="knowledge-review-entry request-page-fix" aria-labelledby="request-page-fix">
+        <h3 id="request-page-fix">Fix this request</h3>
+        {error && <p className="ai-assistant-error" role="alert">{error}</p>}
+        <fieldset className="knowledge-review-fix">
+          <legend>Write the fix</legend>
+          {fix.startLines.length > 0 && (
+            <div className="knowledge-review-started" role="note">
+              <p>Started from the AI's answer. Rewrite it as general guidance and remove anything specific to this client.</p>
+              <button type="button" className="btn btn-ghost" disabled={disabled} onClick={() => setFixes((all) => ({ ...all, [gap.id]: EMPTY_FIX }))}>
+                Clear
+              </button>
+            </div>
+          )}
+          <label>
+            Fix as
+            <select
+              value={fix.kind}
+              disabled={disabled}
+              onChange={(event) =>
+                changeFix(gap.id, {
+                  kind: event.target.value as FixDraft["kind"],
+                  changes: "",
+                  ...(fix.startLines.length ? refill(fix, fix.startTitle, startingBody(fix.startLines)) : {}),
+                })
+              }
+            >
+              <option value="resolution">Past case</option>
+              <option value="guidance">Guidance change</option>
+            </select>
+          </label>
+          {fix.kind === "guidance" && (
+            <label>
+              Guidance to change
+              <select
+                value={fix.changes}
+                disabled={disabled}
+                onChange={(event) => {
+                  const current = approved.find((entry) => entry.entry_id === event.target.value);
+                  // Changing existing guidance starts from its current title and approved text,
+                  // the AI's lines below it; new guidance from what the fix was started with.
+                  changeFix(gap.id, {
+                    changes: event.target.value,
+                    ...(current
+                      ? refill(fix, current.title, startingBody(fix.startLines, current))
+                      : fix.startLines.length
+                        ? refill(fix, fix.startTitle, startingBody(fix.startLines))
+                        : {}),
+                  });
+                }}
+              >
+                <option value="">New guidance</option>
+                {approved.filter((entry) => entry.kind === "guidance").map((entry) => (
+                  <option key={entry.entry_id} value={entry.entry_id}>
+                    {entry.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label>
+            Title
+            <input value={fix.title} maxLength={200} disabled={disabled} onChange={(event) => changeFix(gap.id, { title: event.target.value })} />
+          </label>
+          <label>
+            {fix.kind === "guidance" ? "Guidance text" : "What resolves it"} (no names, UENs or addresses)
+            <textarea rows={4} maxLength={4000} value={fix.body} disabled={disabled} onChange={(event) => changeFix(gap.id, { body: event.target.value })} />
+          </label>
+          {(() => {
+            const placeholders = placeholdersIn(fix);
+            // Save stays disabled until every placeholder is rewritten in general terms.
+            return placeholders.length > 0 ? (
+              <p className="knowledge-review-placeholders" role="status">
+                Rewrite{" "}
+                {placeholders.map((placeholder, index) => (
+                  <span key={placeholder}>
+                    {index > 0 && ", "}
+                    <mark>{placeholder}</mark>
+                  </span>
+                ))}{" "}
+                in general terms before saving.
+              </p>
+            ) : null;
+          })()}
+          {fix.kind === "guidance" ? (
+            <label>
+              Source reference
+              <input value={fix.sourceRef} maxLength={300} disabled={disabled} onChange={(event) => changeFix(gap.id, { sourceRef: event.target.value })} />
+            </label>
+          ) : (
+            <label>
+              Follow-up questions (one per line)
+              <textarea rows={2} value={fix.followUps} disabled={disabled} onChange={(event) => changeFix(gap.id, { followUps: event.target.value })} />
+            </label>
+          )}
+          <button type="button" className="btn btn-primary" disabled={disabled || !fixReady(fix)} onClick={() => void draftFrom(gap.id)}>
+            Save the fix for review
+          </button>
+        </fieldset>
+        <label>
+          Reason for closing
+          <input
+            value={why}
+            maxLength={1000}
+            disabled={busy !== null}
+            onChange={(event) => setReasons((all) => ({ ...all, [gap.id]: event.target.value }))}
+          />
+        </label>
+        <div className="knowledge-review-actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy !== null || !why.trim()}
+            onClick={() => void close(gap.id)}
+          >
+            Close with reason
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (openRequest) {
+    return (
+      <div
+        ref={dialog}
+        className="knowledge-review-backdrop knowledge-review-backdrop-page"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="knowledge-review-title"
+      >
+        <section className="knowledge-review knowledge-review-page">
+          <RequestPage gap={openRequest} onBack={() => setOpenRequest(null)}>
+            {requestFix(openRequest)}
+          </RequestPage>
+        </section>
+      </div>
+    );
   }
 
   return (
@@ -306,6 +546,7 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
                   <p className="knowledge-review-meta">
                     {entry.kind === "guidance" ? "Guidance" : "Past resolution"} · by {entry.author}
                     {entry.revises !== null ? ` · edited from version ${entry.revises}` : ""}
+                    {entry.started_from_answer ? " · started from the AI's answer" : ""}
                     {entry.blocker_codes.length ? ` · ${entry.blocker_codes.join(", ")}` : ""}
                   </p>
                   <label>
@@ -401,81 +642,31 @@ export default function KnowledgeReview({ onClose }: { onClose: () => void }) {
 
             <h3>Enhancement requests ({queue.gaps.length})</h3>
             {queue.gaps.length === 0 && <p className="ai-assistant-hint">No open enhancement requests.</p>}
-            {queue.gaps.map((gap) => {
-              const why = reasons[gap.id] ?? "";
-              const fix = fixes[gap.id] ?? EMPTY_FIX;
-              const disabled = busy !== null;
-              return (
-                <article key={gap.id} className="knowledge-review-entry" aria-label={`Enhancement request ${gap.id}`}>
-                  <p className="knowledge-review-meta">{gap.blocker_codes.join(", ") || "General"}</p>
-                  <p>{gap.note || "No note given."}</p>
-                  <fieldset className="knowledge-review-fix">
-                    <legend>Write the fix</legend>
-                    <label>
-                      Fix as
-                      <select value={fix.kind} disabled={disabled} onChange={(event) => changeFix(gap.id, { kind: event.target.value as FixDraft["kind"] })}>
-                        <option value="resolution">Past case</option>
-                        <option value="guidance">Guidance change</option>
-                      </select>
-                    </label>
-                    {fix.kind === "guidance" && (
-                      <label>
-                        Guidance to change
-                        <select value={fix.changes} disabled={disabled} onChange={(event) => changeFix(gap.id, { changes: event.target.value })}>
-                          <option value="">New guidance</option>
-                          {approved.filter((entry) => entry.kind === "guidance").map((entry) => (
-                            <option key={entry.entry_id} value={entry.entry_id}>
-                              {entry.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    <label>
-                      Title
-                      <input value={fix.title} maxLength={200} disabled={disabled} onChange={(event) => changeFix(gap.id, { title: event.target.value })} />
-                    </label>
-                    <label>
-                      {fix.kind === "guidance" ? "Guidance text" : "What resolves it"} (no names, UENs or addresses)
-                      <textarea rows={4} maxLength={4000} value={fix.body} disabled={disabled} onChange={(event) => changeFix(gap.id, { body: event.target.value })} />
-                    </label>
-                    {fix.kind === "guidance" ? (
-                      <label>
-                        Source reference
-                        <input value={fix.sourceRef} maxLength={300} disabled={disabled} onChange={(event) => changeFix(gap.id, { sourceRef: event.target.value })} />
-                      </label>
-                    ) : (
-                      <label>
-                        Follow-up questions (one per line)
-                        <textarea rows={2} value={fix.followUps} disabled={disabled} onChange={(event) => changeFix(gap.id, { followUps: event.target.value })} />
-                      </label>
-                    )}
-                    <button type="button" className="btn btn-primary" disabled={disabled || !fixReady(fix)} onClick={() => void draftFrom(gap.id)}>
-                      Save the fix for review
-                    </button>
-                  </fieldset>
-                  <label>
-                    Reason for closing
-                    <input
-                      value={why}
-                      maxLength={1000}
-                      disabled={busy !== null}
-                      onChange={(event) => setReasons((all) => ({ ...all, [gap.id]: event.target.value }))}
-                    />
-                  </label>
-                  <div className="knowledge-review-actions">
+            {queue.gaps.length > 0 && (
+              <ul className="knowledge-review-requests" aria-label="Enhancement requests">
+                {queue.gaps.map((gap) => (
+                  <li key={gap.id}>
+                    {/* The whole row opens the request page, where the fix is written. */}
                     <button
                       type="button"
-                      className="btn btn-ghost"
-                      disabled={busy !== null || !why.trim()}
-                      onClick={() => void close(gap.id)}
+                      className="knowledge-review-request"
+                      data-open-request={gap.id}
+                      aria-label={`Open enhancement request ${gap.id}`}
+                      onClick={() => {
+                        returnTo.current = gap.id;
+                        setOpenRequest(gap);
+                      }}
                     >
-                      Close with reason
+                      <span className="knowledge-review-request-question">{gap.question || "No question recorded"}</span>
+                      <span className="knowledge-review-request-note">{gap.note || "No note given."}</span>
+                      <span className="knowledge-review-meta">
+                        {gap.blocker_codes.join(", ") || "General"} · {age(gap.created_at)}
+                      </span>
                     </button>
-                  </div>
-                </article>
-              );
-            })}
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {(() => {
               const single = approved.filter((entry) => entry.single_reviewer);

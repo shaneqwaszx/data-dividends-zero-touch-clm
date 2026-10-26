@@ -93,6 +93,8 @@ function ndjsonStream(): { response: Response; send: (event: unknown) => void; e
   };
 }
 
+const ANSWER_ID = "A".repeat(22);
+
 describe("AiAssistantPanel", () => {
   it("shows the answer while it is being written, then the final answer", async () => {
     const stream = ndjsonStream();
@@ -405,7 +407,7 @@ describe("AiAssistantPanel", () => {
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
       if (url.endsWith("/chat/stream")) {
         return new Response(
-          `${JSON.stringify({ type: "done", answer: "Keep the registry value.", answered_by: "model", model: "m", notice: null, suggested_questions: [] })}\n`,
+          `${JSON.stringify({ type: "done", answer: "Keep the registry value.", answered_by: "model", model: "m", notice: null, suggested_questions: [], answer_id: ANSWER_ID })}\n`,
           { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
         );
       }
@@ -449,8 +451,113 @@ describe("AiAssistantPanel", () => {
     expect(send?.disabled).toBe(false);
     click(send);
     await flush();
-    expect(sent).toEqual([{ helpful: false, note: "It did not list the proof to ask for." }]);
+    // The answer's record id goes with the note, so a Director can see what happened.
+    expect(sent).toEqual([{ helpful: false, note: "It did not list the proof to ask for.", answer_id: ANSWER_ID }]);
     expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
+  });
+
+  it("keeps each answer's record id, sends earlier ids with the next question and with feedback", async () => {
+    const asked: Record<string, unknown>[] = [];
+    const rated: unknown[] = [];
+    const ids = [ANSWER_ID, "B".repeat(22)];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        asked.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        const answerId = ids[asked.length - 1];
+        return new Response(
+          `${JSON.stringify({ type: "done", answer: `Answer ${asked.length}.`, answered_by: "model", model: "m", notice: null, suggested_questions: ["Next?"], answer_id: answerId })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      if (url.endsWith("/feedback")) {
+        rated.push(JSON.parse(String(init?.body)));
+        return json({ feedback_id: 3, message: "Thanks for your feedback." });
+      }
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    // The first question has no earlier answers; the second names the first answer only.
+    expect(asked[0].earlier_answer_ids).toBeUndefined();
+    expect(asked[1].earlier_answer_ids).toEqual([ANSWER_ID]);
+    const helpful = [...view.querySelectorAll("button")].filter((b) => b.textContent?.trim() === "Yes, helpful");
+    click(helpful[1]);
+    await flush();
+    expect(rated).toEqual([{ helpful: true, note: "", answer_id: "B".repeat(22) }]);
+  });
+
+  it("still offers Not helpful when the answer has no record, and says only the note is sent", async () => {
+    const sent: unknown[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        // The record could not be saved (or small talk, or the knowledge store off).
+        return new Response(
+          `${JSON.stringify({ type: "done", answer: "From ACRA (MOCK).", answered_by: "case_data", model: null, notice: null, suggested_questions: [], answer_id: null })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      if (url.endsWith("/feedback")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ feedback_id: 3, message: "Thanks. This has been flagged so the answer can be improved." });
+      }
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    const labels = [...view.querySelectorAll(".ai-assistant-rate button")].map((b) => b.textContent?.trim());
+    expect(labels).toEqual(["Yes, helpful", "Not helpful"]);
+    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
+    await flush();
+    const form = view.querySelector(".ai-assistant-feedback-form");
+    expect(form?.querySelector('[role="note"]')?.textContent).toBe(
+      "We couldn't save the details of this answer, so the Director will only see your note.",
+    );
+    const note = form?.querySelector("textarea") as HTMLTextAreaElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, "It did not show the two addresses.");
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click([...(form?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === "Send"));
+    await flush();
+    // The note alone: no answer_id is made up.
+    expect(sent).toEqual([{ helpful: false, note: "It did not show the two addresses." }]);
+    expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
+  });
+
+  it("does not say a record failed after small talk, which never has one", async () => {
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        return new Response(
+          `${JSON.stringify({ type: "done", answer: "Hello!", answered_by: "case_data", model: null, notice: null, suggested_questions: [], answer_id: null, small_talk: true })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
+    await flush();
+    const form = view.querySelector(".ai-assistant-feedback-form");
+    expect(form?.querySelector("textarea")).not.toBeNull();
+    expect(form?.querySelector('[role="note"]')).toBeNull();
   });
 
   it("offers Knowledge review only to someone the backend allows to review", async () => {

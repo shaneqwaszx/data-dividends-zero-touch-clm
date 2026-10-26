@@ -45,7 +45,15 @@ export interface AiAssistantAnswer {
   /** Retrieved guidance [G] and past cases [P]. */
   sources?: AiAssistantSource[];
   knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
+  /** The server's record of this answer; feedback sends it back (none for small talk). */
+  answer_id?: string | null;
+  /** A fixed small-talk reply, which never has a record. */
+  small_talk?: boolean;
 }
+
+/** The question body, with the ids of earlier answers in this chat (the server checks them). */
+const chatBody = (message: string, history: AiAssistantTurn[], earlierAnswerIds: string[]) =>
+  earlierAnswerIds.length ? { message, history, earlier_answer_ids: earlierAnswerIds } : { message, history };
 
 export class AiAssistantError extends Error {
   constructor(message: string, readonly status: number | null = null) {
@@ -178,10 +186,11 @@ export function askAiAssistant(
   message: string,
   history: AiAssistantTurn[],
   signal?: AbortSignal,
+  earlierAnswerIds: string[] = [],
 ): Promise<AiAssistantAnswer> {
   return request<AiAssistantAnswer>(
     `/cases/${encodeURIComponent(caseId)}/chat`,
-    { message, history },
+    chatBody(message, history, earlierAnswerIds),
     signal,
   );
 }
@@ -199,8 +208,13 @@ export async function askAiAssistantStreaming(
   history: AiAssistantTurn[],
   onText: (textSoFar: string) => void,
   signal?: AbortSignal,
+  earlierAnswerIds: string[] = [],
 ): Promise<AiAssistantAnswer> {
-  const response = await send(`/cases/${encodeURIComponent(caseId)}/chat/stream`, { message, history }, signal);
+  const response = await send(
+    `/cases/${encodeURIComponent(caseId)}/chat/stream`,
+    chatBody(message, history, earlierAnswerIds),
+    signal,
+  );
   const isStream = (response.headers.get("Content-Type") ?? "").includes("ndjson");
   if (!response.body) throw new AiAssistantError("The AI assistant could not answer right now.");
   // Additional browser containment above the service's 64 KiB model text cap.
@@ -229,6 +243,8 @@ export async function askAiAssistantStreaming(
       && ["model", "case_data"].includes(event.answered_by)
       && (event.model === null || typeof event.model === "string")
       && (event.notice === null || typeof event.notice === "string")
+      && (event.answer_id == null || typeof event.answer_id === "string")
+      && (event.small_talk === undefined || typeof event.small_talk === "boolean")
       && Array.isArray(event.suggested_questions)
       && event.suggested_questions.every((question) => typeof question === "string")) {
       const { type: _type, ...answer } = event;
@@ -294,11 +310,12 @@ export interface AiAssistantFeedbackResult {
 
 /**
  * "Yes, helpful" records the rating; "Not helpful" needs a note (the backend refuses an empty
- * one) and becomes an enhancement request for a Director.
+ * one) and becomes an enhancement request for a Director. Both send the answer's `answer_id`
+ * when the answer has a record; without one the Director sees only the note.
  */
 export function sendAiAssistantFeedback(
   caseId: string,
-  feedback: { helpful: boolean; note: string },
+  feedback: { helpful: boolean; note: string; answer_id?: string },
   signal?: AbortSignal,
 ): Promise<AiAssistantFeedbackResult> {
   return request<AiAssistantFeedbackResult>(`/cases/${encodeURIComponent(caseId)}/feedback`, feedback, signal);
@@ -338,6 +355,8 @@ export interface KnowledgeEntry {
   content_hash: string;
   /** Approved by someone who wrote or edited it (single-reviewer mode, D-083). */
   single_reviewer: boolean;
+  /** A Director's fix whose text was started from the request's answer record. */
+  started_from_answer?: boolean;
 }
 
 /** An enhancement request: an RM's "Not helpful" note, redacted, with its case context. */
@@ -348,6 +367,60 @@ export interface KnowledgeGap {
   fields: string[];
   stages: string[];
   created_at: string;
+  /** The record of the answer the RM rated (none when it could not be saved, or from before
+   * answer records), and the question asked. */
+  answer_id?: string | null;
+  question?: string | null;
+}
+
+/** Where an allowed line comes from: a fixed catalog line, one filled from the case, or knowledge. */
+export type AllowedLineSource = "policy" | "case" | "knowledge";
+
+/** The server's record of one answer: what the AI was given, chose and left out. */
+export interface AnswerRecord {
+  answer_id: string;
+  case_id: string;
+  created_at: string;
+  /** The question as the service used it. */
+  question: string;
+  earlier_answer_ids: string[];
+  case_snapshot: {
+    blocker_codes: string[];
+    stage: string | null;
+    steps_done: number | null;
+    steps_total: number | null;
+    facts_hash: string;
+  };
+  knowledge: {
+    confidence: "high" | "low" | "none" | null;
+    degraded: boolean | null;
+    /** The minimum score an entry of each kind needs to be used (missing on the earliest records). */
+    thresholds?: { guidance: number; resolution: number };
+    entries: {
+      tag: string;
+      kind: "guidance" | "resolution";
+      entry_id: string;
+      version: number;
+      score: number;
+      parts: Record<string, number>;
+      fallback: boolean;
+    }[];
+  };
+  /** Each allowed line and where it comes from (the earliest records kept plain lines). */
+  allowed_lines: ({ text: string; source: AllowedLineSource } | string)[];
+  chosen_lines: string[];
+  dropped_lines: string[];
+  /** The answer as the RM saw it (a case-data answer with names and identifiers removed). */
+  shown_answer: string;
+  result: {
+    answered_by: "model" | "case_data";
+    notices: string[];
+    fallback_reason: "model_unavailable" | "nothing_allowed" | "cut_short" | null;
+    left_out: number;
+    model: string | null;
+    elapsed_ms: number;
+  };
+  rated: boolean;
 }
 
 export interface KnowledgeReviewQueue {
@@ -402,9 +475,20 @@ export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, no
     confirm_single_reviewer: confirmed,
   });
 /** A Director's fix for an enhancement request: a past case or a guidance change. */
-export type KnowledgeFix =
+export type KnowledgeFix = (
   | { kind: "resolution"; title: string; body: string; follow_ups: string[] }
-  | { kind: "guidance"; title: string; body: string; source_ref: string; entry_id?: string };
+  | { kind: "guidance"; title: string; body: string; source_ref: string; entry_id?: string }
+) & { started_from_answer?: boolean };
+
+/** Where a fix can start: a title from the blocker type and the AI's left-out lines, redacted. */
+export interface KnowledgeFixStart {
+  title: string;
+  lines: string[];
+}
+
+// Read only (a logged view of the record); "not found" for a request without one.
+export const fetchFixStart = (feedbackId: number, signal?: AbortSignal) =>
+  request<KnowledgeFixStart>(`/knowledge/feedback/${feedbackId}/fix-start`, undefined, signal);
 
 // Saves the fix, linked to the request, for review like any other entry: publishing it
 // resolves the request, rejecting it opens the request again.
@@ -412,3 +496,13 @@ export const draftFromKnowledgeGap = (feedbackId: number, fix: KnowledgeFix) =>
   request<KnowledgeEntry>(`/knowledge/feedback/${feedbackId}/draft`, fix);
 export const closeKnowledgeGap = (feedbackId: number, reason: string) =>
   request<{ status: string }>(`/knowledge/feedback/${feedbackId}/close`, { reason });
+// "What happened": the record linked to a request, or one of the earlier answers it names.
+// Every view is logged by the service.
+export const fetchGapAnswer = (feedbackId: number, signal?: AbortSignal) =>
+  request<AnswerRecord>(`/knowledge/feedback/${feedbackId}/answer`, undefined, signal);
+export const fetchGapEarlierAnswer = (feedbackId: number, answerId: string, signal?: AbortSignal) =>
+  request<AnswerRecord>(
+    `/knowledge/feedback/${feedbackId}/answers/${encodeURIComponent(answerId)}`,
+    undefined,
+    signal,
+  );
