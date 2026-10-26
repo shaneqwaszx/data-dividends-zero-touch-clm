@@ -4,10 +4,10 @@ answer, so a Director can see why the AI said what it said.
 A record holds only what this request produced or received: the question as the server used
 it, the ids of earlier answers it checked belong to the same user and case, the case state,
 the knowledge retrieved (with the score thresholds), the allowed lines tagged by where they
-come from, the lines kept, the answer as the RM saw it (a case-data answer redacted), the lines
-left out (redacted with the case Redactor and capped), and how the answer was made.
-Browser-sent history text is never stored. Records are never put into a prompt and never
-copied into knowledge.
+come from, the lines kept and the answer as the RM saw it (all redacted except the fixed
+policy lines, since D-090 catalog lines can carry case values), the lines left out (redacted
+with the case Redactor and capped), and how the answer was made. Browser-sent history text is
+never stored. Records are never put into a prompt and never copied into knowledge.
 """
 
 import hashlib
