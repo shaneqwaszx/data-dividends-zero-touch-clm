@@ -184,8 +184,8 @@ OPENROUTER_PROFILE = ModelProfile(
     ),
     model_id=OPENROUTER_MODEL_ID,
     base_url=OPENROUTER_BASE_URL,
-    # Phase B (D-092, proposed): one endpoint, re-read from the public listing by
-    # scripts/phase_b_preflight.py before every live run (a mismatch refuses the run).
+    # Phase B (D-092, proposed): one endpoint, re-read from the public listing by the
+    # live preflight (scripts/evaluate_answers.py preflight) before every run.
     endpoints=(DEEPINFRA_BF16,),
     requires_budget=True,
     dormant=True,

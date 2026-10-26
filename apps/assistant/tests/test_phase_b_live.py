@@ -6,6 +6,7 @@ socket guard (conftest) refuses any real connection. The key is a sentinel searc
 every output.
 """
 
+import importlib.util
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -15,6 +16,7 @@ import httpx
 import pytest
 
 from ai_assistant.budget import BudgetLedger, BudgetRefusedError, LedgerError, reservation_for
+from ai_assistant.llm import ModelCallError
 from ai_assistant.model_factory import build_account_client, build_chat_model
 from ai_assistant.model_profiles import (
     APPROVED_PROFILES,
@@ -40,9 +42,11 @@ from tests.remote_fixtures import (
     SENTINEL_KEY,
     TEST_REGISTRY,
     Chunks,
+    chunk,
     happy_stream,
     new_ledger,
     remote_settings,
+    sse,
 )
 
 ASSISTANT_DIR = Path(__file__).resolve().parents[1]
@@ -404,7 +408,8 @@ def _ledger_status(tmp_path: Path, cap: int, opening: int) -> Any:
 
 def test_key_and_ledger_check_passes_for_a_one_dollar_allocation(tmp_path: Path) -> None:
     status = _ledger_status(tmp_path, cap=1_250_000, opening=250_000)
-    key = KeyStatus(Decimal("1.5"), None, Decimal("1.25"), Decimal("0.25"))
+    # Key limit = usage + US$1.00 (reset never): the backstop matches the allocation.
+    key = KeyStatus(Decimal("1.25"), None, Decimal("1.00"), Decimal("0.25"))
     report = live.Preflight()
     live.check_key_and_ledger(report, key, status, has_calls=False, reservation_micro=30_000)
     assert report.passed, report.lines()
@@ -584,3 +589,137 @@ def test_phase_b_questions_are_synthetic_fixture_cases() -> None:
         "garden_address_conflict",
         "garden_waiting_for_documents",
     }
+
+
+# --- R1 remediation (QG M1, M2, L1, L3, L4, L5) ----------------------------------------------
+
+
+def test_a_key_limit_looser_than_the_allocation_fails() -> None:
+    """L1: the provider-side backstop may leave at most the allocation plus one call."""
+
+    key = KeyStatus(Decimal("50"), None, Decimal("49.75"), Decimal("0.25"))
+    report = live.Preflight()
+    live.check_key(report, key, reservation_micro=30_000)
+    failed = [check.name for check in report.checks if not check.ok]
+    assert failed == ["key.limit_within_allocation"]
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [{"data": []}, {"data": {"endpoints": "x"}}, {"data": {"endpoints": [1, None]}}, []],
+)
+def test_odd_listing_shapes_fail_without_raising(listing: Any) -> None:
+    """L5: any unexpected listing shape is a FAIL row, never an exception."""
+
+    report = live.Preflight()
+    live.check_endpoint(report, DEEPINFRA_BF16, listing, {"data": "x"})
+    assert not report.passed
+
+
+def test_a_call_without_a_generation_reference_is_quarantined(tmp_path: Path) -> None:
+    """M2: missing verification evidence stops the batch, whatever the call's state."""
+
+    path = new_ledger(tmp_path / "ledger.sqlite3")
+    transport = httpx.MockTransport(lambda _: httpx.Response(429, json={}))
+    model = build_chat_model(
+        remote_settings(),
+        transport=transport,
+        environ=ENVIRON,
+        registry=TEST_REGISTRY,
+        budget_ledger=path,
+    )
+    with pytest.raises(ModelCallError):
+        model.complete([{"role": "user", "content": "q"}])
+    ledger = BudgetLedger.open(path)
+    (call,) = ledger.closed_calls_after(0)
+    assert call.state == "unsettled" and call.generation_ref is None
+    row = live.verify_call(call, ENDPOINT, _Account([]).client(), ledger, "P00#0@0")
+    assert row.verification == "quarantined" and ledger.status().breaker_open
+
+
+def test_a_stream_that_fails_after_its_generation_id_keeps_the_reference(
+    tmp_path: Path,
+) -> None:
+    """M2: a stream cut after its first frame is charged at its reservation, and its
+    reference is kept so its serving provider can still be verified."""
+
+    path = new_ledger(tmp_path / "ledger.sqlite3")
+    body = [*sse(chunk("Partial"), done=False), b"data: not json\n\n"]
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=Chunks(body)))
+    model = build_chat_model(
+        remote_settings(),
+        transport=transport,
+        environ=ENVIRON,
+        registry=TEST_REGISTRY,
+        budget_ledger=path,
+    )
+    ledger = BudgetLedger.open(path)
+    with pytest.raises(ModelCallError) as error:
+        _settle_one(ledger, model)
+    usage = error.value.usage
+    assert usage is not None and usage.generation_ref == "gen-1761-test"
+    (call,) = ledger.closed_calls_after(0)
+    assert call.state == "unsettled" and call.generation_ref == "gen-1761-test"
+    assert call.charged_micro_usd == call.reserved_micro_usd
+    row = live.verify_call(call, ENDPOINT, _metadata_account(), ledger, "P00#0@0")
+    assert row.verification == "verified" and not ledger.status().breaker_open
+
+
+def test_earlier_unverified_calls_are_verified_before_a_new_run(tmp_path: Path) -> None:
+    """M1: a call an interrupted run never verified is checked by the next preflight."""
+
+    ledger, model = _completed_call(tmp_path)
+    _settle_one(ledger, model)  # settled; the run "stops" before verification
+    assert [c.verification for c in ledger.unverified_closed_calls()] == ["unverified"]
+    report = live.Preflight()
+    rows = live.verify_earlier_calls(report, ledger, _metadata_account(), ENDPOINT)
+    assert report.passed and [r.verification for r in rows] == ["verified"]
+    assert ledger.unverified_closed_calls() == []
+
+
+def test_an_earlier_mismatching_call_fails_the_next_preflight(tmp_path: Path) -> None:
+    ledger, model = _completed_call(tmp_path)
+    _settle_one(ledger, model)
+    report = live.Preflight()
+    account = _metadata_account(provider_name="Other Provider")
+    live.verify_earlier_calls(report, ledger, account, ENDPOINT)
+    assert not report.passed and ledger.status().breaker_open
+
+
+def _cli() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "evaluate_answers_cli", ASSISTANT_DIR / "scripts" / "evaluate_answers.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    ("scenarios", "only"),
+    [(str(EVAL_FIXTURES / "scenarios.json"), "S01"), (str(PHASE_B_QUESTIONS), "")],
+)
+def test_live_runs_need_the_phase_b_questions_and_a_selection(
+    scenarios: str, only: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """L3: refused before the preflight, so before any key read or request."""
+
+    cli = _cli()
+    monkeypatch.setattr(cli, "_preflight", lambda args: pytest.fail("preflight reached"))
+    argv = ["evaluate_answers.py", "run", "--model", "openrouter", "--scenarios", scenarios]
+    monkeypatch.setattr("sys.argv", argv + (["--only", only] if only else []))
+    assert cli.main() == 2
+    assert "refused" in capsys.readouterr().out
+
+
+def test_live_network_marker_is_used_only_by_the_adapter_and_the_factory() -> None:
+    """L4: the marker that opens the real transport appears in exactly two modules."""
+
+    users = sorted(
+        path.relative_to(ASSISTANT_DIR).as_posix()
+        for folder in ("ai_assistant", "assistant_eval", "scripts")
+        for path in (ASSISTANT_DIR / folder).rglob("*.py")
+        if "LIVE_NETWORK" in path.read_text(encoding="utf-8")
+    )
+    assert users == ["ai_assistant/model_factory.py", "ai_assistant/openrouter.py"]

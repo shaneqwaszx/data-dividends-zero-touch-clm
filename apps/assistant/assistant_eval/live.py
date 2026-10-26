@@ -99,8 +99,16 @@ def _price_per_m(value: object) -> Decimal | None:
 def check_endpoint(report: Preflight, endpoint: ApprovedEndpoint, listing: Any, zdr: Any) -> None:
     """Re-verify the endpoint record against today's public listing and ZDR list."""
 
+    try:
+        _check_endpoint(report, endpoint, listing, zdr)
+    except (AttributeError, TypeError, ValueError, ArithmeticError):
+        report.add("endpoint.listing", False, "the public listing has an unexpected shape")
+
+
+def _check_endpoint(report: Preflight, endpoint: ApprovedEndpoint, listing: Any, zdr: Any) -> None:
     endpoints = listing.get("data", {}).get("endpoints", []) if isinstance(listing, dict) else []
-    tags = [item.get("tag") for item in endpoints if isinstance(item, dict)]
+    endpoints = [item for item in endpoints if isinstance(item, dict)]
+    tags = [item.get("tag") for item in endpoints]
     matching = [
         tag
         for tag in tags
@@ -166,8 +174,15 @@ def check_endpoint(report: Preflight, endpoint: ApprovedEndpoint, listing: Any, 
     report.add("endpoint.zdr_listed", in_zdr, f"in public ZDR list: {in_zdr}")
 
 
-def check_key(report: Preflight, key: KeyStatus, reservation_micro: int) -> None:
-    """The key's own limit (read before the ledger, whose opening usage must equal it)."""
+def check_key(
+    report: Preflight,
+    key: KeyStatus,
+    reservation_micro: int,
+    allocation: Decimal = ALLOCATION_LIMIT_USD,
+) -> None:
+    """The key's own limit (read before the ledger, whose opening usage must equal it). It
+    is the provider-side backstop, so it may not leave more than the allocation plus one
+    reservation (plan section 8.1 nesting)."""
 
     report.add(
         "key.limit_set",
@@ -185,6 +200,13 @@ def check_key(report: Preflight, key: KeyStatus, reservation_micro: int) -> None
         "key.room_for_one_call",
         remaining >= reservation_micro,
         f"limit remaining {_usd(max(remaining, 0))} >= one reservation {_usd(reservation_micro)}",
+    )
+    backstop = micro_usd(allocation) + reservation_micro
+    report.add(
+        "key.limit_within_allocation",
+        0 <= remaining <= backstop,
+        f"limit remaining {_usd(max(remaining, 0))} <= allocation + one reservation"
+        f" {_usd(backstop)}",
     )
 
 
@@ -308,14 +330,10 @@ def verify_call(
         return row
     facts: GenerationFacts | None = None
     if call.generation_ref is None:
-        # No generation was reported: nothing to verify. A refused or failed request that
-        # never produced a generation is charged at its reservation and stays unverified;
-        # a completed call without a reference cannot be verified and is quarantined.
-        if call.state == "settled":
-            ledger.record_verification(call.call_id, verified=False, breaker_code="routing_anomaly")
-            row.verification, row.verification_note = "quarantined", "no generation reference"
-        else:
-            row.verification_note = "no generation reference (call did not complete)"
+        # Missing verification evidence stops the batch (plan 6.7), whatever the call's state:
+        # a refusal, a cancellation or a failure before any generation id was seen.
+        ledger.record_verification(call.call_id, verified=False, breaker_code="routing_anomaly")
+        row.verification, row.verification_note = "quarantined", "no generation reference"
         return row
     try:
         facts = account.generation(call.generation_ref)
@@ -351,6 +369,28 @@ def verify_call(
         if not ok
     )
     return row
+
+
+def verify_earlier_calls(
+    report: Preflight,
+    ledger: BudgetLedger,
+    account: OpenRouterAccount,
+    endpoint: ApprovedEndpoint,
+) -> list[CallRow]:
+    """Verify closed calls an earlier, interrupted run left unverified (M1). A mismatch
+    quarantines them and opens the breaker, which the ledger checks then report."""
+
+    rows = [
+        verify_call(call, endpoint, account, ledger, "earlier-run")
+        for call in ledger.unverified_closed_calls()
+    ]
+    quarantined = sum(1 for row in rows if row.verification != "verified")
+    report.add(
+        "ledger.earlier_calls_verified",
+        quarantined == 0,
+        f"{len(rows)} earlier unverified call(s) checked, {quarantined} quarantined",
+    )
+    return rows
 
 
 class LiveMonitor:

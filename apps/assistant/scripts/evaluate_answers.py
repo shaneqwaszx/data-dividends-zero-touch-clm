@@ -85,6 +85,7 @@ from assistant_eval.snapshot import SnapshotSet  # noqa: E402
 
 SNAPSHOTS = EVAL_FIXTURES / "snapshots.json"
 GOLD = EVAL_FIXTURES / "gold.json"
+PHASE_B_QUESTIONS = EVAL_FIXTURES / "phase_b_questions.json"
 LOCK = EVAL_FIXTURES / "gold.lock.json"
 OUT = HERE / "data" / "eval"
 
@@ -257,6 +258,12 @@ def _preflight(args: argparse.Namespace) -> Session:
         report.add("ledger.healthy", False, f"refused: {error.code}")
         return report, settings, None, account
     report.add("ledger.healthy", True, f"profile {status.profile_id}, alias {status.key_alias}")
+    try:
+        live.verify_earlier_calls(report, ledger, account, endpoint)
+        status = ledger.status()
+    except LedgerError as error:
+        report.add("ledger.earlier_calls_verified", False, f"refused: {error.code}")
+        return report, settings, None, account
     live.check_ledger(report, key, status, ledger.last_call_id() > 0, reservation)
     return report, settings, ledger, account
 
@@ -269,6 +276,10 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
 
 def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet, only: set[str] | None) -> int:
+    # Live runs ask only the reviewed Phase B questions, and only the named scenarios.
+    if Path(args.scenarios).resolve() != PHASE_B_QUESTIONS.resolve() or not only:
+        print(f"refused: a live run needs --scenarios {PHASE_B_QUESTIONS.name} and --only")
+        return 2
     report, settings, ledger, account = _preflight(args)
     print("\n".join(report.lines()))
     endpoint = APPROVED_PROFILES[OPENROUTER_PROFILE_ID].endpoint(settings.openrouter_endpoint)
@@ -284,9 +295,15 @@ def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet, only: set[
         return 3
     monitor = live.LiveMonitor(model, ledger, account, endpoint)
     before = ledger.status()
-    with Workspace() as workspace:
-        result = run(scenarios, lambda capture: monitor, workspace=workspace, only=only)
-    monitor.finish()
+    try:
+        with Workspace() as workspace:
+            result = run(scenarios, lambda capture: monitor, workspace=workspace, only=only)
+    finally:
+        # Verify what was spent even when the run stops early; leftovers (for example after
+        # Ctrl-C here) are verified by the next preflight before any new call.
+        monitor.finish()
+        for row in monitor.rows:
+            print(f"call {row.call_id} {row.turn}: {row.state} {row.verification}")
     after = ledger.status()
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     questions = {

@@ -468,15 +468,20 @@ cd apps/assistant
 `preflight` (also run at the start of every live run, which refuses unless it passes)
 re-reads the public endpoint listing and ZDR list (prices, maximum completion, provider,
 quantization, slug uniqueness, ZDR membership), reads the key's own limit and usage
-(`GET /api/v1/key`: a limit must be set and never reset, and the key's usage must equal the
-ledger's opening usage before the first call or be within the ledger afterwards), checks the
-ledger (healthy, breaker closed, cap at most US$1.00 above the opening usage) and needs the
-owner's attestation that auto top-up and prompt logging are off (neither is readable through
-the API). After each turn the harness reads generation metadata (`GET /api/v1/generation`,
-metadata only) and marks each call `verified` (provider DeepInfra, model
-`openai/gpt-oss-120b`, total cost equal to the settled cost) or `quarantined`, which opens the
-ledger breaker so every later call is refused. Answers go to `answers.jsonl` and content-free
-telemetry, ledger and verification rows to `calls.json` under `data/eval/phase_b/`.
+(`GET /api/v1/key`: a limit must be set, never reset, and leave at most US$1.00 plus one
+reservation, so set it to the key's current usage + US$1.00; the key's usage must equal the
+ledger's opening usage before the first call or be within the ledger afterwards), verifies any
+call an earlier, interrupted run left unverified, checks the ledger (healthy, breaker closed,
+cap at most US$1.00 above the opening usage) and needs the owner's attestation that auto
+top-up and prompt logging are off (neither is readable through the API). A live run asks only
+`phase_b_questions.json` and only the scenarios named with `--only`. After each turn the
+harness reads generation metadata (`GET /api/v1/generation`, metadata only) and marks each
+call `verified` (provider DeepInfra, model `openai/gpt-oss-120b`, total cost equal to the
+settled cost) or `quarantined` (any mismatch, missing metadata, or no generation reference at
+all), which opens the ledger breaker so every later call is refused. A stream that fails after
+its generation id arrived keeps that reference for verification. Answers go to
+`answers.jsonl` and content-free telemetry, ledger and verification rows to `calls.json`
+under `data/eval/phase_b/`.
 
 Budget guard (`ai_assistant/budget.py`, `scripts/budget_ledger.py`): a git-ignored SQLite
 ledger counts one key's cumulative usage in micro-USD, the usage before the ledger existed

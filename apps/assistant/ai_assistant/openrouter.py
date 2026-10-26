@@ -532,14 +532,29 @@ class OpenRouterChatModel:
                 usage=self._usage(usage, ref, anomalies),
                 finish_reason=finish,
             )
+        except ModelCallError as error:
+            # A failure after the generation started keeps its reference (Phase B verifies
+            # the serving provider of every call, failed ones included).
+            if error.usage is not None or ref is None:
+                raise
+            raise ModelCallError(
+                error.error_class, usage=self._usage(usage, ref, anomalies)
+            ) from None
         except TimeoutError:
-            raise ModelCallError("timeout") from None
+            raise ModelCallError("timeout", usage=self._seen(usage, ref, anomalies)) from None
         except (UnicodeError, httpx.StreamError):
-            raise ModelCallError("protocol") from None
+            raise ModelCallError("protocol", usage=self._seen(usage, ref, anomalies)) from None
         except httpx.TimeoutException:
-            raise ModelCallError("timeout") from None
+            raise ModelCallError("timeout", usage=self._seen(usage, ref, anomalies)) from None
         except httpx.HTTPError:
-            raise ModelCallError("transport") from None
+            raise ModelCallError("transport", usage=self._seen(usage, ref, anomalies)) from None
+
+    def _seen(
+        self, usage: ModelUsage | None, ref: str | None, anomalies: list[str]
+    ) -> ModelUsage | None:
+        """What a failed stream had reported, or None when it reported nothing."""
+
+        return None if usage is None and ref is None else self._usage(usage, ref, anomalies)
 
     def warm(self, messages: list[dict[str, str]]) -> None:
         """Never warms a remote model: case facts are not sent ahead of a question."""

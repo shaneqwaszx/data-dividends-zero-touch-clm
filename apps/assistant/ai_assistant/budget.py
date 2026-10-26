@@ -760,6 +760,21 @@ class BudgetLedger:
         result: list[ClosedCall] = self._transaction(read)
         return result
 
+    def unverified_closed_calls(self) -> list[ClosedCall]:
+        """Closed calls never verified (for example from an interrupted run), oldest first."""
+
+        def read(connection: sqlite3.Connection) -> list[ClosedCall]:
+            rows = connection.execute(
+                "SELECT id, state, reserved_micro_usd, charged_micro_usd, prompt_tokens,"
+                " completion_tokens, reasoning_tokens, generation_ref, verification,"
+                " error_class, anomaly_bits FROM calls WHERE state != 'open'"
+                " AND verification = 'unverified' ORDER BY id",
+            ).fetchall()
+            return [ClosedCall(*row) for row in rows]
+
+        result: list[ClosedCall] = self._transaction(read)
+        return result
+
     def last_call_id(self) -> int:
         def read(connection: sqlite3.Connection) -> int:
             value = connection.execute("SELECT COALESCE(MAX(id), 0) FROM calls").fetchone()[0]
