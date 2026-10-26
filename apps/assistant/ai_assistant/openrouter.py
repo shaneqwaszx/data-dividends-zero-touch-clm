@@ -1,8 +1,9 @@
 """Dormant OpenRouter adapter for one approved ``openai/gpt-oss-120b`` endpoint (D-091, proposed).
 
-Phase A2 builds and tests this adapter offline only. It accepts no transport except an
-in-memory ``httpx.MockTransport`` (not a subclass), so in this build it cannot open a network
-connection, whatever is injected or configured. Sending a real request needs a reviewed
+Phase A2 builds and tests this adapter offline only. It accepts no transport object except
+an in-memory ``httpx.MockTransport`` (not a subclass), so no configuration or real transport
+can open a network connection through it in this build. (The check is on the transport's type:
+a mock's handler is test code and is not inspected.) Sending a real request needs a reviewed
 Phase B change and the owner's separate decisions.
 
 What it sends (fixed, not configurable): one ``POST /chat/completions`` per question to
@@ -216,6 +217,10 @@ class OpenRouterChatModel:
     def timeout_seconds(self) -> float:
         return self._timeout
 
+    @property
+    def max_prompt_bytes(self) -> int:
+        return self._max_prompt_bytes
+
     def payload(self, messages: list[dict[str, str]], *, stream: bool) -> dict[str, Any]:
         endpoint = self._endpoint
         provider: dict[str, Any] = {
@@ -278,9 +283,26 @@ class OpenRouterChatModel:
             usage, generation_ref=ref, anomalies=tuple(sorted({*usage.anomalies, *codes}))
         )
 
+    def _bounded_body(self, response: httpx.Response, limit: int, deadline: float) -> bytes:
+        """Read at most ``limit`` bytes of an identity-encoded body before ``deadline``. A
+        longer body is cut at the limit (the caller decides whether that is an error)."""
+
+        if response.is_stream_consumed:  # an in-memory body (a mock, or already read)
+            return response.content[: limit + 1]
+        body = bytearray()
+        for chunk in response.iter_raw():
+            if time.monotonic() >= deadline:
+                raise ModelCallError("timeout")
+            body.extend(chunk)
+            if len(body) > limit:
+                break
+        return bytes(body)
+
     def complete(self, messages: list[dict[str, str]]) -> ModelAnswer:
         self._check_size(messages)
         payload = self.payload(messages, stream=False)
+        # One deadline for the whole request, and a byte bound applied while reading.
+        deadline = time.monotonic() + self._timeout
         try:
             with httpx.Client(
                 timeout=self._timeout,
@@ -288,18 +310,33 @@ class OpenRouterChatModel:
                 trust_env=False,
                 follow_redirects=False,
             ) as client:
-                response = client.post(self._url, json=payload, headers=self._headers())
+                request = client.build_request(
+                    "POST",
+                    self._url,
+                    json=payload,
+                    headers={**self._headers(), "Accept-Encoding": "identity"},
+                )
+                response = client.send(request, stream=True)
+                try:
+                    status = response.status_code
+                    if status != 200:
+                        error_body = self._bounded_body(response, MAX_ERROR_BODY_BYTES, deadline)
+                        raise ModelCallError(
+                            _status_class(status, error_body[:MAX_ERROR_BODY_BYTES])
+                        )
+                    if response.headers.get("content-encoding", "identity").lower() != "identity":
+                        raise ModelCallError("protocol")
+                    content_bytes = self._bounded_body(response, MAX_STREAM_BYTES, deadline)
+                finally:
+                    response.close()
         except httpx.TimeoutException:
             raise ModelCallError("timeout") from None
         except httpx.HTTPError:
             raise ModelCallError("transport") from None
-        content_bytes = response.content
-        if response.status_code != 200:
-            raise ModelCallError(
-                _status_class(response.status_code, content_bytes[:MAX_ERROR_BODY_BYTES])
-            )
         if len(content_bytes) > MAX_STREAM_BYTES:
             raise ModelCallError("protocol")
+        if time.monotonic() >= deadline:
+            raise ModelCallError("timeout")
         try:
             body = _loads(content_bytes.decode("utf-8"))
         except (ValueError, UnicodeError, RecursionError):

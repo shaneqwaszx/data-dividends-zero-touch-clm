@@ -761,6 +761,10 @@ class BudgetLedger:
         provider = provider_usage_micro_usd
         if type(provider) is not int or not 0 <= provider <= MAX_MICRO_USD:
             raise LedgerError("INVALID_INPUT", "the provider usage must be a micro-USD count")
+        if not isinstance(settle_lag_seconds, int | float) or not (
+            0 <= settle_lag_seconds <= 86_400
+        ):
+            raise LedgerError("INVALID_INPUT", "the settle lag must be 0 to 86400 seconds")
 
         def anchor(connection: sqlite3.Connection) -> int:
             meta = self._meta(connection)
@@ -847,6 +851,9 @@ class BudgetedChatModel:
         return slug
 
     def _reserve(self, messages: list[dict[str, str]]) -> tuple[str, Reservation]:
+        # A prompt the adapter would refuse is refused here, before anything is reserved.
+        if message_bytes(messages) > self._inner.max_prompt_bytes:
+            raise ModelCallError("prompt_too_large")
         reservation = reservation_for(messages, self._inner.endpoint, self._inner.max_tokens)
         reservation_id = self._ledger.reserve(
             reservation,

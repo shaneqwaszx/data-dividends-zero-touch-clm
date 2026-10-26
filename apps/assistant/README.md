@@ -430,7 +430,7 @@ service cannot open the first two:
 
 | Lock | Condition |
 |---|---|
-| L1 | an in-memory `httpx.MockTransport` is injected; a real, wrapped or subclassed transport is refused |
+| L1 | the injected transport object is exactly `httpx.MockTransport`; a real, async or subclassed transport, or any other transport object, is refused. The check is on the transport's type: a mock's handler is test code and is not inspected, and the test suite's network guard fails any connection it would make |
 | L2 | the registry holds an approved record for the full endpoint slug (`provider[/variant][/region][/tier]`; a base provider slug matches every endpoint of that provider), shown to identify one endpoint |
 | L3 | `AI_ASSISTANT_REMOTE_INFERENCE_DECISION` names the decision id |
 | L4 | an initialised, healthy budget ledger exists (the service never creates one) |

@@ -104,7 +104,8 @@ def test_the_remote_request_is_exactly_the_fixed_policy(stream: bool) -> None:
     }
     headers = {key.lower(): value for key, value in request.headers.items()}
     assert headers["authorization"] == "Bearer " + SENTINEL_KEY
-    assert headers["accept-encoding"] == ("identity" if stream else "gzip, deflate")
+    # Both paths ask for an uncompressed body, so the byte bound applies to what is read.
+    assert headers["accept-encoding"] == "identity"
     assert set(headers) == {
         "host",
         "accept",
@@ -450,6 +451,47 @@ def test_non_stream_failures_have_closed_classes(body: object, error_class: str)
     provider = answering(body)
     assert _complete_error(_model(provider)).error_class == error_class
     _one_request(provider)
+
+
+class SlowBody(httpx.SyncByteStream):
+    def __iter__(self) -> Any:
+        import time
+
+        for _ in range(4):
+            time.sleep(0.15)
+            yield b" "
+
+
+def test_a_non_stream_reply_slower_than_the_whole_deadline_fails() -> None:
+    """QG F-3: one deadline for the whole request, not per read."""
+
+    slow = Provider(lambda _: httpx.Response(200, stream=SlowBody()))
+    assert _complete_error(_model(slow, llm_timeout_seconds=0.3)).error_class == "timeout"
+
+
+class Big(httpx.SyncByteStream):
+    def __iter__(self) -> Any:
+        for _ in range(40):
+            yield b" " * 32768
+
+
+def test_a_non_stream_body_is_cut_at_the_byte_bound_while_reading() -> None:
+    """QG F-3: the 1 MiB bound is applied while reading, not after."""
+
+    provider = Provider(lambda _: httpx.Response(200, stream=Big()))
+    assert _complete_error(_model(provider)).error_class == "protocol"
+
+
+class Gzipped(httpx.SyncByteStream):
+    def __iter__(self) -> Any:
+        yield bytes([0x1F, 0x8B, 0x08, 0x00]) + b"compressed-bytes"
+
+
+def test_a_compressed_non_stream_reply_is_refused() -> None:
+    provider = Provider(
+        lambda _: httpx.Response(200, stream=Gzipped(), headers={"content-encoding": "gzip"})
+    )
+    assert _complete_error(_model(provider)).error_class == "protocol"
 
 
 def test_an_unreadable_or_oversized_body_fails() -> None:

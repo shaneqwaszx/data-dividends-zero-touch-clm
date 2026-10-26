@@ -37,6 +37,8 @@ SENSITIVE_FILE_SUFFIXES = {
 SOURCE_CODE_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx"}
 RUNTIME_VALUE_REFERENCE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$")
 ASSISTANT_CREDENTIALS = "OPENROUTER_API_KEY|AI_ASSISTANT_LLM_API_KEY"
+# A whole angle-bracket placeholder (which may contain spaces), or a run without quotes.
+CREDENTIAL_VALUE = r"(<[^<>\n]{1,64}>|[^\"'\s#]*)"
 
 
 @dataclass(frozen=True)
@@ -81,7 +83,15 @@ RULES = (
     # `export`/`set NAME=value`, PowerShell `$env:NAME = "value"` ...
     Rule(
         "assistant-credential-assignment",
-        re.compile(rf"(?<![A-Za-z0-9_])({ASSISTANT_CREDENTIALS})\s*=\s*[\"']?([^\"'\s#]*)"),
+        re.compile(rf"(?<![A-Za-z0-9_])({ASSISTANT_CREDENTIALS})\s*=\s*[\"']?{CREDENTIAL_VALUE}"),
+        captured_value_group=2,
+    ),
+    # ... a source-code subscript such as `os.environ["NAME"] = "value"` ...
+    Rule(
+        "assistant-credential-subscript",
+        re.compile(
+            rf"\[\s*[\"']({ASSISTANT_CREDENTIALS})[\"']\s*\]\s*=\s*[\"']?{CREDENTIAL_VALUE}"
+        ),
         captured_value_group=2,
     ),
     # ... and `NAME: value` at the start of a line (YAML, .env-style) or a quoted mapping key.
@@ -89,7 +99,7 @@ RULES = (
         "assistant-credential-mapping",
         re.compile(
             rf"(?:^\s*({ASSISTANT_CREDENTIALS})|[\"']({ASSISTANT_CREDENTIALS})[\"'])"
-            r"\s*:\s*[\"']?([^\"'\s#]*)"
+            rf"\s*:\s*[\"']?{CREDENTIAL_VALUE}"
         ),
         captured_value_group=3,
     ),
@@ -97,14 +107,20 @@ RULES = (
     # name-based rules above are the primary control.
     Rule("openrouter-key", re.compile(r"\bsk-or-[A-Za-z0-9_-]{20,}")),
 )
-CREDENTIAL_RULES = frozenset({"assistant-credential-assignment", "assistant-credential-mapping"})
+CREDENTIAL_RULES = frozenset(
+    {
+        "assistant-credential-assignment",
+        "assistant-credential-mapping",
+        "assistant-credential-subscript",
+    }
+)
 # Documented local placeholders, accepted only for their own variable.
 LOCAL_CREDENTIAL_PLACEHOLDERS = {
     name: frozenset({"ollama"}) for name in ("AI_ASSISTANT_LLM_API_KEY",)
 }
 TRAILING_MARKUP = "`*_.,;:)"
 ENVIRONMENT_REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|%[A-Za-z_][A-Za-z0-9_]*%")
-ANGLE_PLACEHOLDER = re.compile(r"<[^<>\s]{1,64}>")
+ANGLE_PLACEHOLDER = re.compile(r"<[^<>\n]{1,64}>")
 
 
 def candidate_files() -> list[Path]:

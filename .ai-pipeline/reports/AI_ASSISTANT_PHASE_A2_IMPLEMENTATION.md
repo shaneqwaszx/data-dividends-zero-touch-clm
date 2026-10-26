@@ -5,7 +5,7 @@
 | Date | 2026-10-26 |
 | Role | Stage 1 implementation plus owner-assigned integrated offline verification. Not an independent Quality Gate |
 | Authority | Owner authorisation "AI Assistant Phase A2 implementation" (OD-1 to OD-9 approved for offline A2, with safeguards S1–S3); planner `.ai-pipeline/001_planner/AI_ASSISTANT_PHASE_A2_GOVERNANCE_AND_IMPLEMENTATION_PLAN.md` Rev 1 |
-| Candidate (integrated) | Worktree `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-a2-int-20261026`, branch `feat/assistant-phase-a2-20261026-int`, base `7d6a31aa196cff23c0b5b1fd4e5e31cf9bce0efc` (latest `origin/main`, PR #113 merged), **uncommitted** |
+| Candidate (integrated) | Worktree `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-a2-int-20261026`, branch `feat/assistant-phase-a2-20261026-int`, base `7d6a31aa196cff23c0b5b1fd4e5e31cf9bce0efc` (latest `origin/main`, PR #113 merged). Implementation commit `5245bbe` (independent QG PASS with six low findings); Quality Gate remediation R1 committed on top (section 10); not pushed |
 | Pre-integration copy | Worktree `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-a2-20261026`, branch `feat/assistant-phase-a2-20261026`, base `769c149`, uncommitted, unchanged since integration (historical; not the candidate) |
 | Change classes | `EXTERNAL_PROVIDER`, `AUTH_RBAC_SECURITY`, `PERSISTENCE` (assistant-local SQLite only), `ARCHITECTURE_REFACTOR`, `CI_TOOLING`, `DOCS_ONLY` |
 | Spend / remote activity | US$0.00. No OpenRouter inference, key, generation, endpoint or account request; no real ledger; `OPENROUTER_API_KEY` never read |
@@ -88,7 +88,7 @@ All on the integrated candidate (base `7d6a31a`), offline, mock transports only.
 | `git diff --check`; EOL churn (`--numstat` vs `--ignore-cr-at-eol`) | clean; identical (+640/-19 tracked) after rebuilding the mixed-EOL `ARCHITECTURE.md` from its blob |
 | POC lifecycle / E2E (`run_e2e.py`, `assistant-streaming`) | **NOT EXECUTED**: Tesseract not on PATH, Docker not running, no disposable Mongo port configured |
 | Hosted CI | **NOT EXECUTED** (nothing pushed); never reported as PASS |
-| `pre_pr_check.py` | not run: intentionally uncommitted handoff (AGENTS.md) |
+| `pre_pr_check.py` | not run: it belongs after an independent PASS on the final frozen commit |
 | Zero remote activity | session-wide socket guard active for the whole assistant suite (0 recorded attempts at teardown apart from the self-test's own blocked attempts); no request path other than `/chat/completions` in code; no real ledger (`data/budget` absent); key never read |
 
 ## 7. Findings, blockers and limitations
@@ -119,6 +119,25 @@ status: remote profile DORMANT, not a `PROJECT_STATE.md` provider.
 
 ## 9. Next authorised action
 
-Owner decision on publication: commit the integrated candidate on
-`feat/assistant-phase-a2-20261026-int`, then an independent Quality Gate on that frozen commit,
-then `pre_pr_check.py`. Phase B stays blocked (plan section 15).
+A fresh independent re-QG of the remediation commit, then `pre_pr_check.py` on that frozen
+state, then the owner's publication decision. Phase B stays blocked (plan section 15).
+
+## 10. Quality Gate remediation R1 (2026-10-26)
+
+The independent Quality Gate on `5245bbe` (tree `a1e13921`) returned **PASS** with six low
+findings. The owner authorised a bounded remediation of F-1 to F-6 followed by a fresh
+independent re-QG. Only those findings were changed; the gate's informational notes I-1 to I-6
+were left as they are.
+
+| Finding | Change | Tests |
+|---|---|---|
+| F-1 prompt over the size limit was charged its reservation | `BudgetedChatModel` refuses it with `prompt_too_large` **before** reserving (no ledger row, no request) | `test_a_prompt_above_the_size_limit_is_refused_before_any_reservation[chat, stream]` |
+| F-2 settle lag could be shortened or ignored | `BudgetLedger.reconcile` rejects a lag outside 0-86,400 s or non-finite (`INVALID_INPUT`); the CLI defaults to `AI_ASSISTANT_BUDGET_SETTLE_LAG_SECONDS` and refuses a flag shorter than it | `test_the_settle_lag_cannot_be_shortened_below_the_configured_lag[-1, 0, 599]`, `test_the_configured_settle_lag_is_read`, `test_the_ledger_refuses_a_negative_or_non_finite_settle_lag`; the earlier reconcile CLI test now configures the lag instead of passing 0 |
+| F-3 remote non-stream read had no whole-request deadline or read-time byte bound | `OpenRouterChatModel.complete()` streams the body under one deadline, cuts it at 1 MiB while reading (16 KiB for errors) and asks for an uncompressed body; a compressed reply is refused. The local adapter is unchanged | `test_a_non_stream_reply_slower_than_the_whole_deadline_fails`, `test_a_non_stream_body_is_cut_at_the_byte_bound_while_reading`, `test_a_compressed_non_stream_reply_is_refused`; the request-policy test now expects `Accept-Encoding: identity` on both paths |
+| F-4 `model_construct` settings skipped numeric limits | The factory re-checks every bounded number the remote profile uses against its declared pydantic bounds (`SETTING_OUT_OF_BOUNDS`) | `test_numeric_bounds_are_rechecked_for_settings_built_without_validators` (10 cases), `test_valid_settings_built_without_validators_still_compose`; the earlier `model_construct` test now expects the stricter code |
+| F-5 scanner gap and false positive | New `assistant-credential-subscript` rule (a literal assigned through `os.environ["NAME"]` or another subscript); angle-bracket placeholders may contain spaces (`<your key>`) | `test_detects_a_literal_credential_assigned_through_a_subscript`, `test_allows_runtime_references_through_a_subscript`, `test_allows_angle_placeholders_that_contain_spaces` |
+| F-6 wording | Adapter docstring and README L1 row now say the containment is a check on the transport object's type; this report's header and section 9 are current | review |
+
+The default local adapter, prompts, retrieval, the exact-line guard, routes, notices and
+answer records are untouched by R1. The re-verification run and the frozen remediation commit
+are recorded in the commit message and the re-QG report.

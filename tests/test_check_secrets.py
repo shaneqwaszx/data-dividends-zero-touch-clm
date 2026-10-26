@@ -184,6 +184,42 @@ class SecretScannerTests(unittest.TestCase):
 
         self.assertEqual(CHECK_SECRETS.scan_file(path), [("bearer-authorization", 1)])
 
+    def test_detects_a_literal_credential_assigned_through_a_subscript(self) -> None:
+        """QG F-5 (a): the os.environ / mapping subscript form in source code."""
+
+        fake_value = "fixture_not_a_real_value_" + "667788"
+        lines = [
+            f'os.environ["{self.REMOTE}"] = "{fake_value}"',
+            f"settings['{self.LOCAL}'] = '{fake_value}'",
+        ]
+        path = self._temporary_file("setup_env.py", "\n".join(lines))
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(findings, [("assistant-credential-subscript", 1), ("assistant-credential-subscript", 2)])
+        self.assertNotIn(fake_value, repr(findings))
+
+    def test_allows_runtime_references_through_a_subscript(self) -> None:
+        lines = [
+            f'os.environ["{self.REMOTE}"] = settings.remote_key',
+            f'value = os.environ["{self.REMOTE}"]',
+        ]
+        path = self._temporary_file("setup_env.py", "\n".join(lines))
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [])
+
+    def test_allows_angle_placeholders_that_contain_spaces(self) -> None:
+        """QG F-5 (b): a documented placeholder such as <your key> is not a finding."""
+
+        lines = [
+            f"{self.REMOTE}=<your key>",
+            f'{self.REMOTE}: "<paste the key here>"',
+            f'os.environ["{self.REMOTE}"] = "<your key>"',
+        ]
+        path = self._temporary_file("example.env", "\n".join(lines))
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [])
+
     def test_main_never_prints_an_assistant_credential_value(self) -> None:
         fake_value = "fixture_not_a_real_value_" + "112233"
         path = self._temporary_file("local.env", f"{self.REMOTE}={fake_value}\n")

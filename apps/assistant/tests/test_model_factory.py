@@ -84,6 +84,16 @@ def _build(**kwargs: Any) -> Any:
     return build_chat_model(remote_settings(), **arguments)
 
 
+def _build_with(settings: AiAssistantSettings) -> Any:
+    return build_chat_model(
+        settings,
+        transport=_mock(),
+        environ=ENVIRON,
+        registry=TEST_REGISTRY,
+        budget_ledger=LEDGER["path"],
+    )
+
+
 def test_the_remote_profile_composes_only_when_every_lock_holds() -> None:
     model = _build()
 
@@ -211,7 +221,51 @@ def test_validation_also_holds_for_settings_built_without_validators() -> None:
         llm_reasoning_allowance_tokens=-5,
     )
 
-    _refused("REASONING_ALLOWANCE_INVALID", settings)
+    _refused("SETTING_OUT_OF_BOUNDS", settings)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"budget_max_in_flight": 50},
+        {"budget_max_in_flight": 0},
+        {"remote_max_prompt_bytes": 10**9},
+        {"llm_temperature": float("nan")},
+        {"llm_temperature": 1.5},
+        {"llm_timeout_seconds": 0.0},
+        {"llm_timeout_seconds": float("inf")},
+        {"llm_max_answer_tokens": 1.5},
+        {"budget_settle_lag_seconds": -1},
+        {"llm_reasoning_allowance_tokens": True},
+    ],
+)
+def test_numeric_bounds_are_rechecked_for_settings_built_without_validators(
+    changes: dict[str, Any],
+) -> None:
+    """QG F-4: the factory re-checks every bounded number the remote profile uses."""
+
+    values: dict[str, Any] = {
+        "llm_profile": OPENROUTER_PROFILE_ID,
+        "remote_inference_decision": "D-091",
+        "openrouter_endpoint": ENDPOINT.slug,
+        "llm_reasoning_effort": "low",
+        "llm_reasoning_allowance_tokens": 1400,
+        **changes,
+    }
+    error = _refused("SETTING_OUT_OF_BOUNDS", AiAssistantSettings.model_construct(**values))
+    assert all(str(value) not in str(error) for value in changes.values() if value not in (0, 1))
+
+
+def test_valid_settings_built_without_validators_still_compose() -> None:
+    settings = AiAssistantSettings.model_construct(
+        llm_profile=OPENROUTER_PROFILE_ID,
+        remote_inference_decision="D-091",
+        openrouter_endpoint=ENDPOINT.slug,
+        llm_reasoning_effort="low",
+        llm_reasoning_allowance_tokens=1400,
+    )
+
+    assert isinstance(_build_with(settings), BudgetedChatModel)
 
 
 # --- the credential (T3-20) -----------------------------------------------------------------

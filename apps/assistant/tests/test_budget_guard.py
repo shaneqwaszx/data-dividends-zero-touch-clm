@@ -104,6 +104,31 @@ def test_an_open_breaker_refuses_with_no_request(tmp_path: Path) -> None:
     assert provider.requests == []
 
 
+@pytest.mark.parametrize("route", ["chat", "stream"])
+def test_a_prompt_above_the_size_limit_is_refused_before_any_reservation(
+    tmp_path: Path, route: str
+) -> None:
+    """QG F-1: nothing is reserved or charged for a prompt the adapter would refuse."""
+
+    path = new_ledger(tmp_path / "ledger.sqlite3")
+    provider = streaming(happy_stream()) if route == "stream" else answering(completion(ALLOWED))
+    model = _guarded(provider, path, remote_max_prompt_bytes=1024)
+    big = [{"role": "user", "content": "x" * 5000}]
+
+    async def stream() -> None:
+        async for _ in model.stream(big):
+            pass
+
+    with pytest.raises(ModelCallError) as raised:
+        anyio.run(stream) if route == "stream" else model.complete(big)
+    assert raised.value.error_class == "prompt_too_large"
+    status = _status(path)
+    assert (status.committed, status.open_calls, status.local_charged) == (0, 0, 0)
+    assert provider.requests == []
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 0
+
+
 # --- settlement through the guard ------------------------------------------------------------
 
 

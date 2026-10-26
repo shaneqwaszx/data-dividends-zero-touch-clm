@@ -118,8 +118,9 @@ def test_the_cap_is_lowered_freely_and_raised_only_with_confirmation(
 
 
 def test_reconcile_and_breaker_reset_follow_the_rules(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("AI_ASSISTANT_BUDGET_SETTLE_LAG_SECONDS", "0")  # configured: no lag
     path = tmp_path / "ledger.sqlite3"
     _init(path)
     ledger = BudgetLedger.open(path)
@@ -141,6 +142,58 @@ def test_reconcile_and_breaker_reset_follow_the_rules(
     assert not status.breaker_open and status.committed == 3_100_000
 
 
+def _settled(path: Path) -> None:
+    _init(path)
+    ledger = BudgetLedger.open(path)
+    rid = ledger.reserve(
+        Reservation(10, 10, 72_452),
+        endpoint_slug="fictional-provider/fp8",
+        max_in_flight=1,
+        lease_seconds=150,
+    )
+    ledger.settle(rid, usage=None, error_class=None, cancelled=True)
+
+
+@pytest.mark.parametrize("lag", ["-1", "0", "599"])
+def test_the_settle_lag_cannot_be_shortened_below_the_configured_lag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], lag: str
+) -> None:
+    """QG F-2: the default configured lag is 600 s; a flag may lengthen it, never shorten it."""
+
+    path = tmp_path / "ledger.sqlite3"
+    _settled(path)
+    capsys.readouterr()
+
+    assert _run(path, "reconcile", "--provider-usage", "3.10", "--settle-lag-seconds", lag) == 2
+    assert "RECONCILE_REFUSED" in capsys.readouterr().err
+    assert BudgetLedger.open(path).status().last_provider_usage == 3_000_000
+
+
+def test_the_configured_settle_lag_is_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "ledger.sqlite3"
+    _settled(path)
+    capsys.readouterr()
+
+    assert _run(path, "reconcile", "--provider-usage", "3.10") == 2  # default 600 s: too soon
+    monkeypatch.setenv("AI_ASSISTANT_BUDGET_SETTLE_LAG_SECONDS", "0")
+    assert _run(path, "reconcile", "--provider-usage", "3.10") == 0
+    assert _run(path, "reconcile", "--provider-usage", "3.20", "--settle-lag-seconds", "86400") == 2
+
+
+def test_the_ledger_refuses_a_negative_or_non_finite_settle_lag(tmp_path: Path) -> None:
+    from ai_assistant.budget import LedgerError
+
+    path = tmp_path / "ledger.sqlite3"
+    _settled(path)
+    ledger = BudgetLedger.open(path)
+    for lag in (-1, -0.001, float("nan"), float("inf"), 86_401):
+        with pytest.raises(LedgerError) as raised:
+            ledger.reconcile(3_100_000, settle_lag_seconds=lag)
+        assert raised.value.code == "INVALID_INPUT"
+
+
 def test_the_cli_reads_no_key_and_makes_no_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_remote_connections: list[str]
 ) -> None:
@@ -149,7 +202,7 @@ def test_the_cli_reads_no_key_and_makes_no_request(
     path = tmp_path / "ledger.sqlite3"
     _init(path)
     _run(path, "status")
-    _run(path, "reconcile", "--provider-usage", "3.00", "--settle-lag-seconds", "0")
+    _run(path, "reconcile", "--provider-usage", "3.00")
 
     assert no_remote_connections == before
     assert "OPENROUTER_API_KEY" not in SCRIPT.read_text(encoding="utf-8")

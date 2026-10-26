@@ -17,7 +17,9 @@ init           create a ledger where none exists. The opening provider usage is 
 status         amounts (USD) and codes only.
 set-cap        lowering is always allowed; raising needs --raise and the same amount again.
 reconcile      anchor the ledger on the key's cumulative usage from the dashboard. Refused
-               while a call is open, too soon after the last call, or if usage would fall.
+               while a call is open, too soon after the last call (the configured
+               AI_ASSISTANT_BUDGET_SETTLE_LAG_SECONDS, default 600; a flag may lengthen it,
+               never shorten it), or if usage would fall.
                An undercount is adopted (and opens the breaker above US$0.05); an over-count
                is kept unless --release is given.
 reset-breaker  only after a reconcile that is newer than the breaker, and naming its code.
@@ -108,9 +110,21 @@ def cmd_set_cap(args: argparse.Namespace) -> int:
     return 0
 
 
+def _settle_lag(args: argparse.Namespace) -> float:
+    configured = float(AiAssistantSettings(_env_file=None).budget_settle_lag_seconds)
+    if args.settle_lag_seconds is None:
+        return configured
+    if args.settle_lag_seconds < configured:
+        raise LedgerError(
+            "RECONCILE_REFUSED", "the settle lag cannot be shorter than the configured lag"
+        )
+    lag: float = args.settle_lag_seconds
+    return lag
+
+
 def cmd_reconcile(args: argparse.Namespace) -> int:
     drift = BudgetLedger.open(_path(args)).reconcile(
-        args.provider_usage, release=args.release, settle_lag_seconds=args.settle_lag_seconds
+        args.provider_usage, release=args.release, settle_lag_seconds=_settle_lag(args)
     )
     sign = "-" if drift < 0 else ""
     print(f"reconciled; provider minus ledger: {sign}{usd(abs(drift))}")
@@ -145,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     reconcile = commands.add_parser("reconcile")
     reconcile.add_argument("--provider-usage", type=micro, required=True)
     reconcile.add_argument("--release", action="store_true")
-    reconcile.add_argument("--settle-lag-seconds", type=float, default=600.0)
+    reconcile.add_argument("--settle-lag-seconds", type=float, default=None)
     reconcile.set_defaults(run=cmd_reconcile)
 
     reset = commands.add_parser("reset-breaker")

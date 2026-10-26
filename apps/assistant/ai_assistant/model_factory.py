@@ -14,6 +14,7 @@ setting, never its value. ``OPENROUTER_API_KEY`` is read last, only for the remo
 only after all other checks pass, and only from the process environment.
 """
 
+import math
 import os
 import re
 from collections.abc import Callable, Mapping
@@ -46,6 +47,39 @@ def ledger_path(settings: AiAssistantSettings) -> Path:
 
     path = Path(settings.budget_ledger_path)
     return path if path.is_absolute() else ASSISTANT_DIR / path
+
+
+# Numeric settings the remote profile uses, re-checked against their declared bounds because
+# settings built with ``model_construct`` skip pydantic's own checks.
+_BOUNDED = (
+    "llm_timeout_seconds",
+    "llm_temperature",
+    "llm_max_answer_tokens",
+    "llm_reasoning_allowance_tokens",
+    "remote_max_prompt_bytes",
+    "budget_max_in_flight",
+    "budget_settle_lag_seconds",
+)
+
+
+def _within_declared_bounds(settings: AiAssistantSettings, name: str) -> bool:
+    field = _DEFAULTS[name]
+    value = getattr(settings, name)
+    expected = type(field.default)
+    if isinstance(value, bool) or not isinstance(value, expected | int):
+        return False
+    if expected is int and not isinstance(value, int):
+        return False
+    if not math.isfinite(value):
+        return False
+    for bound in field.metadata:  # pydantic's Gt/Ge/Lt/Le markers from Field(...)
+        gt, ge = getattr(bound, "gt", None), getattr(bound, "ge", None)
+        lt, le = getattr(bound, "lt", None), getattr(bound, "le", None)
+        if (gt is not None and not value > gt) or (ge is not None and not value >= ge):
+            return False
+        if (lt is not None and not value < lt) or (le is not None and not value <= le):
+            return False
+    return True
 
 
 def resolve_remote_credential(environ: Mapping[str, str]) -> SecretStr:
@@ -85,6 +119,11 @@ def _remote(
             "PROFILE_DORMANT", "the remote profile is dormant and cannot reach a network"
         )
     require_offline_transport(transport)
+    for name in _BOUNDED:
+        if not _within_declared_bounds(settings, name):
+            raise ProfileConfigError(
+                "SETTING_OUT_OF_BOUNDS", f"AI_ASSISTANT_{name.upper()} is outside its bounds"
+            )
     if settings.llm_base_url != _DEFAULTS["llm_base_url"].default:
         raise ProfileConfigError(
             "BASE_URL_OVERRIDE", "AI_ASSISTANT_LLM_BASE_URL must not be set for the remote profile"
