@@ -24,6 +24,10 @@ Owner decisions recorded 2026-10-26 (owner authorisation for Phase A1):
   dormant `openrouter` profile obtains its key (for example, read `OPENROUTER_API_KEY` only
   when that profile is selected) and must never send it to the default local model.
 
+- **Renumbering (2026-10-26):** A-4's `D-090` and ADR-012 Amendment 2 (and section 10) are
+  taken by PR #114 (explanations). Phase A2 uses **D-091** and **ADR-012 Amendment 3**, both
+  PROPOSED; see `AI_ASSISTANT_PHASE_A2_GOVERNANCE_AND_IMPLEMENTATION_PLAN.md`.
+
 ## 1. Identity and authority
 
 - Repository: `C:\Users\shane\Desktop\FYP\data-dividends-zero-touch-clm`.

@@ -64,19 +64,33 @@ from .knowledge_answers import (
     sources_for,
     tag_hits,
 )
-from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel, is_local_model_url
+from .llm import (
+    CallBudget,
+    ChatModel,
+    LlmUnavailableError,
+    ModelAnswer,
+    ModelCallError,
+    ModelUsage,
+    OpenAICompatibleChatModel,
+    Piece,
+    is_local_model_url,
+    micro_usd,
+)
+from .model_factory import build_chat_model
 from .prompts import build_messages, prefix_messages
 from .small_talk import small_talk_reply
 from .telemetry import (
     PARTS,
     AnsweredBy,
     AnswerMetrics,
+    BudgetMetrics,
     FallbackReason,
     MetricsRecorder,
     MetricsSink,
     RetrievalMetrics,
     RetrievedEntry,
     Route,
+    UsageMetrics,
     describe_messages,
     entry_ref,
     prompt_version,
@@ -218,6 +232,12 @@ class _Outcome:
     # The check of the model's text, if it got one (the answer record keeps its left-out
     # lines); never part of the metrics.
     validation: Validation | None = None
+    # Reported only by adapters that report them (never by the local adapter).
+    usage: ModelUsage | None = None
+    finish_reason: str | None = None
+    empty_content: bool = False
+    provider_error_class: str | None = None
+    budget: CallBudget | None = None
 
     def answered(self, response: "ChatResponse") -> "ChatResponse":
         self.answered_by = response.answered_by
@@ -232,13 +252,53 @@ class _Outcome:
     def record_reason(self) -> RecordReason | None:
         """Why the answer is not a full model answer, as the answer record says it."""
 
-        if self.fallback_reason in ("model_disabled", "model_unavailable"):
+        # A budget refusal (D-091, proposed) is recorded like any other answer without a model.
+        if self.fallback_reason in ("model_disabled", "model_unavailable", "budget_refused"):
             return "model_unavailable"
         if self.fallback_reason == "policy_no_allowed_line":
             return "nothing_allowed"
         if self.fallback_reason == "stream_partial" or self.cut_short:
             return "cut_short"
         return None
+
+    def reported(self, answer: ModelAnswer | Piece) -> None:
+        self.usage = answer.usage or self.usage
+        self.finish_reason = answer.finish_reason or self.finish_reason
+        self.budget = answer.budget or self.budget
+
+    def failed(self, error: LlmUnavailableError) -> None:
+        """The closed class of a failed call; a budget refusal is its own fallback reason."""
+
+        if not isinstance(error, ModelCallError):
+            return
+        self.provider_error_class = error.error_class
+        self.usage = error.usage or self.usage
+        self.budget = error.budget or self.budget
+        self.empty_content = self.empty_content or error.error_class == "empty_content"
+        if error.error_class == "budget_refused" and self.fallback_reason == "none":
+            self.fallback_reason = "budget_refused"
+
+
+def _usage_metrics(usage: ModelUsage | None) -> UsageMetrics | None:
+    if usage is None:
+        return None
+    return UsageMetrics(
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        reasoning_tokens=usage.reasoning_tokens,
+        cached_tokens=usage.cached_tokens,
+        cost_micro_usd=None if usage.cost is None else micro_usd(usage.cost),
+    )
+
+
+def _budget_metrics(budget: CallBudget | None) -> BudgetMetrics | None:
+    if budget is None:
+        return None
+    return BudgetMetrics(
+        outcome=budget.outcome,
+        reserved_micro_usd=budget.reserved_micro_usd,
+        charged_micro_usd=budget.charged_micro_usd,
+    )
 
 
 def _model_reply(
@@ -305,14 +365,9 @@ def create_app(
     )
     model: ChatModel | None = chat_model
     if model is None and config.llm_enabled:
-        model = OpenAICompatibleChatModel(
-            base_url=config.llm_base_url,
-            model=config.llm_model,
-            credential=config.llm_api_key.get_secret_value(),
-            timeout_seconds=config.llm_timeout_seconds,
-            temperature=config.llm_temperature,
-            max_answer_tokens=config.llm_max_answer_tokens,
-        )
+        # The default profile builds the same adapter as before; the remote profile is
+        # dormant and refuses to start here (model_factory.py).
+        model = build_chat_model(config, local_adapter=OpenAICompatibleChatModel)
 
     app = FastAPI(title="AI Assistant", version="0.1.0")
 
@@ -536,6 +591,13 @@ def create_app(
                     "first_displayed_line": since(outcome.first_line_at),
                     "total": since(time.monotonic()),
                 },
+                profile=getattr(model, "profile_id", config.llm_profile),
+                requested_endpoint=getattr(model, "endpoint_slug", None),
+                usage=_usage_metrics(outcome.usage),
+                finish_reason=outcome.finish_reason,
+                empty_content=outcome.empty_content,
+                provider_error_class=outcome.provider_error_class,
+                budget=_budget_metrics(outcome.budget),
             )
 
         recorder.record(build)
@@ -547,6 +609,7 @@ def create_app(
         else:
             try:
                 reply = model.complete(prep.messages)
+                outcome.reported(reply)
                 validation = validate_answer(
                     reply.text, prep.facts, knowledge_lines=prep.shown.lines
                 )
@@ -559,7 +622,8 @@ def create_app(
                 return outcome.answered(
                     _model_reply(validation, prep, model_name=model.name, cut_short=reply.cut_short)
                 )
-            except LlmUnavailableError:
+            except LlmUnavailableError as error:
+                outcome.failed(error)
                 if outcome.fallback_reason == "none":
                     outcome.fallback_reason = "model_unavailable"
         return outcome.answered(_fallback_reply(prep, notice=notice))
@@ -624,11 +688,16 @@ def create_app(
                             if piece.text and outcome.first_piece_at is None:
                                 outcome.first_piece_at = time.monotonic()
                             cut_short = cut_short or piece.cut_short
+                            outcome.reported(piece)
                             shown = guard.feed(piece.text) if piece.text else None
                             if shown is not None:
                                 if outcome.first_line_at is None:
                                     outcome.first_line_at = time.monotonic()
                                 yield line({"type": "text", "text": shown})
+                    # The length limit reached before any text (reasoning used it all).
+                    outcome.empty_content = (
+                        outcome.finish_reason == "length" and outcome.first_piece_at is None
+                    )
                     guard.finish()
                     validation = guard.validation()
                     outcome.selected(validation)
@@ -644,7 +713,8 @@ def create_app(
                         )
                         delivered = True
                         return
-                except LlmUnavailableError:
+                except LlmUnavailableError as error:
+                    outcome.failed(error)
                     # Only lines completed before the failure; an unfinished line is not shown.
                     partial = guard.validation()
                     outcome.selected(partial)

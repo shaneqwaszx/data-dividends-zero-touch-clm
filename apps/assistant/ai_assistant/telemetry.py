@@ -31,8 +31,12 @@ from typing import Any, Literal, Protocol
 
 from . import prompts
 from .instructions import case_page_terms
+from .llm import BUDGET_OUTCOMES, MODEL_ERROR_CLASSES
+from .model_profiles import ENDPOINT_SLUG, LOCAL_PROFILE_ID, PROFILE_IDS
 
-METRICS_VERSION = 1
+# Version 2 (Phase A2, D-091 proposed) adds the model profile, the requested endpoint,
+# provider usage counts and cost, the budget outcome and the provider error class.
+METRICS_VERSION = 2
 LOGGER_NAME = "ai_assistant.metrics"
 
 Route = Literal["chat", "stream"]
@@ -44,6 +48,7 @@ FallbackReason = Literal[
     "model_unavailable",
     "policy_no_allowed_line",
     "stream_partial",
+    "budget_refused",
 ]
 Confidence = Literal["high", "low", "none"]
 Kind = Literal["guidance", "resolution"]
@@ -58,8 +63,10 @@ FALLBACK_REASONS = frozenset(
         "model_unavailable",
         "policy_no_allowed_line",
         "stream_partial",
+        "budget_refused",
     }
 )
+FINISH_REASONS = frozenset({"stop", "length"})
 CONFIDENCES = frozenset({"high", "low", "none"})
 KINDS = frozenset({"guidance", "resolution"})
 PARTS = ("rules", "facts", "history", "knowledge", "terms", "question", "other")
@@ -143,6 +150,44 @@ class RetrievalMetrics:
 
 
 @dataclass(frozen=True)
+class UsageMetrics:
+    """Provider-reported counts and cost (micro-USD), when the adapter reports them."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cached_tokens: int | None = None
+    cost_micro_usd: int | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "prompt_tokens",
+            "completion_tokens",
+            "reasoning_tokens",
+            "cached_tokens",
+            "cost_micro_usd",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                _count(f"usage.{name}", value)
+
+
+@dataclass(frozen=True)
+class BudgetMetrics:
+    """What the budget guard did (remote profile only), in micro-USD."""
+
+    outcome: str
+    reserved_micro_usd: int
+    charged_micro_usd: int | None = None
+
+    def __post_init__(self) -> None:
+        _code("budget.outcome", self.outcome, BUDGET_OUTCOMES)
+        _count("budget.reserved_micro_usd", self.reserved_micro_usd)
+        if self.charged_micro_usd is not None:
+            _count("budget.charged_micro_usd", self.charged_micro_usd)
+
+
+@dataclass(frozen=True)
 class AnswerMetrics:
     request_id: str
     route: Route
@@ -162,6 +207,16 @@ class AnswerMetrics:
     cut_short: bool
     cancelled: bool
     timings_ms: Mapping[str, int | None]
+    # Version 2. The endpoint is the requested one: the response does not say which provider
+    # served it, so provider_verified stays false until a verified source exists (Phase B).
+    profile: str = LOCAL_PROFILE_ID
+    requested_endpoint: str | None = None
+    provider_verified: bool = False
+    usage: UsageMetrics | None = None
+    finish_reason: str | None = None
+    empty_content: bool = False
+    provider_error_class: str | None = None
+    budget: BudgetMetrics | None = None
     metrics_version: int = field(default=METRICS_VERSION)
 
     def __post_init__(self) -> None:
@@ -195,6 +250,19 @@ class AnswerMetrics:
         for name, timing in self.timings_ms.items():
             if timing is not None:
                 _count(f"timings_ms.{name}", timing)
+        _code("profile", self.profile, PROFILE_IDS)
+        if self.requested_endpoint is not None:
+            _pattern("requested_endpoint", self.requested_endpoint, ENDPOINT_SLUG)
+        _flag("provider_verified", self.provider_verified)
+        if self.usage is not None and not isinstance(self.usage, UsageMetrics):
+            raise MetricsValidationError("usage must be usage metrics")
+        if self.finish_reason is not None:
+            _code("finish_reason", self.finish_reason, FINISH_REASONS)
+        _flag("empty_content", self.empty_content)
+        if self.provider_error_class is not None:
+            _code("provider_error_class", self.provider_error_class, MODEL_ERROR_CLASSES)
+        if self.budget is not None and not isinstance(self.budget, BudgetMetrics):
+            raise MetricsValidationError("budget must be budget metrics")
         if self.metrics_version != METRICS_VERSION:
             raise MetricsValidationError("metrics_version is not supported")
 

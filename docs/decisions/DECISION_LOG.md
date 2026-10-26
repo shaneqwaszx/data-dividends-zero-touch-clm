@@ -1106,3 +1106,35 @@ available.
 
 Authority: `USER_AUTHORIZED_POC` / `PROJECT_DEFINED_PROVISIONAL`. Simulation data, not
 ACRA-verified ownership.
+
+## D-091 - proposed AI Assistant dormant external inference profile and lifetime budget guard (PROPOSED)
+
+Status: PROPOSED by the project team on 2026-10-26, built offline under the owner's Phase A2
+implementation authorisation (OD-1 to OD-9). Not accepted. It amends ADR-012 (Amendment 3).
+Each of X1 to X9 needs the repository owner's (Shane's) explicit acceptance before merge.
+D-090 and ADR-012 Amendment 2 are reserved by PR #114.
+
+**What A2 does not do.** It does not enable remote inference, approve sending customer,
+sponsor or case data to any external provider, approve any API spending, approve
+user-configurable or user-visible model selection, authorise a shared or hosted inference
+deployment, change the AI Assistant's responsibilities or use cases, or relax the exact-line
+output guard. Any future remote activation needs separate owner decisions (Phase B) and the
+applicable sponsor governance (Q-013) for anything beyond synthetic data.
+
+| # | Decision | Recommendation |
+| --- | --- | --- |
+| X1 | Dormant remote profile | `openrouter_gpt_oss_120b` refuses composition unless four locks hold: an in-memory mock transport (L1), an approved endpoint record (L2; none exists), the interlock value `D-091` (L3) and an initialised healthy ledger (L4). |
+| X2 | Approved model registry | Code-defined profiles with explicit capabilities and per-endpoint records (full endpoint slug, listed prices, output ceilings, documented guarantees, uniqueness evidence). Settings select a profile and one endpoint only. |
+| X3 | Credential source | `OPENROUTER_API_KEY` from the process environment only, lazily, after every other check, only for the remote profile, never sent elsewhere. |
+| X4 | Fixed remote request policy | One pinned endpoint slug in `provider.order` and `provider.only`, fallbacks off, `require_parameters`, `data_collection: deny`, `zdr`, `max_price` from the record, `reasoning.exclude`; no attribution headers, user or session ids, tools, plugins or files. |
+| X5 | Lifetime budget ledger | Local SQLite ledger in one key's cumulative-usage frame, anchored on its opening usage, with a labelled (not proven) worst-case reservation, conservative settlement, an accounting breaker, fail-closed integrity and an offline operator CLI. |
+| X6 | Provider verification | Every remote call is `unverified` until a separately authorised Phase B capability verifies the serving provider from generation metadata; mismatching evidence quarantines the call. |
+| X7 | Telemetry v2 | Content-free profile, requested endpoint, verification flag, usage, budget, finish reason, empty content and error class; off by default. |
+| X8 | Multi-instance limit | A ledger enforces only its own key and instance; a global cap needs provider-side controls, partitioned statically. |
+| X9 | Secret scanning | The scanner detects credential assignments to the assistant's credential names and OpenRouter-shaped keys, with documented placeholders. |
+
+Unchanged: the exact-line catalog and `StreamingGuard`, deterministic fallbacks and notices,
+GET-only CLM access with the user's session, loopback-only embeddings and warm-up, no tools,
+no automatic learning from feedback. Authority: `PROJECT_DEFINED_PROVISIONAL`. The remote
+profile is `DORMANT` (mock-transport tests only). Not sponsor policy; no CLM backend write,
+provider status or Live claim follows.
