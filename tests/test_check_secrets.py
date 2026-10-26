@@ -101,7 +101,7 @@ class SecretScannerTests(unittest.TestCase):
         self.assertNotIn(fake_value, output.getvalue())
         self.assertIn("[sensitive-assignment]", output.getvalue())
 
-    # The AI assistant's credential names (D-091, proposed). Names and key-shaped values are
+    # The AI assistant's credential names (D-091 X9). Names and key-shaped values are
     # assembled at run time so this file itself holds no assignment or key-shaped literal.
     REMOTE = "OPENROUTER_" + "API_KEY"
     LOCAL = "AI_ASSISTANT_LLM_" + "API_KEY"
@@ -246,6 +246,172 @@ class SecretScannerTests(unittest.TestCase):
         path = self._temporary_file("guide.md", chr(10).join(lines))
 
         self.assertEqual(CHECK_SECRETS.scan_file(path), [])
+
+    def test_a_literal_after_a_placeholder_terminator_is_still_a_finding(self) -> None:
+        """R2-1: a backtick, quote or `#` after the placeholder does not end the value."""
+
+        literal = "LITERAL" + "998877"
+        lines = [
+            f"{self.REMOTE}=<x>`{literal}",
+            f'{self.REMOTE}="<x>"{literal}',
+            f'{self.REMOTE}=<x>"{literal}"',
+            f"{self.REMOTE}=<x>#{literal}",
+            f"{self.REMOTE}='<x>'{literal}",
+            f"{self.REMOTE}: <x>#{literal}",
+            f'  {self.LOCAL}: "<x>"{literal}',
+            f'os.environ["{self.REMOTE}"] = "<x>"{literal}',
+        ]
+        path = self._temporary_file("terminator.env", "\n".join(lines))
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(sorted(line for _, line in findings), list(range(1, 9)))
+        self.assertNotIn(literal, repr(findings))
+
+    def test_a_literal_after_placeholder_punctuation_is_still_a_finding(self) -> None:
+        literal = "LITERAL" + "998877"
+        tails = (".", "_", ")", "**", "|", "`,", '",', "]")
+        lines = [f"{self.REMOTE}=<x>{tail}{literal}" for tail in tails]
+        path = self._temporary_file("punctuation.env", "\n".join(lines))
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(sorted(line for _, line in findings), list(range(1, len(tails) + 1)))
+        self.assertNotIn(literal, repr(findings))
+
+    def test_a_literal_glued_to_a_prefixed_placeholder_is_still_a_finding(self) -> None:
+        """`your_`, `example_` and `test_` names are placeholders only when whole."""
+
+        literal = "LITERAL" + "998877"
+        lines = [
+            f"{self.REMOTE}=<your_key>{literal}",
+            f'{self.REMOTE}=<example_key>"{literal}"',
+            f"{self.REMOTE}=<test_key>#{literal}",
+            "api_" + f"key=<your_key>{literal}",
+        ]
+        path = self._temporary_file("prefixed.env", "\n".join(lines))
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(sorted(line for _, line in findings), [1, 2, 3, 4])
+        self.assertNotIn(literal, repr(findings))
+
+    def test_properly_terminated_placeholders_are_not_findings(self) -> None:
+        lines = [
+            f'{self.REMOTE}="<your key>"',
+            f"{self.REMOTE}='<your key>'",
+            f'{{"{self.REMOTE}": "<key>", "timeout": 30}}',
+            f'settings = dict({self.REMOTE}="<key>")',
+            f'{{"{self.REMOTE}": "<key>"}}',
+            f"**{self.REMOTE}=<key>**",
+            f"{self.REMOTE}=<key> # paste your own key",
+            f"| {self.REMOTE}=<key>| shell |",
+            f'Run `{self.REMOTE}="<key>"` first.',
+            "api_" + "key=<your_key>",
+        ]
+        path = self._temporary_file("guide.md", "\n".join(lines))
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [])
+
+    def test_shell_and_powershell_quoted_assignments(self) -> None:
+        literal = "LITERAL" + "998877"
+        allowed = [
+            f'export {self.REMOTE}="<your key>"',
+            f"export {self.REMOTE}='<key>' && python -m ai_assistant",
+            f'$env:{self.REMOTE} = "<your key>"',
+            f'$env:{self.REMOTE}="<key>"; python -m ai_assistant',
+            f'set "{self.REMOTE}=<key>"',
+        ]
+        flagged = [
+            f'export {self.REMOTE}="<x>"{literal}',
+            f"export {self.REMOTE}='<x>'{literal}",
+            f'$env:{self.REMOTE} = "<x>"{literal}',
+            f'$env:{self.REMOTE} = "{literal}"',
+        ]
+        allowed_path = self._temporary_file("allowed.ps1.txt", "\n".join(allowed))
+        flagged_path = self._temporary_file("flagged.ps1.txt", "\n".join(flagged))
+
+        self.assertEqual(CHECK_SECRETS.scan_file(allowed_path), [])
+        findings = CHECK_SECRETS.scan_file(flagged_path)
+        self.assertEqual(sorted(line for _, line in findings), [1, 2, 3, 4])
+        self.assertNotIn(literal, repr(findings))
+
+    def test_markdown_inline_code_and_table_examples(self) -> None:
+        literal = "LITERAL" + "998877"
+        allowed = [
+            f"Set `{self.REMOTE}=<key>` in your shell.",
+            f"| `{self.REMOTE}` | `{self.REMOTE}=<your key>` |",
+            f"| Variable | `{self.REMOTE}=<key>`, never committed |",
+            f"``{self.REMOTE}=<key>``",
+        ]
+        flagged = [
+            f"Set `{self.REMOTE}=<x>`{literal}` in your shell.",
+            f"| `{self.REMOTE}=<x>`{literal}` | shell |",
+        ]
+        allowed_path = self._temporary_file("allowed.md", "\n".join(allowed))
+        flagged_path = self._temporary_file("flagged.md", "\n".join(flagged))
+
+        self.assertEqual(CHECK_SECRETS.scan_file(allowed_path), [])
+        findings = CHECK_SECRETS.scan_file(flagged_path)
+        self.assertEqual(sorted(line for _, line in findings), [1, 2])
+        self.assertNotIn(literal, repr(findings))
+
+    def test_runtime_environment_references_are_not_findings(self) -> None:
+        lines = [
+            f"{self.REMOTE}=${self.REMOTE}",
+            f'{self.REMOTE}="${{{self.REMOTE}}}"',
+            f"set {self.REMOTE}=%{self.REMOTE}%",
+            f"Read $env:{self.REMOTE} at start-up; it is never logged.",
+            f'key = os.environ.get("{self.REMOTE}")',
+        ]
+        path = self._temporary_file("references.md", "\n".join(lines))
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [])
+
+    def test_an_openrouter_shaped_key_after_a_placeholder_is_a_finding(self) -> None:
+        key_shaped = "sk-" + "or-" + "v1-" + "0" * 64
+        lines = [
+            f"{self.REMOTE}=<key>#{key_shaped}",
+            f'{self.REMOTE}="<key>"{key_shaped}',
+            f"Example: `{self.REMOTE}=<key>` then {key_shaped}",
+        ]
+        path = self._temporary_file("shaped.env", "\n".join(lines))
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(
+            findings,
+            [
+                ("assistant-credential-assignment", 1),
+                ("openrouter-key", 1),
+                ("assistant-credential-assignment", 2),
+                ("openrouter-key", 2),
+                ("openrouter-key", 3),
+            ],
+        )
+        self.assertNotIn(key_shaped, repr(findings))
+
+    def test_main_never_prints_a_value_found_after_a_placeholder(self) -> None:
+        literal = "LITERAL" + "998877"
+        lines = [
+            f"{self.REMOTE}=<x>`{literal}",
+            f'{self.REMOTE}="<x>"{literal}',
+            f'{self.REMOTE}=<x>"{literal}"',
+            f"{self.REMOTE}=<x>#{literal}",
+        ]
+        path = self._temporary_file("local.env", "\n".join(lines))
+        output = io.StringIO()
+
+        with (
+            patch.object(CHECK_SECRETS, "candidate_files", return_value=[path]),
+            redirect_stdout(output),
+        ):
+            result = CHECK_SECRETS.main()
+
+        self.assertEqual(result, 1)
+        self.assertNotIn(literal, output.getvalue())
+        self.assertNotIn("<x>", output.getvalue())
+        self.assertEqual(output.getvalue().count("[assistant-credential-assignment]"), 4)
 
     def test_main_never_prints_an_assistant_credential_value(self) -> None:
         fake_value = "fixture_not_a_real_value_" + "112233"

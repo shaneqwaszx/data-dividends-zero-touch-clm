@@ -641,11 +641,17 @@ this amendment the RM still sees only allowed lines, in the catalog's own words:
   the case-data answer already showed the same values.
 - The cap can drop a model line the RM would have found useful; required lines are kept first.
 
-## Amendment 3 - external-model architecture revisit: dormant external inference profile and budget guard (PROPOSED, D-091)
+## Amendment 3 - external-model architecture revisit: dormant external inference profile and budget guard (ACCEPTED for the dormant A2 scope, D-091)
 
-Status: PROPOSED on 2026-10-26. Not accepted. It records how the revisit condition "any
-non-local embedding or model endpoint" is handled for one dormant model endpoint and does not
-satisfy that condition for activation. Amendment 2 (D-090) is PR #114's, merged before this one.
+Status: ACCEPTED by the repository owner on 2026-10-26 for the offline, dormant Phase A2
+implementation only (proposed the same day). The acceptance is recorded with D-091 X1 to X9
+in PR #116 (owner governance acceptance and its reaffirmation for the merged head; see D-091
+in `DECISION_LOG.md`). It records how the revisit condition "any non-local embedding or model
+endpoint" is handled for one dormant model endpoint and does not satisfy that condition for
+activation. **The acceptance does not authorise external inference activation**: the remote
+profile stays dormant until the Phase B decisions below and a reviewed change open its locks.
+It does not accept Amendment 1 (D-084) or Amendment 2 (D-090). Amendment 2 (D-090) is PR
+#114's, merged before this one.
 
 Context. ADR-012 assumed a local model. Phase A2 adds code for one external inference profile
 (OpenRouter, `openai/gpt-oss-120b`) that is dormant, plus a lifetime budget guard.

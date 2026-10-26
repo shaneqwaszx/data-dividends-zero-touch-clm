@@ -1012,7 +1012,9 @@ inference, Live claim or sponsor approval follows.
 
 Owner-authorized offline Phase A2 (planner
 `AI_ASSISTANT_PHASE_A2_GOVERNANCE_AND_IMPLEMENTATION_PLAN.md` Rev 1, OD-1 to OD-9; D-091 and
-ADR-012 Amendment 3 PROPOSED) keeps `ChatModel` as the only application-facing model port and
+ADR-012 Amendment 3 accepted by the owner on 2026-10-26 for this dormant scope only, without
+authorising external inference activation; merged in PR #116) keeps `ChatModel` as the only
+application-facing model port and
 adds an inference layer that business logic does not see: a code-defined profile registry
 (`model_profiles.py`), one composition factory (`model_factory.py`), a dormant OpenRouter
 adapter (`openrouter.py`) that accepts only an in-memory mock transport, and a lifetime budget

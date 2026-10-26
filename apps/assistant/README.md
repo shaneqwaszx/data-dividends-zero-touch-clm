@@ -417,8 +417,9 @@ to `data/eval/` (not in Git).
 
 ## Model profiles and budget guard (remote profile dormant)
 
-Phase A2 (D-091, proposed) adds a code-defined model registry
-(`ai_assistant/model_profiles.py`) and one composition point (`ai_assistant/model_factory.py`).
+Phase A2 (D-091, accepted for the dormant scope only; activation is not authorised) adds a
+code-defined model registry (`ai_assistant/model_profiles.py`) and one composition point
+(`ai_assistant/model_factory.py`).
 The default profile, `local_openai_compatible`, builds exactly the adapter described above with
 the same arguments, so the default model request is byte-identical
 (`tests/test_default_request_golden.py`). Prompts, retrieval, the exact-line guard, fallbacks,

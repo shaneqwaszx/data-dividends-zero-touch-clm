@@ -38,10 +38,13 @@ SOURCE_CODE_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx"}
 RUNTIME_VALUE_REFERENCE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$")
 ASSISTANT_CREDENTIALS = "OPENROUTER_API_KEY|AI_ASSISTANT_LLM_API_KEY"
 # A whole angle-bracket placeholder (which may contain spaces), or a run without quotes.
-# A placeholder only counts when it is the whole value (optionally followed by Markdown
-# punctuation); `<x>literal` is a literal.
+# A placeholder only counts when it is the whole value: only closing quotes, backticks and
+# Markdown punctuation may follow it before whitespace or the end of the line. Otherwise
+# the rest of the token is captured with it, so `<x>literal`, `<x>"literal"` and
+# `<x>#literal` are literals.
+PLACEHOLDER_END = r"[.,;:)\]}*_|\"'`]*(?:$|\s)"
 CREDENTIAL_VALUE = (
-    r"(<[^<>\n]{1,64}>(?=[.,;:)\]}*_]*(?:$|[\s\"'`#]))|[^\"'\s#]*)"
+    rf"(<[^<>\n]{{1,64}}>(?={PLACEHOLDER_END})|<[^<>\n]{{1,64}}>\S*|[^\"'\s#]*)"
 )
 
 
@@ -141,6 +144,9 @@ def is_placeholder(value: str) -> bool:
     stripped = value.strip().lstrip("`*").rstrip(TRAILING_MARKUP)
     if ANGLE_PLACEHOLDER.fullmatch(stripped) or ENVIRONMENT_REFERENCE.fullmatch(stripped):
         return True
+    if "<" in stripped or ">" in stripped:
+        # Part of the value is outside the angle brackets, as in `<your_key>literal`.
+        return False
     normalized = value.strip().strip("{}<>[]").lower()
     return normalized in PLACEHOLDERS or normalized.startswith(("your_", "example_", "test_"))
 
