@@ -166,16 +166,15 @@ def _shown(
     shown: list[str] = []
     unmapped = 0
     for index, line in enumerate(answer.splitlines()):
-        # Required lines the service added (D-090) are not the model's selection.
-        if index in added:
-            continue
         line = line.strip()
         if not line:
             continue
-        if line in by_text:
-            shown.append(by_text[line])
-        else:
+        if line not in by_text:
+            # Counted wherever it is: the service's added_lines claim is not trusted here.
             unmapped += 1
+        elif index not in added:
+            # Required lines the service added (D-090) are not the model's selection.
+            shown.append(by_text[line])
     return tuple(shown), unmapped
 
 

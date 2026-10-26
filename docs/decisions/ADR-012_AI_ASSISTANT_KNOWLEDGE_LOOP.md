@@ -561,8 +561,12 @@ the topic's order, so an added line can appear above lines the RM has already re
 allowed lines are added, in the catalog's words, and `left_out` still counts only model lines
 that were not allowed lines. The reply's `added_lines` gives the positions of the added lines
 (never their text), so the evaluation harness (#115) scores only the model's own selection;
-the metrics' `kept_lines` likewise counts the model lines kept, not the added ones. An answer
-with no allowed line still gets the case-data answer.
+the metrics' `kept_lines` likewise counts the model lines kept, not the added ones. Both
+describe the model's selection before unseen lines are trimmed to the 6/8 limits, so a model
+line counted there may not be in the final answer. A topic's required lines are the service's
+choice, not the model's: gold labels should not list them as `must_not`, because the harness
+skips them (it still counts any line at an added position that is not an offered line). An
+answer with no allowed line still gets the case-data answer.
 
 ### Change 5 - formatting-tolerant matching
 

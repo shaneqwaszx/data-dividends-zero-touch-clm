@@ -839,6 +839,17 @@ def test_a_model_answer_with_nothing_added_reports_no_added_lines() -> None:
     assert body["answer"] == OFFERED and body["added_lines"] == []
 
 
+def test_the_eval_harness_skips_added_lines_but_still_counts_a_line_that_is_not_offered() -> None:
+    from assistant_eval.runner import _shown
+
+    offered = {"a": OFFERED, "b": VALUES}
+    answer = f"{VALUES}\nNot an offered line.\n{OFFERED}"
+    # Position 0 was added by the service: not the model's selection. Position 1 claims to be
+    # added too, but is not an offered line, so it still counts as unmapped (QG R3 M2).
+    assert _shown(answer, offered, frozenset({0, 1})) == (("a",), 1)
+    assert _shown(answer, offered) == (("b", "a"), 1)
+
+
 # The prompt ---------------------------------------------------------------------------------
 
 
