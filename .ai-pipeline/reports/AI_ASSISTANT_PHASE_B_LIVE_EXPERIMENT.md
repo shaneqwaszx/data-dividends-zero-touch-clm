@@ -535,8 +535,9 @@ Method per item: baseline → one controlled change → rerun same turns → com
 Worktree `C:\Users\shane\Desktop\claude-worktrees\assistant-phase-b-20261027`, branch
 `feat/assistant-phase-b-gptoss-20261027`, base origin/main `3dcd5cc`. Commits (local, not
 pushed): `9db1b8a` → `d0bc648` → `52b813c` (metadata wait + recheck) → `243d98e` (rule 17)
-→ `0fdbea1` (source-aware answers, manifest) → `c9afd5e` (UBO line) → closure commit
-(regression tests + this report; SHA in section I).
+→ `0fdbea1` (source-aware answers, manifest) → `c9afd5e` (UBO line) → closure commits
+(regression tests + this report; their SHAs are in the handoff, since a commit cannot name
+itself).
 
 ## H2. Pre-run verification for the authorised live evaluation (2026-10-27)
 
