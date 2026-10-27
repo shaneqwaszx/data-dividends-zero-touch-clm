@@ -52,22 +52,33 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .context import SELECTION_ONLY_FACTS
 from .guide import (
     APPROVAL_NOT_OFFERED,
     CASE_PAGE_SECTIONS,
+    DIRECTOR_DIFFERENCE_CHECK,
+    DIRECTOR_DIFFERENCE_REASONS,
+    DIRECTORS_NOT_READ,
     DOCUMENT_REVIEW_CHOICES,
+    ENTITY_STATUS_LIVE,
     MOCK_NOT_LIVE,
     NO_CONTACT,
     NOT_READY,
+    OFFICERS_NOT_RETRIEVED,
     OUT_OF_SCOPE,
     OWNER,
     READINESS_EXPLANATIONS,
     READINESS_NEEDS,
     RULE_PLAIN,
+    SEND_BEFORE_SUBMISSION,
+    SENDING_IS_NOT_APPROVAL,
+    SUBMISSION_RESULT_KEPT,
     UBO_CHECK_NOT_RUN,
     UBO_COMPLETION_NOT_OFFERED,
+    UEN_MEANING,
     difference_explanations,
     difference_line,
+    officers_empty_line,
     who_resolves_line,
 )
 from .llm import LlmUnavailableError
@@ -125,6 +136,51 @@ def ubo_completion_not_offered(facts: dict[str, Any]) -> bool:
     if sections.get("ownership") not in _OWNERSHIP_INCOMPLETE:
         return False
     return not any(_UBO_COMPLETION_LABEL.search(label) for label in allowed_actions(facts))
+
+
+def officers_line(facts: dict[str, Any]) -> str | None:
+    """The officer (director) lookup line (D-092 P12), from the status of the registry officer
+    lookup on this case (context._registry_officers), else None. "No records" only while the
+    registry stage is READY and the company details come from a named non-live ACRA environment.
+    """
+
+    status = facts.get("registry_officers")
+    if status in ("FAILED", "NOT_ATTEMPTED", "UNSUPPORTED"):
+        return OFFICERS_NOT_RETRIEVED
+    if status != "EMPTY":
+        return None
+    sections = (facts.get("readiness") or {}).get("sections") or {}
+    environment = _NOT_LIVE_SOURCE.search(registry_source_line(facts, acra_only=True) or "")
+    if sections.get("registry") != "READY" or environment is None:
+        return None
+    return officers_empty_line(environment.group(1))
+
+
+def entity_status_live(facts: dict[str, Any]) -> bool:
+    """The registry record's entity status is LIVE while the source is a non-live ACRA (P13)."""
+
+    company = facts.get("company") or {}
+    return (
+        company.get("entity_status") == "LIVE"
+        and registry_source_line(facts, acra_only=True) is not None
+    )
+
+
+def uen_explained(facts: dict[str, Any]) -> bool:
+    """The case has a Singapore company with a UEN (P13)."""
+
+    company = facts.get("company") or {}
+    return bool(company.get("uen")) and company.get("country") == "SG"
+
+
+def submission_result_kept(facts: dict[str, Any]) -> bool:
+    """The backend confirms the GoldTier submission and its customer readback succeeded (P14)."""
+
+    goldtier = facts.get("goldtier") or {}
+    return (
+        goldtier.get("state") == "SUBMISSION_CONFIRMED"
+        and facts.get("goldtier_readback") == "SUCCESS"
+    )
 
 
 def approval_offered(facts: dict[str, Any]) -> bool:
@@ -235,6 +291,19 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
     source_line = registry_source_line(facts, acra_only=True)
     if source_line is not None:
         allowed.append(source_line)
+    # Topic-only catalog lines (D-092 P12 to P14), each under its condition.
+    allowed.extend([DIRECTORS_NOT_READ, DIRECTOR_DIFFERENCE_CHECK, DIRECTOR_DIFFERENCE_REASONS])
+    officers = officers_line(facts)
+    if officers is not None:
+        allowed.append(officers)
+    if entity_status_live(facts):
+        allowed.append(ENTITY_STATUS_LIVE)
+    if uen_explained(facts):
+        allowed.append(UEN_MEANING)
+    allowed.append(SEND_BEFORE_SUBMISSION)
+    if submission_result_kept(facts):
+        allowed.append(SUBMISSION_RESULT_KEPT)
+    allowed.append(SENDING_IS_NOT_APPROVAL)
     allowed.extend(difference_value_lines(facts))
     for field in difference_fields(facts):
         reasons, checks = difference_explanations(field)
@@ -483,8 +552,9 @@ class Context:
 
     def __init__(self, facts: dict[str, Any]) -> None:
         # Values, labels and contacts must come from the case facts; knowledge text never
-        # vouches for itself.
-        self.known = json.dumps(facts, ensure_ascii=False, default=str).lower()
+        # vouches for itself. Selection-only facts are not grounding.
+        grounding = {key: value for key, value in facts.items() if key not in SELECTION_ONLY_FACTS}
+        self.known = json.dumps(grounding, ensure_ascii=False, default=str).lower()
         self.allowed = allowed_actions(facts)
         self.sections = {str(name) for name in facts.get("case_page_sections") or []}
         overall = facts.get("overall") or {}

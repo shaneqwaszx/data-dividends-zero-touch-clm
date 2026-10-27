@@ -24,6 +24,7 @@ from ai_assistant.guardrails import (
     with_required_lines,
 )
 from ai_assistant.guide import (
+    ENTITY_STATUS_LIVE,
     MOCK_NOT_LIVE,
     OUT_OF_SCOPE,
     READINESS_NEEDS,
@@ -112,7 +113,8 @@ def test_a_paraphrased_source_claim_is_still_withheld() -> None:
 def test_a_registry_status_question_is_steered_to_the_source_line(question: str) -> None:
     plan = topic_plan(FACTS, question)
     assert plan is not None
-    assert plan.lines == (MOCK_SOURCE, MOCK_NOT_LIVE) and plan.required == ()
+    # D-092 P13 adds the entity-status line (the case's entity status is LIVE).
+    assert plan.lines == (MOCK_SOURCE, ENTITY_STATUS_LIVE, MOCK_NOT_LIVE) and plan.required == ()
     message = topic_message(FACTS, question)
     assert message is not None and MOCK_SOURCE in message
 
@@ -221,10 +223,10 @@ def test_the_ownership_evidence_topic_does_not_add_the_ubo_line() -> None:
     "question",
     [
         "What ownership percentage makes someone a UBO here?",  # threshold guidance, unchanged
-        "Who are the directors of this company according to ACRA?",
+        # Directors and the UEN have their own plans since D-092 P12/P13
+        # (tests/test_phase_b_quality.py).
         "What is the weather in Singapore today?",
         "Write me a Python script that downloads company records from ACRA.",
-        "What does this case's UEN tell me, and where did the company details come from?",
     ],
 )
 def test_other_questions_are_not_routed_to_the_new_topics(question: str) -> None:

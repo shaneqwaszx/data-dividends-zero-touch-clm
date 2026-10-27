@@ -337,6 +337,67 @@ def _readiness(summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Facts that only choose catalog lines (D-092 P11): never shown to the model and never
+# grounding for knowledge text (guardrails.Context), so they cannot vouch for a quoted label.
+SELECTION_ONLY_FACTS = ("goldtier_readback", "registry_officers")
+
+# Statuses of the backend's registry operation result (domain RegistryOperationStatus).
+_OFFICER_LOOKUP_STATUSES = frozenset(
+    {"COMPLETE", "EMPTY", "FAILED", "NOT_ATTEMPTED", "UNSUPPORTED"}
+)
+
+
+def _registry_officers(summary: dict[str, Any]) -> str | None:
+    """The status of the registry officer lookup on this case's own registry acquisition
+    (D-092 P11), or None. Only the status: never officer names, roles, ids or counts.
+
+    The result must belong to the case's company (same UEN). EMPTY is used only when the
+    lookup itself succeeded with no records on a COMPLETE or PARTIAL acquisition, from the same
+    registry and environment as the company details; it is never inferred from a failed or
+    missing lookup.
+    """
+
+    case = _dict(summary.get("case"))
+    entity = _dict(case.get("entity"))
+    acquisition = _dict(case.get("registry_acquisition"))
+    uen = str(entity.get("registration_number") or "").strip().upper()
+    if not uen or str(acquisition.get("requested_identifier") or "").strip().upper() != uen:
+        return None
+    results = [
+        _dict(item)
+        for item in _list(acquisition.get("operation_results"))
+        if _dict(item).get("operation") == "OFFICERS"
+    ]
+    if len(results) != 1 or results[0].get("status") not in _OFFICER_LOOKUP_STATUSES:
+        return None
+    result = results[0]
+    status = str(result["status"])
+    if status == "EMPTY":
+        provenance = _dict(result.get("provenance"))
+        source = _dict(entity.get("source"))
+        if (
+            acquisition.get("status") not in ("COMPLETE", "PARTIAL")
+            or result.get("error") is not None
+            or result.get("record_count") != 0
+            or _list(acquisition.get("officers"))
+            or not source.get("source_system")
+            or provenance.get("provider") != source.get("source_system")
+            or provenance.get("environment") != source.get("environment")
+        ):
+            return None
+    return status
+
+
+def _goldtier_readback(summary: dict[str, Any]) -> str | None:
+    """The status of the GoldTier customer readback operation, when the backend lists one."""
+
+    for item in _list(summary.get("target_operations")):
+        if _dict(item).get("operation") == "READBACK":
+            status = _dict(item).get("status")
+            return str(status) if status else None
+    return None
+
+
 def _still_needed(summary: dict[str, Any]) -> list[dict[str, str]]:
     """What the backend readiness check says is still open, in plain words."""
 
@@ -385,5 +446,8 @@ def build_case_facts(snapshot: CaseSnapshot) -> dict[str, Any]:
             if target
             else None
         ),
+        # Used only to choose catalog lines; prompts.facts_for_model does not show them.
+        "goldtier_readback": _goldtier_readback(summary),
+        "registry_officers": _registry_officers(summary),
         "timeline": _timeline(summary),
     }

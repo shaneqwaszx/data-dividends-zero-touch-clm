@@ -5,6 +5,8 @@ apps/backend/app/services/blocker_decision_policy.py). They add no business rule
 backend's own explanation, owner and authorized actions stay the authority.
 """
 
+import re
+
 from .instructions import case_page_terms
 
 AUTOMATION_STATUS = {
@@ -246,9 +248,90 @@ UBO_CHECK_NOT_RUN = "This case cannot name any UBOs yet because the UBO check ha
 # complete and no action that completes it is offered (guardrails.ubo_completion_not_offered);
 # topic-only: the model sees it only in the steering message for a request to complete it.
 UBO_COMPLETION_NOT_OFFERED = "Marking the UBO check as complete is not offered to you on this case."
+# Owner-approved wording (Phase B answer quality, D-092 P11 to P14 proposed), each allowed only
+# under its condition in guardrails.allowed_guidance and topic-only.
+# Directors (P12). The app reads only legal name, UEN, address and country from documents
+# (backend DocumentFieldKey) and never reconciles directors. DIRECTOR_DIFFERENCE_* are general
+# and conditional: they never say that a difference exists on this case.
+DIRECTORS_NOT_READ = (
+    "The app does not read directors from uploaded documents, so it does not compare directors "
+    "between a document and ACRA."
+)
+OFFICERS_NOT_RETRIEVED = (
+    "Officer (director) records were not retrieved from the registry for this case."
+)
+DIRECTOR_DIFFERENCE_CHECK = (
+    "If a document and the registry differ on directors, check the document's type, date and "
+    "which company it is for."
+)
+DIRECTOR_DIFFERENCE_REASONS = (
+    "A director difference can come from a recent appointment or resignation, or from an "
+    "out-of-date document."
+)
+# Entity status (P13): the company's registry status, not the registry connection.
+ENTITY_STATUS_LIVE = (
+    'The entity status "LIVE" is the company\'s registration status in the registry record, '
+    "not a live connection to ACRA."
+)
+# UEN (P13).
+UEN_MEANING = (
+    "A UEN (Unique Entity Number) identifies an entity registered in Singapore. The number alone "
+    "does not confirm its legal name, address or other company details."
+)
+# GoldTier handoff (P14). Review & Send is the final local human approval (D-062); the early
+# GoldTier search is read-only; the ledger keeps the submission result and readback.
+SEND_BEFORE_SUBMISSION = (
+    'A person must confirm Send in "Final review & send" before the final GoldTier submission; '
+    "the app may search GoldTier for an existing customer earlier."
+)
+SUBMISSION_RESULT_KEPT = (
+    "When a GoldTier submission is confirmed, the app retains the submission result and "
+    'required customer readback. The result is shown in "GoldTier Details & Status".'
+)
+SENDING_IS_NOT_APPROVAL = (
+    "Sending a case does not mean GoldTier has approved the customer or that KYC is complete. "
+    "Those outcomes are not confirmed by this application."
+)
+
+
+def officers_empty_line(environment: str) -> str:
+    """D2 (P12): the registry officer lookup returned no records, in that registry environment."""
+
+    return (
+        f"The ACRA ({environment}) result for this case has no officer (director) records; "
+        "this does not show that the company has no directors."
+    )
+
+
+_OFFICERS_EMPTY = re.compile(
+    r"^The ACRA \((?:MOCK|LOCAL|SANDBOX|PARTIAL|DORMANT)\) result for this case has no officer "
+    r"\(director\) records; this does not show that the company has no directors\.$"
+)
+
 # Allowed lines the model is shown only in a QUESTION TOPIC message, never in the case facts
 # every question carries (keeps the everyday prompt unchanged).
-TOPIC_ONLY_LINES = frozenset({UBO_COMPLETION_NOT_OFFERED})
+TOPIC_ONLY_LINES = frozenset(
+    {
+        UBO_COMPLETION_NOT_OFFERED,
+        DIRECTORS_NOT_READ,
+        OFFICERS_NOT_RETRIEVED,
+        DIRECTOR_DIFFERENCE_CHECK,
+        DIRECTOR_DIFFERENCE_REASONS,
+        ENTITY_STATUS_LIVE,
+        UEN_MEANING,
+        SEND_BEFORE_SUBMISSION,
+        SUBMISSION_RESULT_KEPT,
+        SENDING_IS_NOT_APPROVAL,
+    }
+)
+
+
+def is_topic_only(line: str) -> bool:
+    """A topic-only line, including the officer line filled with its environment."""
+
+    return line in TOPIC_ONLY_LINES or _OFFICERS_EMPTY.match(line) is not None
+
+
 MOCK_NOT_LIVE = (
     "Mock, Local and Sandbox evidence do not establish Live integration or KYC approval."
 )
