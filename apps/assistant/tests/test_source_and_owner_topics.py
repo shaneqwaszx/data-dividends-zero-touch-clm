@@ -19,10 +19,18 @@ from ai_assistant.guardrails import (
     allowed_guidance,
     registry_source_line,
     ubo_check_not_run,
+    ubo_completion_not_offered,
     validate_answer,
     with_required_lines,
 )
-from ai_assistant.guide import MOCK_NOT_LIVE, OUT_OF_SCOPE, READINESS_NEEDS, UBO_CHECK_NOT_RUN
+from ai_assistant.guide import (
+    MOCK_NOT_LIVE,
+    OUT_OF_SCOPE,
+    READINESS_NEEDS,
+    TOPIC_ONLY_LINES,
+    UBO_CHECK_NOT_RUN,
+    UBO_COMPLETION_NOT_OFFERED,
+)
 from ai_assistant.prompts import topic_message, topic_plan
 from tests.test_explanations import FACTS
 
@@ -381,3 +389,132 @@ def test_no_unsafe_line_is_shown_on_any_phase_b_question(name: str) -> None:
         assert turn.unmapped == 0
         for claim in ("approved", "legally verified", "ACRA is live", "Submit it"):
             assert claim not in turn.answer_text
+
+
+# --- "Marking the UBO check as complete is not offered" (P06#2; owner-approved, topic-only) ---
+
+COMPLETE_REQUEST = "Can you mark the UBO check as complete?"
+
+
+def _with_action(facts: dict[str, Any], label: str) -> dict[str, Any]:
+    facts = copy.deepcopy(facts)
+    facts["blockers"][0]["actions_available_to_this_user"].append({"label": label})
+    return facts
+
+
+def test_the_completion_refusal_wording_is_the_approved_one() -> None:
+    assert UBO_COMPLETION_NOT_OFFERED == (
+        "Marking the UBO check as complete is not offered to you on this case."
+    )
+    assert UBO_COMPLETION_NOT_OFFERED in TOPIC_ONLY_LINES
+
+
+@pytest.mark.parametrize("state", OWNERSHIP_STATES)
+def test_the_completion_refusal_is_allowed_only_while_ownership_is_incomplete(state: str) -> None:
+    facts = _ownership(*OWNERSHIP_STATES[state])
+    offered = UBO_COMPLETION_NOT_OFFERED in allowed_guidance(facts)
+    assert offered == (state != "analysed or accepted")
+    assert ubo_completion_not_offered(facts) == offered
+    plan = topic_plan(facts, COMPLETE_REQUEST)
+    assert (plan is not None and plan.lines[0] == UBO_COMPLETION_NOT_OFFERED) == offered
+
+
+def test_no_completion_refusal_without_an_ownership_status() -> None:
+    facts = _ownership(None, "OWNERSHIP_REQUIRED")
+    assert not ubo_completion_not_offered(facts)
+    assert topic_plan(facts, COMPLETE_REQUEST) is None
+
+
+@pytest.mark.parametrize(
+    "label", ["Accept ownership POC basis", "Mark UBO check complete", "Confirm ownership"]
+)
+def test_an_offered_completion_action_withdraws_the_refusal(label: str) -> None:
+    facts = _with_action(FACTS, label)
+    assert UBO_COMPLETION_NOT_OFFERED not in allowed_guidance(facts)
+    assert topic_plan(facts, COMPLETE_REQUEST) is None
+
+
+def test_evidence_actions_do_not_withdraw_the_refusal() -> None:
+    facts = _with_action(
+        _with_action(FACTS, "Upload ownership evidence"), "Add structured ownership details"
+    )
+    assert UBO_COMPLETION_NOT_OFFERED in allowed_guidance(facts)
+
+
+def test_the_completion_refusal_is_topic_only() -> None:
+    from ai_assistant.prompts import build_messages, case_facts_message, facts_for_model
+
+    assert UBO_COMPLETION_NOT_OFFERED in allowed_guidance(FACTS)  # the guard allows it
+    assert UBO_COMPLETION_NOT_OFFERED not in facts_for_model(FACTS)["allowed_guidance"]
+    assert UBO_COMPLETION_NOT_OFFERED not in case_facts_message(FACTS)
+    plain = build_messages(FACTS, [], "What should I do next?")
+    assert not any(UBO_COMPLETION_NOT_OFFERED in m["content"] for m in plain)
+    message = topic_message(FACTS, COMPLETE_REQUEST)
+    assert message is not None and UBO_COMPLETION_NOT_OFFERED in message
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        COMPLETE_REQUEST,
+        "Please mark ownership as done.",
+        "Complete the UBO check for me.",
+        "Can you set the UBO check to finished?",
+        "Sign off the ownership check.",
+    ],
+)
+def test_completion_requests_are_steered_to_the_refusal_then_the_reason(request_text: str) -> None:
+    plan = topic_plan(FACTS, request_text)
+    assert plan is not None and plan.required == ()
+    assert plan.lines == (
+        UBO_COMPLETION_NOT_OFFERED,
+        UBO_CHECK_NOT_RUN,
+        OWNERSHIP_NEED,
+        'Open the "Ownership & UBO" section to inspect the current case evidence.',
+    )
+
+
+def test_a_disputed_result_gets_the_refusal_and_its_own_review_item() -> None:
+    disputed = _ownership("REVIEW_REQUIRED", "OWNERSHIP_REVIEW_REQUIRED")
+    plan = topic_plan(disputed, COMPLETE_REQUEST)
+    assert plan is not None
+    assert plan.lines[:2] == (UBO_COMPLETION_NOT_OFFERED, REVIEW_NEED)
+    assert UBO_CHECK_NOT_RUN not in plan.lines and OWNERSHIP_NEED not in plan.lines
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Is the UBO check complete?",
+        "What ownership percentage makes someone a UBO here?",
+        "Who are the UBOs?",
+        "What is the weather in Singapore today?",
+        "Approve this case and send it to GoldTier for me.",
+    ],
+)
+def test_other_questions_do_not_get_the_completion_refusal(question: str) -> None:
+    plan = topic_plan(FACTS, question)
+    assert plan is None or UBO_COMPLETION_NOT_OFFERED not in plan.lines
+
+
+def test_the_completion_refusal_is_shown_only_verbatim_and_where_allowed() -> None:
+    assert validate_answer(UBO_COMPLETION_NOT_OFFERED, FACTS).text == UBO_COMPLETION_NOT_OFFERED
+    analysed = _ownership("READY", None)
+    assert validate_answer(UBO_COMPLETION_NOT_OFFERED, analysed).text == ""
+    for claim in ("I have marked the UBO check as complete.", "The UBO check is complete."):
+        result = validate_answer(claim, FACTS)
+        assert result.text == "" and result.left_out == 1
+
+
+def test_a_bare_decline_on_a_completion_request_is_not_padded() -> None:
+    plan = topic_plan(FACTS, COMPLETE_REQUEST)
+    assert plan is not None
+    decline = validate_answer(OUT_OF_SCOPE, FACTS)
+    padded = with_required_lines(decline, FACTS, order=plan.lines, required=plan.required)
+    assert padded.text == OUT_OF_SCOPE
+
+
+def test_p06_2_through_the_service_shows_the_refusal_verbatim() -> None:
+    (turn,) = _phase_b(_Fixed(UBO_COMPLETION_NOT_OFFERED), frozenset({"P06#2"}))
+    assert turn.answered_by == "model" and turn.unmapped == 0
+    assert turn.answer_text == UBO_COMPLETION_NOT_OFFERED

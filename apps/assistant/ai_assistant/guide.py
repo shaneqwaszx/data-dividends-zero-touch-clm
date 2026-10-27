@@ -242,6 +242,13 @@ OUT_OF_SCOPE = "I can't answer that from this case's data."
 # ownership analysis (guardrails.ubo_check_not_run): it names no one and does not say there
 # are no UBOs.
 UBO_CHECK_NOT_RUN = "This case cannot name any UBOs yet because the UBO check has not run."
+# Owner-approved wording (Phase B, D-092 proposed). Allowed only while ownership is not
+# complete and no action that completes it is offered (guardrails.ubo_completion_not_offered);
+# topic-only: the model sees it only in the steering message for a request to complete it.
+UBO_COMPLETION_NOT_OFFERED = "Marking the UBO check as complete is not offered to you on this case."
+# Allowed lines the model is shown only in a QUESTION TOPIC message, never in the case facts
+# every question carries (keeps the everyday prompt unchanged).
+TOPIC_ONLY_LINES = frozenset({UBO_COMPLETION_NOT_OFFERED})
 MOCK_NOT_LIVE = (
     "Mock, Local and Sandbox evidence do not establish Live integration or KYC approval."
 )
