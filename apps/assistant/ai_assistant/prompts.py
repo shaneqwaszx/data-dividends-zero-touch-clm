@@ -28,15 +28,22 @@ from .briefing import (
     CONTACT,
     DIFFERENCE,
     DOCUMENT_REVIEW,
+    OWNERSHIP,
     READINESS,
     question_topic,
 )
 from .context import readable_time as when
-from .guardrails import allowed_guidance, compact_facts, who_resolves_lines
+from .guardrails import (
+    allowed_guidance,
+    compact_facts,
+    registry_source_line,
+    who_resolves_lines,
+)
 from .guide import (
     ANY_DIFFERENCE,
     APPROVAL_NOT_OFFERED,
     FIELD_DIFFERENCE,
+    MOCK_NOT_LIVE,
     NO_CONTACT,
     NOT_READY,
     READINESS_EXPLANATIONS,
@@ -344,6 +351,39 @@ class TopicPlan:
     required: tuple[str, ...]
 
 
+# Two question kinds no readiness topic covers (Phase B, D-092 proposed): which registry the
+# company details came from and whether it is live, and who the UBOs are. They steer the model
+# only (the case-data answer is unchanged) and require no line, so a bare "can't answer" is
+# never padded with one (rule 17).
+_REGISTRY_WORD = re.compile(r"\b(?:registry|acra)\b")
+_REGISTRY_STATUS_WORD = re.compile(r"\b(?:live|mock|sandbox|used|real)\b")
+_OWNERS_QUESTION = re.compile(
+    r"\b(?:who|which)\b[^?]*\b(?:ubos?|beneficial owners?|shareholders?)\b"
+)
+
+
+def _ownership_required(facts: dict[str, Any]) -> bool:
+    """The backend readiness check lists missing ownership evidence for this case."""
+
+    needs = facts.get("still_needed_before_goldtier") or []
+    return any(need.get("code") == OWNERSHIP for need in needs)
+
+
+def _source_or_owners_lines(facts: dict[str, Any], question: str) -> tuple[str, list[str]] | None:
+    text = question.lower()
+    if _REGISTRY_WORD.search(text) and _REGISTRY_STATUS_WORD.search(text):
+        source = registry_source_line(facts, acra_only=True)
+        if source is not None:
+            return "which registry the company details came from and whether it is live", [
+                source,
+                MOCK_NOT_LIVE,
+            ]
+    if _OWNERS_QUESTION.search(text) and _ownership_required(facts):
+        _, lines, _ = _topic_lines(OWNERSHIP, [], facts)
+        return "who the ultimate beneficial owners are", lines
+    return None
+
+
 def topic_plan(facts: dict[str, Any], question: str) -> TopicPlan | None:
     """The plan for the question's topic (see briefing.question_topic), or None.
 
@@ -351,10 +391,15 @@ def topic_plan(facts: dict[str, Any], question: str) -> TopicPlan | None:
     """
 
     topic = question_topic(question, facts)
-    if topic is None:
-        return None
-    about, wanted, required = _topic_lines(*topic, facts)
     allowed = set(allowed_guidance(facts))
+    if topic is None:
+        extra = _source_or_owners_lines(facts, question)
+        if extra is None:
+            return None
+        about, wanted = extra
+        lines = tuple(line for line in dict.fromkeys(wanted) if line in allowed)
+        return TopicPlan(about, lines, ()) if lines else None
+    about, wanted, required = _topic_lines(*topic, facts)
     lines = tuple(line for line in dict.fromkeys(wanted) if line in allowed)
     if not lines:
         return None

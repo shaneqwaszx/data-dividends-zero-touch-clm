@@ -2,7 +2,7 @@
  "kind": "owner",
  "note": "STUB - NOT LABELLED. Gold labels are written by the owner/team only (decision A-6). Fill relevant/primary/must_not/expect_fallback with line ids from snapshots.json (scripts/evaluate_answers.py worksheet), set status to labelled and labelled_by, then run scripts/evaluate_answers.py lock.",
  "schema": "assistant-eval-gold/1",
- "snapshot_sha256": "1421eedb7fd536ea433a25a38f577640a89a07b9951af0d09f682a407379aa69",
+ "snapshot_sha256": "f9093376c6a3a9dd05966da0a2b3d44ecbe4dcf2bd953dcb4ba719ce27746e38",
  "turns": {
   "C01#0": {
    "expect_fallback": null,

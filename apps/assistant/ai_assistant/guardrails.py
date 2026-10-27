@@ -56,6 +56,7 @@ from .guide import (
     APPROVAL_NOT_OFFERED,
     CASE_PAGE_SECTIONS,
     DOCUMENT_REVIEW_CHOICES,
+    MOCK_NOT_LIVE,
     NO_CONTACT,
     NOT_READY,
     OUT_OF_SCOPE,
@@ -176,7 +177,7 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
 
     allowed = [
         "Ownership and UBO analysis is provisional; it does not establish legal verification.",
-        "Mock, Local and Sandbox evidence do not establish Live integration or KYC approval.",
+        MOCK_NOT_LIVE,
         "Successful mock submission does not establish GoldTier-internal "
         "or regulatory/KYC approval.",
         "Registry and document differences require the current case decision; neither source "
@@ -190,6 +191,10 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
             if need.get("what") == what and need.get("where_on_the_case_page") == where:
                 allowed.append(f"{what} (section: {where})")
         allowed.extend(READINESS_EXPLANATIONS.get(str(need.get("code")), ()))
+    # The non-live registry source, only when the backend's own source says ACRA (<env>).
+    source_line = registry_source_line(facts, acra_only=True)
+    if source_line is not None:
+        allowed.append(source_line)
     allowed.extend(difference_value_lines(facts))
     for field in difference_fields(facts):
         reasons, checks = difference_explanations(field)
@@ -600,26 +605,43 @@ class Validation:
         return " ".join(parts) or None
 
 
+_NOT_LIVE_SOURCE = re.compile(r"\((MOCK|LOCAL|SANDBOX|PARTIAL|DORMANT)\)")
+
+
+def registry_source_line(facts: dict[str, Any], *, acra_only: bool = False) -> str | None:
+    """ "Registry data in this case comes from ACRA (<environment>), not the live ACRA
+    service." when the backend's company source names an environment that is not live, else
+    None. The source is the backend's ``case.entity.source`` (context._source_label), never
+    document evidence. ``acra_only``: also require that the source system is ACRA."""
+
+    source = str((facts.get("company") or {}).get("source") or "")
+    environment = _NOT_LIVE_SOURCE.search(source)
+    if environment is None:
+        return None
+    if acra_only and not source.startswith(f"ACRA ({environment.group(1)})"):
+        return None
+    return (
+        f"Registry data in this case comes from ACRA ({environment.group(1)}), "
+        "not the live ACRA service."
+    )
+
+
 def _disclosures(text: str, facts: dict[str, Any]) -> tuple[str, ...]:
     """A note when the shown answer relies on registry data from a registry that is not live."""
 
+    line = registry_source_line(facts)
+    environment = _NOT_LIVE_SOURCE.search(line or "")
     lowered = text.lower()
-    company = facts.get("company") or {}
-    environment = re.search(
-        r"\((MOCK|LOCAL|SANDBOX|PARTIAL|DORMANT)\)", str(company.get("source") or "")
-    )
-    if not environment or environment.group(1).lower() in lowered:
+    if line is None or environment is None or environment.group(1).lower() in lowered:
         return ()
+    company = facts.get("company") or {}
     registry_values = [
         str(company[key]).lower()
         for key in ("uen", "registered_address", "registration_date")
         if company.get(key)
     ]
     if re.search(r"\bacra\b", lowered) or any(value in lowered for value in registry_values):
-        return (
-            f"Registry data in this case comes from ACRA ({environment.group(1)}), "
-            "not the live ACRA service.",
-        )
+        return (line,)
     return ()
 
 

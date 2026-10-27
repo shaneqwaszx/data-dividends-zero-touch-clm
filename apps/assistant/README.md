@@ -461,7 +461,8 @@ cd apps/assistant
 ../../.venv/bin/python scripts/evaluate_answers.py preflight \
     --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
 ../../.venv/bin/python scripts/evaluate_answers.py run --model openrouter \
-    --scenarios tests/fixtures/eval/phase_b_questions.json --only P00 --label smoke \
+    --scenarios tests/fixtures/eval/phase_b_questions.json \
+    --questions P01#1,P02#0 --expect-count 2 --label rerun \
     --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
 ```
 
@@ -474,7 +475,9 @@ ledger's opening usage before the first call or be within the ledger afterwards)
 call an earlier, interrupted run left unverified, checks the ledger (healthy, breaker closed,
 cap at most US$1.00 above the opening usage) and needs the owner's attestation that auto
 top-up and prompt logging are off (neither is readable through the API). A live run asks only
-`phase_b_questions.json` and only the scenarios named with `--only`. After each turn the
+`phase_b_questions.json`, and only the question ids listed with `--questions`, whose number
+must equal `--expect-count` (checked before the preflight; `--only` is refused for a live run,
+and the run reports a mismatch if the questions asked differ from the list). After each turn the
 harness reads generation metadata (`GET /api/v1/generation`, metadata only), waiting at most
 two minutes while it is not yet published, and marks each call `verified` (provider DeepInfra,
 model `openai/gpt-oss-120b`, total cost equal to the settled cost) or `quarantined` (any

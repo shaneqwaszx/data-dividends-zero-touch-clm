@@ -238,6 +238,9 @@ NOT_READY = "This case is not ready for GoldTier submission yet."
 APPROVAL_NOT_OFFERED = "Approving the case is not offered to you on this case."
 NO_CONTACT = "The case data does not name a contact for this."
 OUT_OF_SCOPE = "I can't answer that from this case's data."
+MOCK_NOT_LIVE = (
+    "Mock, Local and Sandbox evidence do not establish Live integration or KYC approval."
+)
 
 
 def who_resolves_line(item: str, who: str) -> str:

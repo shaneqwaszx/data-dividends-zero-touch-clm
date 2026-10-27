@@ -820,6 +820,100 @@ def test_live_runs_need_the_phase_b_questions_and_a_selection(
     assert "refused" in capsys.readouterr().out
 
 
+def _manifest_args(**changes: Any) -> Any:
+    import argparse
+
+    values: dict[str, Any] = {
+        "scenarios": str(PHASE_B_QUESTIONS),
+        "only": "",
+        "questions": "P01#1,P02#0",
+        "expect_count": 2,
+    }
+    values.update(changes)
+    return argparse.Namespace(**values)
+
+
+def test_a_paid_run_takes_an_explicit_counted_question_manifest() -> None:
+    cli = _cli()
+    scenarios = load_scenarios(PHASE_B_QUESTIONS)
+    assert cli.question_manifest(_manifest_args(), scenarios) == ["P01#1", "P02#0"]
+    assert cli.question_manifest(
+        _manifest_args(questions=" P07#1 ", expect_count=1), scenarios
+    ) == ["P07#1"]
+
+
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        ({"scenarios": str(EVAL_FIXTURES / "scenarios.json")}, "needs --scenarios"),
+        ({"only": "P01,P02,P07"}, "not --only"),  # the 8-versus-7 selection mistake
+        ({"questions": ""}, "needs --questions"),
+        ({"expect_count": None}, "needs --questions"),
+        ({"questions": "P01#1,P01#1", "expect_count": 2}, "more than once"),
+        ({"questions": "P01#1,P09#0", "expect_count": 2}, "unknown question ids: P09#0"),
+        ({"questions": "P01", "expect_count": 1}, "unknown question ids: P01"),
+        ({"expect_count": 3}, "lists 2 questions but --expect-count is 3"),
+        ({"expect_count": 1}, "lists 2 questions but --expect-count is 1"),
+    ],
+)
+def test_a_paid_run_refuses_any_manifest_doubt(changes: dict[str, Any], reason: str) -> None:
+    result = _cli().question_manifest(_manifest_args(**changes), load_scenarios(PHASE_B_QUESTIONS))
+    assert isinstance(result, str) and reason in result
+
+
+def test_a_manifest_mismatch_is_refused_before_the_preflight(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli()
+    monkeypatch.setattr(cli, "_preflight", lambda args: pytest.fail("preflight reached"))
+    argv = [
+        "evaluate_answers.py",
+        "run",
+        "--model",
+        "openrouter",
+        "--scenarios",
+        str(PHASE_B_QUESTIONS),
+        "--questions",
+        "P01#0,P01#1,P01#2,P01#3,P02#0,P02#1,P07#0,P07#1",
+        "--expect-count",
+        "7",
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    assert cli.main() == 2
+    assert "lists 8 questions but --expect-count is 7" in capsys.readouterr().out
+
+
+def test_the_runner_asks_exactly_the_selected_turns() -> None:
+    from assistant_eval.models import SELF_TESTS, Capture, SelectorModel
+
+    scenarios = load_scenarios(PHASE_B_QUESTIONS)
+    selector = next(iter(SELF_TESTS.values()))
+
+    def make(capture: Capture) -> Any:
+        return SelectorModel(selector(), capture)
+
+    with Workspace() as workspace:
+        result = run(scenarios, make, workspace=workspace, turns=frozenset({"P01#1", "P02#0"}))
+    assert [turn.key for turn in result.turns] == ["P01#1", "P02#0"]
+    with pytest.raises(ValueError, match="unknown turn keys: P09#0"):
+        run(scenarios, make, turns=frozenset({"P09#0"}))
+    with pytest.raises(ValueError, match="unknown turn keys"):
+        run(scenarios, make, turns=frozenset())
+
+
+def test_a_conversation_cannot_be_split_by_turn() -> None:
+    from assistant_eval.scenarios import SCENARIOS_FILE
+
+    scenarios = load_scenarios(SCENARIOS_FILE)
+    conversation = next(s for s in scenarios.scenarios if s.conversation)
+    with pytest.raises(ValueError, match="is a conversation"):
+        run(
+            scenarios,
+            lambda capture: pytest.fail("built"),
+            turns=frozenset({conversation.turn_key(0)}),
+        )
+
+
 def test_live_network_marker_is_used_only_by_the_adapter_and_the_factory() -> None:
     """L4: the marker that opens the real transport appears in exactly two modules."""
 

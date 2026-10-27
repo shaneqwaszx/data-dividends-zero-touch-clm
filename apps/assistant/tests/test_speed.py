@@ -26,7 +26,9 @@ def test_prompt_is_small_and_keeps_the_facts_the_rm_needs() -> None:
     # D-090: the question's topic message is bounded on its own; the rest was about 11,900.
     topic = [m["content"] for m in messages if m["content"].startswith("QUESTION TOPIC:")]
     assert len(topic) == 1 and len(topic[0]) < 1000
-    assert sum(len(m["content"]) for m in messages) - len(topic[0]) < 9000
+    # Phase B (D-092, owner-approved): 9,000 -> 9,250 for rule 17's exclusive-decline wording
+    # (+96 chars) and the non-live registry source line in allowed_guidance (+83).
+    assert sum(len(m["content"]) for m in messages) - len(topic[0]) < 9250
     facts = messages[1]["content"]
     for needed in ("Keep registry value", "11111999A", "18 GARDEN WALK", "Ownership & UBO"):
         assert needed in facts

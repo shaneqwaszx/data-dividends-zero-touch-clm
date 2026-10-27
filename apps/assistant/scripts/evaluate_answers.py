@@ -13,7 +13,8 @@
     ../../.venv/bin/python scripts/evaluate_answers.py preflight \\
         --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
     ../../.venv/bin/python scripts/evaluate_answers.py run --model openrouter \\
-        --scenarios tests/fixtures/eval/phase_b_questions.json --only P00 \\
+        --scenarios tests/fixtures/eval/phase_b_questions.json \\
+        --questions P01#1,P02#0 --expect-count 2 \\
         --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
 
 check      are the frozen snapshots (tests/fixtures/eval/snapshots.json) still what the
@@ -314,11 +315,35 @@ def cmd_recheck(args: argparse.Namespace) -> int:
         print(f"wrote {target}")
 
 
-def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet, only: set[str] | None) -> int:
-    # Live runs ask only the reviewed Phase B questions, and only the named scenarios.
-    if Path(args.scenarios).resolve() != PHASE_B_QUESTIONS.resolve() or not only:
-        print(f"refused: a live run needs --scenarios {PHASE_B_QUESTIONS.name} and --only")
+def question_manifest(args: argparse.Namespace, scenarios: ScenarioSet) -> list[str] | str:
+    """The paid run's explicit question ids, or why they are refused. Every id must be a turn
+    of the Phase B file, listed once, and their number must equal ``--expect-count``; scenario
+    selection (``--only``) is not accepted for a paid run."""
+
+    if Path(args.scenarios).resolve() != PHASE_B_QUESTIONS.resolve():
+        return f"a live run needs --scenarios {PHASE_B_QUESTIONS.name}"
+    if args.only:
+        return "a live run selects questions with --questions, not --only"
+    keys = [key.strip() for key in args.questions.split(",") if key.strip()]
+    if not keys or args.expect_count is None:
+        return "a live run needs --questions (turn ids such as P01#1) and --expect-count"
+    if len(set(keys)) != len(keys):
+        return "--questions lists a question more than once"
+    unknown = sorted(set(keys) - set(scenarios.turn_keys()))
+    if unknown:
+        return "unknown question ids: " + ", ".join(unknown)
+    if len(keys) != args.expect_count:
+        return f"--questions lists {len(keys)} questions but --expect-count is {args.expect_count}"
+    return keys
+
+
+def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet) -> int:
+    # Live runs ask only the reviewed Phase B questions, and only the listed question ids.
+    manifest = question_manifest(args, scenarios)
+    if isinstance(manifest, str):
+        print(f"refused: {manifest}")
         return 2
+    print(f"question manifest ({len(manifest)}): {', '.join(manifest)}")
     report, settings, ledger, account = _preflight(args)
     print("\n".join(report.lines()))
     endpoint = APPROVED_PROFILES[OPENROUTER_PROFILE_ID].endpoint(settings.openrouter_endpoint)
@@ -336,7 +361,9 @@ def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet, only: set[
     before = ledger.status()
     try:
         with Workspace() as workspace:
-            result = run(scenarios, lambda capture: monitor, workspace=workspace, only=only)
+            result = run(
+                scenarios, lambda capture: monitor, workspace=workspace, turns=frozenset(manifest)
+            )
     finally:
         # Verify what was spent even when the run stops early; leftovers (for example after
         # Ctrl-C here) are verified by the next preflight before any new call.
@@ -366,13 +393,23 @@ def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet, only: set[
         },
         ledger_before=before,
         ledger_after=after,
-        extra={"git_head": _git_head(), "scenarios_file": str(args.scenarios), "label": args.label},
+        extra={
+            "git_head": _git_head(),
+            "scenarios_file": str(args.scenarios),
+            "label": args.label,
+            "question_manifest": ",".join(manifest),
+            "expected_count": str(len(manifest)),
+        },
     )
     quarantined = sum(1 for row in monitor.rows if row.verification == "quarantined")
+    asked = [turn.key for turn in result.turns]
     print(
         f"calls {len(monitor.rows)}, quarantined {quarantined}, breaker open {after.breaker_open}"
     )
     print(f"wrote {answers}\nwrote {calls}")
+    if sorted(asked) != sorted(manifest):
+        print(f"MANIFEST MISMATCH: asked {len(asked)} ({', '.join(asked)})")
+        return 5
     return 0 if quarantined == 0 and not after.breaker_open else 4
 
 
@@ -382,7 +419,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     default_set = scenario_file.resolve() == SCENARIOS_FILE.resolve()
     only = set(args.only.split(",")) if args.only else None
     if args.model == "openrouter":
-        return _run_openrouter(args, scenarios, only)
+        return _run_openrouter(args, scenarios)
     snapshots = _snapshots()
     make: Callable[[Capture], ChatModel]
     gold: gold_mod.GoldSet | None
@@ -478,6 +515,12 @@ def main() -> int:
     )
     go.add_argument("--scenarios", default=str(SCENARIOS_FILE))
     go.add_argument("--only", default="", help="comma-separated scenario ids")
+    go.add_argument(
+        "--questions", default="", help="openrouter runs: comma-separated question ids (P01#1)"
+    )
+    go.add_argument(
+        "--expect-count", type=int, default=None, help="openrouter runs: how many --questions"
+    )
     go.add_argument("--save-answers", action="store_true", help="keep answer text (local runs)")
     go.add_argument("--label", default="run", help="folder label (openrouter runs)")
     go.add_argument("--base-url", default="http://127.0.0.1:11434/v1")
