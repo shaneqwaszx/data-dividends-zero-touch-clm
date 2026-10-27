@@ -774,6 +774,9 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
   guarantees.
 - Production-scale portfolio/activity indexing, snapshot traversal, retention/archive,
   and broader performance work remain intentionally deferred.
+- The structured metadata above (`verified_main_sha` `8fb5a43`, 2026-10-08) predates many
+  merged PRs (for example #100 to #119); a full snapshot refresh is outstanding. Dated merged
+  sections such as the AI Assistant Phase B section record their own deltas meanwhile.
 
 ## Next candidate work packages
 
@@ -794,6 +797,9 @@ screenshot, declaration, README, or validation artefact may be invented.
 3. Authoritative external-provider work only after contract, security and credential
    prerequisites are satisfied.
 4. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
+5. AI Assistant Phase B follow-ups: the owner's D-092 acceptance decision, an authorized
+   live P06#2 check, and the owner-scored answer-quality items, each with owner-approved
+   wording and its own independent gate.
 
 Camunda remains unimplemented and is outside the current authorized program.
 
@@ -1049,3 +1055,40 @@ Candidate D-080 on `feat/sim-lim-acra-ownership-followthrough-20261024`, from ma
   `garden_abc_multi_holder`), owner-declared OPQ -> Garden 50% / ABC COMPANY 50%. Results:
   ABC holder 50, ABCD123 25.568181875, LIM CHOON HUAT 18.75, TAN WEI LING and EFGH2345
   2.8409090625. POC-accepted, ownership READY, waits for explicit confirmation.
+
+## AI Assistant Phase B merged - 2026-10-27
+
+Merged and verified on main `728b30f197d94f4d361741f832bba7f3f19708f0`: PR #118 (squash
+`8d68506`, tree `53f1735` = reviewed head `bd554ce`) and PR #119 (squash `728b30f`, tree
+`b4f54b1` = reviewed head `556860c`). This section records only the AI Assistant delta. The
+structured `verified_main_sha` baseline above is unchanged (`8fb5a43`); a full snapshot refresh
+across the intervening merges is outstanding (see architectural debt).
+- **Decisions:** D-092 is PROPOSED (P1 to P10) and not sponsor policy; D-091 stays accepted
+  for its dormant scope only; ADR-012 Amendment 2 records the new conditional lines.
+- **Service behaviour:** answer quality only. Rule 17 makes "I can't answer that from this
+  case's data." exclusive. New conditional allowed lines: the non-live ACRA registry source
+  line, "This case cannot name any UBOs yet because the UBO check has not run." (only with
+  `OWNERSHIP_REQUIRED` and ownership `MISSING`) and the topic-only "Marking the UBO check as
+  complete is not offered to you on this case." Targeted steering requires no line. The
+  exact-line guard, sentence checks, case-data fallback, answer records, RBAC and GET-only CLM
+  access are unchanged. Owner-approved prompt bound 9,250; measured prompt 9,218.
+- **Remote inference:** the service's OpenRouter profile stays DORMANT. Only the offline
+  evaluation harness (`apps/assistant/scripts/evaluate_answers.py`) can open a live path, behind the D-091
+  and D-092 decisions named in the process environment, the approved endpoint record
+  (`deepinfra/bf16`), a healthy budget ledger, a fail-closed preflight, per-call
+  generation-metadata verification, and an explicit `--questions` manifest with a matching
+  `--expect-count`.
+- **Evidence:** 28 owner-run synthetic calls to `openai/gpt-oss-120b` on DeepInfra, all
+  provider- and cost-verified, US$0.00586987 in total (ledger cap US$1.00). This is synthetic
+  external evaluation evidence (D-092), never Live CLM behaviour; no provider classification
+  in the metadata changes. Owner human scoring of the original 17-question comparison (single
+  rater, git-ignored artifacts): GPT-OSS 120B 2.51 vs Ministral-3 8B 2.35 overall.
+- **Checks and CI:** independent QGs R1 to R7, R9 and a post-integration gate passed (R8 failed on two
+  Medium docs findings, fixed and re-gated by R9); the
+  integrated candidate's full assistant suite had 2,186 of 2,200 passing (14 Windows
+  `Errno 24` failures that pass in isolation). Hosted CI for both PRs was
+  `HOSTED_CI_NOT_EXECUTED - BILLING/INFRASTRUCTURE BLOCKED` (0 steps); the repository owner (`shaneqwaszx`) merged both PRs with
+  that limitation documented in each PR description.
+- **Open:** D-092 acceptance; live verification of P06#2; owner-scored follow-ups (entity
+  status vs registry connection, director evidence, GoldTier handoff, unrelated disclaimers,
+  UEN meaning); the Low findings listed in PRs #118 and #119.

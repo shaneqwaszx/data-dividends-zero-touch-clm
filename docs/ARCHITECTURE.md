@@ -1026,6 +1026,21 @@ profile is DORMANT (mock-transport tests only) and is not recorded as a `PROJECT
 provider. No remote inference, spend, data transmission, model selection or Live claim
 follows.
 
+## AI Assistant Phase B synthetic evaluation path - 2026-10-27 (merged, D-092 proposed)
+
+Merged in PRs #118 and #119 (main `728b30f`). The service composition is unchanged: the remote
+profile stays DORMANT in `create_app`. Phase B adds an evaluation-only outbound path.
+`model_factory` accepts the `LIVE_NETWORK` marker only when the caller passes
+`allow_live_network=True` and the process environment names D-092; only
+`apps/assistant/scripts/evaluate_answers.py` does, never the service. The live adapter uses httpx with TLS
+verification, `trust_env=False`, no redirects and no retries. A read-only account client
+(`openrouter_account.py`: `GET /key`, `GET /generation`) feeds a fail-closed preflight and
+per-call verification and quarantine in the dev-only harness (`assistant_eval/live.py`), on
+top of the A2 budget ledger (new one-way verification methods, no schema change). Answer
+quality stays inside the existing owners: catalog lines in `guardrails.allowed_guidance`,
+steering in `prompts.topic_plan`, and topic-only lines filtered from `prompts.facts_for_model`.
+No new persistence owner, route, CLM dependency or authorization owner is introduced.
+
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 
 Originally assigned from main `529efea`, OnboardingService now supports both definitive
