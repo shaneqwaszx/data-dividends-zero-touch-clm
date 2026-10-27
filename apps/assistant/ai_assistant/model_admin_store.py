@@ -5,12 +5,15 @@ Git), separate from the knowledge store and the budget ledger.
 The activation is one row changed only by compare-and-set on its revision, so two
 administrators (or two service processes) can never both apply a change made from the same
 view. Audit rows are content-free: who, what, which profile, the outcome and a closed code;
-never a URL, a credential, a prompt, an answer or case data. The newest ``MAX_EVENTS`` are
-kept.
+never a URL, a credential, a prompt, an answer or case data. Retention is by class, so one
+class can never push another out: model changes (an activation, rollback or revert that was
+applied) are always kept; refused access by callers without the capability keeps its newest
+``MAX_REFUSED_EVENTS``; all other activity its newest ``MAX_EVENTS``.
 
 Only one qualification may run at a time across every process sharing the database: a run
 holds the ``running`` row and refreshes its heartbeat; a run whose heartbeat is older than
-``STALE_SECONDS`` is closed as an error before another may start.
+``STALE_SECONDS`` is closed as an error before another may start. The service refreshes the
+heartbeat while it supervises the process; the process refreshes it between steps.
 """
 
 import json
@@ -24,7 +27,12 @@ from typing import Any
 from uuid import uuid4
 
 MAX_EVENTS = 5000
-STALE_SECONDS = 300
+MAX_REFUSED_EVENTS = 1000
+# Longer than the longest step without a heartbeat from the process (the connection test's
+# three calls at the 600-second maximum model timeout), plus a margin.
+STALE_SECONDS = 2100
+# Outcomes of an applied model change: never pruned.
+CHANGE_OUTCOMES = ("applied", "reverted")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS activation (
@@ -249,9 +257,19 @@ class ModelAdminStore:
                     revision,
                 ),
             )
+            if outcome in CHANGE_OUTCOMES:
+                return
+            # Each class is trimmed only within itself.
+            refused = action == "ACCESS_REFUSED"
+            kind = (
+                "action = 'ACCESS_REFUSED'"
+                if refused
+                else "action != 'ACCESS_REFUSED' AND outcome NOT IN ('applied', 'reverted')"
+            )
             db.execute(
-                "DELETE FROM events WHERE seq <= (SELECT MAX(seq) FROM events) - ?",
-                (MAX_EVENTS,),
+                f"DELETE FROM events WHERE {kind} AND seq NOT IN"  # noqa: S608 (fixed text)
+                f" (SELECT seq FROM events WHERE {kind} ORDER BY seq DESC LIMIT ?)",
+                (MAX_REFUSED_EVENTS if refused else MAX_EVENTS,),
             )
 
     def events(self, limit: int) -> list[dict[str, Any]]:
@@ -327,6 +345,16 @@ class ModelAdminStore:
                 (qualification_id,),
             ).fetchone()
         return bool(row) and row["status"] == "running" and not row["cancel_requested"]
+
+    def touch(self, qualification_id: str) -> None:
+        """The service's supervisor: the process is still alive."""
+
+        with self._write() as db:
+            db.execute(
+                "UPDATE qualifications SET heartbeat_at = ?"
+                " WHERE qualification_id = ? AND status = 'running'",
+                (now(), qualification_id),
+            )
 
     def request_cancel(self, qualification_id: str) -> bool:
         with self._write() as db:

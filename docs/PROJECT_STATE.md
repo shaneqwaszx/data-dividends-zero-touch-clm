@@ -1109,7 +1109,12 @@ section records only the candidate's delta.
   `model_admin_store` (SQLite state and audit under `apps/assistant/data/models/`),
   `model_qualification`; the harness side runs in its own process
   (`apps/assistant/scripts/qualify_model.py`).
-- **Evidence:** offline only (fake and loopback model servers); no local model server was run
-  against a real model and no remote call was made. Answer quality `NOT_SCORED` (gold stub).
+- **Evidence:** offline tests (fake and loopback model servers) plus two implementer `LOCAL`
+  runs of the real service, qualification process and Ollama 0.40.10 (`llama3.1:8b`, server
+  started with a 16,384-token context, synthetic scenarios only): declared 16,384 passed every
+  gate (84/84 turns, capacity verified at 16,334 tokens, 0 unsafe displayed lines, line
+  validity 0.817, G-5 reported 0.214) and activation without the acknowledgement was refused;
+  declared 32,768 failed G-7 with `TRUNCATION_DETECTED`. No remote or paid call was made.
+  Answer quality `NOT_SCORED` (gold stub). Not Live evidence.
 - **Open:** independent quality gate, main integration, pre-PR check, publication and merge
   (each separately authorised); owner gold labels (A-6) before answer quality can be scored.

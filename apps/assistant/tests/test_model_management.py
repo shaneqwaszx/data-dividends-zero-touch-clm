@@ -1080,3 +1080,143 @@ def test_the_documented_example_file_is_valid(tmp_path: Path) -> None:
     catalogue = load_catalogue(settings(tmp_path, example))
     assert catalogue.file_status == "ok", catalogue.file_errors
     assert {entry.status for entry in catalogue.entries if entry.source == "file"} == {"selectable"}
+
+
+# --- Quality Gate remediation (F-1, F-3 to F-6, F-8) ----------------------------------------
+
+
+def test_refused_access_cannot_push_model_changes_out_of_the_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("ai_assistant.model_admin_store.MAX_EVENTS", 5)
+    monkeypatch.setattr("ai_assistant.model_admin_store.MAX_REFUSED_EVENTS", 3)
+    store = ModelAdminStore(tmp_path / "a.sqlite3")
+    for action, outcome in [
+        ("ACTIVATED", "applied"),
+        ("ROLLED_BACK", "applied"),
+        ("STARTUP_REVERTED", "reverted"),
+        ("CONNECTION_TEST", "passed"),
+    ]:
+        store.record(actor="hr-admin", role="HR", action=action, outcome=outcome)
+    for _ in range(50):
+        store.record(actor="ethan-tan", role="RM", action="ACCESS_REFUSED", outcome="refused")
+    for _ in range(20):
+        store.record(actor="hr-admin", role="HR", action="CONNECTION_TEST", outcome="failed")
+    events = store.events(500)
+    kept = {(e["action"], e["outcome"]) for e in events}
+    assert {("ACTIVATED", "applied"), ("ROLLED_BACK", "applied")} <= kept
+    assert ("STARTUP_REVERTED", "reverted") in kept
+    assert sum(e["action"] == "ACCESS_REFUSED" for e in events) == 3
+    assert sum(e["action"] == "CONNECTION_TEST" for e in events) == 5
+
+
+def test_a_run_is_not_called_stale_during_its_longest_silent_step() -> None:
+    from ai_assistant import model_admin_store
+
+    longest_timeout = AiAssistantSettings.model_fields["llm_timeout_seconds"].metadata
+    assert any(getattr(bound, "le", None) == 600 for bound in longest_timeout)
+    assert model_admin_store.STALE_SECONDS > 3 * 600
+
+
+def test_a_failing_supervisor_ends_the_process_and_closes_the_run(
+    tmp_path: Path, backend: Backend, server: ModelServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = build_app(tmp_path, backend, server, monkeypatch)
+    selector: ModelSelector = client.app.state.model_selector  # type: ignore[attr-defined]
+    killed: list[bool] = []
+
+    class Broken:
+        calls = 0
+
+        def poll(self) -> int | None:
+            Broken.calls += 1
+            if Broken.calls == 1:
+                raise RuntimeError("poll failed")
+            return None if not killed else 1
+
+        def wait(self, timeout: float | None = None) -> None:
+            return None
+
+        def kill(self) -> None:
+            killed.append(True)
+
+    selector.launch = lambda qualification_id: Broken()
+    started = client.post(f"{API}/lmstudio_qwen3_8b/qualifications")
+    item = wait_for(client, started.json()["qualification_id"], timeout=30)
+    assert killed == [True]
+    assert (item["status"], item["code"]) == ("error", "SUPERVISOR_FAILED")
+    finished = [
+        e
+        for e in client.get(f"{API}/audit").json()["events"]
+        if e["action"] == "QUALIFICATION_FINISHED"
+    ]
+    assert finished and finished[0]["code"] == "SUPERVISOR_FAILED"
+
+
+def test_an_activation_that_cannot_be_built_puts_the_previous_model_back(
+    tmp_path: Path, backend: Backend, server: ModelServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = build_app(
+        tmp_path, backend, server, monkeypatch, profile(), profile(profile_id="second_model")
+    )
+    _activate_directly(tmp_path, monkeypatch, client)
+    selector: ModelSelector = client.app.state.model_selector  # type: ignore[attr-defined]
+    store = selector.store
+    assert store is not None
+    entry = load_catalogue(selector.settings).get("second_model")
+    assert entry is not None
+    qualification_id = store.begin_qualification(
+        entry.profile_id, entry.fingerprint, model_qualification.qualification_basis(), "hr", 84
+    )
+    store.finish_qualification(
+        qualification_id, "passed", None, {"capacity": {"prompt_limit": 60000}}
+    )
+    real = model_admin.build_profile_model
+    calls: list[str] = []
+
+    def flaky(entry: Any, **kwargs: Any) -> Any:
+        calls.append(entry.profile_id)
+        # The connection probe succeeds; building it for use, after the store write, fails.
+        if entry.profile_id == "second_model" and calls.count("second_model") > 1:
+            raise model_admin.ProfileConfigError("CREDENTIAL_MISSING", "gone")
+        return real(entry, **kwargs)
+
+    monkeypatch.setattr(model_admin, "build_profile_model", flaky)
+    reply = client.post(
+        f"{API}/second_model/activate",
+        json={"expected_revision": store.revision(), "acknowledge_quality_unscored": True},
+    )
+    assert reply.status_code == 409 and reply.json()["detail"]["code"] == "CREDENTIAL_MISSING"
+    assert selector.current().profile_id == "lmstudio_qwen3_8b"
+    stored = store.activation(selector.baseline_choice())
+    assert (stored.active_profile_id, stored.last_good_profile_id) == (
+        "lmstudio_qwen3_8b",
+        BASELINE_ID,
+    )
+    undone = [e for e in store.events(20) if e["action"] == "ACTIVATION_UNDONE"]
+    assert undone and (undone[0]["profile_id"], undone[0]["outcome"]) == (
+        "second_model",
+        "reverted",
+    )
+
+
+def test_unknown_qualification_ids_are_audited(
+    tmp_path: Path, backend: Backend, server: ModelServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = build_app(tmp_path, backend, server, monkeypatch)
+    assert client.get(f"{API}/qualifications/{'e' * 32}").status_code == 404
+    assert client.post(f"{API}/qualifications/{'e' * 32}/cancel").status_code == 404
+    refused = {
+        (e["action"], e["code"])
+        for e in client.get(f"{API}/audit").json()["events"]
+        if e["outcome"] == "refused"
+    }
+    assert ("QUALIFICATION_VIEW", "QUALIFICATION_UNKNOWN") in refused
+    assert ("QUALIFICATION_CANCEL_REQUESTED", "QUALIFICATION_UNKNOWN") in refused
+
+
+def test_the_qualification_basis_covers_every_file_it_names() -> None:
+    for name in model_qualification.BASIS_FILES:
+        assert (model_qualification.PACKAGE_DIR / name).is_file(), name
+    assert "knowledge/retrieval.py" in model_qualification.BASIS_FILES
+    assert "instructions.py" in model_qualification.BASIS_FILES

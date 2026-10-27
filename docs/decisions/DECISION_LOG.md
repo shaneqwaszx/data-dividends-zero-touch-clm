@@ -1229,7 +1229,9 @@ prompt larger than its verified bound (UTF-8 bytes plus a per-message allowance,
 qualification confirms for that model's tokenizer). Qualifications are tied to the profile's
 settings fingerprint and to a hash of the answer code and fixtures, so a prompt, catalog or
 guardrail change requires qualifying again. State and audit live in
-`apps/assistant/data/models/` (SQLite, not in Git; newest 5,000 events kept).
+`apps/assistant/data/models/` (SQLite, not in Git). Audit retention is per class so no class
+can push out another: applied model changes and reverts are always kept, refused access by
+callers without the capability keeps its newest 1,000 rows, other activity its newest 5,000.
 
 Unchanged: prompts, the response catalog, topic routing, guardrails and the exact-line guard,
 retrieval and its permissions, knowledge publishing, CLM rules, read-only CLM access. Not

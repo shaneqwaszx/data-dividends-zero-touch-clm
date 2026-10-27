@@ -128,5 +128,7 @@ any longer prompt (the RM gets the case-data answer instead).
 
 Each test, qualification start/finish/cancel, activation, rollback, refusal (with the user and
 role) and start-up revert is recorded with time, user, role, action, profile, settings
-fingerprint prefix, outcome and a closed code. No URL, key, prompt, answer or case data. The
-newest 5,000 events are kept.
+fingerprint prefix, outcome and a closed code. No URL, key, prompt, answer or case data.
+Applied activations, rollbacks, undone activations and start-up reverts are always kept;
+refused access by users without the permission keeps its newest 1,000 rows and other activity
+its newest 5,000, so a flood of refused requests cannot push model changes out of the history.

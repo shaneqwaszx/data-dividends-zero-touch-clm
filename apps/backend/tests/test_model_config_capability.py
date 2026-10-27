@@ -35,4 +35,3 @@ def test_model_management_leaves_every_other_capability_unchanged() -> None:
         assert ROLE_CAPABILITIES[role] == frozenset(
             {Capability.POLICY_VIEW, Capability.CASE_ACCESS}
         )
-

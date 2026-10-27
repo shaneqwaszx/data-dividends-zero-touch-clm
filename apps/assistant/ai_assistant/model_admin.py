@@ -103,7 +103,13 @@ MESSAGES = {
 
 def _refusal(status: int, code: str, message_code: str | None = None) -> HTTPException:
     return HTTPException(
-        status_code=status, detail={"code": code, "message": MESSAGES[message_code or code]}
+        status_code=status,
+        # A configuration code with no message of its own (for example CREDENTIAL_MISSING)
+        # shows the generic fixed message; the code itself is still returned.
+        detail={
+            "code": code,
+            "message": MESSAGES.get(message_code or code, MESSAGES["BUILD_FAILED"]),
+        },
     )
 
 
@@ -288,18 +294,34 @@ class ModelSelector:
 
         assert self.store is not None
         with self._lock:
+            before = self.store.activation(self.baseline_choice())
             revision = self.store.activate(expected, choice, previous, by)
             stored = self.store.activation(self.baseline_choice())
             if choice.profile_id == BASELINE_ID:
                 self._active = self._baseline(revision)
-            else:
-                active, problem = self._build_stored(stored)
-                if active is None:  # changed between the checks and the store: undo
-                    undo = self.store.activate(revision, self.baseline_choice(), previous, by)
-                    self._active = self._baseline(undo, reverted=problem)
-                    raise ProfileConfigError(problem or "BUILD_FAILED", "activation undone")
+                return self._active
+            active, problem = self._build_stored(stored)
+            if active is not None:
                 self._active = active
-            return self._active
+                return self._active
+            # Changed between the checks and the store: put the previous model back (as it
+            # was, last good model included), record that, and restore it as at start-up
+            # (which falls back to the baseline, audited, if it is no longer usable either).
+            undo = self.store.activate(
+                revision, previous or self.baseline_choice(), _last_good(before), by
+            )
+            self.store.record(
+                actor=by,
+                role=None,
+                action="ACTIVATION_UNDONE",
+                outcome="reverted",
+                profile_id=choice.profile_id,
+                fingerprint=choice.fingerprint,
+                code=problem or "BUILD_FAILED",
+                revision=undo,
+            )
+            self._active = self._restore()
+            raise ProfileConfigError(problem or "BUILD_FAILED", "activation undone")
 
 
 def _last_good(stored: Activation) -> Choice | None:
@@ -592,33 +614,47 @@ def model_admin_router(
         limit = time.monotonic() + settings.model_qualification_max_seconds + DEADLINE_GRACE_SECONDS
         cancelled_at: float | None = None
         ended = None
-        while handle.poll() is None:
-            now = time.monotonic()
-            item = store.qualification(qualification_id)
-            if item is not None and item["cancel_requested"] and cancelled_at is None:
-                cancelled_at = now
-            if now > limit:
-                ended = "DEADLINE"
-            elif cancelled_at is not None and now - cancelled_at > CANCEL_GRACE_SECONDS:
-                ended = "CANCELLED"
-            if ended:
+        try:
+            while handle.poll() is None:
+                now = time.monotonic()
+                try:
+                    store.touch(qualification_id)
+                    item = store.qualification(qualification_id)
+                except Exception:  # keep supervising; the limit below still applies
+                    log.error("qualification state unavailable while supervising")
+                    item = None
+                if item is not None and item["cancel_requested"] and cancelled_at is None:
+                    cancelled_at = now
+                if now > limit:
+                    ended = "DEADLINE"
+                elif cancelled_at is not None and now - cancelled_at > CANCEL_GRACE_SECONDS:
+                    ended = "CANCELLED"
+                if ended:
+                    break
+                threading.Event().wait(SUPERVISE_SECONDS)
+        except Exception:
+            log.error("qualification supervisor failed; ending the process")
+            ended = ended or "SUPERVISOR_FAILED"
+        finally:
+            if handle.poll() is None:
                 handle.kill()
-                break
-            threading.Event().wait(SUPERVISE_SECONDS)
-        handle.wait()
-        # Only a run the process left open is closed here (a finished run is never changed).
-        if ended == "CANCELLED":
-            store.finish_qualification(qualification_id, "cancelled", "CANCELLED", None)
-        store.finish_qualification(qualification_id, "error", ended or "PROCESS_EXITED", None)
-        final = store.qualification(qualification_id) or {}
-        audit(
-            profile,
-            "QUALIFICATION_FINISHED",
-            str(final.get("status") or "error"),
-            profile_id=entry.profile_id,
-            fingerprint=entry.fingerprint,
-            code=final.get("code"),
-        )
+            handle.wait()
+        try:
+            # Only a run the process left open is closed here (a finished one never changes).
+            if ended == "CANCELLED":
+                store.finish_qualification(qualification_id, "cancelled", "CANCELLED", None)
+            store.finish_qualification(qualification_id, "error", ended or "PROCESS_EXITED", None)
+            final = store.qualification(qualification_id) or {}
+            audit(
+                profile,
+                "QUALIFICATION_FINISHED",
+                str(final.get("status") or "error"),
+                profile_id=entry.profile_id,
+                fingerprint=entry.fingerprint,
+                code=final.get("code"),
+            )
+        except Exception:
+            log.error("qualification outcome could not be recorded")
 
     @router.post("/{profile_id}/qualifications", status_code=202)
     def post_qualification(profile_id: str, profile: Admin) -> dict[str, Any]:
@@ -681,6 +717,7 @@ def model_admin_router(
             else None
         )
         if item is None:
+            audit(profile, "QUALIFICATION_VIEW", "refused", code="QUALIFICATION_UNKNOWN")
             raise _refusal(404, "QUALIFICATION_UNKNOWN")
         entry = load_catalogue(settings).get(item["profile_id"]) or selector.baseline
         return qualification_view(item, entry, qualification_basis()) or {}
@@ -691,6 +728,12 @@ def model_admin_router(
         if not _QUALIFICATION_ID.fullmatch(qualification_id) or not store.request_cancel(
             qualification_id
         ):
+            audit(
+                profile,
+                "QUALIFICATION_CANCEL_REQUESTED",
+                "refused",
+                code="QUALIFICATION_UNKNOWN",
+            )
             raise _refusal(404, "QUALIFICATION_UNKNOWN")
         item = store.qualification(qualification_id) or {}
         audit(

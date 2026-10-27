@@ -64,6 +64,10 @@ BASIS_FILES = (
     "context.py",
     "knowledge_answers.py",
     "small_talk.py",
+    "instructions.py",
+    "answer_records.py",
+    "knowledge/retrieval.py",
+    "knowledge/redaction.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = ("scenarios.json", "snapshots.json", "gold.json", "gold.lock.json")
@@ -101,7 +105,7 @@ def qualification_basis() -> str:
         paths.extend(sorted(PACKAGE_DIR.glob(pattern)))
     paths.extend(EVAL_FIXTURES / name for name in BASIS_FIXTURES)
     for path in paths:
-        digest.update(b"\0" + path.name.encode("utf-8") + b"\0")
+        digest.update(b"\0" + path.relative_to(ASSISTANT_DIR).as_posix().encode("utf-8") + b"\0")
         try:
             digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
         except OSError:
