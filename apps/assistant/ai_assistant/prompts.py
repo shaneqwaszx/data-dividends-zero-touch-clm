@@ -37,6 +37,7 @@ from .guardrails import (
     allowed_guidance,
     compact_facts,
     registry_source_line,
+    ubo_completion_not_offered,
     who_resolves_lines,
 )
 from .guide import (
@@ -48,7 +49,9 @@ from .guide import (
     NOT_READY,
     READINESS_EXPLANATIONS,
     READINESS_NEEDS,
+    TOPIC_ONLY_LINES,
     UBO_CHECK_NOT_RUN,
+    UBO_COMPLETION_NOT_OFFERED,
     difference_line,
 )
 from .instructions import system_prompt
@@ -167,7 +170,8 @@ def facts_for_model(facts: dict[str, Any]) -> dict[str, Any]:
     guidance = allowed_guidance(facts)
     allowed = set(guidance)
     view = {
-        "allowed_guidance": guidance,
+        # Topic-only lines stay allowed but are shown only in their QUESTION TOPIC message.
+        "allowed_guidance": [line for line in guidance if line not in TOPIC_ONLY_LINES],
         "viewer": facts.get("viewer"),
         "company": facts.get("company"),
         "overall": {
@@ -361,6 +365,13 @@ _REGISTRY_STATUS_WORD = re.compile(r"\b(?:live|mock|sandbox|used|real)\b")
 _OWNERS_QUESTION = re.compile(
     r"\b(?:who|which)\b[^?]*\b(?:ubos?|beneficial owners?|shareholders?)\b"
 )
+# A request to complete the UBO check ("mark the UBO check as complete", "complete the UBO
+# check"), not a question about its status ("is the UBO check complete?").
+_UBO_COMPLETION_REQUEST = re.compile(
+    r"\b(?:mark|set|flag|tick|make|sign off)\b[^?]*\b(?:ubos?|ownership)\b[^?]*"
+    r"\b(?:complete|completed|done|finished|closed|passed)\b"
+    r"|\b(?:complete|finish|close|sign off)\b\s+(?:the\s+|this\s+)?(?:ubos?|ownership)\b"
+)
 
 
 def _ownership_required(facts: dict[str, Any]) -> bool:
@@ -372,6 +383,19 @@ def _ownership_required(facts: dict[str, Any]) -> bool:
 
 def _source_or_owners_lines(facts: dict[str, Any], question: str) -> tuple[str, list[str]] | None:
     text = question.lower()
+    if _UBO_COMPLETION_REQUEST.search(text) and ubo_completion_not_offered(facts):
+        # The refusal, then why: no UBO result yet and the ownership item still open.
+        ownership_needs = [
+            f"{need.get('what')} (section: {need.get('where_on_the_case_page')})"
+            for need in facts.get("still_needed_before_goldtier") or []
+            if str(need.get("code", "")).startswith("OWNERSHIP")
+        ]
+        return "a request to mark the UBO check as complete", [
+            UBO_COMPLETION_NOT_OFFERED,
+            UBO_CHECK_NOT_RUN,
+            *ownership_needs,
+            _open_section("Ownership & UBO"),
+        ]
     if _REGISTRY_WORD.search(text) and _REGISTRY_STATUS_WORD.search(text):
         source = registry_source_line(facts, acra_only=True)
         if source is not None:

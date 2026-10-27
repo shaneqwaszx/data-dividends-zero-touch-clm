@@ -551,6 +551,9 @@ differs, and they never read as a finding about this case.
 | `<blocker title>: this is for <who resolves it>.` | for each blocker whose owner is one the blocker policy names (`guide.OWNER`), with the title checked like a difference value (including no double quotes of either kind) |
 | "The case data does not name a contact for this." | no blocker has such an owner line |
 | "I can't answer that from this case's data." | always |
+| `Registry data in this case comes from ACRA (<environment>), not the live ACRA service.` (added 2026-10-27, D-092 P7; owner-approved for `ACRA (MOCK)`, other environments by the owner's "source-correct wording" instruction) | the backend's company source (`case.entity.source`) starts with `ACRA (` and names a non-live environment (MOCK, LOCAL, SANDBOX, PARTIAL, DORMANT); never for a live or unnamed source. The same sentence remains the non-live registry notice, which is not repeated when the line is shown. |
+| "This case cannot name any UBOs yet because the UBO check has not run." (added 2026-10-27, D-092 P8, owner-approved) | the backend readiness lists `OWNERSHIP_REQUIRED` and ownership is `MISSING` (set together only when the case has no ownership analysis); never for analysed, review, failed or in-progress ownership |
+| "Marking the UBO check as complete is not offered to you on this case." (added 2026-10-27, D-092 P9, owner-approved; **topic-only**) | ownership readiness is MISSING, IN_PROGRESS, REVIEW_REQUIRED or FAILED and no action offered to this viewer would complete or accept ownership, UBOs or beneficial owners. Allowed by the guard, but listed to the model only in the QUESTION TOPIC message for a request to complete the check, never in the case facts. |
 
 All values come from the backend projection, never from the model. A line with a changed
 value, another case's values or an invented owner is not an allowed line and is dropped.
@@ -576,6 +579,17 @@ question: it is used only on its own and only when no allowed line answers any p
 question; otherwise the answer starts with the line that answers part of it. The "at most 2
 relevant lines" companion was removed after the live evaluation showed answers that both
 declined and answered.
+
+Also added 2026-10-27 (D-092 P7 to P9, owner-approved): when no existing topic matches,
+three targeted plans steer (i) registry-status questions to the registry source line and
+the Mock, Local and Sandbox line; (ii) "who/which ... UBOs / beneficial owners /
+shareholders" questions to the UBO line and the ownership-evidence lines when
+`OWNERSHIP_REQUIRED` is listed; (iii) requests to complete the UBO check to the completion
+refusal, the UBO line where allowed, the open ownership item and the "Ownership & UBO"
+section. None requires a line, so a bare decline is never padded, and the no-model answer
+is unchanged. Topic-only lines (`guide.TOPIC_ONLY_LINES`) are allowed lines the model sees
+only in such a topic message. Rule 1 names allowed_guidance and KNOWLEDGE as the sources;
+whether models also use a line listed only in the topic message is not yet verified live.
 
 ### Change 4 - required lines (server)
 

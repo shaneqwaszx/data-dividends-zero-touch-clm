@@ -65,6 +65,7 @@ from .guide import (
     READINESS_NEEDS,
     RULE_PLAIN,
     UBO_CHECK_NOT_RUN,
+    UBO_COMPLETION_NOT_OFFERED,
     difference_explanations,
     difference_line,
     who_resolves_line,
@@ -101,6 +102,29 @@ def ubo_check_not_run(facts: dict[str, Any]) -> bool:
     required = any(need.get("code") == "OWNERSHIP_REQUIRED" for need in needs)
     sections = (facts.get("readiness") or {}).get("sections") or {}
     return required and sections.get("ownership") == "MISSING"
+
+
+# Ownership states in which the UBO check is not complete (backend ReadinessStageStatus for
+# the ownership stage; READY means the analysis is complete or POC-accepted, D-082).
+_OWNERSHIP_INCOMPLETE = frozenset({"MISSING", "IN_PROGRESS", "REVIEW_REQUIRED", "FAILED"})
+# An offered action that would complete or accept ownership (none exists today; fail closed).
+_UBO_COMPLETION_LABEL = re.compile(
+    r"\b(?:mark|accept|confirm|complete|approve|sign off|finali[sz]e|close|finish|resolve"
+    r"|override|set)\w*\b[^.]{0,40}\b(?:ubos?|beneficial owners?|ownership|poc basis)\b"
+    r"|\b(?:ubos?|beneficial owners?|ownership)\b[^.]{0,40}"
+    r"\b(?:complete|completed|accepted|confirmed|approved|resolved|closed|finished|ready)\b"
+)
+
+
+def ubo_completion_not_offered(facts: dict[str, Any]) -> bool:
+    """The UBO check is not complete and this RM is offered nothing that would complete it.
+    The backend completes ownership itself (analysis finished, or the ownership owner's POC
+    acceptance); no RM action marks it complete. Missing readiness data means False."""
+
+    sections = (facts.get("readiness") or {}).get("sections") or {}
+    if sections.get("ownership") not in _OWNERSHIP_INCOMPLETE:
+        return False
+    return not any(_UBO_COMPLETION_LABEL.search(label) for label in allowed_actions(facts))
 
 
 def approval_offered(facts: dict[str, Any]) -> bool:
@@ -205,6 +229,8 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
         allowed.extend(READINESS_EXPLANATIONS.get(str(need.get("code")), ()))
     if ubo_check_not_run(facts):
         allowed.append(UBO_CHECK_NOT_RUN)
+    if ubo_completion_not_offered(facts):
+        allowed.append(UBO_COMPLETION_NOT_OFFERED)
     # The non-live registry source, only when the backend's own source says ACRA (<env>).
     source_line = registry_source_line(facts, acra_only=True)
     if source_line is not None:
