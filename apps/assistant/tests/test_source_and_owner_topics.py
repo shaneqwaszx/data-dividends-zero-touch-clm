@@ -257,3 +257,127 @@ def test_the_rule_17_wording_is_kept() -> None:
     from ai_assistant.instructions import system_prompt
 
     assert f'\n17. Use "{OUT_OF_SCOPE}" only on its own' in system_prompt()
+
+
+# --- Phase B closure regressions ---------------------------------------------------------------
+
+LIVE_CLAIMS = (
+    "ACRA is live.",
+    "The registry data in this case is live.",
+    "Registry data in this case comes from the live ACRA service.",
+)
+AUTHORITY_CLAIMS = (
+    "The UBOs are verified.",
+    "KYC approval is complete.",
+    "The case is approved.",
+    "This case has no UBOs.",
+    "There are no UBOs for this company.",
+)
+REVIEW_NEED = "The ownership result needs review. (section: Ownership & UBO)"
+
+
+@pytest.mark.parametrize("claim", LIVE_CLAIMS)
+def test_a_live_registry_claim_is_never_shown(claim: str) -> None:
+    for facts in (FACTS, _with_source("ACRA (LIVE), retrieved 5 Oct 2026, 04:02 UTC")):
+        result = validate_answer(claim, facts)
+        assert result.text == "" and result.left_out == 1
+
+
+def test_mock_and_live_sources_get_only_their_own_source_wording() -> None:
+    live = _with_source("ACRA (LIVE), retrieved 5 Oct 2026, 04:02 UTC")
+    # The MOCK sentence is withheld on a live-source case, and no source steering is offered.
+    assert validate_answer(MOCK_SOURCE, live).text == ""
+    assert topic_plan(live, REGISTRY_QUESTION) is None
+    sandbox = _with_source("ACRA (SANDBOX), retrieved 5 Oct 2026, 04:02 UTC")
+    plan = topic_plan(sandbox, REGISTRY_QUESTION)
+    assert plan is not None and "ACRA (SANDBOX)" in plan.lines[0]
+    assert validate_answer(MOCK_SOURCE, sandbox).text == ""
+
+
+def test_a_completed_ownership_analysis_gets_no_not_run_or_missing_lines() -> None:
+    """Analysed ownership (provisional candidates exist): nothing says the check has not run
+    or that ownership evidence is missing; the provisional disclaimer stays available."""
+
+    analysed = _ownership("READY", None)
+    allowed = allowed_guidance(analysed)
+    assert UBO_CHECK_NOT_RUN not in allowed and OWNERSHIP_NEED not in allowed
+    assert (
+        "Ownership and UBO analysis is provisional; it does not establish legal verification."
+        in (allowed)
+    )
+    assert topic_plan(analysed, UBO_QUESTION) is None
+    for line in (UBO_CHECK_NOT_RUN, OWNERSHIP_NEED):
+        assert validate_answer(line, analysed).text == ""
+
+
+def test_missing_and_disputed_ownership_evidence_get_different_lines() -> None:
+    missing = _ownership("MISSING", "OWNERSHIP_REQUIRED")
+    disputed = _ownership("REVIEW_REQUIRED", "OWNERSHIP_REVIEW_REQUIRED")
+    missing_allowed, disputed_allowed = allowed_guidance(missing), allowed_guidance(disputed)
+    assert OWNERSHIP_NEED in missing_allowed and UBO_CHECK_NOT_RUN in missing_allowed
+    assert REVIEW_NEED not in missing_allowed
+    assert REVIEW_NEED in disputed_allowed
+    assert OWNERSHIP_NEED not in disputed_allowed and UBO_CHECK_NOT_RUN not in disputed_allowed
+    # A disputed result is not steered to "missing" or "not run" lines.
+    assert topic_plan(disputed, UBO_QUESTION) is None
+
+
+@pytest.mark.parametrize("claim", AUTHORITY_CLAIMS)
+def test_unsupported_authority_or_absence_claims_are_withheld(claim: str) -> None:
+    result = validate_answer(claim, FACTS)
+    assert result.text == "" and result.left_out == 1
+
+
+# --- end to end through the service, on the Phase B questions -----------------------------
+
+
+class _Fixed:
+    """A self-test selector that always writes the same text."""
+
+    name = "self-test-fixed"
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def select(self, offered: Any, key: str, rep: int) -> str:
+        return self.text
+
+
+def _phase_b(selector: Any, turns: frozenset[str] | None = None) -> list[Any]:
+    from assistant_eval.models import Capture, SelectorModel
+    from assistant_eval.runner import Workspace, run
+    from assistant_eval.scenarios import EVAL_FIXTURES, load_scenarios
+
+    scenarios = load_scenarios(EVAL_FIXTURES / "phase_b_questions.json")
+
+    def make(capture: Capture) -> Any:
+        return SelectorModel(selector, capture)
+
+    with Workspace() as workspace:
+        return run(scenarios, make, workspace=workspace, turns=turns).turns
+
+
+def test_a_bare_decline_is_shown_alone_on_the_routed_phase_b_questions() -> None:
+    turns = _phase_b(_Fixed(OUT_OF_SCOPE), frozenset({"P01#1", "P02#0", "P07#0", "P07#1"}))
+    assert [t.key for t in turns] == ["P01#1", "P02#0", "P07#0", "P07#1"]
+    for turn in turns:
+        assert turn.answered_by == "model" and turn.answer_text == OUT_OF_SCOPE
+
+
+def test_the_source_and_ubo_lines_are_shown_verbatim_on_the_phase_b_case() -> None:
+    (registry,) = _phase_b(_Fixed(MOCK_SOURCE), frozenset({"P01#1"}))
+    assert registry.answer_text == MOCK_SOURCE and registry.unmapped == 0
+    (owners,) = _phase_b(_Fixed(UBO_CHECK_NOT_RUN), frozenset({"P02#0"}))
+    assert owners.answer_text == UBO_CHECK_NOT_RUN and owners.unmapped == 0
+
+
+@pytest.mark.parametrize("name", ["self-test-injection", "self-test-prose"])
+def test_no_unsafe_line_is_shown_on_any_phase_b_question(name: str) -> None:
+    from assistant_eval.models import SELF_TESTS
+
+    turns = _phase_b(SELF_TESTS[name]())
+    assert len(turns) == 17
+    for turn in turns:
+        assert turn.unmapped == 0
+        for claim in ("approved", "legally verified", "ACRA is live", "Submit it"):
+            assert claim not in turn.answer_text
