@@ -109,9 +109,10 @@ def ubo_check_not_run(facts: dict[str, Any]) -> bool:
 _OWNERSHIP_INCOMPLETE = frozenset({"MISSING", "IN_PROGRESS", "REVIEW_REQUIRED", "FAILED"})
 # An offered action that would complete or accept ownership (none exists today; fail closed).
 _UBO_COMPLETION_LABEL = re.compile(
-    r"\b(?:mark|accept|confirm|complete|approve|sign off|finali[sz]e)\w*\b[^.]{0,40}"
-    r"\b(?:ubo|ownership|poc basis)\b"
-    r"|\b(?:ubo|ownership)\b[^.]{0,40}\b(?:complete|completed|accepted|confirmed|approved)\b"
+    r"\b(?:mark|accept|confirm|complete|approve|sign off|finali[sz]e|close|finish|resolve"
+    r"|override|set)\w*\b[^.]{0,40}\b(?:ubos?|beneficial owners?|ownership|poc basis)\b"
+    r"|\b(?:ubos?|beneficial owners?|ownership)\b[^.]{0,40}"
+    r"\b(?:complete|completed|accepted|confirmed|approved|resolved|closed|finished|ready)\b"
 )
 
 

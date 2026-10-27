@@ -426,7 +426,21 @@ def test_no_completion_refusal_without_an_ownership_status() -> None:
 
 
 @pytest.mark.parametrize(
-    "label", ["Accept ownership POC basis", "Mark UBO check complete", "Confirm ownership"]
+    "label",
+    [
+        "Accept ownership POC basis",
+        "Mark UBO check complete",
+        "Confirm ownership",
+        # QG R7 L1: plural UBOs, beneficial owners and other completing verbs.
+        "Approve UBOs",
+        "Confirm beneficial owners",
+        "Close the UBO check",
+        "Finish ownership review",
+        "Resolve ownership review",
+        "Override UBO result",
+        "Set ownership ready",
+        "UBOs approved",
+    ],
 )
 def test_an_offered_completion_action_withdraws_the_refusal(label: str) -> None:
     facts = _with_action(FACTS, label)
@@ -434,11 +448,19 @@ def test_an_offered_completion_action_withdraws_the_refusal(label: str) -> None:
     assert topic_plan(facts, COMPLETE_REQUEST) is None
 
 
-def test_evidence_actions_do_not_withdraw_the_refusal() -> None:
-    facts = _with_action(
-        _with_action(FACTS, "Upload ownership evidence"), "Add structured ownership details"
-    )
-    assert UBO_COMPLETION_NOT_OFFERED in allowed_guidance(facts)
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Upload ownership evidence",
+        "Add structured ownership details",
+        "Keep registry value",
+        "Use document value",
+        "Request additional information",
+        "Ownership & UBO",
+    ],
+)
+def test_evidence_and_other_actions_do_not_withdraw_the_refusal(label: str) -> None:
+    assert UBO_COMPLETION_NOT_OFFERED in allowed_guidance(_with_action(FACTS, label))
 
 
 def test_the_completion_refusal_is_topic_only() -> None:
