@@ -1,7 +1,7 @@
 {
  "schema": "assistant-eval-snapshots/1",
  "note": "Synthetic. What each evaluation question offers the model, built by scripts/evaluate_answers.py snapshot. Not a model result.",
- "built_with": {"embedder": "none (embeddings off: keyword and case-context retrieval)", "prompt_version": "8f88263b13ee28e8", "retrieval_clock": "2026-10-26T00:00:00+00:00", "route": "/chat/stream", "scenarios": "21", "settings": "code defaults (environment and .env ignored)", "store_clock": "2026-10-26T00:00:00+00:00", "turns": "84"},
+ "built_with": {"embedder": "none (embeddings off: keyword and case-context retrieval)", "prompt_version": "d6287dd30621c74b", "retrieval_clock": "2026-10-26T00:00:00+00:00", "route": "/chat/stream", "scenarios": "21", "settings": "code defaults (environment and .env ignored)", "store_clock": "2026-10-26T00:00:00+00:00", "turns": "84"},
  "lines": {
   "C-02f94343320e": {"entry_id": null, "id": "C-02f94343320e", "source": "catalog", "text": "Registry data in this case comes from ACRA (MOCK), not the live ACRA service.", "version": null},
   "C-062ce0002ef0": {"entry_id": null, "id": "C-062ce0002ef0", "source": "catalog", "text": "Open the \"Ownership & UBO\" section to inspect the current case evidence.", "version": null},

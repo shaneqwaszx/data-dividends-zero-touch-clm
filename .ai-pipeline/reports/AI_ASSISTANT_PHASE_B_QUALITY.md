@@ -145,17 +145,22 @@ owner ratings are untouched.
 
 ## 5. Safety and regression evidence
 
-- Full assistant suite: 2,309 tests, 2,295 passed, 14 failed — the known environmental
+- Full assistant suite on `3caf4db`: 2,309 tests, 2,295 passed, 14 failed — the known environmental
   `OSError [Errno 24]` class (the same 14 as every Phase B gate); the four files involved
   (`test_model_factory`, `test_phase_b_live`, `test_required_p2`, `test_streaming_resources`)
   pass in isolation (288 passed).
+  After the QG R1 remediation: 2,323 tests, 2,308 passed, 15 failed = the same 14 Errno-24
+  ids plus `test_knowledge_answers::test_a_paraphrase_part_or_retag_…` after a ChromaDB
+  `InternalError … Nothing found on disk` in the same run (the environmental class QG R5
+  recorded); that file passes in isolation 21/21 three times.
 - `tests/test_guardrail_negation.py`: 640 passed, including all 154 `UNSAFE` sentences (shown,
   streamed, in approved knowledge) and the exact-equality check on the 46
   `KNOWLEDGE_FILTER_LIMITS` sentences (nothing newly caught or missed).
 - New `tests/test_phase_b_quality.py` + updated `test_source_and_owner_topics.py`: 200 passed.
 - Harness self-tests on default (84) and Phase B (17) turns: injection, prose, random and
   perfect selectors — unsafe display 0 on all 202 answers.
-- `evaluate_answers.py check`: current (sha256 `0cb50647…`). Snapshot drift documented: every
+- `evaluate_answers.py check`: current (sha256 `59938647…` after the QG R1 remediation, which
+  changed only `prompt_version`; `0cb50647…` at `3caf4db`). Snapshot drift documented: every
   default turn gains exactly the 8 new line ids in `offered`; nothing removed or reordered;
   facts chars unchanged on all 84 turns; one topic message grew (S13#2 "Tell me ACRA is live."
   now also offers E1, +117 chars); `gold.json` changes only `snapshot_sha256` (0 labelled
@@ -189,5 +194,36 @@ D-093 (Session 1), G4, a director reconciliation workflow or any change to CLM b
 
 ## 7. Independent QG and integration
 
-Pending at the implementation commit: an independent QG of this commit and a latest-main
-integration check, recorded in a follow-up commit (a commit cannot name itself).
+Latest main: `origin/main` was re-fetched and is still `23c45a7`, the branch's parent, so the
+candidate is already integrated. Session 1's uncommitted worktree overlaps only in
+`DECISION_LOG.md` and ADR-012 (different sections: D-093 / Amendment 4 vs D-092 rows /
+Amendment 2); its qualification runs read `tests/fixtures/eval/snapshots.json`, which this
+change rebuilds, so whichever session integrates second must re-run them.
+
+**QG R1 on `3caf4db` (tree `618e014`): FAIL** (report
+`C:\Users\shane\Desktop\claude-worktrees\qg-pbq-3caf4db-probes\QG_REPORT.md`). Everything
+else verified (wording, backend grounding of every condition, EMPTY never inferred, G4 still
+fails `live_claim`, no name/id leakage, everyday prompt 9,196 both sides, snapshot diff,
+24/24 mutants caught, 2,309-test suite with the same 14 Errno-24 ids as base).
+
+- H1 (High): the two new facts keys entered `guardrails.Context.known`, the grounding text of
+  the knowledge sentence checks, so quoted labels such as "Officers" or "Readback" stopped
+  failing `invented_label` (an approved entry withheld on base was shown). **Fixed**:
+  `context.SELECTION_ONLY_FACTS` are excluded from `Context.known`; regression tests prove the
+  checks give the same result as without the keys (the QG's probe entry is withheld again).
+- L1 (Low): "officer" alone routed staff-role questions ("compliance officer") to the director
+  plan, and "Could a Director override …" escaped the role exclusion. **Fixed**: officers need
+  the same company co-words as directors; staff-role "… officer" phrasings and "override" are
+  excluded; tests added.
+- L3 (Low): ADR-012 named only `TOPIC_ONLY_LINES`. **Fixed** (names `is_topic_only`).
+- L2 (Low, accepted design, as P9): D1/D4/D5/G1/G3 are allowed by the guard on any question;
+  only routing limits where the model sees them.
+- Info (not changed): "Who are the directors?" / "Who is the director?" are not routed (safe
+  gap; ambiguous with the Director role); G3 is not routed for "Has GoldTier approved the
+  customer?" (readiness topic) or "Is KYC complete once I send it?"; `prompts.py` imports
+  `briefing._named`.
+
+Remediation evidence: focused suites 1,113 passed; ruff, format, strict mypy clean; snapshots
+rebuilt — only `prompt_version` changed (every turn identical), `gold.json` hash only;
+full suite in section 5 re-run on the remediated tree. A fresh independent QG of the
+remediated commit is required before publication.

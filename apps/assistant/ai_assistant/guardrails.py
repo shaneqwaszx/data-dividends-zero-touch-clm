@@ -52,6 +52,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .context import SELECTION_ONLY_FACTS
 from .guide import (
     APPROVAL_NOT_OFFERED,
     CASE_PAGE_SECTIONS,
@@ -551,8 +552,9 @@ class Context:
 
     def __init__(self, facts: dict[str, Any]) -> None:
         # Values, labels and contacts must come from the case facts; knowledge text never
-        # vouches for itself.
-        self.known = json.dumps(facts, ensure_ascii=False, default=str).lower()
+        # vouches for itself. Selection-only facts are not grounding.
+        grounding = {key: value for key, value in facts.items() if key not in SELECTION_ONLY_FACTS}
+        self.known = json.dumps(grounding, ensure_ascii=False, default=str).lower()
         self.allowed = allowed_actions(facts)
         self.sections = {str(name) for name in facts.get("case_page_sections") or []}
         overall = facts.get("overall") or {}

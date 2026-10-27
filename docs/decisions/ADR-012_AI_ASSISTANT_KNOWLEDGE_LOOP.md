@@ -595,7 +595,8 @@ shareholders" questions to the UBO line and the ownership-evidence lines when
 `OWNERSHIP_REQUIRED` is listed; (iii) requests to complete the UBO check to the completion
 refusal, the UBO line where allowed, the open ownership item and the "Ownership & UBO"
 section. None requires a line, so a bare decline is never padded, and the no-model answer
-is unchanged. Topic-only lines (`guide.TOPIC_ONLY_LINES`) are allowed lines the model sees
+is unchanged. Topic-only lines (`guide.is_topic_only`: the fixed `guide.TOPIC_ONLY_LINES` and,
+since D-092 P12, the officer line filled with its environment) are allowed lines the model sees
 only in such a topic message. Rule 1 names allowed_guidance and KNOWLEDGE as the sources;
 whether models also use a line listed only in the topic message is not yet verified live.
 
@@ -609,8 +610,9 @@ line; an entity-status question to the entity-status line; the registry-status p
 entity-status line; a GoldTier handoff question goes to the not-ready line, the Send and
 not-approval lines, the submission-result line where allowed and "GoldTier Details & Status".
 All new lines are topic-only, none is required, and the everyday prompt and the no-model
-answer are unchanged. The case facts gain two values used only to choose lines and not shown
-to the model: the status of the registry officer lookup (P11; never names, roles, ids or
+answer are unchanged. The case facts gain two values used only to choose lines, not shown to
+the model and excluded from the grounding text of the knowledge sentence checks
+(`context.SELECTION_ONLY_FACTS`): the status of the registry officer lookup (P11; never names, roles, ids or
 counts; EMPTY only from a successful lookup on the case's own current acquisition) and the
 GoldTier readback status. A proposed G4 sentence about the GoldTier environment was held: each
 wording containing "production GoldTier" fails the unchanged live-claim check.

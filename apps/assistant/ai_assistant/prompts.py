@@ -389,16 +389,20 @@ _UBO_COMPLETION_REQUEST = re.compile(
 # A question about the company's directors or officers, not the app's Director role (Directors
 # approve knowledge and handle enhancement requests).
 _COMPANY_DIRECTORS = re.compile(
-    r"\bofficers?\b|\bboard of directors\b"
-    r"|\bdirectors?\b[^?]{0,60}\b(?:of|appoint\w*|resign\w*|named|listed|differ\w*|mismatch\w*"
-    r"|acra|registry|record|document)\b"
+    r"\bboard of directors\b"
+    r"|\b(?:directors?|officers?)\b[^?]{0,60}\b(?:of|appoint\w*|resign\w*|named|listed"
+    r"|differ\w*|mismatch\w*|acra|registry|record|document)\b"
     r"|\b(?:appoint\w*|resign\w*|named|listed|acra|registry|record|document|company'?s?)\b"
-    r"[^?]{0,60}\bdirectors?\b"
+    r"[^?]{0,60}\b(?:directors?|officers?)\b"
 )
+# The app's Director role, and staff roles named "officer" (a compliance officer is not one of
+# the company's officers).
 _DIRECTOR_ROLE = re.compile(
     r"\bdirectors?(?:'s)?\b[^?]{0,40}\b(?:approv\w*|publish\w*|knowledge|enhancement|queue"
-    r"|escalat\w*|permission\w*|role)\b"
+    r"|escalat\w*|permission\w*|role|overrid\w*)\b"
     r"|\b(?:ask|tell|contact|escalate to)\s+(?:a\s+|the\s+|my\s+|your\s+)?directors?\b"
+    r"|\b(?:compliance|onboarding|relationship|kyc|aml|case|credit|risk|review\w*|security"
+    r"|operations|data protection)\s+officers?\b"
 )
 # A director question about a difference, rather than asking who the directors are.
 _DIRECTOR_DIFFERENCE = re.compile(

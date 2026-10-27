@@ -337,6 +337,10 @@ def _readiness(summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Facts that only choose catalog lines (D-092 P11): never shown to the model and never
+# grounding for knowledge text (guardrails.Context), so they cannot vouch for a quoted label.
+SELECTION_ONLY_FACTS = ("goldtier_readback", "registry_officers")
+
 # Statuses of the backend's registry operation result (domain RegistryOperationStatus).
 _OFFICER_LOOKUP_STATUSES = frozenset(
     {"COMPLETE", "EMPTY", "FAILED", "NOT_ATTEMPTED", "UNSUPPORTED"}

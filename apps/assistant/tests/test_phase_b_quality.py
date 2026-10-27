@@ -16,9 +16,11 @@ import pytest
 
 from ai_assistant.briefing import CONTACT, DIFFERENCE, question_topic
 from ai_assistant.clm_client import CaseSnapshot
-from ai_assistant.context import build_case_facts
+from ai_assistant.context import SELECTION_ONLY_FACTS, build_case_facts
 from ai_assistant.guardrails import (
+    Context,
     allowed_guidance,
+    knowledge_lines,
     officers_line,
     sentence_problem,
     validate_answer,
@@ -364,6 +366,37 @@ def test_every_new_line_is_topic_only() -> None:
         assert OFFICERS_EMPTY_MOCK not in sent["content"]
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        'Open the "Officers" tab to see who the directors are.',
+        'Press "Readback" to refresh the lookup.',
+        'Choose "Empty" when no officer is listed.',
+        'A "Success" banner means the readback finished.',
+        'Check "registry_officers" before answering.',
+        'Check "goldtier_readback" before sending.',
+    ],
+)
+def test_selection_only_facts_never_ground_knowledge_text(body: str) -> None:
+    # QG R1 H1: the two selection-only values must not let a quoted label pass the sentence
+    # checks; the result must match the case without them.
+    confirmed = _target("SUBMISSION_CONFIRMED", "SUCCESS")
+    for facts in (FACTS, confirmed, _with(FACTS, registry_officers="FAILED")):
+        plain = copy.deepcopy(facts)
+        for key in SELECTION_ONLY_FACTS:
+            plain.pop(key)
+        assert sentence_problem(body, facts) == sentence_problem(body, plain) == "invented_label"
+        assert knowledge_lines(facts, [("G1", body)]) == []
+        result = validate_answer(f"{body} [G1]", facts)
+        assert result.text == "" and result.left_out == 1
+
+
+def test_selection_only_facts_are_the_two_new_keys() -> None:
+    assert set(SELECTION_ONLY_FACTS) == {"registry_officers", "goldtier_readback"}
+    known = Context(FACTS).known
+    assert "registry_officers" not in known and "goldtier_readback" not in known
+
+
 def test_the_everyday_prompt_is_unchanged_by_the_new_facts() -> None:
     plain = copy.deepcopy(FACTS)
     plain.pop("registry_officers")
@@ -449,6 +482,12 @@ def test_a_director_question_without_a_lookup_status_is_still_explained() -> Non
         "Can a Director publish this enhancement for the registry?",
         "Does the Director role have permission to see this document?",
         "Escalate to the Director about the ACRA record.",
+        "Could a Director override the ACRA record?",  # QG R1 L1
+        # Staff roles named "officer", not the company's officers (QG R1 L1).
+        "Who is the compliance officer for this case?",
+        "Which onboarding officer handles this case?",
+        "Who is the compliance officer of this company?",
+        "Is there a KYC officer named on the document?",
         # Unrelated.
         "What is the weather in Singapore today?",
         "Write me a Python script that downloads company records from ACRA.",
@@ -458,6 +497,15 @@ def test_a_director_question_without_a_lookup_status_is_still_explained() -> Non
 def test_other_questions_get_no_director_plan(question: str) -> None:
     plan = topic_plan(FACTS, question)
     assert plan is None or not ({DIRECTORS_NOT_READ, OFFICERS_EMPTY_MOCK} & set(plan.lines))
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["Which officers does ACRA list for this company?", "Who are the officers of this company?"],
+)
+def test_company_officer_questions_get_the_lookup_plan(question: str) -> None:
+    plan = topic_plan(FACTS, question)
+    assert plan is not None and plan.lines == (OFFICERS_EMPTY_MOCK, REGISTRY_SECTION)
 
 
 def test_contact_and_named_field_topics_keep_precedence_over_directors() -> None:
