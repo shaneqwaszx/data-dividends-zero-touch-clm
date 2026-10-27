@@ -64,6 +64,7 @@ from .guide import (
     READINESS_EXPLANATIONS,
     READINESS_NEEDS,
     RULE_PLAIN,
+    UBO_CHECK_NOT_RUN,
     difference_explanations,
     difference_line,
     who_resolves_line,
@@ -89,6 +90,17 @@ def not_ready(facts: dict[str, Any]) -> bool:
         return False
     readiness = facts.get("readiness") or {}
     return bool(readiness.get("blockers") or facts.get("blockers"))
+
+
+def ubo_check_not_run(facts: dict[str, Any]) -> bool:
+    """No ownership analysis exists for the case, so there is no UBO result. The backend
+    readiness check lists OWNERSHIP_REQUIRED and sets ownership to MISSING together, only when
+    the case has no ownership analysis (backend services/clm_orchestration.py); both must hold."""
+
+    needs = facts.get("still_needed_before_goldtier") or []
+    required = any(need.get("code") == "OWNERSHIP_REQUIRED" for need in needs)
+    sections = (facts.get("readiness") or {}).get("sections") or {}
+    return required and sections.get("ownership") == "MISSING"
 
 
 def approval_offered(facts: dict[str, Any]) -> bool:
@@ -191,6 +203,8 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
             if need.get("what") == what and need.get("where_on_the_case_page") == where:
                 allowed.append(f"{what} (section: {where})")
         allowed.extend(READINESS_EXPLANATIONS.get(str(need.get("code")), ()))
+    if ubo_check_not_run(facts):
+        allowed.append(UBO_CHECK_NOT_RUN)
     # The non-live registry source, only when the backend's own source says ACRA (<env>).
     source_line = registry_source_line(facts, acra_only=True)
     if source_line is not None:

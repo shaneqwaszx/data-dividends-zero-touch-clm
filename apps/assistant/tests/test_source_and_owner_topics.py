@@ -18,10 +18,11 @@ from ai_assistant.briefing import fallback_answer, question_topic
 from ai_assistant.guardrails import (
     allowed_guidance,
     registry_source_line,
+    ubo_check_not_run,
     validate_answer,
     with_required_lines,
 )
-from ai_assistant.guide import MOCK_NOT_LIVE, OUT_OF_SCOPE
+from ai_assistant.guide import MOCK_NOT_LIVE, OUT_OF_SCOPE, READINESS_NEEDS, UBO_CHECK_NOT_RUN
 from ai_assistant.prompts import topic_message, topic_plan
 from tests.test_explanations import FACTS
 
@@ -119,7 +120,8 @@ def test_no_source_steering_without_a_non_live_acra_source() -> None:
 def test_a_ubo_question_is_steered_to_the_missing_ownership_evidence(question: str) -> None:
     plan = topic_plan(FACTS, question)
     assert plan is not None and plan.required == ()
-    assert plan.lines[0] == OWNERSHIP_NEED
+    # The owner-approved direct answer first, then the ownership evidence still needed.
+    assert plan.lines[:2] == (UBO_CHECK_NOT_RUN, OWNERSHIP_NEED)
     allowed = set(allowed_guidance(FACTS))
     assert all(line in allowed for line in plan.lines)
     # No owner is named and nothing says there are no UBOs.
@@ -130,6 +132,81 @@ def test_a_ubo_question_is_steered_to_the_missing_ownership_evidence(question: s
 
 def test_no_ubo_steering_when_ownership_evidence_is_not_missing() -> None:
     assert topic_plan(_without_ownership_need(), UBO_QUESTION) is None
+
+
+# --- the "cannot name any UBOs yet" line: only while no ownership analysis exists ----------
+
+# Backend readiness (services/clm_orchestration.py): the ownership section status and the
+# blocker code it lists for each state of the case's ownership analysis.
+OWNERSHIP_STATES = {
+    "no analysis": ("MISSING", "OWNERSHIP_REQUIRED"),
+    "analysed or accepted": ("READY", None),
+    "under review": ("REVIEW_REQUIRED", "OWNERSHIP_REVIEW_REQUIRED"),
+    "failed": ("FAILED", "OWNERSHIP_ANALYSIS_FAILED"),
+    "in progress": ("IN_PROGRESS", "OWNERSHIP_ANALYSIS_INCOMPLETE"),
+}
+
+
+def _ownership(status: str | None, code: str | None) -> dict[str, Any]:
+    facts = _without_ownership_need()
+    if code is not None:
+        what, where = READINESS_NEEDS[code]
+        facts["still_needed_before_goldtier"].append(
+            {"code": code, "what": what, "where_on_the_case_page": where}
+        )
+    sections = facts["readiness"]["sections"]
+    if status is None:
+        sections.pop("ownership", None)
+    else:
+        sections["ownership"] = status
+    return facts
+
+
+@pytest.mark.parametrize("state", OWNERSHIP_STATES)
+def test_the_ubo_line_is_offered_only_while_no_ownership_analysis_exists(state: str) -> None:
+    facts = _ownership(*OWNERSHIP_STATES[state])
+    offered = UBO_CHECK_NOT_RUN in allowed_guidance(facts)
+    assert offered == (state == "no analysis")
+    assert ubo_check_not_run(facts) == offered
+    plan = topic_plan(facts, UBO_QUESTION)
+    assert (plan is not None and UBO_CHECK_NOT_RUN in plan.lines) == offered
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (None, "OWNERSHIP_REQUIRED"),  # the section status is missing from the facts
+        ("READY", "OWNERSHIP_REQUIRED"),  # contradictory facts
+        ("MISSING", None),  # no OWNERSHIP_REQUIRED listed
+    ],
+)
+def test_the_ubo_line_needs_both_backend_signals(status: str | None, code: str | None) -> None:
+    facts = _ownership(status, code)
+    assert UBO_CHECK_NOT_RUN not in allowed_guidance(facts)
+    assert not ubo_check_not_run(facts)
+
+
+def test_the_ubo_line_names_no_one_and_claims_no_absence() -> None:
+    assert UBO_CHECK_NOT_RUN == (
+        "This case cannot name any UBOs yet because the UBO check has not run."
+    )
+    lowered = UBO_CHECK_NOT_RUN.lower()
+    assert "no ubo" not in lowered and "there are no" not in lowered
+    assert "verified" not in lowered and "confirmed" not in lowered
+
+
+def test_the_ubo_line_is_shown_exactly_and_only_where_allowed() -> None:
+    assert validate_answer(UBO_CHECK_NOT_RUN, FACTS).text == UBO_CHECK_NOT_RUN
+    ready = _ownership("READY", None)
+    rejected = validate_answer(UBO_CHECK_NOT_RUN, ready)
+    assert rejected.text == "" and rejected.left_out == 1
+    paraphrase = validate_answer("This case has no UBOs.", FACTS)
+    assert paraphrase.text == "" and paraphrase.left_out == 1
+
+
+def test_the_ownership_evidence_topic_does_not_add_the_ubo_line() -> None:
+    plan = topic_plan(FACTS, "What ownership evidence is needed?")
+    assert plan is not None and UBO_CHECK_NOT_RUN not in plan.lines
 
 
 @pytest.mark.parametrize(

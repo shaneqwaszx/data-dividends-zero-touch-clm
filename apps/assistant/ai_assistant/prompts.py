@@ -48,6 +48,7 @@ from .guide import (
     NOT_READY,
     READINESS_EXPLANATIONS,
     READINESS_NEEDS,
+    UBO_CHECK_NOT_RUN,
     difference_line,
 )
 from .instructions import system_prompt
@@ -380,7 +381,8 @@ def _source_or_owners_lines(facts: dict[str, Any], question: str) -> tuple[str, 
             ]
     if _OWNERS_QUESTION.search(text) and _ownership_required(facts):
         _, lines, _ = _topic_lines(OWNERSHIP, [], facts)
-        return "who the ultimate beneficial owners are", lines
+        # The direct answer first; topic_plan keeps it only where it is an allowed line.
+        return "who the ultimate beneficial owners are", [UBO_CHECK_NOT_RUN, *lines]
     return None
 
 
