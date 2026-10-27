@@ -522,14 +522,121 @@ def test_mismatch_quarantines_and_stops_the_batch(
         _settle_one(ledger, model)
 
 
-def test_unpublished_metadata_quarantines(tmp_path: Path) -> None:
+def test_unpublished_metadata_quarantines_after_the_bounded_wait(tmp_path: Path) -> None:
     ledger, model = _completed_call(tmp_path)
     call = _settle_one(ledger, model)
-    account = _Account([httpx.Response(404, json={})] * 8).client()
-    account._sleep = lambda _: None
+    mock = _Account([httpx.Response(404, json={})] * live.METADATA_ATTEMPTS)
+    account = mock.client()
+    sleeps: list[float] = []
+    account._sleep = sleeps.append
     row = live.verify_call(call, ENDPOINT, account, ledger, "P00#0@0")
     assert row.verification == "quarantined" and row.verification_note == "metadata not_published"
     assert ledger.status().breaker_open
+    # Bounded: 25 requests, 24 waits of 5 s (two minutes), then fail closed.
+    assert len(mock.requests) == 25 and sleeps == [5.0] * 24 and sum(sleeps) == 120.0
+
+
+def test_metadata_published_late_within_the_wait_verifies(tmp_path: Path) -> None:
+    """The smoke call saw no metadata within ~14 s; a later publication still verifies."""
+
+    ledger, model = _completed_call(tmp_path)
+    call = _settle_one(ledger, model)
+    mock = _Account([httpx.Response(404, json={})] * 10 + [httpx.Response(200, json=_generation())])
+    account = mock.client()
+    account._sleep = lambda _: None
+    row = live.verify_call(call, ENDPOINT, account, ledger, "P00#0@0")
+    assert row.verification == "verified" and not ledger.status().breaker_open
+    assert len(mock.requests) == 11
+
+
+def _quarantined_by_missing_metadata(tmp_path: Path) -> BudgetLedger:
+    ledger, model = _completed_call(tmp_path)
+    call = _settle_one(ledger, model)
+    account = _Account([httpx.Response(404, json={})] * live.METADATA_ATTEMPTS).client()
+    account._sleep = lambda _: None
+    live.verify_call(call, ENDPOINT, account, ledger, "P00#0@0")
+    status = ledger.status()
+    assert status.breaker_open and status.breaker_code == "routing_anomaly"
+    return ledger
+
+
+def _key(usage: str) -> KeyStatus:
+    return KeyStatus(Decimal("1.00"), None, Decimal("1.00") - Decimal(usage), Decimal(usage))
+
+
+def test_recheck_passes_when_late_metadata_matches_and_changes_nothing(tmp_path: Path) -> None:
+    ledger = _quarantined_by_missing_metadata(tmp_path)
+    before = ledger.status()
+    report = live.Preflight()
+    rows = live.recheck_quarantined(report, ledger, _metadata_account(), ENDPOINT, _key("0.00072"))
+    assert report.passed, report.lines()
+    assert [r.verification_note for r in rows] == ["metadata matches"]
+    # Read-only: the call stays quarantined and the breaker stays open.
+    assert [c.verification for c in ledger.closed_calls_after(0)] == ["quarantined"]
+    assert ledger.status() == before
+
+
+@pytest.mark.parametrize(
+    ("changes", "usage", "failing"),
+    [
+        ({"provider_name": "Other Provider"}, "0.00072", "recheck.call_1"),
+        ({"model": "openai/gpt-oss-20b"}, "0.00072", "recheck.call_1"),
+        ({"total_cost": 0.0009}, "0.00072", "recheck.call_1"),
+        ({}, "0.5", "recheck.usage_accounted"),
+    ],
+)
+def test_recheck_fails_on_any_mismatch(
+    tmp_path: Path, changes: dict[str, Any], usage: str, failing: str
+) -> None:
+    ledger = _quarantined_by_missing_metadata(tmp_path)
+    report = live.Preflight()
+    live.recheck_quarantined(report, ledger, _metadata_account(**changes), ENDPOINT, _key(usage))
+    assert [c.name for c in report.checks if not c.ok] == [failing]
+    assert ledger.status().breaker_open
+
+
+def test_recheck_fails_when_metadata_is_still_unpublished(tmp_path: Path) -> None:
+    ledger = _quarantined_by_missing_metadata(tmp_path)
+    account = _Account([httpx.Response(404, json={})] * live.METADATA_ATTEMPTS).client()
+    account._sleep = lambda _: None
+    report = live.Preflight()
+    rows = live.recheck_quarantined(report, ledger, account, ENDPOINT, _key("0.00072"))
+    assert not report.passed and rows[0].verification_note == "metadata not_published"
+
+
+def test_recheck_needs_a_routing_anomaly_breaker_and_a_quarantined_call(tmp_path: Path) -> None:
+    ledger, model = _completed_call(tmp_path)
+    _settle_one(ledger, model)
+    live.verify_call(
+        ledger.closed_calls_after(0)[-1], ENDPOINT, _metadata_account(), ledger, "P00#0@0"
+    )
+    report = live.Preflight()  # verified call, breaker closed: nothing to recheck
+    live.recheck_quarantined(report, ledger, _metadata_account(), ENDPOINT, _key("0.00072"))
+    assert {c.name for c in report.checks if not c.ok} == {
+        "recheck.breaker_routing_anomaly",
+        "recheck.quarantined_calls",
+    }
+    (tmp_path / "cost").mkdir()
+    drift_ledger, drift_model = _completed_call(tmp_path / "cost")
+    call = _settle_one(drift_ledger, drift_model)
+    live.verify_call(call, ENDPOINT, _metadata_account(total_cost=0.0009), drift_ledger, "x")
+    report = live.Preflight()  # breaker opened for reconcile_drift: not a recheck case
+    live.recheck_quarantined(report, drift_ledger, _metadata_account(), ENDPOINT, _key("0.00072"))
+    assert "recheck.breaker_routing_anomaly" in {c.name for c in report.checks if not c.ok}
+
+
+def test_recheck_cli_refuses_without_the_gate_and_writes_no_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli()
+    monkeypatch.delenv("AI_ASSISTANT_REMOTE_LIVE_DECISION", raising=False)
+    monkeypatch.setattr("sys.argv", ["evaluate_answers.py", "recheck", "--out", str(tmp_path)])
+    assert cli.main() == 1
+    out = capsys.readouterr().out
+    assert "RECHECK FAIL" in out and "refused" in out
+    (record,) = tmp_path.glob("phase_b/*-recheck/recheck.json")
+    data = json.loads(record.read_text(encoding="utf-8"))
+    assert data["calls"] == [] and not any(c["ok"] for c in data["checks"])
 
 
 def test_harness_run_separates_answers_from_telemetry(tmp_path: Path) -> None:

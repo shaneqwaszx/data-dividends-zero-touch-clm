@@ -17,10 +17,11 @@ Before the first call, ``preflight`` must pass every check (it fails closed):
     owner      the owner attests auto top-up is off and prompt logging is off (neither is
                readable through the API)
 
-After every turn the monitor fetches generation metadata for each new call: serving provider,
-model and total cost must match, or the call is quarantined and the ledger breaker opens,
-which refuses every later call (the batch stops). Answer text goes to ``answers.jsonl``;
-everything else is content-free and goes to ``calls.json``.
+After every turn the monitor fetches generation metadata for each new call (waiting, bounded,
+while it is not yet published): serving provider, model and total cost must match, or the
+call is quarantined and the ledger breaker opens, which refuses every later call (the batch
+stops). ``recheck_quarantined`` takes a later, read-only look at quarantined calls. Answer
+text goes to ``answers.jsonl``; everything else is content-free and goes to ``calls.json``.
 """
 
 import json
@@ -52,6 +53,11 @@ from ai_assistant.openrouter_account import (
 # Owner directive (Phase B initial batch): at most US$1 of inference credits.
 ALLOCATION_LIMIT_USD = Decimal("1.00")
 _PUBLIC_TIMEOUT = 20.0
+# Generation metadata can lag the answer: the first live smoke call saw none within ~14 s
+# (8 attempts, 2 s apart). Wait at most two minutes (25 attempts, 5 s apart) before a call
+# counts as unverifiable; the wait stays bounded and the outcome still fails closed.
+METADATA_ATTEMPTS = 25
+METADATA_WAIT_SECONDS = 5.0
 
 
 @dataclass
@@ -306,14 +312,8 @@ class CallRow:
     verification_note: str = ""
 
 
-def verify_call(
-    call: ClosedCall,
-    endpoint: ApprovedEndpoint,
-    account: OpenRouterAccount,
-    ledger: BudgetLedger,
-    turn: str,
-) -> CallRow:
-    row = CallRow(
+def _row(call: ClosedCall, turn: str) -> CallRow:
+    return CallRow(
         turn=turn,
         call_id=call.call_id,
         state=call.state,
@@ -325,22 +325,17 @@ def verify_call(
         reasoning_tokens=call.reasoning_tokens,
         verification=call.verification,
     )
-    if call.verification != "unverified":
-        row.verification_note = "already " + call.verification
-        return row
-    facts: GenerationFacts | None = None
-    if call.generation_ref is None:
-        # Missing verification evidence stops the batch (plan 6.7), whatever the call's state:
-        # a refusal, a cancellation or a failure before any generation id was seen.
-        ledger.record_verification(call.call_id, verified=False, breaker_code="routing_anomaly")
-        row.verification, row.verification_note = "quarantined", "no generation reference"
-        return row
-    try:
-        facts = account.generation(call.generation_ref)
-    except AccountCheckError as error:
-        ledger.record_verification(call.call_id, verified=False, breaker_code="routing_anomaly")
-        row.verification, row.verification_note = "quarantined", "metadata " + error.code
-        return row
+
+
+def _metadata(account: OpenRouterAccount, ref: str) -> GenerationFacts:
+    return account.generation(ref, attempts=METADATA_ATTEMPTS, wait_seconds=METADATA_WAIT_SECONDS)
+
+
+def _compare(
+    row: CallRow, call: ClosedCall, facts: GenerationFacts, endpoint: ApprovedEndpoint
+) -> list[str]:
+    """Copy the metadata into ``row`` and return what does not match (empty: all match)."""
+
     row.provider_name = facts.provider_name
     row.metadata_model = facts.model
     row.metadata_cost_usd = f"{facts.total_cost_usd:.8f}"
@@ -352,14 +347,7 @@ def verify_call(
         call.state != "settled"
         or abs(micro_usd(facts.total_cost_usd) - call.charged_micro_usd) <= 1
     )
-    if provider_ok and model_ok and cost_ok:
-        ledger.record_verification(call.call_id, verified=True, breaker_code="routing_anomaly")
-        row.verification = "verified"
-        return row
-    code = "routing_anomaly" if not (provider_ok and model_ok) else "reconcile_drift"
-    ledger.record_verification(call.call_id, verified=False, breaker_code=code)
-    row.verification = "quarantined"
-    row.verification_note = ", ".join(
+    return [
         note
         for ok, note in (
             (provider_ok, "provider mismatch"),
@@ -367,8 +355,94 @@ def verify_call(
             (cost_ok, "cost mismatch"),
         )
         if not ok
-    )
+    ]
+
+
+def verify_call(
+    call: ClosedCall,
+    endpoint: ApprovedEndpoint,
+    account: OpenRouterAccount,
+    ledger: BudgetLedger,
+    turn: str,
+) -> CallRow:
+    row = _row(call, turn)
+    if call.verification != "unverified":
+        row.verification_note = "already " + call.verification
+        return row
+    facts: GenerationFacts | None = None
+    if call.generation_ref is None:
+        # Missing verification evidence stops the batch (plan 6.7), whatever the call's state:
+        # a refusal, a cancellation or a failure before any generation id was seen.
+        ledger.record_verification(call.call_id, verified=False, breaker_code="routing_anomaly")
+        row.verification, row.verification_note = "quarantined", "no generation reference"
+        return row
+    try:
+        facts = _metadata(account, call.generation_ref)
+    except AccountCheckError as error:
+        ledger.record_verification(call.call_id, verified=False, breaker_code="routing_anomaly")
+        row.verification, row.verification_note = "quarantined", "metadata " + error.code
+        return row
+    mismatches = _compare(row, call, facts, endpoint)
+    if not mismatches:
+        ledger.record_verification(call.call_id, verified=True, breaker_code="routing_anomaly")
+        row.verification = "verified"
+        return row
+    breaker = "reconcile_drift" if mismatches == ["cost mismatch"] else "routing_anomaly"
+    ledger.record_verification(call.call_id, verified=False, breaker_code=breaker)
+    row.verification = "quarantined"
+    row.verification_note = ", ".join(mismatches)
     return row
+
+
+def recheck_quarantined(
+    report: Preflight,
+    ledger: BudgetLedger,
+    account: OpenRouterAccount,
+    endpoint: ApprovedEndpoint,
+    key: KeyStatus,
+) -> list[CallRow]:
+    """A read-only second look at quarantined calls, for example when generation metadata
+    was not yet published during the run. It never changes a call's verification (one-way)
+    or the breaker: it only reports, and passes only when every quarantined call now matches,
+    the breaker is open for ``routing_anomaly`` alone and the key's usage is accounted for.
+    Continuing is still the operator's reconcile and ``reset-breaker`` (budget_ledger.py)."""
+
+    status = ledger.status()
+    calls = [c for c in ledger.closed_calls_after(0) if c.verification == "quarantined"]
+    report.add(
+        "recheck.breaker_routing_anomaly",
+        status.breaker_open and status.breaker_code == "routing_anomaly",
+        f"breaker {'open (' + str(status.breaker_code) + ')' if status.breaker_open else 'closed'}",
+    )
+    report.add("recheck.quarantined_calls", bool(calls), f"{len(calls)} quarantined call(s)")
+    rows: list[CallRow] = []
+    for call in calls:
+        row = _row(call, "recheck")
+        rows.append(row)
+        if call.generation_ref is None:
+            row.verification_note = "no generation reference"
+        else:
+            try:
+                mismatches = _compare(row, call, _metadata(account, call.generation_ref), endpoint)
+                row.verification_note = ", ".join(mismatches) or "metadata matches"
+            except AccountCheckError as error:
+                row.verification_note = "metadata " + error.code
+        report.add(
+            f"recheck.call_{call.call_id}",
+            row.verification_note == "metadata matches",
+            f"{row.verification_note}; provider {row.provider_name}, model"
+            f" {row.metadata_model}, metadata cost {row.metadata_cost_usd},"
+            f" charged {row.charged_usd}",
+        )
+    usage = micro_usd(key.usage_usd)
+    accounted = status.baseline + status.local_charged
+    report.add(
+        "recheck.usage_accounted",
+        status.last_provider_usage <= usage <= accounted + RECONCILE_TOLERANCE_MICRO_USD,
+        f"provider-reported key usage {_usd(usage)} within ledger {_usd(accounted)}"
+        f" + tolerance {_usd(RECONCILE_TOLERANCE_MICRO_USD)}",
+    )
+    return rows
 
 
 def verify_earlier_calls(

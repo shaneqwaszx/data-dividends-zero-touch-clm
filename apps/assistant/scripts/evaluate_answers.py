@@ -27,6 +27,8 @@ run        ask every question and score it. Self-test models check the harness o
            synthetic self-test gold; a local model is scored against locked owner gold when
            there is one, otherwise label-free only. Reports go to data/eval/ (not in Git).
 preflight  Phase B (D-092, proposed): every check a live run needs, without inference.
+recheck    Phase B: a read-only second look at quarantined calls' generation metadata (no
+           inference; changes neither the calls' verification nor the breaker).
 
 A local model URL must be a literal loopback address and no proxy may be set; anything else
 is refused before any request. ``--model openrouter`` (Phase B, synthetic scenarios only) needs
@@ -275,6 +277,43 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def cmd_recheck(args: argparse.Namespace) -> int:
+    """Read-only: fetch generation metadata again for quarantined calls. No inference."""
+
+    report = live.Preflight()
+    settings = _remote_settings(args)
+    endpoint = APPROVED_PROFILES[OPENROUTER_PROFILE_ID].endpoint(settings.openrouter_endpoint)
+    rows: list[live.CallRow] = []
+    try:
+        if endpoint is None:
+            report.add("endpoint.approved", False, "the endpoint is not in the approved registry")
+            return 1
+        try:
+            account = build_account_client(settings, allow_live_network=True)
+            ledger = BudgetLedger.open(ledger_path(settings))
+            key = account.key_status()
+        except (ProfileConfigError, LedgerError, AccountCheckError) as error:
+            report.add("recheck.ready", False, f"refused: {error.code}")
+            return 1
+        rows = live.recheck_quarantined(report, ledger, account, endpoint, key)
+        return 0 if report.passed else 1
+    finally:
+        print("\n".join(report.lines()))
+        print("RECHECK " + ("PASS" if report.passed else "FAIL"))
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        folder = Path(args.out) / "phase_b" / f"{stamp}-recheck"
+        folder.mkdir(parents=True, exist_ok=True)
+        record = {
+            "note": "Content-free. Read-only recheck of quarantined Phase B calls (D-092).",
+            "git_head": _git_head(),
+            "checks": [vars(check) for check in report.checks],
+            "calls": [vars(row) for row in rows],
+        }
+        target = folder / "recheck.json"
+        target.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote {target}")
+
+
 def _run_openrouter(args: argparse.Namespace, scenarios: ScenarioSet, only: set[str] | None) -> int:
     # Live runs ask only the reviewed Phase B questions, and only the named scenarios.
     if Path(args.scenarios).resolve() != PHASE_B_QUESTIONS.resolve() or not only:
@@ -446,7 +485,9 @@ def main() -> int:
     go.add_argument("--reps", type=int, default=1)
     go.add_argument("--out", default=str(OUT))
     check = sub.add_parser("preflight")
-    for command in (go, check):
+    recheck = sub.add_parser("recheck")
+    recheck.add_argument("--out", default=str(OUT))
+    for command in (go, check, recheck):
         command.add_argument("--endpoint", default="deepinfra/bf16")
         command.add_argument(
             "--reasoning-effort", default="medium", choices=["low", "medium", "high"]
@@ -457,6 +498,7 @@ def main() -> int:
         command.add_argument("--owner-attests-prompt-logging-off", action="store_true")
     go.set_defaults(func=cmd_run)
     check.set_defaults(func=cmd_preflight)
+    recheck.set_defaults(func=cmd_recheck)
     args = parser.parse_args()
     result: int = args.func(args)
     return result
