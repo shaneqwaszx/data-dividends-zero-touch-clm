@@ -510,7 +510,10 @@ def test_the_length_and_out_of_scope_rules_are_in_the_prompt() -> None:
     assert (
         "\n16. Keep answers short: at most 6 lines. The first line answers the question." in rules
     )
-    assert f'"{OUT_OF_SCOPE}" and at most 2 relevant allowed lines' in rules
+    # The out-of-scope line is exclusive: never mixed with lines that answer the question.
+    assert f'\n17. Use "{OUT_OF_SCOPE}" only on its own, and only when no allowed line' in rules
+    assert f'start with that line and do not add "{OUT_OF_SCOPE}"' in rules
+    assert "at most 2 relevant allowed lines" not in rules
 
 
 @pytest.mark.parametrize("question", ["Why is this case blocked?", "What should I do next?"])
