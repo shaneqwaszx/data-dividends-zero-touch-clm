@@ -1032,7 +1032,7 @@ Merged in PRs #118 and #119 (main `728b30f`). The service composition is unchang
 profile stays DORMANT in `create_app`. Phase B adds an evaluation-only outbound path.
 `model_factory` accepts the `LIVE_NETWORK` marker only when the caller passes
 `allow_live_network=True` and the process environment names D-092; only
-`scripts/evaluate_answers.py` does, never the service. The live adapter uses httpx with TLS
+`apps/assistant/scripts/evaluate_answers.py` does, never the service. The live adapter uses httpx with TLS
 verification, `trust_env=False`, no redirects and no retries. A read-only account client
 (`openrouter_account.py`: `GET /key`, `GET /generation`) feeds a fail-closed preflight and
 per-call verification and quarantine in the dev-only harness (`assistant_eval/live.py`), on

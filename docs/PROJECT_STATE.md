@@ -1073,7 +1073,7 @@ across the intervening merges is outstanding (see architectural debt).
   exact-line guard, sentence checks, case-data fallback, answer records, RBAC and GET-only CLM
   access are unchanged. Owner-approved prompt bound 9,250; measured prompt 9,218.
 - **Remote inference:** the service's OpenRouter profile stays DORMANT. Only the offline
-  evaluation harness (`scripts/evaluate_answers.py`) can open a live path, behind the D-091
+  evaluation harness (`apps/assistant/scripts/evaluate_answers.py`) can open a live path, behind the D-091
   and D-092 decisions named in the process environment, the approved endpoint record
   (`deepinfra/bf16`), a healthy budget ledger, a fail-closed preflight, per-call
   generation-metadata verification, and an explicit `--questions` manifest with a matching
@@ -1083,11 +1083,12 @@ across the intervening merges is outstanding (see architectural debt).
   external evaluation evidence (D-092), never Live CLM behaviour; no provider classification
   in the metadata changes. Owner human scoring of the original 17-question comparison (single
   rater, git-ignored artifacts): GPT-OSS 120B 2.51 vs Ministral-3 8B 2.35 overall.
-- **Checks and CI:** independent QGs R1 to R9 and a post-integration gate passed; the
+- **Checks and CI:** independent QGs R1 to R7, R9 and a post-integration gate passed (R8 failed on two
+  Medium docs findings, fixed and re-gated by R9); the
   integrated candidate's full assistant suite had 2,186 of 2,200 passing (14 Windows
   `Errno 24` failures that pass in isolation). Hosted CI for both PRs was
-  `HOSTED_CI_NOT_EXECUTED - BILLING/INFRASTRUCTURE BLOCKED` (0 steps); the owner merged with
-  that limitation acknowledged.
+  `HOSTED_CI_NOT_EXECUTED - BILLING/INFRASTRUCTURE BLOCKED` (0 steps); the repository owner (`shaneqwaszx`) merged both PRs with
+  that limitation documented in each PR description.
 - **Open:** D-092 acceptance; live verification of P06#2; owner-scored follow-ups (entity
   status vs registry connection, director evidence, GoldTier handoff, unrelated disclaimers,
   UEN meaning); the Low findings listed in PRs #118 and #119.
