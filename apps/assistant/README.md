@@ -511,6 +511,22 @@ Metrics version 2 adds content-free profile, requested endpoint, usage, budget a
 fields; telemetry stays off by default. The test suite fails on any connection to a host that
 is not this machine (`tests/conftest.py`).
 
+## Model management (D-093; local loopback models only)
+
+An HR administrator (`MODEL_CONFIG_MANAGE`) can switch the application-wide model among the
+local models IT configured, from **AI Models** in the CLM. IT setup, rules and failure
+behaviour: [`docs/integration/AI_MODEL_CONFIGURATION.md`](../../docs/integration/AI_MODEL_CONFIGURATION.md).
+
+- Off unless `AI_ASSISTANT_MODEL_PROFILES_FILE` names a profiles file (example:
+  `model_profiles.example.json`); the `AI_ASSISTANT_LLM_*` model stays the baseline.
+- `model_catalog.py` (profiles, loopback rule, prompt bound), `model_admin.py` (active model,
+  API under `/assistant/admin/models`), `model_admin_store.py` (state and audit, SQLite under
+  `data/models/`), `model_qualification.py` (connection test, capacity check, gates).
+- Qualification runs `scripts/qualify_model.py` in its own process (the harness never loads
+  into the service); technical gates only, answer quality `NOT_SCORED` until owner gold is
+  locked.
+- Remote profiles are never usable here (D-091 dormant; D-092 proposed, synthetic only).
+
 ## Tests
 
 ```

@@ -21,6 +21,7 @@ only after all other checks pass, and only from the process environment.
 import math
 import os
 import re
+import urllib.request
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -28,7 +29,7 @@ from pydantic import SecretStr
 
 from .budget import LEASE_GRACE_SECONDS, BudgetedChatModel, BudgetLedger, LedgerError
 from .config import AiAssistantSettings
-from .llm import ChatModel, OpenAICompatibleChatModel
+from .llm import ChatModel, OpenAICompatibleChatModel, is_local_model_url
 from .model_profiles import (
     APPROVED_PROFILES,
     ENDPOINT_SLUG,
@@ -99,6 +100,41 @@ def resolve_remote_credential(environ: Mapping[str, str]) -> SecretStr:
             f"{CREDENTIAL_VARIABLE} is missing or malformed for the remote profile",
         )
     return SecretStr(value)
+
+
+PROXY_VARIABLES = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
+
+
+def require_direct_loopback(base_url: str, environ: Mapping[str, str] | None = None) -> None:
+    """A local model must be a literal loopback URL reached without any proxy, so the prompt
+    cannot leave the machine. Used by the evaluation harness and by model management (D-093).
+    The adapter's HTTP client also honours system proxies (the Windows registry and macOS
+    settings, through urllib), so those must be empty too when the real environment is used."""
+
+    if not is_local_model_url(base_url):
+        raise ProfileConfigError(
+            "NOT_LOOPBACK", "only a literal loopback model URL may be evaluated"
+        )
+    env = os.environ if environ is None else environ
+    if any(env.get(name) for name in PROXY_VARIABLES):
+        raise ProfileConfigError(
+            "PROXY_CONFIGURED", "unset proxy variables before evaluating a local model"
+        )
+    if environ is None and any(
+        value
+        for scheme, value in urllib.request.getproxies().items()
+        if scheme in ("http", "https", "all")
+    ):
+        raise ProfileConfigError(
+            "PROXY_CONFIGURED", "remove system proxies before evaluating a local model"
+        )
 
 
 def _live_or_mock(settings: AiAssistantSettings, transport: object, allow_live: bool) -> object:

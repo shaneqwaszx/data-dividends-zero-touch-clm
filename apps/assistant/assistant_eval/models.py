@@ -10,9 +10,7 @@ or in the system settings the HTTP client reads, so the case facts in the prompt
 leave the machine. Anything else is refused before a request is made.
 """
 
-import os
 import random
-import urllib.request
 from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
@@ -21,20 +19,16 @@ from ai_assistant.llm import (
     ModelAnswer,
     OpenAICompatibleChatModel,
     Piece,
-    is_local_model_url,
 )
 from ai_assistant.main import Prepared
+from ai_assistant.model_factory import (  # noqa: F401 (PROXY_VARIABLES is re-exported)
+    PROXY_VARIABLES,
+    require_direct_loopback,
+)
+from ai_assistant.model_profiles import ProfileConfigError
 
 from .snapshot import offered_lines
 
-PROXY_VARIABLES = (
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-)
 # Self-test models stream in small pieces so the streaming guard's line handling is exercised.
 PIECE = 7
 
@@ -196,19 +190,11 @@ def local_model(
 ) -> ChatModel:
     """The service's own OpenAI-compatible adapter, for a literal loopback model only."""
 
-    if not is_local_model_url(base_url):
-        raise RemoteModelRefusedError("only a literal loopback model URL may be evaluated")
-    env = os.environ if environ is None else environ
-    if any(env.get(name) for name in PROXY_VARIABLES):
-        raise RemoteModelRefusedError("unset proxy variables before evaluating a local model")
-    # The adapter's HTTP client also honours system proxies (the Windows registry and macOS
-    # settings, through urllib), so those must be empty too.
-    if environ is None and any(
-        value
-        for scheme, value in urllib.request.getproxies().items()
-        if scheme in ("http", "https", "all")
-    ):
-        raise RemoteModelRefusedError("remove system proxies before evaluating a local model")
+    # One rule for the harness and model management (model_factory.require_direct_loopback).
+    try:
+        require_direct_loopback(base_url, environ)
+    except ProfileConfigError as exc:
+        raise RemoteModelRefusedError(str(exc)) from None
     return OpenAICompatibleChatModel(
         base_url=base_url,
         model=model,

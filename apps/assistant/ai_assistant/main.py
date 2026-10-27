@@ -77,6 +77,7 @@ from .llm import (
     is_local_model_url,
     micro_usd,
 )
+from .model_admin import Active, model_admin_router, open_selector
 from .model_factory import build_chat_model
 from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
 from .small_talk import small_talk_reply
@@ -244,6 +245,9 @@ class _Outcome:
     empty_content: bool = False
     provider_error_class: str | None = None
     budget: CallBudget | None = None
+    # The model this answer uses: one snapshot of the active model, taken when the request
+    # starts and kept to the end (model management, D-093, may switch it between requests).
+    model: ChatModel | None = None
 
     def answered(self, response: "ChatResponse") -> "ChatResponse":
         self.answered_by = response.answered_by
@@ -388,13 +392,17 @@ def create_app(
         timeout_seconds=config.backend_timeout_seconds,
         transport=clm_transport,
     )
-    model: ChatModel | None = chat_model
-    if model is None and config.llm_enabled:
+    baseline: ChatModel | None = chat_model
+    if baseline is None and config.llm_enabled:
         # The default profile builds the same adapter as before; the remote profile is
         # dormant and refuses to start here (model_factory.py).
-        model = build_chat_model(config, local_adapter=OpenAICompatibleChatModel)
+        baseline = build_chat_model(config, local_adapter=OpenAICompatibleChatModel)
+    # One application-wide active model (D-093). Fixed to the baseline unless IT configured
+    # model management; a model passed in (tests, the evaluation harness) is always fixed.
+    selector = open_selector(config, baseline, injected=chat_model is not None)
 
     app = FastAPI(title="AI Assistant", version="0.1.0")
+    app.state.model_selector = selector
 
     allowed_origins = {origin.rstrip("/") for origin in config.allowed_origins}
 
@@ -508,7 +516,7 @@ def create_app(
                         "notices": [response.notice] if response.notice else [],
                         "fallback_reason": outcome.record_reason(),
                         "left_out": validation.left_out if validation else 0,
-                        "model": model.name if model is not None else None,
+                        "model": outcome.model.name if outcome.model is not None else None,
                         "elapsed_ms": round((time.monotonic() - prep.started) * 1000),
                     },
                 }
@@ -596,8 +604,8 @@ def create_app(
                 route=route,
                 answered_by=outcome.answered_by,
                 fallback_reason=outcome.fallback_reason,
-                model=model.name
-                if model is not None and outcome.fallback_reason != "small_talk"
+                model=outcome.model.name
+                if outcome.model is not None and outcome.fallback_reason != "small_talk"
                 else None,
                 prompt_version=prompt_version(),
                 part_chars=parts,
@@ -617,8 +625,8 @@ def create_app(
                     "first_displayed_line": since(outcome.first_line_at),
                     "total": since(time.monotonic()),
                 },
-                profile=getattr(model, "profile_id", config.llm_profile),
-                requested_endpoint=getattr(model, "endpoint_slug", None),
+                profile=getattr(outcome.model, "profile_id", config.llm_profile),
+                requested_endpoint=getattr(outcome.model, "endpoint_slug", None),
                 usage=_usage_metrics(outcome.usage),
                 finish_reason=outcome.finish_reason,
                 empty_content=outcome.empty_content,
@@ -630,6 +638,7 @@ def create_app(
 
     def answer_with_model(prep: Prepared, outcome: _Outcome) -> ChatResponse:
         notice = FALLBACK_NOTICE
+        model = outcome.model
         if model is None:
             outcome.fallback_reason = "model_disabled"
         else:
@@ -657,14 +666,15 @@ def create_app(
     warmed: dict[str, float] = {}
     warm_lock = threading.Lock()
 
-    def warm_up(facts: dict[str, object]) -> None:
+    def warm_up(facts: dict[str, object], active: Active) -> None:
         """Have the model read the rules and this case's facts before the first question.
 
         Runs after the brief has been sent, so the RM never waits for it. Skipped when the
         same facts were read recently (the model server still has them cached).
         """
 
-        if model is None or not config.llm_warm_up or not is_local_model_url(config.llm_base_url):
+        model = active.model
+        if model is None or not config.llm_warm_up or not is_local_model_url(active.base_url or ""):
             return
         messages = prefix_messages(facts)
         key = hashlib.sha256(json.dumps(messages).encode()).hexdigest()
@@ -682,6 +692,7 @@ def create_app(
         prep: Prepared,
         started: float,
         finish: Callable[[ChatResponse, _Outcome], ChatResponse],
+        model: ChatModel | None,
     ) -> AsyncIterator[str]:
         """The answer as newline-delimited JSON: "text" updates while the model writes,
         then one "done" with the final answer (the same fields as the /chat reply).
@@ -698,7 +709,7 @@ def create_app(
                 {"type": "done", **finish(outcome.answered(response), outcome).model_dump()}
             )
 
-        outcome = _Outcome()
+        outcome = _Outcome(model=model)
         # Set only after the final event was taken by the client; otherwise it disconnected.
         delivered = False
         try:
@@ -787,8 +798,14 @@ def create_app(
             )
         )
 
+    if chat_model is None:
+        app.include_router(
+            model_admin_router(selector=selector, backend=backend, check_origin=check_origin)
+        )
+
     @app.get("/assistant/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        model = selector.current().model
         return HealthResponse(
             status="ok",
             llm_enabled=model is not None,
@@ -798,7 +815,7 @@ def create_app(
     @app.get("/assistant/cases/{case_id}/brief", response_model=BriefResponse)
     def brief(snapshot: Snapshot, background: BackgroundTasks) -> BriefResponse:
         facts = build_case_facts(snapshot)
-        background.add_task(warm_up, facts)
+        background.add_task(warm_up, facts, selector.current())
         return BriefResponse(
             company=facts["company"].get("legal_name") or facts["company"].get("uen"),
             message=opening_message(facts),
@@ -811,12 +828,13 @@ def create_app(
     @app.post("/assistant/cases/{case_id}/chat", response_model=ChatResponse)
     def chat(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> ChatResponse:
         started = time.monotonic()
+        active = selector.current()
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
         quick = small_talk_reply(question, facts)
         if quick is not None:
             # Greetings and thanks get an instant reply; the model is not called.
-            emit("chat", started, _Outcome(fallback_reason="small_talk"), None)
+            emit("chat", started, _Outcome(fallback_reason="small_talk", model=active.model), None)
             return ChatResponse(
                 answer=quick,
                 answered_by="case_data",
@@ -826,7 +844,7 @@ def create_app(
                 small_talk=True,
             )
         prep = prepare(body, snapshot, question)
-        outcome = _Outcome()
+        outcome = _Outcome(model=active.model)
         response = record(case_id, snapshot, body, prep, answer_with_model(prep, outcome), outcome)
         emit("chat", started, outcome, prep)
         return response
@@ -836,12 +854,15 @@ def create_app(
         """Like /chat, but the answer appears while the model is still writing it."""
 
         started = time.monotonic()
+        active = selector.current()
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
         suggestions = suggested_questions(facts)
         quick = small_talk_reply(question, facts)
         if quick is not None:
-            emit("stream", started, _Outcome(fallback_reason="small_talk"), None)
+            emit(
+                "stream", started, _Outcome(fallback_reason="small_talk", model=active.model), None
+            )
             reply = ChatResponse(
                 answer=quick,
                 answered_by="case_data",
@@ -859,7 +880,7 @@ def create_app(
             def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
                 return record(case_id, snapshot, body, prep, response, outcome)
 
-            events = stream_answer(prep, started, finish)
+            events = stream_answer(prep, started, finish, active.model)
         return StreamingResponse(
             events,
             media_type="application/x-ndjson",

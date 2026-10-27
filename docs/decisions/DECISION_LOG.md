@@ -1202,3 +1202,38 @@ selection, a second endpoint, a larger budget, or changes to prompts, retrieval,
 exact-line guard or CLM rules beyond P6 to P9 (each needs its own decision). P6 to P9 add
 no required line: a bare decline is never padded, and the no-model answer is unchanged. Evidence classification of any
 live result: `SANDBOX`-like external evaluation on synthetic data; never `LIVE` CLM behaviour.
+
+## D-093 - AI Assistant model management: local loopback models only (ACCEPTED, local-only POC scope)
+
+Status: ACCEPTED by the repository owner on 2026-10-27 for the local-only model-management
+scope, in the Session 1 design approval (owner decisions 1 to 5 below; decision 4
+conditionally). Proposed the same day (`.ai-pipeline/001_planner/AI_ASSISTANT_MODEL_MANAGEMENT_PLAN.md`).
+It amends D-091's "no user model selection" statement and X2 for local loopback profiles
+only, and is recorded as ADR-012 Amendment 4. D-091 (dormant remote profile and its locks)
+and D-092 (PROPOSED, synthetic evaluation only) are unchanged. Not sponsor policy.
+
+| # | Decision |
+| --- | --- |
+| M1 | RBAC: new backend capability `MODEL_CONFIG_MANAGE`, assigned to HR only for the POC. RM, Client Onboarder and Director do not hold it; Director knowledge publishing (`POLICY_APPROVE`) and HR policy proposals (`POLICY_MUTATE`) are unchanged and independent of it; HR still has no `CASE_ACCESS`. Every management operation is authorised server-side from the caller's own `/api/auth/me`; activation and rollback re-ask inside the change lock. Successful and refused operations are audited without secrets. The sponsor may later assign the capability to its IT/System Administrator role. |
+| M2 | Profiles: the existing `AI_ASSISTANT_LLM_*` environment model stays the baseline. IT may add local profiles in a server-side JSON file named by `AI_ASSISTANT_MODEL_PROFILES_FILE` (strict schema, unknown fields refused, no literal credentials). A profile may name a key only by one variable from the reviewed allowlist `AI_ASSISTANT_MODEL_KEY_{OLLAMA,LM_STUDIO,VLLM,LOCAL}`, read from the process environment; never `OPENROUTER_API_KEY` or any other secret. The browser names a profile id only. |
+| M3 | Boundary: only literal-loopback profiles reached without a proxy are selectable (the evaluation harness rule, now one shared function). Non-loopback profiles are listed as unavailable; the remote profile is listed as pending authorisation and every action on it is refused before any network call. D-091/D-092 restrictions are intact. |
+| M4 | Qualification (conditional approval): provisional technical gates G-4 (model unavailable or stopped mid-answer at most 5 % of turns), G-6 (kept/written model lines at least 0.70; a zero denominator never passes) and G-7 (context capacity verified from the server's own token counts or not passed; every qualification prompt inside the verified bound; cut-short at most 10 %), plus G-1 connection, G-2 completion and G-3 zero unsafe displayed lines (mandatory). G-5 (no allowed line selected) is reported, not gated, until owner-approved answerability labels exist. Answer quality is `NOT_SCORED` while owner gold is not labelled and locked (A-6). Technical qualification is never presented as proof of answer quality; an HR administrator may activate a technically qualified local model only with an explicit acknowledgement that answer quality is unscored (audited as `QUALITY_NOT_SCORED_ACKNOWLEDGED`). |
+| M5 | Runtime: one application-wide active model; each answer keeps the model it started with; activation is a compare-and-set on a stored revision that every request checks, so restarts and other processes agree. At start, a stored model that is missing, changed, unselectable, qualified against older answer code or not buildable is replaced by the baseline with an audited reason (`STARTUP_REVERTED`). Run-time model failures give the deterministic case-data answer; switching or rollback needs an administrator. A disabled or unreachable baseline fails safe to case-data answers. |
+
+Implementation notes (project-defined, within the approved scope): qualification runs the
+dev-only evaluation harness in its own process (`apps/assistant/scripts/qualify_model.py`)
+so the runtime package keeps the Phase A1 invariant that it never imports `assistant_eval`;
+one run at a time across processes, bounded by `AI_ASSISTANT_MODEL_QUALIFICATION_MAX_SECONDS`
+and ended by the service if it overruns or ignores a cancel. An activated profile refuses a
+prompt larger than its verified bound (UTF-8 bytes plus a per-message allowance, a bound the
+qualification confirms for that model's tokenizer). Qualifications are tied to the profile's
+settings fingerprint and to a hash of the answer code and fixtures, so a prompt, catalog or
+guardrail change requires qualifying again. State and audit live in
+`apps/assistant/data/models/` (SQLite, not in Git; newest 5,000 events kept).
+
+Unchanged: prompts, the response catalog, topic routing, guardrails and the exact-line guard,
+retrieval and its permissions, knowledge publishing, CLM rules, read-only CLM access. Not
+decided here: remote or non-loopback activation (needs separate privacy, security, provider,
+budget and governance approval), per-team models, automatic failover, answer-quality gates.
+Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence from qualification
+is `LOCAL` technical evidence on synthetic scenarios, never Live CLM behaviour.

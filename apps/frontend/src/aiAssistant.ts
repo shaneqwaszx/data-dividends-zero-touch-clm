@@ -121,6 +121,22 @@ const SAFE_ERROR_MESSAGES = new Set([
   "No such enhancement request.",
   "This request was already handled. Refresh and try again.",
   "Confirm that you are publishing this entry as its only reviewer.",
+  // Fixed model-management messages (apps/assistant/ai_assistant/model_admin.py).
+  "Model management is not configured on this server.",
+  "No such model profile.",
+  "This model profile is not available for use.",
+  "Remote models are not authorised for use in the CLM.",
+  "The AI model is switched off on this server.",
+  "Only a local loopback model can be qualified.",
+  "The model could not be prepared on the server.",
+  "Another qualification is running. Wait for it to finish.",
+  "No such qualification run.",
+  "The model settings changed since this view. Refresh and try again.",
+  "This model has no passing qualification for the current configuration.",
+  "Confirm that answer quality is not scored before activating.",
+  "The model did not pass the connection test.",
+  "There is no earlier model to roll back to.",
+  "This model is already active.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -506,3 +522,133 @@ export const fetchGapEarlierAnswer = (feedbackId: number, answerId: string, sign
     undefined,
     signal,
   );
+
+// --- AI model management (D-093; HR with MODEL_CONFIG_MANAGE; local loopback models only) ---
+// The browser names a profile id only: it never sends a URL, model, key or parameter.
+
+export type ModelStatus = "selectable" | "unavailable" | "pending_authorisation" | "disabled";
+
+export interface ModelGate {
+  gate: string;
+  rule: string;
+  value: unknown;
+  passed: boolean;
+  /** False for a measure that is reported but never blocks activation (G-5). */
+  gating: boolean;
+}
+
+export interface ModelConnectionTest {
+  outcome: "passed" | "failed";
+  code: string | null;
+  listed: boolean | null;
+  complete_ms: number | null;
+  stream_ms: number | null;
+  first_piece_ms: number | null;
+  at?: string;
+  by_user?: string;
+}
+
+export interface ModelQualification {
+  qualification_id: string;
+  status: "running" | "passed" | "failed" | "cancelled" | "error";
+  code: string | null;
+  started_at: string;
+  started_by: string;
+  finished_at: string | null;
+  done_turns: number;
+  total_turns: number;
+  cancel_requested: boolean;
+  /** False when the profile or the answer code changed since this run (qualify again). */
+  current: boolean;
+  gates: ModelGate[] | null;
+  metrics: Record<string, unknown> | null;
+  lines: Record<string, number> | null;
+  capacity: Record<string, unknown> | null;
+  connection: ModelConnectionTest | null;
+  quality: { status: "SCORED" | "NOT_SCORED"; reason: string | null } | null;
+  reproducibility: Record<string, unknown> | null;
+}
+
+export interface ModelProfileView {
+  profile_id: string;
+  display_name: string;
+  source: "environment" | "file" | "code";
+  deployment: string;
+  model_id: string | null;
+  model_version: string | null;
+  endpoint: string | null;
+  context_window_tokens: number | null;
+  max_answer_tokens: number | null;
+  temperature: number | null;
+  timeout_seconds: number | null;
+  streaming: boolean;
+  fingerprint: string;
+  status: ModelStatus;
+  reason: string | null;
+  active: boolean;
+  connection_test: ModelConnectionTest | null;
+  qualification: ModelQualification | null;
+  activation_blockers: string[];
+}
+
+export interface ModelOverview {
+  configured: boolean;
+  file_status: "not_configured" | "ok" | "missing" | "invalid";
+  file_errors: string[];
+  model_enabled: boolean;
+  revision: number;
+  active: {
+    profile_id: string;
+    display_name: string;
+    model_id: string | null;
+    prompt_limit: number | null;
+    qualification_id: string | null;
+    changed_at: string | null;
+    changed_by: string | null;
+    config_changed: boolean;
+    reverted: string | null;
+  };
+  last_good: { profile_id: string; display_name: string } | null;
+  quality: { status: "SCORED" | "NOT_SCORED"; reason: string | null };
+  basis: string;
+  running: { qualification_id: string; profile_id: string; done_turns: number; total_turns: number; started_by: string } | null;
+  profiles: ModelProfileView[];
+}
+
+export interface ModelAuditEvent {
+  seq: number;
+  at: string;
+  actor: string;
+  role: string | null;
+  action: string;
+  profile_id: string | null;
+  fingerprint: string | null;
+  outcome: string;
+  code: string | null;
+  revision: number | null;
+}
+
+const modelPath = (profileId: string) => `/admin/models/${encodeURIComponent(profileId)}`;
+
+export const fetchModelOverview = (signal?: AbortSignal) =>
+  request<ModelOverview>("/admin/models", undefined, signal);
+export const fetchModelAudit = (signal?: AbortSignal) =>
+  request<{ events: ModelAuditEvent[] }>("/admin/models/audit?limit=100", undefined, signal);
+export const testModelConnection = (profileId: string) =>
+  request<ModelConnectionTest>(`${modelPath(profileId)}/connection-test`, {});
+export const startModelQualification = (profileId: string) =>
+  request<{ qualification_id: string }>(`${modelPath(profileId)}/qualifications`, {});
+export const fetchModelQualification = (qualificationId: string, signal?: AbortSignal) =>
+  request<ModelQualification>(`/admin/models/qualifications/${encodeURIComponent(qualificationId)}`, undefined, signal);
+export const cancelModelQualification = (qualificationId: string) =>
+  request<{ cancel_requested: boolean }>(`/admin/models/qualifications/${encodeURIComponent(qualificationId)}/cancel`, {});
+export const activateModel = (profileId: string, expectedRevision: number, acknowledgeQualityUnscored: boolean) =>
+  request<ModelOverview>(`${modelPath(profileId)}/activate`, {
+    expected_revision: expectedRevision,
+    acknowledge_quality_unscored: acknowledgeQualityUnscored,
+  });
+export const rollbackModel = (expectedRevision: number, acknowledgeQualityUnscored: boolean) =>
+  request<ModelOverview>("/admin/models/rollback", {
+    expected_revision: expectedRevision,
+    acknowledge_quality_unscored: acknowledgeQualityUnscored,
+  });

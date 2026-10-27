@@ -1092,3 +1092,24 @@ across the intervening merges is outstanding (see architectural debt).
 - **Open:** D-092 acceptance; live verification of P06#2; owner-scored follow-ups (entity
   status vs registry connection, director evidence, GoldTier handoff, unrelated disclaimers,
   UEN meaning); the Low findings listed in PRs #118 and #119.
+
+## AI Assistant model management - unmerged candidate, 2026-10-27
+
+Branch `feat/assistant-model-management-20261027` from main `23c45a7`. Not merged; this
+section records only the candidate's delta.
+- **Decisions:** D-093 accepted by the owner for the local-only POC scope (ADR-012
+  Amendment 4). D-091 and D-092 (PROPOSED) unchanged; remote inference stays unavailable to
+  the service.
+- **Behaviour:** HR (new backend capability `MODEL_CONFIG_MANAGE`, HR only) can test,
+  technically qualify, activate and roll back IT-configured local loopback models on the new
+  **AI Models** page; the `AI_ASSISTANT_LLM_*` model remains the baseline and the fallback.
+  Off unless `AI_ASSISTANT_MODEL_PROFILES_FILE` is set. Prompts, catalog, topic routing,
+  guardrails, retrieval, knowledge publishing and CLM access are unchanged.
+- **New owners:** `model_catalog`, `model_admin` (active-model holder and API),
+  `model_admin_store` (SQLite state and audit under `apps/assistant/data/models/`),
+  `model_qualification`; the harness side runs in its own process
+  (`apps/assistant/scripts/qualify_model.py`).
+- **Evidence:** offline only (fake and loopback model servers); no local model server was run
+  against a real model and no remote call was made. Answer quality `NOT_SCORED` (gold stub).
+- **Open:** independent quality gate, main integration, pre-PR check, publication and merge
+  (each separately authorised); owner gold labels (A-6) before answer quality can be scored.

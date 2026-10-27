@@ -216,6 +216,7 @@ class OpenAICompatibleChatModel:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/chat/completions"
+        self._models_url = base_url.rstrip("/") + "/models"
         self._model = model
         self._credential = credential
         self._timeout = timeout_seconds
@@ -281,6 +282,50 @@ class OpenAICompatibleChatModel:
         if not isinstance(content, str) or not content.strip():
             raise LlmUnavailableError("empty model reply")
         return ModelAnswer(content.strip(), cut_short=choice.get("finish_reason") == "length")
+
+    def prompt_tokens(self, messages: list[dict[str, str]]) -> int | None:
+        """How many prompt tokens the server says it read for ``messages`` (one output token
+        is requested). None when the server does not report usage. Model management only
+        (D-093): used to check the context window a local server really holds."""
+
+        payload = self._payload(messages, stream=False, max_tokens=1)
+        try:
+            with self._client() as client:
+                response = client.post(self._url, json=payload, headers=self._headers())
+        except httpx.HTTPError:
+            raise LlmUnavailableError("model unreachable") from None
+        if response.status_code != 200:
+            raise LlmUnavailableError(f"model returned {response.status_code}")
+        if len(response.content) > MAX_STREAM_BYTES:
+            raise LlmUnavailableError("model response limit exceeded")
+        try:
+            usage = response.json().get("usage")
+        except (ValueError, AttributeError):
+            raise LlmUnavailableError("unreadable model reply") from None
+        count = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+        return count if type(count) is int and count >= 0 else None
+
+    def listed_models(self) -> list[str] | None:
+        """The model ids the server lists (``GET /models``), or None when it lists none."""
+
+        try:
+            with self._client() as client:
+                response = client.get(self._models_url, headers=self._headers())
+        except httpx.HTTPError:
+            raise LlmUnavailableError("model unreachable") from None
+        if response.status_code != 200 or len(response.content) > MAX_STREAM_BYTES:
+            return None
+        try:
+            data = response.json().get("data")
+        except (ValueError, AttributeError):
+            return None
+        if not isinstance(data, list):
+            return None
+        return [
+            item["id"]
+            for item in data
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        ]
 
     @staticmethod
     async def _sse_frames(reply: httpx.Response, deadline: float) -> AsyncIterator[str]:

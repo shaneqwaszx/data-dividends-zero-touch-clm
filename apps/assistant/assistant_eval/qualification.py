@@ -1,0 +1,269 @@
+"""Technical qualification of a local model for model management (D-093), run in its own
+process by ``scripts/qualify_model.py`` so this dev-only harness never loads into the service.
+
+The service validates the request, records a ``running`` qualification and starts this
+process with the qualification id and its own state database and profiles file. The process
+re-reads the profile, refuses to run if its settings or the answer code changed since the
+request (``CONFIG_MISMATCH``), and asks the synthetic scenarios through the real service with
+the candidate model (``runner.run``: a mock CLM backend; no case, customer or sponsor data).
+It then checks the context window from the server's own token counts and applies the gates
+in ``ai_assistant.model_qualification``. Only counts, rates, timings and closed codes are
+stored; no answer text. Cancellation and the time limit are checked before every turn; the
+service also stops the process if it overruns.
+"""
+
+import logging
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import anyio
+
+from ai_assistant.config import AiAssistantSettings
+from ai_assistant.llm import ChatModel, OpenAICompatibleChatModel
+from ai_assistant.model_admin_store import ModelAdminStore
+from ai_assistant.model_catalog import (
+    BASELINE_ID,
+    build_baseline_adapter,
+    build_profile_model,
+    load_catalogue,
+)
+from ai_assistant.model_factory import ASSISTANT_DIR
+from ai_assistant.model_profiles import ProfileConfigError
+from ai_assistant.model_qualification import (
+    EVAL_FIXTURES,
+    HARNESS_VERSION,
+    QualificationStopped,
+    WatchedModel,
+    connection_test,
+    gates,
+    line_breakdown,
+    qualification_basis,
+    verify_capacity,
+)
+
+from . import gold as gold_mod
+from .runner import EMBEDDER, Workspace, run
+from .scenarios import load_scenarios
+from .scoring import gold_based, label_free
+from .snapshot import SnapshotSet
+
+log = logging.getLogger("assistant_eval.qualification")
+
+
+def gold_state() -> tuple[str, str | None, Any, Any]:
+    """("SCORED", None, gold, lock) only when owner gold is labelled and its lock verifies;
+    otherwise ("NOT_SCORED", reason, None, None)."""
+
+    gold_file = EVAL_FIXTURES / "gold.json"
+    lock_file = EVAL_FIXTURES / "gold.lock.json"
+    if not gold_file.exists():
+        return "NOT_SCORED", "OWNER_GOLD_MISSING", None, None
+    gold = gold_mod.GoldSet.model_validate_json(gold_file.read_text(encoding="utf-8"))
+    if gold.kind != "owner" or any(turn.status != "labelled" for turn in gold.turns.values()):
+        return "NOT_SCORED", "OWNER_GOLD_NOT_LABELLED", None, None
+    if not lock_file.exists():
+        return "NOT_SCORED", "OWNER_GOLD_NOT_LOCKED", None, None
+    try:
+        lock = gold_mod.GoldLock.model_validate_json(lock_file.read_text(encoding="utf-8"))
+        snapshots = SnapshotSet.model_validate_json(
+            (EVAL_FIXTURES / "snapshots.json").read_text(encoding="utf-8")
+        )
+        gold_mod.verify(gold, lock, snapshots)
+    except (gold_mod.GoldError, ValueError):
+        return "NOT_SCORED", "OWNER_GOLD_NOT_LOCKED", None, None
+    return "SCORED", None, gold, lock
+
+
+@dataclass
+class QualificationJob:
+    """One technical qualification (run in the qualification process)."""
+
+    store: ModelAdminStore
+    qualification_id: str
+    profile_id: str
+    model: OpenAICompatibleChatModel
+    model_id: str
+    declared_tokens: int
+    max_answer_tokens: int
+    basis: str
+    started_by: str
+    deadline: float
+    on_finish: Callable[[str, str | None], None] = lambda status, code: None
+
+    def _stop(self, done_turns: int) -> None:
+        if time.monotonic() > self.deadline:
+            raise QualificationStopped("DEADLINE")
+        if not self.store.heartbeat(self.qualification_id, done_turns):
+            raise QualificationStopped("CANCELLED")
+
+    def harness_model(self, capture: Any, watched: WatchedModel) -> ChatModel:
+        """The model each scenario is asked through (the candidate, watched). Tests replace
+        it to drive the harness with a fixed-rule selector."""
+
+        return watched
+
+    def run(self) -> None:
+        status: str = "error"
+        code: str | None = "HARNESS_ERROR"
+        summary: dict[str, Any] | None = None
+        try:
+            status, code, summary = self._run()
+        except QualificationStopped as exc:
+            status = "cancelled" if exc.code == "CANCELLED" else "error"
+            code = exc.code
+        except Exception as exc:  # the run must always be closed; no detail is kept
+            log.error("model qualification failed: %s", type(exc).__name__)
+        finally:
+            self.store.finish_qualification(self.qualification_id, status, code, summary)
+            self.on_finish(status, code)
+
+    def _run(self) -> tuple[str, str | None, dict[str, Any]]:
+        started = time.monotonic()
+        scenarios = load_scenarios()
+        expected = len(scenarios.turn_keys())
+        self.store.heartbeat(self.qualification_id, 0, total_turns=expected)
+        connection = anyio.run(connection_test, self.model, self.model_id)
+        self._stop(0)
+        quality, quality_reason, gold, _lock = gold_state()
+        summary: dict[str, Any] = {
+            "connection": connection,
+            "quality": {"status": quality, "reason": quality_reason},
+            "reproducibility": {
+                "harness_version": HARNESS_VERSION,
+                "basis": self.basis[:16],
+                "scenarios": len(scenarios.scenarios),
+                "turns": expected,
+                "reps": 1,
+                "retrieval": EMBEDDER,
+                "model_id": self.model_id,
+            },
+        }
+        if connection["outcome"] != "passed":
+            summary["gates"] = gates(
+                connection=connection,
+                completed=False,
+                turns=[],
+                expected_turns=expected,
+                overall={},
+                capacity=None,
+                largest_bound=0,
+            )
+            return "failed", "CONNECTION_FAILED", summary
+        watched = WatchedModel(self.model, self._stop)
+        snapshots = SnapshotSet.model_validate_json(
+            (EVAL_FIXTURES / "snapshots.json").read_text(encoding="utf-8")
+        )
+        with Workspace() as workspace:
+            result = run(
+                scenarios,
+                lambda capture: self.harness_model(capture, watched),
+                snapshots=snapshots,
+                workspace=workspace,
+            )
+        turns = list(result.turns)
+        overall = label_free(turns)
+        capacity = verify_capacity(
+            self.model,
+            declared_tokens=self.declared_tokens,
+            max_answer_tokens=self.max_answer_tokens,
+            largest_prompt=watched.largest,
+            stop=lambda: self._stop(len(turns)),
+        )
+        summary["capacity"] = capacity
+        summary["metrics"] = {
+            key: overall.get(key)
+            for key in (
+                "answers",
+                "fallback_rate",
+                "fallback_reasons",
+                "line_validity_rate",
+                "unsafe_display",
+                "cut_short_rate",
+                "latency_total_ms_p50",
+                "latency_total_ms_p95",
+                "latency_first_shown_ms_p50",
+                "latency_first_shown_ms_p95",
+                "mean_offered_lines",
+            )
+        }
+        summary["metrics"]["largest_prompt_bound"] = watched.largest_bound
+        summary["lines"] = line_breakdown(turns)
+        if quality == "SCORED" and gold is not None:
+            summary["quality"]["gold"] = gold_based(turns, gold, snapshots)
+        summary["gates"] = gates(
+            connection=connection,
+            completed=True,
+            turns=turns,
+            expected_turns=expected,
+            overall=overall,
+            capacity=capacity,
+            largest_bound=watched.largest_bound,
+        )
+        summary["reproducibility"]["prompt_version"] = result.manifest.get("prompt_version")
+        summary["reproducibility"]["drifted_turns"] = sum(1 for turn in turns if turn.drift)
+        summary["duration_ms"] = round((time.monotonic() - started) * 1000)
+        passed = all(item["passed"] for item in summary["gates"] if item["gating"])
+        failed = [
+            item["gate"] for item in summary["gates"] if item["gating"] and not item["passed"]
+        ]
+        return (
+            ("passed", None, summary)
+            if passed
+            else ("failed", "GATES_FAILED:" + ",".join(failed), summary)
+        )
+
+
+def store_path(settings: AiAssistantSettings) -> Path:
+    path = Path(settings.model_admin_db_path)
+    return path if path.is_absolute() else ASSISTANT_DIR / path
+
+
+def run_job(
+    qualification_id: str,
+    settings: AiAssistantSettings,
+    *,
+    environ: Mapping[str, str] | None = None,
+    transport: object = None,
+    job_class: type[QualificationJob] = QualificationJob,
+) -> None:
+    """Run the recorded qualification ``qualification_id`` to its end (always closed)."""
+
+    store = ModelAdminStore(store_path(settings))
+    item = store.qualification(qualification_id)
+    if item is None or item["status"] != "running":
+        return
+    entry = load_catalogue(settings).get(item["profile_id"])
+    basis = qualification_basis()
+    if (
+        entry is None
+        or entry.status != "selectable"
+        or entry.fingerprint != item["fingerprint"]
+        or basis != item["basis"]
+    ):
+        store.finish_qualification(qualification_id, "error", "CONFIG_MISMATCH", None)
+        return
+    try:
+        model = (
+            build_baseline_adapter(settings, environ=environ, transport=transport, loopback=True)
+            if entry.profile_id == BASELINE_ID
+            else build_profile_model(entry, environ=environ, transport=transport)
+        )
+    except ProfileConfigError as exc:
+        store.finish_qualification(qualification_id, "error", exc.code, None)
+        return
+    job_class(
+        store=store,
+        qualification_id=qualification_id,
+        profile_id=entry.profile_id,
+        model=model,
+        model_id=model.name,
+        # The baseline declares no window; its capacity is checked at the probe cap.
+        declared_tokens=entry.context_window_tokens or 32768,
+        max_answer_tokens=entry.max_answer_tokens or settings.llm_max_answer_tokens,
+        basis=basis,
+        started_by=item["started_by"],
+        deadline=time.monotonic() + settings.model_qualification_max_seconds,
+    ).run()

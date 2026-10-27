@@ -125,6 +125,17 @@ class SecretScannerTests(unittest.TestCase):
             self.assertEqual(sorted(line for _, line in findings), list(range(1, 8)), name)
             self.assertNotIn(fake_value, repr(findings))
 
+    def test_detects_model_management_key_assignments(self) -> None:
+        fake_value = "fixture_not_a_real_value_" + "445566"
+        name = "AI_ASSISTANT_MODEL_KEY_" + "LM_STUDIO"
+        lines = [f"{name}={fake_value}", f'$env:{name} = "{fake_value}"', f"{name}: {fake_value}"]
+        path = self._temporary_file("credentials.txt", "\n".join(lines))
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(sorted(line for _, line in findings), [1, 2, 3])
+        self.assertNotIn(fake_value, repr(findings))
+
     def test_detects_an_openrouter_shaped_key_without_a_name(self) -> None:
         key_shaped = "sk-" + "or-" + "v1-" + "0" * 64
         path = self._temporary_file("notes.md", f"pasted by mistake: {key_shaped}\n")

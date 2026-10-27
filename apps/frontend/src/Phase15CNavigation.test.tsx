@@ -360,6 +360,7 @@ function RouteFixture({ profile = allCapabilitiesActor }: { profile?: Authentica
         adminTeams={<Screen>teams</Screen>}
         goldtierSandbox={<Screen>goldtier-sandbox</Screen>}
         acraDiagnostics={<Screen>acra-diagnostics</Screen>}
+        aiModels={<Screen>ai-models</Screen>}
       />
       <LocationProbe />
     </>

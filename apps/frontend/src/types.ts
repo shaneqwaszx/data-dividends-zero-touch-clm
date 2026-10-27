@@ -21,7 +21,8 @@ export type Capability =
   | "TARGET_RECOVERY"
   | "IDENTITY_ADMIN"
   | "TEAM_ADMIN"
-  | "PROVIDER_SANDBOX_TEST";
+  | "PROVIDER_SANDBOX_TEST"
+  | "MODEL_CONFIG_MANAGE";
 
 export interface AuthenticatedTeam {
   team_id: TeamId;
