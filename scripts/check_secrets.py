@@ -36,7 +36,10 @@ SENSITIVE_FILE_SUFFIXES = {
 }
 SOURCE_CODE_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx"}
 RUNTIME_VALUE_REFERENCE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$")
-ASSISTANT_CREDENTIALS = "OPENROUTER_API_KEY|AI_ASSISTANT_LLM_API_KEY"
+# Model management (D-093) adds the reviewed AI_ASSISTANT_MODEL_KEY_* allowlist.
+ASSISTANT_CREDENTIALS = (
+    "OPENROUTER_API_KEY|AI_ASSISTANT_LLM_API_KEY|AI_ASSISTANT_MODEL_KEY_[A-Z0-9_]{1,40}"
+)
 # A whole angle-bracket placeholder (which may contain spaces), or a run without quotes.
 # A placeholder only counts when it is the whole value: only closing quotes, backticks and
 # Markdown punctuation may follow it before whitespace or the end of the line. Otherwise

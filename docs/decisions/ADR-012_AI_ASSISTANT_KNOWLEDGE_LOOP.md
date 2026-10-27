@@ -15,6 +15,8 @@ Amendment 2 (D-090, proposed) adds explanation sentences, fixed lines and value 
 the catalog (one of them relaxes section C), steers the model by question topic, adds each
 topic's required lines and matches model lines ignoring formatting only; **it also needs
 Shane's explicit acceptance before merge.**
+Amendment 4 (D-093, accepted for the local-only POC scope) adds administrator model management
+for local loopback models; Amendment 3's dormant remote profile and its locks are unchanged.
 
 ## Date
 
@@ -720,3 +722,34 @@ Consequences. A new external trust boundary exists in code; a new local persiste
 budget ledger, separate from the knowledge store); a new offline operator script; stricter
 secret scanning. Rollback: remove the profile entry; the default profile has no ledger and no
 new file.
+
+## Amendment 4 - administrator model management for local loopback models (ACCEPTED, D-093)
+
+Status: ACCEPTED by the repository owner on 2026-10-27 for the local-only POC scope (D-093
+M1 to M5). It narrows Amendment 3's "(6) No user model selection" for local loopback
+profiles chosen by an administrator holding `MODEL_CONFIG_MANAGE`; everything else in
+Amendment 3 (the dormant remote profile and its four locks) stands. It does not accept
+Amendment 1 (D-084) or Amendment 2 (D-090).
+
+Context. Delta Capita IT needs to offer more than one local model without code changes or
+restarts, and an administrator needs to test, qualify, activate and roll back among them
+through the CLM interface.
+
+Decision. (1) The `ChatModel` port and the OpenAI-compatible adapter are unchanged; local
+profiles are data in an IT-managed server file (`model_catalog.py`), validated strictly, with
+credentials only as allowlisted environment-variable names. (2) One application-wide active
+model, held by `model_admin.ModelSelector`; each answer takes one snapshot of it; the choice
+is a compare-and-set in a new local persistence owner (`model_admin_store.py`, SQLite under
+`data/models/`, with the audit history). (3) Only literal-loopback profiles without a proxy are
+selectable; remote and non-loopback profiles are never usable. (4) Activation needs a passing
+technical qualification for the profile's current settings and the current answer code, a
+fresh connection test, and, while answer quality is unscored, an explicit acknowledgement.
+(5) Qualification reuses the offline harness in a separate process, so the runtime never
+loads it. (6) Sections A and C are unchanged, including the exact-line catalog and guard;
+prompts, topic routing and retrieval do not change with the model.
+
+Consequences. A new administration API (`/assistant/admin/models`), a new HR page (AI Models),
+a new local persistence owner and a subprocess launched by the service. The environment
+baseline is the fallback for every failure. Rollback of the feature: remove
+`AI_ASSISTANT_MODEL_PROFILES_FILE`; the service then behaves exactly as before (no state file
+is created).

@@ -45,6 +45,15 @@ class AiAssistantSettings(BaseSettings):
     budget_max_in_flight: int = Field(default=1, ge=1, le=4)
     budget_settle_lag_seconds: int = Field(default=600, ge=0, le=86400)
 
+    # Model management (D-093, local loopback models only): off unless IT names a profiles file
+    # (model_catalog.py). Then an HR administrator (MODEL_CONFIG_MANAGE) may test, qualify,
+    # activate and roll back the file's models; the choice is kept in the state database
+    # (relative to apps/assistant; not in Git). The models above stay the baseline.
+    model_profiles_file: str = ""
+    model_admin_db_path: str = "data/models/model_admin.sqlite3"
+    # The longest a qualification run may take before it is stopped.
+    model_qualification_max_seconds: int = Field(default=3600, ge=60, le=14400)
+
     # Browser pages allowed to call the AI assistant (the Vite dev server by default).
     allowed_origins: list[str] = Field(
         default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]

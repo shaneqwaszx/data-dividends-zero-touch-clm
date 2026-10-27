@@ -1,0 +1,33 @@
+{
+  "schema": "clm-assistant-model-profiles/1",
+  "profiles": [
+    {
+      "profile_id": "ollama_qwen3_8b",
+      "display_name": "Qwen3 8B (Ollama)",
+      "deployment": "ollama",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model_id": "qwen3:8b",
+      "model_version": "Q4_K_M",
+      "context_window_tokens": 16384,
+      "max_answer_tokens": 600,
+      "temperature": 0.2,
+      "timeout_seconds": 90,
+      "streaming": true,
+      "enabled": true
+    },
+    {
+      "profile_id": "lmstudio_gemma3_12b",
+      "display_name": "Gemma 3 12B (LM Studio)",
+      "deployment": "lm_studio",
+      "base_url": "http://127.0.0.1:1234/v1",
+      "model_id": "google/gemma-3-12b",
+      "context_window_tokens": 32768,
+      "max_answer_tokens": 600,
+      "temperature": 0.2,
+      "timeout_seconds": 120,
+      "streaming": true,
+      "credential_env": "AI_ASSISTANT_MODEL_KEY_LM_STUDIO",
+      "enabled": true
+    }
+  ]
+}

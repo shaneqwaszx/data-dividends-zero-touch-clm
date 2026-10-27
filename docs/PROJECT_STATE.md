@@ -1092,3 +1092,38 @@ across the intervening merges is outstanding (see architectural debt).
 - **Open:** D-092 acceptance; live verification of P06#2; owner-scored follow-ups (entity
   status vs registry connection, director evidence, GoldTier handoff, unrelated disclaimers,
   UEN meaning); the Low findings listed in PRs #118 and #119.
+
+## AI Assistant model management - unmerged candidate, 2026-10-27
+
+PR #121, branch `feat/assistant-model-management-20261027`, started from main
+`23c45a7` and integrated with main `176e09b` (PR #122, D-092 P11 to P14) by merge, without
+conflicts. Not merged to main; this section records only the candidate's delta.
+- **Decisions:** D-093 accepted by the owner for the local-only POC scope (ADR-012
+  Amendment 4). D-091 and D-092 (PROPOSED) unchanged; remote inference stays unavailable to
+  the service.
+- **Behaviour:** HR (new backend capability `MODEL_CONFIG_MANAGE`, HR only) can test,
+  technically qualify, activate and roll back IT-configured local loopback models on the new
+  **AI Models** page; the `AI_ASSISTANT_LLM_*` model remains the baseline and the fallback.
+  Off unless `AI_ASSISTANT_MODEL_PROFILES_FILE` is set. Prompts, catalog, topic routing,
+  guardrails, retrieval, knowledge publishing and CLM access are unchanged.
+- **New owners:** `model_catalog`, `model_admin` (active-model holder and API),
+  `model_admin_store` (SQLite state and audit under `apps/assistant/data/models/`),
+  `model_qualification`; the harness side runs in its own process
+  (`apps/assistant/scripts/qualify_model.py`).
+- **Evidence:** offline tests (fake and loopback model servers) plus two implementer `LOCAL`
+  runs of the real service, qualification process and Ollama 0.40.10 (`llama3.1:8b`, server
+  started with a 16,384-token context, synthetic scenarios only): declared 16,384 passed every
+  gate (84/84 turns, capacity verified at 16,334 tokens, 0 unsafe displayed lines, line
+  validity 0.817, G-5 reported 0.214) and activation without the acknowledgement was refused;
+  declared 32,768 failed G-7 with `TRUNCATION_DETECTED`. No remote or paid call was made.
+  After integrating PR #122 the answer-code basis changed (`59a3bcd4…`): the earlier
+  qualification showed as out of date and activation was refused (`NOT_QUALIFIED`); a fresh
+  LOCAL qualification of the same profile passed every gate (84/84 turns, 0 unsafe displayed
+  lines, line validity 0.808, G-5 reported 0.214, capacity verified, 0 drifted turns), then
+  activation with the acknowledgement and rollback succeeded. A developer browser smoke test
+  of the AI Models page (RM/Director refused, HR flow end to end) passed on `aea87b9`.
+  Answer quality `NOT_SCORED` (gold stub). Not Live evidence.
+- **Open:** the owner's merge of PR #121 (hosted CI billing-blocked, not executed); Low
+  follow-ups F-7, N-1, N-2 and O-1; owner gold labels (A-6) before answer quality can be
+  scored; any model activated through management must be re-qualified after a later change
+  to the answer code.

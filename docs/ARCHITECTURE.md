@@ -1041,6 +1041,22 @@ quality stays inside the existing owners: catalog lines in `guardrails.allowed_g
 steering in `prompts.topic_plan`, and topic-only lines filtered from `prompts.facts_for_model`.
 No new persistence owner, route, CLM dependency or authorization owner is introduced.
 
+## AI Assistant model management - 2026-10-27 (candidate, D-093)
+
+One application-wide active `ChatModel`, chosen by an HR administrator (`MODEL_CONFIG_MANAGE`,
+a backend capability the assistant reads from `/api/auth/me`) among IT's local loopback
+profiles. `model_catalog` validates the IT-managed profiles file and builds the existing
+OpenAI-compatible adapter (no new provider adapter); `model_admin.ModelSelector` holds the
+active model as an immutable snapshot taken once per answer and swaps it under a lock after a
+compare-and-set in `model_admin_store` (new assistant-local SQLite persistence owner, separate
+from the knowledge store and the budget ledger), which every request checks so restarts and
+processes agree. Qualification reuses the offline harness in a separate process
+(`scripts/qualify_model.py`); the runtime package still never imports `assistant_eval`. The
+environment baseline is unchanged and is restored at start when the stored choice is invalid.
+Remote and non-loopback profiles are never usable. No CLM backend route, persistence or
+authorization owner changes beyond the capability; the assistant's answer path (prompts,
+catalog, guard, retrieval) is unchanged.
+
 ## Provider-verified Policy recovery — current main; origin 2026-10-06
 
 Originally assigned from main `529efea`, OnboardingService now supports both definitive

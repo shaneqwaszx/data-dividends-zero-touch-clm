@@ -15,6 +15,11 @@ The backend capability matrix is authoritative:
 | `DIRECTOR` | global | yes | no | independent approve/reject | no |
 | `HR` | none | yes | own draft/edit/reset/submit | no | yes |
 
+HR alone also holds `PROVIDER_SANDBOX_TEST` (D-052) and `MODEL_CONFIG_MANAGE` (D-093: the
+AI Assistant's local model management, enforced by the assistant service from this
+backend's capability list). Neither grants case access, and neither changes Director
+policy or knowledge-publishing authority.
+
 HR is separate from, and not senior to, Director. User/team deletion, deactivation,
 password reset, production IAM, and case reassignment are outside this phase.
 

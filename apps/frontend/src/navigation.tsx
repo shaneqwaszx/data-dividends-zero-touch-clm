@@ -27,6 +27,7 @@ export const routePatterns = {
   adminTeams: "/admin/teams",
   goldtierSandbox: "/admin/goldtier-sandbox",
   acraDiagnostics: "/admin/acra",
+  aiModels: "/admin/ai-models",
 } as const;
 
 const CASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,6 +58,7 @@ export const paths = {
   adminTeams: routePatterns.adminTeams,
   goldtierSandbox: routePatterns.goldtierSandbox,
   acraDiagnostics: routePatterns.acraDiagnostics,
+  aiModels: routePatterns.aiModels,
 } as const;
 
 export type AppTab =
@@ -69,7 +71,8 @@ export type AppTab =
   | "users"
   | "teams"
   | "goldtier-sandbox"
-  | "acra-diagnostics";
+  | "acra-diagnostics"
+  | "ai-models";
 
 interface NavigationItem {
   tab: AppTab;
@@ -90,6 +93,7 @@ const navigationItems: NavigationItem[] = [
   { tab: "teams", label: "Teams", path: paths.adminTeams, capability: "TEAM_ADMIN", end: true },
   { tab: "goldtier-sandbox", label: "GoldTier Sandbox", path: paths.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST", end: true },
   { tab: "acra-diagnostics", label: "ACRA Diagnostics", path: paths.acraDiagnostics, capability: "PROVIDER_SANDBOX_TEST", end: true },
+  { tab: "ai-models", label: "AI Models", path: paths.aiModels, capability: "MODEL_CONFIG_MANAGE", end: true },
 ];
 
 const routeCapabilities: Array<{ pattern: string; capability: Capability; caseParam?: boolean }> = [
@@ -107,6 +111,7 @@ const routeCapabilities: Array<{ pattern: string; capability: Capability; casePa
   { pattern: routePatterns.adminTeams, capability: "TEAM_ADMIN" },
   { pattern: routePatterns.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST" },
   { pattern: routePatterns.acraDiagnostics, capability: "PROVIDER_SANDBOX_TEST" },
+  { pattern: routePatterns.aiModels, capability: "MODEL_CONFIG_MANAGE" },
 ];
 
 export function requiredCapabilityForPath(pathname: string): Capability | null {
@@ -231,6 +236,7 @@ export interface WorkspaceRoutesProps {
   adminTeams: ReactNode;
   goldtierSandbox: ReactNode;
   acraDiagnostics: ReactNode;
+  aiModels: ReactNode;
 }
 
 export function WorkspaceRoutes({
@@ -248,6 +254,7 @@ export function WorkspaceRoutes({
   adminTeams,
   goldtierSandbox,
   acraDiagnostics,
+  aiModels,
 }: WorkspaceRoutesProps) {
   const caseAccess = (content: ReactNode) => (
     <CapabilityRoute actor={actor} capability="CASE_ACCESS">{content}</CapabilityRoute>
@@ -303,6 +310,10 @@ export function WorkspaceRoutes({
       <Route
         path={routePatterns.acraDiagnostics}
         element={<CapabilityRoute actor={actor} capability="PROVIDER_SANDBOX_TEST">{acraDiagnostics}</CapabilityRoute>}
+      />
+      <Route
+        path={routePatterns.aiModels}
+        element={<CapabilityRoute actor={actor} capability="MODEL_CONFIG_MANAGE">{aiModels}</CapabilityRoute>}
       />
       <Route path="*" element={<UnavailableRoute actor={actor} />} />
     </Routes>

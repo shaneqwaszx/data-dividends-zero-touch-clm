@@ -50,6 +50,9 @@ class Capability(StrEnum):
     TEAM_ADMIN = "TEAM_ADMIN"
     PROVIDER_SANDBOX_TEST = "PROVIDER_SANDBOX_TEST"
     TARGET_RECOVERY = "TARGET_RECOVERY"
+    # AI Assistant model management (D-093, local loopback models only). HR only for the
+    # POC; independent of policy and knowledge publishing; never grants case access.
+    MODEL_CONFIG_MANAGE = "MODEL_CONFIG_MANAGE"
 
 
 ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
@@ -73,6 +76,7 @@ ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
             Capability.IDENTITY_ADMIN,
             Capability.TEAM_ADMIN,
             Capability.PROVIDER_SANDBOX_TEST,
+            Capability.MODEL_CONFIG_MANAGE,
         }
     ),
 }
