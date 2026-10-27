@@ -30,12 +30,14 @@ from .briefing import (
     DOCUMENT_REVIEW,
     OWNERSHIP,
     READINESS,
+    _named,
     question_topic,
 )
 from .context import readable_time as when
 from .guardrails import (
     allowed_guidance,
     compact_facts,
+    officers_line,
     registry_source_line,
     ubo_completion_not_offered,
     who_resolves_lines,
@@ -43,16 +45,24 @@ from .guardrails import (
 from .guide import (
     ANY_DIFFERENCE,
     APPROVAL_NOT_OFFERED,
+    DIRECTOR_DIFFERENCE_CHECK,
+    DIRECTOR_DIFFERENCE_REASONS,
+    DIRECTORS_NOT_READ,
+    ENTITY_STATUS_LIVE,
     FIELD_DIFFERENCE,
     MOCK_NOT_LIVE,
     NO_CONTACT,
     NOT_READY,
     READINESS_EXPLANATIONS,
     READINESS_NEEDS,
-    TOPIC_ONLY_LINES,
+    SEND_BEFORE_SUBMISSION,
+    SENDING_IS_NOT_APPROVAL,
+    SUBMISSION_RESULT_KEPT,
     UBO_CHECK_NOT_RUN,
     UBO_COMPLETION_NOT_OFFERED,
+    UEN_MEANING,
     difference_line,
+    is_topic_only,
 )
 from .instructions import system_prompt
 
@@ -171,7 +181,7 @@ def facts_for_model(facts: dict[str, Any]) -> dict[str, Any]:
     allowed = set(guidance)
     view = {
         # Topic-only lines stay allowed but are shown only in their QUESTION TOPIC message.
-        "allowed_guidance": [line for line in guidance if line not in TOPIC_ONLY_LINES],
+        "allowed_guidance": [line for line in guidance if not is_topic_only(line)],
         "viewer": facts.get("viewer"),
         "company": facts.get("company"),
         "overall": {
@@ -374,6 +384,75 @@ _UBO_COMPLETION_REQUEST = re.compile(
 )
 
 
+# Phase B answer quality (D-092 P12 to P14, proposed): company directors, the UEN, the entity
+# status and the GoldTier handoff. Like the plans above they steer the model only.
+# A question about the company's directors or officers, not the app's Director role (Directors
+# approve knowledge and handle enhancement requests).
+_COMPANY_DIRECTORS = re.compile(
+    r"\bboard of directors\b"
+    r"|\b(?:directors?|officers?)\b[^?]{0,60}\b(?:of|appoint\w*|resign\w*|named|listed"
+    r"|differ\w*|mismatch\w*|acra|registry|record|document)\b"
+    r"|\b(?:appoint\w*|resign\w*|named|listed|acra|registry|record|document|company'?s?)\b"
+    r"[^?]{0,60}\b(?:directors?|officers?)\b"
+)
+# The app's Director role, and staff roles named "officer" (a compliance officer is not one of
+# the company's officers).
+_DIRECTOR_ROLE = re.compile(
+    r"\bdirectors?(?:'s)?\b[^?]{0,40}\b(?:approv\w*|publish\w*|knowledge|enhancement|queue"
+    r"|escalat\w*|permission\w*|role|overrid\w*)\b"
+    r"|\b(?:ask|tell|contact|escalate to)\s+(?:a\s+|the\s+|my\s+|your\s+)?directors?\b"
+    r"|\b(?:compliance|onboarding|relationship|kyc|aml|case|credit|risk|review\w*|security"
+    r"|operations|data protection)\s+officers?\b"
+)
+# A director question about a difference, rather than asking who the directors are.
+_DIRECTOR_DIFFERENCE = re.compile(
+    r"\bdiffer\w*|\bmismatch\w*|\bconflict\w*|\bnot (?:in|on|listed)\b|\bmissing\b|\bnamed\b"
+    r"|\bdocument\b|\breconcil\w*"
+)
+_UEN_QUESTION = re.compile(r"\buen\b|\bunique entity number\b")
+_ENTITY_STATUS_QUESTION = re.compile(r"\bstatus\b[^?]*\blive\b|\blive\b[^?]*\bstatus\b")
+_HANDOFF_QUESTION = re.compile(
+    r"\b(?:hand(?:ed|s|ing)?[ -]?off|handoff|happens|after)\b[^?]*\bgoldtier\b"
+    r"|\bgoldtier\b[^?]*\b(?:hand(?:ed|s|ing)?[ -]?off|handoff|happens)\b"
+)
+
+
+def _company_directors_question(text: str) -> bool:
+    return bool(_COMPANY_DIRECTORS.search(text)) and not _DIRECTOR_ROLE.search(text)
+
+
+def _director_lines(facts: dict[str, Any], text: str) -> tuple[str, list[str]]:
+    """Who the directors are: the officer lookup line. A difference: also what the app does not
+    compare, the general (conditional) check and reasons, and where to look."""
+
+    officers = officers_line(facts)
+    lookup = [*([officers] if officers else []), _open_section("Registry verification")]
+    if not _DIRECTOR_DIFFERENCE.search(text):
+        return "who the company's directors are", lookup
+    return "a difference in the company's directors", [
+        DIRECTORS_NOT_READ,
+        *lookup[:-1],
+        DIRECTOR_DIFFERENCE_CHECK,
+        DIRECTOR_DIFFERENCE_REASONS,
+        _open_section("Registry verification"),
+        _open_section("Document verification"),
+    ]
+
+
+def _director_question_first(topic: tuple[str, list[Any]] | None, text: str) -> bool:
+    """A company-director question goes to the director plan, not to the generic "what is
+    blocking" or readiness topics, nor to a difference topic it reached only through words like
+    "differ" (a field such as the address, named in the question, keeps its difference topic)."""
+
+    if not _company_directors_question(text):
+        return False
+    if topic is None or topic[0] in (BLOCKERS, READINESS):
+        return True
+    if topic[0] == DIFFERENCE:
+        return not any(_named(str(row["field"]), text) for _, row in topic[1])
+    return False
+
+
 def _ownership_required(facts: dict[str, Any]) -> bool:
     """The backend readiness check lists missing ownership evidence for this case."""
 
@@ -401,12 +480,30 @@ def _source_or_owners_lines(facts: dict[str, Any], question: str) -> tuple[str, 
         if source is not None:
             return "which registry the company details came from and whether it is live", [
                 source,
+                ENTITY_STATUS_LIVE,
                 MOCK_NOT_LIVE,
             ]
     if _OWNERS_QUESTION.search(text) and _ownership_required(facts):
         _, lines, _ = _topic_lines(OWNERSHIP, [], facts)
         # The direct answer first; topic_plan keeps it only where it is an allowed line.
         return "who the ultimate beneficial owners are", [UBO_CHECK_NOT_RUN, *lines]
+    source = registry_source_line(facts, acra_only=True)
+    if _UEN_QUESTION.search(text):
+        return "what the UEN is and where the company details came from", [
+            UEN_MEANING,
+            *([source] if source else []),
+            _open_section("Registry verification"),
+        ]
+    if _ENTITY_STATUS_QUESTION.search(text):
+        return "the company's entity status", [ENTITY_STATUS_LIVE, *([source] if source else [])]
+    if _HANDOFF_QUESTION.search(text):
+        return "what happens when the case is sent to GoldTier", [
+            NOT_READY,
+            SEND_BEFORE_SUBMISSION,
+            SUBMISSION_RESULT_KEPT,
+            SENDING_IS_NOT_APPROVAL,
+            _open_section("GoldTier Details & Status"),
+        ]
     return None
 
 
@@ -418,6 +515,11 @@ def topic_plan(facts: dict[str, Any], question: str) -> TopicPlan | None:
 
     topic = question_topic(question, facts)
     allowed = set(allowed_guidance(facts))
+    text = question.lower()
+    if _director_question_first(topic, text):
+        about, wanted = _director_lines(facts, text)
+        lines = tuple(line for line in dict.fromkeys(wanted) if line in allowed)
+        return TopicPlan(about, lines, ()) if lines else None
     if topic is None:
         extra = _source_or_owners_lines(facts, question)
         if extra is None:
