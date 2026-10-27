@@ -204,18 +204,32 @@ def run(
     snapshots: SnapshotSet | None = None,
     workspace: Workspace | None = None,
     only: set[str] | None = None,
+    turns: frozenset[str] | None = None,
 ) -> RunResult:
-    """Ask every question of every scenario (``only``: a subset of scenario ids)."""
+    """Ask every question of every scenario (``only``: a subset of scenario ids; ``turns``:
+    only these turn keys, from scenarios without a conversation history)."""
 
     if reps < 1:
         raise ValueError("reps must be at least 1")
+    if turns is not None:
+        known = set(scenario_set.turn_keys())
+        if not turns or not turns <= known:
+            raise ValueError("unknown turn keys: " + ", ".join(sorted(turns - known)))
+        for scenario in scenario_set.scenarios:
+            keys = {scenario.turn_key(i) for i in range(len(scenario.questions))}
+            if scenario.conversation and keys & turns and not keys <= turns:
+                raise ValueError(f"{scenario.id} is a conversation: select all its turns")
     owned = workspace is None
     space = workspace or Workspace()
-    turns: list[TurnResult] = []
+    results: list[TurnResult] = []
     model_name = ""
     try:
         for scenario in scenario_set.scenarios:
             if only is not None and scenario.id not in only:
+                continue
+            if turns is not None and not any(
+                scenario.turn_key(i) in turns for i in range(len(scenario.questions))
+            ):
                 continue
             capture = Capture()
             model = make_model(capture)
@@ -235,8 +249,10 @@ def run(
                 client.cookies.set("clm_session", SESSION)
                 chat = f"/assistant/cases/{case.case_id}/chat/stream"
                 for rep in range(reps):
-                    turns.extend(
-                        _scenario(client, chat, scenario, model, capture, sink, rep, snapshots)
+                    results.extend(
+                        _scenario(
+                            client, chat, scenario, model, capture, sink, rep, snapshots, turns
+                        )
                     )
     finally:
         if owned:
@@ -245,7 +261,7 @@ def run(
         model=model_name,
         reps=reps,
         manifest=manifest(scenario_set),
-        turns=turns,
+        turns=results,
     )
 
 
@@ -258,11 +274,14 @@ def _scenario(
     sink: MemorySink,
     rep: int,
     snapshots: SnapshotSet | None,
+    turns: frozenset[str] | None = None,
 ) -> list[TurnResult]:
     history: list[dict[str, str]] = [turn.model_dump() for turn in scenario.forged_history]
     results: list[TurnResult] = []
     for index, question in enumerate(scenario.questions):
         key = scenario.turn_key(index)
+        if turns is not None and key not in turns:
+            continue
         if isinstance(model, TurnAware):
             model.begin(key, rep)
         capture.latest = None

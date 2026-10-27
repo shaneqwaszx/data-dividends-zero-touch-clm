@@ -1,10 +1,10 @@
-"""Dormant OpenRouter adapter for one approved ``openai/gpt-oss-120b`` endpoint (D-091, proposed).
+"""OpenRouter adapter for one approved ``openai/gpt-oss-120b`` endpoint (D-091; Phase B D-092).
 
-Phase A2 builds and tests this adapter offline only. It accepts no transport object except
-an in-memory ``httpx.MockTransport`` (not a subclass), so no configuration or real transport
-can open a network connection through it in this build. (The check is on the transport's type:
-a mock's handler is test code and is not inspected.) Sending a real request needs a reviewed
-Phase B change and the owner's separate decisions.
+It accepts an in-memory ``httpx.MockTransport`` (not a subclass) or the ``LIVE_NETWORK``
+marker, and nothing else. (The check is on the transport's type: a mock's handler is test
+code and is not inspected.) Only ``model_factory`` hands out the marker, and only when the
+Phase B live gate is open for the evaluation harness (synthetic cases); the adapter then uses
+httpx's own HTTPS transport with certificate verification and no retries.
 
 What it sends (fixed, not configurable): one ``POST /chat/completions`` per question to
 ``https://openrouter.ai/api/v1``, the full endpoint slug in ``provider.order`` and
@@ -70,6 +70,16 @@ _STATUS_CLASSES = {
 _FINISH_CLASSES = {"content_filter": "content_filter", "tool_calls": "protocol"}
 
 
+class _LiveNetwork:
+    """Marker for the real HTTPS transport. It carries nothing; the gate is in the factory."""
+
+    def __repr__(self) -> str:
+        return "LIVE_NETWORK"
+
+
+LIVE_NETWORK = _LiveNetwork()
+
+
 def require_offline_transport(transport: object) -> httpx.MockTransport:
     """Phase A2 containment: only an in-memory mock transport, never a subclass of one,
     a real HTTP transport or a wrapper around one."""
@@ -80,6 +90,15 @@ def require_offline_transport(transport: object) -> httpx.MockTransport:
             "the remote profile accepts only an in-memory mock transport in this build",
         )
     return transport
+
+
+def require_allowed_transport(transport: object) -> httpx.MockTransport | None:
+    """A mock transport, or None for the live marker (httpx then builds its own HTTPS
+    transport: certificates verified, no retries, and ``trust_env=False`` on the client)."""
+
+    if transport is LIVE_NETWORK:
+        return None
+    return require_offline_transport(transport)
 
 
 def _reject_constant(name: str) -> Any:
@@ -157,7 +176,7 @@ def _read_class(error: BaseException) -> str:
 
 
 class OpenRouterChatModel:
-    """The ``ChatModel`` for one approved OpenRouter endpoint (dormant in Phase A2)."""
+    """The ``ChatModel`` for one approved OpenRouter endpoint."""
 
     def __init__(
         self,
@@ -172,7 +191,8 @@ class OpenRouterChatModel:
         max_prompt_bytes: int,
         transport: object,
     ) -> None:
-        self._transport = require_offline_transport(transport)
+        self._transport = require_allowed_transport(transport)
+        self._live = transport is LIVE_NETWORK
         max_tokens = answer_tokens + reasoning_allowance_tokens
         if reasoning_allowance_tokens < MIN_REASONING_ALLOWANCE or max_tokens > min(
             MAX_REMOTE_TOKENS, endpoint.max_completion_tokens
@@ -200,6 +220,10 @@ class OpenRouterChatModel:
     @property
     def profile_id(self) -> str:
         return OPENROUTER_PROFILE_ID
+
+    @property
+    def live(self) -> bool:
+        return self._live
 
     @property
     def endpoint(self) -> ApprovedEndpoint:
@@ -508,14 +532,29 @@ class OpenRouterChatModel:
                 usage=self._usage(usage, ref, anomalies),
                 finish_reason=finish,
             )
+        except ModelCallError as error:
+            # A failure after the generation started keeps its reference (Phase B verifies
+            # the serving provider of every call, failed ones included).
+            if error.usage is not None or ref is None:
+                raise
+            raise ModelCallError(
+                error.error_class, usage=self._usage(usage, ref, anomalies)
+            ) from None
         except TimeoutError:
-            raise ModelCallError("timeout") from None
+            raise ModelCallError("timeout", usage=self._seen(usage, ref, anomalies)) from None
         except (UnicodeError, httpx.StreamError):
-            raise ModelCallError("protocol") from None
+            raise ModelCallError("protocol", usage=self._seen(usage, ref, anomalies)) from None
         except httpx.TimeoutException:
-            raise ModelCallError("timeout") from None
+            raise ModelCallError("timeout", usage=self._seen(usage, ref, anomalies)) from None
         except httpx.HTTPError:
-            raise ModelCallError("transport") from None
+            raise ModelCallError("transport", usage=self._seen(usage, ref, anomalies)) from None
+
+    def _seen(
+        self, usage: ModelUsage | None, ref: str | None, anomalies: list[str]
+    ) -> ModelUsage | None:
+        """What a failed stream had reported, or None when it reported nothing."""
+
+        return None if usage is None and ref is None else self._usage(usage, ref, anomalies)
 
     def warm(self, messages: list[dict[str, str]]) -> None:
         """Never warms a remote model: case facts are not sent ahead of a question."""

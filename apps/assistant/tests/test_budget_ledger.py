@@ -806,6 +806,11 @@ def test_the_ledger_has_no_way_to_set_the_baseline_directly() -> None:
         "set_cap",
         "reconcile",
         "reset_breaker",
+        # Phase B (D-092, proposed): content-free reads and the one-way verification mark.
+        "closed_calls_after",
+        "last_call_id",
+        "record_verification",
+        "unverified_closed_calls",
     }
     assert MAX_MICRO_USD == 10**12
 

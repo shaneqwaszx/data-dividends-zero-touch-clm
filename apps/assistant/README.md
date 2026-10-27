@@ -425,8 +425,8 @@ the same arguments, so the default model request is byte-identical
 (`tests/test_default_request_golden.py`). Prompts, retrieval, the exact-line guard, fallbacks,
 notices and routes are unchanged.
 
-The `openrouter_gpt_oss_120b` profile is **dormant**: no endpoint is approved, and in this
-build it cannot reach a network. It composes only if all four locks hold, and a running
+The `openrouter_gpt_oss_120b` profile is **dormant** in the service: a running service
+cannot reach a network through it. It composes only if all four locks hold, and a running
 service cannot open the first two:
 
 | Lock | Condition |
@@ -438,7 +438,57 @@ service cannot open the first two:
 
 The `OPENROUTER_API_KEY` variable is read only from the process environment, only for this
 profile and only after every other check. It is never read from `.env`, never sent to the
-local model and never logged. Nothing in this build sends a request to OpenRouter.
+local model and never logged. The service never sends a request to OpenRouter.
+
+### Phase B live experiment (D-092, proposed; synthetic cases only)
+
+Phase B approves one endpoint, `deepinfra/bf16` (DeepInfra, bf16, US$0.037/M input and
+US$0.17/M output, maximum completion 117,964 tokens, in the public ZDR list; read
+2026-10-26T17:05Z), and adds a live gate that only the evaluation harness can open. L1 then
+also accepts the `LIVE_NETWORK` marker (httpx's own HTTPS transport, certificates verified,
+no retries, no proxies or redirects) when **both** the caller passes `allow_live_network`
+and `AI_ASSISTANT_REMOTE_LIVE_DECISION=D-092`; L2 to L4 and the request policy are unchanged.
+Only `scripts/evaluate_answers.py` passes that argument, and it serves only the saved
+synthetic fixture cases through its mock CLM backend (a test checks that `main.py` never
+does), so no CLM case data can reach OpenRouter.
+
+```bash
+cd apps/assistant
+# Owner, in the shell used for the run only: set OPENROUTER_API_KEY, and
+#   AI_ASSISTANT_REMOTE_INFERENCE_DECISION=D-091, AI_ASSISTANT_REMOTE_LIVE_DECISION=D-092.
+../../.venv/bin/python scripts/budget_ledger.py init --cap <U0 + 1.00> \
+    --opening-provider-usage <U0> --key-alias key-01
+../../.venv/bin/python scripts/evaluate_answers.py preflight \
+    --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
+../../.venv/bin/python scripts/evaluate_answers.py run --model openrouter \
+    --scenarios tests/fixtures/eval/phase_b_questions.json \
+    --questions P01#1,P02#0 --expect-count 2 --label rerun \
+    --owner-attests-auto-topup-off --owner-attests-prompt-logging-off
+```
+
+`preflight` (also run at the start of every live run, which refuses unless it passes)
+re-reads the public endpoint listing and ZDR list (prices, maximum completion, provider,
+quantization, slug uniqueness, ZDR membership), reads the key's own limit and usage
+(`GET /api/v1/key`: a limit must be set, never reset, and leave at most US$1.00 plus one
+reservation, so set it to the key's current usage + US$1.00; the key's usage must equal the
+ledger's opening usage before the first call or be within the ledger afterwards), verifies any
+call an earlier, interrupted run left unverified, checks the ledger (healthy, breaker closed,
+cap at most US$1.00 above the opening usage) and needs the owner's attestation that auto
+top-up and prompt logging are off (neither is readable through the API). A live run asks only
+`phase_b_questions.json`, and only the question ids listed with `--questions`, whose number
+must equal `--expect-count` (checked before the preflight; `--only` is refused for a live run,
+and the run reports a mismatch if the questions asked differ from the list). After each turn the
+harness reads generation metadata (`GET /api/v1/generation`, metadata only), waiting at most
+two minutes while it is not yet published, and marks each call `verified` (provider DeepInfra,
+model `openai/gpt-oss-120b`, total cost equal to the settled cost) or `quarantined` (any
+mismatch, metadata still missing after the wait, or no generation reference at all), which
+opens the ledger breaker so every later call is refused. A stream that fails after its
+generation id arrived keeps that reference for verification. Answers go to `answers.jsonl` and
+content-free telemetry, ledger and verification rows to `calls.json` under
+`data/eval/phase_b/`. `evaluate_answers.py recheck` (same gate and decisions, no inference)
+fetches the metadata of quarantined calls again and passes only if each now matches, the
+breaker is open for `routing_anomaly` alone and the key's usage is within the ledger; it
+changes nothing; continuing is still `budget_ledger.py reconcile` then `reset-breaker`.
 
 Budget guard (`ai_assistant/budget.py`, `scripts/budget_ledger.py`): a git-ignored SQLite
 ledger counts one key's cumulative usage in micro-USD, the usage before the ledger existed

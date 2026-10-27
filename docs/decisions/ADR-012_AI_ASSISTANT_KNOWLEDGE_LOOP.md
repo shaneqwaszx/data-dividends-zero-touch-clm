@@ -571,6 +571,12 @@ no repeats, at most one related disclaimer, and, when no topic is given and no l
 of the case no longer repeats facts that are already word for word an allowed line. Which
 lines are allowed does not change.
 
+Amended 2026-10-27 (Phase B, D-092 proposed): rule 17 now makes that line exclusive for every
+question: it is used only on its own and only when no allowed line answers any part of the
+question; otherwise the answer starts with the line that answers part of it. The "at most 2
+relevant lines" companion was removed after the live evaluation showed answers that both
+declined and answered.
+
 ### Change 4 - required lines (server)
 
 For a model answer with at least one allowed line, the server adds the topic's required

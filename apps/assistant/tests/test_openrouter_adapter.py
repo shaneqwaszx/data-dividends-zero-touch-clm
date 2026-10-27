@@ -720,9 +720,18 @@ def test_no_other_provider_endpoint_or_attribution_header_exists_in_the_code() -
     sources = [
         *ASSISTANT.joinpath("ai_assistant").rglob("*.py"),
         *ASSISTANT.joinpath("scripts").rglob("*.py"),
+        *ASSISTANT.joinpath("assistant_eval").rglob("*.py"),
     ]
-    forbidden = ("/generation", "/api/v1/key", "endpoints/zdr", "HTTP-Referer", "X-Title")
+    # Phase B (D-092, proposed): the read-only account checks live in one module, and only
+    # the evaluation CLI reads the public ZDR list. Attribution headers stay forbidden.
+    allowed = {
+        "/generation": {"openrouter_account.py"},
+        "/api/v1/key": set(),
+        "endpoints/zdr": {"evaluate_answers.py"},
+        "HTTP-Referer": set(),
+        "X-Title": set(),
+    }
     for path in sources:
         text = path.read_text(encoding="utf-8")
-        for word in forbidden:
-            assert word not in text, f"{word} in {path.name}"
+        for word, files in allowed.items():
+            assert word not in text or path.name in files, f"{word} in {path.name}"
