@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -48,10 +48,19 @@ const REASON_TEXT: Record<string, string> = {
   PROXY_CONFIGURED: "A proxy is configured on the server.",
 };
 
-function readable(code: string | null | undefined): string {
+// "GATES_FAILED:G-6,G-7" from a failed qualification: the gate ids keep their own spelling.
+const GATES_FAILED = "GATES_FAILED:";
+
+export function readable(code: string | null | undefined): string {
   if (!code) return "";
+  if (code.startsWith(GATES_FAILED)) return `Gates failed: ${code.slice(GATES_FAILED.length).split(",").join(", ")}`;
   return REASON_TEXT[code] ?? code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
 }
+
+// How often the page follows a running qualification, and how often the audit history is
+// re-read while the page is open (events can come from other administrators or users).
+export const RUNNING_REFRESH_MS = 3000;
+export const AUDIT_REFRESH_MS = 15000;
 
 function safeError(error: unknown): string {
   return error instanceof AiAssistantError ? error.message : "The AI assistant service could not complete this request.";
@@ -122,13 +131,24 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
     queryFn: ({ signal }) => fetchModelOverview(signal),
     retry: false,
     // Follow a running qualification without manual refresh.
-    refetchInterval: (query) => (query.state.data?.running ? 3000 : false),
+    refetchInterval: (query) => (query.state.data?.running ? RUNNING_REFRESH_MS : false),
   });
   const auditQuery = useQuery({
     queryKey: modelManagementQueryKeys.audit(actor.user_id),
     queryFn: ({ signal }) => fetchModelAudit(signal),
     retry: false,
+    refetchInterval: AUDIT_REFRESH_MS,
   });
+  // A qualification finishes in the background: re-read the audit history when the run the
+  // page was following ends, so its outcome appears without another page action.
+  const runningId = overviewQuery.data?.running?.qualification_id ?? null;
+  const followedRun = useRef<string | null>(null);
+  useEffect(() => {
+    if (followedRun.current !== null && followedRun.current !== runningId) {
+      void queryClient.invalidateQueries({ queryKey: modelManagementQueryKeys.audit(actor.user_id), exact: true });
+    }
+    followedRun.current = runningId;
+  }, [runningId, queryClient, actor.user_id]);
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ kind: "activate" | "rollback"; profileId: string; name: string } | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -202,7 +222,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
       {confirming && overview && (
         <section className="card" role="dialog" aria-labelledby="confirm-heading">
-          <h2 id="confirm-heading">{confirming.kind === "rollback" ? "Roll back" : "Activate"} {confirming.name}?</h2>
+          <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
           {confirming.profileId !== "env_default" && unscored && (
             <label className="control-help">

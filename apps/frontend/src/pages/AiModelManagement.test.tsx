@@ -11,7 +11,12 @@ import type { ModelOverview, ModelProfileView, ModelQualification } from "../aiA
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
-import AiModelManagement, { modelManagementQueryKeys } from "./AiModelManagement";
+import AiModelManagement, {
+  AUDIT_REFRESH_MS,
+  modelManagementQueryKeys,
+  readable,
+  RUNNING_REFRESH_MS,
+} from "./AiModelManagement";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -242,5 +247,73 @@ describe("AiModelManagement", () => {
     act(() => root?.render(<QueryClientProvider client={client}><AiModelManagement actor={hr} /></QueryClientProvider>));
     await waitFor(() => expect(unauthorized).toHaveBeenCalled());
     expect(client.getQueryCache().getAll().some((query) => query.queryKey.includes("sentinel"))).toBe(false);
+  });
+});
+
+describe("AiModelManagement smoke-test fixes (S-1 to S-3)", () => {
+  it("re-reads the audit history when a background qualification ends, and on its own interval (S-1)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let overviewCalls = 0;
+      let auditCalls = 0;
+      const running: ModelOverview = {
+        ...overview,
+        running: { qualification_id: "b".repeat(32), profile_id: "lmstudio_qwen3_8b", done_turns: 40, total_turns: 84, started_by: "hr-admin" },
+      };
+      const view = mount(vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/assistant/admin/models")) {
+          overviewCalls += 1;
+          return json(overviewCalls === 1 ? running : overview);
+        }
+        if (url.includes("/api/assistant/admin/models/audit")) {
+          auditCalls += 1;
+          return json({ events: [] });
+        }
+        return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+      }));
+      await waitFor(() => expect(view.textContent).toContain("Qualification running"));
+      await waitFor(() => expect(auditCalls).toBe(1));
+
+      // The run ends in the background: the next overview no longer lists it.
+      await act(async () => { await vi.advanceTimersByTimeAsync(RUNNING_REFRESH_MS + 100); });
+      await waitFor(() => expect(view.textContent).not.toContain("Qualification running"));
+      await waitFor(() => expect(auditCalls).toBe(2));
+
+      // Events made elsewhere appear on the audit interval, with no page action.
+      await act(async () => { await vi.advanceTimersByTimeAsync(AUDIT_REFRESH_MS + 100); });
+      await waitFor(() => expect(auditCalls).toBe(3));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names the rollback target in the confirmation heading (S-2)", async () => {
+    const rolledForward: ModelOverview = {
+      ...overview,
+      active: { ...overview.active, profile_id: "lmstudio_qwen3_8b", display_name: "Qwen3 8B (LM Studio)" },
+      last_good: { profile_id: "env_default", display_name: "Environment baseline" },
+    };
+    const view = mount(server(rolledForward));
+    await waitFor(() => expect(view.textContent).toContain("Roll back to Environment baseline"));
+    act(() => button(view, "Roll back to Environment baseline").click());
+    expect(view.querySelector("#confirm-heading")?.textContent).toBe("Roll back to Environment baseline?");
+  });
+
+  it("shows failed gate ids as written (S-3)", async () => {
+    expect(readable("GATES_FAILED:G-6,G-7")).toBe("Gates failed: G-6, G-7");
+    expect(readable("GATES_FAILED:G-7")).toBe("Gates failed: G-7");
+    expect(readable("QUALIFICATION_BUSY")).toBe("Qualification busy");
+    const failed: ModelOverview = {
+      ...overview,
+      profiles: overview.profiles.map((item) => item.qualification
+        ? { ...item, qualification: { ...item.qualification, status: "failed", code: "GATES_FAILED:G-6,G-7" } }
+        : item),
+    };
+    const view = mount(server(failed));
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    act(() => button(view, "Failed", "Qwen3").click());
+    await waitFor(() => expect(view.textContent).toContain("Gates failed: G-6, G-7"));
+    expect(view.textContent).not.toContain("g-7");
   });
 });
