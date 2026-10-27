@@ -27,7 +27,8 @@ def test_prompt_is_small_and_keeps_the_facts_the_rm_needs() -> None:
     topic = [m["content"] for m in messages if m["content"].startswith("QUESTION TOPIC:")]
     assert len(topic) == 1 and len(topic[0]) < 1000
     # Phase B (D-092, owner-approved): 9,000 -> 9,250 for rule 17's exclusive-decline wording
-    # (+96 chars) and the non-live registry source line in allowed_guidance (+83).
+    # (+96 chars) and the non-live registry source line in allowed_guidance (+80); the
+    # UBO line (D-092 P8) later added +72, so this prompt is 9,218.
     assert sum(len(m["content"]) for m in messages) - len(topic[0]) < 9250
     facts = messages[1]["content"]
     for needed in ("Keep registry value", "11111999A", "18 GARDEN WALK", "Ownership & UBO"):
