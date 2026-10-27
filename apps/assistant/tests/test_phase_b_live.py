@@ -207,7 +207,8 @@ def test_open_gate_builds_a_guarded_live_adapter(
 
 def test_the_service_never_opens_the_live_gate() -> None:
     """The running service builds its model without ``allow_live_network``; only the harness
-    passes it, and only for its synthetic fixture cases."""
+    passes it, for its synthetic fixture cases, and (D-094) the local synthetic test mode's
+    gated model, which is used only inside the synthetic boundary (tests/test_remote_test.py)."""
 
     users = [
         path.relative_to(ASSISTANT_DIR).as_posix()
@@ -215,7 +216,7 @@ def test_the_service_never_opens_the_live_gate() -> None:
         for path in (ASSISTANT_DIR / folder).rglob("*.py")
         if "allow_live_network=True" in path.read_text(encoding="utf-8")
     ]
-    assert users == ["scripts/evaluate_answers.py"]
+    assert sorted(users) == ["ai_assistant/remote_test.py", "scripts/evaluate_answers.py"]
     main = (ASSISTANT_DIR / "ai_assistant" / "main.py").read_text(encoding="utf-8")
     assert "allow_live_network" not in main and "LIVE_NETWORK" not in main
 

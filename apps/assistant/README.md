@@ -450,7 +450,9 @@ no retries, no proxies or redirects) when **both** the caller passes `allow_live
 and `AI_ASSISTANT_REMOTE_LIVE_DECISION=D-092`; L2 to L4 and the request policy are unchanged.
 Only `scripts/evaluate_answers.py` passes that argument, and it serves only the saved
 synthetic fixture cases through its mock CLM backend (a test checks that `main.py` never
-does), so no CLM case data can reach OpenRouter.
+does), so no CLM case data can reach OpenRouter. The one other opener is the D-094 local
+synthetic test mode (below), which is off by default and is used only inside the synthetic
+boundary.
 
 ```bash
 cd apps/assistant
@@ -516,6 +518,38 @@ is not this machine (`tests/conftest.py`).
 An HR administrator (`MODEL_CONFIG_MANAGE`) can switch the application-wide model among the
 local models IT configured, from **AI Models** in the CLM. IT setup, rules and failure
 behaviour: [`docs/integration/AI_MODEL_CONFIGURATION.md`](../../docs/integration/AI_MODEL_CONFIGURATION.md).
+
+### D-094 local synthetic test mode (GPT-OSS 120B in the CLM chat; off by default)
+
+On a development machine the owner may enable GPT-OSS 120B through OpenRouter as a model on
+the same **AI Models** page. Setup and conditions are in section 9 of the guide linked above.
+The existing chat then sends a question to it only when the whole prompt is inside the
+synthetic boundary; otherwise nothing is sent and the RM gets the case-data answer:
+
+- the case is GARDEN BUSINESS (UEN 11111999A) from ACRA MOCK;
+- the document list was read and every document (also those the case summary names) is a
+  fictional fixture file;
+- the values come from the fixtures;
+- the viewer is a seeded POC user;
+- only repository guidance and the synthetic seed are used;
+- the question and history pass a word screen:
+  - printable ASCII and a few named typographic marks only;
+  - words from the synthetic sources;
+  - at most three number groups across the user turns, never two side by side.
+
+  The screen guards against accidental entry, not deliberate encoding. It cannot recognise
+  a real name made of ordinary words or numbers spelled out as words, and its number cap is
+  per request. So real customer details must never be typed.
+
+The modules are `ai_assistant/remote_test.py` (gate and per-call checks),
+`ai_assistant/synthetic_boundary.py` (boundary check) and `ai_assistant/remote_checks.py`
+(the Phase B preflight and verification, shared with the harness). After a change to prompts,
+fixtures or the application's wording, regenerate the boundary and review its diff:
+
+```
+cd apps/assistant
+../../.venv/Scripts/python scripts/build_synthetic_boundary.py
+```
 
 - Off unless `AI_ASSISTANT_MODEL_PROFILES_FILE` names a profiles file (example:
   `model_profiles.example.json`); the `AI_ASSISTANT_LLM_*` model stays the baseline.

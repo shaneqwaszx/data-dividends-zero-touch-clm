@@ -317,3 +317,38 @@ describe("AiModelManagement smoke-test fixes (S-1 to S-3)", () => {
     expect(view.textContent).not.toContain("g-7");
   });
 });
+
+describe("AiModelManagement D-094 local synthetic test mode", () => {
+  const remote: ModelOverview = {
+    ...overview,
+    profiles: overview.profiles.map((item) => item.profile_id === "openrouter_gpt_oss_120b"
+      ? {
+        ...item,
+        display_name: "GPT-OSS 120B via OpenRouter (synthetic test only, D-094)",
+        deployment: "openrouter",
+        endpoint: "openrouter.ai · deepinfra/bf16",
+        status: "selectable",
+        reason: null,
+        activation_blockers: [],
+      }
+      : item),
+  };
+
+  it("marks the external model, keeps its actions usable and warns before activating it", async () => {
+    const view = mount(server(remote));
+    await waitFor(() => expect(view.textContent).toContain("synthetic test only, D-094"));
+    expect(view.textContent).toContain("answers only on the approved synthetic test case");
+    expect(view.textContent).toContain("Test connection is a free preflight; qualification makes paid calls.");
+    expect(button(view, "Run qualification", "GPT-OSS").disabled).toBe(false);
+    act(() => button(view, "Activate", "GPT-OSS").click());
+    expect(view.textContent).toContain("This is an external, paid API (D-094 local synthetic test mode).");
+  });
+
+  it("explains the remote model's own refusals", () => {
+    expect(readable("NOT_DEVELOPMENT_ENVIRONMENT")).toContain("local development set-up");
+    expect(readable("REMOTE_MANIFEST_MISSING")).toContain("question list and count");
+    expect(readable("PREFLIGHT_FAILED:key.limit_set,ledger.healthy")).toBe(
+      "Preflight failed: key.limit_set, ledger.healthy",
+    );
+  });
+});

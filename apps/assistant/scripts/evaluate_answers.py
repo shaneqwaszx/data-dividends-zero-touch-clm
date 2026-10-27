@@ -65,6 +65,7 @@ from ai_assistant.model_profiles import (  # noqa: E402
     ProfileConfigError,
 )
 from ai_assistant.openrouter_account import AccountCheckError, OpenRouterAccount  # noqa: E402
+from ai_assistant.remote_checks import run_preflight  # noqa: E402
 from assistant_eval import gold as gold_mod  # noqa: E402
 from assistant_eval import live  # noqa: E402
 from assistant_eval.models import (  # noqa: E402
@@ -223,51 +224,15 @@ Session = tuple[live.Preflight, AiAssistantSettings, BudgetLedger | None, OpenRo
 def _preflight(args: argparse.Namespace) -> Session:
     """Every live-run check, failing closed at the first one that cannot be evaluated."""
 
-    report = live.Preflight()
     settings = _remote_settings(args)
-    endpoint = APPROVED_PROFILES[OPENROUTER_PROFILE_ID].endpoint(settings.openrouter_endpoint)
-    if endpoint is None:
-        report.add("endpoint.approved", False, "the endpoint is not in the approved registry")
-        return report, settings, None, None
-    try:
-        account = build_account_client(settings, allow_live_network=True)
-    except ProfileConfigError as error:
-        report.add("gate.account", False, f"refused: {error.code}")
-        return report, settings, None, None
-    report.add("gate.account", True, "live gate and decisions named; key present (not shown)")
-    try:
-        listing = live.fetch_public("/models/openai/gpt-oss-120b/endpoints")
-        zdr = live.fetch_public("/endpoints/zdr")
-    except Exception as error:  # noqa: BLE001 - any failure to read the listing refuses
-        report.add("endpoint.listing", False, f"unreadable ({type(error).__name__})")
-        return report, settings, None, account
-    live.check_endpoint(report, endpoint, listing, zdr)
-    try:
-        key = account.key_status()
-    except AccountCheckError as error:
-        report.add("key.status", False, f"refused: {error.code}")
-        return report, settings, None, account
-    max_tokens = settings.llm_max_answer_tokens + settings.llm_reasoning_allowance_tokens
-    reservation = live.typical_reservation(endpoint, max_tokens)
-    live.check_key(report, key, reservation)
-    live.check_owner(
-        report, args.owner_attests_auto_topup_off, args.owner_attests_prompt_logging_off
+    report, ledger, account = run_preflight(
+        settings,
+        lambda: build_account_client(settings, allow_live_network=True),
+        ledger_file=ledger_path(settings),
+        owner_attests_auto_topup_off=args.owner_attests_auto_topup_off,
+        owner_attests_prompt_logging_off=args.owner_attests_prompt_logging_off,
+        fetch=live.fetch_public,
     )
-    try:
-        ledger = BudgetLedger.open(ledger_path(settings))
-        ledger.recover()
-        status = ledger.status()
-    except LedgerError as error:
-        report.add("ledger.healthy", False, f"refused: {error.code}")
-        return report, settings, None, account
-    report.add("ledger.healthy", True, f"profile {status.profile_id}, alias {status.key_alias}")
-    try:
-        live.verify_earlier_calls(report, ledger, account, endpoint)
-        status = ledger.status()
-    except LedgerError as error:
-        report.add("ledger.earlier_calls_verified", False, f"refused: {error.code}")
-        return report, settings, None, account
-    live.check_ledger(report, key, status, ledger.last_call_id() > 0, reservation)
     return report, settings, ledger, account
 
 

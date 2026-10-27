@@ -49,6 +49,9 @@ FallbackReason = Literal[
     "policy_no_allowed_line",
     "stream_partial",
     "budget_refused",
+    # D-094: the remote test model was active, but the question was outside the synthetic
+    # boundary, so nothing was sent.
+    "remote_boundary",
 ]
 Confidence = Literal["high", "low", "none"]
 Kind = Literal["guidance", "resolution"]
@@ -64,6 +67,7 @@ FALLBACK_REASONS = frozenset(
         "policy_no_allowed_line",
         "stream_partial",
         "budget_refused",
+        "remote_boundary",
     }
 )
 FINISH_REASONS = frozenset({"stop", "length"})

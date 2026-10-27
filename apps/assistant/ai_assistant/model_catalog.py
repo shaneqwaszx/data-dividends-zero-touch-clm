@@ -6,7 +6,10 @@
                       AI_ASSISTANT_MODEL_PROFILES_FILE; a profile is selectable only when its
                       URL is a literal loopback address
     remote profiles   the code-defined remote profile (D-091 dormant; D-092 proposed for the
-                      synthetic evaluation only): listed as pending authorisation, never usable
+                      synthetic evaluation only): listed as pending authorisation, never usable,
+                      unless the D-094 local synthetic test mode is configured (remote_test.py);
+                      then selectable, and the chat uses it only on the approved synthetic
+                      test case (synthetic_boundary.py)
 
 The file holds no credential: a profile may name one environment variable from the reviewed
 allowlist below, read on the server when the model is built and never shown or stored. The
@@ -26,6 +29,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from . import remote_test
 from .config import AiAssistantSettings
 from .llm import (
     ModelAnswer,
@@ -225,28 +229,55 @@ def baseline_entry(settings: AiAssistantSettings) -> CatalogueEntry:
     )
 
 
-def _remote_entries() -> tuple[CatalogueEntry, ...]:
-    return tuple(
-        CatalogueEntry(
-            profile_id=profile.profile_id,
-            display_name="GPT-OSS 120B via OpenRouter (remote)",
-            source="code",
-            deployment="remote",
-            model_id=profile.model_id,
-            model_version=None,
-            endpoint=None,
-            context_window_tokens=None,
-            max_answer_tokens=None,
-            temperature=None,
-            timeout_seconds=None,
-            streaming=profile.capabilities.streaming,
-            fingerprint=fingerprint({"profile": profile.profile_id}),
-            status="pending_authorisation",
-            reason="REMOTE_NOT_AUTHORISED",
+def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]:
+    entries = []
+    for profile in APPROVED_PROFILES.values():
+        if profile.boundary != "external":
+            continue
+        problem = remote_test.readiness(settings)
+        if problem == "REMOTE_NOT_AUTHORISED":
+            # Today's entry, unchanged: D-091 dormant, D-092 synthetic evaluation only.
+            entries.append(
+                CatalogueEntry(
+                    profile_id=profile.profile_id,
+                    display_name="GPT-OSS 120B via OpenRouter (remote)",
+                    source="code",
+                    deployment="remote",
+                    model_id=profile.model_id,
+                    model_version=None,
+                    endpoint=None,
+                    context_window_tokens=None,
+                    max_answer_tokens=None,
+                    temperature=None,
+                    timeout_seconds=None,
+                    streaming=profile.capabilities.streaming,
+                    fingerprint=fingerprint({"profile": profile.profile_id}),
+                    status="pending_authorisation",
+                    reason="REMOTE_NOT_AUTHORISED",
+                )
+            )
+            continue
+        # D-094 local synthetic test mode: usable only on the approved synthetic test case.
+        entries.append(
+            CatalogueEntry(
+                profile_id=profile.profile_id,
+                display_name="GPT-OSS 120B via OpenRouter (synthetic test only, D-094)",
+                source="code",
+                deployment="openrouter",
+                model_id=profile.model_id,
+                model_version=settings.llm_reasoning_effort or None,
+                endpoint=f"openrouter.ai · {settings.openrouter_endpoint or '—'}",
+                context_window_tokens=None,
+                max_answer_tokens=settings.llm_max_answer_tokens,
+                temperature=settings.llm_temperature,
+                timeout_seconds=settings.llm_timeout_seconds,
+                streaming=profile.capabilities.streaming,
+                fingerprint=remote_test.remote_fingerprint(settings),
+                status="selectable" if problem is None else "unavailable",
+                reason=problem,
+            )
         )
-        for profile in APPROVED_PROFILES.values()
-        if profile.boundary == "external"
-    )
+    return tuple(entries)
 
 
 def _file_entry(profile: LocalProfile) -> CatalogueEntry:
@@ -296,7 +327,7 @@ def _error_fields(error: ValidationError) -> tuple[str, ...]:
 def load_catalogue(settings: AiAssistantSettings) -> Catalogue:
     """Every model the page lists. A broken file lists no file profile (never part of one)."""
 
-    fixed = (baseline_entry(settings), *_remote_entries())
+    fixed = (baseline_entry(settings), *_remote_entries(settings))
     path = profiles_path(settings)
     if path is None:
         return Catalogue(False, "not_configured", (), fixed)

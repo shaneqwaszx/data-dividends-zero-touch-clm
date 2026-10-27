@@ -723,11 +723,12 @@ def test_no_other_provider_endpoint_or_attribution_header_exists_in_the_code() -
         *ASSISTANT.joinpath("assistant_eval").rglob("*.py"),
     ]
     # Phase B (D-092, proposed): the read-only account checks live in one module, and only
-    # the evaluation CLI reads the public ZDR list. Attribution headers stay forbidden.
+    # the shared preflight reads the public ZDR list (remote_checks.py, used by the evaluation
+    # CLI and the D-094 test mode). Attribution headers stay forbidden.
     allowed = {
         "/generation": {"openrouter_account.py"},
         "/api/v1/key": set(),
-        "endpoints/zdr": {"evaluate_answers.py"},
+        "endpoints/zdr": {"remote_checks.py"},
         "HTTP-Referer": set(),
         "X-Title": set(),
     }

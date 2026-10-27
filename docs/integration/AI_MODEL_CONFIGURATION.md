@@ -1,7 +1,8 @@
 # AI Assistant model configuration — guide for IT administrators
 
 Decision: D-093 (accepted for the local-only POC scope; ADR-012 Amendment 4). Classification:
-`LOCAL`. Nothing here enables a remote or cloud model.
+`LOCAL`. Nothing here enables a remote or cloud model, except the owner's separately recorded
+D-094 local synthetic test mode on a development machine (section 9).
 
 ## What IT configures and what HR does
 
@@ -88,7 +89,7 @@ any longer prompt (the RM gets the case-data answer instead).
 - Remote models are not usable from the CLM. The code-defined OpenRouter profile is shown as
   *Pending authorisation* (D-091 dormant; D-092 proposed, synthetic evaluation only). Any
   remote activation needs separate privacy, security, provider, budget and governance
-  approval.
+  approval. The one exception is the owner's D-094 local synthetic test mode (section 9).
 
 ## 6. What HR sees and does
 
@@ -132,3 +133,64 @@ fingerprint prefix, outcome and a closed code. No URL, key, prompt, answer or ca
 Applied activations, rollbacks, undone activations and start-up reverts are always kept;
 refused access by users without the permission keeps its newest 1,000 rows and other activity
 its newest 5,000, so a flood of refused requests cannot push model changes out of the history.
+
+## 9. D-094 local synthetic test mode (development machines only)
+
+Off unless the service environment names `AI_ASSISTANT_LOCAL_API_TEST_DECISION=D-094`. Then,
+and only when every condition holds, the OpenRouter profile is listed as **GPT-OSS 120B via
+OpenRouter (synthetic test only, D-094)** and HR can test, qualify, activate and roll it back
+like a local model:
+
+| Condition | Setting or check |
+| --- | --- |
+| Decisions | `AI_ASSISTANT_REMOTE_INFERENCE_DECISION=D-091`, `AI_ASSISTANT_REMOTE_LIVE_DECISION=D-092` |
+| Endpoint | `AI_ASSISTANT_OPENROUTER_ENDPOINT=deepinfra/bf16` (the approved one), `AI_ASSISTANT_LLM_REASONING_EFFORT`, `AI_ASSISTANT_LLM_REASONING_ALLOWANCE_TOKENS` (at least 256) |
+| Development machine | the CLM backend URL is a literal loopback address and every allowed browser origin is a local `http` origin |
+| Owner attestation | `AI_ASSISTANT_LOCAL_API_TEST_OWNER_ATTESTS=auto_topup_off,prompt_logging_off` |
+| Key and budget | `OPENROUTER_API_KEY` in the process environment only; an initialised budget ledger (`scripts/budget_ledger.py`) |
+
+Otherwise the page says which condition is missing. What each action does:
+
+- **Test connection**: the Phase B preflight. It checks the public listing and ZDR list, the
+  key limit, the ledger and earlier calls, and makes **no inference call**.
+- **Run qualification**: a **paid** run of only the Phase B questions listed in
+  `AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS`. Their number must equal
+  `AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_COUNT`, or the run is refused. The gates are those
+  above plus G-8, which requires every call to be verified from its generation metadata
+  (serving provider, model and cost). G-7 uses the adapter's enforced prompt byte limit.
+- **Activate** / **Roll back**: the same as for local models.
+
+The active GPT-OSS model answers a chat question only when the whole prompt is inside the
+generated synthetic boundary (`apps/assistant/ai_assistant/synthetic_boundary.json`):
+
+- the case is GARDEN BUSINESS (UEN 11111999A) with registry details from ACRA MOCK;
+- the document list was read, and every document on the case or named in its summary has an
+  approved fixture file name;
+- every client value is a fixture value;
+- the viewer is a seeded POC user;
+- only unchanged repository guidance and the synthetic seed are used;
+- the text passes the word screen:
+  - Every message may contain only printable ASCII, line breaks, tabs and a few named
+    typographic marks.
+  - The question and user history are taken as written. Words must come from the synthetic
+    questions, guidance, fixture values, screen terms or a reviewed list of everyday words.
+    Numbers get no free pass: at most three number groups across the user turns, never two
+    side by side.
+  - Assistant history may also use the synthetic prompts' wording (not the app's code
+    strings), with no run of more than three number groups.
+
+Otherwise nothing is sent and the RM gets the case-data answer, with a notice naming the
+reason code. The screen guards against accidental entry, not deliberate encoding. It cannot
+recognise a real name made of ordinary English words or numbers spelled out as words, and
+its number cap is per request. So do not type real customer details.
+
+Each call:
+
+- reuses the preflight, refreshed every `AI_ASSISTANT_LOCAL_API_TEST_PREFLIGHT_SECONDS`;
+- verifies earlier calls first, and is verified itself after it ends. A mismatch or a failed
+  call opens the ledger breaker, which stops every later call.
+
+The activated model makes at most `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` calls (open ones
+included) until it is activated again or the service restarts; the ledger cap bounds the
+spend. Model answers say "Answered by GPT-OSS 120B through OpenRouter (D-094 local synthetic
+test mode)."
