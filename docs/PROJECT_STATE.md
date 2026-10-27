@@ -1095,8 +1095,9 @@ across the intervening merges is outstanding (see architectural debt).
 
 ## AI Assistant model management - unmerged candidate, 2026-10-27
 
-Branch `feat/assistant-model-management-20261027` from main `23c45a7`. Not merged; this
-section records only the candidate's delta.
+PR #121, branch `feat/assistant-model-management-20261027`, started from main
+`23c45a7` and integrated with main `176e09b` (PR #122, D-092 P11 to P14) by merge, without
+conflicts. Not merged to main; this section records only the candidate's delta.
 - **Decisions:** D-093 accepted by the owner for the local-only POC scope (ADR-012
   Amendment 4). D-091 and D-092 (PROPOSED) unchanged; remote inference stays unavailable to
   the service.
@@ -1115,6 +1116,14 @@ section records only the candidate's delta.
   gate (84/84 turns, capacity verified at 16,334 tokens, 0 unsafe displayed lines, line
   validity 0.817, G-5 reported 0.214) and activation without the acknowledgement was refused;
   declared 32,768 failed G-7 with `TRUNCATION_DETECTED`. No remote or paid call was made.
+  After integrating PR #122 the answer-code basis changed (`59a3bcd4…`): the earlier
+  qualification showed as out of date and activation was refused (`NOT_QUALIFIED`); a fresh
+  LOCAL qualification of the same profile passed every gate (84/84 turns, 0 unsafe displayed
+  lines, line validity 0.808, G-5 reported 0.214, capacity verified, 0 drifted turns), then
+  activation with the acknowledgement and rollback succeeded. A developer browser smoke test
+  of the AI Models page (RM/Director refused, HR flow end to end) passed on `aea87b9`.
   Answer quality `NOT_SCORED` (gold stub). Not Live evidence.
-- **Open:** independent quality gate, main integration, pre-PR check, publication and merge
-  (each separately authorised); owner gold labels (A-6) before answer quality can be scored.
+- **Open:** the owner's merge of PR #121 (hosted CI billing-blocked, not executed); Low
+  follow-ups F-7, N-1, N-2 and O-1; owner gold labels (A-6) before answer quality can be
+  scored; any model activated through management must be re-qualified after a later change
+  to the answer code.
