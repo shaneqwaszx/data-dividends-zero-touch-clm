@@ -225,5 +225,23 @@ fails `live_claim`, no name/id leakage, everyday prompt 9,196 both sides, snapsh
 
 Remediation evidence: focused suites 1,113 passed; ruff, format, strict mypy clean; snapshots
 rebuilt — only `prompt_version` changed (every turn identical), `gold.json` hash only;
-full suite in section 5 re-run on the remediated tree. A fresh independent QG of the
-remediated commit is required before publication.
+full suite in section 5 re-run on the remediated tree.
+
+**Fresh independent QG R2 on `e09de10` (tree `687f898`): PASS** (report
+`C:\Users\shane\Desktop\claude-worktrees\qg-pbq-e09de10-probes\QG_REPORT_R2.md`). H1, L1 and L3
+fixed: knowledge grounding (`Context.known`, `checked_texts`, `knowledge_lines`) is
+byte-identical to base across 648 case variants; all 17 Phase B plans equal `3caf4db`'s and
+P06#2 equals base; routing regexes stay bounded (<0.07 s on a 200,000-character input).
+Evidence: focused 1,113 passed; full suite 2,323 tests, 2,309 passed, 14 failed (the same 14
+Errno-24 ids; 288 pass in isolation; no ChromaDB failure in that run); ruff, format and strict
+mypy clean; snapshots current (`59938647…`); 12 mutants plus a control: 9 killed, 3 survivors
+on redundant regex alternatives; all 4 mutants undoing the H1 fix killed.
+
+Open, optional (not fixed, so the reviewed content stays unchanged): L-R1 routing edge cases
+("Can the Director overrule … which ACRA record is right?" still gets the director plan; a
+question naming both a staff officer and a director loses the director plan; "Do I need to
+review officers listed in ACRA?" is not routed); L-T1 re-adding a bare `officers?` alternative
+is not caught by a test. Info: `SELECTION_ONLY_FACTS` is maintained by hand; neither gate
+re-ran the local Ministral table. The commit recording this adds report text only; the
+reviewed product tree is `687f898`. Session 1's PR #121 (D-093, draft) touches `main.py`, not
+these files; overlap is limited to appended sections of `DECISION_LOG.md` and ADR-012.
