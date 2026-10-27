@@ -554,6 +554,14 @@ differs, and they never read as a finding about this case.
 | `Registry data in this case comes from ACRA (<environment>), not the live ACRA service.` (added 2026-10-27, D-092 P7; owner-approved for `ACRA (MOCK)`, other environments by the owner's "source-correct wording" instruction) | the backend's company source (`case.entity.source`) starts with `ACRA (` and names a non-live environment (MOCK, LOCAL, SANDBOX, PARTIAL, DORMANT); never for a live or unnamed source. The same sentence remains the non-live registry notice, which is not repeated when the line is shown. |
 | "This case cannot name any UBOs yet because the UBO check has not run." (added 2026-10-27, D-092 P8, owner-approved) | the backend readiness lists `OWNERSHIP_REQUIRED` and ownership is `MISSING` (set together only when the case has no ownership analysis); never for analysed, review, failed or in-progress ownership |
 | "Marking the UBO check as complete is not offered to you on this case." (added 2026-10-27, D-092 P9, owner-approved; **topic-only**) | ownership readiness is MISSING, IN_PROGRESS, REVIEW_REQUIRED or FAILED and no action offered to this viewer would complete or accept ownership, UBOs or beneficial owners. Allowed by the guard, but listed to the model only in the QUESTION TOPIC message for a request to complete the check, never in the case facts. |
+| "The app does not read directors from uploaded documents, so it does not compare directors between a document and ACRA." (D-092 P12, owner-approved; topic-only) | always (the backend's document field keys and reconciliation fields exclude directors) |
+| `The ACRA (<environment>) result for this case has no officer (director) records; this does not show that the company has no directors.` (D-092 P12, owner-approved; topic-only) | the registry officer lookup status (P11) is EMPTY, the registry stage is READY and the company source is a named non-live ACRA environment |
+| "Officer (director) records were not retrieved from the registry for this case." (D-092 P12, owner-approved; topic-only) | the registry officer lookup status is FAILED, NOT_ATTEMPTED or UNSUPPORTED |
+| "If a document and the registry differ on directors, check the document's type, date and which company it is for." and "A director difference can come from a recent appointment or resignation, or from an out-of-date document." (D-092 P12, owner-approved; topic-only) | always; general and conditional, listed only for a question about a director difference, never as evidence that one exists |
+| "The entity status "LIVE" is the company's registration status in the registry record, not a live connection to ACRA." (D-092 P13, owner-approved; topic-only) | the company's entity status is exactly LIVE and the registry source line is allowed |
+| "A UEN (Unique Entity Number) identifies an entity registered in Singapore. The number alone does not confirm its legal name, address or other company details." (D-092 P13, owner-approved; topic-only) | the company has a UEN and its country is SG |
+| "A person must confirm Send in "Final review & send" before the final GoldTier submission; the app may search GoldTier for an existing customer earlier." and "Sending a case does not mean GoldTier has approved the customer or that KYC is complete. Those outcomes are not confirmed by this application." (D-092 P14, owner-approved; topic-only) | always |
+| "When a GoldTier submission is confirmed, the app retains the submission result and required customer readback. The result is shown in "GoldTier Details & Status"." (D-092 P14, owner-approved; topic-only) | the backend's target submission state is SUBMISSION_CONFIRMED and its READBACK operation status is SUCCESS |
 
 All values come from the backend projection, never from the model. A line with a changed
 value, another case's values or an invented owner is not an allowed line and is dropped.
@@ -590,6 +598,22 @@ section. None requires a line, so a bare decline is never padded, and the no-mod
 is unchanged. Topic-only lines (`guide.TOPIC_ONLY_LINES`) are allowed lines the model sees
 only in such a topic message. Rule 1 names allowed_guidance and KNOWLEDGE as the sources;
 whether models also use a line listed only in the topic message is not yet verified live.
+
+Also added 2026-10-27 (Phase B answer quality, D-092 P11 to P14, owner-approved): a question
+about the company's directors or officers (not the app's Director role) is steered to the
+officer lookup line and, for a difference, to the "not read from documents" line, the general
+check and reasons and the Registry and Document verification sections; it takes precedence
+over the "what is blocking" and readiness topics and over a difference topic reached without
+naming a field. With no other topic, a UEN question is steered to the UEN line and the source
+line; an entity-status question to the entity-status line; the registry-status plan gains the
+entity-status line; a GoldTier handoff question goes to the not-ready line, the Send and
+not-approval lines, the submission-result line where allowed and "GoldTier Details & Status".
+All new lines are topic-only, none is required, and the everyday prompt and the no-model
+answer are unchanged. The case facts gain two values used only to choose lines and not shown
+to the model: the status of the registry officer lookup (P11; never names, roles, ids or
+counts; EMPTY only from a successful lookup on the case's own current acquisition) and the
+GoldTier readback status. A proposed G4 sentence about the GoldTier environment was held: each
+wording containing "production GoldTier" fails the unchanged live-claim check.
 
 ### Change 4 - required lines (server)
 
