@@ -205,6 +205,21 @@ The review confirmed the Q-1 fix and everything else, including the security rev
 
 The qualification basis is unchanged (`b4049047884e…`), because `model_admin.py` is not a basis file.
 
+## 8e. QG round on `4e588a4`: HOLD, remediated (owner-authorised round, 2026-10-29)
+
+The review confirmed the Q2-R1 fix, Q-1/F2, F1, the budget controls, the security review and the basis.
+
+- **R5-1 (required):** a superseding quality failure behind a technical or budget category kept that category's retry advice. HR was told to retry, the server refused the re-run, and no escalation summary was offered.
+  - **Fix:** a superseding failure now always advises its quality escalation: a developer for G-3/G-6, IT for G-7. A billing category keeps the operator, first.
+  - **Tests:** the action is asserted for each combination.
+- **R5-2 (recommended):** the G-7 check used the rounded rate and failed at exactly 10%.
+  - **Fix:** whole answers are compared (`round(rate × answers) − stream_partial > 10% × answers`). Malformed counts fail safe.
+  - **Tests:** the exact-threshold case and one above it.
+- **R5-3 (owner decision):** a local profile's capacity probe that fails for transport reasons still supersedes its pass. This fail-safe behaviour is kept and documented in §12. GPT-OSS is unaffected.
+- **Advisories:** the §12 table now lists "provider refused" under technical (operator), matching the code.
+
+The basis is unchanged (`b4049047884e…`).
+
 ## 9. Change classes
 
 API/type: yes (new response fields; `confirm_paid_calls`, `confirm_daily_cap_micro_usd`;

@@ -867,13 +867,19 @@ def _gate_diagnosis(summary: dict[str, Any]) -> Diagnosis:
     so billing and quality stay distinct and neither hides the other."""
 
     result = _gate_category(summary)
-    if not result.supersedes_pass and _quality_failed(summary):
-        return replace(result, retryable=False, supersedes_pass=True)
+    escalation = _quality_escalation(summary)
+    if not result.supersedes_pass and escalation is not None:
+        # The re-run is refused (QUALIFICATION_ESCALATION_REQUIRED), so the advice is the
+        # quality escalation, never a retry; an unreconciled billing run still goes to the
+        # operator first (both must be resolved).
+        action = result.action if result.category == "billing_uncertain" else escalation
+        return replace(result, action=action, retryable=False, supersedes_pass=True)
     return result
 
 
-def _quality_failed(summary: dict[str, Any]) -> bool:
-    """G-3 (an unsafe line shown), G-6 with lines written, or G-7 for the model's own reasons
+def _quality_escalation(summary: dict[str, Any]) -> str | None:
+    """Who resolves a genuine quality failure, or None: a developer for G-3 (an unsafe line
+    shown) or G-6 with lines written; IT for G-7 for the configuration's own reasons
     (``_g7_cause``; never a provider failure mid-answer)."""
 
     gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
@@ -883,11 +889,9 @@ def _quality_failed(summary: dict[str, Any]) -> bool:
         return bool(item and item.get("gating") and not item.get("passed"))
 
     validity = (gates.get("G-6") or {}).get("value")
-    return (
-        failed("G-3")
-        or (failed("G-6") and isinstance(validity, int | float))
-        or _g7_cause(summary) is not None
-    )
+    if failed("G-3") or (failed("G-6") and isinstance(validity, int | float)):
+        return "ESCALATE_DEVELOPER"
+    return "ESCALATE_IT" if _g7_cause(summary) is not None else None
 
 
 def _g7_cause(summary: dict[str, Any]) -> str | None:
@@ -910,11 +914,20 @@ def _g7_cause(summary: dict[str, Any]) -> str | None:
     metrics = summary.get("metrics") or {}
     answers = metrics.get("answers")
     rate = value.get("cut_short_rate")
-    if not isinstance(answers, int) or answers <= 0 or not isinstance(rate, int | float):
+    if (
+        not isinstance(answers, int)
+        or isinstance(answers, bool)
+        or answers <= 0
+        or not isinstance(rate, int | float)
+    ):
         return "ANSWERS_CUT_SHORT"  # cannot be explained away: fail safe
-    partial = int((metrics.get("fallback_reasons") or {}).get("stream_partial", 0))
-    genuine = rate * answers - partial
-    return "ANSWERS_CUT_SHORT" if genuine / answers > G7_MAX_CUT_SHORT else None
+    partial = (metrics.get("fallback_reasons") or {}).get("stream_partial", 0)
+    if not isinstance(partial, int) or isinstance(partial, bool) or partial < 0:
+        return "ANSWERS_CUT_SHORT"  # malformed: fail safe
+    # Whole answers, not the rounded rate (the rate is stored to 4 decimals): cut short by
+    # the configuration itself = all cut short - those cut short by a provider failure.
+    genuine = round(rate * answers) - partial
+    return "ANSWERS_CUT_SHORT" if genuine > G7_MAX_CUT_SHORT * answers else None
 
 
 def _gate_category(summary: dict[str, Any]) -> Diagnosis:

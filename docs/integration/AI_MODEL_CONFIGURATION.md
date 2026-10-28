@@ -324,11 +324,21 @@ override verification, reset spend or activate an unqualified configuration.
 
 | Outcome | Earlier pass | HR can | Otherwise |
 | --- | --- | --- | --- |
-| Technical (interrupted, provider unavailable, timeout, rate limit) | kept | retry (paid runs confirmed) | — |
+| Technical (interrupted, provider unavailable, timeout, rate limit, a provider failure mid-answer) | kept | retry (paid runs confirmed) | operator when OpenRouter refused the key, payment or routing (the breaker stops calls) |
 | Budget or limit (calls refused before sending) | kept | raise or wait for the limits, then retry | — |
 | Server configuration (settings, attestations, key limit, question list) | kept (unverified context capacity, or a prompt above the verified or enforced bound: superseded) | — | IT |
-| Billing not reconciled (breaker, unverified calls, provider refused) | kept | — | operator |
-| Answer quality (unsafe line, line validity, answers cut short by the token limits; a provider failure mid-answer is technical) | **superseded** | — | developer or IT; the same configuration cannot be run again until it changes |
+| Billing not reconciled (breaker, unverified calls) | kept | — | operator |
+| Answer quality (unsafe line, line validity, answers cut short by the token limits) | **superseded** | — | developer or IT; the same configuration cannot be run again until it changes |
+
+A quality failure takes precedence in the advice: whatever else the run shows (a provider
+outage, refused calls), its recommended action is the escalation, because the same
+configuration cannot be run again; an unreconciled ledger is still sent to the operator first.
+Answers cut short count by whole answers, after setting aside those a provider failure cut
+short. Owner decision (2026-10-29): a local model's context-capacity probe that fails for any
+reason, including the local server being unreachable or slow during the probe, counts as
+unverified capacity and supersedes that profile's pass (fail safe); IT changes the profile or
+fixes the server, and the changed configuration is qualified again. GPT-OSS capacity is the
+enforced prompt-byte limit and is not probed.
 
 A paid run starts only after HR confirms its number of calls in a dialog showing the estimate
 and the available amount, and only if every call fits the strictest limit; nothing is retried

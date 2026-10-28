@@ -1144,3 +1144,70 @@ def test_unverified_capacity_or_an_oversized_prompt_supersedes() -> None:
     ):
         result = diagnose(_failed(_gates(G_7=(False, value)), answers=10))
         assert (result.cause, result.supersedes_pass) == ("CAPACITY_NOT_VERIFIED", True)
+
+
+# --- QG R5-1 / R5-2: the advice matches the re-run block; whole-answer threshold ------------
+
+
+@pytest.mark.parametrize(
+    ("item", "category", "action"),
+    [
+        (  # technical first, genuine cut-short answers beyond the provider failures
+            _failed(
+                _gates(G_4=False, G_7=(False, _g7(0.4))),
+                answers=10,
+                fallback_reasons={"stream_partial": 2},
+            ),
+            "technical",
+            "ESCALATE_IT",
+        ),
+        (  # budget first, unverified capacity
+            _failed(
+                _gates(G_7=(False, {**CUT_SHORT_HALF, "capacity": "failed"})),
+                answers=10,
+                fallback_reasons={"budget_refused": 1},
+            ),
+            "budget",
+            "ESCALATE_IT",
+        ),
+        (  # budget first, lines written and too few valid
+            _failed(_gates(G_6=(False, 0.4)), answers=10, fallback_reasons={"budget_refused": 1}),
+            "quality",
+            "ESCALATE_DEVELOPER",
+        ),
+        (  # billing first: the operator reconciles first; the pass is still superseded
+            _failed(_gates(G_6=(False, 0.4), G_8=False), remote_calls=2, remote_calls_verified=1),
+            "billing_uncertain",
+            "ESCALATE_OPERATOR",
+        ),
+    ],
+)
+def test_a_superseding_failure_never_advises_a_retry(
+    item: dict[str, Any], category: str, action: str
+) -> None:
+    result = diagnose(item)
+    assert (result.category, result.action) == (category, action)
+    assert result.supersedes_pass is True and result.retryable is False
+    assert result.action.startswith("ESCALATE_")  # the page offers the escalation summary
+
+
+def test_the_g7_threshold_counts_whole_answers_not_the_rounded_rate() -> None:
+    # 30 answers, 5 cut short (rate 0.1667), 2 by the provider: exactly 10% -> not superseded.
+    at = _failed(
+        _gates(G_7=(False, _g7(0.1667))), answers=30, fallback_reasons={"stream_partial": 2}
+    )
+    assert diagnose(at).supersedes_pass is False
+    # 30 answers, 6 cut short (rate 0.2), 2 by the provider: 4 > 3 -> superseded.
+    above = _failed(
+        _gates(G_7=(False, _g7(0.2))), answers=30, fallback_reasons={"stream_partial": 2}
+    )
+    assert diagnose(above).supersedes_pass is True
+
+
+def test_malformed_g7_metrics_fail_safe() -> None:
+    for metrics in (
+        {"answers": True},
+        {"answers": 10, "fallback_reasons": {"stream_partial": "x"}},
+    ):
+        item = _failed(_gates(G_7=(False, _g7(0.5))), **metrics)
+        assert diagnose(item).supersedes_pass is True
