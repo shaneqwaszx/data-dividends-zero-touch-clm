@@ -141,6 +141,15 @@ def _gates(**results: bool | tuple[bool, Any]) -> list[dict[str, Any]]:
     return gates
 
 
+# G-7 values as the gate records them (capacity verified, prompts inside the bound).
+CUT_SHORT_HALF = {
+    "capacity": "verified",
+    "largest_prompt_bound": 100,
+    "prompt_limit": 200,
+    "cut_short_rate": 0.5,
+}
+
+
 def _failed(
     gates: list[dict[str, Any]], code: str = "GATES_FAILED:x", **metrics: Any
 ) -> dict[str, Any]:
@@ -227,7 +236,7 @@ def _failed(
             True,
         ),
         (
-            _failed(_gates(G_7=(False, {"cut_short_rate": 0.5}))),
+            _failed(_gates(G_7=(False, CUT_SHORT_HALF)), answers=2),
             "quality",
             "ANSWERS_CUT_SHORT",
             False,
@@ -1053,15 +1062,17 @@ def test_an_activation_undone_from_ai_unavailable_returns_to_ai_unavailable(
         ),
         (
             _failed(
-                _gates(G_7=(False, {"cut_short_rate": 0.5})),
+                _gates(G_7=(False, CUT_SHORT_HALF)),
                 fallback_reasons={"budget_refused": 1},
+                answers=2,
             ),
             "budget",
         ),
         (
             _failed(
-                _gates(G_4=False, G_7=(False, {"cut_short_rate": 0.5})),
+                _gates(G_4=False, G_7=(False, CUT_SHORT_HALF)),
                 fallback_reasons={"model_unavailable": 1},
+                answers=2,
             ),
             "technical",
         ),
@@ -1079,3 +1090,57 @@ def test_billing_alone_never_supersedes_a_pass() -> None:
     item = _failed(_gates(G_8=False), remote_calls=2, remote_calls_verified=1)
     result = diagnose(item)
     assert (result.category, result.supersedes_pass) == ("billing_uncertain", False)
+
+
+# --- QG Q2-R1: answers cut short by a provider failure mid-answer are technical -------------
+
+
+def _g7(rate: float) -> dict[str, Any]:
+    return {**CUT_SHORT_HALF, "cut_short_rate": rate}
+
+
+@pytest.mark.parametrize("error", ["timeout", "rate_limited"])
+def test_provider_failures_mid_answer_never_take_a_pass_away(error: str) -> None:
+    # 10 answers, 2 cut short, both by the provider failing mid-answer (stream_partial).
+    item = _failed(
+        _gates(G_4=False, G_7=(False, _g7(0.2))),
+        answers=10,
+        fallback_reasons={"stream_partial": 2},
+        call_errors={error: 2},
+    )
+    result = diagnose(item)
+    assert (result.category, result.cause, result.action) == (
+        "technical",
+        "MODEL_UNAVAILABLE",
+        "RETRY_LATER",
+    )
+    assert result.retryable is True and result.supersedes_pass is False
+
+
+def test_a_g7_failure_explained_only_by_provider_failures_is_technical() -> None:
+    item = _failed(
+        _gates(G_7=(False, _g7(0.2))), answers=10, fallback_reasons={"stream_partial": 2}
+    )
+    result = diagnose(item)
+    assert (result.category, result.retryable, result.supersedes_pass) == ("technical", True, False)
+
+
+def test_genuine_cut_short_answers_beyond_the_provider_failures_still_supersede() -> None:
+    # 10 answers, 4 cut short, only 2 by the provider: 20% are the configuration's own.
+    item = _failed(
+        _gates(G_4=False, G_7=(False, _g7(0.4))),
+        answers=10,
+        fallback_reasons={"stream_partial": 2},
+    )
+    result = diagnose(item)
+    assert result.category == "technical"  # what HR sees first
+    assert result.supersedes_pass is True and result.retryable is False
+
+
+def test_unverified_capacity_or_an_oversized_prompt_supersedes() -> None:
+    for value in (
+        {**CUT_SHORT_HALF, "cut_short_rate": 0.0, "capacity": "failed"},
+        {**CUT_SHORT_HALF, "cut_short_rate": 0.0, "largest_prompt_bound": 300},
+    ):
+        result = diagnose(_failed(_gates(G_7=(False, value)), answers=10))
+        assert (result.cause, result.supersedes_pass) == ("CAPACITY_NOT_VERIFIED", True)

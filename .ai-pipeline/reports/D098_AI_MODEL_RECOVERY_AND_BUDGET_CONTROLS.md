@@ -192,6 +192,19 @@ The QG and security review of `3846010` (tree `3e08ac0`) found everything else i
 
 The qualification basis after this round is `b4049047884e9f2897a6ac3ebd232ccfe6482e6a6beb82aa50e6304ecb00fd22`. A fresh independent review of the remediated content follows.
 
+## 8d. QG round on `8200700`: HOLD, remediated
+
+The review confirmed the Q-1 fix and everything else, including the security review. It found one REQUIRED regression introduced by the Q-2 fix.
+
+- **Q2-R1:** a provider timeout or rate limit mid-answer marks an answer cut short (`stream_partial`), which feeds G-7. Q-2 had counted every G-7 failure as a quality failure, so a temporary outage could take a pass away and block re-runs, contradicting R4 and §12.
+  - **Fix:** G-7 is a quality failure only in two cases. Either the answers cut short beyond those explained by `stream_partial` exceed `G7_MAX_CUT_SHORT`, or capacity is unverified or a prompt is above the bound. A G-7 failure explained only by provider failures is technical (`MODEL_UNAVAILABLE`, retryable), and the earlier pass is kept.
+  - **Tests:** the timeout and rate-limit cases, the G-7-only provider case, genuine cut-short answers beyond the provider failures (supersedes), and capacity or oversized prompts (supersedes).
+- **A-1:** the `ACTIVATION_UNDONE` audit now goes through the same retry queue as the start-up revert.
+- **A-2, A-4:** the R12 and §12 wording are corrected.
+- **A-3:** `close_interrupted` store errors still fail closed. Unchanged.
+
+The qualification basis is unchanged (`b4049047884e…`), because `model_admin.py` is not a basis file.
+
 ## 9. Change classes
 
 API/type: yes (new response fields; `confirm_paid_calls`, `confirm_daily_cap_micro_usd`;

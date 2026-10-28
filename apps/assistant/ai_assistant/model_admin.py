@@ -102,7 +102,12 @@ from .model_catalog import (
 )
 from .model_factory import ASSISTANT_DIR
 from .model_profiles import OPENROUTER_PROFILE_ID, ProfileConfigError
-from .model_qualification import connection_test, qualification_basis, quality_state
+from .model_qualification import (
+    G7_MAX_CUT_SHORT,
+    connection_test,
+    qualification_basis,
+    quality_state,
+)
 from .remote_test import (
     RemoteTestModel,
     budget_status,
@@ -696,15 +701,17 @@ class ModelSelector:
                 before.active_prompt_limit,
             )
             undo = self.store.activate(revision, was, _last_good(before), by)
-            self.store.record(
-                actor=by,
-                role=None,
-                action="ACTIVATION_UNDONE",
-                outcome="reverted",
-                profile_id=choice.profile_id,
-                fingerprint=choice.fingerprint,
-                code=problem or "BUILD_FAILED",
-                revision=undo,
+            self._audit_revert(
+                {
+                    "actor": by,
+                    "role": None,
+                    "action": "ACTIVATION_UNDONE",
+                    "outcome": "reverted",
+                    "profile_id": choice.profile_id,
+                    "fingerprint": choice.fingerprint,
+                    "code": problem or "BUILD_FAILED",
+                    "revision": undo,
+                }
             )
             self._active = self._restore()
             raise ProfileConfigError(problem or "BUILD_FAILED", "activation undone")
@@ -866,7 +873,8 @@ def _gate_diagnosis(summary: dict[str, Any]) -> Diagnosis:
 
 
 def _quality_failed(summary: dict[str, Any]) -> bool:
-    """G-3 (an unsafe line shown), G-6 with lines written, or G-7 (cut short or capacity)."""
+    """G-3 (an unsafe line shown), G-6 with lines written, or G-7 for the model's own reasons
+    (``_g7_cause``; never a provider failure mid-answer)."""
 
     gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
 
@@ -875,7 +883,38 @@ def _quality_failed(summary: dict[str, Any]) -> bool:
         return bool(item and item.get("gating") and not item.get("passed"))
 
     validity = (gates.get("G-6") or {}).get("value")
-    return failed("G-3") or (failed("G-6") and isinstance(validity, int | float)) or failed("G-7")
+    return (
+        failed("G-3")
+        or (failed("G-6") and isinstance(validity, int | float))
+        or _g7_cause(summary) is not None
+    )
+
+
+def _g7_cause(summary: dict[str, Any]) -> str | None:
+    """Why G-7 failed, when it is the configuration's own failure: answers cut short by the
+    token limits beyond G7_MAX_CUT_SHORT once those cut short by a provider failure
+    mid-answer (``stream_partial``: technical, see G-4) are set aside, or context capacity
+    not verified for the prompts. None when G-7 passed or only provider failures explain it."""
+
+    gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
+    item = gates.get("G-7") or {}
+    if not item.get("gating") or item.get("passed"):
+        return None
+    raw = item.get("value")
+    value: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    limit, largest = value.get("prompt_limit"), value.get("largest_prompt_bound")
+    if value.get("capacity") != "verified" or (
+        isinstance(limit, int) and isinstance(largest, int) and largest > limit
+    ):
+        return "CAPACITY_NOT_VERIFIED"
+    metrics = summary.get("metrics") or {}
+    answers = metrics.get("answers")
+    rate = value.get("cut_short_rate")
+    if not isinstance(answers, int) or answers <= 0 or not isinstance(rate, int | float):
+        return "ANSWERS_CUT_SHORT"  # cannot be explained away: fail safe
+    partial = int((metrics.get("fallback_reasons") or {}).get("stream_partial", 0))
+    genuine = rate * answers - partial
+    return "ANSWERS_CUT_SHORT" if genuine / answers > G7_MAX_CUT_SHORT else None
 
 
 def _gate_category(summary: dict[str, Any]) -> Diagnosis:
@@ -904,14 +943,13 @@ def _gate_category(summary: dict[str, Any]) -> Diagnosis:
         if set(errors) & _PROVIDER_REFUSALS:
             return Diagnosis("technical", "PROVIDER_REFUSED", "ESCALATE_OPERATOR")
         return Diagnosis("technical", "MODEL_UNAVAILABLE", "RETRY_LATER", retryable=True)
-    g7 = (gates.get("G-7") or {}).get("value") or {}
-    if failed("G-7"):
-        cut_short = g7.get("cut_short_rate") if isinstance(g7, dict) else None
-        if isinstance(cut_short, int | float) and cut_short > 0:
-            return Diagnosis("quality", "ANSWERS_CUT_SHORT", "ESCALATE_IT", supersedes_pass=True)
-        return Diagnosis(
-            "configuration", "CAPACITY_NOT_VERIFIED", "ESCALATE_IT", supersedes_pass=True
-        )
+    g7 = _g7_cause(summary)
+    if g7 == "ANSWERS_CUT_SHORT":
+        return Diagnosis("quality", g7, "ESCALATE_IT", supersedes_pass=True)
+    if g7 == "CAPACITY_NOT_VERIFIED":
+        return Diagnosis("configuration", g7, "ESCALATE_IT", supersedes_pass=True)
+    if failed("G-7"):  # only provider failures mid-answer cut the answers short
+        return Diagnosis("technical", "MODEL_UNAVAILABLE", "RETRY_LATER", retryable=True)
     return Diagnosis("technical", "UNKNOWN", "RUN_AGAIN", retryable=True)
 
 

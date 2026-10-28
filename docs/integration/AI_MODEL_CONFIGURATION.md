@@ -326,9 +326,9 @@ override verification, reset spend or activate an unqualified configuration.
 | --- | --- | --- | --- |
 | Technical (interrupted, provider unavailable, timeout, rate limit) | kept | retry (paid runs confirmed) | — |
 | Budget or limit (calls refused before sending) | kept | raise or wait for the limits, then retry | — |
-| Server configuration (settings, attestations, key limit, question list) | kept (unverified context capacity of a local model: superseded) | — | IT |
+| Server configuration (settings, attestations, key limit, question list) | kept (unverified context capacity, or a prompt above the verified or enforced bound: superseded) | — | IT |
 | Billing not reconciled (breaker, unverified calls, provider refused) | kept | — | operator |
-| Answer quality (unsafe line, line validity, cut-short answers) | **superseded** | — | developer or IT; the same configuration cannot be run again until it changes |
+| Answer quality (unsafe line, line validity, answers cut short by the token limits; a provider failure mid-answer is technical) | **superseded** | — | developer or IT; the same configuration cannot be run again until it changes |
 
 A paid run starts only after HR confirms its number of calls in a dialog showing the estimate
 and the available amount, and only if every call fits the strictest limit; nothing is retried
