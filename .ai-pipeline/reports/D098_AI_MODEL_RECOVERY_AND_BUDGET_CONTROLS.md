@@ -93,7 +93,7 @@ the paid-run pre-check is min(daily remaining, lifetime headroom, key remaining)
 
 Basis files changed: `budget.py`, `remote_checks.py`, `remote_test.py`,
 `synthetic_boundary.json` (regenerated from string constants). Basis `2bd93aeb8886…` →
-`c3c5d3132194c8c577589f7a49c2cf447ce3636e5d2cbf4e7a462f505d93ad7f`. **Balanced's existing
+`b4049047884e9f2897a6ac3ebd232ccfe6482e6a6beb82aa50e6304ecb00fd22`. **Balanced's existing
 qualification is not valid on this code**, nor is any Fast qualification. History is kept;
 nothing is marked qualified; at start-up an active GPT-OSS configuration is stored as
 *AI unavailable* (`QUALIFICATION_OUT_OF_DATE`, audited). Required after integration (owner
@@ -174,6 +174,23 @@ The owner chose this branch as the canonical D-098, a proposed replacement for d
 | Backend full | **rerun NOT_COMPLETED**: stalled at zero CPU (the known Windows pytest socketpair stall) and stopped. The last complete run (3,373 tests, 0 failed, 182 skipped) used backend code identical to the current head (no `apps/backend` change since `6d28401`). |
 
 **The 14 failures.** File-handle exhaustion late in the single-process run: the C runtime's per-process file limit is reached by handles that earlier tests leave open, until `ssl.create_default_context()` cannot open the certificate store. This is pre-existing: the same 14 tests fail with the same error on unchanged PR #127, the failure count does not grow with D-098's 53 extra tests, and the tests pass on their own. It is not a D-098 leak, but it is a real test-hygiene defect, recorded as a separate follow-up; no test was changed or skipped to hide it.
+
+## 8c. Final independent QG round on `3846010`: HOLD, remediated
+
+The QG and security review of `3846010` (tree `3e08ac0`) found everything else in order. That covers the session-end header, the frontend probe, CSRF and origin checks, F1, budget authority, migration, basis, safe messages, the 14 failure modules (654 tests in one process passed) and the scope relative to main.
+
+- **Q-1 (REQUIRED): F2 port incomplete.** `ModelSelector.apply` undid a failed activation to `previous or baseline`. From "AI unavailable", that put the baseline, or a local last-good profile, in place of GPT-OSS.
+  - **Fix:** the undo restores exactly the activation stored before, "AI unavailable" included, as #128 does.
+  - **Tests:** a build failure after the compare-and-set, from "AI unavailable" with the last good being the same profile and with it being a local profile. Both now stay "AI unavailable", with no model.
+- **Q-2 (RECOMMENDED, fixed): decision 6a.** An earlier category (billing, budget, technical) could hide a genuine quality failure in the same run.
+  - **Fix:** whether a pass is superseded is now decided from G-3, G-6 with lines written, and G-7, whatever the category. Billing and quality stay distinct categories, and billing alone never supersedes a pass.
+  - **Tests:** all three combinations, plus billing alone.
+- **Advisories, not changed:**
+  - **A-1:** `close_interrupted` per-run store errors propagate (they fail closed).
+  - **A-2:** a locked state database can hold one request for several SQLite timeouts. This is bounded, at 3 attempts.
+  - **A-3:** test-only sqlite connections are closed by reference counting.
+
+The qualification basis after this round is `b4049047884e9f2897a6ac3ebd232ccfe6482e6a6beb82aa50e6304ecb00fd22`. A fresh independent review of the remediated content follows.
 
 ## 9. Change classes
 

@@ -57,7 +57,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -685,12 +685,17 @@ class ModelSelector:
             if active is not None:
                 self._active = active
                 return self._active
-            # Changed between the checks and the store: put the previous model back (as it
-            # was, last good model included), record that, and restore it as at start-up
-            # (which falls back to the baseline, audited, if it is no longer usable either).
-            undo = self.store.activate(
-                revision, previous or self.baseline_choice(), _last_good(before), by
+            # Changed between the checks and the store: put back exactly what was stored
+            # before (D-098 F2: "AI unavailable" included, never the baseline or the last good
+            # model in its place), last good model included, record that, and restore it as at
+            # start-up (which reverts, audited, if it is no longer usable either).
+            was = Choice(
+                before.active_profile_id,
+                before.active_fingerprint,
+                before.active_qualification_id,
+                before.active_prompt_limit,
             )
+            undo = self.store.activate(revision, was, _last_good(before), by)
             self.store.record(
                 actor=by,
                 role=None,
@@ -850,6 +855,30 @@ def _connection_diagnosis(connection: dict[str, Any]) -> Diagnosis:
 
 
 def _gate_diagnosis(summary: dict[str, Any]) -> Diagnosis:
+    """The category explains what HR sees first (billing, budget, technical, quality); a
+    genuine quality failure supersedes an earlier pass whatever the category (D-098 6a),
+    so billing and quality stay distinct and neither hides the other."""
+
+    result = _gate_category(summary)
+    if not result.supersedes_pass and _quality_failed(summary):
+        return replace(result, retryable=False, supersedes_pass=True)
+    return result
+
+
+def _quality_failed(summary: dict[str, Any]) -> bool:
+    """G-3 (an unsafe line shown), G-6 with lines written, or G-7 (cut short or capacity)."""
+
+    gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
+
+    def failed(gate: str) -> bool:
+        item = gates.get(gate)
+        return bool(item and item.get("gating") and not item.get("passed"))
+
+    validity = (gates.get("G-6") or {}).get("value")
+    return failed("G-3") or (failed("G-6") and isinstance(validity, int | float)) or failed("G-7")
+
+
+def _gate_category(summary: dict[str, Any]) -> Diagnosis:
     gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
     metrics = summary.get("metrics") or {}
 

@@ -981,3 +981,101 @@ def test_an_exhausted_key_is_an_owner_action_not_an_hr_budget_setting(
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "PROVIDER_KEY_LIMIT_EXHAUSTED"
     assert journey.openrouter.chats == []
+
+
+# --- QG Q-1: an undone activation from "AI unavailable" returns to it, never a stand-in -----
+
+
+@pytest.mark.parametrize("last_good", ["same", "local"])
+def test_an_activation_undone_from_ai_unavailable_returns_to_ai_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, last_good: str
+) -> None:
+    from ai_assistant.model_admin_store import Choice
+    from ai_assistant.model_catalog import load_catalogue
+
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    store = _store(journey)
+    stored = store.activation(journey.selector.baseline_choice())
+    balanced = Choice(
+        stored.active_profile_id,
+        stored.active_fingerprint,
+        stored.active_qualification_id,
+        stored.active_prompt_limit,
+    )
+    if last_good == "same":
+        previous = balanced
+    else:
+        local = load_catalogue(journey.settings).get("lmstudio_qwen3_8b")
+        assert local is not None
+        previous = Choice(local.profile_id, local.fingerprint, None, None)
+    # The stored state is "AI unavailable" (a revert), with that last good model.
+    store.activate(stored.revision, Choice(UNAVAILABLE_ID, UNAVAILABLE_ID), previous, "system")
+    assert journey.selector.current().profile_id == UNAVAILABLE_ID
+
+    # HR activates Balanced; the build fails after the compare-and-set (for example a quality
+    # failure finishing during the activation's connection test, or the ledger going away).
+    original = journey.selector._build_stored  # noqa: SLF001
+    calls = {"n": 0}
+
+    def fail_once(activation: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1 and activation.active_profile_id == OPENROUTER_PROFILE_ID:
+            return None, "LEDGER_UNAVAILABLE"
+        return original(activation)
+
+    monkeypatch.setattr(journey.selector, "_build_stored", fail_once)
+    revision = journey.client.get(API).json()["revision"]
+    refused = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/activate",
+        json={"expected_revision": revision, "acknowledge_quality_unscored": True},
+    )
+    assert refused.status_code == 409, refused.text
+    after = store.activation(journey.selector.baseline_choice())
+    assert after.active_profile_id == UNAVAILABLE_ID  # exactly what was stored before
+    assert after.last_good_profile_id == previous.profile_id
+    assert journey.selector.current().profile_id == UNAVAILABLE_ID
+    assert journey.selector.current().model is None
+    assert journey.baseline.calls == 0
+    (undone,) = _events(journey, "ACTIVATION_UNDONE")
+    assert undone["code"] == "LEDGER_UNAVAILABLE"
+
+
+# --- QG Q-2: a quality failure supersedes a pass whatever explains the run first ------------
+
+
+@pytest.mark.parametrize(
+    ("item", "category"),
+    [
+        (
+            _failed(_gates(G_6=(False, 0.5), G_8=False), remote_calls=2, remote_calls_verified=1),
+            "billing_uncertain",
+        ),
+        (
+            _failed(
+                _gates(G_7=(False, {"cut_short_rate": 0.5})),
+                fallback_reasons={"budget_refused": 1},
+            ),
+            "budget",
+        ),
+        (
+            _failed(
+                _gates(G_4=False, G_7=(False, {"cut_short_rate": 0.5})),
+                fallback_reasons={"model_unavailable": 1},
+            ),
+            "technical",
+        ),
+    ],
+)
+def test_a_quality_failure_supersedes_a_pass_even_behind_another_category(
+    item: dict[str, Any], category: str
+) -> None:
+    result = diagnose(item)
+    assert result.category == category  # billing, budget and technical stay distinct
+    assert result.supersedes_pass is True and result.retryable is False
+
+
+def test_billing_alone_never_supersedes_a_pass() -> None:
+    item = _failed(_gates(G_8=False), remote_calls=2, remote_calls_verified=1)
+    result = diagnose(item)
+    assert (result.category, result.supersedes_pass) == ("billing_uncertain", False)
