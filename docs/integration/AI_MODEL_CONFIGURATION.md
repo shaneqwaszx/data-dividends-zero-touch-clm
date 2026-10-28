@@ -253,10 +253,10 @@ reconcile with `scripts/budget_ledger.py` first.
 
 | Limit | Where | Notes |
 | --- | --- | --- |
-| Daily allowance | the ledger, checked on every call | At most US$1.00 reserved plus settled per Asia/Singapore calendar day, for qualification and chat together. HR sets it on AI Models (US$0.00 to US$1.00, D-096); until then `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` (default 1000000) applies. Resets at Singapore midnight without erasing anything; lowering it never resets today's spend. |
+| Daily allowance | the ledger, checked on every call | Reserved plus settled spend per Asia/Singapore calendar day, for qualification and chat together. US$1.00 by default; D-098: HR may set it higher or lower on AI Models (no US$1 ceiling; a raise needs the amount confirmed and a finite OpenRouter key limit verified at that moment); until then `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` (default 1000000) applies. Resets at Singapore midnight without erasing anything; lowering it never resets today's spend. |
 | Calls per activation | the active model, counted from the ledger | HR sets 1 to 200 on AI Models (D-096); until then `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` (default 20). Counted from activation or service start; a change applies at once and never resets the count. The paid qualification keeps the environment value. |
-| Lifetime cap | the ledger | HR may set it on AI Models from the ledger's opening usage up to US$1.00 above it (D-092 P3, D-096 W3); a raise needs the amount confirmed and passing reconciliation checks against OpenRouter's reported usage. `scripts/budget_ledger.py set-cap` still works for the operator. |
-| Key limit | OpenRouter | Unchanged and never changed by the CLM: a non-resetting limit with at most US$1.00 plus one reservation remaining. AI Models can re-read it ("Refresh OpenRouter Limits"). |
+| Lifetime cap | the ledger | HR may set it on AI Models at or above the ledger's opening usage (D-098: no US$1 allocation ceiling); a raise needs the amount confirmed, a finite OpenRouter key limit and passing reconciliation checks against OpenRouter's reported usage. `scripts/budget_ledger.py set-cap` still works for the operator. |
+| Key limit | OpenRouter | Never changed by the CLM. D-098: it must be set, never reset and be finite (`key.limit_finite`); without one, every call is refused and no app limit can be raised. There is no longer a US$1.00 bound on it for the CLM's own use (the Phase B harness keeps its D-092 allocation). AI Models can re-read it ("Refresh OpenRouter Limits"). |
 
 The strictest applies. AI Models shows today's settled spend, in-flight reservations, today's
 remaining allowance, lifetime headroom, the key limit as last checked, the available allowance
@@ -300,3 +300,57 @@ line that passed the exact-line check), *Showing lines that passed the check*, a
 time. No percentage, estimate or model reasoning is shown. After an answer, *What this answer
 used* says whether the model or the case data produced it, the model name, the number of
 cited sources and the time measured in the browser.
+
+## 12. Qualification recovery, flexible limits and "AI unavailable" (D-098)
+
+**Why a sign-in ended.** The backend keeps sessions in its own memory, one per account, for
+8 hours from sign-in (unchanged). After a 401 the sign-in page now says why: the 8-hour limit,
+the same account signed in elsewhere (another browser, the in-app pane, an agent), access
+changed, signed out, or a session the backend no longer knows (it was restarted). A
+qualification is never stopped, repeated or restarted by a sign-out; sign in again to follow it.
+
+**Interrupted runs.** The service stamps a running qualification every second. A run with no
+stamp for 30 seconds (the assistant service stopped or restarted) is closed as `INTERRUPTED`,
+or `INTERRUPTED_BILLING_UNCERTAIN` when a paid call may have been open; it is never restarted.
+An uncertain call stays in the ledger (its lease expires, it is charged at its reservation and
+the breaker opens) until an operator reconciles with `scripts/budget_ledger.py`.
+
+**Model health and recovery (AI Models).** Each configuration shows what its latest run means:
+technical, budget or limit, server configuration, answer quality or billing not reconciled,
+with the failed gates, a plain-English cause, whether a retry is worthwhile, whether an earlier
+pass still counts, the paid calls a retry may make against the strictest limit, and the
+recommended action or an escalation summary. HR cannot lower a gate, bypass a guardrail,
+override verification, reset spend or activate an unqualified configuration.
+
+| Outcome | Earlier pass | HR can | Otherwise |
+| --- | --- | --- | --- |
+| Technical (interrupted, provider unavailable, timeout, rate limit) | kept | retry (paid runs confirmed) | — |
+| Budget or limit (calls refused before sending) | kept | raise or wait for the limits, then retry | — |
+| Server configuration (settings, attestations, key limit, question list) | kept (unverified context capacity of a local model: superseded) | — | IT |
+| Billing not reconciled (breaker, unverified calls, provider refused) | kept | — | operator |
+| Answer quality (unsafe line, line validity, cut-short answers) | **superseded** | — | developer or IT; the same configuration cannot be run again until it changes |
+
+A paid run starts only after HR confirms its number of calls in a dialog showing the estimate
+and the available amount, and only if every call fits the strictest limit; nothing is retried
+automatically.
+
+**Decision 6a and "AI unavailable".** Activation, rollback, the active model, the check made
+after every run and start-up use one rule: the newest passing run for the current fingerprint
+and answer code, unless a genuine quality failure came after it. When a GPT-OSS configuration
+stops being usable (its pass superseded or out of date, its setting removed), the service
+stores **AI unavailable** instead of switching to the local baseline or another model
+(audited); this supersedes the D-097 note that a removed Fast setting reverts to the baseline.
+Onboarding users then get answers labelled *Case-data guidance, not AI-generated*. HR
+activates a qualified configuration, or the baseline, by hand. A local (D-093) profile still
+reverts to the baseline.
+
+**Flexible limits.** See the table in section 10.3: US$1.00 is the daily default, not a ceiling;
+the lifetime cap has no US$1 allocation ceiling; the key's own finite limit is required and is
+a backstop; at every call the strictest of the three applies. Raising a limit is confirmed and
+checked against OpenRouter first; lowering is not. Existing model state databases keep their
+spending controls (the table is rebuilt once without the US$1 check).
+
+**Requalification.** D-098 changes qualification-basis files (`budget.py`, `remote_checks.py`,
+`remote_test.py`, `synthetic_boundary.json`), so every earlier GPT-OSS qualification is out of
+date on this code: at start-up an active GPT-OSS configuration becomes *AI unavailable* until
+HR runs a new (paid) qualification and activates it. Historical runs are kept.

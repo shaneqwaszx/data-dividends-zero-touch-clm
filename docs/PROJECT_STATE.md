@@ -1255,3 +1255,27 @@ squash-merged). Delta only; nothing here is merged or Live.
 - **Open:** owner merge; a bounded paid Medium-vs-Low comparison needs T7 approval; the
   basis-file improvements in the D-097 report need a paid requalification decision; the D-095
   section above still reads "branch, not merged" (closeout refresh for PR #126 pending).
+
+## AI Assistant D-098 qualification recovery, GPT-OSS-only fallback and flexible limits (stacked branch, not merged) - 2026-10-28
+
+Branch `feat/d098-ai-model-recovery-budget-controls`, stacked on PR #127
+(`claude/gracious-lovelace-bjvh2z` @ `65535ce`). Delta only; nothing here is merged or Live.
+- **Decision:** D-098 (owner-authorised, local development scope). Evidence:
+  `.ai-pipeline/reports/D098_AI_MODEL_RECOVERY_AND_BUDGET_CONTROLS.md`.
+- **Behaviour:** the sign-in page says why a session ended (closed reason header; lifetime and
+  one-session-per-account unchanged). Qualifications left without a supervisor close as
+  interrupted, never restarted. AI Models adds *Model health and recovery* (classified
+  outcome, failed gates, earlier-pass validity, paid-call estimate, retry or escalation), a
+  paid-run confirmation with a budget pre-check, an *AI unavailable* state instead of any
+  substitute model, and flexible daily and lifetime limits (US$1.00 default, no US$1 ceiling;
+  raises confirmed and gated on a finite, verified OpenRouter key limit; strictest wins).
+  The chat labels case-data guidance as not AI-generated.
+- **Qualification:** basis `2bd93aeb8886…` → `3eb5d0cebcd3…` (budget and preflight files):
+  every earlier GPT-OSS qualification is out of date on this code; an active GPT-OSS
+  configuration starts as *AI unavailable*. Paid requalification of Balanced (and Fast if
+  used) is required after integration and needs owner approval; none was run.
+- **Persistence:** model state SQLite only: `qualifications.supervised_at` added in place; the
+  `spending_controls` table rebuilt once without the US$1 CHECK, keeping its row. No Mongo
+  or case-data change.
+- **Open:** owner merges #127 first; then rebase/retarget D-098 onto main, re-verify, and
+  approve the paid requalification.
