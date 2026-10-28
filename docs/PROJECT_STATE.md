@@ -1127,3 +1127,28 @@ conflicts. Not merged to main; this section records only the candidate's delta.
   follow-ups F-7, N-1, N-2 and O-1; owner gold labels (A-6) before answer quality can be
   scored; any model activated through management must be re-qualified after a later change
   to the answer code.
+
+## AI Assistant D-094 local synthetic test mode - unmerged candidate, 2026-10-27
+
+Branch `feat/assistant-openrouter-local-test-20261027`, from main `c36b8af`. Not merged; this
+section records only the candidate's delta.
+- **Decisions:** D-094 (owner-authorised, local development scope only). D-091 and D-093 are
+  unchanged apart from D-094 T3. D-092 is still PROPOSED.
+- **Behaviour:** off by default. With D-094 configured on a loopback development set-up, HR
+  can test (preflight, no inference), qualify (a paid, counted Phase B manifest with gate G-8,
+  every call verified), activate and roll back GPT-OSS 120B via OpenRouter on the existing
+  AI Models page. The existing chat uses it only when the whole prompt is inside the
+  generated synthetic boundary (GARDEN BUSINESS, ACRA MOCK, fixture documents and values,
+  seeded viewers, repository knowledge, synthetic vocabulary). Anything else gets the
+  case-data answer and sends nothing. Earlier qualifications become out of date.
+- **New owners:** `ai_assistant/remote_test.py`, `ai_assistant/synthetic_boundary.py` (with
+  its generated `synthetic_boundary.json` and `scripts/build_synthetic_boundary.py`), and
+  `ai_assistant/remote_checks.py`, which moved unchanged from the harness.
+- **Evidence:** offline tests only (mock OpenRouter, fake public listing, synthetic ledger,
+  fake CLM backend). No paid call has been made.
+- **Open:** owner approval of the first paid manifest, maximum calls and cap. A typed
+  question is screened against accidental entry, not deliberate encoding, so it cannot be
+  proven synthetic. A name made of ordinary English words, or numbers spelled out as words,
+  would pass, and the number cap is per request. The screen allows only printable ASCII plus named typographic marks, uses the
+  synthetic vocabulary, and allows at most three number groups across the user turns, never
+  two side by side.

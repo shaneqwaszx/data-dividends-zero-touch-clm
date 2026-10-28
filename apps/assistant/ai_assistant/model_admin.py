@@ -64,6 +64,7 @@ from .model_catalog import (
 from .model_factory import ASSISTANT_DIR
 from .model_profiles import ProfileConfigError
 from .model_qualification import connection_test, qualification_basis, quality_state
+from .remote_test import RemoteTestModel, connection_check, qualification_manifest
 
 log = logging.getLogger("ai_assistant.model_admin")
 
@@ -98,6 +99,9 @@ MESSAGES = {
     "CONNECTION_FAILED": "The model did not pass the connection test.",
     "NO_ROLLBACK_TARGET": "There is no earlier model to roll back to.",
     "ALREADY_ACTIVE": "This model is already active.",
+    "REMOTE_MANIFEST_MISSING": (
+        "The paid qualification's question list and count are not configured on the server."
+    ),
 }
 
 
@@ -144,6 +148,8 @@ class ModelSelector:
         self.store = store
         self.environ = environ
         self.transport = transport
+        # The public listing reader for the D-094 preflight (tests replace it).
+        self.fetch: Callable[[str], Any] | None = None
         # Starts the qualification process for a recorded run (tests run it in-process).
         self.launch: Callable[[str], Any] = self._launch_process
         self._baseline_model = baseline_model
@@ -249,12 +255,20 @@ class ModelSelector:
             return self._baseline(revision, reverted=problem)
         return self._baseline(self._active.revision)
 
+    def remote_options(self) -> dict[str, Any]:
+        """The D-094 remote model's test seams (tests only; None in the service)."""
+
+        options: dict[str, Any] = {"environ": self.environ, "transport": self.transport}
+        if self.fetch is not None:
+            options["fetch"] = self.fetch
+        return options
+
     def _build_stored(self, stored: Activation) -> tuple[Active | None, str]:
         assert self.store is not None
         if not self.settings.llm_enabled:
             return None, "MODEL_DISABLED_BY_ENVIRONMENT"
         entry = load_catalogue(self.settings).get(stored.active_profile_id)
-        if entry is None or entry.source != "file":
+        if entry is None or entry.source not in ("file", "code"):
             return None, "PROFILE_MISSING"
         if entry.status != "selectable":
             return None, "PROFILE_UNAVAILABLE"
@@ -272,6 +286,24 @@ class ModelSelector:
             or not stored.active_prompt_limit
         ):
             return None, "QUALIFICATION_OUT_OF_DATE"
+        if entry.source == "code":
+            # D-094: the remote model, gated per call and per case (remote_test.py).
+            try:
+                remote = RemoteTestModel(self.settings, **self.remote_options())
+            except ProfileConfigError as exc:
+                return None, exc.code
+            return (
+                Active(
+                    revision=stored.revision,
+                    profile_id=entry.profile_id,
+                    fingerprint=entry.fingerprint,
+                    model=remote,
+                    base_url=None,
+                    prompt_limit=stored.active_prompt_limit,
+                    qualification_id=stored.active_qualification_id,
+                ),
+                "",
+            )
         try:
             adapter = build_profile_model(entry, environ=self.environ, transport=self.transport)
         except ProfileConfigError as exc:
@@ -584,8 +616,12 @@ def model_admin_router(
     def post_connection_test(profile_id: str, profile: Admin) -> dict[str, Any]:
         store = managed()
         entry = entry_for(load_catalogue(settings), profile_id, profile, "CONNECTION_TEST")
-        model = adapter_for(entry, profile, "CONNECTION_TEST")
-        result = anyio.run(connection_test, model, model.name)
+        if entry.source == "code":
+            # D-094 remote model: its preflight (no inference, no case data).
+            result = connection_check(settings, **selector.remote_options())
+        else:
+            model = adapter_for(entry, profile, "CONNECTION_TEST")
+            result = anyio.run(connection_test, model, model.name)
         store.save_connection_test(
             entry.profile_id,
             entry.fingerprint,
@@ -661,7 +697,20 @@ def model_admin_router(
         store = managed()
         entry = entry_for(load_catalogue(settings), profile_id, profile, "QUALIFICATION_STARTED")
         # The same checks the qualification process applies, before anything starts.
-        adapter_for(entry, profile, "QUALIFICATION_STARTED", loopback=True)
+        if entry.source == "code":
+            # D-094: a paid run, so only the configured, counted question manifest.
+            if qualification_manifest(settings) is None:
+                audit(
+                    profile,
+                    "QUALIFICATION_STARTED",
+                    "refused",
+                    profile_id=entry.profile_id,
+                    fingerprint=entry.fingerprint,
+                    code="REMOTE_MANIFEST_MISSING",
+                )
+                raise _refusal(409, "REMOTE_MANIFEST_MISSING")
+        else:
+            adapter_for(entry, profile, "QUALIFICATION_STARTED", loopback=True)
         try:
             qualification_id = store.begin_qualification(
                 entry.profile_id,
@@ -784,8 +833,12 @@ def model_admin_router(
                 unscored = not run_was_scored(qualified.qualification_id)
                 if unscored and not body.acknowledge_quality_unscored:
                     raise refuse("ACKNOWLEDGEMENT_REQUIRED")
-                probe = anyio.run(
-                    connection_test, adapter_for(entry, profile, action), entry.model_id or ""
+                probe = (
+                    connection_check(settings, **selector.remote_options())
+                    if entry.source == "code"
+                    else anyio.run(
+                        connection_test, adapter_for(entry, profile, action), entry.model_id or ""
+                    )
                 )
                 if probe["outcome"] != "passed":
                     raise refuse("CONNECTION_FAILED")

@@ -46,14 +46,26 @@ const REASON_TEXT: Record<string, string> = {
   QUALIFICATION_OUT_OF_DATE: "The assistant's answer code changed since it was qualified.",
   CREDENTIAL_MISSING: "Its server-side key is not set.",
   PROXY_CONFIGURED: "A proxy is configured on the server.",
+  // D-094 local synthetic test mode (GPT-OSS 120B via OpenRouter).
+  DECISION_INTERLOCK: "The D-091 and D-092 settings the remote model needs are not set on the server.",
+  NOT_DEVELOPMENT_ENVIRONMENT: "The server is not a local development set-up (loopback backend and browser origins only).",
+  OWNER_ATTESTATION_MISSING: "The owner has not attested that auto top-up and prompt logging are off.",
+  ENDPOINT_NOT_APPROVED: "The configured OpenRouter endpoint is not the approved one.",
+  REMOTE_SETTINGS_INVALID: "The remote model's reasoning settings are not valid on the server.",
+  REMOTE_MANIFEST_MISSING: "The paid qualification's question list and count are not configured on the server.",
+  LEDGER_UNAVAILABLE: "The spending ledger is missing or unhealthy.",
 };
 
 // "GATES_FAILED:G-6,G-7" from a failed qualification: the gate ids keep their own spelling.
 const GATES_FAILED = "GATES_FAILED:";
+// "PREFLIGHT_FAILED:key.limit_set,..." from the remote model's connection test.
+const PREFLIGHT_FAILED = "PREFLIGHT_FAILED:";
+const REMOTE_DEPLOYMENT = "openrouter";
 
 export function readable(code: string | null | undefined): string {
   if (!code) return "";
   if (code.startsWith(GATES_FAILED)) return `Gates failed: ${code.slice(GATES_FAILED.length).split(",").join(", ")}`;
+  if (code.startsWith(PREFLIGHT_FAILED)) return `Preflight failed: ${code.slice(PREFLIGHT_FAILED.length).split(",").join(", ")}`;
   return REASON_TEXT[code] ?? code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
 }
 
@@ -208,7 +220,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
             <div><dt>Name</dt><dd>{overview.active.display_name}</dd></div>
             <div><dt>Model</dt><dd>{overview.active.model_id ?? "None (case-data answers only)"}</dd></div>
             <div><dt>Changed</dt><dd>{overview.active.changed_at ? `${formatTimestamp(overview.active.changed_at)} by ${overview.active.changed_by}` : "Never (environment baseline)"}</dd></div>
-            <div><dt>Prompt bound</dt><dd>{overview.active.prompt_limit ? `${overview.active.prompt_limit.toLocaleString()} (verified capacity)` : "Not applied (baseline)"}</dd></div>
+            <div><dt>Prompt bound</dt><dd>{overview.active.prompt_limit ? `${overview.active.prompt_limit.toLocaleString()} (${overview.profiles.find((item) => item.active)?.deployment === REMOTE_DEPLOYMENT ? "enforced byte limit" : "verified capacity"})` : "Not applied (baseline)"}</dd></div>
             <div><dt>Revision</dt><dd>{overview.revision}</dd></div>
           </dl>
           {overview.configured && (
@@ -224,6 +236,9 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
         <section className="card" role="dialog" aria-labelledby="confirm-heading">
           <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
+          {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
+            <p className="ds-banner ds-banner-warn">This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing.</p>
+          )}
           {confirming.profileId !== "env_default" && unscored && (
             <label className="control-help">
               <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
@@ -256,7 +271,8 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                   const qualification = item.qualification;
                   return (
                     <tr key={item.profile_id}>
-                      <td><strong>{item.display_name}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small></td>
+                      <td><strong>{item.display_name}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
+                        {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">External API (D-094): answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls.</small></>}</td>
                       <td>{readable(item.deployment)}</td>
                       <td>{item.endpoint ?? "Not shown"}</td>
                       <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>

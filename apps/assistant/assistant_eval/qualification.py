@@ -43,6 +43,7 @@ from ai_assistant.model_qualification import (
     qualification_basis,
     verify_capacity,
 )
+from ai_assistant.remote_test import RemoteTestModel, connection_check, qualification_manifest
 
 from . import gold as gold_mod
 from .runner import EMBEDDER, Workspace, run
@@ -216,6 +217,212 @@ class QualificationJob:
         )
 
 
+PHASE_B_QUESTIONS = EVAL_FIXTURES / "phase_b_questions.json"
+
+
+@dataclass
+class RemoteQualificationJob:
+    """D-094: the remote model's qualification. A paid run, so only the configured, counted
+    Phase B question manifest is asked (synthetic fixture cases through the mock CLM backend),
+    after a passing preflight; every call must then be verified from its generation metadata
+    (gate G-8). The prompt bound is the adapter's own enforced byte limit, not a probe."""
+
+    store: ModelAdminStore
+    qualification_id: str
+    model: RemoteTestModel
+    settings: AiAssistantSettings
+    manifest: tuple[str, ...]
+    basis: str
+    deadline: float
+    options: dict[str, Any]
+
+    def _stop(self, done_turns: int) -> None:
+        if time.monotonic() > self.deadline:
+            raise QualificationStopped("DEADLINE")
+        if not self.store.heartbeat(self.qualification_id, done_turns):
+            raise QualificationStopped("CANCELLED")
+
+    def run(self) -> None:
+        status: str = "error"
+        code: str | None = "HARNESS_ERROR"
+        summary: dict[str, Any] | None = None
+        try:
+            status, code, summary = self._run()
+        except QualificationStopped as exc:
+            status = "cancelled" if exc.code == "CANCELLED" else "error"
+            code = exc.code
+        except Exception as exc:  # the run must always be closed; no detail is kept
+            log.error("remote qualification failed: %s", type(exc).__name__)
+        finally:
+            self.store.finish_qualification(self.qualification_id, status, code, summary)
+
+    def _run(self) -> tuple[str, str | None, dict[str, Any]]:
+        started = time.monotonic()
+        scenarios = load_scenarios(PHASE_B_QUESTIONS)
+        expected = len(self.manifest)
+        self.store.heartbeat(self.qualification_id, 0, total_turns=expected)
+        connection = connection_check(self.settings, **self.options)
+        self._stop(0)
+        summary: dict[str, Any] = {
+            "connection": connection,
+            # Owner gold covers the default scenarios, not the Phase B questions asked here.
+            "quality": {"status": "NOT_SCORED", "reason": "REMOTE_MANIFEST_NOT_GOLD_LABELLED"},
+            "reproducibility": {
+                "harness_version": HARNESS_VERSION,
+                "basis": self.basis[:16],
+                "scenarios": "phase_b_questions.json",
+                "turns": expected,
+                "question_manifest": ",".join(self.manifest),
+                "reps": 1,
+                "retrieval": EMBEDDER,
+                "model_id": self.model.name,
+                "endpoint": self.model.endpoint_slug,
+            },
+        }
+        capacity = {
+            "status": "verified",
+            "code": "REMOTE_PROMPT_BYTES_ENFORCED",
+            "declared_tokens": None,
+            "target_tokens": None,
+            "probed_tokens": None,
+            "prompt_limit": self.settings.remote_max_prompt_bytes,
+        }
+        if connection["outcome"] != "passed":
+            summary["gates"] = _remote_gates(
+                gates(
+                    connection=connection,
+                    completed=False,
+                    turns=[],
+                    expected_turns=expected,
+                    overall={},
+                    capacity=None,
+                    largest_bound=0,
+                ),
+                None,
+            )
+            return "failed", "CONNECTION_FAILED", summary
+        watched = WatchedModel(self.model, self._stop)
+        with Workspace() as workspace:
+            result = run(
+                scenarios,
+                lambda capture: watched,
+                workspace=workspace,
+                turns=frozenset(self.manifest),
+            )
+        turns = list(result.turns)
+        # The final turn count (each turn's own heartbeat is taken before it is asked).
+        self._stop(len(turns))
+        overall = label_free(turns)
+        verification = self.model.verify_now()
+        calls = self.model.calls_since_start()
+        verified = sum(1 for call in calls if call.verification == "verified")
+        summary["capacity"] = capacity
+        summary["metrics"] = {
+            key: overall.get(key)
+            for key in (
+                "answers",
+                "fallback_rate",
+                "fallback_reasons",
+                "line_validity_rate",
+                "unsafe_display",
+                "cut_short_rate",
+                "latency_total_ms_p50",
+                "latency_total_ms_p95",
+                "latency_first_shown_ms_p50",
+                "latency_first_shown_ms_p95",
+                "mean_offered_lines",
+            )
+        }
+        summary["metrics"]["largest_prompt_bound"] = watched.largest_bound
+        summary["metrics"]["remote_calls"] = len(calls)
+        summary["metrics"]["remote_calls_verified"] = verified
+        summary["lines"] = line_breakdown(turns)
+        summary["gates"] = _remote_gates(
+            gates(
+                connection=connection,
+                completed=True,
+                turns=turns,
+                expected_turns=expected,
+                overall=overall,
+                capacity=capacity,
+                largest_bound=watched.largest_bound,
+            ),
+            {
+                "calls": len(calls),
+                "verified": verified,
+                "passed": verification.passed and bool(calls) and verified == len(calls),
+            },
+        )
+        summary["reproducibility"]["prompt_version"] = result.manifest.get("prompt_version")
+        summary["duration_ms"] = round((time.monotonic() - started) * 1000)
+        failed = [
+            item["gate"] for item in summary["gates"] if item["gating"] and not item["passed"]
+        ]
+        if failed:
+            return "failed", "GATES_FAILED:" + ",".join(failed), summary
+        return "passed", None, summary
+
+
+def _remote_gates(
+    items: list[dict[str, Any]], verification: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """The local gates, with G-7 restated for the adapter's enforced prompt limit, plus G-8."""
+
+    for item in items:
+        if item["gate"] == "G-7":
+            item["rule"] = (
+                "prompts inside the remote adapter's enforced byte limit, cut short <= 10%"
+            )
+    items.append(
+        {
+            "gate": "G-8",
+            "rule": "every remote call verified (serving provider, model and cost)",
+            "value": None
+            if verification is None
+            else f"{verification['verified']}/{verification['calls']}",
+            "passed": verification is not None and verification["passed"],
+            "gating": True,
+        }
+    )
+    return items
+
+
+def _run_remote(
+    store: ModelAdminStore,
+    qualification_id: str,
+    item: dict[str, Any],
+    settings: AiAssistantSettings,
+    environ: Mapping[str, str] | None,
+    transport: object,
+    basis: str,
+    fetch: Callable[[str], Any] | None,
+) -> None:
+    manifest = qualification_manifest(settings)
+    known = set(load_scenarios(PHASE_B_QUESTIONS).turn_keys())
+    if manifest is None or not set(manifest) <= known:
+        store.finish_qualification(qualification_id, "error", "REMOTE_MANIFEST_MISSING", None)
+        return
+    options: dict[str, Any] = {"environ": environ, "transport": transport}
+    if fetch is not None:
+        options["fetch"] = fetch
+    try:
+        # Verification runs after each call, before the next turn (as the Phase B harness).
+        model = RemoteTestModel(settings, background=False, **options)
+    except ProfileConfigError as exc:
+        store.finish_qualification(qualification_id, "error", exc.code, None)
+        return
+    RemoteQualificationJob(
+        store=store,
+        qualification_id=qualification_id,
+        model=model,
+        settings=settings,
+        manifest=tuple(manifest),
+        basis=basis,
+        deadline=time.monotonic() + settings.model_qualification_max_seconds,
+        options=options,
+    ).run()
+
+
 def store_path(settings: AiAssistantSettings) -> Path:
     path = Path(settings.model_admin_db_path)
     return path if path.is_absolute() else ASSISTANT_DIR / path
@@ -228,6 +435,7 @@ def run_job(
     environ: Mapping[str, str] | None = None,
     transport: object = None,
     job_class: type[QualificationJob] = QualificationJob,
+    fetch: Callable[[str], Any] | None = None,
 ) -> None:
     """Run the recorded qualification ``qualification_id`` to its end (always closed)."""
 
@@ -244,6 +452,9 @@ def run_job(
         or basis != item["basis"]
     ):
         store.finish_qualification(qualification_id, "error", "CONFIG_MISMATCH", None)
+        return
+    if entry.source == "code":
+        _run_remote(store, qualification_id, item, settings, environ, transport, basis, fetch)
         return
     try:
         model = (

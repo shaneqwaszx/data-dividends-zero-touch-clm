@@ -80,7 +80,10 @@ from .llm import (
 from .model_admin import Active, model_admin_router, open_selector
 from .model_factory import build_chat_model
 from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
+from .remote_test import is_remote_test_model
 from .small_talk import small_talk_reply
+from .synthetic_boundary import approved_entry
+from .synthetic_boundary import check as synthetic_boundary_check
 from .telemetry import (
     PARTS,
     AnsweredBy,
@@ -190,6 +193,12 @@ class HealthResponse(BaseModel):
 FALLBACK_NOTICE = "The AI model is not available, so this answer comes straight from the case data."
 POLICY_NOTICE = "The model response could not be verified, so this answer comes from the case data."
 CUT_SHORT_NOTICE = "This answer was cut short. Ask me to continue for the rest."
+# D-094 local synthetic test mode (remote_test.py): which model answered, or why it did not.
+REMOTE_NOTICE = "Answered by GPT-OSS 120B through OpenRouter (D-094 local synthetic test mode)."
+REMOTE_BOUNDARY_NOTICE = (
+    "GPT-OSS 120B through OpenRouter is used only on the approved synthetic test case, so this "
+    "answer comes straight from the case data."
+)
 
 
 log = logging.getLogger("ai_assistant")
@@ -263,7 +272,12 @@ class _Outcome:
         """Why the answer is not a full model answer, as the answer record says it."""
 
         # A budget refusal (D-091, proposed) is recorded like any other answer without a model.
-        if self.fallback_reason in ("model_disabled", "model_unavailable", "budget_refused"):
+        if self.fallback_reason in (
+            "model_disabled",
+            "model_unavailable",
+            "budget_refused",
+            "remote_boundary",
+        ):
             return "model_unavailable"
         if self.fallback_reason == "policy_no_allowed_line":
             return "nothing_allowed"
@@ -318,8 +332,10 @@ def _model_reply(
     model_name: str,
     cut_short: bool,
     streamed: str = "",
+    lead_notice: str | None = None,
 ) -> "ChatResponse":
-    """The model's answer; ``streamed`` is the answer text the RM has already been shown."""
+    """The model's answer; ``streamed`` is the answer text the RM has already been shown;
+    ``lead_notice`` names the model when the RM must be told (D-094)."""
 
     chosen = set(validation.text.splitlines())
     if prep.plan is not None:
@@ -330,7 +346,9 @@ def _model_reply(
             required=prep.plan.required,
             streamed=streamed.splitlines(),
         )
-    notices = [n for n in (validation.notice(), CUT_SHORT_NOTICE if cut_short else None) if n]
+    notices = [
+        n for n in (lead_notice, validation.notice(), CUT_SHORT_NOTICE if cut_short else None) if n
+    ]
     return ChatResponse(
         answer=validation.text,
         answered_by="model",
@@ -526,7 +544,12 @@ def create_app(
             return response
         return response.model_copy(update={"answer_id": answer_id})
 
-    def prepare(body: ChatRequest, snapshot: CaseSnapshot, question: str) -> Prepared:
+    def prepare(
+        body: ChatRequest, snapshot: CaseSnapshot, question: str, *, remote: bool = False
+    ) -> Prepared:
+        """``remote``: the active model is the D-094 remote test model, so only repository
+        guidance and the synthetic seed, unchanged, may be used (synthetic_boundary.py)."""
+
         started = time.monotonic()
         facts = build_case_facts(snapshot)
         tagged: list[TaggedHit] = []
@@ -539,6 +562,8 @@ def create_app(
             try:
                 retrieval = retriever.retrieve(question, case_context(facts), role=role, team=team)
                 tagged = approved_knowledge(tag_hits(retrieval), role=role, team=team)
+                if remote:
+                    tagged = [item for item in tagged if approved_entry(item.hit.entry)]
                 use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
             except Exception:  # knowledge is optional: never let it break an answer
                 log.exception("knowledge retrieval failed")
@@ -636,10 +661,33 @@ def create_app(
 
         recorder.record(build)
 
-    def answer_with_model(prep: Prepared, outcome: _Outcome) -> ChatResponse:
+    def remote_gate(
+        active: Active, snapshot: CaseSnapshot, prep: Prepared
+    ) -> tuple[ChatModel | None, str | None]:
+        """The model this answer may use, and the lead notice. The D-094 remote test model is
+        used only when the whole prompt is inside the synthetic boundary; otherwise nothing
+        is sent and the RM gets the case-data answer (notice REMOTE_BOUNDARY_NOTICE, followed
+        by the closed reason code, never a value)."""
+
+        if not is_remote_test_model(active.model):
+            return active.model, None
+        refusal = synthetic_boundary_check(
+            snapshot, prep.facts, prep.messages, [item.hit.entry for item in prep.tagged]
+        )
+        if refusal is not None:
+            log.info("remote test model not used: %s", refusal)
+            return None, f"{REMOTE_BOUNDARY_NOTICE} Reason: {refusal}."
+        return active.model, REMOTE_NOTICE
+
+    def answer_with_model(
+        prep: Prepared, outcome: _Outcome, lead: str | None = None
+    ) -> ChatResponse:
         notice = FALLBACK_NOTICE
         model = outcome.model
-        if model is None:
+        if model is None and lead is not None and lead.startswith(REMOTE_BOUNDARY_NOTICE):
+            notice = lead
+            outcome.fallback_reason = "remote_boundary"
+        elif model is None:
             outcome.fallback_reason = "model_disabled"
         else:
             try:
@@ -655,7 +703,13 @@ def create_app(
                     raise LlmUnavailableError("no allowed line in the model reply")
                 outcome.cut_short = reply.cut_short
                 return outcome.answered(
-                    _model_reply(validation, prep, model_name=model.name, cut_short=reply.cut_short)
+                    _model_reply(
+                        validation,
+                        prep,
+                        model_name=model.name,
+                        cut_short=reply.cut_short,
+                        lead_notice=lead,
+                    )
                 )
             except LlmUnavailableError as error:
                 outcome.failed(error)
@@ -693,10 +747,12 @@ def create_app(
         started: float,
         finish: Callable[[ChatResponse, _Outcome], ChatResponse],
         model: ChatModel | None,
+        lead: str | None = None,
     ) -> AsyncIterator[str]:
         """The answer as newline-delimited JSON: "text" updates while the model writes,
         then one "done" with the final answer (the same fields as the /chat reply).
-        ``finish`` records the answer (only the guard's checked lines) before "done"."""
+        ``finish`` records the answer (only the guard's checked lines) before "done".
+        ``lead``: the D-094 notice (``remote_gate``)."""
 
         def line(event: dict[str, object]) -> str:
             return json.dumps(event, ensure_ascii=False) + "\n"
@@ -714,7 +770,10 @@ def create_app(
         delivered = False
         try:
             notice = FALLBACK_NOTICE
-            if model is None:
+            if model is None and lead is not None and lead.startswith(REMOTE_BOUNDARY_NOTICE):
+                notice = lead
+                outcome.fallback_reason = "remote_boundary"
+            elif model is None:
                 outcome.fallback_reason = "model_disabled"
             else:
                 guard = StreamingGuard(prep.facts, knowledge_lines=prep.shown.lines)
@@ -752,6 +811,7 @@ def create_app(
                                 model_name=model.name,
                                 cut_short=cut_short,
                                 streamed=streamed,
+                                lead_notice=lead,
                             )
                         )
                         delivered = True
@@ -772,6 +832,7 @@ def create_app(
                                 model_name=model.name,
                                 cut_short=True,
                                 streamed=streamed,
+                                lead_notice=lead,
                             )
                         )
                         delivered = True
@@ -843,9 +904,12 @@ def create_app(
                 suggested_questions=suggested_questions(facts),
                 small_talk=True,
             )
-        prep = prepare(body, snapshot, question)
-        outcome = _Outcome(model=active.model)
-        response = record(case_id, snapshot, body, prep, answer_with_model(prep, outcome), outcome)
+        prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
+        model, lead = remote_gate(active, snapshot, prep)
+        outcome = _Outcome(model=model)
+        response = record(
+            case_id, snapshot, body, prep, answer_with_model(prep, outcome, lead), outcome
+        )
         emit("chat", started, outcome, prep)
         return response
 
@@ -875,12 +939,13 @@ def create_app(
                 [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]
             )
         else:
-            prep = prepare(body, snapshot, question)
+            prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
+            model, lead = remote_gate(active, snapshot, prep)
 
             def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
                 return record(case_id, snapshot, body, prep, response, outcome)
 
-            events = stream_answer(prep, started, finish, active.model)
+            events = stream_answer(prep, started, finish, model, lead)
         return StreamingResponse(
             events,
             media_type="application/x-ndjson",

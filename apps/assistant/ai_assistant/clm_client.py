@@ -31,6 +31,9 @@ class CaseSnapshot:
     summary: dict[str, Any]
     documents: list[dict[str, Any]]
     actor: dict[str, Any]
+    # False when the document list could not be read (it is then empty). Answers carry on
+    # without documents; the D-094 synthetic boundary refuses remote use.
+    documents_loaded: bool = True
 
 
 class ClmBackendClient:
@@ -93,12 +96,13 @@ class ClmBackendClient:
         with self._client(session_token) as client:
             actor = self._get(client, "/api/auth/me")
             summary = self._get(client, f"/api/clm/zero-touch/cases/{case_id}")
+            loaded = True
             try:
                 documents = self._get(client, f"/api/onboarding/cases/{case_id}/documents")
             except ClmBackendError as exc:
                 if exc.code == "AUTHENTICATION_REQUIRED":
                     raise
-                documents = []
+                documents, loaded = [], False
         if not isinstance(summary, dict) or not isinstance(actor, dict):
             raise ClmBackendError(
                 502, "CLM_BACKEND_ERROR", "The onboarding app returned an unexpected reply."
@@ -109,4 +113,5 @@ class ClmBackendClient:
             if isinstance(documents, list)
             else [],
             actor=actor,
+            documents_loaded=loaded and isinstance(documents, list),
         )

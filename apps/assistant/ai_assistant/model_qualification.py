@@ -68,9 +68,20 @@ BASIS_FILES = (
     "answer_records.py",
     "knowledge/retrieval.py",
     "knowledge/redaction.py",
+    # D-094: the remote test model's gate and its synthetic boundary.
+    "remote_test.py",
+    "remote_checks.py",
+    "synthetic_boundary.py",
+    "synthetic_boundary.json",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
-BASIS_FIXTURES = ("scenarios.json", "snapshots.json", "gold.json", "gold.lock.json")
+BASIS_FIXTURES = (
+    "scenarios.json",
+    "snapshots.json",
+    "gold.json",
+    "gold.lock.json",
+    "phase_b_questions.json",
+)
 
 G4_MAX_UNAVAILABLE = 0.05
 G6_MIN_LINE_VALIDITY = 0.70

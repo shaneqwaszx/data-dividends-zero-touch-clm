@@ -45,6 +45,22 @@ class AiAssistantSettings(BaseSettings):
     budget_max_in_flight: int = Field(default=1, ge=1, le=4)
     budget_settle_lag_seconds: int = Field(default=600, ge=0, le=86400)
 
+    # D-094 local synthetic test mode (off unless named): an HR administrator may then select
+    # the remote profile in model management, and the chat uses it only on the approved
+    # synthetic test case (synthetic_boundary.py). Needs the D-091 and D-092 values above,
+    # loopback-only CLM backend and browser origins, and the owner's attestations.
+    local_api_test_decision: str = ""
+    # "auto_topup_off,prompt_logging_off": neither is readable through the provider's API.
+    local_api_test_owner_attests: str = ""
+    # The most remote calls the activated model makes before the next activation or restart
+    # (open calls included; the ledger cap bounds the spend across restarts).
+    local_api_test_max_calls: int = Field(default=20, ge=1, le=200)
+    # A passing preflight is reused for this long before the next call checks again.
+    local_api_test_preflight_seconds: int = Field(default=300, ge=0, le=3600)
+    # The paid qualification: Phase B question ids (P01#1,...) and their count.
+    local_api_test_qualification_questions: str = ""
+    local_api_test_qualification_count: int = Field(default=0, ge=0, le=17)
+
     # Model management (D-093, local loopback models only): off unless IT names a profiles file
     # (model_catalog.py). Then an HR administrator (MODEL_CONFIG_MANAGE) may test, qualify,
     # activate and roll back the file's models; the choice is kept in the state database

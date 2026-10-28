@@ -1244,3 +1244,59 @@ decided here: remote or non-loopback activation (needs separate privacy, securit
 budget and governance approval), per-team models, automatic failover, answer-quality gates.
 Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence from qualification
 is `LOCAL` technical evidence on synthetic scenarios, never Live CLM behaviour.
+
+## D-094 - AI Assistant local synthetic test mode: GPT-OSS 120B in the CLM chat (OWNER-AUTHORISED, local development scope only)
+
+Status: owner-directed on 2026-10-27. The owner first asked for an explicitly enabled,
+local-development-only external API test mode, and then, the same day, revised the
+requirement: the model is to be selected in the existing **AI Models** page and used by the
+existing AI Assistant chat. There is to be no separate test application, and the remote
+profile must stay off by default. Remote routing is allowed only when all of these hold:
+
+- the D-094 authorisation is configured;
+- the machine is an authorised development environment;
+- the case is verified server-side as approved synthetic fixture data;
+- everything sent externally is inside that synthetic boundary;
+- the provider, endpoint, credential and budget checks pass;
+- an HR administrator has explicitly activated the model.
+
+Otherwise the assistant fails closed to the deterministic case-data answer. No paid call is
+made until the owner approves the test manifest, call count and cap.
+
+It is recorded separately from the earlier decisions. D-091 (accepted, dormant A2 scope) is
+unchanged except that the T3 module below is a second, reviewed opener of the live gate.
+D-092 is **not** accepted (still PROPOSED). D-093 is unchanged for local profiles. Not sponsor
+policy.
+
+| # | Decision |
+| --- | --- |
+| T1 | Off by default. The remote profile is selectable in model management only when `AI_ASSISTANT_LOCAL_API_TEST_DECISION=D-094`, the D-091 and D-092 interlock values, the approved endpoint `deepinfra/bf16` with valid reasoning settings, a literal-loopback CLM backend URL, local `http` browser origins only, and the owner's attestation that auto top-up and prompt logging are off (`AI_ASSISTANT_LOCAL_API_TEST_OWNER_ATTESTS`) are all present. Without the decision the catalogue entry, refusals and behaviour are exactly as before (`REMOTE_NOT_AUTHORISED`). |
+| T2 | HR (`MODEL_CONFIG_MANAGE`) uses the existing D-093 workflow. **Test connection** runs the Phase B preflight (D-092 P3, no inference). **Run qualification** is a paid run of only the configured, counted Phase B question manifest (D-092 P10), with the D-093 gates plus G-8 (every call verified). **Activate** requires a passing qualification on the current settings and answer-code basis, a passing preflight and the unscored-quality acknowledgement. **Roll back** returns to the previous model. |
+| T3 | One runtime module, `ai_assistant/remote_test.py`, builds the remote model with the live gate open, and only when T1 holds. Every call re-checks T1, reuses a passing preflight for at most `AI_ASSISTANT_LOCAL_API_TEST_PREFLIGHT_SECONDS`, verifies earlier calls first, and is verified after it ends (D-092 P4; a mismatch or a missing generation reference opens the ledger breaker). The blocking checks run off the event loop, and the model refuses any message that fails the boundary's text check (T4) itself, whoever calls it. It is refused once it has made `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` calls (open calls included) since it was activated or the service restarted; the ledger cap is the money limit across restarts. The D-091 request policy, budget guard and credential rules are unchanged, and the key is read only from the process environment. The preflight and verification code moved unchanged from the evaluation harness to `ai_assistant/remote_checks.py` so the service can use them; the harness re-exports them. |
+| T4 | **Synthetic boundary.** Before any remote call, the chat checks server-side, from the backend's own reply, that: the case is GARDEN BUSINESS (UEN 11111999A) with registry details from ACRA MOCK; the document list was read (an unreadable list refuses) and every document on the case, and every document the case summary names, has an approved fixture file name; every client-bearing fact is a fixture value; the viewer is a seeded POC user; every knowledge entry is unchanged repository guidance or the synthetic seed (only those are retrieved for the remote model); and the text passes a word screen. Every message may contain only printable ASCII, line breaks, tabs and a short named list of typographic marks. The question and user history are taken exactly as written: every word must come from the synthetic questions, guidance, seed, instructions, fixture values, the app's screen terms or a reviewed list of everyday words. Numbers get no free pass; the user turns may hold at most three number groups between them, never two side by side. Assistant history may also use the synthetic prompts' wording, but not the application's code strings, and no run of more than three number groups. The service's own system messages (with times and ids left out) may also use the application's alphabetic code strings. The boundary file is generated from the repository's synthetic fixtures (`scripts/build_synthetic_boundary.py`), and a test checks that it is current. Anything outside the boundary gets the deterministic case-data answer with a notice, and nothing is sent. Nothing the browser says about the case is trusted. |
+| T5 | The chat shows "Answered by GPT-OSS 120B through OpenRouter (D-094 local synthetic test mode)." on model answers, and a boundary notice when the model was not used. The RM chat interface, approved-line validation, guardrails, read-only case access and HR/RM separation are unchanged. |
+| T6 | The answer-code basis now includes the D-094 modules, the boundary file and the Phase B question file, so earlier qualifications become out of date and must be re-run. |
+| T7 | Paid calls (qualification or chat) need the owner's separate approval of the exact manifest, maximum calls and spending cap before the first run. |
+
+Known limits (recorded, not hidden):
+
+- The typed question and the browser's chat history cannot be proven synthetic. The word
+  screen refuses:
+  - any non-ASCII character outside the named typographic marks;
+  - unknown words, dates and ids;
+  - numbers not in the synthetic sources, and more than three number groups (or two side
+    by side) in one request's user turns.
+
+  It guards against accidental entry, not deliberate encoding. It cannot recognise:
+  - a real name made only of ordinary English words;
+  - numbers spelled out as words or written as punctuation;
+  - number groups spread over several requests (the cap is per request).
+- A forged "assistant" history turn may also use the synthetic prompts' wording, which
+  includes the fixture viewer's name, and the service's own full timestamps.
+
+So the owner must not type real customer details. The independent Quality Gate found two
+bypasses, both closed by the rules above: in R1, non-ASCII letters, dates and split digits;
+in R2, non-ASCII symbols and invisible tag characters. Not decided here: any non-synthetic case, hosted or shared deployment, use
+by anyone other than the owner on their own machine, another endpoint or model, or a larger
+allocation. Evidence from this mode is external evaluation on synthetic data, never Live CLM
+behaviour. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
