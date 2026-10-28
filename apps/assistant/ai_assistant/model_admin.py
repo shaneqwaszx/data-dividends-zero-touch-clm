@@ -275,6 +275,9 @@ class ModelSelector:
         self._controls_lock = threading.Lock()
         self._controls_applied: tuple[int, int] | None = None
         self._active = self._baseline(0)
+        # D-098: how many qualification runs had finished when the active model was last
+        # checked (None: never), so a newly finished run is noticed by every process.
+        self._finished: int | None = None
         if store is not None:
             self._active = replace(self._active, revision=-1)
             self.current()
@@ -336,19 +339,39 @@ class ModelSelector:
             return self._active
         try:
             revision = self.store.revision()
+            finished = self.store.finished_qualifications()
         except Exception:
             log.error("model state unavailable; keeping the current model")
             return self._active
-        if revision == self._active.revision:
+        if revision == self._active.revision and finished == self._finished:
             return self._active
         with self._lock:
             try:
                 if self.store.revision() != self._active.revision:
                     self._active = self._restore()
+                # D-098 decision 6a: a run finished (in any process, supervised or not), so
+                # the active configuration is checked again before this answer uses it.
+                finished = self.store.finished_qualifications()
+                if finished != self._finished:
+                    self._superseded_check()
+                    self._finished = finished
             except Exception:
                 # Never fail an answer on model state: keep the model already in use.
                 log.error("model state could not be reloaded; keeping the current model")
             return self._active
+
+    def _superseded_check(self) -> None:
+        """Under ``self._lock``: stop the active configuration (stored "AI unavailable", or
+        the baseline for a local profile, audited) when a later genuine quality failure
+        superseded its pass. Cheap: the qualification rows only; nothing is rebuilt."""
+
+        assert self.store is not None
+        active = self._active
+        if active.profile_id in (BASELINE_ID, UNAVAILABLE_ID):
+            return
+        basis = qualification_basis()
+        if eligible_run(self.store, active.profile_id, active.fingerprint, basis)[0] is None:
+            self._active = self._restore("QUALIFICATION_SUPERSEDED")
 
     # --- HR spending controls (D-096) -------------------------------------------------------
 
@@ -415,20 +438,10 @@ class ModelSelector:
     def revalidate(self) -> None:
         """D-098 decision 6a: after a run finishes, an active configuration whose pass a
         genuine quality failure superseded stops serving at once (audited); it is never
-        replaced by another model automatically."""
+        replaced by another model automatically. Every request makes the same check when a run
+        has finished (``_current``), so this only makes it happen without waiting for one."""
 
-        if self.store is None:
-            return
-        with self._lock:
-            try:
-                stored = self.store.activation(self.baseline_choice())
-                if stored.active_profile_id in (BASELINE_ID, UNAVAILABLE_ID):
-                    return
-                active, _ = self._build_stored(stored)
-                if active is None:
-                    self._active = self._restore("QUALIFICATION_SUPERSEDED")
-            except Exception:
-                log.error("the active model could not be checked again after a qualification")
+        self._current()
 
     def _restore(self, action: str = "STARTUP_REVERTED") -> Active:
         assert self.store is not None

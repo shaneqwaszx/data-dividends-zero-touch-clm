@@ -639,3 +639,46 @@ def test_an_earlier_database_keeps_its_controls_and_loses_only_the_us1_check(
     assert store.set_spending_controls(4, 5_000_000, 30, "hr-admin") == 5
     ModelAdminStore(path)  # opening it again changes nothing more
     assert store.spending_controls().daily_cap_micro_usd == 5_000_000
+
+
+# --- QG R-1: no supervisor needed for decision 6a ---------------------------------------------
+
+
+def test_a_quality_failure_stops_the_active_model_in_every_process_without_a_supervisor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    # A second service process on the same state database, already serving the configuration.
+    from tests.test_remote_test import SENTINEL
+
+    other = ModelSelector(
+        journey.settings,
+        journey.baseline,
+        ModelAdminStore(Path(journey.settings.model_admin_db_path)),
+        environ={"OPENROUTER_API_KEY": SENTINEL},
+        transport=journey.openrouter.transport(),
+    )
+    assert other.current().profile_id == OPENROUTER_PROFILE_ID
+    # The run finishes with nobody supervising it (a restarted service, an orphaned process):
+    # no revalidate() call, no activation change.
+    _record(journey, "failed", "GATES_FAILED:G-3", QUALITY_FAILURE)
+    sent = len(journey.openrouter.chats)
+    assert journey.ask()["answered_by"] == "case_data"  # the very next answer
+    assert len(journey.openrouter.chats) == sent
+    assert other.current().profile_id == UNAVAILABLE_ID
+    overview = journey.client.get(API).json()
+    assert overview["active"]["profile_id"] == UNAVAILABLE_ID
+    remote = _remote(journey)
+    assert not remote["active"] and remote["activation_blockers"] == ["QUALIFICATION_SUPERSEDED"]
+
+
+def test_a_technical_failure_never_stops_the_active_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    _record(journey, "failed", "GATES_FAILED:G-6,G-8", BUDGET_FAILURE)
+    _record(journey, "error", "INTERRUPTED", None)
+    assert journey.ask()["answered_by"] == "model"
+    assert journey.client.get(API).json()["active"]["profile_id"] == OPENROUTER_PROFILE_ID

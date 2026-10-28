@@ -511,6 +511,16 @@ class ModelAdminStore:
             ).fetchall()
         return [row["qualification_id"] for row in rows]
 
+    def finished_qualifications(self) -> int:
+        """How many runs have finished (any outcome): it grows whenever a run ends, in any
+        process, so the active model's eligibility is checked again (D-098 decision 6a)."""
+
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS n FROM qualifications WHERE status != 'running'"
+            ).fetchone()
+        return int(row["n"])
+
     def qualifications_for(self, profile_id: str) -> list[dict[str, Any]]:
         """Every run of one profile, newest first (D-098 eligibility reads them in order)."""
 

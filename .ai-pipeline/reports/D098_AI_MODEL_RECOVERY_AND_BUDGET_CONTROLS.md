@@ -121,6 +121,19 @@ Run on the commits A–D plus the E test adjustment, Windows, Python 3.12 venv, 
 | Paid / real calls | none (mock OpenRouter, fake CLM backend, test ledgers only) |
 | Physical Mongo | not applicable: no Mongo or case-data schema change (model-state SQLite only) |
 
+## 8a. Independent Quality Gate
+
+**QG R1 on `6d28401` (tree `51a9755`): HOLD**, with one REQUIRED finding.
+
+- **R-1:** the active model was re-checked against decision 6a only when the activation revision changed, or when the run's own supervisor called `revalidate()`. A run that finished unsupervised (the service restarted inside the 30 s grace) could therefore leave a superseded configuration serving.
+  - **Remediation:** the model state now also counts finished runs (`finished_qualifications`). Every request in every process re-checks the active configuration's eligibility when that count changes (`_superseded_check`: qualification rows only, nothing rebuilt), and `revalidate()` uses the same path.
+  - **Tests:** a quality failure stops the active model in this and a second process on the very next answer with no `revalidate()` call; a technical or interrupted outcome never stops it.
+- **N-1 (recommended):** a run closed as interrupted while its process is still alive can finish its current step. This is accepted and documented. The ledger admits at most `AI_ASSISTANT_BUDGET_MAX_IN_FLIGHT` calls (default 1) across processes in one transaction, so a new run's call cannot overlap one still in flight. The orphan stops at its next heartbeat because its row is closed, and its calls stay within every limit.
+- **N-2 (owner to confirm):** raising calls per activation needs no confirmation. Money stays bound by the daily, lifetime and key limits.
+- **A-1, A-2 (advisory):** an unrecognised G-8-only failure is classed technical; on start-up with an expired cookie the reason is probed twice. Both are noted, with no change.
+
+A fresh independent review follows the remediation.
+
 ## 9. Change classes
 
 API/type: yes (new response fields; `confirm_paid_calls`, `confirm_daily_cap_micro_usd`;
