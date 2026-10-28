@@ -349,8 +349,8 @@ def test_hr_lowers_and_raises_the_lifetime_cap_within_the_allocation(
 
     # A raise needs the same amount confirmed.
     for body in (
-        {"cap_micro_usd": 900_000},
-        {"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 1},
+        {"cap_micro_usd": 900_000, "expected_cap_micro_usd": 400_000},
+        {"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 1, "expected_cap_micro_usd": 400_000},
     ):
         refused = journey.client.put(LIFETIME, json=body)
         assert refused.status_code == 400
@@ -358,14 +358,24 @@ def test_hr_lowers_and_raises_the_lifetime_cap_within_the_allocation(
     # Never beyond the technical bound (D-098: no US$1 ceiling), never below the opening usage.
     for cap in (10**12 + 1, opening - 1):
         refused = journey.client.put(
-            LIFETIME, json={"cap_micro_usd": cap, "confirm_cap_micro_usd": cap}
+            LIFETIME,
+            json={
+                "cap_micro_usd": cap,
+                "confirm_cap_micro_usd": cap,
+                "expected_cap_micro_usd": 400_000,
+            },
         )
         assert refused.status_code in (409, 422)
     assert _ledger(journey).status().cap == 400_000
 
     key_reads = sum(1 for r in journey.openrouter.requests if r.url.path.endswith("/key"))
     raised = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 900_000}
+        LIFETIME,
+        json={
+            "cap_micro_usd": 900_000,
+            "confirm_cap_micro_usd": 900_000,
+            "expected_cap_micro_usd": 400_000,
+        },
     )
     assert raised.status_code == 200, raised.text
     # The reconciliation check read the key's usage (GET /key only; nothing was changed).
@@ -398,7 +408,11 @@ def test_a_raise_needs_the_ledger_reconciled_with_openrouter(
         return original(request)
 
     journey.selector.transport = httpx.MockTransport(unaccounted)
-    body = {"cap_micro_usd": 800_000, "confirm_cap_micro_usd": 800_000}
+    body = {
+        "cap_micro_usd": 800_000,
+        "confirm_cap_micro_usd": 800_000,
+        "expected_cap_micro_usd": 500_000,
+    }
     refused = journey.client.put(LIFETIME, json=body)
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "RECONCILIATION_REQUIRED"
@@ -423,7 +437,12 @@ def test_a_missing_ledger_is_never_created(tmp_path: Path, monkeypatch: pytest.M
     journey = Journey(tmp_path, monkeypatch)
     Path(journey.settings.budget_ledger_path).unlink()
     refused = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 500_000, "confirm_cap_micro_usd": 500_000}
+        LIFETIME,
+        json={
+            "cap_micro_usd": 500_000,
+            "confirm_cap_micro_usd": 500_000,
+            "expected_cap_micro_usd": 1_000_000,
+        },
     )
     assert refused.status_code == 409 and refused.json()["detail"]["code"] == "LEDGER_UNAVAILABLE"
     assert not Path(journey.settings.budget_ledger_path).exists()

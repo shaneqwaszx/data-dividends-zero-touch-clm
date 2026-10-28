@@ -57,7 +57,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -207,6 +207,10 @@ MESSAGES = {
     "PROVIDER_LIMIT_NOT_CHECKED": (
         "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started."
     ),
+    "PROVIDER_KEY_LIMIT_EXHAUSTED": (
+        "The OpenRouter key's own spending limit has no room. Only the key's owner can raise"
+        " it at OpenRouter; it is not an HR setting. Nothing started."
+    ),
     "QUALIFICATION_ESCALATION_REQUIRED": (
         "This configuration failed on answer quality. A developer or IT must change it before"
         " it is qualified again. Nothing started."
@@ -278,8 +282,12 @@ class ModelSelector:
         # D-098: how many qualification runs had finished when the active model was last
         # checked (None: never), so a newly finished run is noticed by every process.
         self._finished: int | None = None
+        # D-098 (F2): stored reverts whose audit write failed, recorded once writes work.
+        self._pending_audits: list[dict[str, Any]] = []
         if store is not None:
-            self._active = replace(self._active, revision=-1)
+            # D-098 (F2): until the stored activation is read and usable there is no model
+            # (never the environment baseline, which may be a local LLM, in place of GPT-OSS).
+            self._active = self._unavailable(-1)
             self.current()
             # D-098: a run whose supervisor stopped with the previous service is closed now.
             self.close_interrupted()
@@ -343,10 +351,15 @@ class ModelSelector:
         except Exception:
             log.error("model state unavailable; keeping the current model")
             return self._active
-        if revision == self._active.revision and finished == self._finished:
+        if (
+            revision == self._active.revision
+            and finished == self._finished
+            and not self._pending_audits
+        ):
             return self._active
         with self._lock:
             try:
+                self._flush_audits()
                 if self.store.revision() != self._active.revision:
                     self._active = self._restore()
                 # D-098 decision 6a: a run finished (in any process, supervised or not), so
@@ -444,7 +457,17 @@ class ModelSelector:
         self._current()
 
     def _restore(self, action: str = "STARTUP_REVERTED") -> Active:
+        """The stored activation as a model, or its audited revert when it cannot be used.
+
+        D-098 (F2, fail closed, ported from PR #128 R4/R5): a GPT-OSS configuration is never
+        replaced by another model, not even for a moment: if its revert cannot be stored
+        (the state database is locked or failing) there is no model now, at revision -1, so
+        the next request reads the state and tries again until the revert is stored; after
+        repeated conflicts the decision follows the last stored activation read, never a
+        model kept in memory. A local profile reverts to the baseline as in D-093."""
+
         assert self.store is not None
+        remote = self._active.profile_id in REMOTE_PROFILE_IDS | {UNAVAILABLE_ID}
         for _ in range(3):
             stored = self.store.activation(self.baseline_choice())
             if stored.active_profile_id == BASELINE_ID:
@@ -454,9 +477,6 @@ class ModelSelector:
             active, problem = self._build_stored(stored)
             if active is not None:
                 return active
-            # D-098 GPT-OSS-only policy: a remote configuration that can no longer serve is
-            # never replaced by another model; the assistant shows AI as unavailable until HR
-            # activates a qualified configuration. A local profile reverts as in D-093.
             remote = self.is_remote(stored.active_profile_id)
             target = Choice(UNAVAILABLE_ID, UNAVAILABLE_ID) if remote else self.baseline_choice()
             try:
@@ -468,20 +488,46 @@ class ModelSelector:
                 )
             except RevisionConflict:
                 continue
-            self.store.record(
-                actor=SYSTEM_ACTOR,
-                role=None,
-                action=action,
-                outcome="reverted",
-                profile_id=stored.active_profile_id,
-                fingerprint=stored.active_fingerprint,
-                code=problem,
-                revision=revision,
+            except Exception:
+                if not remote:
+                    raise
+                log.error("model state could not be updated; no model until it is")
+                return self._unavailable(-1, reverted=problem)
+            self._audit_revert(
+                {
+                    "actor": SYSTEM_ACTOR,
+                    "role": None,
+                    "action": action,
+                    "outcome": "reverted",
+                    "profile_id": stored.active_profile_id,
+                    "fingerprint": stored.active_fingerprint,
+                    "code": problem,
+                    "revision": revision,
+                }
             )
             if remote:
                 return self._unavailable(revision, reverted=problem)
             return self._baseline(revision, reverted=problem)
+        if remote:
+            return self._unavailable(self._active.revision)
         return self._baseline(self._active.revision)
+
+    def _audit_revert(self, event: dict[str, Any]) -> None:
+        """Record a stored revert; if the audit write fails, keep it (in this process) and
+        record it once the state database accepts writes again (``_flush_audits``)."""
+
+        self._pending_audits.append(event)
+        self._flush_audits()
+
+    def _flush_audits(self) -> None:
+        assert self.store is not None
+        while self._pending_audits:
+            try:
+                self.store.record(**self._pending_audits[0])
+            except Exception:
+                log.error("model change audit could not be written; retrying later")
+                return
+            self._pending_audits.pop(0)
 
     def _unavailable(self, revision: int, reverted: str | None = None) -> Active:
         """D-098: no model at all (the chat gives labelled case-data guidance)."""
@@ -693,9 +739,10 @@ _BILLING_CHECKS = frozenset(
     }
 )
 # Checks HR can resolve with the spending controls (or by waiting for the daily reset).
-_BUDGET_CHECKS = frozenset(
-    {"ledger.daily_room_for_one_call", "ledger.headroom_for_one_call", "key.room_for_one_call"}
-)
+_BUDGET_CHECKS = frozenset({"ledger.daily_room_for_one_call", "ledger.headroom_for_one_call"})
+# D-098: the OpenRouter key's own limit has no room. Only the key's owner can raise it at
+# OpenRouter; it is never an HR spending control.
+_KEY_LIMIT_CHECKS = frozenset({"key.room_for_one_call"})
 # Server settings, the key's own limit or owner attestations: IT or the owner.
 _CONFIGURATION_CHECKS = frozenset(
     {
@@ -794,6 +841,8 @@ def _connection_diagnosis(connection: dict[str, Any]) -> Diagnosis:
         return Diagnosis("billing_uncertain", "LEDGER_NOT_RECONCILED", "ESCALATE_OPERATOR")
     if failed & _CONFIGURATION_CHECKS:
         return Diagnosis("configuration", "SERVER_SETTINGS", "ESCALATE_IT")
+    if failed & _KEY_LIMIT_CHECKS:
+        return Diagnosis("budget", "KEY_LIMIT_EXHAUSTED", "ESCALATE_KEY_OWNER")
     if failed & _BUDGET_CHECKS:
         return Diagnosis("budget", "NO_ROOM_FOR_CALLS", "REVIEW_SPENDING", retryable=True)
     # The provider or its public listing could not be read, or a local model did not answer.
@@ -904,6 +953,8 @@ class LifetimeCapRequest(BaseModel):
     cap_micro_usd: StrictInt
     # A raise needs the same amount again (the HR confirmation step).
     confirm_cap_micro_usd: StrictInt | None = None
+    # D-098 (F1): the cap the page showed when HR decided (required for a raise).
+    expected_cap_micro_usd: StrictInt | None = None
 
 
 def model_admin_router(
@@ -1095,7 +1146,11 @@ def model_admin_router(
             "file_status": catalogue.file_status,
             "file_errors": list(catalogue.file_errors),
             "model_enabled": settings.llm_enabled,
-            "revision": active.revision if selector.managed else 0,
+            # D-098 (F2): while a revert is not yet stored (in-memory revision -1) the page
+            # gets the stored revision, so HR can still activate a model (compare-and-set).
+            "revision": (active.revision if active.revision >= 0 else stored.revision)
+            if selector.managed and stored is not None
+            else 0,
             "active": {
                 "profile_id": active.profile_id,
                 "display_name": active_entry.display_name
@@ -1307,6 +1362,8 @@ def model_admin_router(
                     raise refuse_start(entry, profile, "QUALIFICATION_BILLING_UNRECONCILED")
                 if refusal in ("PROVIDER_LIMIT_NOT_CHECKED", "PROVIDER_CHECK_FAILED"):
                     raise refuse_start(entry, profile, "PROVIDER_LIMIT_NOT_CHECKED")
+                if refusal == "PROVIDER_LIMIT_EXHAUSTED":
+                    raise refuse_start(entry, profile, "PROVIDER_KEY_LIMIT_EXHAUSTED")
                 raise refuse_start(entry, profile, "QUALIFICATION_BUDGET_INSUFFICIENT")
         selector.close_interrupted()
         try:
@@ -1814,6 +1871,13 @@ def model_admin_router(
                 audit(profile, action, "refused", code="CAP_OUT_OF_RANGE")
                 raise _refusal(409, "CAP_OUT_OF_RANGE")
             raising = cap > status.cap
+            # D-098 (F1): a change is decided on the cap the page showed; a raise must say
+            # which, and any change is refused if the cap moved since (another HR change).
+            if (raising or body.expected_cap_micro_usd is not None) and (
+                body.expected_cap_micro_usd != status.cap
+            ):
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _refusal(409, "CONTROLS_CONFLICT")
             if raising:
                 if body.confirm_cap_micro_usd != cap:
                     audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
@@ -1829,8 +1893,19 @@ def model_admin_router(
                     raise _refusal(409, "RECONCILIATION_REQUIRED")
             if cap != status.cap:
                 try:
-                    ledger.set_cap(cap, allow_raise=raising, confirm=cap if raising else None)
-                except LedgerError:
+                    # The cap this decision was made on is checked again inside the ledger's
+                    # own write transaction: a change in between (the operator's script,
+                    # another process) refuses this one; it is never overwritten.
+                    ledger.set_cap(
+                        cap,
+                        allow_raise=raising,
+                        confirm=cap if raising else None,
+                        expected=status.cap,
+                    )
+                except LedgerError as error:
+                    if error.code in ("CAP_CHANGED", "CAP_RAISE_REFUSED"):
+                        audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                        raise _refusal(409, "CONTROLS_CONFLICT") from None
                     audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                     raise _refusal(409, "LEDGER_UNAVAILABLE") from None
                 audit(

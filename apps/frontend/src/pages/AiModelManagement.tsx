@@ -65,7 +65,7 @@ const REASON_TEXT: Record<string, string> = {
   DAILY_ALLOWANCE_EXHAUSTED: "Today's allowance (Singapore day) has no room for another call.",
   DAILY_CAP_INVALID: "The daily cap setting is not valid, so no call is allowed.",
   LIFETIME_CAP_EXHAUSTED: "The lifetime ledger cap has no room for another call.",
-  PROVIDER_LIMIT_EXHAUSTED: "The OpenRouter key's own limit has no room for another call.",
+  PROVIDER_LIMIT_EXHAUSTED: "The OpenRouter key's own limit has no room for another call. Only the key's owner can raise it at OpenRouter; it is not an HR spending setting.",
   PROVIDER_LIMIT_NOT_CHECKED: "The OpenRouter key's limit has not been checked yet. Run Test connection.",
   PROVIDER_CHECK_FAILED: "The last OpenRouter key check failed. Run Test connection.",
   CREDENTIAL_INVALID: "The configured OpenRouter API key is not valid.",
@@ -112,6 +112,7 @@ const CAUSE_TEXT: Record<string, string> = {
   ANSWERS_CUT_SHORT: "Too many answers were cut short by the token limits.",
   CAPACITY_NOT_VERIFIED: "The model's context capacity could not be verified for the qualification prompts.",
   UNKNOWN: "The run failed for a reason this page cannot name.",
+  KEY_LIMIT_EXHAUSTED: "The OpenRouter key's own spending limit has no room for a call. HR spending controls cannot change it.",
 };
 const ACTION_TEXT: Record<ModelDiagnosis["action"], string> = {
   NONE: "Nothing to do.",
@@ -122,6 +123,7 @@ const ACTION_TEXT: Record<ModelDiagnosis["action"], string> = {
   REVIEW_SPENDING: "Review the spending limits (or wait for the Singapore-day reset), then retry.",
   ESCALATE_IT: "Ask IT to correct the server configuration. Nothing on this page can override it.",
   ESCALATE_DEVELOPER: "Ask a developer to review the answers. This configuration cannot be qualified again until it is changed.",
+  ESCALATE_KEY_OWNER: "Ask the OpenRouter key's owner to raise the key's own limit at OpenRouter (never changed from this page), then run Test connection.",
   ESCALATE_OPERATOR: "Ask an operator to reconcile the spending ledger with OpenRouter (scripts/budget_ledger.py). Paid calls stay stopped until then.",
 };
 
@@ -189,7 +191,12 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
         {(diagnosis?.action === "TEST_CONNECTION" || diagnosis?.action === "RETRY_LATER") && usable && (
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={onTest}>Test connection</button>
         )}{" "}
-        {diagnosis?.action === "REVIEW_SPENDING" && <a className="btn btn-secondary" href="#spending-heading">Review spending controls</a>}{" "}
+        {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && <a className="btn btn-secondary" href="#spending-heading">Review spending controls</a>}{" "}
+        {paid?.refusal === "PROVIDER_LIMIT_EXHAUSTED" && (
+          <p className="ds-banner ds-banner-warn" role="note" data-testid="key-owner-action">
+            {ACTION_TEXT.ESCALATE_KEY_OWNER}
+          </p>
+        )}
         {escalate && (
           <button type="button" className="btn btn-secondary" onClick={() => {
             void navigator.clipboard?.writeText(escalationSummary(item)).then(() => setCopied(true), () => setCopied(false));
@@ -355,7 +362,9 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
         <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : "—"}</dd></div>
         <div><dt>Remaining today</dt><dd>{usd(daily?.remaining_usd)}</dd></div>
         <div><dt>Lifetime headroom</dt><dd>{usd(budget.ledger?.headroom_usd)}</dd></div>
-        <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
+        <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining{budget.provider.limit_usd ? ` of ${usd(budget.provider.limit_usd)}` : ""}{budget.provider.usage_usd ? `, ${usd(budget.provider.usage_usd)} used` : ""} ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
+        {budget.provider && <div><dt>Key limit resets</dt><dd>{budget.provider.limit_reset ? `Yes (${budget.provider.limit_reset}): not accepted, a lifetime key limit is required` : "Never (a lifetime key limit, as required)"}</dd></div>}
+        {budget.provider && <div><dt>Account credits</dt><dd>Not read. The key's own limit above is what applies; only the key's owner can change it at OpenRouter.</dd></div>}
         <div><dt>Available now</dt><dd><strong>{usd(budget.effective_remaining_usd)}</strong> (the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit)</dd></div>
         {controls && <div><dt>Calls this activation</dt><dd>{controls.calls_used === null ? `GPT-OSS is not the active model (limit ${controls.max_calls} per activation)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls} (counted since activation or the service's last start)`}</dd></div>}
         <div><dt>Next daily reset</dt><dd>{formatTimestamp(budget.next_reset_at)} (midnight, Singapore)</dd></div>
@@ -400,7 +409,8 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
           event.preventDefault();
           if (!capValid || (raising && !confirmed)) return;
           const cap = capMicro!;
-          void run(() => saveLifetimeCap(cap, raising ? cap : null), "Lifetime limit updated.");
+          const shown = lifetime.cap_micro_usd;
+          void run(() => saveLifetimeCap(cap, raising ? cap : null, shown), "Lifetime limit updated.");
         }}>
           <h3>Lifetime limit (ledger)</h3>
           <p className="control-help">

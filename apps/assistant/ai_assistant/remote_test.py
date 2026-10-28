@@ -253,6 +253,10 @@ def _remember_provider(report: Preflight) -> None:
             checked_at=time.time(),
             passed=bool(checks) and all(c.ok for c in checks),
             remaining_micro_usd=report.key_remaining_micro_usd,
+            # D-098: the key's own limit, usage and reset policy (not account credits).
+            limit_micro_usd=report.key_limit_micro_usd,
+            usage_micro_usd=report.key_usage_micro_usd,
+            limit_reset=report.key_limit_reset,
             checks=[{"check": c.name, "ok": c.ok, "detail": c.detail} for c in checks],
         )
 
@@ -512,6 +516,14 @@ def budget_status(
             "passed": provider["passed"],
             "remaining_micro_usd": provider["remaining_micro_usd"],
             "remaining_usd": _usd(provider["remaining_micro_usd"]),
+            # D-098: the key's own limit and usage, and whether its limit resets (None:
+            # never). Account credits are never read, so they are always shown as unknown.
+            "limit_micro_usd": provider.get("limit_micro_usd"),
+            "limit_usd": _usd(provider.get("limit_micro_usd")),
+            "usage_micro_usd": provider.get("usage_micro_usd"),
+            "usage_usd": _usd(provider.get("usage_micro_usd")),
+            "limit_reset": provider.get("limit_reset"),
+            "account_credits": None,
             "checks": provider["checks"],
         }
         if provider

@@ -149,6 +149,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
   "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
   "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
+  "The OpenRouter key's own spending limit has no room. Only the key's owner can raise it at OpenRouter; it is not an HR setting. Nothing started.",
   "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
   "A later qualification of this configuration failed on answer quality.",
   // D-095: the OpenRouter key (never echoed back).
@@ -616,7 +617,7 @@ export interface ModelQualification {
 export interface ModelDiagnosis {
   category: "passed" | "running" | "cancelled" | "technical" | "budget" | "configuration" | "quality" | "billing_uncertain";
   cause: string;
-  action: "NONE" | "WAIT" | "RUN_AGAIN" | "RETRY_LATER" | "TEST_CONNECTION" | "REVIEW_SPENDING" | "ESCALATE_IT" | "ESCALATE_DEVELOPER" | "ESCALATE_OPERATOR";
+  action: "NONE" | "WAIT" | "RUN_AGAIN" | "RETRY_LATER" | "TEST_CONNECTION" | "REVIEW_SPENDING" | "ESCALATE_IT" | "ESCALATE_DEVELOPER" | "ESCALATE_OPERATOR" | "ESCALATE_KEY_OWNER";
   /** A retry is worth making now, without another change. */
   retryable: boolean;
   /** A genuine quality failure: an earlier pass of this configuration no longer counts. */
@@ -714,6 +715,14 @@ export interface ModelBudgetStatus {
     passed: boolean;
     remaining_micro_usd: number | null;
     remaining_usd: string | null;
+    /** D-098: the key's own limit, usage and reset policy (absent from older servers). */
+    limit_micro_usd?: number | null;
+    limit_usd?: string | null;
+    usage_micro_usd?: number | null;
+    usage_usd?: string | null;
+    limit_reset?: string | null;
+    /** Account credits are never read: always null. */
+    account_credits?: null;
     checks: { check: string; ok: boolean; detail: string }[];
   } | null;
   ledger: {
@@ -834,10 +843,12 @@ export const saveSpendingControls = (
     ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
   }, undefined, "PUT");
 // A raise sends the same amount again as the HR confirmation; a decrease needs none.
-export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null) =>
+// D-098 (F1): the cap the page showed is sent too, so a change made in between is refused.
+export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
   request<ModelBudgetStatus>("/admin/models/budget/lifetime-cap", {
     cap_micro_usd: capMicroUsd,
     confirm_cap_micro_usd: confirmCapMicroUsd,
+    expected_cap_micro_usd: expectedCapMicroUsd,
   }, undefined, "PUT");
 // Read-only: the free preflight reads the key's OpenRouter limit; nothing is changed.
 export const refreshProviderLimits = () =>

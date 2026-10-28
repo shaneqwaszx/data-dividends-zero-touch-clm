@@ -75,6 +75,11 @@ class Preflight:
     checks: list[Check] = field(default_factory=list)
     # The key's provider-reported remaining limit when it was read (D-095 budget status).
     key_remaining_micro_usd: int | None = None
+    # D-098: the key's own limit, usage and reset policy as /key reported them (never the
+    # account's credits, which are not read).
+    key_limit_micro_usd: int | None = None
+    key_usage_micro_usd: int | None = None
+    key_limit_reset: str | None = None
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.checks.append(Check(name, ok, detail))
@@ -479,6 +484,10 @@ def run_preflight(
     check_key(report, key, reservation, allocation)
     if key.limit_remaining_usd is not None:
         report.key_remaining_micro_usd = micro_usd(key.limit_remaining_usd)
+    if key.limit_usd is not None:
+        report.key_limit_micro_usd = micro_usd(key.limit_usd)
+    report.key_usage_micro_usd = micro_usd(key.usage_usd)
+    report.key_limit_reset = key.limit_reset
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
     try:
         ledger = BudgetLedger.open(ledger_file)

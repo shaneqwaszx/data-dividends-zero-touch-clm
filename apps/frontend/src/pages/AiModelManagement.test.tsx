@@ -581,14 +581,14 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     await act(async () => button(view, "Update Lifetime Limit").click());
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit updated."));
     const raise = calls.filter((call) => call.method === "PUT" && call.url.endsWith("/admin/models/budget/lifetime-cap"));
-    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({ cap_micro_usd: 900_000, confirm_cap_micro_usd: 900_000 });
+    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({ cap_micro_usd: 900_000, confirm_cap_micro_usd: 900_000, expected_cap_micro_usd: 600_000 });
 
     typeInto(input(view, "lifetime-limit-input"), "0.4"); // lower: no confirmation
     expect(view.textContent).not.toContain("I confirm raising");
     await act(async () => button(view, "Update Lifetime Limit").click());
     await waitFor(() => expect(calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))).toHaveLength(2));
     const lower = calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))[1];
-    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ cap_micro_usd: 400_000, confirm_cap_micro_usd: null });
+    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ cap_micro_usd: 400_000, confirm_cap_micro_usd: null, expected_cap_micro_usd: 600_000 });
   });
 
   it("refreshes the OpenRouter limits read-only and never shows the key", async () => {
@@ -769,6 +769,39 @@ describe("AiModelManagement D-098 recovery", () => {
     const view = mount(server({ ...withRemote({}), active: { ...overview.active, profile_id: "ai_unavailable", display_name: "AI unavailable", model_id: null, reverted: "QUALIFICATION_SUPERSEDED", unavailable: true } }));
     await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
     expect(view.querySelector("[data-testid=ai-unavailable]")?.textContent).toContain("No other model was put in its place");
+  });
+});
+
+describe("AiModelManagement D-098 key limit and owner action", () => {
+  it("shows the key's own limit, usage and reset policy, never account credits", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const status = controlled();
+    const provider = {
+      checked_at: "2026-10-28T03:00:00Z", passed: true, remaining_micro_usd: 900_000, remaining_usd: "0.900000",
+      limit_micro_usd: 1_000_000, limit_usd: "1.000000", usage_micro_usd: 100_000, usage_usd: "0.100000",
+      limit_reset: null, account_credits: null, checks: [],
+    };
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: { ...status, provider } };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Key limit resets"));
+    expect(view.textContent).toContain("US$0.900000 remaining of US$1.000000, US$0.100000 used");
+    expect(view.textContent).toContain("Never (a lifetime key limit, as required)");
+    expect(view.textContent).toContain("Account credits");
+    expect(view.textContent).toContain("Not read.");
+  });
+
+  it("sends an exhausted key to its owner, not to HR's spending controls", async () => {
+    const run: ModelQualification = {
+      ...qualification, qualification_id: "d".repeat(32), status: "failed", code: "GATES_FAILED:G-6,G-8",
+      diagnosis: { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false },
+    };
+    const paid = { calls: 2, reservation_micro_usd: 30_000, estimate_micro_usd: 60_000, effective_remaining_micro_usd: 0, refusal: "PROVIDER_LIMIT_EXHAUSTED", sufficient: false };
+    const data = { ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, activation_blockers: [], qualification: run, paid_qualification: paid }] };
+    const view = mount(server(data));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.querySelector("[data-testid=key-owner-action]")?.textContent).toContain("key's owner");
+    expect(card.querySelector("a[href='#spending-heading']")).toBeNull();
   });
 });
 

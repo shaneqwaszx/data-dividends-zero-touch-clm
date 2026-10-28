@@ -545,7 +545,11 @@ def test_hr_raises_the_lifetime_cap_above_one_dollar_keeping_every_record(
 
     journey = Journey(tmp_path, monkeypatch)
     _key(journey, None, None)
-    body = {"cap_micro_usd": 3_000_000, "confirm_cap_micro_usd": 3_000_000}
+    body = {
+        "cap_micro_usd": 3_000_000,
+        "confirm_cap_micro_usd": 3_000_000,
+        "expected_cap_micro_usd": 1_000_000,
+    }
     refused = journey.client.put(LIFETIME, json=body)
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "PROVIDER_LIMIT_REQUIRED"
@@ -682,3 +686,298 @@ def test_a_technical_failure_never_stops_the_active_model(
     _record(journey, "error", "INTERRUPTED", None)
     assert journey.ask()["answered_by"] == "model"
     assert journey.client.get(API).json()["active"]["profile_id"] == OPENROUTER_PROFILE_ID
+
+
+# --- F1: lifetime-cap compare-and-set at the ledger write (ported from PR #128 Z7) ----------
+
+
+def test_an_hr_raise_never_overwrites_an_operator_lowering_made_in_between(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deterministic interleaving: HR reads cap US$1.00 and asks for US$3.00; while its free
+    preflight runs, the operator's script lowers the cap to US$0.40. HR's raise is refused
+    and the operator's US$0.40 stays; spend, calls and the daily view are unchanged."""
+
+    from ai_assistant.budget import BudgetLedger
+    from tests.test_remote_test import _settle_verification
+
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    assert journey.ask()["answered_by"] == "model"
+    _settle_verification()
+    path = Path(journey.settings.budget_ledger_path)
+    before = BudgetLedger.open(path)
+    status_before = before.status()
+    calls_before = before.closed_calls_after(0)
+    daily_before = before.daily_status().settled_today
+    _key(journey, 5.0, 5.0)
+    original = model_admin.preflight
+
+    def operator_lowers_during_preflight(*args: Any, **kwargs: Any) -> Any:
+        BudgetLedger.open(path).set_cap(400_000)  # scripts/budget_ledger.py set-cap
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(model_admin, "preflight", operator_lowers_during_preflight)
+    raised = journey.client.put(
+        LIFETIME,
+        json={
+            "cap_micro_usd": 3_000_000,
+            "confirm_cap_micro_usd": 3_000_000,
+            "expected_cap_micro_usd": 1_000_000,
+        },
+    )
+    assert raised.status_code == 409, raised.text
+    assert raised.json()["detail"]["code"] == "CONTROLS_CONFLICT"
+    after = BudgetLedger.open(path)
+    status = after.status()
+    assert status.cap == 400_000  # the operator's lowering stands
+    assert (status.committed, status.opening_usage, status.open_calls) == (
+        status_before.committed,
+        status_before.opening_usage,
+        status_before.open_calls,
+    )
+    assert after.closed_calls_after(0) == calls_before
+    assert after.daily_status().settled_today == daily_before
+    with sqlite3.connect(path) as db:
+        events = [row[0] for row in db.execute("SELECT event FROM operator_events")]
+    assert "cap_lowered" in events and "cap_raised" not in events
+    audited = [
+        e
+        for e in journey.client.get(f"{API}/audit").json()["events"]
+        if e["action"] == "LIFETIME_CAP_CHANGED"
+    ]
+    assert audited[0]["outcome"] == "refused" and audited[0]["code"] == "CONTROLS_CONFLICT"
+
+
+def test_a_raise_from_a_stale_view_is_refused_before_any_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_assistant.budget import BudgetLedger
+
+    journey = Journey(tmp_path, monkeypatch)
+    _key(journey, 5.0, 5.0)
+    for expected in (None, 999_999):
+        body: dict[str, Any] = {"cap_micro_usd": 2_000_000, "confirm_cap_micro_usd": 2_000_000}
+        if expected is not None:
+            body["expected_cap_micro_usd"] = expected
+        refused = journey.client.put(LIFETIME, json=body)
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["code"] == "CONTROLS_CONFLICT"
+    assert BudgetLedger.open(Path(journey.settings.budget_ledger_path)).status().cap == 1_000_000
+
+
+def test_the_ledger_compare_and_set_itself(tmp_path: Path) -> None:
+    from ai_assistant.budget import BudgetLedger, LedgerError
+
+    path = tmp_path / "ledger.sqlite3"
+    BudgetLedger.initialise(
+        path, cap_micro_usd=1_000_000, opening_usage_micro_usd=0, key_alias="key-01"
+    )
+    ledger = BudgetLedger.open(path)
+    with pytest.raises(LedgerError) as raised:
+        ledger.set_cap(2_000_000, allow_raise=True, confirm=2_000_000, expected=900_000)
+    assert raised.value.code == "CAP_CHANGED"
+    assert ledger.status().cap == 1_000_000
+    ledger.set_cap(2_000_000, allow_raise=True, confirm=2_000_000, expected=1_000_000)
+    assert ledger.status().cap == 2_000_000
+
+
+# --- F2: GPT-OSS never stood in for by another model (ported from PR #128 R4/R5) -----------
+
+
+def _selector(journey: Journey, store: Any) -> ModelSelector:
+    from tests.test_remote_test import SENTINEL
+
+    return ModelSelector(
+        journey.settings,
+        journey.baseline,
+        store,
+        environ={"OPENROUTER_API_KEY": SENTINEL},
+        transport=journey.openrouter.transport(),
+    )
+
+
+class _FlakyStore(ModelAdminStore):
+    """A store whose reads or writes fail on demand (a locked or failing state database)."""
+
+    fail_reads = False
+    fail_activate = False
+    fail_record = False
+    conflicts = 0
+
+    def revision(self) -> int:
+        if self.fail_reads:
+            raise sqlite3.OperationalError("database is locked")
+        return super().revision()
+
+    def activation(self, baseline: Any) -> Any:
+        if self.fail_reads:
+            raise sqlite3.OperationalError("database is locked")
+        return super().activation(baseline)
+
+    def activate(self, *args: Any, **kwargs: Any) -> int:
+        from ai_assistant.model_admin_store import RevisionConflict
+
+        if self.conflicts > 0:
+            self.conflicts -= 1
+            raise RevisionConflict
+        if self.fail_activate:
+            raise sqlite3.OperationalError("database is locked")
+        return super().activate(*args, **kwargs)
+
+    def record(self, **kwargs: Any) -> None:
+        if self.fail_record:
+            raise sqlite3.OperationalError("disk I/O error")
+        super().record(**kwargs)
+
+
+def _make_gpt_oss_unusable(journey: Journey, monkeypatch: pytest.MonkeyPatch) -> None:
+    journey.activate_remote()
+    monkeypatch.setattr(model_admin, "qualification_basis", lambda: "0" * 64)
+
+
+def test_an_unreadable_state_database_at_start_up_gives_no_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    store = _FlakyStore(Path(journey.settings.model_admin_db_path))
+    store.fail_reads = True
+    selector = _selector(journey, store)
+    active = selector.current()
+    assert active.profile_id == UNAVAILABLE_ID and active.model is None
+    assert journey.baseline.calls == 0
+    store.fail_reads = False  # readable again: the stored (valid) activation is served
+    assert selector.current().profile_id == OPENROUTER_PROFILE_ID
+
+
+def test_a_revert_that_cannot_be_stored_gives_no_model_and_is_retried_and_audited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    _make_gpt_oss_unusable(journey, monkeypatch)
+    store = _FlakyStore(Path(journey.settings.model_admin_db_path))
+    store.fail_activate = True
+    selector = _selector(journey, store)
+    active = selector.current()
+    assert active.profile_id == UNAVAILABLE_ID and active.model is None
+    assert active.revision == -1  # retried on the next request
+    assert store.activation(selector.baseline_choice()).active_profile_id == OPENROUTER_PROFILE_ID
+    store.fail_activate = False
+    active = selector.current()
+    assert active.profile_id == UNAVAILABLE_ID and active.revision > 0  # now stored
+    assert store.activation(selector.baseline_choice()).active_profile_id == UNAVAILABLE_ID
+    events = [e for e in store.events(20) if e["action"] == "STARTUP_REVERTED"]
+    assert len(events) == 1 and events[0]["code"] == "QUALIFICATION_OUT_OF_DATE"
+    assert journey.baseline.calls == 0
+
+
+def test_repeated_conflicts_never_stand_in_the_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    _make_gpt_oss_unusable(journey, monkeypatch)
+    store = _FlakyStore(Path(journey.settings.model_admin_db_path))
+    store.conflicts = 3
+    selector = _selector(journey, store)
+    active = selector.current()
+    assert active.profile_id == UNAVAILABLE_ID and active.model is None
+    assert selector.current().profile_id == UNAVAILABLE_ID  # stored on the next request
+    assert store.activation(selector.baseline_choice()).active_profile_id == UNAVAILABLE_ID
+
+
+def test_a_lost_revert_audit_is_written_once_writes_work_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    _make_gpt_oss_unusable(journey, monkeypatch)
+    store = _FlakyStore(Path(journey.settings.model_admin_db_path))
+    store.fail_record = True
+    selector = _selector(journey, store)
+    assert selector.current().profile_id == UNAVAILABLE_ID
+    assert not [e for e in store.events(20) if e["action"] == "STARTUP_REVERTED"]
+    store.fail_record = False
+    selector.current()
+    events = [e for e in store.events(20) if e["action"] == "STARTUP_REVERTED"]
+    assert len(events) == 1
+
+
+def test_hr_can_activate_while_a_revert_is_not_yet_stored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The page gets the stored revision (never -1), so Activate is a normal CAS request."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    _make_gpt_oss_unusable(journey, monkeypatch)
+    store = _FlakyStore(Path(journey.settings.model_admin_db_path))
+    store.fail_activate = True
+    journey.selector.store = store
+    journey.selector._active = journey.selector._unavailable(-1)  # noqa: SLF001
+    overview = journey.client.get(API).json()
+    assert overview["active"]["profile_id"] == UNAVAILABLE_ID
+    assert overview["revision"] == store.revision() >= 0
+    store.fail_activate = False
+    applied = journey.client.post(
+        f"{API}/env_default/activate", json={"expected_revision": overview["revision"]}
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["active"]["profile_id"] == "env_default"
+
+
+def test_a_local_profile_still_reverts_to_the_baseline_as_documented(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_assistant.model_admin_store import Choice
+    from ai_assistant.model_catalog import load_catalogue
+    from tests.test_model_management import Backend, ModelServer, build_app
+
+    client = build_app(tmp_path, Backend(), ModelServer(), monkeypatch)
+    selector: ModelSelector = client.app.state.model_selector  # type: ignore[attr-defined]
+    store = selector.store
+    assert store is not None
+    entry = load_catalogue(selector.settings).get("lmstudio_qwen3_8b")
+    assert entry is not None
+    # A local profile activated with a qualification from older code: at the next start it
+    # is out of date and reverts to the baseline (D-093), not to "AI unavailable".
+    qid = store.begin_qualification(entry.profile_id, entry.fingerprint, "old", "hr-admin", 1)
+    store.finish_qualification(qid, "passed", None, {"capacity": {"prompt_limit": 1000}})
+    choice = Choice(entry.profile_id, entry.fingerprint, qid, 1000)
+    store.activate(store.revision(), choice, None, "hr-admin")
+    restarted = ModelSelector(selector.settings, None, ModelAdminStore(store._path))  # noqa: SLF001
+    assert restarted.current().profile_id == "env_default"
+
+
+# --- UX parity: the key's own limit, and an exhausted key goes to its owner -----------------
+
+
+def test_the_spending_view_shows_the_keys_limit_usage_and_reset_never_account_credits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
+    provider = journey.client.get(f"{API}/budget").json()["provider"]
+    assert provider["limit_micro_usd"] == 1_000_000 and provider["limit_usd"] == "1.000000"
+    assert provider["usage_micro_usd"] == 0
+    assert provider["limit_reset"] is None  # never resets
+    assert provider["account_credits"] is None  # never read
+    assert all(r.method == "GET" for r in journey.openrouter.requests)
+
+
+def test_an_exhausted_key_is_an_owner_action_not_an_hr_budget_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connection = {"checks": [{"check": "key.room_for_one_call", "ok": False}]}
+    item = {"status": "failed", "code": "CONNECTION_FAILED", "summary": {"connection": connection}}
+    result = diagnose(item)
+    assert (result.cause, result.action, result.retryable) == (
+        "KEY_LIMIT_EXHAUSTED",
+        "ESCALATE_KEY_OWNER",
+        False,
+    )
+    journey = Journey(tmp_path, monkeypatch)
+    _key(journey, 1.0, 0.0)  # the key's own limit has no room left
+    journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
+    refused = journey.start_qualification()
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "PROVIDER_KEY_LIMIT_EXHAUSTED"
+    assert journey.openrouter.chats == []
