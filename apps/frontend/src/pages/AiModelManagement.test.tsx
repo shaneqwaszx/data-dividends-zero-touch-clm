@@ -620,14 +620,14 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     await act(async () => button(view, "Update Lifetime Limit").click());
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit updated."));
     const raise = calls.filter((call) => call.method === "PUT" && call.url.endsWith("/admin/models/budget/lifetime-cap"));
-    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({ cap_micro_usd: 900_000, confirm_cap_micro_usd: 900_000 });
+    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({ cap_micro_usd: 900_000, confirm_cap_micro_usd: 900_000, expected_cap_micro_usd: 600_000 });
 
     typeInto(input(view, "lifetime-limit-input"), "0.4"); // lower: no confirmation
     expect(view.textContent).not.toContain("I confirm raising");
     await act(async () => button(view, "Update Lifetime Limit").click());
     await waitFor(() => expect(calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))).toHaveLength(2));
     const lower = calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))[1];
-    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ cap_micro_usd: 400_000, confirm_cap_micro_usd: null });
+    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ cap_micro_usd: 400_000, confirm_cap_micro_usd: null, expected_cap_micro_usd: 600_000 });
   });
 
   it("refreshes the OpenRouter limits read-only and never shows the key", async () => {
@@ -878,6 +878,19 @@ describe("AiModelManagement recovery (D-098)", () => {
     await act(async () => button(view, "Run qualification", "Fast").click());
     await waitFor(() => expect(posts).toEqual([{}]));
     await waitFor(() => expect(view.textContent).toContain("This model profile is not available for use."));
+  });
+
+  it("says only a safety, quality or verification gate blocks a new run (QG R2 F2)", async () => {
+    const view = mount(server(recovering({
+      remote_profiles: [
+        { profile_id: fast.profile_id, active: false, qualified: false, previous_pass_current: false,
+          state: { code: "GATES_FAILED:G-1", category: "OPERATOR_REQUIRED", action: "CONTACT_OPERATOR", retryable: false },
+          qualification: { code: "GATES_FAILED:G-1", category: "OPERATOR_REQUIRED", action: "CONTACT_OPERATOR", retryable: false,
+            findings: [{ code: "ledger.usage_reconciled", gate: "G-1", category: "OPERATOR_REQUIRED", action: "CONTACT_OPERATOR", retryable: false }] } },
+      ],
+    })));
+    await waitFor(() => expect(view.textContent).toContain("the operator or IT must act first"));
+    expect(view.textContent).not.toContain("cannot be retried away");
   });
 
   it("names a security block and an operator stop without offering a bypass", async () => {

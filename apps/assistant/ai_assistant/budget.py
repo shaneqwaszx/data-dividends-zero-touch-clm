@@ -699,8 +699,8 @@ class BudgetLedger:
         daily_cap_micro_usd: int | None = None,
     ) -> str:
         """Admit one call atomically, or raise ``BudgetRefusedError`` with a closed outcome.
-        The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` may only lower
-        the ceiling; a value outside 0..ceiling refuses."""
+        The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` replaces the
+        default (D-098: not a ceiling); a value outside 0..MAX_MICRO_USD refuses."""
 
         daily_cap = daily_cap_for(daily_cap_micro_usd)
         if daily_cap is None:

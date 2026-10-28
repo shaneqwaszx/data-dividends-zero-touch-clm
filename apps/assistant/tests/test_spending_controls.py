@@ -38,6 +38,12 @@ def _controls(
     return journey.client.put(CONTROLS, json=body)
 
 
+def _shown(journey: Journey) -> dict[str, int]:
+    """The lifetime cap as the page shows it (D-098: a raise names it)."""
+
+    return {"expected_cap_micro_usd": _ledger(journey).status().cap}
+
+
 def _ledger(journey: Journey) -> BudgetLedger:
     return BudgetLedger.open(Path(journey.settings.budget_ledger_path))
 
@@ -374,7 +380,12 @@ def test_hr_lowers_and_raises_the_lifetime_cap_beyond_one_dollar(
     # D-098: more than US$1.00 above the opening usage is allowed (the key's own limit and
     # the daily limit still apply beside it; the lowest wins).
     raised = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 2_500_000, "confirm_cap_micro_usd": 2_500_000}
+        LIFETIME,
+        json={
+            "cap_micro_usd": 2_500_000,
+            "confirm_cap_micro_usd": 2_500_000,
+            "expected_cap_micro_usd": _ledger(journey).status().cap,
+        },
     )
     assert raised.status_code == 200, raised.text
     # The reconciliation check read the key's usage (GET /key only; nothing was changed).
@@ -410,7 +421,11 @@ def test_a_raise_needs_the_ledger_reconciled_with_openrouter(
         return original(request)
 
     journey.selector.transport = httpx.MockTransport(unaccounted)
-    body = {"cap_micro_usd": 800_000, "confirm_cap_micro_usd": 800_000}
+    body = {
+        "cap_micro_usd": 800_000,
+        "confirm_cap_micro_usd": 800_000,
+        "expected_cap_micro_usd": _ledger(journey).status().cap,
+    }
     refused = journey.client.put(LIFETIME, json=body)
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "RECONCILIATION_REQUIRED"
@@ -435,7 +450,11 @@ def test_a_missing_ledger_is_never_created(tmp_path: Path, monkeypatch: pytest.M
     journey = Journey(tmp_path, monkeypatch)
     Path(journey.settings.budget_ledger_path).unlink()
     refused = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 500_000, "confirm_cap_micro_usd": 500_000}
+        LIFETIME,
+        json={
+            "cap_micro_usd": 500_000,
+            "confirm_cap_micro_usd": 500_000,
+        },
     )
     assert refused.status_code == 409 and refused.json()["detail"]["code"] == "LEDGER_UNAVAILABLE"
     assert not Path(journey.settings.budget_ledger_path).exists()
@@ -502,7 +521,12 @@ def test_without_model_management_no_spending_change_is_made_unaudited(
         _controls(journey, 500_000, 10, revision=0),
         journey.client.put(LIFETIME, json={"cap_micro_usd": 500_000}),
         journey.client.put(
-            LIFETIME, json={"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 900_000}
+            LIFETIME,
+            json={
+                "cap_micro_usd": 900_000,
+                "confirm_cap_micro_usd": 900_000,
+                "expected_cap_micro_usd": _ledger(journey).status().cap,
+            },
         ),
         journey.client.post(REFRESH),
     ):
@@ -619,7 +643,12 @@ def test_an_increase_needs_a_finite_never_resetting_key_limit_and_a_reconciled_l
     daily = _controls(journey, 2_000_000, 20)
     assert daily.status_code == 409 and daily.json()["detail"]["code"] == expected
     lifetime = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 3_000_000, "confirm_cap_micro_usd": 3_000_000}
+        LIFETIME,
+        json={
+            "cap_micro_usd": 3_000_000,
+            "confirm_cap_micro_usd": 3_000_000,
+            "expected_cap_micro_usd": _ledger(journey).status().cap,
+        },
     )
     assert lifetime.status_code == 409 and lifetime.json()["detail"]["code"] == expected
     view = journey.client.get(f"{API}/budget").json()
@@ -641,7 +670,12 @@ def test_the_strictest_of_the_daily_lifetime_and_key_limits_applies(
     _key(journey, {"limit": 10.0, "limit_reset": None, "limit_remaining": 10.0, "usage": 0})
     assert (
         journey.client.put(
-            LIFETIME, json={"cap_micro_usd": 5_000_000, "confirm_cap_micro_usd": 5_000_000}
+            LIFETIME,
+            json={
+                "cap_micro_usd": 5_000_000,
+                "confirm_cap_micro_usd": 5_000_000,
+                "expected_cap_micro_usd": _ledger(journey).status().cap,
+            },
         ).status_code
         == 200
     )
@@ -724,3 +758,27 @@ def test_a_raise_read_under_an_older_revision_is_refused_before_any_provider_che
     assert len(journey.openrouter.requests) == reads  # no key read for a stale view
     controls = journey.client.get(f"{API}/budget").json()["controls"]
     assert (controls["revision"], controls["daily_cap_micro_usd"]) == (1, 500_000)
+
+
+def test_a_lifetime_raise_from_a_stale_view_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """QG R2 F4: a raise names the cap the page showed; another administrator's lowering in
+    between refuses it instead of being undone."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    shown = _ledger(journey).status().cap
+    assert journey.client.put(LIFETIME, json={"cap_micro_usd": 300_000}).status_code == 200
+    body = {"cap_micro_usd": 2_000_000, "confirm_cap_micro_usd": 2_000_000}
+    for expected in (None, shown):
+        stale = journey.client.put(LIFETIME, json={**body, "expected_cap_micro_usd": expected})
+        assert stale.status_code == 409 and stale.json()["detail"]["code"] == "CONTROLS_CONFLICT"
+    assert _ledger(journey).status().cap == 300_000
+    current = journey.client.put(LIFETIME, json={**body, "expected_cap_micro_usd": 300_000})
+    assert current.status_code == 200, current.text
+    assert _ledger(journey).status().cap == 2_000_000
+    # A decrease that names an outdated cap is refused too.
+    lower = journey.client.put(
+        LIFETIME, json={"cap_micro_usd": 100_000, "expected_cap_micro_usd": 300_000}
+    )
+    assert lower.status_code == 409

@@ -273,7 +273,8 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
           event.preventDefault();
           if (!capValid || (raising && !confirmed)) return;
           const cap = capMicro!;
-          void run(() => saveLifetimeCap(cap, raising ? cap : null), "Lifetime limit updated.");
+          const shown = lifetime.cap_micro_usd;
+          void run(() => saveLifetimeCap(cap, raising ? cap : null, shown), "Lifetime limit updated.");
         }}>
           <h3>Lifetime limit (ledger)</h3>
           <p className="control-help">
@@ -437,6 +438,9 @@ export const GATE_TEXT: Record<string, string> = {
   "G-8": "Provider verification: a call could not be matched with OpenRouter's own record. The owner must reconcile.",
 };
 
+// The gates whose failure blocks a new run of the same configuration and code (server-enforced).
+const ESCALATION_GATES = new Set(["G-3", "G-6", "G-7", "G-8"]);
+
 const CHECK_TEXT: Record<string, string> = {
   "key.status": "OpenRouter's key status could not be read (provider down or network).",
   "endpoint.listing": "OpenRouter's endpoint listing could not be read.",
@@ -541,7 +545,9 @@ function Recovery({ overview, busy, onAction, onRetry }: {
                 <>{" "}<button type="button" className="btn btn-secondary" disabled={busy || !cost} onClick={() => onRetry(item.profile_id)}>Retry Qualification</button></>
               )}
               {item.qualification && !item.qualification.retryable && (
-                <p className="control-help">This result cannot be retried away: the server will not run this configuration again until IT changes its settings (thresholds, safety filters and model settings are not HR settings). Send IT the profile and the result code above.</p>
+                item.qualification.findings.some((finding) => ESCALATION_GATES.has(finding.gate ?? ""))
+                  ? <p className="control-help">This result cannot be retried away: the server will not run this configuration again until IT changes its settings (thresholds, safety filters and model settings are not HR settings). Send IT the profile and the result code above.</p>
+                  : <p className="control-help">HR cannot resolve this alone: the operator or IT must act first (see the next step above); the qualification can then be run again.</p>
               )}
             </li>
           );

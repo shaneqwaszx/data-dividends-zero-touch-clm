@@ -73,6 +73,7 @@ from .model_admin_store import (
     Activation,
     Choice,
     ModelAdminStore,
+    QualificationBlocked,
     QualificationBusy,
     RevisionConflict,
     SpendingControls,
@@ -267,6 +268,16 @@ _GATE_CODES: dict[str, tuple[str, str, bool]] = {
 }
 # Gates whose failure blocks a new run of the same configuration and code (post_qualification).
 _ESCALATION_GATES = frozenset({"G-3", "G-6", "G-7", "G-8"})
+
+
+def escalation_gates_failed(code: str) -> bool:
+    """A run's code names a gate whose failure blocks a new run of the same configuration."""
+
+    if not code.startswith("GATES_FAILED:"):
+        return False
+    return any(gate in _ESCALATION_GATES for gate in code.removeprefix("GATES_FAILED:").split(","))
+
+
 # Preflight checks (remote_checks.py) behind a failed connection (G-1).
 _CHECK_CODES: dict[str, tuple[str, str, bool]] = {
     "key.status": (TEMPORARILY_UNAVAILABLE, "TEST_CONNECTION", True),
@@ -811,6 +822,9 @@ class LifetimeCapRequest(BaseModel):
     cap_micro_usd: StrictInt
     # A raise needs the same amount again (the HR confirmation step).
     confirm_cap_micro_usd: StrictInt | None = None
+    # D-098: the cap the page showed (the ledger's own revision for the cap). A raise needs it
+    # and is refused if the cap changed since; a decrease checks it when it is sent.
+    expected_cap_micro_usd: StrictInt | None = None
 
 
 def model_admin_router(
@@ -1070,7 +1084,8 @@ def model_admin_router(
                     "connection_test": store.connection_test(entry.profile_id) if store else None,
                     "qualification": qualification_view(latest, entry, basis),
                     "activation_blockers": readiness(entry, latest, basis),
-                    # D-098: an earlier pass for today's configuration and code still counts.
+                    # D-098: an earlier pass matches today's configuration and code (it keeps an
+                    # activation that uses it; a new activation needs the latest run to pass).
                     "previous_pass_current": passed is not None
                     and passed["fingerprint"] == entry.fingerprint
                     and passed["basis"] == basis,
@@ -1238,19 +1253,6 @@ def model_admin_router(
             )
             return _refusal(409, code)
 
-        # D-098: a safety, answer-validity, capacity or verification gate failure is not run
-        # again on the same configuration and code until IT changes one of them (a new
-        # fingerprint or basis); repeating it until a run passes would bypass the gate.
-        latest = store.latest_qualification(entry.profile_id)
-        diagnosis = diagnose_qualification(latest)
-        if (
-            latest is not None
-            and diagnosis is not None
-            and latest["fingerprint"] == entry.fingerprint
-            and latest["basis"] == qualification_basis()
-            and any(f.get("gate") in _ESCALATION_GATES for f in diagnosis["findings"])
-        ):
-            raise refuse("ESCALATION_REQUIRED")
         # The same checks the qualification process applies, before anything starts.
         if entry.source == "code":
             # D-094: a paid run, so only the configured, counted question manifest.
@@ -1273,7 +1275,14 @@ def model_admin_router(
                 qualification_basis(),
                 str(profile.get("user_id")),
                 0,
+                # D-098: a safety, answer-validity, capacity or verification gate failure is
+                # not run again on the same configuration and code until IT changes one of
+                # them (a new fingerprint or basis); repeating it until a run passes would
+                # bypass the gate. Checked in the start's own transaction.
+                blocked=escalation_gates_failed,
             )
+        except QualificationBlocked:
+            raise refuse("ESCALATION_REQUIRED") from None
         except QualificationBusy:
             audit(
                 profile,
@@ -1749,10 +1758,15 @@ def model_admin_router(
                 audit(profile, action, "refused", code="CAP_OUT_OF_RANGE")
                 raise _refusal(409, "CAP_OUT_OF_RANGE")
             raising = cap > status.cap
+            if raising and body.confirm_cap_micro_usd != cap:
+                audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
+                raise _refusal(400, "CAP_CONFIRMATION_REQUIRED")
+            if (raising or body.expected_cap_micro_usd is not None) and (
+                body.expected_cap_micro_usd != status.cap
+            ):
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _refusal(409, "CONTROLS_CONFLICT")
             if raising:
-                if body.confirm_cap_micro_usd != cap:
-                    audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
-                    raise _refusal(400, "CAP_CONFIRMATION_REQUIRED")
                 verify_increase(profile, action)
             if cap != status.cap:
                 try:

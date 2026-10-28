@@ -851,10 +851,12 @@ export const saveSpendingControls = (expectedRevision: number, dailyCapMicroUsd:
     ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
   }, undefined, "PUT");
 // A raise sends the same amount again as the HR confirmation; a decrease needs none.
-export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null) =>
+// D-098: the cap the page showed, so a change made meanwhile by another administrator refuses.
+export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
   request<ModelBudgetStatus>("/admin/models/budget/lifetime-cap", {
     cap_micro_usd: capMicroUsd,
     confirm_cap_micro_usd: confirmCapMicroUsd,
+    expected_cap_micro_usd: expectedCapMicroUsd,
   }, undefined, "PUT");
 // Read-only: the free preflight reads the key's OpenRouter limit; nothing is changed.
 export const refreshProviderLimits = () =>

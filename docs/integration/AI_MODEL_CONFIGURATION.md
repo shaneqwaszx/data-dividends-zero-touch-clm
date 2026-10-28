@@ -324,9 +324,10 @@ unverified answer or case data.
 | G-8 provider verification | a call did not match OpenRouter's record: the owner reconciles | no |
 
 HR cannot change thresholds, safety filters, gates or model settings; a non-retryable result
-is never retried away: after a G-3, G-6, G-7 or G-8 failure the server refuses a new run of the
-same configuration and code (`ESCALATION_REQUIRED`) until IT changes its settings or the code
-changes. An earlier pass shown beside a later failed run keeps an existing activation, but
+is never retried away: after a G-3, G-6, G-7 or G-8 failure the server refuses any new run of
+that configuration and code (`ESCALATION_REQUIRED`, decided when the run would start) until IT
+changes its settings or the code changes. Other non-retryable results (ledger, policy) need
+the operator or IT first; the run can then be repeated. An earlier pass shown beside a later failed run keeps an existing activation, but
 the configuration cannot be activated again until a new run passes.
 
 **Paid qualification.** A remote qualification is started only after HR confirms its number of
@@ -347,7 +348,8 @@ and audited as `SESSION_REFUSED` (codes only, at most once a minute).
 limit at any time; raising the daily limit or the lifetime cap needs the amount confirmed and a
 fresh free preflight in the change lock: the OpenRouter key must have its own finite limit that
 never resets (`key.limit_set`, `key.limit_never_resets`), and the ledger must be reconciled
-(breaker closed, no open call, usage accounted for). The page's view must be of the current revision. The environment default
+(breaker closed, no open call, usage accounted for). The page's view must be current (the controls' revision; for the lifetime cap, the cap it
+showed), otherwise the change is refused (`CONTROLS_CONFLICT`). The environment default
 (`AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD`) is IT's and has no such check; every call's
 preflight still requires the key's own finite, non-resetting limit. Otherwise the raise is refused
 (`PROVIDER_LIMIT_REQUIRED`, `RECONCILIATION_REQUIRED`, `PROVIDER_CHECK_FAILED`). The bound for

@@ -1269,7 +1269,7 @@ Branch `claude/gracious-lovelace-bjvh2z-recovery`, stacked on the D-097 branch (
   (`SESSION_REFUSED`) and the run continues. US$1.00 is the default daily limit, not a ceiling;
   the lifetime cap is no longer bound to US$1.00 above the opening usage; raises need
   confirmation, a finite never-resetting key limit and a reconciled ledger.
-- **Qualification:** basis `2bd93aeb8886…` → `3bed544631d3…` (the second commit changes
+- **Qualification:** basis `2bd93aeb8886…` → `31a556cc7e44…` (the second commit changes
   `budget.py`, `remote_checks.py`, `remote_test.py`). Balanced and Fast need a new paid
   qualification before use; until then a stored Balanced activation reverts to the baseline at
   start-up. The first commit alone keeps the basis unchanged.

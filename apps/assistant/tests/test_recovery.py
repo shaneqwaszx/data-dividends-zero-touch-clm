@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from ai_assistant import model_admin
 from ai_assistant.model_admin import (
     HEALTHY,
     OPERATOR_REQUIRED,
@@ -320,37 +321,39 @@ def test_a_safety_or_quality_gate_failure_cannot_be_rerun_until_it_changes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate: str
 ) -> None:
     """QG F1: re-running the same configuration and code until a run passes would bypass the
-    gate, so the server refuses it; a change of settings (fingerprint) or code (basis) or a
-    retryable failure does not block."""
+    gate, so the server refuses it. A failure under other code (another basis) or another
+    configuration (another fingerprint) does not block."""
 
     journey = Journey(tmp_path, monkeypatch)
     store = journey.selector.store
     assert store is not None
     entry = load_catalogue(journey.settings).get(OPENROUTER_PROFILE_ID)
     assert entry is not None
-    failed = store.begin_qualification(
-        entry.profile_id, entry.fingerprint, qualification_basis(), "hr-admin", 0
-    )
-    store.finish_qualification(failed, "failed", f"GATES_FAILED:G-2,{gate}", None)
+    for fingerprint, basis in ((entry.fingerprint, "0" * 64), ("f" * 64, qualification_basis())):
+        elsewhere = store.begin_qualification(entry.profile_id, fingerprint, basis, "hr", 0)
+        store.finish_qualification(elsewhere, "failed", f"GATES_FAILED:{gate}", None)
     calls = _cost(journey)["paid_calls"]
-    refused = journey.client.post(
-        f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
-    )
-    assert refused.status_code == 409
-    assert refused.json()["detail"]["code"] == "ESCALATION_REQUIRED"
-    assert journey.openrouter.chats == [] and journey.client.get(API).json()["running"] is None
-    assert ("QUALIFICATION_STARTED", "refused", "ESCALATION_REQUIRED") in [
-        (e["action"], e["outcome"], e["code"]) for e in _events(journey)
-    ]
-
-    # The same failure under other code (another basis) no longer blocks.
-    other = store.begin_qualification(entry.profile_id, entry.fingerprint, "0" * 64, "hr", 0)
-    store.finish_qualification(other, "failed", f"GATES_FAILED:{gate}", None)
     started = journey.client.post(
         f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
     )
     assert started.status_code == 202, started.text
     wait_for(journey.client, started.json()["qualification_id"])
+
+    failed = store.begin_qualification(
+        entry.profile_id, entry.fingerprint, qualification_basis(), "hr-admin", 0
+    )
+    store.finish_qualification(failed, "failed", f"GATES_FAILED:G-2,{gate}", None)
+    chats = len(journey.openrouter.chats)
+    refused = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "ESCALATION_REQUIRED"
+    assert len(journey.openrouter.chats) == chats
+    assert journey.client.get(API).json()["running"] is None
+    assert ("QUALIFICATION_STARTED", "refused", "ESCALATION_REQUIRED") in [
+        (e["action"], e["outcome"], e["code"]) for e in _events(journey)
+    ]
 
 
 def test_a_retryable_failure_can_be_run_again(
@@ -371,3 +374,56 @@ def test_a_retryable_failure_can_be_run_again(
     )
     assert started.status_code == 202, started.text
     assert wait_for(journey.client, started.json()["qualification_id"])["status"] == "passed"
+
+
+def test_a_gate_failure_recorded_while_a_start_is_under_way_still_blocks_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """QG R2 F1: the block is decided in the start's own transaction, so a run that fails
+    after the request's earlier reads still blocks the new run; and an earlier blocking
+    failure counts even when a later, different configuration ran in between."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    store = journey.selector.store
+    assert store is not None
+    entry = load_catalogue(journey.settings).get(OPENROUTER_PROFILE_ID)
+    assert entry is not None
+    calls = _cost(journey)["paid_calls"]
+    original = model_admin.qualification_manifest
+    done = []
+
+    def fails_meanwhile(*args: Any, **kwargs: Any) -> Any:
+        # Between the request's reads and its start, an earlier run of the same
+        # configuration ends with an unsafe line (as a concurrent run's process would).
+        if not done:
+            done.append(True)
+            run = store.begin_qualification(
+                entry.profile_id, entry.fingerprint, qualification_basis(), "hr-admin", 0
+            )
+            store.finish_qualification(run, "failed", "GATES_FAILED:G-3", None)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(model_admin, "qualification_manifest", fails_meanwhile)
+    refused = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "ESCALATION_REQUIRED"
+    assert journey.openrouter.chats == []
+    # Another fingerprint (IT changed the settings) is not blocked by it...
+    assert not store_blocked(store, entry.profile_id, "f" * 64, qualification_basis())
+    # ...and switching back after other runs does not clear it.
+    other = store.begin_qualification(entry.profile_id, "f" * 64, qualification_basis(), "hr", 0)
+    store.finish_qualification(other, "passed", None, None)
+    assert store_blocked(store, entry.profile_id, entry.fingerprint, qualification_basis())
+
+
+def store_blocked(store: Any, profile_id: str, fingerprint: str, basis: str) -> bool:
+    try:
+        run = store.begin_qualification(
+            profile_id, fingerprint, basis, "hr", 0, blocked=model_admin.escalation_gates_failed
+        )
+    except model_admin.QualificationBlocked:
+        return True
+    store.finish_qualification(run, "cancelled", "CANCELLED", None)
+    return False

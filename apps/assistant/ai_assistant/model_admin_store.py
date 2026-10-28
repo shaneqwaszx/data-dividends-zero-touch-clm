@@ -23,7 +23,7 @@ hard bounds (the ledger's own bound a Singapore day, 1 to 200 calls), so no writ
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -121,6 +121,10 @@ class RevisionConflict(Exception):
 
 class QualificationBusy(Exception):
     """Another qualification is running."""
+
+
+class QualificationBlocked(Exception):
+    """An earlier run of the same configuration and code failed a gate that is not retried."""
 
 
 def now() -> str:
@@ -431,8 +435,18 @@ class ModelAdminStore:
     # --- qualifications --------------------------------------------------------------------
 
     def begin_qualification(
-        self, profile_id: str, fingerprint: str, basis: str, by: str, total_turns: int
+        self,
+        profile_id: str,
+        fingerprint: str,
+        basis: str,
+        by: str,
+        total_turns: int,
+        blocked: Callable[[str], bool] | None = None,
     ) -> str:
+        """Record a new running run. D-098: ``blocked`` is asked about the code of every
+        earlier failed run of the same profile, fingerprint and basis, in the same transaction
+        as the start (so a run that fails while this start is under way still blocks it)."""
+
         stale = (datetime.now(UTC) - timedelta(seconds=STALE_SECONDS)).isoformat(timespec="seconds")
         qualification_id = uuid4().hex
         with self._write() as db:
@@ -443,6 +457,14 @@ class ModelAdminStore:
             )
             if db.execute("SELECT 1 FROM qualifications WHERE status = 'running'").fetchone():
                 raise QualificationBusy
+            if blocked is not None:
+                failed = db.execute(
+                    "SELECT code FROM qualifications WHERE profile_id = ? AND fingerprint = ?"
+                    " AND basis = ? AND status = 'failed' AND code IS NOT NULL",
+                    (profile_id, fingerprint, basis),
+                ).fetchall()
+                if any(blocked(str(row["code"])) for row in failed):
+                    raise QualificationBlocked
             db.execute(
                 "INSERT INTO qualifications (qualification_id, profile_id, fingerprint, basis,"
                 " status, started_at, started_by, heartbeat_at, total_turns)"

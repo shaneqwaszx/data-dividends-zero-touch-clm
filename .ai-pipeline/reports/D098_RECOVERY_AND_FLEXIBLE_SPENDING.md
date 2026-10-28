@@ -47,7 +47,7 @@ not account credits; the page says credits are not available rather than estimat
 - Commit 1 (recovery, confirmation, diagnostics): no basis file changed; basis
   `2bd93aeb8886…` unchanged; `synthetic_boundary.json` current.
 - Commit 2 (ceilings): `budget.py`, `remote_checks.py`, `remote_test.py` are basis files;
-  basis → `3bed544631d3…`; `synthetic_boundary.json` byte-identical. BASIS_FILES unchanged (no
+  basis → `31a556cc7e44…`; `synthetic_boundary.json` byte-identical. BASIS_FILES unchanged (no
   file omitted). Every stored qualification is out of date: Balanced and Fast need a new paid
   qualification (2 manifest calls each); a stored Balanced activation reverts to the baseline
   at the next start. No qualification was marked passed. Paid requalification needs separate
@@ -66,6 +66,18 @@ not account credits; the page says credits are not available rather than estimat
   the page words the earlier pass correctly; a daily raise under another revision is refused
   (`CONTROLS_CONFLICT`) before any provider check; without a cost view the server's own refusal
   is shown; wording and docs corrected. Tests added for each.
+
+- **R2 FAIL** (fresh reviewer), one REQUIRED finding: the block was read outside the start's
+  transaction, so a run that failed G-3 while a new start was under way could still be
+  followed by a new run. Advisories: the "cannot be retried away" text also showed for
+  operator-side results; a stale ceiling docstring in `budget.py`; no revision protection on
+  lifetime-cap raises; the block looked at the latest run only.
+- **Remediation:** the block is decided inside `begin_qualification`'s `BEGIN IMMEDIATE`
+  transaction over every earlier failed run of the same profile, fingerprint and basis; the
+  page words operator-side results separately; the docstring is corrected; a lifetime change
+  names the cap the page showed (`expected_cap_micro_usd`, required for raises) and is refused
+  with `CONTROLS_CONFLICT` if it changed. Tests added (a failure recorded mid-request, switching
+  back, a stale lifetime raise and decrease).
 
 ## 5. Tests (offline)
 
