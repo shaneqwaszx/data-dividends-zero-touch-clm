@@ -54,7 +54,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -494,7 +494,9 @@ class ModelSelector:
         self._controls_applied: tuple[int, int] | None = None
         self._active = self._baseline(0)
         if store is not None:
-            self._active = replace(self._active, revision=-1)
+            # D-098: until the stored activation is read and usable, no model (never the
+            # environment baseline, which may be a local LLM, in place of GPT-OSS).
+            self._active = self._case_data_only(-1)
             self.current()
 
     @property
@@ -643,6 +645,7 @@ class ModelSelector:
 
     def _restore(self) -> Active:
         assert self.store is not None
+        remote = self._active.profile_id in REMOTE_PROFILE_IDS | {CASE_DATA_ONLY_ID}
         for _ in range(3):
             stored = self.store.activation(self.baseline_choice())
             if stored.active_profile_id == BASELINE_ID:
@@ -664,6 +667,13 @@ class ModelSelector:
                 )
             except RevisionConflict:
                 continue
+            except Exception:
+                if not remote:
+                    raise
+                # The revert could not be stored: no model now, and the next request tries
+                # again (the stored GPT-OSS activation is unusable either way).
+                log.error("model state could not be updated; no model until it is")
+                return self._case_data_only(stored.revision, reverted=problem)
             self.store.record(
                 actor=SYSTEM_ACTOR,
                 role=None,
@@ -677,7 +687,9 @@ class ModelSelector:
             if remote:
                 return self._case_data_only(revision, reverted=problem)
             return self._baseline(revision, reverted=problem)
-        if self._active.profile_id in REMOTE_PROFILE_IDS | {CASE_DATA_ONLY_ID}:
+        # Three conflicts in a row: judged by the last stored activation read, never by a
+        # model kept in memory.
+        if remote:
             return self._case_data_only(self._active.revision)
         return self._baseline(self._active.revision)
 

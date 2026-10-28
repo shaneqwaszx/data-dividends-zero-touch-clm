@@ -2,6 +2,7 @@
 qualification that outlives the HR session that started it. Offline: mock OpenRouter, fake CLM
 backend, no paid call."""
 
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ from ai_assistant.model_admin import (
     diagnose_qualification,
     diagnose_service,
 )
-from ai_assistant.model_admin_store import ModelAdminStore
+from ai_assistant.model_admin_store import ModelAdminStore, RevisionConflict
 from ai_assistant.model_catalog import BASELINE_ID, OPENROUTER_FAST_PROFILE_ID, load_catalogue
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID
 from ai_assistant.model_qualification import qualification_basis
@@ -478,7 +479,8 @@ def test_an_unusable_gpt_oss_activation_reverts_to_no_model_not_the_local_baseli
     assert overview["active"]["profile_id"] == CASE_DATA_ONLY_ID
     assert overview["active"]["model_id"] is None
     assert overview["recovery"]["status"] == QUALIFICATION_REQUIRED
-    # It stays so across another restart; GPT-OSS stays the rollback target.
+    # It stays so across another restart, and "no model" is never offered as a rollback
+    # target (the earlier last good model, if any, stays).
     again = _restart(journey).current()
     assert (again.profile_id, again.model) == (CASE_DATA_ONLY_ID, None)
     assert overview["last_good"] is None or overview["last_good"]["profile_id"] != (
@@ -548,3 +550,60 @@ def test_a_failed_run_never_invalidates_the_active_still_valid_model(
     assert balanced["active"] and balanced["active_qualification_current"]
     assert not balanced["qualified"]
     assert view["recovery"]["remote_active"] and view["recovery"]["issues"] == []
+
+
+@pytest.mark.parametrize("failure", ["write_fails", "conflicts", "revision_unreadable"])
+def test_no_start_up_failure_puts_the_baseline_in_place_of_gpt_oss(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """QG R4 F1: the state database cannot store the revert (locked, read-only), keeps
+    conflicting, or cannot be read at all at start: the service answers with no model, never
+    with the environment baseline (which may be a local LLM)."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    _settle_verification()
+    monkeypatch.setattr(model_admin, "qualification_basis", lambda: "2" * 64)
+    store = ModelAdminStore(Path(journey.settings.model_admin_db_path))
+
+    def locked(*args: Any, **kwargs: Any) -> Any:
+        raise sqlite3.OperationalError("database is locked")
+
+    def conflict(*args: Any, **kwargs: Any) -> Any:
+        raise RevisionConflict
+
+    if failure == "write_fails":
+        monkeypatch.setattr(store, "activate", locked)
+    elif failure == "conflicts":
+        monkeypatch.setattr(store, "activate", conflict)
+    else:
+        monkeypatch.setattr(store, "revision", locked)
+    restarted = ModelSelector(
+        journey.settings,
+        journey.baseline,
+        store,
+        environ=journey.selector.environ,
+        transport=journey.selector.transport,
+    )
+    for _ in range(2):  # and on the next request too
+        active = restarted.current()
+        assert (active.profile_id, active.model) == (CASE_DATA_ONLY_ID, None), failure
+    assert journey.baseline.calls == 0
+
+
+def test_a_running_gpt_oss_model_is_kept_when_the_state_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other side: a usable GPT-OSS model already in use is not dropped because the state
+    database is briefly unreadable (the existing "keep the current model" rule)."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    store = journey.selector.store
+    assert store is not None
+
+    def locked(*args: Any, **kwargs: Any) -> Any:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(store, "revision", locked)
+    assert journey.selector.current().profile_id == OPENROUTER_PROFILE_ID

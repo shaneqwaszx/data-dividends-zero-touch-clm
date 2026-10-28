@@ -95,6 +95,13 @@ not account credits; the page says credits are not available rather than estimat
 - The recovery view separates an activation that stays valid from eligibility for a new
   activation (`active_qualification_current`).
 - The sign-out remains **not reproduced**; no root-cause fix is claimed.
+- QG R4 FAIL (fresh reviewer), one REQUIRED finding: in a managed service the start-up
+  placeholder was the environment baseline, so a state database that could not store the
+  revert (locked, read-only), kept conflicting, or could not be read at start left the
+  baseline answering in place of GPT-OSS. Remediation: the placeholder is no model; a failed
+  revert write for GPT-OSS serves no model and retries; the conflict fallback is decided by the
+  stored activation. Tests cover all three paths. Advisories fixed: `PROJECT_STATE.md` line
+  endings restored (CRLF), D-098 table order, a test comment.
 
 ## 5. Tests (offline)
 
