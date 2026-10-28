@@ -1256,10 +1256,12 @@ squash-merged). Delta only; nothing here is merged or Live.
   basis-file improvements in the D-097 report need a paid requalification decision; the D-095
   section above still reads "branch, not merged" (closeout refresh for PR #126 pending).
 
-## AI Assistant D-098 recovery view, confirmed paid qualification and flexible spending limits (stacked branch, not merged) - 2026-10-28
+## AI Assistant D-098 recovery view, confirmed paid qualification and flexible spending limits (branch, not merged) - 2026-10-28
 
-Branch `claude/gracious-lovelace-bjvh2z-recovery`, stacked on the D-097 branch (PR #127 head
-`65535ce`). Delta only; nothing here is merged or Live.
+Branch `claude/gracious-lovelace-bjvh2z-recovery` (PR #128). It was stacked on the D-097 branch;
+PR #127 (D-097) is now squash-merged into main as `f88e170` (tree equal to its reviewed head
+`65535ce`), and main is merged into this branch, so PR #128's diff against main is D-098 only.
+Delta only; nothing here is merged or Live.
 - **Decision:** D-098 (owner-authorised, local development scope). Evidence:
   `.ai-pipeline/reports/D098_RECOVERY_AND_FLEXIBLE_SPENDING.md`.
 - **Behaviour:** AI Models adds *AI model status and recovery* (six categories, per-gate
