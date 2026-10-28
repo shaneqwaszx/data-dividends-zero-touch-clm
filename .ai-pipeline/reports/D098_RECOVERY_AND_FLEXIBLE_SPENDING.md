@@ -47,10 +47,10 @@ not account credits; the page says credits are not available rather than estimat
 - Commit 1 (recovery, confirmation, diagnostics): no basis file changed; basis
   `2bd93aeb8886…` unchanged; `synthetic_boundary.json` current.
 - Commit 2 (ceilings): `budget.py`, `remote_checks.py`, `remote_test.py` are basis files;
-  basis → `31a556cc7e44…`; `synthetic_boundary.json` byte-identical. BASIS_FILES unchanged (no
+  basis → `73fdcd75f559…`; `synthetic_boundary.json` byte-identical. BASIS_FILES unchanged (no
   file omitted). Every stored qualification is out of date: Balanced and Fast need a new paid
-  qualification (2 manifest calls each); a stored Balanced activation reverts to the baseline
-  at the next start. No qualification was marked passed. Paid requalification needs separate
+  qualification (2 manifest calls each); a stored GPT-OSS activation reverts to no AI model
+  (case-data answers only) at the next start. No qualification was marked passed. Paid requalification needs separate
   authorisation.
 
 ## 4. Independent Quality Gate
@@ -78,6 +78,23 @@ not account credits; the page says credits are not available rather than estimat
   names the cap the page showed (`expected_cap_micro_usd`, required for raises) and is refused
   with `CONTROLS_CONFLICT` if it changed. Tests added (a failure recorded mid-request, switching
   back, a stale lifetime raise and decrease).
+
+## 4a. Owner review round (2026-10-28)
+
+- Automatic Fast → Balanced switching: not approved; nothing implemented.
+- Lifetime-cap race: `BudgetLedger.set_cap(expected=...)` compares the cap inside its own
+  write transaction; tests interleave the operator's change during the HR raise's provider
+  check (refused, operator value kept, spend/calls/daily view unchanged).
+- GPT-OSS-only fallback: an unusable GPT-OSS activation reverts to no AI model
+  (`case_data_only`), never to the environment baseline; the undo of a failed activation
+  restores exactly the earlier activation. One existing test
+  (`test_a_daily_limit_above_one_dollar_survives_a_restart_and_keeps_todays_spend`) had passed
+  only because a restarted selector without the key reverted to the baseline mock, which still
+  answered as "model"; it now builds the selector as the service does and checks that GPT-OSS
+  answers.
+- The recovery view separates an activation that stays valid from eligibility for a new
+  activation (`active_qualification_current`).
+- The sign-out remains **not reproduced**; no root-cause fix is claimed.
 
 ## 5. Tests (offline)
 

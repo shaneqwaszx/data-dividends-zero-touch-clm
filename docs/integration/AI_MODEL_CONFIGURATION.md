@@ -287,8 +287,9 @@ own fingerprint, so:
 - it is **not qualified** until HR runs its own qualification (paid calls, at reasoning effort
   low; Balanced's qualification never counts), and it cannot be activated before that;
 - nothing switches to it automatically; HR activates it, and rolls back like any model;
-- if the setting is removed while Fast is active, the service reverts to the baseline at the
-  next start (audited `STARTUP_REVERTED`, `PROFILE_MISSING`).
+- if the setting is removed while Fast is active, the service reverts at the next start to no
+  AI model (case-data answers only; D-098: never to another model; audited `STARTUP_REVERTED`,
+  `PROFILE_MISSING`).
 
 Its speed and answer quality on this task are **not established**: no paid comparison has been
 run (see the D-097 record for the evidence and the proposed A/B run).
@@ -357,3 +358,17 @@ both is the ledger's own (US$1,000,000). Every call is still admitted against th
 today's allowance, the lifetime headroom and the key's remaining limit. A D-096 state database
 is migrated in place on first open (its controls row kept). Changing these files changes the
 qualification basis: GPT-OSS 120B Balanced (and Fast) need a new paid qualification before use.
+
+**GPT-OSS only.** When a GPT-OSS activation can no longer be used (qualification out of date,
+profile changed, missing or unavailable), the service reverts to **no AI model**: every answer
+is the case-data answer, the page says so and that nothing was substituted, and the state is
+kept across restarts until HR activates a qualified model (or chooses the environment
+baseline by hand). Local IT profiles still revert to the environment baseline. Nothing switches
+between Fast and Balanced automatically (owner decision: not approved). An activation in use
+keeps the passing run it was activated with; a later failed run does not end it, but the
+configuration cannot be activated again until a new run passes ("Activation still valid" on
+the page).
+
+**Lifetime cap changes** carry the cap the page showed; the ledger compares it again in its own
+write transaction, so an operator's `budget_ledger.py set-cap` made in between is never
+overwritten (`CONTROLS_CONFLICT`). Requalification plan: `.ai-pipeline/reports/D098_REQUALIFICATION_PLAN_WINDOWS.md`.

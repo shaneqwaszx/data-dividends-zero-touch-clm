@@ -1269,9 +1269,13 @@ Branch `claude/gracious-lovelace-bjvh2z-recovery`, stacked on the D-097 branch (
   (`SESSION_REFUSED`) and the run continues. US$1.00 is the default daily limit, not a ceiling;
   the lifetime cap is no longer bound to US$1.00 above the opening usage; raises need
   confirmation, a finite never-resetting key limit and a reconciled ledger.
-- **Qualification:** basis `2bd93aeb8886…` → `31a556cc7e44…` (the second commit changes
+- **Qualification:** basis `2bd93aeb8886…` → `73fdcd75f559…` (the second commit changes
   `budget.py`, `remote_checks.py`, `remote_test.py`). Balanced and Fast need a new paid
-  qualification before use; until then a stored Balanced activation reverts to the baseline at
-  start-up. The first commit alone keeps the basis unchanged.
-- **Open:** owner decision on automatic Fast → Balanced switching (designed, not implemented);
-  a paid requalification (T7); owner merge of PR #127 and of this stacked PR.
+  qualification before use; until then a stored GPT-OSS activation reverts at start-up to no AI
+  model (case-data answers only), never to the environment baseline. The first commit alone
+  keeps the basis unchanged.
+- **Owner decisions (2026-10-28):** automatic Fast → Balanced switching NOT APPROVED; lifetime-cap
+  race fixed (ledger-level compare-and-set); GPT-OSS-only fallback (no substitute model).
+- **Open:** a paid requalification of Balanced and Fast (T7; plan in
+  `.ai-pipeline/reports/D098_REQUALIFICATION_PLAN_WINDOWS.md`); owner merge of PR #127, then
+  this stacked PR. The qualification sign-out was not reproduced (diagnostics only).
