@@ -657,10 +657,18 @@ class Journey:
             return next(event for event in events if event["type"] == "done")
         return reply.json()
 
+    def start_qualification(self, profile_id: str = OPENROUTER_PROFILE_ID) -> Any:
+        """D-098: a paid run starts only with its number of calls confirmed."""
+
+        return self.client.post(
+            f"{API}/{profile_id}/qualifications",
+            json={"confirm_paid_calls": self.settings.local_api_test_qualification_count},
+        )
+
     def activate_remote(self) -> dict[str, Any]:
         test = self.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
         assert test.status_code == 200 and test.json()["outcome"] == "passed", test.text
-        started = self.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/qualifications")
+        started = self.start_qualification()
         assert started.status_code == 202, started.text
         result = wait_for(self.client, started.json()["qualification_id"])
         assert result["status"] == "passed", result

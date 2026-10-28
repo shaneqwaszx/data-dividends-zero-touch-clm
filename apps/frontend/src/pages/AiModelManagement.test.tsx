@@ -342,7 +342,7 @@ describe("AiModelManagement D-094 local synthetic test mode", () => {
     await waitFor(() => expect(view.textContent).toContain("synthetic test only, D-094"));
     expect(view.textContent).toContain("answers only on the approved synthetic test case");
     expect(view.textContent).toContain("Test connection is a free preflight; qualification makes paid calls.");
-    expect(button(view, "Run qualification", "GPT-OSS").disabled).toBe(false);
+    expect(button(view, "Run qualification…", "GPT-OSS").disabled).toBe(false);
     act(() => button(view, "Activate", "GPT-OSS").click());
     expect(view.textContent).toContain("This is an external, paid API (D-094 local synthetic test mode).");
   });
@@ -696,5 +696,78 @@ describe("AiModelManagement GPT-OSS 120B naming", () => {
     expect(view.textContent).toContain("the Balanced qualification does not count for it");
     expect(view.textContent).not.toContain("synthetic test only, D-094");
     expect(button(view, "Activate", "GPT-OSS 120B — Fast").disabled).toBe(true);
+  });
+});
+
+// --- D-098: recovery centre and paid qualification confirmation --------------------------------
+
+describe("AiModelManagement D-098 recovery", () => {
+  const paid = { calls: 2, reservation_micro_usd: 30_000, estimate_micro_usd: 60_000, effective_remaining_micro_usd: 900_000, refusal: null, sufficient: true };
+  const failedRun = (code: string, diagnosis: NonNullable<ModelQualification["diagnosis"]>, gates = qualification.gates): ModelQualification => ({
+    ...qualification, qualification_id: "b".repeat(32), status: "failed", code, gates, diagnosis,
+  });
+  const withRemote = (overrides: Partial<ModelProfileView>): ModelOverview => ({
+    ...overview,
+    profiles: [overview.profiles[0], { ...remoteSelectable, activation_blockers: [], paid_qualification: paid, ...overrides }],
+  });
+
+  it("asks before a paid run and sends the confirmed number of calls", async () => {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    const view = mount(server(withRemote({}), (url, body) => { posts.push({ url, body }); return json({ qualification_id: "c".repeat(32) }); }));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
+    act(() => button(view, "Run qualification…", "GPT-OSS").click());
+    const dialog = view.querySelector("[data-testid=paid-confirm]");
+    expect(dialog?.textContent).toContain("Up to 2");
+    expect(dialog?.textContent).toContain("US$0.060000");
+    expect(posts).toEqual([]);  // nothing starts before the confirmation
+    await act(async () => button(view, "Start paid qualification").click());
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].url).toContain("/admin/models/openrouter_gpt_oss_120b/qualifications");
+    expect(posts[0].body).toEqual({ confirm_paid_calls: 2 });
+  });
+
+  it("will not start a paid run the limits cannot cover", async () => {
+    const view = mount(server(withRemote({ paid_qualification: { ...paid, effective_remaining_micro_usd: 10_000, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } })));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
+    act(() => button(view, "Run qualification…", "GPT-OSS").click());
+    expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Today's allowance");
+    expect(button(view, "Start paid qualification").disabled).toBe(true);
+  });
+
+  it("shows a budget failure as budget, keeps the earlier pass and offers a confirmed retry", async () => {
+    const run = failedRun("GATES_FAILED:G-6,G-8", { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false });
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: "a".repeat(32), finished_at: "2026-10-27T01:05:00+00:00", is_latest: false } })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Budget or limit");
+    expect(card.textContent).toContain("refused before anything was sent");
+    expect(card.textContent).toContain("Yes (passed");
+    expect(card.querySelector("a[href='#spending-heading']")?.textContent).toBe("Review spending controls");
+    act(() => [...card.querySelectorAll("button")].find((b) => b.textContent === "Retry qualification…")!.click());
+    expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
+  });
+
+  it("escalates a quality failure without any retry or override", async () => {
+    const run = failedRun(
+      "GATES_FAILED:G-3",
+      { category: "quality", cause: "UNSAFE_LINE", action: "ESCALATE_DEVELOPER", retryable: false, supersedes_pass: true },
+      [{ gate: "G-3", rule: "unsafe displayed lines = 0", value: 1, passed: false, gating: true }],
+    );
+    const view = mount(server(withRemote({ qualification: run, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Answer quality");
+    expect(card.textContent).toContain("No: this quality failure replaces any earlier pass");
+    expect(card.textContent).toContain("Failed gates: G-3");
+    const labels = [...card.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).not.toContain("Retry qualification…");
+    expect(labels).toContain("Copy escalation summary");
+    expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
+  });
+
+  it("names the AI-unavailable state and that no other model stood in", async () => {
+    const view = mount(server({ ...withRemote({}), active: { ...overview.active, profile_id: "ai_unavailable", display_name: "AI unavailable", model_id: null, reverted: "QUALIFICATION_SUPERSEDED", unavailable: true } }));
+    await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
+    expect(view.querySelector("[data-testid=ai-unavailable]")?.textContent).toContain("No other model was put in its place");
   });
 });

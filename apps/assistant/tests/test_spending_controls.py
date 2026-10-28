@@ -309,10 +309,11 @@ def test_the_qualification_honours_the_hr_daily_limit(
     test = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
     assert test.json()["outcome"] == "passed"
     assert _controls(journey, 0, 20).status_code == 200  # no daily allowance
-    started = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/qualifications")
-    assert started.status_code == 202, started.text
-    result = wait_for(journey.client, started.json()["qualification_id"])
-    assert result["status"] != "passed"
+    # D-098: refused before it starts, since not every paid call fits the daily limit.
+    started = journey.start_qualification()
+    assert started.status_code == 409, started.text
+    assert started.json()["detail"]["code"] == "QUALIFICATION_BUDGET_INSUFFICIENT"
+    assert journey.client.get(API).json()["running"] is None
     assert journey.openrouter.chats == []  # no paid call was made
 
 

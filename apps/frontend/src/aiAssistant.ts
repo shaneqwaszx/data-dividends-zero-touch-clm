@@ -142,6 +142,15 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The model did not pass the connection test.",
   "There is no earlier model to roll back to.",
   "This model is already active.",
+  "The paid qualification's question list and count are not configured on the server.",
+  "Qualification is not available on this server.",
+  // D-098: paid qualification confirmation, budget and escalation.
+  "Confirm the number of paid calls this qualification may make. Nothing started.",
+  "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
+  "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
+  "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
+  "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
+  "A later qualification of this configuration failed on answer quality.",
   // D-095: the OpenRouter key (never echoed back).
   "That is not an OpenRouter API key. Nothing was saved.",
   "The OpenRouter key is set on the server (environment or .env) and cannot be changed here.",
@@ -597,6 +606,29 @@ export interface ModelQualification {
   connection: ModelConnectionTest | null;
   quality: { status: "SCORED" | "NOT_SCORED"; reason: string | null } | null;
   reproducibility: Record<string, unknown> | null;
+  /** D-098: what the outcome means, as closed codes (absent from older servers). */
+  diagnosis?: ModelDiagnosis;
+}
+
+/** D-098: a qualification outcome classified for HR recovery. */
+export interface ModelDiagnosis {
+  category: "passed" | "running" | "cancelled" | "technical" | "budget" | "configuration" | "quality" | "billing_uncertain";
+  cause: string;
+  action: "NONE" | "WAIT" | "RUN_AGAIN" | "RETRY_LATER" | "TEST_CONNECTION" | "REVIEW_SPENDING" | "ESCALATE_IT" | "ESCALATE_DEVELOPER" | "ESCALATE_OPERATOR";
+  /** A retry is worth making now, without another change. */
+  retryable: boolean;
+  /** A genuine quality failure: an earlier pass of this configuration no longer counts. */
+  supersedes_pass: boolean;
+}
+
+/** D-098: what a paid qualification may spend, against the strictest applicable limit. */
+export interface ModelPaidQualification {
+  calls: number | null;
+  reservation_micro_usd: number | null;
+  estimate_micro_usd: number | null;
+  effective_remaining_micro_usd: number | null;
+  refusal: string | null;
+  sufficient: boolean;
 }
 
 export interface ModelProfileView {
@@ -621,6 +653,10 @@ export interface ModelProfileView {
   connection_test: ModelConnectionTest | null;
   qualification: ModelQualification | null;
   activation_blockers: string[];
+  /** D-098: the passing run Activate would use (may be older than the latest run). */
+  eligible_qualification?: { qualification_id: string; finished_at: string | null; is_latest: boolean } | null;
+  /** D-098: remote configurations only. */
+  paid_qualification?: ModelPaidQualification | null;
 }
 
 export interface ModelOverview {
@@ -639,6 +675,8 @@ export interface ModelOverview {
     changed_by: string | null;
     config_changed: boolean;
     reverted: string | null;
+    /** D-098: no model answers (a GPT-OSS configuration stopped being usable). */
+    unavailable?: boolean;
   };
   last_good: { profile_id: string; display_name: string } | null;
   quality: { status: "SCORED" | "NOT_SCORED"; reason: string | null };
@@ -747,8 +785,12 @@ export const fetchModelAudit = (signal?: AbortSignal) =>
   request<{ events: ModelAuditEvent[] }>("/admin/models/audit?limit=100", undefined, signal);
 export const testModelConnection = (profileId: string) =>
   request<ModelConnectionTest>(`${modelPath(profileId)}/connection-test`, {});
-export const startModelQualification = (profileId: string) =>
-  request<{ qualification_id: string }>(`${modelPath(profileId)}/qualifications`, {});
+// D-098: a paid (remote) run is sent with the number of paid calls HR confirmed.
+export const startModelQualification = (profileId: string, confirmPaidCalls?: number) =>
+  request<{ qualification_id: string }>(
+    `${modelPath(profileId)}/qualifications`,
+    confirmPaidCalls === undefined ? {} : { confirm_paid_calls: confirmPaidCalls },
+  );
 export const fetchModelQualification = (qualificationId: string, signal?: AbortSignal) =>
   request<ModelQualification>(`/admin/models/qualifications/${encodeURIComponent(qualificationId)}`, undefined, signal);
 export const cancelModelQualification = (qualificationId: string) =>

@@ -16,6 +16,7 @@ import {
   startModelQualification,
   testModelConnection,
   type ModelBudgetStatus,
+  type ModelDiagnosis,
   type ModelOverview,
   type ModelProfileView,
   type ModelQualification,
@@ -68,7 +69,138 @@ const REASON_TEXT: Record<string, string> = {
   PROVIDER_LIMIT_NOT_CHECKED: "The OpenRouter key's limit has not been checked yet. Run Test connection.",
   PROVIDER_CHECK_FAILED: "The last OpenRouter key check failed. Run Test connection.",
   CREDENTIAL_INVALID: "The configured OpenRouter API key is not valid.",
+  // D-098: qualification recovery.
+  QUALIFICATION_SUPERSEDED: "A later qualification of this configuration failed on answer quality.",
+  INTERRUPTED: "Interrupted: the AI assistant service stopped or restarted during the run.",
+  INTERRUPTED_BILLING_UNCERTAIN: "Interrupted while a paid call may have been open: an operator must reconcile the ledger.",
 };
+
+// D-098 Recovery Centre: the server classifies each outcome with closed codes; the page names
+// them. Nothing here can lower a gate, bypass a guardrail or start a paid run without HR.
+const CATEGORY_LABEL: Record<ModelDiagnosis["category"], string> = {
+  passed: "Qualified",
+  running: "Running",
+  cancelled: "Cancelled",
+  technical: "Technical problem",
+  budget: "Budget or limit",
+  configuration: "Server configuration",
+  quality: "Answer quality",
+  billing_uncertain: "Billing not reconciled",
+};
+const CAUSE_TEXT: Record<string, string> = {
+  PASSED: "The configuration passed every gating check.",
+  RUNNING: "The qualification is running on the server. You may leave this page; it keeps going.",
+  CANCELLED: "The run was cancelled before it finished.",
+  INTERRUPTED: "The run stopped because the AI assistant service stopped or restarted. It was not restarted automatically.",
+  INTERRUPTED_BILLING_UNCERTAIN: "The run stopped while a paid call may have been open. That call stays in the spending ledger until an operator reconciles it.",
+  STALE: "The run stopped reporting progress. It says nothing about the model.",
+  PROCESS_EXITED: "The run's process ended before it finished. It says nothing about the model.",
+  SUPERVISOR_FAILED: "The service could not supervise the run. It says nothing about the model.",
+  HARNESS_ERROR: "The run hit an internal error. It says nothing about the model.",
+  DEADLINE: "The run overran its time limit. It says nothing about the model.",
+  CONFIG_MISMATCH: "The model settings or the assistant's answer code changed while it ran. The current configuration needs a new qualification.",
+  LEDGER_NOT_RECONCILED: "The spending ledger is stopped or does not match OpenRouter's reported usage.",
+  SERVER_SETTINGS: "A server setting, the OpenRouter key's own limit or an owner attestation is not in place.",
+  NO_ROOM_FOR_CALLS: "The spending limits had no room for a paid call.",
+  PROVIDER_UNAVAILABLE: "The model provider (or the local model) could not be reached or checked.",
+  UNSAFE_LINE: "At least one line shown was not an allowed line, so the exact-line guardrail failed the run.",
+  CALLS_NOT_VERIFIED: "Some paid calls could not be verified against OpenRouter's records (provider, model and cost).",
+  LOW_LINE_VALIDITY: "Too few of the lines the model wrote passed the exact-line check (the gate needs 70%).",
+  CALLS_REFUSED: "Paid calls were refused before anything was sent (daily allowance, lifetime limit, call limit or the key's own limit). The answers were not judged.",
+  PROVIDER_REFUSED: "OpenRouter refused the calls (key, payment or provider routing). Paid calls are stopped until an operator checks the account.",
+  MODEL_UNAVAILABLE: "The model did not answer (timeout, rate limit or provider error). This is usually temporary.",
+  ANSWERS_CUT_SHORT: "Too many answers were cut short by the token limits.",
+  CAPACITY_NOT_VERIFIED: "The model's context capacity could not be verified for the qualification prompts.",
+  UNKNOWN: "The run failed for a reason this page cannot name.",
+};
+const ACTION_TEXT: Record<ModelDiagnosis["action"], string> = {
+  NONE: "Nothing to do.",
+  WAIT: "Wait for it to finish. Signing out or leaving the page does not stop it.",
+  RUN_AGAIN: "Run the qualification again.",
+  RETRY_LATER: "Check the provider's status, run Test connection, then retry.",
+  TEST_CONNECTION: "Run Test connection again and retry once it passes.",
+  REVIEW_SPENDING: "Review the spending limits (or wait for the Singapore-day reset), then retry.",
+  ESCALATE_IT: "Ask IT to correct the server configuration. Nothing on this page can override it.",
+  ESCALATE_DEVELOPER: "Ask a developer to review the answers. This configuration cannot be qualified again until it is changed.",
+  ESCALATE_OPERATOR: "Ask an operator to reconcile the spending ledger with OpenRouter (scripts/budget_ledger.py). Paid calls stay stopped until then.",
+};
+
+function microUsd(micro: number | null | undefined): string {
+  return typeof micro === "number" ? `US$${(micro / 1_000_000).toFixed(6)}` : "—";
+}
+
+export function escalationSummary(item: ModelProfileView): string {
+  const run = item.qualification;
+  const diagnosis = run?.diagnosis;
+  const failed = (run?.gates ?? []).filter((gate) => gate.gating && !gate.passed).map((gate) => gate.gate);
+  return [
+    "AI model qualification: escalation",
+    `Configuration: ${profileName(item)} (${item.profile_id}, fingerprint ${item.fingerprint})`,
+    `Run: ${run?.qualification_id ?? "none"}, ${run?.status ?? "not run"}${run?.code ? ` (${run.code})` : ""}`,
+    `Category: ${diagnosis ? CATEGORY_LABEL[diagnosis.category] : "unknown"}; cause: ${diagnosis?.cause ?? "unknown"}`,
+    `Failed gates: ${failed.length ? failed.join(", ") : "none"}`,
+    `Earlier pass still valid: ${item.eligible_qualification && !item.eligible_qualification.is_latest ? item.eligible_qualification.qualification_id : "no"}`,
+    `Recommended: ${diagnosis ? ACTION_TEXT[diagnosis.action] : "review"}`,
+  ].join("\n");
+}
+
+function RecoveryCard({ item, busy, onRetry, onTest }: {
+  item: ModelProfileView;
+  busy: boolean;
+  onRetry: () => void;
+  onTest: () => void;
+}) {
+  const run = item.qualification;
+  const diagnosis = run?.diagnosis;
+  const paid = item.paid_qualification;
+  const [copied, setCopied] = useState(false);
+  const failedGates = (run?.gates ?? []).filter((gate) => gate.gating && !gate.passed);
+  const usable = item.status === "selectable";
+  const escalate = diagnosis?.action.startsWith("ESCALATE_") ?? false;
+  return (
+    <article className="model-recovery-card" data-testid={`recovery-${item.profile_id}`}>
+      <h3>{profileName(item)}</h3>
+      {!run ? <p>Not qualified yet. {item.activation_blockers.map(readable).join(" ")}</p> : (
+        <>
+          <p>
+            <strong>{diagnosis ? CATEGORY_LABEL[diagnosis.category] : readable(run.status)}</strong>
+            {run.code && <> · {readable(run.code)}</>}
+            {!run.current && <> · <span className="tag tag-warn">Out of date</span></>}
+          </p>
+          {diagnosis && <p>{CAUSE_TEXT[diagnosis.cause] ?? readable(diagnosis.cause)}</p>}
+          {failedGates.length > 0 && (
+            <p className="control-help">Failed gates: {failedGates.map((gate) => `${gate.gate} (${gate.rule})`).join("; ")}</p>
+          )}
+          <dl className="acra-detail-list">
+            <div><dt>Last attempted</dt><dd>{formatTimestamp(run.started_at)} by {run.started_by}</dd></div>
+            <div><dt>Retry worthwhile now</dt><dd>{diagnosis ? (diagnosis.retryable ? "Yes" : "No") : "—"}</dd></div>
+            <div><dt>Earlier qualification still valid</dt><dd>{item.eligible_qualification
+              ? (item.eligible_qualification.is_latest ? "This run is the valid qualification" : `Yes (passed ${formatTimestamp(item.eligible_qualification.finished_at ?? "")})`)
+              : diagnosis?.supersedes_pass ? "No: this quality failure replaces any earlier pass" : "No"}</dd></div>
+            {paid && <div><dt>Paid calls if retried</dt><dd>Up to {paid.calls ?? "—"} (reserved up to {microUsd(paid.estimate_micro_usd)}); available under the strictest limit {microUsd(paid.effective_remaining_micro_usd)}{paid.refusal ? ` · ${readable(paid.refusal)}` : ""}</dd></div>}
+            {diagnosis && <div><dt>Recommended action</dt><dd>{ACTION_TEXT[diagnosis.action]}</dd></div>}
+          </dl>
+        </>
+      )}
+      <div>
+        {diagnosis?.retryable && usable && (
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={onRetry}>Retry qualification…</button>
+        )}{" "}
+        {(diagnosis?.action === "TEST_CONNECTION" || diagnosis?.action === "RETRY_LATER") && usable && (
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={onTest}>Test connection</button>
+        )}{" "}
+        {diagnosis?.action === "REVIEW_SPENDING" && <a className="btn btn-secondary" href="#spending-heading">Review spending controls</a>}{" "}
+        {escalate && (
+          <button type="button" className="btn btn-secondary" onClick={() => {
+            void navigator.clipboard?.writeText(escalationSummary(item)).then(() => setCopied(true), () => setCopied(false));
+          }}>Copy escalation summary</button>
+        )}
+        {copied && <small role="status"> Copied.</small>}
+      </div>
+      {escalate && <details><summary>Escalation summary</summary><pre className="control-help">{escalationSummary(item)}</pre></details>}
+    </article>
+  );
+}
 
 // Remote configurations (GPT-OSS 120B): the server sends closed codes, the page names them.
 // "Fast" and "Balanced" are reasoning settings of one model, not separate models.
@@ -414,6 +546,8 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ kind: "activate" | "rollback"; profileId: string; name: string } | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  // D-098: a paid qualification starts only after HR confirms its calls and estimate here.
+  const [paidConfirm, setPaidConfirm] = useState<ModelProfileView | null>(null);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: modelManagementQueryKeys.root(actor.user_id) });
   const action = useMutation({
     mutationFn: async (run: () => Promise<unknown>) => await run(),
@@ -442,6 +576,26 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
     setAcknowledged(false);
   }
 
+  function runQualification(item: ModelProfileView): void {
+    setSelected(item.profile_id);
+    if (item.deployment === REMOTE_DEPLOYMENT) {
+      setPaidConfirm(item);  // never starts a paid run without the dialog
+      return;
+    }
+    action.mutate(() => startModelQualification(item.profile_id));
+  }
+
+  function startPaid(): void {
+    const item = paidConfirm;
+    const calls = item?.paid_qualification?.calls;
+    setPaidConfirm(null);
+    if (!item || typeof calls !== "number") return;
+    action.mutate(() => startModelQualification(item.profile_id, calls));
+  }
+
+  const recoverable = overview?.profiles.filter((item) => item.profile_id !== "env_default" && (item.qualification || item.deployment === REMOTE_DEPLOYMENT)) ?? [];
+  const paidPending = paidConfirm ? overview?.profiles.find((item) => item.profile_id === paidConfirm.profile_id) ?? paidConfirm : null;
+
   return (
     <section className="ds-root ds-page model-management" aria-labelledby="model-management-heading">
       <div className="ds-page-header"><div>
@@ -469,7 +623,12 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
       {overview && (
         <section className="card" aria-labelledby="active-model-heading">
           <h2 id="active-model-heading">Active model</h2>
-          {overview.active.reverted && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
+          {overview.active.unavailable && (
+            <p className="ds-banner ds-banner-warn" role="alert" data-testid="ai-unavailable">
+              AI is unavailable: the GPT-OSS configuration that was active can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+            </p>
+          )}
+          {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
           {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
           <dl className="acra-detail-list">
             <div><dt>Name</dt><dd>{nameOf(overview.active.profile_id, overview.active.display_name)}</dd></div>
@@ -519,6 +678,41 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
         </section>
       )}
 
+      {paidPending && (
+        <section className="card" role="dialog" aria-labelledby="paid-confirm-heading" data-testid="paid-confirm">
+          <h2 id="paid-confirm-heading">Run a paid qualification of {profileName(paidPending)}?</h2>
+          <p>This asks GPT-OSS 120B the configured synthetic questions through OpenRouter. Each question is one paid call; nothing is retried automatically.</p>
+          <dl className="acra-detail-list">
+            <div><dt>Paid calls</dt><dd>Up to {paidPending.paid_qualification?.calls ?? "—"}</dd></div>
+            <div><dt>Reserved at most</dt><dd>{microUsd(paidPending.paid_qualification?.estimate_micro_usd)} ({microUsd(paidPending.paid_qualification?.reservation_micro_usd)} a call)</dd></div>
+            <div><dt>Available under the strictest limit</dt><dd>{microUsd(paidPending.paid_qualification?.effective_remaining_micro_usd)}</dd></div>
+          </dl>
+          {paidPending.paid_qualification && !paidPending.paid_qualification.sufficient && (
+            <p className="ds-banner ds-banner-warn" role="alert">
+              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal) : "the spending limits do not leave room for every paid call."} Review the spending controls or run Test connection first.
+            </p>
+          )}
+          <div>
+            <button type="button" className="btn btn-primary" disabled={busy || !paidPending.paid_qualification?.sufficient} onClick={startPaid}>Start paid qualification</button>{" "}
+            <button type="button" className="btn btn-secondary" onClick={() => setPaidConfirm(null)}>Cancel</button>
+          </div>
+        </section>
+      )}
+
+      {overview && recoverable.length > 0 && (
+        <section className="card" aria-labelledby="recovery-heading">
+          <h2 id="recovery-heading">Model health and recovery</h2>
+          <p className="text-muted">What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next. Retrying a paid qualification always asks first.</p>
+          <div className="model-recovery-grid">
+            {recoverable.map((item) => (
+              <RecoveryCard key={item.profile_id} item={item} busy={busy}
+                onRetry={() => runQualification(item)}
+                onTest={() => action.mutate(() => testModelConnection(item.profile_id))} />
+            ))}
+          </div>
+        </section>
+      )}
+
       {overview && (
         <section className="card" aria-labelledby="available-models-heading">
           <h2 id="available-models-heading">Available models</h2>
@@ -551,7 +745,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                       <td>{qualification ? <button type="button" className="btn btn-secondary" onClick={() => setSelected(item.profile_id)}>{readable(qualification.status)}{!qualification.current ? " (out of date)" : ""}</button> : "Not run"}</td>
                       <td>
                         <button type="button" className="btn btn-secondary" disabled={!usable || busy} onClick={() => action.mutate(() => testModelConnection(item.profile_id))}>Test connection</button>{" "}
-                        <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={() => { setSelected(item.profile_id); action.mutate(() => startModelQualification(item.profile_id)); }}>Run qualification</button>{" "}
+                        <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={() => runQualification(item)}>{item.deployment === REMOTE_DEPLOYMENT ? "Run qualification…" : "Run qualification"}</button>{" "}
                         <button type="button" className="btn btn-primary" disabled={!usable || busy || item.active || item.activation_blockers.length > 0}
                           title={item.activation_blockers.map(readable).join(" ")}
                           onClick={() => setConfirming({ kind: "activate", profileId: item.profile_id, name: profileName(item) })}>Activate</button>
