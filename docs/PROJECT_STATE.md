@@ -1255,3 +1255,23 @@ squash-merged). Delta only; nothing here is merged or Live.
 - **Open:** owner merge; a bounded paid Medium-vs-Low comparison needs T7 approval; the
   basis-file improvements in the D-097 report need a paid requalification decision; the D-095
   section above still reads "branch, not merged" (closeout refresh for PR #126 pending).
+
+## AI Assistant D-098 recovery view, confirmed paid qualification and flexible spending limits (stacked branch, not merged) - 2026-10-28
+
+Branch `claude/gracious-lovelace-bjvh2z-recovery`, stacked on the D-097 branch (PR #127 head
+`65535ce`). Delta only; nothing here is merged or Live.
+- **Decision:** D-098 (owner-authorised, local development scope). Evidence:
+  `.ai-pipeline/reports/D098_RECOVERY_AND_FLEXIBLE_SPENDING.md`.
+- **Behaviour:** AI Models adds *AI model status and recovery* (six categories, per-gate
+  explanations, Refresh Limits / Test Connection / Review Budget / Retry Qualification); a
+  remote qualification needs its paid-call count confirmed and is refused before it starts when
+  the limits leave no room for a call; a refused HR session during a run is audited
+  (`SESSION_REFUSED`) and the run continues. US$1.00 is the default daily limit, not a ceiling;
+  the lifetime cap is no longer bound to US$1.00 above the opening usage; raises need
+  confirmation, a finite never-resetting key limit and a reconciled ledger.
+- **Qualification:** basis `2bd93aeb8886…` → `1748457ee7eb…` (the second commit changes
+  `budget.py`, `remote_checks.py`, `remote_test.py`). Balanced and Fast need a new paid
+  qualification before use; until then a stored Balanced activation reverts to the baseline at
+  start-up. The first commit alone keeps the basis unchanged.
+- **Open:** owner decision on automatic Fast → Balanced switching (designed, not implemented);
+  a paid requalification (T7); owner merge of PR #127 and of this stacked PR.

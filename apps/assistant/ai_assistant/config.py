@@ -45,10 +45,10 @@ class AiAssistantSettings(BaseSettings):
     budget_max_in_flight: int = Field(default=1, ge=1, le=4)
     budget_settle_lag_seconds: int = Field(default=600, ge=0, le=86400)
     # D-095: the most reserved plus settled remote spend per Singapore calendar day, in
-    # micro-USD. US$1.00 is the ceiling (budget.DAILY_CAP_CEILING_MICRO_USD); this may only
-    # lower it. It applies to every remote call: qualification and chat. D-096: the default
-    # until an HR administrator sets the daily limit on AI Models (stored, never above US$1.00).
-    budget_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=1_000_000)
+    # micro-USD. It applies to every remote call: qualification and chat. D-096: the default
+    # until an HR administrator sets the daily limit on AI Models. D-098: US$1.00 is the
+    # default, not a ceiling; the bound is the ledger's own (budget.MAX_MICRO_USD).
+    budget_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=10**12)
 
     # D-094 local synthetic test mode (off unless named): an HR administrator may then select
     # the remote profile in model management, and the chat uses it only on the approved

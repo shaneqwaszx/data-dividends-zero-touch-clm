@@ -1432,3 +1432,44 @@ Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. D-092 stays PROP
 | Y3 | **Optional Fast configuration.** `AI_ASSISTANT_REMOTE_LOW_REASONING_PROFILE_ENABLED` (default off) lists *GPT-OSS 120B — Fast*: profile id `openrouter_gpt_oss_120b_low`, reasoning effort low, everything else the same (key, ledger, daily/lifetime/call limits, eligibility, guard). Its fingerprint differs, so Balanced's qualification never counts; HR must run its paid qualification (at low) before activating it. No automatic switching, no automatic qualification. Removing the setting reverts a stored Fast activation to the baseline at the next start (audited). Its speed and quality are not established. GPT-OSS 20B is a research comparison only and is not offered. |
 | Y4 | **Answer progress.** The chat shows only stages the page observes (the reply starting after the case is read and checked; the first line that passed the exact-line check; the final answer) and the elapsed time; no percentage, estimate, reasoning or unapproved text. After an answer, "What this answer used" lists model or case data, the model name, the number of cited sources and the browser-measured time. OpenRouter's reasoning exclusion is unchanged. |
 | Y5 | **Latency.** Measured offline, the application adds about 65 ms before the provider request; about 95% of the time to the first line is provider-side reasoning (live Medium p50 12.4 s). Implemented: generation metadata is read every second for the first 10 s within the caller's unchanged 120 s bound (`openrouter_account.py`, not a basis file): −1.9 s (−34%) for a follow-up asked while the previous call is still being verified; no other measured change. Not implemented (basis files; would need paid requalification): generation reference from the first chunk (a cancelled or timed-out call currently opens the breaker), server-side stage events, background preflight refresh. |
+
+## D-098 - AI Assistant recovery view, confirmed paid qualification and flexible spending limits (OWNER-AUTHORISED, local development scope only)
+
+Status: owner-authorised on 2026-10-28 ("Unified AI Model Recovery Centre, Qualification UX and
+Flexible Spending Controls"); bounded implementation and offline tests; no real or paid
+OpenRouter call. Same scope as D-094 to D-097 (synthetic data, the owner's machine). Evidence:
+`.ai-pipeline/reports/D098_RECOVERY_AND_FLEXIBLE_SPENDING.md`. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. D-092 stays PROPOSED. Stacked on D-097.
+
+| # | Decision |
+| --- | --- |
+| Z1 | **Recovery view.** AI Models classifies what stops the model into Healthy, Qualification required, Recoverable by HR, Temporarily unavailable, Operator intervention required, Security/policy blocked (server: closed codes; page: wording). Failed qualifications are explained per gate; G-3, G-6, G-7 and G-8 are never retryable and go to IT or the operator. No threshold, filter, gate or model setting is an HR control. |
+| Z2 | **Paid qualification confirmation.** A remote qualification needs `confirm_paid_calls` equal to the manifest count and is refused before it starts when the limits leave no room for one call or the call limit is below the count; `QUALIFICATION_BUSY` still prevents concurrent runs; no automatic retry. |
+| Z3 | **Sessions.** A qualification outlives the HR session that started it; a refused session while a run is in progress is logged and audited (`SESSION_REFUSED`, codes only, at most once a minute). Authentication and session lifetime are unchanged. The reported sign-out was not reproduced offline: see the evidence report. |
+| Z4 | **US$1.00 is a default, not a ceiling (amends D-095 V7, D-096 W1/W3 and the D-092 allocation checks).** The daily limit (setting or HR) and the lifetime cap may be any amount up to the ledger's bound (US$1,000,000). A raise of either needs the amount confirmed, HR re-checked in the change lock, and a fresh free preflight showing a finite key limit that never resets and a reconciled ledger; lowering needs neither. The preflight no longer requires the key's remaining limit to be at most US$1.00 plus one reservation, nor the ledger cap to be at most US$1.00 above the opening usage (it must be above it). The strictest of the daily, lifetime and key limits applies to every call, atomically in the ledger. The key's limit is never changed; no management key; auto top-up stays off; account credits are not read. |
+| Z5 | **Qualification impact.** Z4 changes basis files (`budget.py`, `remote_checks.py`, `remote_test.py`; basis `2bd93aeb8886…` → `1748457ee7eb…`; `synthetic_boundary.json` unchanged). Every existing qualification becomes out of date: a Balanced activation reverts to the baseline at the next start (`QUALIFICATION_OUT_OF_DATE`) and needs a new paid qualification (2 manifest calls), which is not authorised here. Model-state records are kept. |
+| Z6 | **Fallback (current, unchanged).** A failed qualification never replaces the active model; Fast must pass its own qualification. A chat timeout, cancellation or unverifiable result gives the deterministic case-data answer and no second paid request (an unverifiable call opens the breaker until an operator reconciles). No other LLM is substituted. |
+
+**Proposed, not implemented: automatic Fast → Balanced → non-AI hierarchy.** Only when the
+owner approves it. A switch would be permissible only (a) between configurations that both
+hold a current passing qualification for today's basis, (b) at a request boundary, before any
+provider request for that question, triggered by a closed readiness refusal of the active
+configuration (its own qualification out of date, a profile change, or a configuration-level
+`PROFILE_*` error) and never by a timeout, cancellation, unverifiable result, breaker,
+budget or policy refusal (those apply to both configurations and fall to case data). It would
+use the same ledger admission, so a question is charged at most once; it would never retry a
+question after a provider request began. Each switch would be audited (`AUTO_SWITCHED`,
+from/to profile, code) and shown on the recovery view, with HR able to switch back manually.
+If neither configuration may answer, the page and chat say the AI model is unavailable and
+the case-data answer continues.
+
+| Scenario | RM sees | HR sees | HR can fix | Needs IT/operator | Requalify | Another paid request |
+| --- | --- | --- | --- | --- | --- | --- |
+| Fast fails qualification, Balanced active | model answers (Balanced) | Healthy; Fast's failed gates | retry Fast if retryable | G-3/G-6/G-7/G-8 | Fast only | Fast's retry, HR-confirmed |
+| Both unqualified | case-data answers | Qualification required; "no other AI model is substituted" | run a confirmed qualification | if not retryable | yes | only the confirmed run |
+| OpenRouter temporarily down | case-data answer | Temporarily unavailable (G-1 key.status / PROVIDER_CHECK_FAILED) | Refresh Limits / Test Connection later | if it persists | no | no automatic one |
+| Provider or internal limit reached | case-data answer | Recoverable by HR (daily, lifetime, calls) or Operator (key limit) | lower/raise internal limits (raise provider-verified) | the key's own limit | no | after HR changes the limit |
+| Breaker open | case-data answer | Operator intervention required | no | operator reconciles the ledger | no | no |
+| Qualification outdated | case-data answer (baseline after restart) | Qualification required | run a confirmed qualification | no | yes | only the confirmed run |
+| HR login expires during qualification | unaffected | sign in again: same run, its result | sign in again | no | no | no (never repeated) |
+| Model timeout in an RM chat | case-data answer for that question | Operator intervention required (breaker) | no | operator reconciles | no | no |

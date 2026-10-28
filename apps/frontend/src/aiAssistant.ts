@@ -149,11 +149,14 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Too many key changes. Wait a few minutes and try again.",
   "This change must come from the AI Models page.",
   // D-096: HR spending controls (apps/assistant/ai_assistant/model_admin.py).
-  "The daily limit must be US$0.00 to US$1.00 and the call limit 1 to 200. Nothing changed.",
+  "The daily limit must be US$0.00 or more and the call limit 1 to 200. Nothing changed.",
   "The spending limits changed since this view. Refresh and try again.",
   "Too many spending changes. Wait a few minutes and try again.",
   "The spending ledger is missing or not usable. Nothing changed.",
-  "The lifetime limit must stay between the key's opening usage and US$1.00 above it.",
+  "The lifetime limit cannot be below the key's opening usage.",
+  // D-098: raising a limit needs a provider-side backstop.
+  "Confirm the new daily limit to raise it. Nothing changed.",
+  "A limit can only be raised while the OpenRouter key has its own limit that never resets. Nothing changed.",
   "Confirm the new lifetime limit to raise it. Nothing changed.",
   "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed.",
   "The OpenRouter key could not be checked. Nothing changed.",
@@ -720,7 +723,8 @@ export interface ModelBudgetStatus {
   configured: boolean;
   mode: "D-094" | "D-095";
   timezone: string;
-  daily_cap_ceiling_micro_usd: number;
+  /** D-098: the daily limit's default (US$1.00), not a ceiling. */
+  daily_cap_default_micro_usd: number;
   daily_cap_micro_usd: number;
   next_reset_at: string;
   credential: ModelCredentialStatus;
@@ -729,6 +733,14 @@ export interface ModelBudgetStatus {
     passed: boolean;
     remaining_micro_usd: number | null;
     remaining_usd: string | null;
+    /** D-098: the key's own limit, usage and reset as OpenRouter reported them (never account credits). */
+    limit_micro_usd?: number | null;
+    limit_usd?: string | null;
+    usage_micro_usd?: number | null;
+    usage_usd?: string | null;
+    limit_reset?: string | null;
+    /** Always null: the key cannot read the account's credits. */
+    account_credits?: null;
     checks: { check: string; ok: boolean; detail: string }[];
   } | null;
   ledger: {
@@ -829,11 +841,13 @@ export const saveModelCredential = (apiKey: string) =>
 export const clearModelCredential = () =>
   request<ModelCredentialStatus>("/admin/models/credential", undefined, undefined, "DELETE");
 // D-096: HR spending controls. Amounts are whole micro-USD; the server checks every bound.
-export const saveSpendingControls = (expectedRevision: number, dailyCapMicroUsd: number, maxCalls: number) =>
+// D-098: raising the daily limit sends the same amount again as the HR confirmation.
+export const saveSpendingControls = (expectedRevision: number, dailyCapMicroUsd: number, maxCalls: number, confirmDailyCapMicroUsd: number | null = null) =>
   request<ModelBudgetStatus>("/admin/models/budget/controls", {
     expected_revision: expectedRevision,
     daily_cap_micro_usd: dailyCapMicroUsd,
     max_calls: maxCalls,
+    ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
   }, undefined, "PUT");
 // A raise sends the same amount again as the HR confirmation; a decrease needs none.
 export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null) =>

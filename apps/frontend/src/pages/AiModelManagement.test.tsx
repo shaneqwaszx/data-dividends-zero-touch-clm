@@ -364,7 +364,7 @@ const FAKE_KEY = ["sk", "or", "v1-fake-browser-test-key-0000000000"].join("-");
 function budget(credential: Partial<ModelBudgetStatus["credential"]> = {}): ModelBudgetStatus {
   return {
     configured: true, mode: "D-095", timezone: "Asia/Singapore",
-    daily_cap_ceiling_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
+    daily_cap_default_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
     next_reset_at: "2026-10-28T16:00:00Z",
     credential: {
       source: "none", status: "missing", hr_editable: true, persistence: "memory_only",
@@ -496,7 +496,7 @@ function controlled(overrides: Partial<NonNullable<ModelBudgetStatus["controls"]
     ...budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
     controls: {
       revision: 3, readable: true,
-      daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000, daily_cap_source: "hr",
+      daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000_000_000, daily_cap_source: "hr",
       max_calls: 20, max_calls_range: [1, 200], max_calls_source: "hr",
       calls_used: 20, calls_remaining: 0,
       changed_at: "2026-10-28T03:00:00Z", changed_by: "hr-admin",
@@ -551,12 +551,12 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ expected_revision: 3, daily_cap_micro_usd: 500_000, max_calls: 40 });
   });
 
-  it("does not send limits outside US$0 to US$1 or 1 to 200 calls", async () => {
+  it("does not send a negative or malformed daily limit, or calls outside 1 to 200", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
     const view = mount(controlsServer(data, calls));
     await waitFor(() => expect(view.textContent).toContain("Daily and call limits"));
-    for (const [daily, count] of [["1.01", "20"], ["0.5", "0"], ["0.5", "201"], ["-0.1", "20"], ["0.5", "2.5"]]) {
+    for (const [daily, count] of [["0.5", "0"], ["0.5", "201"], ["-0.1", "20"], ["0.5", "2.5"], ["10000000", "20"], ["1.0000001", "20"]]) {
       typeInto(input(view, "daily-limit-input"), daily);
       typeInto(input(view, "call-limit-input"), count);
       expect(button(view, "Save Limits").disabled).toBe(true);
@@ -564,13 +564,52 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     expect(calls.some((call) => call.method === "PUT")).toBe(false);
   });
 
+  it("accepts a daily limit above US$1.00 only with an explicit confirmation, and lowers without one (D-098)", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Daily and call limits"));
+    expect(view.textContent).toContain("Daily limit (US$, default US$1.00)");
+    typeInto(input(view, "daily-limit-input"), "2.5");
+    expect(button(view, "Save Limits").disabled).toBe(true); // not confirmed yet
+    const confirm = [...view.querySelectorAll<HTMLInputElement>("input[type=checkbox]")]
+      .find((item) => item.parentElement?.textContent?.includes("I confirm raising the daily limit to US$2.500000"));
+    expect(confirm).toBeDefined();
+    act(() => confirm!.click());
+    await act(async () => button(view, "Save Limits").click());
+    await waitFor(() => expect(view.textContent).toContain("Limits saved."));
+    const raise = calls.filter((call) => call.method === "PUT" && call.url.endsWith("/budget/controls"));
+    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({
+      expected_revision: 3, daily_cap_micro_usd: 2_500_000, max_calls: 20, confirm_daily_cap_micro_usd: 2_500_000,
+    });
+    typeInto(input(view, "daily-limit-input"), "0.25"); // lower: no confirmation
+    expect(view.textContent).not.toContain("I confirm raising the daily limit");
+    await act(async () => button(view, "Save Limits").click());
+    await waitFor(() => expect(calls.filter((call) => call.url.endsWith("/budget/controls"))).toHaveLength(2));
+    const lower = calls.filter((call) => call.url.endsWith("/budget/controls"))[1];
+    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ expected_revision: 3, daily_cap_micro_usd: 250_000, max_calls: 20 });
+  });
+
+  it("shows the key's own limit, usage and reset, and never calls them account credits (D-098)", async () => {
+    const budgetView = controlled();
+    budgetView.provider = {
+      checked_at: "2026-10-28T03:00:00Z", passed: true, remaining_micro_usd: 4_000_000, remaining_usd: "4.000000",
+      limit_micro_usd: 5_000_000, limit_usd: "5.000000", usage_micro_usd: 1_000_000, usage_usd: "1.000000",
+      limit_reset: null, account_credits: null, checks: [],
+    };
+    const view = mount(controlsServer({ ...overview, profiles: [profile({}), remoteSelectable], budget: budgetView }, []));
+    await waitFor(() => expect(view.textContent).toContain("US$4.000000 remaining of US$5.000000; key usage US$1.000000; never resets"));
+    expect(view.textContent).toContain("Account creditsNot available");
+  });
+
   it("needs an explicit confirmation to raise the lifetime limit, and none to lower it", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
     const view = mount(controlsServer(data, calls));
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit (ledger)"));
-    expect(view.textContent).toContain("up to US$1.100000 (US$1.00 above it)");
-    typeInto(input(view, "lifetime-limit-input"), "1.2"); // above the allocation
+    expect(view.textContent).toContain("It may be set from the opening usage up");
+    expect(view.textContent).not.toContain("US$1.00 above it");
+    typeInto(input(view, "lifetime-limit-input"), "0.05"); // below the opening usage
     expect(button(view, "Update Lifetime Limit").disabled).toBe(true);
     typeInto(input(view, "lifetime-limit-input"), "0.9");
     expect(button(view, "Update Lifetime Limit").disabled).toBe(true); // not confirmed yet

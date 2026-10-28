@@ -253,10 +253,10 @@ reconcile with `scripts/budget_ledger.py` first.
 
 | Limit | Where | Notes |
 | --- | --- | --- |
-| Daily allowance | the ledger, checked on every call | At most US$1.00 reserved plus settled per Asia/Singapore calendar day, for qualification and chat together. HR sets it on AI Models (US$0.00 to US$1.00, D-096); until then `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` (default 1000000) applies. Resets at Singapore midnight without erasing anything; lowering it never resets today's spend. |
+| Daily allowance | the ledger, checked on every call | Reserved plus settled spend per Asia/Singapore calendar day, for qualification and chat together. HR sets it on AI Models (US$0.00 up; D-098: US$1.00 is the default, not a ceiling; a raise is confirmed and provider-verified, section 12); until then `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` (default 1000000) applies. Resets at Singapore midnight without erasing anything; lowering it never resets today's spend. |
 | Calls per activation | the active model, counted from the ledger | HR sets 1 to 200 on AI Models (D-096); until then `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` (default 20). Counted from activation or service start; a change applies at once and never resets the count. The paid qualification keeps the environment value. |
-| Lifetime cap | the ledger | HR may set it on AI Models from the ledger's opening usage up to US$1.00 above it (D-092 P3, D-096 W3); a raise needs the amount confirmed and passing reconciliation checks against OpenRouter's reported usage. `scripts/budget_ledger.py set-cap` still works for the operator. |
-| Key limit | OpenRouter | Unchanged and never changed by the CLM: a non-resetting limit with at most US$1.00 plus one reservation remaining. AI Models can re-read it ("Refresh OpenRouter Limits"). |
+| Lifetime cap | the ledger | HR may set it on AI Models from the ledger's opening usage up (D-098 removed the US$1.00-above-opening bound); a raise needs the amount confirmed, a finite non-resetting key limit and passing reconciliation checks against OpenRouter's reported usage. `scripts/budget_ledger.py set-cap` still works for the operator. |
+| Key limit | OpenRouter | Never changed by the CLM: a finite limit that never resets (D-098: its size is the owner's; the former "at most US$1.00 plus one reservation remaining" check is removed). AI Models shows its limit, remaining, usage and reset and can re-read it ("Refresh OpenRouter Limits"). Account credits are not readable with this key and are shown as not available. |
 
 The strictest applies. AI Models shows today's settled spend, in-flight reservations, today's
 remaining allowance, lifetime headroom, the key limit as last checked, the available allowance
@@ -300,3 +300,53 @@ line that passed the exact-line check), *Showing lines that passed the check*, a
 time. No percentage, estimate or model reasoning is shown. After an answer, *What this answer
 used* says whether the model or the case data produced it, the model name, the number of
 cited sources and the time measured in the browser.
+
+## 12. Recovery, paid-qualification confirmation and flexible limits (D-098)
+
+**Recovery panel.** *AI model status and recovery* on AI Models classifies what stops the
+model, from closed server codes, as one of: **Healthy**, **Qualification required**,
+**Recoverable by HR**, **Temporarily unavailable**, **Operator intervention required** or
+**Security/policy blocked**. It shows the active model, whether an external model is in use,
+the next action, the last failed qualification or connection test, any other qualified
+configuration, and each GPT-OSS 120B configuration with its state, whether an earlier pass is
+still valid, and why its last qualification failed, gate by gate (retryable or not, whether HR
+can resolve it, what to do next). Actions: Refresh Limits and Test Connection (free, no model
+call), Review Budget, and Retry Qualification. Nothing on it shows a key, prompt, reasoning,
+unverified answer or case data.
+
+| Gate | Meaning for HR | Retry |
+| --- | --- | --- |
+| G-1 connection | the free preflight failed; the failed checks are listed (provider down, limits, ledger) | per check |
+| G-2 completion | not every question was answered in time | yes |
+| G-3 unsafe display | a safety result: contact IT | no |
+| G-4 availability | too many questions had no model answer (limits, outage) | yes |
+| G-6 answer validity, G-7 capacity | a model-quality or capacity result: contact IT | no |
+| G-8 provider verification | a call did not match OpenRouter's record: the owner reconciles | no |
+
+HR cannot change thresholds, safety filters, gates or model settings; a non-retryable result
+is never retried away.
+
+**Paid qualification.** A remote qualification is started only after HR confirms its number of
+paid calls (the server requires `confirm_paid_calls` to equal the configured manifest count;
+the page shows the count, the reservation each call holds, the worst case and the allowance
+available now). It is refused before it starts when the limits leave no room for one call or
+the call limit is below the count. One run at a time (`QUALIFICATION_BUSY`); a failed,
+cancelled or interrupted run is never repeated automatically, and a failed run never replaces
+the active model.
+
+**Sessions.** A qualification runs in its own server process. HR may leave the page, refresh
+or sign in again and see the same run; a session that ends (expiry, the backend's
+one-session-per-account rule when the same account signs in elsewhere, a backend restart)
+does not cancel, restart or repeat it. A session refused while a run is in progress is logged
+and audited as `SESSION_REFUSED` (codes only, at most once a minute).
+
+**Flexible limits.** US$1.00 is the default daily limit, not a maximum. HR may lower either
+limit at any time; raising the daily limit or the lifetime cap needs the amount confirmed and a
+fresh free preflight in the change lock: the OpenRouter key must have its own finite limit that
+never resets (`key.limit_set`, `key.limit_never_resets`), and the ledger must be reconciled
+(breaker closed, no open call, usage accounted for). Otherwise the raise is refused
+(`PROVIDER_LIMIT_REQUIRED`, `RECONCILIATION_REQUIRED`, `PROVIDER_CHECK_FAILED`). The bound for
+both is the ledger's own (US$1,000,000). Every call is still admitted against the lowest of
+today's allowance, the lifetime headroom and the key's remaining limit. A D-096 state database
+is migrated in place on first open (its controls row kept). Changing these files changes the
+qualification basis: GPT-OSS 120B Balanced (and Fast) need a new paid qualification before use.

@@ -143,7 +143,8 @@ const CREDENTIAL_SOURCE: Record<string, string> = {
 // Whole micro-USD from a US$ amount typed by HR ("0.25" -> 250000); null when not a plain amount.
 export function toMicroUsd(text: string): number | null {
   const trimmed = text.trim();
-  if (!/^\d{1,4}(\.\d{1,6})?$/.test(trimmed)) return null;
+  // D-098: up to US$1,000,000 (the ledger's own bound); the server checks the bound again.
+  if (!/^\d{1,7}(\.\d{1,6})?$/.test(trimmed)) return null;
   const [whole, fraction = ""] = trimmed.split(".");
   return Number(whole) * 1_000_000 + Number(fraction.padEnd(6, "0"));
 }
@@ -170,12 +171,14 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
   const [formRevision, setFormRevision] = useState(controls?.revision ?? null);
   const [formCap, setFormCap] = useState(lifetime?.cap_micro_usd ?? null);
   const [confirmed, setConfirmed] = useState(false);
+  const [dailyConfirmed, setDailyConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   if ((controls?.revision ?? null) !== formRevision) {
     setFormRevision(controls?.revision ?? null);
     setDailyText(dailySeed());
     setCallsText(callsSeed());
+    setDailyConfirmed(false);
   }
   if ((lifetime?.cap_micro_usd ?? null) !== formCap) {
     setFormCap(lifetime?.cap_micro_usd ?? null);
@@ -186,8 +189,11 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
   const dailyMicro = toMicroUsd(dailyText);
   const calls = /^\d{1,3}$/.test(callsText.trim()) ? Number(callsText.trim()) : null;
   const [lowCalls, highCalls] = controls?.max_calls_range ?? [1, 200];
-  const controlsValid = dailyMicro !== null && dailyMicro <= (controls?.daily_cap_max_micro_usd ?? 1_000_000)
+  const controlsValid = dailyMicro !== null && controls != null && dailyMicro <= controls.daily_cap_max_micro_usd
     && calls !== null && calls >= lowCalls && calls <= highCalls;
+  // D-098: a higher daily limit than the one in force is confirmed, and the server checks
+  // OpenRouter first (a key limit that never resets; a reconciled ledger).
+  const raisingDaily = controlsValid && dailyMicro! > budget.daily_cap_micro_usd;
   const capMicro = toMicroUsd(capText);
   const capValid = lifetime !== null && capMicro !== null
     && capMicro >= lifetime.opening_usage_micro_usd && capMicro <= lifetime.max_cap_micro_usd;
@@ -204,6 +210,7 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
       setMessage({ kind: "error", text: safeError(error) });
     } finally {
       setConfirmed(false);
+      setDailyConfirmed(false);
       setPending(false);
       onChanged();
     }
@@ -220,7 +227,8 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
         <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : "—"}</dd></div>
         <div><dt>Remaining today</dt><dd>{usd(daily?.remaining_usd)}</dd></div>
         <div><dt>Lifetime headroom</dt><dd>{usd(budget.ledger?.headroom_usd)}</dd></div>
-        <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
+        <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining{budget.provider.limit_usd !== undefined && <> of {budget.provider.limit_usd ? usd(budget.provider.limit_usd) : "no limit"}; key usage {usd(budget.provider.usage_usd)}; {budget.provider.limit_reset ? `resets ${budget.provider.limit_reset}` : "never resets"}</>} ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
+        <div><dt>Account credits</dt><dd>Not available: this key can read only its own limit and usage, not the account's credits.</dd></div>
         <div><dt>Available now</dt><dd><strong>{usd(budget.effective_remaining_usd)}</strong> (the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit)</dd></div>
         {controls && <div><dt>Calls this activation</dt><dd>{controls.calls_used === null ? `GPT-OSS is not the active model (limit ${controls.max_calls} per activation)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls} (counted since activation or the service's last start)`}</dd></div>}
         <div><dt>Next daily reset</dt><dd>{formatTimestamp(budget.next_reset_at)} (midnight, Singapore)</dd></div>
@@ -235,7 +243,8 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
           event.preventDefault();
           if (!controlsValid || formRevision === null) return;
           const revision = formRevision;
-          void run(() => saveSpendingControls(revision, dailyMicro!, calls!), "Limits saved. They apply to the active model now.");
+          if (raisingDaily && !dailyConfirmed) return;
+          void run(() => saveSpendingControls(revision, dailyMicro!, calls!, raisingDaily ? dailyMicro! : null), "Limits saved. They apply to the active model now.");
         }}>
           <h3>Daily and call limits</h3>
           <p className="control-help">
@@ -244,12 +253,18 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
               : "Not set here yet: the server's defaults apply."}
             {" "}Lowering a limit never resets today's spending or the activation's call count.
           </p>
-          <label className="control-help" htmlFor="daily-limit-input">Daily limit (US$0.00 to US${dollars(controls.daily_cap_max_micro_usd)})</label>{" "}
+          <label className="control-help" htmlFor="daily-limit-input">Daily limit (US$, default {usd(dollars(budget.daily_cap_default_micro_usd ?? 1_000_000))})</label>{" "}
           <input id="daily-limit-input" inputMode="decimal" value={dailyText} onChange={(event) => setDailyText(event.target.value)} disabled={disabled} />{" "}
           <label className="control-help" htmlFor="call-limit-input">Calls per activation ({lowCalls} to {highCalls})</label>{" "}
           <input id="call-limit-input" inputMode="numeric" value={callsText} onChange={(event) => setCallsText(event.target.value)} disabled={disabled} />{" "}
-          <button type="submit" className="btn btn-primary" disabled={disabled || !controlsValid || !controls.readable}>Save Limits</button>
-          {!controlsValid && <p className="control-help" role="status">Enter a daily limit from US$0.00 to US${dollars(controls.daily_cap_max_micro_usd)} and {lowCalls} to {highCalls} calls.</p>}
+          {raisingDaily && (
+            <label className="control-help">
+              <input type="checkbox" checked={dailyConfirmed} onChange={(event) => setDailyConfirmed(event.target.checked)} disabled={disabled} />
+              {" "}I confirm raising the daily limit to {usd(exactDollars(dailyMicro!))}. The server first checks that the OpenRouter key has its own limit that never resets and that the ledger matches its usage.
+            </label>
+          )}{" "}
+          <button type="submit" className="btn btn-primary" disabled={disabled || !controlsValid || !controls.readable || (raisingDaily && !dailyConfirmed)}>Save Limits</button>
+          {!controlsValid && <p className="control-help" role="status">Enter a daily limit of US$0.00 or more and {lowCalls} to {highCalls} calls.</p>}
         </form>
       )}
 
@@ -262,7 +277,7 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
         }}>
           <h3>Lifetime limit (ledger)</h3>
           <p className="control-help">
-            The key's usage when the ledger was created: {usd(exactDollars(lifetime.opening_usage_micro_usd))}. Current limit {usd(exactDollars(lifetime.cap_micro_usd))}; committed {usd(exactDollars(lifetime.committed_micro_usd))}. It may be set from the opening usage up to {usd(exactDollars(lifetime.max_cap_micro_usd))} (US$1.00 above it). The ledger keeps every charge and is never replaced.
+            The key's usage when the ledger was created: {usd(exactDollars(lifetime.opening_usage_micro_usd))}. Current limit {usd(exactDollars(lifetime.cap_micro_usd))}; committed {usd(exactDollars(lifetime.committed_micro_usd))}. It may be set from the opening usage up; a raise needs the OpenRouter key's own limit (never resetting) and a reconciled ledger, and the strictest of the limits always applies. The ledger keeps every charge and is never replaced.
           </p>
           <label className="control-help" htmlFor="lifetime-limit-input">New lifetime limit (US$)</label>{" "}
           <input id="lifetime-limit-input" inputMode="decimal" value={capText} onChange={(event) => { setCapText(event.target.value); setConfirmed(false); }} disabled={disabled} />{" "}
@@ -273,7 +288,7 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
             </label>
           )}{" "}
           <button type="submit" className="btn btn-primary" disabled={disabled || !capValid || capMicro === lifetime.cap_micro_usd || (raising && !confirmed)}>Update Lifetime Limit</button>
-          {!capValid && <p className="control-help" role="status">Enter an amount from {usd(exactDollars(lifetime.opening_usage_micro_usd))} to {usd(exactDollars(lifetime.max_cap_micro_usd))}.</p>}
+          {!capValid && <p className="control-help" role="status">Enter an amount of {usd(exactDollars(lifetime.opening_usage_micro_usd))} or more.</p>}
         </form>
       )}
       {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
@@ -427,7 +442,9 @@ const CHECK_TEXT: Record<string, string> = {
   "endpoint.listing": "OpenRouter's endpoint listing could not be read.",
   "ledger.headroom_for_one_call": "The lifetime ledger limit has no room for a call.",
   "ledger.daily_room_for_one_call": "Today's allowance has no room for a call.",
-  "ledger.cap_within_allocation": "The lifetime limit is outside its allowed range.",
+  "ledger.cap_above_opening": "The lifetime limit is not above the key's opening usage.",
+  "key.limit_set": "The OpenRouter key has no limit of its own (the owner must set one in OpenRouter).",
+  "key.limit_never_resets": "The OpenRouter key's limit resets periodically (the owner must make it a lifetime limit).",
   "ledger.healthy": "The spending ledger is not healthy.",
   "ledger.breaker_closed_no_open_calls": "The ledger is stopped or has an unsettled call.",
   "ledger.usage_reconciled": "The ledger does not match OpenRouter's reported usage.",
@@ -698,7 +715,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
             <p className="ds-banner ds-banner-warn">{overview.budget?.mode === "D-095"
-              ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. At most US$1.00 per Singapore day."
+              ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. At most the daily limit set below per Singapore day."
               : "This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing."}</p>
           )}
           {confirming.profileId !== "env_default" && unscored && (
@@ -736,7 +753,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                       <td><strong>{profileName(item)}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
                         {item.details && <><br /><RemoteDetails details={item.details} /></>}
                         {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">{overview.budget?.mode === "D-095"
-                          ? "External API: answers only on verified synthetic development cases; every other case gets the case-data answer. At most US$1.00 per Singapore day. Test connection is a free preflight; qualification makes paid calls."
+                          ? "External API: answers only on verified synthetic development cases; every other case gets the case-data answer. At most the daily limit per Singapore day. Test connection is a free preflight; qualification makes paid calls."
                           : "External API: answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls."}</small></>}
                         {item.details?.reasoning_effort === "low" && <><br /><small className="control-help">Fast is the same model, endpoint and limits with less reasoning. It needs its own passing qualification; the Balanced qualification does not count for it, and its answer quality is not established.</small></>}</td>
                       <td>{readable(item.deployment)}</td>

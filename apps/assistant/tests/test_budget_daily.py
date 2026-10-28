@@ -11,7 +11,8 @@ from typing import Any
 import pytest
 
 from ai_assistant.budget import (
-    DAILY_CAP_CEILING_MICRO_USD,
+    DEFAULT_DAILY_CAP_MICRO_USD,
+    MAX_MICRO_USD,
     BudgetLedger,
     BudgetRefusedError,
     Reservation,
@@ -75,12 +76,26 @@ def test_singapore_day_boundaries() -> None:
     assert singapore_day_start_ms(after) == start + 86_400_000
 
 
-def test_the_ceiling_is_one_dollar_and_a_setting_may_only_lower_it() -> None:
-    assert DAILY_CAP_CEILING_MICRO_USD == 1_000_000
+def test_one_dollar_is_the_default_and_a_setting_may_lower_or_raise_it() -> None:
+    """D-098: US$1.00 is the default daily cap, not a ceiling; the bound is the ledger's own."""
+
+    assert DEFAULT_DAILY_CAP_MICRO_USD == 1_000_000
     assert daily_cap_for(None) == 1_000_000
     assert daily_cap_for(250_000) == 250_000
-    assert daily_cap_for(1_000_001) is None and daily_cap_for(-1) is None
+    assert daily_cap_for(0) == 0
+    assert daily_cap_for(1_000_001) == 1_000_001
+    assert daily_cap_for(MAX_MICRO_USD) == MAX_MICRO_USD
+    assert daily_cap_for(MAX_MICRO_USD + 1) is None and daily_cap_for(-1) is None
     assert daily_cap_for(True) is None  # type: ignore[arg-type]
+
+
+def test_a_daily_cap_above_one_dollar_is_enforced_to_the_micro_dollar(tmp_path: Path) -> None:
+    ledger = _ledger(tmp_path, Clock())
+    _admit(ledger, 2_000_000, daily=2_500_000)
+    assert _refusal(ledger, 500_001, daily=2_500_000) == "refused_daily_cap"
+    _admit(ledger, 500_000, daily=2_500_000)
+    assert _refusal(ledger, 1, daily=2_500_000) == "refused_daily_cap"
+    assert ledger.daily_status(2_500_000).remaining == 0
 
 
 def test_settled_spend_plus_open_reservations_never_exceed_the_daily_cap(
@@ -108,7 +123,8 @@ def test_a_lower_setting_applies_and_an_out_of_range_setting_refuses(tmp_path: P
     ledger = _ledger(tmp_path, Clock())
     _admit(ledger, 200_000, daily=250_000)
     assert _refusal(ledger, 50_001, daily=250_000) == "refused_daily_cap"
-    assert _refusal(ledger, 1, daily=2_000_000) == "refused_daily_cap"
+    assert _refusal(ledger, 1, daily=MAX_MICRO_USD + 1) == "refused_daily_cap"
+    assert _refusal(ledger, 1, daily=-1) == "refused_daily_cap"
     assert ledger.status().open_calls == 1
 
 

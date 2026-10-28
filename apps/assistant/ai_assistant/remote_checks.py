@@ -27,6 +27,7 @@ from typing import Any
 import httpx
 
 from .budget import (
+    MAX_MICRO_USD,
     RECONCILE_TOLERANCE_MICRO_USD,
     BudgetLedger,
     ClosedCall,
@@ -46,7 +47,8 @@ from .model_profiles import (
 )
 from .openrouter_account import AccountCheckError, GenerationFacts, KeyStatus, OpenRouterAccount
 
-# Owner directive (Phase B initial batch): at most US$1 of inference credits.
+# Owner directive (Phase B initial batch): at most US$1 of inference credits. D-098: the Phase B
+# harness's own record only; the preflight no longer bounds the key or the ledger cap by it.
 ALLOCATION_LIMIT_USD = Decimal("1.00")
 _PUBLIC_TIMEOUT = 20.0
 # Generation metadata can lag the answer: the first live smoke call saw none within ~14 s
@@ -68,6 +70,11 @@ class Preflight:
     checks: list[Check] = field(default_factory=list)
     # The key's provider-reported remaining limit when it was read (D-095 budget status).
     key_remaining_micro_usd: int | None = None
+    # D-098: the key's own limit, usage and reset as OpenRouter reported them (None: not read,
+    # or no limit). A key's figures only: never the account's credits.
+    key_limit_micro_usd: int | None = None
+    key_usage_micro_usd: int | None = None
+    key_limit_reset: str | None = None
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.checks.append(Check(name, ok, detail))
@@ -178,15 +185,11 @@ def _check_endpoint(report: Preflight, endpoint: ApprovedEndpoint, listing: Any,
     report.add("endpoint.zdr_listed", in_zdr, f"in public ZDR list: {in_zdr}")
 
 
-def check_key(
-    report: Preflight,
-    key: KeyStatus,
-    reservation_micro: int,
-    allocation: Decimal = ALLOCATION_LIMIT_USD,
-) -> None:
-    """The key's own limit (read before the ledger, whose opening usage must equal it). It
-    is the provider-side backstop, so it may not leave more than the allocation plus one
-    reservation (plan section 8.1 nesting)."""
+def check_key(report: Preflight, key: KeyStatus, reservation_micro: int) -> None:
+    """The key's own limit (read before the ledger, whose opening usage must equal it): the
+    provider-side backstop, so it must be set (finite) and never reset. D-098: its size is the
+    owner's choice; the ledger's lifetime and daily caps apply beside it, and the lowest
+    of them applies to every call (plan section 8.1 nesting)."""
 
     report.add(
         "key.limit_set",
@@ -205,13 +208,6 @@ def check_key(
         remaining >= reservation_micro,
         f"limit remaining {_usd(max(remaining, 0))} >= one reservation {_usd(reservation_micro)}",
     )
-    backstop = micro_usd(allocation) + reservation_micro
-    report.add(
-        "key.limit_within_allocation",
-        0 <= remaining <= backstop,
-        f"limit remaining {_usd(max(remaining, 0))} <= allocation + one reservation"
-        f" {_usd(backstop)}",
-    )
 
 
 def check_ledger(
@@ -220,7 +216,6 @@ def check_ledger(
     status: LedgerStatus,
     has_calls: bool,
     reservation_micro: int,
-    allocation: Decimal = ALLOCATION_LIMIT_USD,
 ) -> None:
     report.add(
         "ledger.breaker_closed_no_open_calls",
@@ -228,12 +223,10 @@ def check_ledger(
         f"breaker {'open (' + str(status.breaker_code) + ')' if status.breaker_open else 'closed'},"
         f" open calls {status.open_calls}",
     )
-    allowed = micro_usd(allocation)
     report.add(
-        "ledger.cap_within_allocation",
-        0 < status.cap - status.opening_usage <= allowed,
-        f"cap {_usd(status.cap)} - opening usage {_usd(status.opening_usage)}"
-        f" <= allocation {_usd(allowed)}",
+        "ledger.cap_above_opening",
+        status.opening_usage < status.cap <= MAX_MICRO_USD,
+        f"cap {_usd(status.cap)} above opening usage {_usd(status.opening_usage)}",
     )
     usage = micro_usd(key.usage_usd)
     accounted = status.baseline + status.local_charged
@@ -260,10 +253,9 @@ def check_key_and_ledger(
     status: LedgerStatus,
     has_calls: bool,
     reservation_micro: int,
-    allocation: Decimal = ALLOCATION_LIMIT_USD,
 ) -> None:
     check_key(report, key, reservation_micro)
-    check_ledger(report, key, status, has_calls, reservation_micro, allocation)
+    check_ledger(report, key, status, has_calls, reservation_micro)
 
 
 def check_owner(report: Preflight, auto_topup_off: bool, prompt_logging_off: bool) -> None:
@@ -454,6 +446,10 @@ def run_preflight(
     check_key(report, key, reservation)
     if key.limit_remaining_usd is not None:
         report.key_remaining_micro_usd = micro_usd(key.limit_remaining_usd)
+    if key.limit_usd is not None:
+        report.key_limit_micro_usd = micro_usd(key.limit_usd)
+    report.key_usage_micro_usd = micro_usd(key.usage_usd)
+    report.key_limit_reset = key.limit_reset
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
     try:
         ledger = BudgetLedger.open(ledger_file)

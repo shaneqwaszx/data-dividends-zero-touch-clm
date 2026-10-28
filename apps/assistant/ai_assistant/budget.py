@@ -25,7 +25,8 @@ Daily allowance (D-095). On top of the lifetime cap, every admission also needs
     D   today's spend: charges of closed calls reserved since the last Singapore midnight
         (Asia/Singapore, UTC+8, no daylight saving) plus the reservations of ALL open calls
         (an open call from yesterday still counts today)
-    D + r <= daily cap, which is at most DAILY_CAP_CEILING_MICRO_USD (US$1.00)
+    D + r <= daily cap (DEFAULT_DAILY_CAP_MICRO_USD, US$1.00, unless set otherwise; D-098:
+             a default, not a ceiling)
 
 It is worked out from the call rows in the same ``BEGIN IMMEDIATE`` transaction as the
 lifetime check, so it holds across threads, processes and restarts, survives reconciliation
@@ -72,9 +73,10 @@ LEASE_GRACE_SECONDS = 60
 # A provider usage above the ledger by more than this opens the breaker.
 RECONCILE_TOLERANCE_MICRO_USD = 50_000
 MAX_MICRO_USD = 10**12
-# D-095: the most the remote profile may reserve plus spend in one Singapore calendar day.
-# A setting may lower it (AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD), never raise it.
-DAILY_CAP_CEILING_MICRO_USD = 1_000_000
+# D-095: the most the remote profile may reserve plus spend in one Singapore calendar day
+# when nothing else is set. D-098: the default, not a ceiling; the setting
+# (AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD) or HR may set any amount up to MAX_MICRO_USD.
+DEFAULT_DAILY_CAP_MICRO_USD = 1_000_000
 SINGAPORE = timezone(timedelta(hours=8), "Asia/Singapore")
 _MILLION = Decimal(1_000_000)
 
@@ -332,12 +334,12 @@ def next_singapore_reset_ms(now_ms: int) -> int:
 
 
 def daily_cap_for(setting: int | None) -> int | None:
-    """The daily cap to enforce: the ceiling, or a lower configured value; None when the
-    setting is not a micro-USD count within 0..ceiling (the caller refuses)."""
+    """The daily cap to enforce: the default, or the configured value; None when the
+    setting is not a micro-USD count within 0..MAX_MICRO_USD (the caller refuses)."""
 
     if setting is None:
-        return DAILY_CAP_CEILING_MICRO_USD
-    if type(setting) is not int or not 0 <= setting <= DAILY_CAP_CEILING_MICRO_USD:
+        return DEFAULT_DAILY_CAP_MICRO_USD
+    if type(setting) is not int or not 0 <= setting <= MAX_MICRO_USD:
         return None
     return setting
 

@@ -50,7 +50,7 @@ import anyio
 
 from . import key_sources, synthetic_eligibility
 from .budget import (
-    DAILY_CAP_CEILING_MICRO_USD,
+    DEFAULT_DAILY_CAP_MICRO_USD,
     BudgetLedger,
     ClosedCall,
     LedgerError,
@@ -248,6 +248,9 @@ def _remember_provider(report: Preflight) -> None:
             checked_at=time.time(),
             passed=bool(checks) and all(c.ok for c in checks),
             remaining_micro_usd=report.key_remaining_micro_usd,
+            limit_micro_usd=report.key_limit_micro_usd,
+            usage_micro_usd=report.key_usage_micro_usd,
+            limit_reset=report.key_limit_reset,
             checks=[{"check": c.name, "ok": c.ok, "detail": c.detail} for c in checks],
         )
 
@@ -492,7 +495,8 @@ def budget_status(
         "configured": settings.local_api_test_decision == TEST_DECISION_ID,
         "mode": "D-095" if synthetic_eligibility.mode(settings) else "D-094",
         "timezone": "Asia/Singapore",
-        "daily_cap_ceiling_micro_usd": DAILY_CAP_CEILING_MICRO_USD,
+        # D-098: a default, not a ceiling (HR or the setting may set more or less).
+        "daily_cap_default_micro_usd": DEFAULT_DAILY_CAP_MICRO_USD,
         "daily_cap_micro_usd": settings.budget_daily_cap_micro_usd,
     }
     _, credential = key_sources.resolve(environ)
@@ -507,6 +511,14 @@ def budget_status(
             "passed": provider["passed"],
             "remaining_micro_usd": provider["remaining_micro_usd"],
             "remaining_usd": _usd(provider["remaining_micro_usd"]),
+            # D-098: the key's own figures (OpenRouter's current-key reply), never account
+            # credits, which this key cannot read.
+            "limit_micro_usd": provider.get("limit_micro_usd"),
+            "limit_usd": _usd(provider.get("limit_micro_usd")),
+            "usage_micro_usd": provider.get("usage_micro_usd"),
+            "usage_usd": _usd(provider.get("usage_micro_usd")),
+            "limit_reset": provider.get("limit_reset"),
+            "account_credits": None,
             "checks": provider["checks"],
         }
         if provider

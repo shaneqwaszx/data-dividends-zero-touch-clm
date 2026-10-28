@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ai_assistant import model_admin, remote_test
-from ai_assistant.budget import BudgetLedger
+from ai_assistant.budget import MAX_MICRO_USD, BudgetLedger
 from ai_assistant.model_admin import ModelSelector
 from ai_assistant.model_admin_store import ModelAdminStore, RevisionConflict
 from ai_assistant.model_catalog import load_catalogue
@@ -25,13 +25,17 @@ LIFETIME = f"{API}/budget/lifetime-cap"
 REFRESH = f"{API}/budget/provider-refresh"
 
 
-def _controls(journey: Journey, daily: Any, calls: Any, revision: int | None = None) -> Any:
+def _controls(
+    journey: Journey, daily: Any, calls: Any, revision: int | None = None, confirm: bool = True
+) -> Any:
+    """Save both controls; a raise of the daily limit is confirmed (D-098) unless told not to."""
+
     if revision is None:
         revision = journey.client.get(f"{API}/budget").json()["controls"]["revision"]
-    return journey.client.put(
-        CONTROLS,
-        json={"expected_revision": revision, "daily_cap_micro_usd": daily, "max_calls": calls},
-    )
+    body = {"expected_revision": revision, "daily_cap_micro_usd": daily, "max_calls": calls}
+    if confirm:
+        body["confirm_daily_cap_micro_usd"] = daily
+    return journey.client.put(CONTROLS, json=body)
 
 
 def _ledger(journey: Journey) -> BudgetLedger:
@@ -68,7 +72,7 @@ def test_until_hr_sets_them_the_environment_values_apply(
     assert controls["lifetime"] == {
         "opening_usage_micro_usd": 0,
         "cap_micro_usd": 1_000_000,
-        "max_cap_micro_usd": 1_000_000,
+        "max_cap_micro_usd": MAX_MICRO_USD,  # D-098: no US$1.00 allocation bound
         "committed_micro_usd": 0,
     }
     # The overview carries the same view.
@@ -108,7 +112,7 @@ def test_hr_sets_both_controls_and_they_persist_for_every_process(
 @pytest.mark.parametrize(
     ("daily", "calls", "status"),
     [
-        (1_000_001, 20, 400),  # above the US$1.00 ceiling
+        (MAX_MICRO_USD + 1, 20, 400),  # beyond the ledger's own bound (no US$1.00 ceiling)
         (-1, 20, 400),
         (500_000, 0, 400),
         (500_000, 201, 400),
@@ -131,12 +135,14 @@ def test_out_of_range_controls_are_refused_and_nothing_changes(
 
 def test_the_store_itself_refuses_values_beyond_the_hard_bounds(tmp_path: Path) -> None:
     store = ModelAdminStore(tmp_path / "state.sqlite3")
-    for daily, calls in ((1_000_001, 1), (0, 0), (0, 201)):
+    for daily, calls in ((MAX_MICRO_USD + 1, 1), (-1, 1), (0, 0), (0, 201)):
         with pytest.raises(ValueError):
             store.set_spending_controls(0, daily, calls, "hr-admin")
     # Even a direct write past the API cannot store more (the table's CHECKs).
     with sqlite3.connect(tmp_path / "state.sqlite3") as db, pytest.raises(sqlite3.IntegrityError):
-        db.execute("INSERT INTO spending_controls VALUES (1, 1, 1000001, 20, 'now', 'someone')")
+        db.execute(
+            "INSERT INTO spending_controls VALUES (1, 1, 1000000000001, 20, 'now', 'someone')"
+        )
     assert store.set_spending_controls(0, 0, 1, "hr-admin") == 1
     with pytest.raises(RevisionConflict):
         store.set_spending_controls(0, 0, 1, "hr-admin")
@@ -335,7 +341,7 @@ def test_the_qualification_honours_the_hr_daily_limit(
 # --- the lifetime cap ---------------------------------------------------------------------------
 
 
-def test_hr_lowers_and_raises_the_lifetime_cap_within_the_allocation(
+def test_hr_lowers_and_raises_the_lifetime_cap_beyond_one_dollar(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     journey = Journey(tmp_path, monkeypatch)
@@ -356,8 +362,8 @@ def test_hr_lowers_and_raises_the_lifetime_cap_within_the_allocation(
         refused = journey.client.put(LIFETIME, json=body)
         assert refused.status_code == 400
         assert refused.json()["detail"]["code"] == "CAP_CONFIRMATION_REQUIRED"
-    # Never beyond US$1.00 above the opening usage, never below the opening usage.
-    for cap in (1_000_001, opening - 1):
+    # Never below the opening usage, never beyond the ledger's own bound.
+    for cap in (MAX_MICRO_USD + 1, opening - 1):
         refused = journey.client.put(
             LIFETIME, json={"cap_micro_usd": cap, "confirm_cap_micro_usd": cap}
         )
@@ -365,22 +371,27 @@ def test_hr_lowers_and_raises_the_lifetime_cap_within_the_allocation(
     assert _ledger(journey).status().cap == 400_000
 
     key_reads = sum(1 for r in journey.openrouter.requests if r.url.path.endswith("/key"))
+    # D-098: more than US$1.00 above the opening usage is allowed (the key's own limit and
+    # the daily limit still apply beside it; the lowest wins).
     raised = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 900_000}
+        LIFETIME, json={"cap_micro_usd": 2_500_000, "confirm_cap_micro_usd": 2_500_000}
     )
     assert raised.status_code == 200, raised.text
     # The reconciliation check read the key's usage (GET /key only; nothing was changed).
     key_requests = [r for r in journey.openrouter.requests if r.url.path.endswith("/key")]
     assert len(key_requests) == key_reads + 1 and all(r.method == "GET" for r in key_requests)
     status = _ledger(journey).status()
-    assert status.cap == 900_000
+    assert status.cap == 2_500_000
 
     # The same ledger: its id, opening usage, every call and every earlier event are kept.
     (ledger_id_after, opening_after), calls_after, events_after = _ledger_rows(journey)
     assert (ledger_id_after, opening_after) == (ledger_id, opening)
     assert calls_after == calls_before
     assert events_after[: len(events_before)] == events_before
-    assert events_after[len(events_before) :] == [("cap_lowered", 400_000), ("cap_raised", 900_000)]
+    assert events_after[len(events_before) :] == [
+        ("cap_lowered", 400_000),
+        ("cap_raised", 2_500_000),
+    ]
     audited = [a for a in _actions(journey) if a[0] == "LIFETIME_CAP_CHANGED"]
     assert ("LIFETIME_CAP_CHANGED", "applied") in audited and len(audited) >= 3
 
@@ -542,3 +553,157 @@ def test_a_late_reader_never_puts_an_older_limit_back(
     model = selector._active.model  # noqa: SLF001 - as left by the two syncs, not re-synced
     assert model._inner._daily_cap == 10_000  # noqa: SLF001 - the newer, lower limit holds
     assert model._settings.budget_daily_cap_micro_usd == 10_000  # noqa: SLF001
+
+
+# --- D-098: US$1.00 is a default, not a ceiling --------------------------------------------------
+
+
+def _key(journey: Journey, data: dict[str, Any] | None) -> None:
+    """Serve this /key reply (None: OpenRouter cannot be reached for the key)."""
+
+    original = journey.openrouter.handler
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/key"):
+            journey.openrouter.requests.append(request)
+            return httpx.Response(500) if data is None else httpx.Response(200, json={"data": data})
+        return original(request)
+
+    journey.selector.transport = httpx.MockTransport(handler)
+
+
+def test_hr_raises_the_daily_limit_above_one_dollar_with_a_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    unconfirmed = _controls(journey, 2_500_000, 20, confirm=False)
+    assert unconfirmed.status_code == 400
+    assert unconfirmed.json()["detail"]["code"] == "DAILY_CONFIRMATION_REQUIRED"
+    assert journey.client.get(f"{API}/budget").json()["controls"]["revision"] == 0
+    key_reads = sum(1 for r in journey.openrouter.requests if r.url.path.endswith("/key"))
+    saved = _controls(journey, 2_500_000, 20)
+    assert saved.status_code == 200, saved.text
+    view = saved.json()
+    assert view["controls"]["daily_cap_micro_usd"] == 2_500_000
+    assert view["daily"]["cap_micro_usd"] == 2_500_000
+    assert view["daily_cap_default_micro_usd"] == 1_000_000
+    # The increase read the key (GET only; its limit is never changed here).
+    key_requests = [r for r in journey.openrouter.requests if r.url.path.endswith("/key")]
+    assert len(key_requests) == key_reads + 1 and all(r.method == "GET" for r in key_requests)
+    # Lowering needs no confirmation and no provider check.
+    assert _controls(journey, 300_000, 20, confirm=False).status_code == 200
+    assert len([r for r in journey.openrouter.requests if r.url.path.endswith("/key")]) == len(
+        key_requests
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "code"),
+    [
+        ({"limit": None, "limit_reset": None, "limit_remaining": None, "usage": 0}, "LIMIT"),
+        ({"limit": 5.0, "limit_reset": "monthly", "limit_remaining": 5.0, "usage": 0}, "LIMIT"),
+        (None, "PROVIDER_CHECK_FAILED"),
+        ({"limit": 5.0, "limit_reset": None, "limit_remaining": 4.8, "usage": 0.2}, "RECONCILE"),
+    ],
+)
+def test_an_increase_needs_a_finite_never_resetting_key_limit_and_a_reconciled_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: dict[str, Any] | None, code: str
+) -> None:
+    expected = {
+        "LIMIT": "PROVIDER_LIMIT_REQUIRED",
+        "RECONCILE": "RECONCILIATION_REQUIRED",
+    }.get(code, code)
+    journey = Journey(tmp_path, monkeypatch)
+    assert journey.client.put(LIFETIME, json={"cap_micro_usd": 500_000}).status_code == 200
+    _key(journey, key)
+    daily = _controls(journey, 2_000_000, 20)
+    assert daily.status_code == 409 and daily.json()["detail"]["code"] == expected
+    lifetime = journey.client.put(
+        LIFETIME, json={"cap_micro_usd": 3_000_000, "confirm_cap_micro_usd": 3_000_000}
+    )
+    assert lifetime.status_code == 409 and lifetime.json()["detail"]["code"] == expected
+    view = journey.client.get(f"{API}/budget").json()
+    assert view["controls"]["revision"] == 0 and view["daily"]["cap_micro_usd"] == 1_000_000
+    assert _ledger(journey).status().cap == 500_000
+    # Decreases stay possible whatever the provider says.
+    assert _controls(journey, 100_000, 20, confirm=False).status_code == 200
+    assert journey.client.put(LIFETIME, json={"cap_micro_usd": 400_000}).status_code == 200
+    refused = [
+        e for e in journey.client.get(f"{API}/audit").json()["events"] if e["outcome"] == "refused"
+    ]
+    assert any(str(e["code"]).startswith(expected) for e in refused)
+
+
+def test_the_strictest_of_the_daily_lifetime_and_key_limits_applies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    _key(journey, {"limit": 10.0, "limit_reset": None, "limit_remaining": 10.0, "usage": 0})
+    assert (
+        journey.client.put(
+            LIFETIME, json={"cap_micro_usd": 5_000_000, "confirm_cap_micro_usd": 5_000_000}
+        ).status_code
+        == 200
+    )
+    assert _controls(journey, 8_000_000, 20).status_code == 200
+    # The key's own limit is the stricter one now: it bounds the allowance shown and used.
+    _key(journey, {"limit": 10.0, "limit_reset": None, "limit_remaining": 0.3, "usage": 0})
+    view = journey.client.post(REFRESH).json()
+    assert view["provider"]["remaining_micro_usd"] == 300_000
+    assert view["provider"]["limit_micro_usd"] == 10_000_000
+    assert view["provider"]["usage_micro_usd"] == 0 and view["provider"]["limit_reset"] is None
+    assert view["provider"]["account_credits"] is None  # a key's figures, never the account's
+    assert view["effective_remaining_micro_usd"] == 300_000
+    # Then the lifetime cap, when it is lower than both.
+    assert journey.client.put(LIFETIME, json={"cap_micro_usd": 200_000}).status_code == 200
+    assert journey.client.get(f"{API}/budget").json()["effective_remaining_micro_usd"] == 200_000
+
+
+def test_a_daily_limit_above_one_dollar_survives_a_restart_and_keeps_todays_spend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    assert journey.ask()["answered_by"] == "model"
+    _settle_verification()
+    spent = _ledger(journey).daily_status().settled_today
+    assert _controls(journey, 3_000_000, 20).status_code == 200
+    store = ModelAdminStore(Path(journey.settings.model_admin_db_path))
+    other = ModelSelector(journey.settings, None, store)
+    assert other.controlled().budget_daily_cap_micro_usd == 3_000_000
+    assert _ledger(journey).daily_status(3_000_000).settled_today == spent  # not reset
+    assert journey.ask()["answered_by"] == "model"
+
+
+def test_two_administrators_cannot_overwrite_each_others_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    assert _controls(journey, 2_000_000, 20, revision=0).status_code == 200
+    journey.client.cookies.set("clm_session", "hr2-session")
+    late = _controls(journey, 4_000_000, 20, revision=0)
+    assert late.status_code == 409 and late.json()["detail"]["code"] == "CONTROLS_CONFLICT"
+    assert (
+        journey.client.get(f"{API}/budget").json()["controls"]["daily_cap_micro_usd"] == 2_000_000
+    )
+
+
+def test_a_d096_store_is_migrated_with_its_controls_kept(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE spending_controls (id INTEGER PRIMARY KEY CHECK (id = 1),"
+            " revision INTEGER NOT NULL CHECK (revision >= 1),"
+            " daily_cap_micro_usd INTEGER NOT NULL"
+            " CHECK (daily_cap_micro_usd BETWEEN 0 AND 1000000),"
+            " max_calls INTEGER NOT NULL CHECK (max_calls BETWEEN 1 AND 200),"
+            " changed_at TEXT NOT NULL, changed_by TEXT NOT NULL)"
+        )
+        db.execute("INSERT INTO spending_controls VALUES (1, 4, 750000, 30, 'then', 'hr-admin')")
+    store = ModelAdminStore(path)
+    kept = store.spending_controls()
+    assert (kept.revision, kept.daily_cap_micro_usd, kept.max_calls) == (4, 750_000, 30)
+    assert kept.changed_by == "hr-admin" and kept.changed_at == "then"
+    assert store.set_spending_controls(4, 2_000_000, 30, "hr-admin") == 5
+    ModelAdminStore(path)  # a second open changes nothing
+    assert store.spending_controls().daily_cap_micro_usd == 2_000_000

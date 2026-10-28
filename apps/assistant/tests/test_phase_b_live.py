@@ -452,7 +452,7 @@ def test_key_and_ledger_check_passes_for_a_one_dollar_allocation(tmp_path: Path)
             250_000,
         ),
         (KeyStatus(Decimal("1.5"), None, Decimal("0.01"), Decimal("0.25")), 1_250_000, 250_000),
-        (KeyStatus(Decimal("5"), None, Decimal("4.75"), Decimal("0.25")), 1_250_001, 250_000),
+        (KeyStatus(Decimal("5"), None, Decimal("4.75"), Decimal("0.25")), 250_000, 250_000),
         (KeyStatus(Decimal("1.5"), None, Decimal("1.2"), Decimal("0.30")), 1_250_000, 250_000),
     ],
 )
@@ -730,14 +730,21 @@ def test_phase_b_questions_are_synthetic_fixture_cases() -> None:
 # --- R1 remediation (QG M1, M2, L1, L3, L4, L5) ----------------------------------------------
 
 
-def test_a_key_limit_looser_than_the_allocation_fails() -> None:
-    """L1: the provider-side backstop may leave at most the allocation plus one call."""
+def test_a_finite_key_limit_above_one_dollar_passes_but_an_unbounded_one_fails() -> None:
+    """D-098 (replacing L1's US$1 allocation bound): the provider-side backstop must be a
+    finite limit that never resets; its size is the owner's. The ledger caps apply beside it."""
 
     key = KeyStatus(Decimal("50"), None, Decimal("49.75"), Decimal("0.25"))
     report = live.Preflight()
     live.check_key(report, key, reservation_micro=30_000)
-    failed = [check.name for check in report.checks if not check.ok]
-    assert failed == ["key.limit_within_allocation"]
+    assert report.passed, report.lines()
+    for unsafe in (
+        KeyStatus(None, None, None, Decimal("0.25")),  # no limit
+        KeyStatus(Decimal("50"), "daily", Decimal("49.75"), Decimal("0.25")),  # resets
+    ):
+        report = live.Preflight()
+        live.check_key(report, unsafe, reservation_micro=30_000)
+        assert not report.passed
 
 
 @pytest.mark.parametrize(

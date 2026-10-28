@@ -62,10 +62,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
 
 from . import key_sources
-from .budget import BudgetedChatModel, BudgetLedger, LedgerError
+from .budget import MAX_MICRO_USD, BudgetedChatModel, BudgetLedger, LedgerError
 from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
-from .llm import ChatModel, OpenAICompatibleChatModel, micro_usd
+from .llm import ChatModel, OpenAICompatibleChatModel
 from .model_admin_store import (
     DAILY_CAP_MAX_MICRO_USD,
     MAX_CALLS_RANGE,
@@ -92,7 +92,6 @@ from .model_catalog import (
 from .model_factory import ASSISTANT_DIR
 from .model_profiles import ProfileConfigError
 from .model_qualification import connection_test, qualification_basis, quality_state
-from .remote_checks import ALLOCATION_LIMIT_USD
 from .remote_test import (
     RemoteTestModel,
     budget_status,
@@ -122,13 +121,13 @@ CREDENTIAL_WINDOW_SECONDS = 600.0
 MAX_CREDENTIAL_BODY = 1024
 # HR spending changes and provider-limit refreshes (D-096), per administrator in the window.
 BUDGET_ATTEMPTS = 20
-# The lifetime cap may be set from the ledger's opening provider usage up to this much above
-# it (the D-092 allocation the preflight's ledger.cap_within_allocation check also enforces).
-LIFETIME_ALLOCATION_MICRO_USD = micro_usd(ALLOCATION_LIMIT_USD)
 # D-098: at most one audit event a minute for sessions refused while a qualification runs.
 SESSION_AUDIT_SECONDS = 60.0
-# Reconciliation checks a lifetime cap increase needs (remote_checks.check_ledger).
+# D-098: what any increase of spending authority (the daily limit or the lifetime cap) needs
+# from a fresh, free preflight: a finite key limit that never resets, and a reconciled ledger.
+PROVIDER_LIMIT_CHECKS = ("key.limit_set", "key.limit_never_resets")
 CAP_RAISE_CHECKS = ("ledger.breaker_closed_no_open_calls", "ledger.usage_reconciled")
+INCREASE_CHECKS = PROVIDER_LIMIT_CHECKS + CAP_RAISE_CHECKS
 
 # Fixed messages only (the browser shows these and nothing else from a refusal).
 MESSAGES = {
@@ -161,20 +160,24 @@ MESSAGES = {
     "ORIGIN_REQUIRED": "This change must come from the AI Models page.",
     # D-096: HR spending controls.
     "CONTROLS_INVALID": (
-        "The daily limit must be US$0.00 to US$1.00 and the call limit 1 to 200. Nothing changed."
+        "The daily limit must be US$0.00 or more and the call limit 1 to 200. Nothing changed."
     ),
     "CONTROLS_CONFLICT": "The spending limits changed since this view. Refresh and try again.",
     "BUDGET_RATE_LIMITED": "Too many spending changes. Wait a few minutes and try again.",
     "LEDGER_UNAVAILABLE": "The spending ledger is missing or not usable. Nothing changed.",
-    "CAP_OUT_OF_RANGE": (
-        "The lifetime limit must stay between the key's opening usage and US$1.00 above it."
-    ),
+    "CAP_OUT_OF_RANGE": "The lifetime limit cannot be below the key's opening usage.",
     "CAP_CONFIRMATION_REQUIRED": "Confirm the new lifetime limit to raise it. Nothing changed.",
     "RECONCILIATION_REQUIRED": (
         "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted"
         " for) before the lifetime limit can be raised. Nothing changed."
     ),
     "PROVIDER_CHECK_FAILED": "The OpenRouter key could not be checked. Nothing changed.",
+    # D-098: raising a limit needs a provider-side backstop.
+    "DAILY_CONFIRMATION_REQUIRED": "Confirm the new daily limit to raise it. Nothing changed.",
+    "PROVIDER_LIMIT_REQUIRED": (
+        "A limit can only be raised while the OpenRouter key has its own limit that never"
+        " resets. Nothing changed."
+    ),
     # D-098: a paid qualification is confirmed, and refused before it starts if it cannot end.
     "PAID_CONFIRMATION_REQUIRED": (
         "Confirm the number of paid calls this qualification makes. Nothing started."
@@ -263,7 +266,7 @@ _CHECK_CODES: dict[str, tuple[str, str, bool]] = {
     "endpoint.listing": (TEMPORARILY_UNAVAILABLE, "TEST_CONNECTION", True),
     "ledger.headroom_for_one_call": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
     "ledger.daily_room_for_one_call": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
-    "ledger.cap_within_allocation": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "ledger.cap_above_opening": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
     "ledger.healthy": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
     "ledger.breaker_closed_no_open_calls": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
     "ledger.usage_reconciled": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
@@ -782,6 +785,8 @@ class SpendingControlsRequest(BaseModel):
     expected_revision: StrictInt = Field(ge=0)
     daily_cap_micro_usd: StrictInt
     max_calls: StrictInt
+    # D-098: a raise of the daily limit needs the same amount again (the HR confirmation step).
+    confirm_daily_cap_micro_usd: StrictInt | None = None
 
 
 class QualificationRequest(BaseModel):
@@ -1570,7 +1575,7 @@ def model_admin_router(
             lifetime = {
                 "opening_usage_micro_usd": status.opening_usage,
                 "cap_micro_usd": status.cap,
-                "max_cap_micro_usd": status.opening_usage + LIFETIME_ALLOCATION_MICRO_USD,
+                "max_cap_micro_usd": MAX_MICRO_USD,
                 "committed_micro_usd": status.committed,
             }
         except LedgerError:
@@ -1623,8 +1628,11 @@ def model_admin_router(
     def put_spending_controls(
         body: SpendingControlsRequest, profile: Admin, request: Request
     ) -> dict[str, Any]:
-        """The daily allowance (US$0 to US$1.00 per Singapore day) and the calls per
-        activation (1 to 200). Spend and the activation's call count are never reset."""
+        """The daily allowance per Singapore day (US$0 up; US$1.00 is only the default) and the
+        calls per activation (1 to 200). Spend and the activation's call count are never
+        reset. D-098: a higher daily limit than the one that applies needs the amount confirmed
+        and a fresh provider check (a finite key limit that never resets; a reconciled
+        ledger); a lower one is always allowed."""
 
         action = "SPENDING_CONTROLS_CHANGED"
         guard_budget(request, profile, action)
@@ -1634,6 +1642,12 @@ def model_admin_router(
             raise _refusal(400, "CONTROLS_INVALID")
         with selector.change_lock:
             recheck(request, profile, action)
+            current = apply_controls(settings, selector.spending_controls())
+            if body.daily_cap_micro_usd > current.budget_daily_cap_micro_usd:
+                if body.confirm_daily_cap_micro_usd != body.daily_cap_micro_usd:
+                    audit(profile, action, "refused", code="DAILY_CONFIRMATION_REQUIRED")
+                    raise _refusal(400, "DAILY_CONFIRMATION_REQUIRED")
+                verify_increase(profile, action)
             try:
                 revision = store.set_spending_controls(
                     body.expected_revision,
@@ -1654,24 +1668,43 @@ def model_admin_router(
         selector.sync_controls()
         return budget_view()
 
-    def reconciliation_failures() -> list[str] | None:
-        """The existing reconciliation checks (``remote_checks.check_ledger`` inside the free
-        preflight: GET /key against the ledger; no inference, nothing changed). The failed
-        checks, or None when OpenRouter or the ledger could not be checked at all."""
+    def increase_failures() -> list[str] | None:
+        """The checks an increase needs (INCREASE_CHECKS: the existing checks of the free
+        preflight, GET /key against the ledger; no inference, nothing changed) that failed, or
+        None when OpenRouter or the ledger could not be checked at all."""
 
         report, _, _ = preflight(selector.controlled(), **selector.remote_options())
         found = {check.name: check.ok for check in report.checks}
-        if any(name not in found for name in CAP_RAISE_CHECKS):
+        if any(name not in found for name in INCREASE_CHECKS):
             return None
-        return [name for name in CAP_RAISE_CHECKS if not found[name]]
+        return [name for name in INCREASE_CHECKS if not found[name]]
+
+    def verify_increase(profile: dict[str, Any], action: str) -> None:
+        """Refuse an increase unless OpenRouter confirms a finite key limit that never resets
+        and the ledger matches the key's usage (fails closed when either is unknown)."""
+
+        try:
+            failed = increase_failures()
+        except (ProfileConfigError, LedgerError):
+            failed = None
+        if failed is None:
+            audit(profile, action, "refused", code="PROVIDER_CHECK_FAILED")
+            raise _refusal(409, "PROVIDER_CHECK_FAILED")
+        if any(name in PROVIDER_LIMIT_CHECKS for name in failed):
+            audit(profile, action, "refused", code="PROVIDER_LIMIT_REQUIRED:" + ",".join(failed))
+            raise _refusal(409, "PROVIDER_LIMIT_REQUIRED")
+        if failed:
+            audit(profile, action, "refused", code="RECONCILIATION_REQUIRED:" + ",".join(failed))
+            raise _refusal(409, "RECONCILIATION_REQUIRED")
 
     @router.put("/budget/lifetime-cap")
     def put_lifetime_cap(
         body: LifetimeCapRequest, profile: Admin, request: Request
     ) -> dict[str, Any]:
-        """Set the ledger's lifetime cap between its opening provider usage and the US$1.00
-        allocation above it. A raise needs the same amount confirmed and passing
-        reconciliation checks; the ledger keeps every call, charge and earlier event."""
+        """Set the ledger's lifetime cap from its opening provider usage up (D-098: no US$1.00
+        allocation bound). A raise needs the same amount confirmed and a fresh provider check
+        (a finite key limit that never resets; a reconciled ledger); the ledger keeps every
+        call, charge and earlier event."""
 
         action = "LIFETIME_CAP_CHANGED"
         guard_budget(request, profile, action)
@@ -1685,9 +1718,7 @@ def model_admin_router(
                 audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                 raise _refusal(409, "LEDGER_UNAVAILABLE") from None
             cap = body.cap_micro_usd
-            if not (
-                status.opening_usage <= cap <= status.opening_usage + LIFETIME_ALLOCATION_MICRO_USD
-            ):
+            if not status.opening_usage <= cap <= MAX_MICRO_USD:
                 audit(profile, action, "refused", code="CAP_OUT_OF_RANGE")
                 raise _refusal(409, "CAP_OUT_OF_RANGE")
             raising = cap > status.cap
@@ -1695,21 +1726,7 @@ def model_admin_router(
                 if body.confirm_cap_micro_usd != cap:
                     audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
                     raise _refusal(400, "CAP_CONFIRMATION_REQUIRED")
-                try:
-                    failed = reconciliation_failures()
-                except (ProfileConfigError, LedgerError):
-                    failed = None
-                if failed is None:
-                    audit(profile, action, "refused", code="PROVIDER_CHECK_FAILED")
-                    raise _refusal(409, "PROVIDER_CHECK_FAILED")
-                if failed:
-                    audit(
-                        profile,
-                        action,
-                        "refused",
-                        code="RECONCILIATION_REQUIRED:" + ",".join(failed),
-                    )
-                    raise _refusal(409, "RECONCILIATION_REQUIRED")
+                verify_increase(profile, action)
             if cap != status.cap:
                 try:
                     ledger.set_cap(cap, allow_raise=raising, confirm=cap if raising else None)

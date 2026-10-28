@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .budget import MAX_MICRO_USD
 from .config import AiAssistantSettings
 
 MAX_EVENTS = 5000
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS spending_controls (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     revision INTEGER NOT NULL CHECK (revision >= 1),
     daily_cap_micro_usd INTEGER NOT NULL
-        CHECK (daily_cap_micro_usd BETWEEN 0 AND 1000000),
+        CHECK (daily_cap_micro_usd BETWEEN 0 AND 1000000000000),
     max_calls INTEGER NOT NULL CHECK (max_calls BETWEEN 1 AND 200),
     changed_at TEXT NOT NULL,
     changed_by TEXT NOT NULL
@@ -106,8 +107,11 @@ CREATE TABLE IF NOT EXISTS spending_controls (
 """
 
 QUALIFICATION_STATES = frozenset({"running", "passed", "failed", "cancelled", "error"})
-# The hard bounds of the HR spending controls (the table's CHECKs say the same).
-DAILY_CAP_MAX_MICRO_USD = 1_000_000
+# The hard bounds of the HR spending controls (the table's CHECKs say the same). D-098: the
+# daily limit's bound is the ledger's own (budget.MAX_MICRO_USD); US$1.00 is only its default.
+DAILY_CAP_MAX_MICRO_USD = MAX_MICRO_USD
+# The D-096 table's CHECK, replaced in place (rows, revision and history kept) on first open.
+_D096_DAILY_CHECK = "BETWEEN 0 AND 1000000)"
 MAX_CALLS_RANGE = (1, 200)
 
 
@@ -191,6 +195,26 @@ class ModelAdminStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.executescript(_SCHEMA)
+        self._migrate_spending_controls()
+
+    def _migrate_spending_controls(self) -> None:
+        """D-098: a D-096 store bounds the daily limit at US$1.00 in its CHECK. Rebuild that one
+        table with the new bound in one transaction, copying its row unchanged (same revision,
+        values, time and author); another process sees the new table or waits."""
+
+        with self._write() as db:
+            row = db.execute(
+                "SELECT * FROM sqlite_master WHERE type = 'table' AND name = 'spending_controls'"
+            ).fetchone()
+            if row is None or _D096_DAILY_CHECK not in str(row[4]):  # its CREATE text
+                return
+            db.execute("ALTER TABLE spending_controls RENAME TO spending_controls_d096")
+            db.execute(_SCHEMA[_SCHEMA.index("CREATE TABLE IF NOT EXISTS spending_controls") :])
+            db.execute(
+                "INSERT INTO spending_controls SELECT id, revision, daily_cap_micro_usd,"
+                " max_calls, changed_at, changed_by FROM spending_controls_d096"
+            )
+            db.execute("DROP TABLE spending_controls_d096")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
