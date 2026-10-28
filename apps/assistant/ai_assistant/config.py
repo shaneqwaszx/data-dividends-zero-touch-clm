@@ -63,6 +63,11 @@ class AiAssistantSettings(BaseSettings):
     local_api_test_max_calls: int = Field(default=20, ge=1, le=200)
     # A passing preflight is reused for this long before the next call checks again.
     local_api_test_preflight_seconds: int = Field(default=300, ge=0, le=3600)
+    # Optional GPT-OSS 120B Fast configuration (reasoning effort low) listed beside the
+    # configured one on AI Models (off by default). It is the same model, endpoint, key, ledger
+    # and limits with its own configuration identity: it needs its own passing (paid)
+    # qualification before HR can activate it; another setting's qualification never counts.
+    remote_low_reasoning_profile_enabled: bool = False
     # The paid qualification: Phase B question ids (P01#1,...) and their count.
     local_api_test_qualification_questions: str = ""
     local_api_test_qualification_count: int = Field(default=0, ge=0, le=17)

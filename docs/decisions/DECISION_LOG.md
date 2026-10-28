@@ -1416,3 +1416,19 @@ D-092 stays PROPOSED; D-095 V7 and the D-095 B1–B6 proposal are amended only a
 
 Not decided here: any amount above US$1.00 a day or US$1.00 over the opening usage (D-095 B1–B6
 remain a proposal for that); changing the OpenRouter key's own limit; any non-synthetic data.
+
+## D-097 - AI Assistant GPT-OSS 120B naming, optional Fast (low reasoning) configuration, answer progress and latency (OWNER-AUTHORISED, local development scope only)
+
+Status: owner-authorised on 2026-10-28 ("Unified GPT-OSS 120B Speed, Fast Mode, Progress UX and
+Naming Improvement"); bounded implementation, offline timing simulations and independent
+review; no real or paid OpenRouter call. Same scope as D-094/D-095/D-096 (synthetic data, the
+owner's machine). Evidence: `.ai-pipeline/reports/D097_GPT_OSS_LATENCY_FAST_MODE_AND_NAMING.md`.
+Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. D-092 stays PROPOSED.
+
+| # | Decision |
+| --- | --- |
+| Y1 | **Default unchanged.** GPT-OSS 120B with reasoning effort medium on `deepinfra/bf16` stays the configured model, with the same profile id, fingerprint, prompts, token limits, endpoint, provider pinning, ZDR policy, price ceilings and qualification basis (`2bd93aeb8886…`, unchanged). |
+| Y2 | **Naming.** The page shows *GPT-OSS 120B — Balanced* (medium) with Model, Provider (OpenRouter / DeepInfra), Framework (Case-grounded Assistant), Reasoning and External inference (verified synthetic cases only under D-095; the approved synthetic test case only under D-094) listed separately. The server sends closed codes; the labels live in the page, so `synthetic_boundary.json` (a basis file built from `ai_assistant` string constants) is unchanged. D-094/D-095 remain authorisation identifiers. No production-readiness claim. |
+| Y3 | **Optional Fast configuration.** `AI_ASSISTANT_REMOTE_LOW_REASONING_PROFILE_ENABLED` (default off) lists *GPT-OSS 120B — Fast*: profile id `openrouter_gpt_oss_120b_low`, reasoning effort low, everything else the same (key, ledger, daily/lifetime/call limits, eligibility, guard). Its fingerprint differs, so Balanced's qualification never counts; HR must run its paid qualification (at low) before activating it. No automatic switching, no automatic qualification. Removing the setting reverts a stored Fast activation to the baseline at the next start (audited). Its speed and quality are not established. GPT-OSS 20B is a research comparison only and is not offered. |
+| Y4 | **Answer progress.** The chat shows only stages the page observes (the reply starting after the case is read and checked; the first line that passed the exact-line check; the final answer) and the elapsed time; no percentage, estimate, reasoning or unapproved text. After an answer, "What this answer used" lists model or case data, the model name, the number of cited sources and the browser-measured time. OpenRouter's reasoning exclusion is unchanged. |
+| Y5 | **Latency.** Measured offline, the application adds about 65 ms before the provider request; about 95% of the time to the first line is provider-side reasoning (live Medium p50 12.4 s). Implemented: generation metadata is read every second for the first 10 s within the caller's unchanged 120 s bound (`openrouter_account.py`, not a basis file): −1.9 s (−34%) for a follow-up asked while the previous call is still being verified; no other measured change. Not implemented (basis files; would need paid requalification): generation reference from the first chunk (a cancelled or timed-out call currently opens the breaker), server-side stage events, background preflight refresh. |

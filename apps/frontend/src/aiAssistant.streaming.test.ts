@@ -117,3 +117,23 @@ it("EOF after legitimate text cannot silently become a successful done", async (
   await expect(askAiAssistantStreaming("case", "why", [], onText)).rejects.toThrow(/stopped/);
   expect(onText.mock.calls).toEqual([[answer.answer]]);
 });
+
+it("reports the reply starting once, before its text, and never after an abort", async () => {
+  const order: string[] = [];
+  respond([bytes(JSON.stringify({ type: "text", text: "line" }) + "\n" + done)]);
+  await askAiAssistantStreaming("case", "why", [], () => order.push("text"), undefined, [], () => order.push("connected"));
+  expect(order).toEqual(["connected", "text"]);
+
+  const controller = new AbortController();
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({ cancel });
+  const connected = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    controller.abort();
+    return new Response(body, { headers: { "Content-Type": "application/x-ndjson" } });
+  }));
+  await expect(askAiAssistantStreaming("case", "why", [], vi.fn(), controller.signal, [], connected))
+    .rejects.toMatchObject({ name: "AbortError" });
+  expect(connected).not.toHaveBeenCalled();
+  expect(cancel).toHaveBeenCalledTimes(1);
+});

@@ -456,7 +456,10 @@ def run_job(
     if entry.source == "code":
         # D-096: the HR daily allowance applies to the paid qualification too (its own call
         # count stays the environment's, so a low chat call limit cannot break a run).
-        remote = apply_controls(settings, store.spending_controls(), calls=False)
+        # The configuration's own settings (its reasoning effort) are the ones qualified.
+        remote = entry.settings_for(
+            apply_controls(settings, store.spending_controls(), calls=False)
+        )
         _run_remote(store, qualification_id, item, remote, environ, transport, basis, fetch)
         return
     try:

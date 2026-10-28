@@ -139,9 +139,9 @@ its newest 5,000, so a flood of refused requests cannot push model changes out o
 ## 9. D-094 local synthetic test mode (development machines only)
 
 Off unless the service environment names `AI_ASSISTANT_LOCAL_API_TEST_DECISION=D-094`. Then,
-and only when every condition holds, the OpenRouter profile is listed as **GPT-OSS 120B via
-OpenRouter (synthetic test only, D-094)** and HR can test, qualify, activate and roll it back
-like a local model:
+and only when every condition holds, the OpenRouter profile is listed as **GPT-OSS 120B —
+Balanced** (with reasoning effort medium; the page names the configured effort) and HR can
+test, qualify, activate and roll it back like a local model (naming: section 11):
 
 | Condition | Setting or check |
 | --- | --- |
@@ -266,3 +266,37 @@ audited and applied without a restart, a new activation or a new qualification (
 qualification basis does not include them). `scripts/budget_ledger.py status` shows the
 environment daily figure, not an HR value. Nothing raises a cap or a key limit automatically,
 and auto top-up must stay off.
+
+## 11. GPT-OSS 120B naming, the optional Fast configuration and answer progress (D-097)
+
+**Naming.** AI Models shows the remote model as *GPT-OSS 120B — Balanced* (reasoning effort
+medium) and, beside it, Model: GPT-OSS 120B · Provider: OpenRouter / DeepInfra · Framework:
+Case-grounded Assistant · Reasoning: Medium · External inference: Verified synthetic cases
+only (D-095), or *The approved synthetic test case only (D-094)* in D-094 mode. The profile id
+(`openrouter_gpt_oss_120b`), its fingerprint and its qualification are unchanged; D-094 and
+D-095 remain the authorisation identifiers. Balanced and Fast are reasoning settings of one
+model, not separate model releases. There is no "GPT-OSS 120B Instant" model.
+
+**Optional Fast configuration (off by default).** With
+`AI_ASSISTANT_REMOTE_LOW_REASONING_PROFILE_ENABLED=true` a second entry, *GPT-OSS 120B — Fast*
+(profile id `openrouter_gpt_oss_120b_low`, reasoning effort low), is listed when the configured
+effort is not already low. It uses the same model, endpoint, provider pinning, key, ledger,
+daily and lifetime limits, call limit, synthetic eligibility and exact-line guard. It has its
+own fingerprint, so:
+
+- it is **not qualified** until HR runs its own qualification (paid calls, at reasoning effort
+  low; Balanced's qualification never counts), and it cannot be activated before that;
+- nothing switches to it automatically; HR activates it, and rolls back like any model;
+- if the setting is removed while Fast is active, the service reverts to the baseline at the
+  next start (audited `STARTUP_REVERTED`, `PROFILE_MISSING`).
+
+Its speed and answer quality on this task are **not established**: no paid comparison has been
+run (see the D-097 record for the evidence and the proposed A/B run).
+
+**Answer progress (chat).** The panel shows the stages it actually observes: *Preparing case
+information* (until the service starts its reply, which it does after reading the case and
+running its checks), *Checking model readiness and waiting for the answer* (until the first
+line that passed the exact-line check), *Showing lines that passed the check*, and the elapsed
+time. No percentage, estimate or model reasoning is shown. After an answer, *What this answer
+used* says whether the model or the case data produced it, the model name, the number of
+cited sources and the time measured in the browser.

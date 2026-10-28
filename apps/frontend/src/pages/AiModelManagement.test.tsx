@@ -14,6 +14,7 @@ import type { AuthenticatedProfile } from "../types";
 import AiModelManagement, {
   AUDIT_REFRESH_MS,
   modelManagementQueryKeys,
+  profileName,
   readable,
   amountText,
   RUNNING_REFRESH_MS,
@@ -657,5 +658,43 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     act(() => confirm!.click());
     await act(async () => button(view, "Update Lifetime Limit").click());
     await waitFor(() => expect(view.textContent).toContain("The ledger must be reconciled with OpenRouter"));
+  });
+});
+
+// --- GPT-OSS 120B naming and the optional Fast configuration ------------------------------------
+
+describe("AiModelManagement GPT-OSS 120B naming", () => {
+  const details = (effort: string) => ({
+    model: "GPT-OSS 120B", provider: "OPENROUTER_DEEPINFRA", scope: "VERIFIED_SYNTHETIC_CASES",
+    reasoning_effort: effort, decision: "D-095",
+  });
+  const balanced = profile({
+    profile_id: "openrouter_gpt_oss_120b", display_name: "GPT-OSS 120B (reasoning medium)",
+    source: "code", deployment: "openrouter", endpoint: "openrouter.ai · deepinfra/bf16", status: "selectable",
+    active: true, activation_blockers: [], details: details("medium"),
+  });
+  const fast = profile({
+    profile_id: "openrouter_gpt_oss_120b_low", display_name: "GPT-OSS 120B (reasoning low)",
+    source: "code", deployment: "openrouter", endpoint: "openrouter.ai · deepinfra/bf16", status: "selectable",
+    active: false, activation_blockers: ["NOT_QUALIFIED"], details: details("low"),
+  });
+
+  it("names the configurations by model and reasoning setting, not by a decision id", () => {
+    expect(profileName(balanced)).toBe("GPT-OSS 120B — Balanced");
+    expect(profileName(fast)).toBe("GPT-OSS 120B — Fast");
+    expect(profileName(profile({}))).toBe("Environment baseline"); // other profiles keep their own names
+  });
+
+  it("shows provider, framework, reasoning and eligibility separately, and Fast's own qualification", async () => {
+    const data = { ...overview, active: { ...overview.active, profile_id: "openrouter_gpt_oss_120b", display_name: "GPT-OSS 120B (reasoning medium)" }, profiles: [profile({}), balanced, fast] };
+    const view = mount(server(data));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS 120B — Fast"));
+    expect(view.textContent).toContain("GPT-OSS 120B — Balanced");
+    expect(view.textContent).toContain("Provider: OpenRouter / DeepInfra · Framework: Case-grounded Assistant · Reasoning: Medium");
+    expect(view.textContent).toContain("External inference: Verified synthetic cases only (D-095)");
+    expect(view.textContent).toContain("Reasoning: Low");
+    expect(view.textContent).toContain("the Balanced qualification does not count for it");
+    expect(view.textContent).not.toContain("synthetic test only, D-094");
+    expect(button(view, "Activate", "GPT-OSS 120B — Fast").disabled).toBe(true);
   });
 });
