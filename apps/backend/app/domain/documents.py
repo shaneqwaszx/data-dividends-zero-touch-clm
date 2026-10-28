@@ -343,9 +343,13 @@ class DocumentProcessingRecord(BaseModel):
     )
     size_bytes: int = Field(gt=0)
     # D-095: SHA-256 of the uploaded bytes, computed by this backend at upload (never supplied
-    # by a browser). Absent on records stored before schema 16. Served only by the narrow
-    # document-digests route, never in the browser document projection.
-    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    # by a browser). Absent on records stored before schema 16. Backend-only like other
+    # excluded evidence: persisted (the store writes every declared field) but left out of
+    # every model_dump, so evidence fingerprints of older cases do not change and no
+    # projection can carry it. Served only by the narrow document-digests route.
+    content_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$", exclude=True, repr=False
+    )
     profile: DocumentProfile
     provider_environment: IdpEnvironment | None = None
     state: DocumentProcessingState

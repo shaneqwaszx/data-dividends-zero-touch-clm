@@ -1378,9 +1378,11 @@ data, never Live CLM behaviour.
 **Owner review of PR #126 (2026-10-28).** The owner accepted the D-095 direction and the V6
 wording as above, kept the PR on hold for one required correction (V2 by backend-computed
 SHA-256, implemented as revised V2: domain field `DocumentProcessingRecord.content_sha256`,
-case snapshot schema 15 to 16 with a strict schema-15 reader that rejects a digest key and
-reads older documents as digest-less, the narrow case-scoped digests route, fixture hashes in
-the manifest), kept US$1.00 per Singapore day as the desired ceiling, and asked for a separate
+backend-only like the other excluded evidence (persisted, but in no `model_dump`, so older
+cases' evidence fingerprints and every browser projection are unchanged); case snapshot
+schema 15 to 16 with a strict schema-15 reader that rejects a digest key, reads older
+documents as digest-less, keeps every hidden field and never rewrites the stored envelope;
+the narrow case-scoped digests route; fixture hashes in the manifest), kept US$1.00 per Singapore day as the desired ceiling, and asked for a separate
 proposal for repeated US$1.00 days. No paid inference is authorised.
 
 **Proposal: repeated US$1.00 days (PROPOSED, not implemented; needs the owner's decision).**

@@ -786,8 +786,13 @@ class DurableCaseSnapshotV15(BaseModel):
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
+        # From the attributes, not model_dump: a dump would drop backend-only excluded
+        # evidence (for example reconciliation raw values and automation digests).
         return DurableCaseSnapshot.model_validate(
-            {**self.model_dump(), "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION}
+            {
+                **{name: getattr(self, name) for name in type(self).model_fields},
+                "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION,
+            }
         )
 
     @model_validator(mode="after")

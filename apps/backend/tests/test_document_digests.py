@@ -3,6 +3,7 @@ document record (case snapshot schema 16) and serves it only through the narrow,
 document-digests route. Synthetic fixtures only; no network."""
 
 import hashlib
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -10,6 +11,12 @@ from uuid import uuid4
 import httpx
 import pytest
 from test_document_api import create_case, upload
+from test_phase13_auth_rbac import (  # noqa: F401 - the fixture is used by name
+    RawTestClient,
+    _login,
+    _raw_client,
+    runtime_credentials,
+)
 
 from app.composition import build_onboarding_service
 from app.config import Settings
@@ -154,8 +161,9 @@ def _snapshot(digest: str | None) -> DurableCaseSnapshot:
 
 
 def _raw(snapshot: DurableCaseSnapshot) -> dict[str, object]:
-    raw: dict[str, object] = snapshot.model_dump(mode="json", exclude_unset=False)
-    raw["_id"] = str(snapshot.case_id)
+    """The envelope exactly as the store writes it (every declared field, excluded ones too)."""
+
+    raw: dict[str, object] = object.__new__(MongoCaseStore)._encode(snapshot)  # noqa: SLF001
     return raw
 
 
@@ -172,7 +180,7 @@ def test_a_schema_15_document_reads_without_a_digest_and_is_not_rewritten() -> N
     raw["schema_version"] = 15
     for document in raw["documents"]:  # type: ignore[attr-defined]
         document.pop("content_sha256")
-    before = {**raw}
+    before = deepcopy(raw)
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
     assert decoded.schema_version == 16
     assert decoded.documents[0].content_sha256 is None
@@ -190,3 +198,74 @@ def test_a_schema_15_envelope_cannot_carry_a_digest_even_if_null(digest: str | N
 def test_a_malformed_digest_is_refused() -> None:
     with pytest.raises(ValueError):
         _snapshot("not-a-sha256")
+
+
+# --- QG R4: populated schema-15 cases stay readable, and fingerprints do not drift ------------
+
+
+def test_a_populated_schema_15_case_upgrades_without_losing_hidden_evidence() -> None:
+    """QG R4-1: a real schema-15 case (reconciliation and automation evidence, including
+    backend-only excluded fields) reads as schema 16 without loss and without a rewrite."""
+
+    from test_slice_a_legacy_compatibility import rich_v7_snapshot
+
+    codec = object.__new__(MongoCaseStore)
+    source = rich_v7_snapshot("RECONCILIATION")
+    assert source.reconciliation is not None and source.documents
+    raw = codec._encode(source)  # noqa: SLF001
+    raw["schema_version"] = 15
+    for document in raw["documents"]:
+        document.pop("content_sha256")
+    original = deepcopy(raw)
+
+    decoded = codec._decode(raw)  # noqa: SLF001
+
+    assert raw == original  # the read never rewrites the stored envelope
+    assert decoded.schema_version == 16
+    assert all(document.content_sha256 is None for document in decoded.documents)
+    expected = deepcopy(original)
+    expected["schema_version"] = 16
+    for document in expected["documents"]:
+        document["content_sha256"] = None
+    assert codec._encode(decoded) == expected  # noqa: SLF001 - every hidden field retained
+
+
+def test_the_digest_never_enters_a_dump_so_evidence_fingerprints_do_not_drift() -> None:
+    """QG R4-2: reconciliation, zero-touch and review fingerprints hash model dumps of the
+    document records; the digest is backend-only, so a schema-15 record (no digest) and the
+    same record with a digest dump identically."""
+
+    from app.domain.review_decisions import document_review_source_fingerprint
+
+    with_digest = _snapshot(hashlib.sha256(b"fixture").hexdigest()).documents[0]
+    without = with_digest.model_copy(update={"content_sha256": None})
+    assert "content_sha256" not in with_digest.model_dump(mode="json")
+    assert with_digest.model_dump(mode="json") == without.model_dump(mode="json")
+    assert with_digest.model_dump_json() == without.model_dump_json()
+    assert document_review_source_fingerprint(with_digest) == (
+        document_review_source_fingerprint(without)
+    )
+    # Persistence still keeps it.
+    raw = _raw(_snapshot(with_digest.content_sha256))
+    assert raw["documents"][0]["content_sha256"] == with_digest.content_sha256  # type: ignore[index]
+
+
+def test_another_teams_case_digests_are_a_safe_404(
+    runtime_credentials: tuple[str, dict[str, str]],  # noqa: F811 - the imported fixture
+) -> None:
+    """QG R4-3: the digests route has the document list's team scope."""
+
+    password, hashes = runtime_credentials
+    team_a, _ = _raw_client(hashes)
+    csrf = _login(team_a, "maya-lim", password)
+    created = team_a.post(
+        "/api/clm/zero-touch/cases", json={"uen": "202400001A"}, headers={"X-CSRF-Token": csrf}
+    )
+    case_id = created.json()["case"]["case_id"]
+    assert team_a.get(f"/api/onboarding/cases/{case_id}/document-digests").status_code == 200
+    team_b = RawTestClient(team_a.app)
+    _login(team_b, "sophia-ng", password)
+    foreign = team_b.get(f"/api/onboarding/cases/{case_id}/document-digests")
+    absent = team_b.get(f"/api/onboarding/cases/{uuid4()}/document-digests")
+    assert foreign.status_code == absent.status_code == 404
+    assert foreign.json() == absent.json()
