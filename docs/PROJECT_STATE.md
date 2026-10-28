@@ -1093,14 +1093,19 @@ across the intervening merges is outstanding (see architectural debt).
   status vs registry connection, director evidence, GoldTier handoff, unrelated disclaimers,
   UEN meaning); the Low findings listed in PRs #118 and #119.
 
-## AI Assistant model management - unmerged candidate, 2026-10-27
+## AI Assistant model management (D-093) merged - 2026-10-27
 
-PR #121, branch `feat/assistant-model-management-20261027`, started from main
-`23c45a7` and integrated with main `176e09b` (PR #122, D-092 P11 to P14) by merge, without
-conflicts. Not merged to main; this section records only the candidate's delta.
+Merged to main `c36b8aff5213037d9ed0710e69f8b9afc7c8c614` by the repository owner
+(`shaneqwaszx`) on 2026-10-27. PR #121 (branch `feat/assistant-model-management-20261027`)
+was squash-merged with a single parent, `176e09b`; its tree, `5e259da`, equals the reviewed
+head `d57856d`. The branch started from main `23c45a7` and integrated main `176e09b`
+(PR #122, D-092 P11 to P14) by merge, without conflicts. This section records only the
+D-093 delta. The structured `verified_main_sha` baseline above is unchanged (`8fb5a43`).
 - **Decisions:** D-093 accepted by the owner for the local-only POC scope (ADR-012
-  Amendment 4). D-091 and D-092 (PROPOSED) unchanged; remote inference stays unavailable to
-  the service.
+  Amendment 4). D-091 and D-092 (PROPOSED) unchanged. As merged, D-093 manages only
+  IT-configured local loopback models and remote inference stayed unavailable to the
+  service. The later D-094 (PR #123, next section) is a separate, off-by-default local
+  synthetic OpenRouter test exception; D-093 is unchanged for local profiles.
 - **Behaviour:** HR (new backend capability `MODEL_CONFIG_MANAGE`, HR only) can test,
   technically qualify, activate and roll back IT-configured local loopback models on the new
   **AI Models** page; the `AI_ASSISTANT_LLM_*` model remains the baseline and the fallback.
@@ -1123,7 +1128,9 @@ conflicts. Not merged to main; this section records only the candidate's delta.
   activation with the acknowledgement and rollback succeeded. A developer browser smoke test
   of the AI Models page (RM/Director refused, HR flow end to end) passed on `aea87b9`.
   Answer quality `NOT_SCORED` (gold stub). Not Live evidence.
-- **Open:** the owner's merge of PR #121 (hosted CI billing-blocked, not executed); Low
+- **CI:** hosted CI was not executed (billing/infrastructure blocked); the owner merged with
+  that limitation.
+- **Open:** rerun hosted CI once billing access returns after 1 November 2026; Low
   follow-ups F-7, N-1, N-2 and O-1; owner gold labels (A-6) before answer quality can be
   scored; any model activated through management must be re-qualified after a later change
   to the answer code.
