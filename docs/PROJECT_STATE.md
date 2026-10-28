@@ -1279,5 +1279,5 @@ Delta only; nothing here is merged or Live.
 - **Owner decisions (2026-10-28):** automatic Fast → Balanced switching NOT APPROVED; lifetime-cap
   race fixed (ledger-level compare-and-set); GPT-OSS-only fallback (no substitute model).
 - **Open:** a paid requalification of Balanced and Fast (T7; plan in
-  `.ai-pipeline/reports/D098_REQUALIFICATION_PLAN_WINDOWS.md`); owner merge of PR #127, then
-  this stacked PR. The qualification sign-out was not reproduced (diagnostics only).
+  `.ai-pipeline/reports/D098_REQUALIFICATION_PLAN_WINDOWS.md`); owner merge of PR #128. The
+  qualification sign-out was not reproduced (diagnostics only).
