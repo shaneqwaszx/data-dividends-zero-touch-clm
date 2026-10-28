@@ -20,7 +20,7 @@ backend with the caller's own session; activation and rollback ask again inside 
 that applies them. Refusals of a signed-in caller are audited. Nothing here reads a case or
 an answer record, and the browser can only name a profile id, except that an HR
 administrator may hand the server an OpenRouter key when no environment or .env key exists
-(credentials.py): it is kept in server memory only and never sent back, logged or audited;
+(key_sources.py): it is kept in server memory only and never sent back, logged or audited;
 changing it needs the Origin header of an allowed page and is rate limited.
 
 Switching is atomic: each answer takes one snapshot of the active model when it starts and
@@ -49,7 +49,7 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from . import credentials
+from . import key_sources
 from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .llm import ChatModel, OpenAICompatibleChatModel
@@ -78,6 +78,7 @@ from .remote_test import (
     RemoteTestModel,
     budget_status,
     connection_check,
+    forget_provider,
     qualification_manifest,
 )
 
@@ -388,10 +389,10 @@ def qualification_environment() -> dict[str, str] | None:
     this process's memory holds) as OPENROUTER_API_KEY. Never on its command line; None (the
     inherited environment) when the key comes from the environment or .env, or there is none."""
 
-    key, status = credentials.resolve()
+    key, status = key_sources.resolve()
     if key is None or status.source != "hr_memory":
         return None
-    return {**os.environ, credentials.CREDENTIAL_VARIABLE: key.get_secret_value()}
+    return {**os.environ, key_sources.CREDENTIAL_VARIABLE: key.get_secret_value()}
 
 
 def _last_good(stored: Activation) -> Choice | None:
@@ -982,7 +983,7 @@ def model_admin_router(
         return budget_status(settings, environ=selector.environ)
 
     def credential_view() -> dict[str, Any]:
-        return credentials.resolve(selector.environ)[1].view()
+        return key_sources.resolve(selector.environ)[1].view()
 
     @router.get("/credential")
     def get_credential(profile: Admin) -> dict[str, Any]:
@@ -1011,7 +1012,7 @@ def model_admin_router(
             raise _refusal(429, "CREDENTIAL_RATE_LIMITED")
 
     def environment_managed() -> bool:
-        return credentials.resolve(selector.environ)[1].source in ("environment", "env_file")
+        return key_sources.resolve(selector.environ)[1].source in ("environment", "env_file")
 
     @router.put("/credential")
     async def put_credential(request: Request, profile: Admin) -> dict[str, Any]:
@@ -1029,7 +1030,7 @@ def model_admin_router(
                 body = None
             if isinstance(body, dict) and set(body) == {"api_key"}:
                 key = body["api_key"]
-        if not isinstance(key, str) or not credentials.HR_KEY.fullmatch(key):
+        if not isinstance(key, str) or not key_sources.HR_KEY.fullmatch(key):
             audit(profile, action, "refused", code="CREDENTIAL_INVALID")
             raise _refusal(400, "CREDENTIAL_INVALID")
         secret = SecretStr(key)
@@ -1038,7 +1039,8 @@ def model_admin_router(
         if environment_managed():
             audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
             raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
-        credentials.HR_STORE.set(secret, str(profile.get("user_id")))
+        key_sources.HR_STORE.set(secret, str(profile.get("user_id")))
+        forget_provider()  # the spending view's key limit was read for the previous key
         audit(profile, action, "applied")
         return credential_view()
 
@@ -1050,9 +1052,10 @@ def model_admin_router(
         if environment_managed():
             audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
             raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
-        if not credentials.HR_STORE.clear():
+        if not key_sources.HR_STORE.clear():
             audit(profile, action, "refused", code="CREDENTIAL_NOT_HR_MANAGED")
             raise _refusal(409, "CREDENTIAL_NOT_HR_MANAGED")
+        forget_provider()
         audit(profile, action, "applied")
         return credential_view()
 

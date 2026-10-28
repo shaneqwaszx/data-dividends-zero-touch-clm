@@ -28,7 +28,7 @@ D-095 (development synthetic mode, synthetic_eligibility.py) adds, without chang
 the chat may also send messages that passed the eligibility check (a single-use ticket for
 exactly those messages); every call is inside the ledger's daily allowance (US$1.00 per
 Singapore day at most, budget.py) and the preflight checks it; the key may come from the
-process environment, the git-ignored .env or an HR administrator (credentials.py), and when it
+process environment, the git-ignored .env or an HR administrator (key_sources.py), and when it
 changes the model is rebuilt with it and the full preflight runs again before the next call.
 ``budget_status`` is the read-only spending view for the AI Models page.
 """
@@ -48,7 +48,7 @@ from urllib.parse import urlsplit
 
 import anyio
 
-from . import credentials, synthetic_eligibility
+from . import key_sources, synthetic_eligibility
 from .budget import (
     DAILY_CAP_CEILING_MICRO_USD,
     BudgetLedger,
@@ -233,6 +233,13 @@ _provider: dict[str, Any] = {}
 _provider_lock = threading.Lock()
 
 
+def forget_provider() -> None:
+    """The key changed: the last key-limit reading no longer applies."""
+
+    with _provider_lock:
+        _provider.clear()
+
+
 def _remember_provider(report: Preflight) -> None:
     checks = [c for c in report.checks if c.name.startswith(("key.", "gate.account"))]
     with _provider_lock:
@@ -292,7 +299,7 @@ class RemoteTestModel:
         self._clock = clock
         self._background = background
         self._ledger_file = ledger_path(remote_settings(settings))
-        self._credential = credentials.identity(credentials.resolve(environ)[0])
+        self._credential = key_sources.identity(key_sources.resolve(environ)[0])
         self._inner = self._build_inner()
         try:
             self._start_call = BudgetLedger.open(self._ledger_file).last_call_id()
@@ -304,20 +311,30 @@ class RemoteTestModel:
         self._checked_at: float | None = None
         self._account: OpenRouterAccount | None = None
 
-    def _build_inner(self) -> ChatModel:
-        """The budget-guarded remote adapter with the current key (model_factory.py)."""
+    def _pinned(self) -> tuple[str | None, Mapping[str, str] | None]:
+        """The key marker and the key source for one call: the key is read once, so the
+        preflight checks the very key the call then uses (a test mapping is kept as is)."""
 
+        key = key_sources.resolve(self._environ)[0]
+        if self._environ is not None or key is None:
+            return key_sources.identity(key), self._environ
+        return key_sources.identity(key), {key_sources.CREDENTIAL_VARIABLE: key.get_secret_value()}
+
+    def _build_inner(self, environ: Mapping[str, str] | None = None) -> ChatModel:
+        """The budget-guarded remote adapter with the given key source (model_factory.py)."""
+
+        environ = self._environ if environ is None else environ
         remote = remote_settings(self._settings)
         if self._transport is not None:  # tests: an in-memory transport only
             return build_chat_model(
                 remote,
                 transport=self._transport,
-                environ=self._environ,
+                environ=environ,
                 budget_ledger=self._ledger_file,
             )
         return build_chat_model(
             remote,
-            environ=self._environ,
+            environ=environ,
             budget_ledger=self._ledger_file,
             allow_live_network=True,
         )
@@ -352,17 +369,18 @@ class RemoteTestModel:
         with self._lock:
             if readiness(self._settings) is not None:
                 raise self._refuse("not ready")
-            marker = credentials.identity(credentials.resolve(self._environ)[0])
+            marker, environ = self._pinned()
             if marker is None:
                 raise self._refuse("no usable key")
             if marker != self._credential:
                 # Another key: rebuild with it, and run the full preflight (its limit, its
                 # usage against the ledger) before it is used.
                 try:
-                    self._inner = self._build_inner()
+                    self._inner = self._build_inner(environ)
                 except ProfileConfigError:
                     raise self._refuse("model rebuild") from None
                 self._credential, self._checked_at, self._account = marker, None, None
+                forget_provider()  # the shown key limit was another key's
             ledger = BudgetLedger.open(self._ledger_file)
             # Calls since this model was built (activation or restart), open ones included.
             calls = len(ledger.closed_calls_after(self._start_call)) + ledger.status().open_calls
@@ -377,7 +395,7 @@ class RemoteTestModel:
             if stale:
                 report, _, account = preflight(
                     self._settings,
-                    environ=self._environ,
+                    environ=environ,
                     transport=self._transport,
                     fetch=self._fetch,
                 )
@@ -477,7 +495,7 @@ def budget_status(
         "daily_cap_ceiling_micro_usd": DAILY_CAP_CEILING_MICRO_USD,
         "daily_cap_micro_usd": settings.budget_daily_cap_micro_usd,
     }
-    _, credential = credentials.resolve(environ)
+    _, credential = key_sources.resolve(environ)
     view["credential"] = credential.view()
     now = time.time()
     view["next_reset_at"] = _iso(next_singapore_reset_ms(int(now * 1000)) / 1000)

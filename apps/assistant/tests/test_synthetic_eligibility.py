@@ -558,3 +558,45 @@ def test_qualification_and_chat_share_the_daily_allowance(
     overview = journey.client.get(API).json()
     assert overview["budget"]["refusal"] == "DAILY_ALLOWANCE_EXHAUSTED"
     assert SENTINEL not in journey.client.get(API).text
+
+
+def test_a_reviewers_typed_correction_is_not_trusted() -> None:
+    """QG F2: the backend reports a reviewer's correction as a DOCUMENT_IDP observation from
+    HUMAN_REVIEW on a verified document. It is typed text: refused unless grounded."""
+
+    summary, documents = copy.deepcopy(MULTIPLE_OWNER)
+    corrected = {
+        "observation_id": "00000000-0000-4000-8000-000000000001",
+        "field_name": "registered_address",
+        "normalized_value": "WONG KAH WEI, 7 REAL HOME ROAD",
+        "source_kind": "DOCUMENT_IDP",
+        "source_system": "HUMAN_REVIEW",
+        "environment": None,
+        "observed_at": "2026-10-28T01:00:00Z",
+        "evidence_reference": "DOCUMENT_REVIEW_CORRECTION",
+        "document_id": documents[0]["document_id"],
+        "document_display_name": documents[0]["display_name"],
+        "confidence": None,
+        "validity": "VALID",
+    }
+    summary["reconciliation"]["discrepancies"] = [
+        {
+            "field_name": "registered_address",
+            "status": "CONFLICT",
+            "observations": [corrected],
+            "decision": None,
+        }
+    ]
+    snapshot = CaseSnapshot(summary, documents, ME)
+    assert _check(snapshot, "Next?") == "SYNTHETIC_VALUE_NOT_GROUNDED"
+    # The same correction typing a value the verified document itself holds is grounded.
+    corrected["normalized_value"] = "18 SHAREHOLDER ROAD, #03-01, 049003, SG"
+    assert _check(snapshot, "Next?") is None
+    # An extraction observation naming a verified file but another document id is not trusted.
+    corrected.update(
+        source_system="LOCAL_PDF_TEXT",
+        evidence_reference="UNIQUE_LABELLED_TEXT",
+        normalized_value="1 UNTRUSTED LANE",
+        document_id="00000000-0000-4000-8000-0000000000ff",
+    )
+    assert _check(snapshot, "Next?") == "SYNTHETIC_VALUE_NOT_GROUNDED"

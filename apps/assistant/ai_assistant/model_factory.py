@@ -17,7 +17,7 @@ Every refusal is a ``ProfileConfigError`` with a closed code and a message that 
 setting, never its value. ``OPENROUTER_API_KEY`` is read last, only for the remote profile,
 only after all other checks pass: from the process environment, else (D-095 addendum) the
 git-ignored apps/assistant/.env, else a key an HR administrator entered (memory only); see
-``credentials.py``.
+``key_sources.py``.
 """
 
 import math
@@ -28,7 +28,7 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-from . import credentials
+from . import key_sources
 from .budget import LEASE_GRACE_SECONDS, BudgetedChatModel, BudgetLedger, LedgerError
 from .config import AiAssistantSettings
 from .llm import ChatModel, OpenAICompatibleChatModel, is_local_model_url
@@ -46,7 +46,7 @@ from .model_profiles import (
 from .openrouter import LIVE_NETWORK, OpenRouterChatModel, require_offline_transport
 from .openrouter_account import OpenRouterAccount
 
-CREDENTIAL_VARIABLE = credentials.CREDENTIAL_VARIABLE
+CREDENTIAL_VARIABLE = key_sources.CREDENTIAL_VARIABLE
 _DEFAULTS = AiAssistantSettings.model_fields
 ASSISTANT_DIR = Path(__file__).resolve().parents[1]
 
@@ -93,10 +93,10 @@ def _within_declared_bounds(settings: AiAssistantSettings, name: str) -> bool:
 
 
 def resolve_remote_credential(environ: Mapping[str, str] | None = None) -> SecretStr:
-    """The remote key (``credentials.resolve``), checked offline for shape only. ``environ``
+    """The remote key (``key_sources.resolve``), checked offline for shape only. ``environ``
     given: that mapping only (tests and seams)."""
 
-    key, _ = credentials.resolve(environ)
+    key, _ = key_sources.resolve(environ)
     if key is None:
         raise ProfileConfigError(
             "CREDENTIAL_MISSING",

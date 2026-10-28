@@ -76,7 +76,7 @@ BASIS_FILES = (
     # D-095: the development eligibility gate, its manifest and the key sources.
     "synthetic_eligibility.py",
     "synthetic_eligibility.json",
-    "credentials.py",
+    "key_sources.py",
     "budget.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")

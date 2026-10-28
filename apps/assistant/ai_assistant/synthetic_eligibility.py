@@ -14,9 +14,11 @@ fails closed: the RM gets the deterministic case-data answer and nothing is sent
     documents   the document list was read, and every document on the case is a verified
                 synthetic fixture: its file name, detected media type and exact byte size (both
                 measured by the backend from the uploaded bytes) match a synthetic document the
-                repository tracks. Any other upload (a renamed, edited or real document) makes
-                the whole case ineligible, and so does a document the summary names that is
-                not one of them.
+                repository tracks. Any other upload (another name, type or size) makes the
+                whole case ineligible, and so does a document the summary names that is not
+                one of them. Name, type and size are a fingerprint, not a content digest:
+                an edit that keeps the exact size, or a deliberate forgery, is not detected
+                (the backend keeps no content digest today).
     values      values a person typed (case-creation input, manual decisions, review entries)
                 must equal a value the trusted sources hold (the Mock registry record, a
                 verified document's extraction, an approved company identity); values from
@@ -178,7 +180,15 @@ def _trusted_values(
                 for key in ("original_extracted_value", "normalized_value", "canonical_value")
             ]
             trusted += [_dict(item).get("value") for item in _list(data.get("candidates"))]
-    # Reconciliation observations whose own source is the Mock registry or a verified document.
+    # Reconciliation observations whose own source is the Mock registry, or the extraction of
+    # a verified document on this case (by its id). A reviewer's correction is also reported as
+    # a DOCUMENT_IDP observation (source HUMAN_REVIEW, evidence DOCUMENT_REVIEW_*): it is typed
+    # text, so it is never trusted here and must equal a trusted value like any typed value.
+    verified_ids = {
+        str(_dict(document).get("document_id"))
+        for document in snapshot.documents
+        if str(_dict(document).get("display_name") or "") in verified
+    }
     for item in _list(_dict(snapshot.summary.get("reconciliation")).get("discrepancies")):
         for observation in _list(_dict(item).get("observations")):
             data = _dict(observation)
@@ -187,11 +197,14 @@ def _trusted_values(
                 and data.get("source_system") == approved.source_system
                 and data.get("environment") in approved.environments
             )
-            from_document = (
+            extraction = (
                 data.get("source_kind") == "DOCUMENT_IDP"
+                and str(data.get("document_id")) in verified_ids
                 and str(data.get("document_display_name") or "") in verified
+                and data.get("source_system") not in (None, "HUMAN_REVIEW")
+                and not str(data.get("evidence_reference") or "").startswith("DOCUMENT_REVIEW")
             )
-            if registry or from_document:
+            if registry or extraction:
                 trusted.append(data.get("normalized_value"))
     return {_fold(value) for value in trusted if value not in (None, "")}
 

@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from ai_assistant import credentials, model_admin
+from ai_assistant import key_sources, model_admin
 from ai_assistant.budget import BudgetLedger
 from ai_assistant.main import create_app
 from ai_assistant.model_factory import resolve_remote_credential
@@ -23,7 +23,7 @@ from tests.test_remote_test import Journey, _settle_verification
 
 # Fake keys in an OpenRouter-like shape, built at run time so the secret scanner never sees a
 # key-shaped literal; the variable name likewise (no literal assignment to it).
-NAME = credentials.CREDENTIAL_VARIABLE
+NAME = key_sources.CREDENTIAL_VARIABLE
 _PREFIX = "sk-" + "or-"
 ENV_KEY = _PREFIX + "v1-fake-environment-key-000000000001"
 FILE_KEY = _PREFIX + "v1-fake-dotenv-key-0000000000000002"
@@ -36,7 +36,7 @@ CREDENTIAL = f"{API}/credential"
 def _dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str) -> Path:
     path = tmp_path / ".env"
     path.write_text(text, encoding="utf-8")
-    monkeypatch.setattr(credentials, "ENV_FILE", path)
+    monkeypatch.setattr(key_sources, "ENV_FILE", path)
     return path
 
 
@@ -44,7 +44,7 @@ def _dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str) -> Path:
 
 
 def test_a_missing_key_is_reported_and_refused() -> None:
-    key, status = credentials.resolve()
+    key, status = key_sources.resolve()
     assert key is None and status.view()["status"] == "missing"
     assert status.view()["source"] == "none" and status.hr_editable
     with pytest.raises(ProfileConfigError) as refused:
@@ -54,7 +54,7 @@ def test_a_missing_key_is_reported_and_refused() -> None:
 
 def test_the_process_environment_key_is_used(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
-    key, status = credentials.resolve()
+    key, status = key_sources.resolve()
     assert key is not None and key.get_secret_value() == ENV_KEY
     assert (status.source, status.status, status.hr_editable) == (
         "environment",
@@ -71,7 +71,7 @@ def test_the_dotenv_key_is_used_without_touching_the_environment(
         monkeypatch,
         f"# local only\nAI_ASSISTANT_LLM_ENABLED=true\n{NAME}={FILE_KEY}\n",
     )
-    key, status = credentials.resolve()
+    key, status = key_sources.resolve()
     assert key is not None and key.get_secret_value() == FILE_KEY
     assert status.source == "env_file" and not status.hr_editable
     assert "OPENROUTER_API_KEY" not in os.environ
@@ -82,31 +82,31 @@ def test_quoted_and_exported_dotenv_lines_are_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _dotenv(tmp_path, monkeypatch, f'export {NAME}="{FILE_KEY}"\r\n')
-    key, _ = credentials.resolve()
+    key, _ = key_sources.resolve()
     assert key is not None and key.get_secret_value() == FILE_KEY
 
 
 def test_the_hr_key_is_the_last_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    credentials.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
-    key, status = credentials.resolve()
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key, status = key_sources.resolve()
     assert key is not None and key.get_secret_value() == HR_KEY
     assert status.view()["source"] == "hr_memory" and status.view()["persistence"] == "memory_only"
     _dotenv(tmp_path, monkeypatch, f"{NAME}={FILE_KEY}\n")
-    assert credentials.resolve()[0].get_secret_value() == FILE_KEY  # type: ignore[union-attr]
+    assert key_sources.resolve()[0].get_secret_value() == FILE_KEY  # type: ignore[union-attr]
     monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
-    assert credentials.resolve()[0].get_secret_value() == ENV_KEY  # type: ignore[union-attr]
+    assert key_sources.resolve()[0].get_secret_value() == ENV_KEY  # type: ignore[union-attr]
 
 
 def test_an_invalid_key_does_not_fall_through(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    credentials.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
     monkeypatch.setenv("OPENROUTER_API_KEY", "bad key with spaces")
-    key, status = credentials.resolve()
+    key, status = key_sources.resolve()
     assert key is None and (status.source, status.status) == ("environment", "invalid")
     monkeypatch.delenv("OPENROUTER_API_KEY")
     _dotenv(tmp_path, monkeypatch, f"{NAME}=bad key\n")
-    key, status = credentials.resolve()
+    key, status = key_sources.resolve()
     assert key is None and (status.source, status.status) == ("env_file", "invalid")
 
 
@@ -115,25 +115,25 @@ def test_explicit_mappings_ignore_dotenv_and_hr(
 ) -> None:
     """Tests and seams that pass their own mapping get exactly that mapping."""
 
-    credentials.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
     _dotenv(tmp_path, monkeypatch, f"{NAME}={FILE_KEY}\n")
-    assert credentials.resolve({})[0] is None
-    assert credentials.resolve({NAME: ENV_KEY})[0].get_secret_value() == ENV_KEY  # type: ignore[union-attr]
+    assert key_sources.resolve({})[0] is None
+    assert key_sources.resolve({NAME: ENV_KEY})[0].get_secret_value() == ENV_KEY  # type: ignore[union-attr]
 
 
 def test_a_restart_forgets_the_hr_key() -> None:
-    credentials.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
-    restarted = credentials.HrCredential()
-    key, status = credentials.resolve(os.environ, store=restarted)
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    restarted = key_sources.HrCredential()
+    key, status = key_sources.resolve(os.environ, store=restarted)
     assert key is None and status.view()["status"] == "missing"
 
 
 def test_the_status_and_the_secret_never_show_the_key() -> None:
-    credentials.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
-    key, status = credentials.resolve()
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key, status = key_sources.resolve()
     assert HR_KEY not in repr(key) and HR_KEY not in str(key)
     assert HR_KEY not in repr(status) and HR_KEY not in str(status.view())
-    assert HR_KEY not in str(credentials.identity(key))
+    assert HR_KEY not in str(key_sources.identity(key))
 
 
 # --- the AI Models page: HR only, never the key back -------------------------------------------
@@ -202,7 +202,7 @@ def test_an_environment_or_dotenv_key_cannot_be_replaced_or_cleared(
     monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
     assert journey.client.get(CREDENTIAL).json()["source"] == "environment"
     assert _put(journey).status_code == 409
-    assert credentials.HR_STORE.snapshot()[0] is None
+    assert key_sources.HR_STORE.snapshot()[0] is None
     assert (
         ENV_KEY not in journey.client.get(API).text and FILE_KEY not in journey.client.get(API).text
     )
@@ -217,7 +217,7 @@ def test_other_roles_cannot_see_or_change_the_key(
     assert journey.client.get(CREDENTIAL).status_code == 403
     assert _put(journey).status_code == 403
     assert journey.client.delete(CREDENTIAL).status_code == 403
-    assert credentials.HR_STORE.snapshot()[0] is None
+    assert key_sources.HR_STORE.snapshot()[0] is None
     journey.client.cookies.set("clm_session", "hr-session")
     events = journey.client.get(f"{API}/audit").json()["events"]
     assert any(event["action"] == "ACCESS_REFUSED" for event in events)
@@ -241,7 +241,7 @@ def test_an_invalid_key_is_refused_without_echoing_it(
     reply = journey.client.put(CREDENTIAL, json=body)
     assert reply.status_code == 400 and reply.json()["detail"]["code"] == "CREDENTIAL_INVALID"
     assert "not-an-openrouter-key" not in reply.text and HR_KEY not in reply.text
-    assert credentials.HR_STORE.snapshot()[0] is None
+    assert key_sources.HR_STORE.snapshot()[0] is None
 
 
 def test_a_change_needs_an_allowed_origin_and_json(
@@ -261,7 +261,7 @@ def test_a_change_needs_an_allowed_origin_and_json(
     )
     assert form.status_code == 400
     assert journey.client.delete(CREDENTIAL, headers={"Origin": ""}).status_code == 403
-    assert credentials.HR_STORE.snapshot()[0] is None
+    assert key_sources.HR_STORE.snapshot()[0] is None
 
 
 def test_key_changes_are_rate_limited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -271,7 +271,7 @@ def test_key_changes_are_rate_limited(tmp_path: Path, monkeypatch: pytest.Monkey
     limited = _put(journey)
     assert limited.status_code == 429
     assert limited.json()["detail"]["code"] == "CREDENTIAL_RATE_LIMITED"
-    assert credentials.HR_STORE.snapshot()[0] is None
+    assert key_sources.HR_STORE.snapshot()[0] is None
 
 
 def test_the_qualification_process_gets_an_hr_key_only_in_its_environment(
@@ -281,7 +281,7 @@ def test_the_qualification_process_gets_an_hr_key_only_in_its_environment(
     monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
     assert model_admin.qualification_environment() is None  # inherited from the environment
     monkeypatch.delenv("OPENROUTER_API_KEY")
-    credentials.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
     env = model_admin.qualification_environment()
     assert env is not None and env[NAME] == HR_KEY
 
@@ -337,7 +337,7 @@ def test_after_a_restart_an_hr_key_must_be_entered_again(
     assert _put(journey).status_code == 200
     journey.activate_remote()
     # The service restarts: its memory, and so the HR key, is gone.
-    monkeypatch.setattr(credentials, "HR_STORE", credentials.HrCredential())
+    monkeypatch.setattr(key_sources, "HR_STORE", key_sources.HrCredential())
     app = create_app(
         journey.settings,
         clm_transport=httpx.MockTransport(lambda request: journey.backend.handler(request)),
@@ -349,3 +349,27 @@ def test_after_a_restart_an_hr_key_must_be_entered_again(
     assert overview["active"]["reverted"] == "CREDENTIAL_MISSING"
     assert overview["budget"]["credential"]["status"] == "missing"
     assert overview["budget"]["credential"]["persistence"] == "memory_only"
+
+
+def test_the_key_module_is_tracked_not_ignored() -> None:
+    """QG F1: the repository ignores credentials*; the key module must never be ignored."""
+
+    module = Path(key_sources.__file__)
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", str(module)], cwd=module.parent, check=False
+    )
+    assert ignored.returncode == 1
+
+
+def test_one_call_pins_the_key_it_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """QG F5: the preflight and the request use the key read once for the call."""
+
+    journey = _journey(tmp_path, monkeypatch)
+    assert _put(journey).status_code == 200
+    journey.activate_remote()
+    model = journey.selector.current().model
+    marker, environ = model._pinned()  # type: ignore[union-attr]
+    assert marker == key_sources.identity(SecretStr(HR_KEY))
+    assert environ is not None and environ[NAME] == HR_KEY
+    key_sources.HR_STORE.set(SecretStr(HR_KEY_2), "hr-admin")  # a later change
+    assert environ[NAME] == HR_KEY  # this call keeps the key it checked

@@ -1214,7 +1214,7 @@ D-095 delta; nothing here is merged or Live.
   or HR (memory only). AI Models shows the key status (never the key) and the spending view.
 - **New owners:** `ai_assistant/synthetic_eligibility.py` (with its generated
   `synthetic_eligibility.json` and `scripts/build_synthetic_eligibility.py`) and
-  `ai_assistant/credentials.py`.
+  `ai_assistant/key_sources.py`.
 - **Open:** owner review and merge; hosted CI after 1 November 2026; a separate decision for
   a lifetime allocation above US$1.00 over the ledger's opening usage; any paid run needs T7
   approval.
