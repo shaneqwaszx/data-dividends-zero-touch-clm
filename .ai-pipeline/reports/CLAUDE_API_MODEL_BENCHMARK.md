@@ -64,8 +64,13 @@ Breaker never opened; no anomaly; every response named the requested model; noth
 at reservation. **Reconciled:** the owner read US$0.64 in the Anthropic Console for the
 benchmark key (a total rounded to cents; no per-model split and no unrelated usage reported),
 recorded with `reconcile --console-usage-usd 0.64 --tolerance-usd 0.01` as `within_ledger`
-(ledger US$0.635484). The speed round (section 9) spent US$0.189893 on its own ledger; its
-Console reconciliation is still to be recorded (`--ledger speed reconcile`).
+(ledger US$0.635484). The speed round (section 9) spent US$0.189893 on its own ledger.
+After it, the Console showed **US$0.83 cumulative** for the key, covering both runs (ledgers
+together US$0.825377). Only the speed round's share was recorded against its ledger:
+US$0.83 - US$0.64 = US$0.19 (`--ledger speed reconcile --console-usage-usd 0.19`,
+`within_ledger`). The cumulative figure was not recorded against either single ledger, which
+would double-count run 1. Both Console readings are rounded to cents, so the split is accurate
+to about one cent.
 
 ## 4. Results (17 questions per model)
 
