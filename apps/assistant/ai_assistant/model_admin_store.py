@@ -15,6 +15,12 @@ holds the ``running`` row and refreshes its heartbeat; a run whose heartbeat is 
 ``STALE_SECONDS`` is closed as an error before another may start. The service refreshes the
 heartbeat while it supervises the process; the process refreshes it between steps.
 
+D-098: the supervising service also stamps ``supervised_at`` every second. A running row whose
+stamp is older than ``SUPERVISOR_STALE_SECONDS`` has lost its supervisor (the service stopped
+or restarted): the service closes it as interrupted and never starts it again. A process that
+is still alive sees its row closed at its next heartbeat and stops; the ledger, not this row,
+accounts for any paid call it had open.
+
 HR spending controls (D-096): the remote model's daily allowance and its call limit per
 activation, as an HR administrator set them. One row, changed only by compare-and-set on its
 own revision; until it exists the environment settings apply. Its CHECKs repeat the
@@ -38,6 +44,8 @@ MAX_REFUSED_EVENTS = 1000
 # Longer than the longest step without a heartbeat from the process (the connection test's
 # three calls at the 600-second maximum model timeout), plus a margin.
 STALE_SECONDS = 2100
+# D-098: a supervisor stamps its run every second; this long without a stamp means none is left.
+SUPERVISOR_STALE_SECONDS = 30
 # Outcomes of an applied model change: never pruned.
 CHANGE_OUTCOMES = ("applied", "reverted")
 
@@ -191,6 +199,16 @@ class ModelAdminStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.executescript(_SCHEMA)
+        self._upgrade()
+
+    def _upgrade(self) -> None:
+        """D-098 additions to a database an earlier version made (each applied once, in one
+        transaction, keeping every row): the supervisor stamp on qualifications."""
+
+        with self._write() as db:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(qualifications)")}
+            if "supervised_at" not in columns:
+                db.execute("ALTER TABLE qualifications ADD COLUMN supervised_at TEXT")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -449,11 +467,38 @@ class ModelAdminStore:
         """The service's supervisor: the process is still alive."""
 
         with self._write() as db:
+            stamp = now()
             db.execute(
-                "UPDATE qualifications SET heartbeat_at = ?"
+                "UPDATE qualifications SET heartbeat_at = ?, supervised_at = ?"
                 " WHERE qualification_id = ? AND status = 'running'",
-                (now(), qualification_id),
+                (stamp, stamp, qualification_id),
             )
+
+    def unsupervised(self, grace_seconds: float = SUPERVISOR_STALE_SECONDS) -> list[str]:
+        """Running runs with no supervisor stamp (or none since they started) for longer than
+        ``grace_seconds``: their supervising service has gone."""
+
+        cutoff = (datetime.now(UTC) - timedelta(seconds=grace_seconds)).isoformat(
+            timespec="seconds"
+        )
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT qualification_id FROM qualifications WHERE status = 'running'"
+                " AND COALESCE(supervised_at, started_at) < ?",
+                (cutoff,),
+            ).fetchall()
+        return [row["qualification_id"] for row in rows]
+
+    def qualifications_for(self, profile_id: str) -> list[dict[str, Any]]:
+        """Every run of one profile, newest first (D-098 eligibility reads them in order)."""
+
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM qualifications WHERE profile_id = ?"
+                " ORDER BY started_at DESC, rowid DESC",
+                (profile_id,),
+            ).fetchall()
+        return [_qualification(row) for row in rows]
 
     def request_cancel(self, qualification_id: str) -> bool:
         with self._write() as db:

@@ -16,6 +16,8 @@ import {
   ApiError,
   configureAuthenticatedTransport,
   fetchCurrentSession,
+  fetchSessionEndReason,
+  type SessionEndReason,
   login as requestLogin,
   logout as requestLogout,
 } from "./api";
@@ -28,12 +30,24 @@ export interface AuthState {
   status: AuthStatus;
   session: AuthSession | null;
   error: string | null;
+  // D-098: why an earlier session ended (shown on the sign-in page); never set while signed in.
+  notice?: string;
 }
 
 export type AuthTransition =
   | { type: "AUTHENTICATED"; session: AuthSession }
   | { type: "ANONYMOUS" }
+  | { type: "SESSION_ENDED"; notice: string }
   | { type: "LOGIN_ERROR"; message: string };
+
+const BACKGROUND_WORK = " Work that runs on the server, such as an AI model qualification, keeps running: sign in again to follow it.";
+export const SESSION_END_TEXT: Record<SessionEndReason, string> = {
+  SESSION_EXPIRED: "Your session ended because it reached its 8-hour limit." + BACKGROUND_WORK,
+  SESSION_REPLACED: "Your session ended because this account signed in somewhere else (another browser or device). Each account has one session at a time." + BACKGROUND_WORK,
+  SESSION_REVOKED: "Your session ended because your account or team access changed." + BACKGROUND_WORK,
+  SIGNED_OUT: "This session was signed out." + BACKGROUND_WORK,
+  SESSION_UNKNOWN: "Your session is no longer recognised, usually because the onboarding service was restarted." + BACKGROUND_WORK,
+};
 
 export function transitionAuthState(state: AuthState, action: AuthTransition): AuthState {
   if (action.type === "AUTHENTICATED") {
@@ -42,6 +56,10 @@ export function transitionAuthState(state: AuthState, action: AuthTransition): A
   if (action.type === "LOGIN_ERROR") {
     return { ...state, error: action.message };
   }
+  if (action.type === "SESSION_ENDED") {
+    // Only an anonymous page explains; a newer sign-in is never overwritten.
+    return state.status === "anonymous" ? { ...state, notice: action.notice } : state;
+  }
   return { status: "anonymous", session: null, error: null };
 }
 
@@ -49,6 +67,7 @@ interface AuthContextValue {
   status: AuthStatus;
   session: AuthSession | null;
   error: string | null;
+  notice: string | null;
   login: (userId: string, credential: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -69,12 +88,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     error: null,
   });
 
-  const clearSession = useCallback((resetRoute = true) => {
+  const clearSession = useCallback((resetRoute = true, explain = true) => {
     pendingInteractiveSession.current = null;
     clearSessionQueries(queryClient);
     configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
     setAuthState((state) => transitionAuthState(state, { type: "ANONYMOUS" }));
     if (resetRoute) navigateRef.current("/", { replace: true });
+    if (!explain) return;
+    // D-098: ask the backend once why the session ended (nothing is retried or extended).
+    void fetchSessionEndReason().then((reason) => {
+      if (reason) {
+        setAuthState((state) => transitionAuthState(state, {
+          type: "SESSION_ENDED",
+          notice: SESSION_END_TEXT[reason],
+        }));
+      }
+    });
   }, [queryClient]);
 
   const acceptSession = useCallback((authenticated: AuthSession) => {
@@ -137,12 +166,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await requestLogout();
     } finally {
-      clearSession();
+      clearSession(true, false);
     }
   }, [clearSession]);
 
   const value = useMemo(
-    () => ({ ...authState, login, logout }),
+    () => ({ ...authState, notice: authState.notice ?? null, login, logout }),
     [authState, login, logout],
   );
   return (

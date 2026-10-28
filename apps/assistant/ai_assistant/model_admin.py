@@ -237,6 +237,8 @@ class ModelSelector:
         if store is not None:
             self._active = replace(self._active, revision=-1)
             self.current()
+            # D-098: a run whose supervisor stopped with the previous service is closed now.
+            self.close_interrupted()
 
     @property
     def managed(self) -> bool:
@@ -399,6 +401,54 @@ class ModelSelector:
             )
             return self._baseline(revision, reverted=problem)
         return self._baseline(self._active.revision)
+
+    def close_interrupted(self) -> list[str]:
+        """D-098: close every run whose supervising service has gone (a restart, a crash) as
+        ``INTERRUPTED``, or ``INTERRUPTED_BILLING_UNCERTAIN`` when a paid call of the remote
+        model may have been open. Never restarts a run; the ledger keeps any open call, which an
+        operator reconciles. Returns the ids closed."""
+
+        if self.store is None:
+            return []
+        try:
+            orphans = self.store.unsupervised()
+        except Exception:
+            log.error("qualification state unavailable; interrupted runs not checked")
+            return []
+        closed = []
+        for qualification_id in orphans:
+            item = self.store.qualification(qualification_id) or {}
+            entry = load_catalogue(self.settings).get(str(item.get("profile_id")))
+            code = "INTERRUPTED"
+            if entry is not None and entry.source == "code" and self._paid_call_uncertain():
+                code = "INTERRUPTED_BILLING_UNCERTAIN"
+            self.store.finish_qualification(qualification_id, "error", code, item.get("summary"))
+            final = self.store.qualification(qualification_id) or {}
+            if final.get("code") != code:
+                continue  # it finished by itself meanwhile
+            closed.append(qualification_id)
+            self.store.record(
+                actor=SYSTEM_ACTOR,
+                role=None,
+                action="QUALIFICATION_INTERRUPTED",
+                outcome="error",
+                profile_id=item.get("profile_id"),
+                fingerprint=item.get("fingerprint"),
+                code=code,
+            )
+        return closed
+
+    def _paid_call_uncertain(self) -> bool:
+        """A remote call is still open, or one was abandoned (read-only ledger check; an
+        unreadable ledger is treated as uncertain)."""
+
+        try:
+            ledger = BudgetLedger(ledger_file(self.settings))
+            ledger.verify()
+            status = ledger.status()
+        except LedgerError:
+            return True
+        return status.open_calls > 0 or status.breaker_code == "abandoned_call"
 
     def remote_options(self) -> dict[str, Any]:
         """The D-094 remote model's test seams (tests only; None in the service)."""
@@ -719,6 +769,7 @@ def model_admin_router(
         return []
 
     def overview() -> dict[str, Any]:
+        selector.close_interrupted()
         catalogue = load_catalogue(settings)
         active = selector.current()
         basis = qualification_basis()
@@ -892,6 +943,7 @@ def model_admin_router(
                 raise _refusal(409, "REMOTE_MANIFEST_MISSING")
         else:
             adapter_for(entry, profile, "QUALIFICATION_STARTED", loopback=True)
+        selector.close_interrupted()
         try:
             qualification_id = store.begin_qualification(
                 entry.profile_id,
@@ -941,6 +993,7 @@ def model_admin_router(
     @router.get("/qualifications/{qualification_id}")
     def get_qualification(qualification_id: str, profile: Admin) -> dict[str, Any]:
         store = managed()
+        selector.close_interrupted()
         item = (
             store.qualification(qualification_id)
             if _QUALIFICATION_ID.fullmatch(qualification_id)
@@ -955,6 +1008,10 @@ def model_admin_router(
     @router.post("/qualifications/{qualification_id}/cancel")
     def cancel_qualification(qualification_id: str, profile: Admin) -> dict[str, Any]:
         store = managed()
+        # D-098: a run with no supervisor left is closed as interrupted, not left to wait.
+        if qualification_id in selector.close_interrupted():
+            audit(profile, "QUALIFICATION_CANCEL_REQUESTED", "requested", code="INTERRUPTED")
+            return {"qualification_id": qualification_id, "cancel_requested": False}
         if not _QUALIFICATION_ID.fullmatch(qualification_id) or not store.request_cancel(
             qualification_id
         ):

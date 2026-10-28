@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useAuth } from "../auth";
 
 export default function LoginPage() {
-  const { error, login } = useAuth();
+  const { error, notice, login } = useAuth();
   const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,6 +27,7 @@ export default function LoginPage() {
         <p className="card-kicker">Autoboard · Local POC</p>
         <h1 id="sign-in-heading">Sign in</h1>
         <p className="text-muted">Use a configured synthetic operator profile.</p>
+        {notice && <div className="ds-banner" role="status" data-testid="session-end-notice">{notice}</div>}
         {error && <div className="ds-banner ds-banner-warn" role="alert">{error}</div>}
         <form onSubmit={(event) => void handleSubmit(event)}>
           <label htmlFor="user-id">User ID</label>
