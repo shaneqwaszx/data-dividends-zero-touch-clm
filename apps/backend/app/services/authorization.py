@@ -233,6 +233,10 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy("GET", "/api/onboarding/cases/{case_id}/documents", RouteAccess.CASE_SCOPED),
+    # D-095: content digests of the same documents, under the same case scope.
+    RoutePolicy(
+        "GET", "/api/onboarding/cases/{case_id}/document-digests", RouteAccess.CASE_SCOPED
+    ),
     RoutePolicy(
         "GET",
         "/api/onboarding/cases/{case_id}/documents/{document_id}",

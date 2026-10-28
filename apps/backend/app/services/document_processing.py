@@ -319,6 +319,7 @@ class DocumentProcessingService:
             display_name=display_name.strip(),
             media_type=extracted_content.media_type,
             size_bytes=len(content),
+            content_sha256=hashlib.sha256(content).hexdigest(),
             profile=DocumentProfile.CERTIFICATE_OF_INCORPORATION_POC,
             document_version=1,
             state=DocumentProcessingState.UPLOADED,

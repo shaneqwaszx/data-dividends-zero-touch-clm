@@ -211,9 +211,11 @@ any **verified synthetic development case**, decided from the backend's own repl
   `apps/assistant/ai_assistant/synthetic_eligibility.json` (the backend Mock ACRA fixtures and
   the project's synthetic company packs), its registry details came from ACRA in MOCK mode,
   and the requested UEN and registry acquisition are for that company;
-- every document on the case is a synthetic fixture the repository tracks: same file name,
-  media type and exact byte size as a file under `apps/backend/tests/fixtures/uat/` (or a D-094
-  Garden fixture document). Any other upload makes the whole case ineligible;
+- every document on the case is a synthetic fixture the repository tracks, by content: the
+  SHA-256 the backend computed from the uploaded bytes must be the digest of a file under
+  `apps/backend/tests/fixtures/uat/` (with its media type and size). Any other upload, one
+  altered byte, or a document uploaded before the backend kept digests makes the whole case
+  ineligible (upload the fixture again);
 - typed values (case-creation input, manual decisions) equal a value from the Mock registry
   record or a verified document; a GoldTier id is a Mock GoldTier id (`GT-MOCK-...`);
 - the viewer is a seeded POC user, and only unchanged repository guidance and the synthetic

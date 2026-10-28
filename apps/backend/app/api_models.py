@@ -529,6 +529,17 @@ class DocumentProcessingResponse(BaseModel):
         })
 
 
+class DocumentDigestResponse(BaseModel):
+    """D-095: one document's backend-computed content digest, for the AI assistant's synthetic
+    fixture check only. Not part of the browser document projection; never document content."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID
+    document_version: Literal[1] | None = None
+    content_sha256: str | None = None
+
+
 class OwnershipAnalysisResponse(BaseModel):
     """Browser-required ownership graph and deterministic evidence only."""
 

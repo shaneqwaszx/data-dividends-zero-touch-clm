@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 15,
+  "case_envelope_schema_version": 16,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1203,18 +1203,21 @@ Branch `claude/gracious-lovelace-bjvh2z` from main `7119905`. This section recor
 D-095 delta; nothing here is merged or Live.
 - **Decisions:** D-095 (owner-directed, local development scope only; DECISION_LOG). D-094 is
   unchanged without the new flag and stays the fallback. D-091 X3 is amended for the key
-  sources (V8). D-092 is still PROPOSED. The V6 officer wording is project-defined, pending
-  owner acceptance.
+  sources (V8). D-092 is still PROPOSED. The owner accepted the D-095 direction and the V6
+  officer wording at the PR #126 review and required V2 document provenance by SHA-256.
 - **Behaviour:** off by default. With `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` on a ready
   D-094 set-up, the existing chat may use GPT-OSS 120B on any verified synthetic development
-  case (approved Mock ACRA company, tracked synthetic fixture documents, grounded typed values,
+  case (approved Mock ACRA company, documents whose backend-computed SHA-256 is a tracked
+  synthetic fixture's, grounded typed values,
   Mock GoldTier ids, seeded viewers, repository knowledge, no personal identifiers in the
   question). The ledger enforces at most US$1.00 reserved plus settled per Singapore day for
   every remote call. The OpenRouter key may come from the environment, the git-ignored `.env`
   or HR (memory only). AI Models shows the key status (never the key) and the spending view.
 - **New owners:** `ai_assistant/synthetic_eligibility.py` (with its generated
   `synthetic_eligibility.json` and `scripts/build_synthetic_eligibility.py`) and
-  `ai_assistant/key_sources.py`.
-- **Open:** owner review and merge; hosted CI after 1 November 2026; a separate decision for
-  a lifetime allocation above US$1.00 over the ledger's opening usage; any paid run needs T7
-  approval.
+  `ai_assistant/key_sources.py`. Backend: `DocumentProcessingRecord.content_sha256` (computed
+  at upload), case snapshot schema 16 (strict schema-15 reader), and the case-scoped
+  `GET /api/onboarding/cases/{case_id}/document-digests` route.
+- **Open:** owner merge; hosted CI after 1 November 2026; the owner's decision on the
+  repeated-US$1.00-days proposal (DECISION_LOG D-095 B1 to B6); physical Mongo evidence for
+  schema 16; any paid run needs T7 approval.

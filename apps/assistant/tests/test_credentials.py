@@ -20,6 +20,7 @@ from ai_assistant.model_factory import resolve_remote_credential
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID, ProfileConfigError
 from tests.test_model_management import API, ORIGIN
 from tests.test_remote_test import Journey, _settle_verification
+from tests.test_synthetic_eligibility import GARDEN, serve
 
 # Fake keys in an OpenRouter-like shape, built at run time so the secret scanner never sees a
 # key-shaped literal; the variable name likewise (no literal assignment to it).
@@ -307,6 +308,7 @@ def test_hr_key_qualifies_activates_and_a_new_key_cannot_evade_the_daily_cap(
     journey = _journey(tmp_path, monkeypatch, synthetic_dev_decision="D-095")
     assert _put(journey).status_code == 200
     journey.activate_remote()
+    serve(monkeypatch, GARDEN)  # a digest-verified synthetic case
     assert journey.ask()["answered_by"] == "model"
     _settle_verification()
     ledger = BudgetLedger.open(Path(journey.settings.budget_ledger_path))

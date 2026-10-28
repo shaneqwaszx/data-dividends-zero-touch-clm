@@ -16,7 +16,8 @@ def omit_session2_fields(raw: dict[str, Any]) -> None:
     )
     for document in raw.get("documents", ()):
         for name in (
-            "document_version", "pages", "ownership_observations", "classification_observations"
+            "document_version", "pages", "ownership_observations", "classification_observations",
+            "content_sha256",
         ):
             document.pop(name, None)
         for field in document.get("fields", ()):

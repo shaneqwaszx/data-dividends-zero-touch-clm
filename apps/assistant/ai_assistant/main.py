@@ -673,7 +673,11 @@ def create_app(
         recorder.record(build)
 
     def remote_gate(
-        active: Active, snapshot: CaseSnapshot, prep: Prepared
+        active: Active,
+        snapshot: CaseSnapshot,
+        prep: Prepared,
+        case_id: UUID,
+        session: str | None,
     ) -> tuple[ChatModel | None, str | None]:
         """The model this answer may use, and the lead notice. The D-094 remote test model is
         used only when the whole prompt is inside the synthetic boundary (D-095 mode: the case
@@ -685,8 +689,12 @@ def create_app(
             return active.model, None
         entries = [item.hit.entry for item in prep.tagged]
         if synthetic_dev_mode(config):
-            # D-095: any verified synthetic development case, by provenance.
-            refusal = synthetic_eligibility_check(snapshot, prep.facts, prep.messages, entries)
+            # D-095: any verified synthetic development case, by provenance. The document
+            # digests are read only here, with the RM's own session.
+            digests = backend.load_document_digests(case_id, session) if snapshot.documents else []
+            refusal = synthetic_eligibility_check(
+                snapshot, prep.facts, prep.messages, entries, digests=digests
+            )
             if refusal is not None:
                 log.info("remote test model not used: %s", refusal)
                 return None, f"{REMOTE_ELIGIBILITY_NOTICE} Reason: {refusal}."
@@ -905,7 +913,9 @@ def create_app(
         )
 
     @app.post("/assistant/cases/{case_id}/chat", response_model=ChatResponse)
-    def chat(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> ChatResponse:
+    def chat(
+        case_id: UUID, body: ChatRequest, snapshot: Snapshot, request: Request
+    ) -> ChatResponse:
         started = time.monotonic()
         active = selector.current()
         facts = build_case_facts(snapshot)
@@ -923,7 +933,9 @@ def create_app(
                 small_talk=True,
             )
         prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
-        model, lead = remote_gate(active, snapshot, prep)
+        model, lead = remote_gate(
+            active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
+        )
         outcome = _Outcome(model=model)
         response = record(
             case_id, snapshot, body, prep, answer_with_model(prep, outcome, lead), outcome
@@ -932,7 +944,9 @@ def create_app(
         return response
 
     @app.post("/assistant/cases/{case_id}/chat/stream")
-    def chat_stream(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> StreamingResponse:
+    def chat_stream(
+        case_id: UUID, body: ChatRequest, snapshot: Snapshot, request: Request
+    ) -> StreamingResponse:
         """Like /chat, but the answer appears while the model is still writing it."""
 
         started = time.monotonic()
@@ -958,7 +972,9 @@ def create_app(
             )
         else:
             prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
-            model, lead = remote_gate(active, snapshot, prep)
+            model, lead = remote_gate(
+                active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
+            )
 
             def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
                 return record(case_id, snapshot, body, prep, response, outcome)

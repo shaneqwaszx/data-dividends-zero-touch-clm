@@ -1326,8 +1326,12 @@ D-092 stays PROPOSED. Further paid runs still need T7 approval.
 
 ## D-095 - AI Assistant development synthetic mode, OpenRouter key sources and a US$1.00 daily cap (OWNER-DIRECTED, local development scope only)
 
-Status: owner-directed on 2026-10-28 (the D-095 assignment and its API-key addendum).
-Built on branch `claude/gracious-lovelace-bjvh2z`; not merged. It is recorded separately and
+Status: owner-directed on 2026-10-28 (the D-095 assignment and its API-key addendum). The
+owner then **accepted** the development direction for verified synthetic data on the owner's
+own development machine, and the V6 officer-line wording for current, grounded Mock ACRA
+officer records (no claim of regulatory verification or sponsor approval), and required V2's
+document provenance to use a backend-computed SHA-256 (owner review of PR #126, recorded
+below). Built on branch `claude/gracious-lovelace-bjvh2z`; not merged. It is recorded separately and
 does not repurpose D-094: without the new flag, D-094 behaves exactly as before and stays the
 known working fallback. D-091 (accepted, dormant A2 scope) and D-093 are unchanged except as
 listed in V8 and V9. **D-092 stays PROPOSED.** Not sponsor policy. Authority:
@@ -1348,7 +1352,7 @@ director. The provider and budget controls were not the cause.
 | # | Decision |
 | --- | --- |
 | V1 | **Flag.** Off unless `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` **and** every D-094 T1 condition holds (D-094 decision, D-091/D-092 interlocks, approved endpoint, loopback CLM backend, local `http` browser origins, owner attestations). Only then does the chat use `synthetic_eligibility.check` instead of the D-094 boundary. |
-| V2 | **Which cases may be sent externally (provenance, not value lists).** Only a case whose company `(UEN, legal name)` is in the generated manifest (`synthetic_eligibility.json`: the backend Mock ACRA connector's fixtures, asked through the connector, and the project's synthetic company packs), with registry details from ACRA in MOCK mode, and whose requested UEN and registry acquisition are for that company. A Mock flag, a name or a UEN alone is not enough. Every document on the case must be a verified synthetic fixture: file name, detected media type and exact byte size (both measured by the backend from the uploaded bytes) must match a synthetic document the repository tracks (`apps/backend/tests/fixtures/uat/**` and the D-094 Garden fixture documents). One unverified upload makes the whole case ineligible (`SYNTHETIC_DOCUMENT_NOT_VERIFIED`), as does a document the summary names that is not on the case, or an unreadable list. The viewer must be a seeded POC user. |
+| V2 | **Which cases may be sent externally (provenance, not value lists).** Only a case whose company `(UEN, legal name)` is in the generated manifest (`synthetic_eligibility.json`: the backend Mock ACRA connector's fixtures, asked through the connector, and the project's synthetic company packs), with registry details from ACRA in MOCK mode, and whose requested UEN and registry acquisition are for that company. A Mock flag, a name or a UEN alone is not enough. Every document on the case must be a verified synthetic fixture **by content**: the backend computes the SHA-256 of the uploaded bytes at upload, stores it on the document record (case snapshot schema 16) and serves it only on the case-scoped `GET /api/onboarding/cases/{case_id}/document-digests`; the assistant reads it with the RM's session and requires it to be the digest of a synthetic fixture file the repository tracks (`apps/backend/tests/fixtures/uat/**`, hashed into the manifest), with that file's media type and size. The digest list must name exactly the listed documents (id and version). An altered byte, another file under a fixture's name, a record stored before schema 16 (no digest), or an unreadable list fails closed (`SYNTHETIC_DOCUMENT_NOT_VERIFIED` / `SYNTHETIC_DOCUMENT_DIGEST_UNAVAILABLE`) before anything is sent; so does a document the summary names that is not one of the verified ones. The viewer must be a seeded POC user. (Revised at owner review: the first version compared name, type and size only.) |
 | V3 | **Values.** Values from the Mock registry record or a verified document's extraction are trusted by provenance, whatever they say. A value a person typed (case-creation input, a manual decision, a review entry) must equal a trusted value (`SYNTHETIC_VALUE_NOT_GROUNDED`). A GoldTier id must have the Mock GoldTier connector's form `GT-MOCK-...` or be the synthetic fixture id (`SYNTHETIC_TARGET_NOT_VERIFIED`). |
 | V4 | **What may be in the prompt.** The unchanged prompt builder's output for an eligible case (case facts, allowed lines, topic lines), unchanged repository guidance and the synthetic seed only (no app-authored knowledge), and the question and history. Every message holds only printable ASCII, line breaks, tabs and the D-094 typographic marks. The question and history may use any words but no e-mail address, NRIC/FIN- or UEN-shaped id, date, or run of five or more digits (also split by spaces, dashes, dots, slashes or brackets) unless the case already holds it (`SYNTHETIC_TEXT_NOT_APPROVED`). |
 | V5 | **Defence in depth.** A passing check gives the exact messages a single-use ticket (120 s). The remote model sends only messages holding a ticket while D-095 is on, or passing the D-094 text check (qualification, D-094 mode); a caller that skips the check sends nothing. |
@@ -1359,14 +1363,33 @@ director. The provider and budget controls were not the cause.
 | V10 | **Notices.** Model answers in D-095 mode: "Answered by GPT-OSS 120B through OpenRouter (D-095 development mode, verified synthetic case)." Refusals: "GPT-OSS 120B through OpenRouter is used only on verified synthetic development cases, so this answer comes straight from the case data. Reason: `<code>`." |
 | V11 | **Qualification basis.** The answer-code basis adds `synthetic_eligibility.py/.json`, `key_sources.py` and `budget.py`, so earlier qualifications are out of date. The paid qualification is unchanged (the Phase B manifest under D-094 T2/T7). |
 
-Not decided here (left disabled): any non-synthetic, real customer or sponsor data; arbitrary
-uploads that are not tracked synthetic fixtures (a backend content digest would be the
-stronger provenance and needs its own change); hosted, shared or production deployment; use
-by anyone but the owner on their own machine; another endpoint or model; a lifetime
-allocation above D-092 P3's US$1.00 over the ledger's opening usage (sustained US$1.00 days
-need that separate decision); owner acceptance of the V6 wording and of names in UBO or
-ownership answers; and T7 approval for any paid call. Known limits: the text screen cannot
-recognise a person's name or details spelled out in words, so the owner must not type real
-customer details; a deliberately forged document with a fixture's exact name, type and size
-would pass V2. Evidence from this mode is external evaluation on synthetic data, never Live
-CLM behaviour.
+Not decided here (left disabled): any non-synthetic, real customer or sponsor data; uploads
+that are not byte-identical tracked synthetic fixtures (synthetic documents generated on the
+fly must be added to the fixtures and the manifest regenerated); hosted, shared or production
+deployment; use by anyone but the owner on their own machine; another endpoint or model; a
+lifetime allocation above D-092 P3's US$1.00 over the ledger's opening usage (see the
+proposal below); names in UBO or ownership answers; and T7 approval for any paid call. Known
+limits: the text screen cannot recognise a person's name or details spelled out in words, so
+the owner must not type real customer details. The D-094 Garden fixture documents
+(`garden-business-01..03`) were never in the repository as files, so D-095 cannot verify them;
+D-094 mode is unchanged for them. Evidence from this mode is external evaluation on synthetic
+data, never Live CLM behaviour.
+
+**Owner review of PR #126 (2026-10-28).** The owner accepted the D-095 direction and the V6
+wording as above, kept the PR on hold for one required correction (V2 by backend-computed
+SHA-256, implemented as revised V2: domain field `DocumentProcessingRecord.content_sha256`,
+case snapshot schema 15 to 16 with a strict schema-15 reader that rejects a digest key and
+reads older documents as digest-less, the narrow case-scoped digests route, fixture hashes in
+the manifest), kept US$1.00 per Singapore day as the desired ceiling, and asked for a separate
+proposal for repeated US$1.00 days. No paid inference is authorised.
+
+**Proposal: repeated US$1.00 days (PROPOSED, not implemented; needs the owner's decision).**
+
+| # | Proposal |
+| --- | --- |
+| B1 | Keep the daily allowance (V7) as the working limit, and replace D-092 P3's fixed lifetime allocation (US$1.00 above the ledger's opening usage) with an owner-set **period allocation**: for example US$7.00 for a named seven-day test window, recorded in the decision log with its dates. The lifetime cap stays in the ledger and is raised only by the operator CLI's explicit `set-cap --raise --confirm-new-cap`, never by the service. |
+| B2 | The preflight's two allocation checks (`ledger.cap_within_allocation`, `key.limit_within_allocation`) take the approved period allocation as a setting that can only be lowered at run time, so a cap raise without a matching decision still fails closed. |
+| B3 | The OpenRouter key keeps a **non-resetting** limit set by the owner in the OpenRouter dashboard to at most the ledger cap plus one reservation (about US$0.021), so the provider stops spending if the ledger is ever wrong. Auto top-up stays off. |
+| B4 | Before each raise: no open calls, every call verified, `budget_ledger.py reconcile --provider-usage <dashboard usage>` after the settle lag, the breaker closed, and the dashboard key usage within US$0.05 of the ledger. A drift above that keeps the breaker open until the operator investigates. |
+| B5 | A ledger belongs to one key. A replacement key is first tried against the existing ledger (the preflight's usage check, then `reconcile`); if its usage cannot reconcile, the old key is revoked in the dashboard and a new ledger is initialised at the new key's current usage, keeping the old ledger file for history. So that this never restarts a day's allowance, the service would refuse a new ledger until the next Singapore day after the old ledger's last call (to be implemented and tested before use). |
+| B6 | AI Models keeps showing today's spend, lifetime headroom and the key limit; a weekly read of `budget_ledger.py status` and the dashboard is the operator's reconciliation routine. |

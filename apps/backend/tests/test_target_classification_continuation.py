@@ -464,9 +464,10 @@ def test_schema9_rejects_explicit_later_evidence_and_does_not_rewrite(explicit, 
         raw["onboarding"].pop("target_classification_selections")
         for doc in raw["documents"]:
             doc.pop("classification_observations")
+            doc.pop("content_sha256")
         before = deepcopy(raw)
         decoded = object.__new__(MongoCaseStore)._decode(raw)
-        assert raw == before and decoded.schema_version == 15
+        assert raw == before and decoded.schema_version == 16
         assert decoded.onboarding.target_classification_selections == ()
         assert decoded.documents[0].classification_observations == ()
         if explicit == "target_classification_selections":

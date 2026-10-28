@@ -11,14 +11,16 @@ fails closed: the RM gets the deterministic case-data answer and nothing is sent
                 details came from ACRA in MOCK mode, and the requested UEN and the registry
                 acquisition are for that company. A Mock flag alone is not enough, and neither
                 is a name or a UEN alone.
-    documents   the document list was read, and every document on the case is a verified
-                synthetic fixture: its file name, detected media type and exact byte size (both
-                measured by the backend from the uploaded bytes) match a synthetic document the
-                repository tracks. Any other upload (another name, type or size) makes the
-                whole case ineligible, and so does a document the summary names that is not
-                one of them. Name, type and size are a fingerprint, not a content digest:
-                an edit that keeps the exact size, or a deliberate forgery, is not detected
-                (the backend keeps no content digest today).
+    documents   the document list and the backend's document digests were both read, and they
+                name the same documents (id and version). Every document on the case is a
+                verified synthetic fixture: the SHA-256 the backend computed from its uploaded
+                bytes at upload (stored on the document record, served by the case-scoped
+                document-digests route) is the digest of a synthetic fixture file the
+                repository tracks, with that file's media type and byte size. Anything else
+                (another file, a renamed real document, one altered byte, a record stored
+                before the backend kept digests, an unreadable digest list) makes the whole
+                case ineligible, and so does a document the summary names that is not one of
+                the verified ones.
     values      values a person typed (case-creation input, manual decisions, review entries)
                 must equal a value the trusted sources hold (the Mock registry record, a
                 verified document's extraction, an approved company identity); values from
@@ -64,13 +66,14 @@ from .synthetic_boundary import (
 )
 
 ELIGIBILITY_FILE = Path(__file__).with_name("synthetic_eligibility.json")
-SCHEMA = "clm-assistant-synthetic-eligibility/1"
+SCHEMA = "clm-assistant-synthetic-eligibility/2"
 DECISION_ID = "D-095"
 # Ids the backend's Mock GoldTier connector issues, and the synthetic fixture id.
 _MOCK_GOLDTIER_ID = re.compile(r"GT-MOCK-[A-Z0-9-]{1,80}|GT-SYNTHETIC-[0-9]{4}")
 # A ticket is used once, within this many seconds (the answer starts right after the check).
 TICKET_SECONDS = 120.0
 _MAX_TICKETS = 256
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _NRIC = re.compile(r"\b[STFGM]\d{7}[A-Z]\b", re.IGNORECASE)
@@ -93,7 +96,8 @@ class Manifest:
     source_system: str
     environments: frozenset[str]
     companies: frozenset[tuple[str, str]]
-    documents: frozenset[tuple[str, str, int]]
+    # Approved fixture digest -> (media type, size in bytes).
+    documents: dict[str, tuple[str, int]]
     viewers: frozenset[str]
 
 
@@ -108,10 +112,10 @@ def manifest(path: Path = ELIGIBILITY_FILE) -> Manifest:
         companies=frozenset(
             (str(item["uen"]), str(item["legal_name"])) for item in data["companies"]
         ),
-        documents=frozenset(
-            (str(item["display_name"]), str(item["media_type"]), int(item["size_bytes"]))
+        documents={
+            str(item["sha256"]): (str(item["media_type"]), int(item["size_bytes"]))
             for item in data["documents"]
-        ),
+        },
         viewers=frozenset(str(item) for item in data["viewers"]),
     )
 
@@ -120,15 +124,41 @@ def _fold(value: object) -> str:
     return normalize(str(value)).casefold()
 
 
-def _fingerprint(document: dict[str, Any]) -> tuple[str, str, int] | None:
-    size = document.get("size_bytes")
-    if type(size) is not int:
-        return None
-    return (
-        str(document.get("display_name") or ""),
-        str(document.get("media_type") or ""),
-        size,
-    )
+def _document_key(document: dict[str, Any]) -> tuple[str, object]:
+    return str(document.get("document_id")), document.get("document_version")
+
+
+def _verify_documents(
+    documents: list[dict[str, Any]],
+    digests: list[dict[str, Any]] | None,
+    approved: Manifest,
+) -> tuple[str | None, set[str]]:
+    """(refusal or None, display names of the verified documents). The digest list must name
+    exactly the listed documents; each digest must be an approved fixture's, with that
+    fixture's media type and size."""
+
+    if not documents:
+        return None, set()
+    if digests is None:
+        return "SYNTHETIC_DOCUMENT_DIGEST_UNAVAILABLE", set()
+    by_key: dict[tuple[str, object], object] = {}
+    for item in digests:
+        key = _document_key(_dict(item))
+        if key in by_key:
+            return "SYNTHETIC_DOCUMENT_DIGEST_UNAVAILABLE", set()
+        by_key[key] = _dict(item).get("content_sha256")
+    if set(by_key) != {_document_key(document) for document in documents}:
+        return "SYNTHETIC_DOCUMENT_DIGEST_UNAVAILABLE", set()
+    verified: set[str] = set()
+    for document in documents:
+        digest = by_key[_document_key(document)]
+        if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+            return "SYNTHETIC_DOCUMENT_DIGEST_UNAVAILABLE", set()
+        fixture = approved.documents.get(digest)
+        if fixture is None or fixture != (document.get("media_type"), document.get("size_bytes")):
+            return "SYNTHETIC_DOCUMENT_NOT_VERIFIED", set()
+        verified.add(str(document.get("display_name") or ""))
+    return None, verified
 
 
 def _company_problem(snapshot: CaseSnapshot, approved: Manifest) -> bool:
@@ -257,9 +287,12 @@ def check(
     facts: dict[str, Any],
     messages: list[dict[str, str]],
     entries: Iterable[Entry],
+    *,
+    digests: list[dict[str, Any]] | None = None,
 ) -> str | None:
     """None when the question may go to the remote model (the messages then hold a ticket);
-    otherwise a closed reason."""
+    otherwise a closed reason. ``digests``: the backend's document-digests reply for this case
+    (None when it could not be read)."""
 
     try:
         approved = manifest()
@@ -269,12 +302,11 @@ def check(
         return "SYNTHETIC_CASE_NOT_APPROVED"
     if not snapshot.documents_loaded:
         return "SYNTHETIC_DOCUMENTS_UNAVAILABLE"
-    verified: set[str] = set()
-    for document in snapshot.documents:
-        fingerprint = _fingerprint(_dict(document))
-        if fingerprint is None or fingerprint not in approved.documents:
-            return "SYNTHETIC_DOCUMENT_NOT_VERIFIED"
-        verified.add(fingerprint[0])
+    refusal, verified = _verify_documents(
+        [_dict(document) for document in snapshot.documents], digests, approved
+    )
+    if refusal is not None:
+        return refusal
     if any(
         _dict(observation).get("document_display_name") not in (None, "")
         and str(_dict(observation).get("document_display_name")) not in verified

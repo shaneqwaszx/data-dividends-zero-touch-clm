@@ -40,6 +40,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 SUMMARY = json.loads((FIXTURES / "garden_address_conflict_summary.json").read_text())
 DOCUMENTS = json.loads((FIXTURES / "garden_documents.json").read_text())
 ME = json.loads((FIXTURES / "me_client_onboarder.json").read_text())
+# D-095: the backend's document-digests reply (None: derived from DOCUMENTS, no digest).
+DIGESTS: list[dict[str, Any]] | None = None
 CASE_ID = SUMMARY["case"]["case_id"]
 ORIGIN = "http://127.0.0.1:5173"
 BASE_URL = "http://127.0.0.1:1234/v1"
@@ -98,6 +100,20 @@ class Backend:
             return httpx.Response(200, json=SUMMARY)
         if path == f"/api/onboarding/cases/{CASE_ID}/documents":
             return httpx.Response(200, json=DOCUMENTS)
+        if path == f"/api/onboarding/cases/{CASE_ID}/document-digests":
+            # D-095: what the backend computed from each upload. These saved Garden documents
+            # have no bytes in the repository, so by default they have no digest.
+            digests = DIGESTS
+            if digests is None:
+                digests = [
+                    {
+                        "document_id": item["document_id"],
+                        "document_version": item.get("document_version"),
+                        "content_sha256": None,
+                    }
+                    for item in DOCUMENTS
+                ]
+            return httpx.Response(200, json=digests)
         return httpx.Response(404, json={"detail": "not found"})
 
 

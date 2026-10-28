@@ -92,6 +92,22 @@ class ClmBackendClient:
             )
         return actor
 
+    def load_document_digests(
+        self, case_id: UUID, session_token: str | None
+    ) -> list[dict[str, Any]] | None:
+        """D-095: the SHA-256 the backend computed from each document's uploaded bytes (its
+        case-scoped document-digests route), or None when it cannot be read. Read only for
+        the remote model's synthetic eligibility check, never shown or sent anywhere."""
+
+        try:
+            with self._client(session_token) as client:
+                digests = self._get(client, f"/api/onboarding/cases/{case_id}/document-digests")
+        except ClmBackendError:
+            return None
+        if not isinstance(digests, list) or not all(isinstance(item, dict) for item in digests):
+            return None
+        return digests
+
     def load_case(self, case_id: UUID, session_token: str | None) -> CaseSnapshot:
         with self._client(session_token) as client:
             actor = self._get(client, "/api/auth/me")

@@ -10,9 +10,9 @@ It records identities and fingerprints only, never business values:
     companies   (UEN, legal name) of every company the backend's Mock ACRA connector serves
                 (asked through the connector itself) and of the project's synthetic company
                 packs seeded into the local synthetic registry (LOCAL_SYNTHETIC_UAT_V1)
-    documents   (file name, media type, exact size in bytes) of every synthetic client
-                document tracked under the backend's UAT fixtures, and of the synthetic Garden
-                documents the D-094 fixtures record
+    documents   (SHA-256 of the bytes, media type, exact size, file name for reference) of
+                every synthetic client document tracked under the backend's UAT fixtures. The
+                backend computes the same digest from each upload; only a match is verified.
     viewers     the backend's seeded POC users
 
 A case's other values (addresses, officers, ownership parties, extracted document fields) are
@@ -21,6 +21,7 @@ not listed: they are trusted because of where they came from, not because of wha
 
 import argparse
 import ast
+import hashlib
 import json
 import re
 import sys
@@ -34,7 +35,6 @@ sys.path[:0] = [str(HERE), str(BACKEND), str(ROOT)]
 from ai_assistant.synthetic_eligibility import ELIGIBILITY_FILE, SCHEMA  # noqa: E402
 
 UAT_FIXTURES = BACKEND / "tests" / "fixtures" / "uat"
-GARDEN_DOCUMENTS = HERE / "tests" / "fixtures" / "garden_documents.json"
 MOCK_ACRA_SOURCES = (
     BACKEND / "app" / "connectors" / "mock_acra.py",
     BACKEND / "app" / "connectors" / "garden_business.py",
@@ -88,17 +88,22 @@ def companies() -> list[dict[str, str]]:
 
 
 def documents() -> list[dict[str, object]]:
-    found: set[tuple[str, str, int]] = set()
+    found: dict[str, dict[str, object]] = {}
     for path in sorted(UAT_FIXTURES.rglob("*")):
         media = MEDIA_TYPES.get(path.suffix.lower())
         if path.is_file() and media is not None:
-            found.add((path.name, media, path.stat().st_size))
-    for item in json.loads(GARDEN_DOCUMENTS.read_text(encoding="utf-8")):
-        found.add((str(item["display_name"]), str(item["media_type"]), int(item["size_bytes"])))
-    return [
-        {"display_name": name, "media_type": media, "size_bytes": size}
-        for name, media, size in sorted(found)
-    ]
+            content = path.read_bytes()
+            digest = hashlib.sha256(content).hexdigest()
+            found.setdefault(
+                digest,
+                {
+                    "sha256": digest,
+                    "display_name": path.name,
+                    "media_type": media,
+                    "size_bytes": len(content),
+                },
+            )
+    return [found[digest] for digest in sorted(found)]
 
 
 def viewers() -> list[str]:
