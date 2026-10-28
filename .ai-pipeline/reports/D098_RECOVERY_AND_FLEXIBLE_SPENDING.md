@@ -102,6 +102,13 @@ not account credits; the page says credits are not available rather than estimat
   revert write for GPT-OSS serves no model and retries; the conflict fallback is decided by the
   stored activation. Tests cover all three paths. Advisories fixed: `PROJECT_STATE.md` line
   endings restored (CRLF), D-098 table order, a test comment.
+- QG R5 FAIL (fresh reviewer), one REQUIRED finding: after a revert write that could not be
+  stored, the in-memory state carried the stored revision, so no request retried it, nothing
+  was audited and HR's re-activation of GPT-OSS was refused `ALREADY_ACTIVE` until a restart.
+  Remediation: that state carries revision -1, so every request retries until the revert is
+  stored and audited; a test covers the database becoming writable, the `STARTUP_REVERTED`
+  event and HR activating GPT-OSS again. Advisories fixed: a stale comment; `case_data_only`
+  and the Fast id are reserved against IT profile-file ids.
 
 ## 5. Tests (offline)
 

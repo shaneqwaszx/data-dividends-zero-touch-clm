@@ -607,3 +607,76 @@ def test_a_running_gpt_oss_model_is_kept_when_the_state_cannot_be_read(
 
     monkeypatch.setattr(store, "revision", locked)
     assert journey.selector.current().profile_id == OPENROUTER_PROFILE_ID
+
+
+def test_a_revert_that_could_not_be_stored_is_retried_audited_and_recoverable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """QG R5 F1: while the state database cannot store the revert, no model answers; once it
+    can, the next request stores and audits the revert, and HR can activate GPT-OSS again."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    _settle_verification()
+    monkeypatch.setattr(model_admin, "qualification_basis", lambda: "2" * 64)
+    store = ModelAdminStore(Path(journey.settings.model_admin_db_path))
+    real_activate = store.activate
+    locked = {"on": True}
+
+    def maybe_locked(*args: Any, **kwargs: Any) -> Any:
+        if locked["on"]:
+            raise sqlite3.OperationalError("database is locked")
+        return real_activate(*args, **kwargs)
+
+    monkeypatch.setattr(store, "activate", maybe_locked)
+    restarted = ModelSelector(
+        journey.settings,
+        journey.baseline,
+        store,
+        environ=journey.selector.environ,
+        transport=journey.selector.transport,
+    )
+    first = restarted.current()
+    assert (first.profile_id, first.model, first.revision) == (CASE_DATA_ONLY_ID, None, -1)
+    stored = store.activation(restarted.baseline_choice())
+    assert stored.active_profile_id == OPENROUTER_PROFILE_ID  # not yet stored
+
+    locked["on"] = False  # writable again
+    second = restarted.current()
+    assert (second.profile_id, second.model) == (CASE_DATA_ONLY_ID, None)
+    assert second.revision == store.revision() and second.revision > 0
+    assert store.activation(restarted.baseline_choice()).active_profile_id == CASE_DATA_ONLY_ID
+    events = store.events(5)
+    assert (events[0]["action"], events[0]["code"]) == (
+        "STARTUP_REVERTED",
+        "QUALIFICATION_OUT_OF_DATE",
+    )
+
+    # The cause is fixed (here: the code basis is back): HR activates GPT-OSS again, no
+    # ALREADY_ACTIVE, and GPT-OSS answers.
+    monkeypatch.setattr(model_admin, "qualification_basis", qualification_basis)
+    revision = journey.client.get(API).json()["revision"]
+    again = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/activate",
+        json={"expected_revision": revision, "acknowledge_quality_unscored": True},
+    )
+    assert again.status_code == 200, again.text
+    assert journey.ask()["answered_by"] == "model"
+
+
+@pytest.mark.parametrize("profile_id", [CASE_DATA_ONLY_ID, OPENROUTER_FAST_PROFILE_ID])
+def test_it_cannot_name_a_file_profile_like_the_no_model_state_or_fast(
+    tmp_path: Path, profile_id: str
+) -> None:
+    """QG R5 A2: these ids mean "no model" and the GPT-OSS Fast configuration; a profiles file
+    entry with either id is refused (the file is reported invalid)."""
+
+    from tests.test_model_management import profile as file_profile
+    from tests.test_model_management import settings as file_config
+    from tests.test_model_management import write_profiles
+
+    path = write_profiles(tmp_path / "profiles.json", file_profile(profile_id=profile_id))
+    catalogue = load_catalogue(file_config(tmp_path, path))
+    assert catalogue.file_status == "invalid"
+    entry = catalogue.get(profile_id)
+    assert entry is None or entry.source != "file"

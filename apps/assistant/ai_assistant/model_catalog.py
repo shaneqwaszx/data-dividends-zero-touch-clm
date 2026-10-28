@@ -121,7 +121,9 @@ class ProfilesFile(BaseModel):
         ids = [item.profile_id for item in value]
         if len(set(ids)) != len(ids):
             raise ValueError("profile ids must be unique")
-        if {BASELINE_ID, *APPROVED_PROFILES} & set(ids):
+        # D-098: also the no-model state and the Fast configuration (listed or not).
+        reserved = {BASELINE_ID, CASE_DATA_ONLY_ID, OPENROUTER_FAST_PROFILE_ID, *APPROVED_PROFILES}
+        if reserved & set(ids):
             raise ValueError("a profile id is reserved")
         return value
 
@@ -250,6 +252,10 @@ def baseline_entry(settings: AiAssistantSettings) -> CatalogueEntry:
 # A second configuration of the remote model, reasoning effort low (same model, endpoint, key
 # and limits). The page names the efforts; the server sends only the effort and closed codes.
 OPENROUTER_FAST_PROFILE_ID = "openrouter_gpt_oss_120b_low"
+# D-098 (owner: GPT-OSS only, no substitute model): what a GPT-OSS activation that can no
+# longer be used reverts to. No model at all: every answer is the case-data answer. It is
+# stored like an activation (audited, kept across restarts) until HR activates a model.
+CASE_DATA_ONLY_ID = "case_data_only"
 FAST_REASONING_EFFORT = "low"
 MODEL_NAME = "GPT-OSS 120B"
 

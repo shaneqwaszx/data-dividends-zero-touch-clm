@@ -82,6 +82,7 @@ from .model_admin_store import (
 )
 from .model_catalog import (
     BASELINE_ID,
+    CASE_DATA_ONLY_ID,
     OPENROUTER_FAST_PROFILE_ID,
     BoundedPromptModel,
     Catalogue,
@@ -108,10 +109,6 @@ from .remote_test import (
 log = logging.getLogger("ai_assistant.model_admin")
 
 CAPABILITY = "MODEL_CONFIG_MANAGE"
-# D-098 (owner: GPT-OSS only, no substitute model): what a GPT-OSS activation that can no
-# longer be used reverts to. No model at all: every answer is the case-data answer. It is
-# stored like an activation (audited, kept across restarts) until HR activates a model.
-CASE_DATA_ONLY_ID = "case_data_only"
 # The remote GPT-OSS configurations (catalogue source "code"), listed or not.
 REMOTE_PROFILE_IDS = frozenset({OPENROUTER_PROFILE_ID, OPENROUTER_FAST_PROFILE_ID})
 SYSTEM_ACTOR = "system"
@@ -670,10 +667,11 @@ class ModelSelector:
             except Exception:
                 if not remote:
                     raise
-                # The revert could not be stored: no model now, and the next request tries
-                # again (the stored GPT-OSS activation is unusable either way).
+                # The revert could not be stored: no model now. Revision -1 matches no stored
+                # revision, so the next request reads the state and tries again until the
+                # revert is stored and audited (the stored activation is unusable either way).
                 log.error("model state could not be updated; no model until it is")
-                return self._case_data_only(stored.revision, reverted=problem)
+                return self._case_data_only(-1, reverted=problem)
             self.store.record(
                 actor=SYSTEM_ACTOR,
                 role=None,
@@ -779,7 +777,8 @@ class ModelSelector:
                 return self._active
             # Changed between the checks and the store: put the previous model back (as it
             # was, last good model included), record that, and restore it as at start-up
-            # (which falls back to the baseline, audited, if it is no longer usable either).
+            # (which reverts, audited, if it is no longer usable either: to no model for
+            # GPT-OSS, to the baseline for a local profile).
             # D-098: exactly the activation that was in place (no model included), never a
             # substitute for it.
             was = Choice(
