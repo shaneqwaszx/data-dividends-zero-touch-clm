@@ -1270,7 +1270,7 @@ Branch `feat/d098-ai-model-recovery-budget-controls`, stacked on PR #127
   substitute model, and flexible daily and lifetime limits (US$1.00 default, no US$1 ceiling;
   raises confirmed and gated on a finite, verified OpenRouter key limit; strictest wins).
   The chat labels case-data guidance as not AI-generated.
-- **Qualification:** basis `2bd93aeb8886…` → `3eb5d0cebcd3…` (budget and preflight files):
+- **Qualification:** basis `2bd93aeb8886…` → `62bab2deec8d…` (budget and preflight files):
   every earlier GPT-OSS qualification is out of date on this code; an active GPT-OSS
   configuration starts as *AI unavailable*. Paid requalification of Balanced (and Fast if
   used) is required after integration and needs owner approval; none was run.

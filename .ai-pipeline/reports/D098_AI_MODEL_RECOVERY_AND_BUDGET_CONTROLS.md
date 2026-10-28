@@ -93,7 +93,7 @@ the paid-run pre-check is min(daily remaining, lifetime headroom, key remaining)
 
 Basis files changed: `budget.py`, `remote_checks.py`, `remote_test.py`,
 `synthetic_boundary.json` (regenerated from string constants). Basis `2bd93aeb8886…` →
-`3eb5d0cebcd3925f55fc3ed7d5430610a4705ee7eee79472f8d3ac2b4af8d54c`. **Balanced's existing
+`62bab2deec8d5e58e11b7d51b0641ecae7c55080d379878a59f3a211823a4f13`. **Balanced's existing
 qualification is not valid on this code**, nor is any Fast qualification. History is kept;
 nothing is marked qualified; at start-up an active GPT-OSS configuration is stored as
 *AI unavailable* (`QUALIFICATION_OUT_OF_DATE`, audited). Required after integration (owner
