@@ -6,9 +6,9 @@ service can use them without importing it.
                maximum completion, quantization and provider, its slug matches no other
                endpoint of the model, and it is in the public ZDR list
     key        the key has a spending limit that never resets and room for one reservation
-    ledger     initialised for this key, breaker closed, no open calls, its cap allows at most
-               the allocation (US$1.00 here) beyond the key's usage when the ledger was made,
-               and the key's provider-reported usage is fully accounted for
+    ledger     initialised for this key, breaker closed, no open calls, its cap above the
+               key's usage when the ledger was made (D-098: no US$1.00 allocation beyond
+               it), and the key's provider-reported usage is fully accounted for
     owner      the owner attests auto top-up is off and prompt logging is off (neither is
                readable through the API)
 
@@ -474,7 +474,7 @@ def check_daily(
     report: Preflight, ledger: BudgetLedger, daily_cap_micro_usd: int, reservation_micro: int
 ) -> None:
     """D-095: today's allowance (Asia/Singapore day) has room for one reservation. A daily cap
-    setting outside 0..US$1.00 reads as no allowance, so it fails closed."""
+    setting outside 0..MAX_MICRO_USD reads as no allowance, so it fails closed."""
 
     try:
         daily = ledger.daily_status(daily_cap_micro_usd)

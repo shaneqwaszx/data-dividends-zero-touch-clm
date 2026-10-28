@@ -143,7 +143,7 @@ const CREDENTIAL_SOURCE: Record<string, string> = {
 // Whole micro-USD from a US$ amount typed by HR ("0.25" -> 250000); null when not a plain amount.
 export function toMicroUsd(text: string): number | null {
   const trimmed = text.trim();
-  // D-098: up to US$1,000,000 (the ledger's own bound); the server checks the bound again.
+  // D-098: at most 7 whole digits; the bound (US$1,000,000, the ledger's own) is checked by the form and the server.
   if (!/^\d{1,7}(\.\d{1,6})?$/.test(trimmed)) return null;
   const [whole, fraction = ""] = trimmed.split(".");
   return Number(whole) * 1_000_000 + Number(fraction.padEnd(6, "0"));
@@ -525,7 +525,11 @@ function Recovery({ overview, busy, onAction, onRetry }: {
               <strong>{nameOf(item.profile_id)}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}{" "}
               <span className={`tag ${state.tag}`}>{item.qualified ? "Qualified" : state.label}</span>{" "}
               <small className="control-help">
-                {item.previous_pass_current ? "An earlier pass is still valid for this configuration." : "No pass is valid for the current configuration and code."}
+                {item.qualified
+                  ? "Its passing qualification matches the current configuration and code."
+                  : item.previous_pass_current
+                    ? `An earlier pass matches this configuration and code, but the latest run did not pass, so it cannot be activated again until a new run passes.${item.active ? " The current activation keeps running." : ""}`
+                    : "No pass is valid for the current configuration and code."}
                 {item.state.code && <> Reason: {readable(item.state.code)}.</>}
               </small>
               {item.qualification && (
@@ -537,7 +541,7 @@ function Recovery({ overview, busy, onAction, onRetry }: {
                 <>{" "}<button type="button" className="btn btn-secondary" disabled={busy || !cost} onClick={() => onRetry(item.profile_id)}>Retry Qualification</button></>
               )}
               {item.qualification && !item.qualification.retryable && (
-                <p className="control-help">This result cannot be retried away: thresholds, safety filters and model settings are not HR settings. Send IT the profile and the result code above.</p>
+                <p className="control-help">This result cannot be retried away: the server will not run this configuration again until IT changes its settings (thresholds, safety filters and model settings are not HR settings). Send IT the profile and the result code above.</p>
               )}
             </li>
           );
@@ -766,7 +770,9 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                         <button type="button" className="btn btn-secondary" disabled={!usable || busy} onClick={() => action.mutate(() => testModelConnection(item.profile_id))}>Test connection</button>{" "}
                         <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={() => {
                           // A paid (remote) run is confirmed first; a local one starts at once.
-                          if (item.deployment === REMOTE_DEPLOYMENT) { setRetrying(item.profile_id); return; }
+                          // Without a cost view (no question list or spending view) the server's
+                          // own refusal is shown instead of a dialog that cannot open.
+                          if (item.deployment === REMOTE_DEPLOYMENT && overview.recovery?.qualification_cost) { setRetrying(item.profile_id); return; }
                           setSelected(item.profile_id);
                           action.mutate(() => startModelQualification(item.profile_id));
                         }}>Run qualification</button>{" "}

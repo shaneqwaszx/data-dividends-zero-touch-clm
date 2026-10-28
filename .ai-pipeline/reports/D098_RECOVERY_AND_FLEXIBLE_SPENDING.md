@@ -47,13 +47,27 @@ not account credits; the page says credits are not available rather than estimat
 - Commit 1 (recovery, confirmation, diagnostics): no basis file changed; basis
   `2bd93aeb8886…` unchanged; `synthetic_boundary.json` current.
 - Commit 2 (ceilings): `budget.py`, `remote_checks.py`, `remote_test.py` are basis files;
-  basis → `1748457ee7eb…`; `synthetic_boundary.json` byte-identical. BASIS_FILES unchanged (no
+  basis → `3bed544631d3…`; `synthetic_boundary.json` byte-identical. BASIS_FILES unchanged (no
   file omitted). Every stored qualification is out of date: Balanced and Fast need a new paid
   qualification (2 manifest calls each); a stored Balanced activation reverts to the baseline
   at the next start. No qualification was marked passed. Paid requalification needs separate
   authorisation.
 
-## 4. Tests (offline)
+## 4. Independent Quality Gate
+
+- **R1 FAIL**, one REQUIRED finding: a G-3/G-6/G-7/G-8 failure could be re-run until a run
+  passed (the docs said such results are never retried away). Advisories: "an earlier pass is
+  still valid" read as activatable after a later failed run; the daily-raise check compared
+  against controls read under a revision other than the one the change replaces; the remote
+  "Run qualification" did nothing without a cost view; stale US$1.00 wording in messages and
+  comments; the environment default is not provider-checked.
+- **Remediation:** the server refuses a new run of the same configuration and code after one of
+  those gates (`ESCALATION_REQUIRED`, audited) until IT changes its settings or the code changes;
+  the page words the earlier pass correctly; a daily raise under another revision is refused
+  (`CONTROLS_CONFLICT`) before any provider check; without a cost view the server's own refusal
+  is shown; wording and docs corrected. Tests added for each.
+
+## 5. Tests (offline)
 
 Backend: `tests/test_recovery.py` (classification, Fast-fails-Balanced-active, confirmation,
 call-limit refusal, duplicate start, session revoked mid-run with exactly the manifest's

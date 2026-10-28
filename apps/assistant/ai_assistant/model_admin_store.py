@@ -18,7 +18,7 @@ heartbeat while it supervises the process; the process refreshes it between step
 HR spending controls (D-096): the remote model's daily allowance and its call limit per
 activation, as an HR administrator set them. One row, changed only by compare-and-set on its
 own revision; until it exists the environment settings apply. Its CHECKs repeat the
-hard bounds (at most US$1.00 a Singapore day, 1 to 200 calls), so no writer can store more.
+hard bounds (the ledger's own bound a Singapore day, 1 to 200 calls), so no writer can store more.
 """
 
 import json

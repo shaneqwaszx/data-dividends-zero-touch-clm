@@ -707,3 +707,20 @@ def test_a_d096_store_is_migrated_with_its_controls_kept(tmp_path: Path) -> None
     assert store.set_spending_controls(4, 2_000_000, 30, "hr-admin") == 5
     ModelAdminStore(path)  # a second open changes nothing
     assert store.spending_controls().daily_cap_micro_usd == 2_000_000
+
+
+def test_a_raise_read_under_an_older_revision_is_refused_before_any_provider_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """QG F3: the increase is judged against the row the change would replace."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    assert _controls(journey, 500_000, 20, revision=0).status_code == 200  # revision 1
+    reads = len(journey.openrouter.requests)
+    for revision in (0, 2, 7):
+        reply = _controls(journey, 3_000_000, 20, revision=revision)
+        assert reply.status_code == 409
+        assert reply.json()["detail"]["code"] == "CONTROLS_CONFLICT"
+    assert len(journey.openrouter.requests) == reads  # no key read for a stale view
+    controls = journey.client.get(f"{API}/budget").json()["controls"]
+    assert (controls["revision"], controls["daily_cap_micro_usd"]) == (1, 500_000)

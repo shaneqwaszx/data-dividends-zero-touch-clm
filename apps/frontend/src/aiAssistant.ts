@@ -158,10 +158,11 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Confirm the new daily limit to raise it. Nothing changed.",
   "A limit can only be raised while the OpenRouter key has its own limit that never resets. Nothing changed.",
   "Confirm the new lifetime limit to raise it. Nothing changed.",
-  "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed.",
+  "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before a limit can be raised. Nothing changed.",
   "The OpenRouter key could not be checked. Nothing changed.",
   // D-098: a paid qualification is confirmed and refused before it starts if it cannot end.
   "Confirm the number of paid calls this qualification makes. Nothing started.",
+  "This model failed a safety, answer, capacity or verification check. It can be qualified again only after IT changes its settings. Nothing started.",
   "The spending limits do not leave room for a paid call of this qualification. Nothing started.",
 ]);
 

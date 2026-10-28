@@ -18,8 +18,9 @@ from ai_assistant.model_admin import (
     diagnose_qualification,
     diagnose_service,
 )
-from ai_assistant.model_catalog import OPENROUTER_FAST_PROFILE_ID
+from ai_assistant.model_catalog import OPENROUTER_FAST_PROFILE_ID, load_catalogue
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID
+from ai_assistant.model_qualification import qualification_basis
 from tests.test_model_management import API, ThreadRun
 from tests.test_remote_test import SENTINEL, Journey, _settle_verification, wait_for
 
@@ -312,3 +313,61 @@ def test_a_failed_run_after_a_pass_leaves_the_earlier_pass_current(
     # The active model is not replaced by a failed run.
     assert overview["active"]["profile_id"] == OPENROUTER_PROFILE_ID
     assert overview["recovery"]["last_failure"]["code"] == "CANCELLED"
+
+
+@pytest.mark.parametrize("gate", ["G-3", "G-6", "G-7", "G-8"])
+def test_a_safety_or_quality_gate_failure_cannot_be_rerun_until_it_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate: str
+) -> None:
+    """QG F1: re-running the same configuration and code until a run passes would bypass the
+    gate, so the server refuses it; a change of settings (fingerprint) or code (basis) or a
+    retryable failure does not block."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    store = journey.selector.store
+    assert store is not None
+    entry = load_catalogue(journey.settings).get(OPENROUTER_PROFILE_ID)
+    assert entry is not None
+    failed = store.begin_qualification(
+        entry.profile_id, entry.fingerprint, qualification_basis(), "hr-admin", 0
+    )
+    store.finish_qualification(failed, "failed", f"GATES_FAILED:G-2,{gate}", None)
+    calls = _cost(journey)["paid_calls"]
+    refused = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "ESCALATION_REQUIRED"
+    assert journey.openrouter.chats == [] and journey.client.get(API).json()["running"] is None
+    assert ("QUALIFICATION_STARTED", "refused", "ESCALATION_REQUIRED") in [
+        (e["action"], e["outcome"], e["code"]) for e in _events(journey)
+    ]
+
+    # The same failure under other code (another basis) no longer blocks.
+    other = store.begin_qualification(entry.profile_id, entry.fingerprint, "0" * 64, "hr", 0)
+    store.finish_qualification(other, "failed", f"GATES_FAILED:{gate}", None)
+    started = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
+    )
+    assert started.status_code == 202, started.text
+    wait_for(journey.client, started.json()["qualification_id"])
+
+
+def test_a_retryable_failure_can_be_run_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    store = journey.selector.store
+    assert store is not None
+    entry = load_catalogue(journey.settings).get(OPENROUTER_PROFILE_ID)
+    assert entry is not None
+    failed = store.begin_qualification(
+        entry.profile_id, entry.fingerprint, qualification_basis(), "hr-admin", 0
+    )
+    store.finish_qualification(failed, "failed", "GATES_FAILED:G-2,G-4", None)
+    calls = _cost(journey)["paid_calls"]
+    started = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
+    )
+    assert started.status_code == 202, started.text
+    assert wait_for(journey.client, started.json()["qualification_id"])["status"] == "passed"

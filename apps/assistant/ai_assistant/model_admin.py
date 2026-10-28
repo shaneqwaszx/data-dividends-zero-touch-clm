@@ -27,13 +27,14 @@ administrator may hand the server an OpenRouter key when no environment or .env 
 changing it needs the Origin header of an allowed page and is rate limited.
 
 D-096: an HR administrator also sets the remote model's spending controls here: the daily
-allowance (at most US$1.00 per Singapore day) and the calls per activation (1 to 200), stored
-in the model state database (compare-and-set, every process reads them per request, applied to
-the active model without a restart or a new activation, its call count kept); the ledger's
-lifetime cap, from the key's opening provider usage up to US$1.00 above it (a raise needs the
-amount confirmed and the existing reconciliation checks against OpenRouter's reported usage);
-and a read-only refresh of the key's OpenRouter limit. Spend, calls and ledger history are
-never reset, no ledger is created, and neither the key nor its OpenRouter limit is changed.
+allowance per Singapore day (D-098: US$1.00 by default) and the calls per activation (1 to
+200), stored in the model state database (compare-and-set, every process reads them per
+request, applied to the active model without a restart or a new activation, its call count
+kept); the ledger's lifetime cap, from the key's opening provider usage up (a raise of either
+limit needs the amount confirmed, a key limit that never resets and the reconciliation checks
+against OpenRouter); and a read-only refresh of the key's OpenRouter limit. Spend, calls and
+ledger history are never reset, no ledger is created, and neither the key nor its
+OpenRouter limit is changed.
 
 Switching is atomic: each answer takes one snapshot of the active model when it starts and
 keeps it to the end, and the choice is a compare-and-set on the stored revision, which every
@@ -169,7 +170,7 @@ MESSAGES = {
     "CAP_CONFIRMATION_REQUIRED": "Confirm the new lifetime limit to raise it. Nothing changed.",
     "RECONCILIATION_REQUIRED": (
         "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted"
-        " for) before the lifetime limit can be raised. Nothing changed."
+        " for) before a limit can be raised. Nothing changed."
     ),
     "PROVIDER_CHECK_FAILED": "The OpenRouter key could not be checked. Nothing changed.",
     # D-098: raising a limit needs a provider-side backstop.
@@ -179,6 +180,10 @@ MESSAGES = {
         " resets. Nothing changed."
     ),
     # D-098: a paid qualification is confirmed, and refused before it starts if it cannot end.
+    "ESCALATION_REQUIRED": (
+        "This model failed a safety, answer, capacity or verification check. It can be"
+        " qualified again only after IT changes its settings. Nothing started."
+    ),
     "PAID_CONFIRMATION_REQUIRED": (
         "Confirm the number of paid calls this qualification makes. Nothing started."
     ),
@@ -260,6 +265,8 @@ _GATE_CODES: dict[str, tuple[str, str, bool]] = {
     "G-7": (OPERATOR_REQUIRED, "CONTACT_IT", False),
     "G-8": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
 }
+# Gates whose failure blocks a new run of the same configuration and code (post_qualification).
+_ESCALATION_GATES = frozenset({"G-3", "G-6", "G-7", "G-8"})
 # Preflight checks (remote_checks.py) behind a failed connection (G-1).
 _CHECK_CODES: dict[str, tuple[str, str, bool]] = {
     "key.status": (TEMPORARILY_UNAVAILABLE, "TEST_CONNECTION", True),
@@ -1231,6 +1238,19 @@ def model_admin_router(
             )
             return _refusal(409, code)
 
+        # D-098: a safety, answer-validity, capacity or verification gate failure is not run
+        # again on the same configuration and code until IT changes one of them (a new
+        # fingerprint or basis); repeating it until a run passes would bypass the gate.
+        latest = store.latest_qualification(entry.profile_id)
+        diagnosis = diagnose_qualification(latest)
+        if (
+            latest is not None
+            and diagnosis is not None
+            and latest["fingerprint"] == entry.fingerprint
+            and latest["basis"] == qualification_basis()
+            and any(f.get("gate") in _ESCALATION_GATES for f in diagnosis["findings"])
+        ):
+            raise refuse("ESCALATION_REQUIRED")
         # The same checks the qualification process applies, before anything starts.
         if entry.source == "code":
             # D-094: a paid run, so only the configured, counted question manifest.
@@ -1642,7 +1662,14 @@ def model_admin_router(
             raise _refusal(400, "CONTROLS_INVALID")
         with selector.change_lock:
             recheck(request, profile, action)
-            current = apply_controls(settings, selector.spending_controls())
+            stored = selector.spending_controls()
+            # The increase is judged against the row the change replaces: a view read under
+            # another revision is refused before any check (the store's compare-and-set
+            # refuses the same row changing after this read).
+            if stored is not None and stored.revision != body.expected_revision:
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _refusal(409, "CONTROLS_CONFLICT")
+            current = apply_controls(settings, stored)
             if body.daily_cap_micro_usd > current.budget_daily_cap_micro_usd:
                 if body.confirm_daily_cap_micro_usd != body.daily_cap_micro_usd:
                     audit(profile, action, "refused", code="DAILY_CONFIRMATION_REQUIRED")

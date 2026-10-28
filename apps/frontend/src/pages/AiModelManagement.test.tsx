@@ -683,7 +683,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/budget/lifetime-cap")) {
-        return json({ detail: { code: "RECONCILIATION_REQUIRED", message: "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed." } }, 409);
+        return json({ detail: { code: "RECONCILIATION_REQUIRED", message: "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before a limit can be raised. Nothing changed." } }, 409);
       }
       if (url.endsWith("/api/assistant/admin/models")) return json(data);
       if (url.includes("/admin/models/audit")) return json({ events: [] });
@@ -855,6 +855,29 @@ describe("AiModelManagement recovery (D-098)", () => {
     }));
     await waitFor(() => expect(view.textContent).toContain("The qualification runs on the AI Assistant server"));
     expect(view.textContent).toContain("it keeps running, is not repeated");
+  });
+
+  it("says an earlier pass does not reactivate after a later failed run (QG F2)", async () => {
+    const view = mount(server(recovering({
+      remote_profiles: [
+        { profile_id: balanced.profile_id, active: true, qualified: false, previous_pass_current: true, qualification: null,
+          state: { code: "CANCELLED", category: "QUALIFICATION_REQUIRED", action: "RUN_QUALIFICATION", retryable: true } },
+      ],
+    })));
+    await waitFor(() => expect(view.textContent).toContain("but the latest run did not pass, so it cannot be activated again until a new run passes. The current activation keeps running."));
+    expect(view.textContent).not.toContain("still valid");
+  });
+
+  it("lets the server explain a remote run it cannot price instead of a dialog that cannot open (QG F4)", async () => {
+    const posts: unknown[] = [];
+    const view = mount(server(recovering({ qualification_cost: null }), (_url, body) => {
+      posts.push(body);
+      return json({ detail: { code: "REMOTE_MANIFEST_MISSING", message: "This model profile is not available for use." } }, 409);
+    }));
+    await waitFor(() => expect(view.textContent).toContain("AI model status and recovery"));
+    await act(async () => button(view, "Run qualification", "Fast").click());
+    await waitFor(() => expect(posts).toEqual([{}]));
+    await waitFor(() => expect(view.textContent).toContain("This model profile is not available for use."));
   });
 
   it("names a security block and an operator stop without offering a bypass", async () => {

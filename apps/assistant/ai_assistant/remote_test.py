@@ -26,8 +26,8 @@ the money limit across restarts. Its blocking checks run off the event loop.
 
 D-095 (development synthetic mode, synthetic_eligibility.py) adds, without changing the above:
 the chat may also send messages that passed the eligibility check (a single-use ticket for
-exactly those messages); every call is inside the ledger's daily allowance (US$1.00 per
-Singapore day at most, budget.py) and the preflight checks it; the key may come from the
+exactly those messages); every call is inside the ledger's daily allowance (per
+Singapore day, US$1.00 by default, budget.py) and the preflight checks it; the key may come from the
 process environment, the git-ignored .env or an HR administrator (key_sources.py), and when it
 changes the model is rebuilt with it and the full preflight runs again before the next call.
 ``budget_status`` is the read-only spending view for the AI Models page.
