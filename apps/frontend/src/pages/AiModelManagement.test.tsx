@@ -765,6 +765,59 @@ describe("AiModelManagement D-098 recovery", () => {
     expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
   });
 
+  it("recommends a confirmed new qualification for a pass that is out of date", async () => {
+    const posts: unknown[] = [];
+    const run: ModelQualification = {
+      ...qualification, status: "passed", code: null, current: false,
+      diagnosis: { category: "configuration", cause: "OUT_OF_DATE", action: "RUN_AGAIN", retryable: true, supersedes_pass: false },
+    };
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["NOT_QUALIFIED"] }), (_url, body) => { posts.push(body); return json({ qualification_id: "c".repeat(32) }); }));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Qualification out of date");
+    expect(card.textContent).toContain("can no longer be activated");
+    expect(card.textContent).toContain("Retry worthwhile nowYes");
+    expect(card.textContent).toContain("Run a new qualification with the current configuration and code");
+    expect(card.textContent).not.toContain("Nothing to do");
+    expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
+    act(() => [...card.querySelectorAll("button")].find((b) => b.textContent === "Run new qualification…")!.click());
+    expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
+    expect(posts).toEqual([]);  // nothing starts before the paid confirmation
+  });
+
+  it("keeps the quality escalation when a later out-of-date pass is the latest run", async () => {
+    const run: ModelQualification = {
+      ...qualification, status: "passed", code: null, current: false,
+      diagnosis: { category: "quality", cause: "UNSAFE_LINE", action: "ESCALATE_DEVELOPER", retryable: false, supersedes_pass: true },
+    };
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Answer quality");
+    expect(card.textContent).not.toContain("Qualification out of date");
+    expect(card.textContent).toContain("No: this quality failure replaces any earlier pass");
+    const labels = [...card.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).not.toContain("Run new qualification…");
+    expect(labels).not.toContain("Retry qualification…");
+    expect(labels).toContain("Copy escalation summary");
+  });
+
+  it("keeps a current pass qualified with no retry advice", async () => {
+    const run: ModelQualification = {
+      ...qualification, status: "passed", code: null, current: true,
+      diagnosis: { category: "passed", cause: "PASSED", action: "NONE", retryable: false, supersedes_pass: false },
+    };
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: run.qualification_id, finished_at: "2026-10-27T01:05:00+00:00", is_latest: true } })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Qualified");
+    expect(card.textContent).not.toContain("out of date");
+    expect(card.textContent).toContain("Retry worthwhile nowNo");
+    const labels = [...card.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).not.toContain("Run new qualification…");
+    expect(labels).not.toContain("Retry qualification…");
+  });
+
   it("names the AI-unavailable state and that no other model stood in", async () => {
     const view = mount(server({ ...withRemote({}), active: { ...overview.active, profile_id: "ai_unavailable", display_name: "AI unavailable", model_id: null, reverted: "QUALIFICATION_SUPERSEDED", unavailable: true } }));
     await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());

@@ -1211,3 +1211,190 @@ def test_malformed_g7_metrics_fail_safe() -> None:
     ):
         item = _failed(_gates(G_7=(False, _g7(0.5))), **metrics)
         assert diagnose(item).supersedes_pass is True
+
+
+# --- an earlier pass that is no longer current (Recovery Centre advice) ------------------------
+
+
+def _record_pass(
+    journey: Journey, *, fingerprint: str | None = None, basis: str | None = None
+) -> str:
+    """A finished pass, optionally for another fingerprint or answer code (an earlier one)."""
+
+    store = _store(journey)
+    qualification_id = store.begin_qualification(
+        OPENROUTER_PROFILE_ID,
+        fingerprint or _full_fingerprint(journey, OPENROUTER_PROFILE_ID),
+        basis or qualification_basis(),
+        "hr-admin",
+        2,
+    )
+    store.touch(qualification_id)
+    store.finish_qualification(qualification_id, "passed", None, {"gates": [], "metrics": {}})
+    return qualification_id
+
+
+def test_a_pass_that_is_no_longer_current_recommends_requalification() -> None:
+    result = diagnose({"status": "passed"}, current=False)
+    assert (result.category, result.cause, result.action) == (
+        "configuration",
+        "OUT_OF_DATE",
+        "RUN_AGAIN",
+    )
+    assert result.retryable is True and result.supersedes_pass is False
+    current = diagnose({"status": "passed"})
+    assert (current.category, current.action, current.retryable) == ("passed", "NONE", False)
+
+
+def test_only_a_pass_is_treated_as_out_of_date_never_a_failure() -> None:
+    quality = diagnose(_failed(_gates(G_3=(False, 1))), current=False)
+    assert (quality.category, quality.action, quality.retryable) == (
+        "quality",
+        "ESCALATE_DEVELOPER",
+        False,
+    )
+    assert quality.supersedes_pass is True
+    budget = diagnose(
+        _failed(_gates(G_6=(False, None), G_8=False), fallback_reasons={"budget_refused": 2}),
+        current=False,
+    )
+    assert (budget.category, budget.cause) == ("budget", "CALLS_REFUSED")
+    billing = diagnose({"status": "error", "code": "INTERRUPTED_BILLING_UNCERTAIN"}, current=False)
+    assert (billing.action, billing.retryable) == ("ESCALATE_OPERATOR", False)
+
+
+@pytest.mark.parametrize("stale", ["basis", "fingerprint"])
+def test_an_earlier_pass_for_another_configuration_is_shown_as_out_of_date_and_blocks_activation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stale: str
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
+    _record_pass(journey, **{stale: "0" * 64})
+    remote = _remote(journey)
+    assert remote["qualification"]["current"] is False
+    assert remote["qualification"]["diagnosis"] == {
+        "category": "configuration",
+        "cause": "OUT_OF_DATE",
+        "action": "RUN_AGAIN",
+        "retryable": True,
+        "supersedes_pass": False,
+    }
+    assert remote["eligible_qualification"] is None
+    assert remote["activation_blockers"] == ["NOT_QUALIFIED"]
+    # Reading the advice starts nothing; activation stays blocked until a current pass.
+    assert journey.client.get(API).json()["running"] is None and journey.openrouter.chats == []
+    revision = journey.client.get(API).json()["revision"]
+    activate = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/activate",
+        json={"expected_revision": revision, "acknowledge_quality_unscored": True},
+    )
+    assert activate.status_code == 409 and activate.json()["detail"]["code"] == "NOT_QUALIFIED"
+    # The new run still needs its paid calls confirmed; confirmed, it may start.
+    unconfirmed = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={})
+    assert unconfirmed.status_code == 400
+    assert unconfirmed.json()["detail"]["code"] == "PAID_CONFIRMATION_REQUIRED"
+    assert journey.openrouter.chats == []
+    started = journey.start_qualification()
+    assert started.status_code == 202, started.text
+    from tests.test_model_management import wait_for
+
+    result = wait_for(journey.client, started.json()["qualification_id"])
+    assert result["status"] == "passed" and result["current"] is True
+    assert result["diagnosis"]["action"] == "NONE" and result["diagnosis"]["retryable"] is False
+    assert _remote(journey)["activation_blockers"] == []
+
+
+def test_a_current_pass_stays_qualified_with_no_retry_advice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
+    _record_pass(journey)
+    remote = _remote(journey)
+    assert remote["qualification"]["current"] is True
+    diagnosis = remote["qualification"]["diagnosis"]
+    assert (diagnosis["category"], diagnosis["action"], diagnosis["retryable"]) == (
+        "passed",
+        "NONE",
+        False,
+    )
+    assert remote["eligible_qualification"]["is_latest"] is True
+    assert remote["activation_blockers"] == []
+
+
+def test_a_current_quality_failure_after_an_out_of_date_pass_still_blocks_a_rerun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
+    _record_pass(journey, basis="0" * 64)
+    _record(journey, "failed", "GATES_FAILED:G-3", QUALITY_FAILURE)
+    remote = _remote(journey)
+    assert remote["qualification"]["diagnosis"]["category"] == "quality"
+    assert remote["qualification"]["diagnosis"]["retryable"] is False
+    assert remote["activation_blockers"] == ["QUALIFICATION_SUPERSEDED"]
+    refused = journey.start_qualification()
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "QUALIFICATION_ESCALATION_REQUIRED"
+    assert journey.openrouter.chats == []
+
+
+def test_requalifying_an_out_of_date_pass_keeps_every_spending_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    _record_pass(journey, basis="0" * 64)
+    model_admin.forget_provider()  # the key's own limit has not been read in this process
+    assert _remote(journey)["qualification"]["diagnosis"]["cause"] == "OUT_OF_DATE"
+    refused = journey.start_qualification()
+    assert refused.json()["detail"]["code"] == "PROVIDER_LIMIT_NOT_CHECKED"
+    journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
+    with sqlite3.connect(ledger_file(journey.settings)) as db:
+        db.execute(
+            "UPDATE ledger_meta SET breaker_open = 1, breaker_code = 'reconcile_drift',"
+            " breaker_opened_at = 1"
+        )
+    refused = journey.start_qualification()
+    assert refused.json()["detail"]["code"] == "QUALIFICATION_BILLING_UNRECONCILED"
+    assert journey.openrouter.chats == [] and journey.client.get(API).json()["running"] is None
+
+
+@pytest.mark.parametrize("later", ["stale_pass", "stale_technical", "current_technical"])
+def test_a_superseding_quality_failure_is_the_advice_whatever_run_came_later(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, later: str
+) -> None:
+    """QG R-1: a current quality failure, then a later run (a pass for another answer code that
+    is out of date once the configuration returns, or a retryable technical failure). The card
+    keeps the quality escalation and never offers a run the server would refuse."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
+    failure = _record(journey, "failed", "GATES_FAILED:G-3", QUALITY_FAILURE)
+    if later == "stale_pass":
+        _record_pass(journey, basis="0" * 64)
+    else:
+        store = _store(journey)
+        qualification_id = store.begin_qualification(
+            OPENROUTER_PROFILE_ID,
+            _full_fingerprint(journey, OPENROUTER_PROFILE_ID),
+            "0" * 64 if later == "stale_technical" else qualification_basis(),
+            "hr-admin",
+            2,
+        )
+        store.touch(qualification_id)
+        store.finish_qualification(qualification_id, "error", "DEADLINE", None)
+    remote = _remote(journey)
+    assert remote["qualification"]["qualification_id"] != failure  # a later run is the latest
+    assert remote["activation_blockers"] == ["QUALIFICATION_SUPERSEDED"]
+    diagnosis = remote["qualification"]["diagnosis"]
+    assert diagnosis == {
+        "category": "quality",
+        "cause": "UNSAFE_LINE",
+        "action": "ESCALATE_DEVELOPER",
+        "retryable": False,
+        "supersedes_pass": True,
+    }
+    refused = journey.start_qualification()
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "QUALIFICATION_ESCALATION_REQUIRED"
+    assert journey.openrouter.chats == []

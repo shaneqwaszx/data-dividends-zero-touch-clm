@@ -329,6 +329,7 @@ override verification, reset spend or activate an unqualified configuration.
 | Server configuration (settings, attestations, key limit, question list) | kept (unverified context capacity, or a prompt above the verified or enforced bound: superseded) | — | IT |
 | Billing not reconciled (breaker, unverified calls) | kept | — | operator |
 | Answer quality (unsafe line, line validity, answers cut short by the token limits) | **superseded** | — | developer or IT; the same configuration cannot be run again until it changes |
+| Qualification out of date (a pass for an earlier configuration or answer code) | not activatable | run a new qualification (paid runs confirmed, every limit applies) | — |
 
 A quality failure takes precedence in the advice: whatever else the run shows (a provider
 outage, refused calls), its recommended action is the escalation, because the same

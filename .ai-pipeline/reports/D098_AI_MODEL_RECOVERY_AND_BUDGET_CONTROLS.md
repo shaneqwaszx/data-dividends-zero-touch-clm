@@ -220,6 +220,63 @@ The review confirmed the Q2-R1 fix, Q-1/F2, F1, the budget controls, the securit
 
 The basis is unchanged (`b4049047884e…`).
 
+## 8f. Pre-merge verification on `f1f4d16` and the out-of-date advice fix (owner-authorised, 2026-10-29)
+
+**Verification on `f1f4d16` (mocks only; nothing spent)**
+
+| Check | Result |
+|---|---|
+| Backend full pytest | 3,373 collected: 3,191 passed, 0 failed, 182 skipped (21 min). The earlier stall did not recur. |
+| Assistant full pytest | 2,647 collected: 2,633 passed, 14 failed. All 14 are `Errno 24`. |
+| Cause of the 14 | Four modules (`test_answer_records`, `test_knowledge_review`, `test_knowledge_answers`, `test_fix_prefill`) leave each test's Chroma index open, about four HNSW files each. Open C-runtime descriptors reach about 520, past the 512 stream limit, so later certificate loads fail. Those four modules followed by the four failing modules reproduce the same 14 failures on D-098 and on main `f88e170`. The failing modules alone pass 289/289. Pre-existing, test-only and outside D-098's scope. |
+| Playwright E2E (disposable `mongo:7`, Tesseract) | 115/116. `responsive-layout.e2e.ts:807` timed out waiting for the login page, then passed 3/3 in isolation. |
+| Windows isolated smoke (own ports, copied state, no key) | Model-state and ledger migrations verified on copies, originals unchanged. Start-up gives "AI unavailable" with no substitution. The paid confirmation is enforced. Session-replaced message shown. Labelled case-data answers. |
+
+**Finding (owner: fix before merge).** The Recovery Centre treated every pass as qualified. A
+pass made for an earlier fingerprint or qualification basis read "Retry worthwhile: No" and
+"Recommended action: Nothing to do", while the same configuration could not be activated. Every
+install is in this state straight after merge, because D-098 changed the basis.
+
+**Fix.** `diagnose(item, current=…)`: a pass that is no longer current is classified as
+`configuration` with cause `OUT_OF_DATE`, action `RUN_AGAIN` and `retryable` true. It never
+supersedes a pass. Only a pass is reclassified: a failure keeps its own category, escalation
+and decision-6a effect, current or not. `eligible_run` keeps its behaviour. It now shares one
+helper with `superseding_run`, and both still read only current runs. The page shows "Qualification out of date" and recommends a new qualification
+with the current configuration and code. The paid run still goes through the confirmation
+dialog and the spending checks, and activation stays blocked until a current run passes.
+Nothing starts automatically.
+
+Existing closed codes are reused, so the synthetic boundary vocabulary is unchanged. A new
+`REQUALIFY` action was tried first. It added a word to the boundary file, a basis file, and
+moved the basis to `ceeba48d…`, so it was withdrawn. The basis remains
+`b4049047884e9f2897a6ac3ebd232ccfe6482e6a6beb82aa50e6304ecb00fd22`.
+
+**Tests.**
+
+- Backend:
+  - a pass that is out of date by basis, and one out of date by fingerprint: the advice is to requalify, activation is refused, an unconfirmed start is refused, and a confirmed run passes and becomes current;
+  - a current pass keeps its qualified state with no retry advice;
+  - a current quality failure after an out-of-date pass still blocks a rerun;
+  - unchecked key limits and an open breaker still refuse the run;
+  - failures (quality, budget, billing) are never reclassified as out of date.
+- Frontend:
+  - the out-of-date card's text, the paid confirmation before any request, and Activate disabled;
+  - a current pass with no retry button.
+
+**QG of `023f0d0`: HOLD, remediated.**
+
+- **R-1 (required):** the card used only the latest run. In one ordering, a genuine quality failure was shown as merely out of date:
+  1. a current G-3 failure;
+  2. the configuration or code changes, and a run passes;
+  3. the configuration changes back.
+
+  The card offered "Run new qualification…", which the server refuses with `QUALIFICATION_ESCALATION_REQUIRED`.
+- **RC-1 (recommended, same cause):** a later retryable failure, current or stale, on top of a current quality failure also offered a retry the server refuses.
+- **Fix:** when decision 6a blocks a configuration (`QUALIFICATION_SUPERSEDED`), the overview takes the diagnosis from the superseding failure (`superseding_run`), whatever run is latest. HR sees the quality escalation and no retry.
+- **Tests:** the out-of-date pass, the stale technical failure and the current technical failure orderings, each with the server's refusal, plus the frontend card.
+- **RC-2:** this section's wording is corrected.
+- **Advisories, unchanged:** a local profile's "Run new qualification…" starts at once, like the existing retry, because local runs are unpaid. The baseline is never shown in the Recovery Centre.
+
 ## 9. Change classes
 
 API/type: yes (new response fields; `confirm_paid_calls`, `confirm_daily_cap_micro_usd`;

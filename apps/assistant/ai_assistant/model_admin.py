@@ -821,14 +821,22 @@ class Diagnosis:
         }
 
 
-def diagnose(item: dict[str, Any]) -> Diagnosis:
-    """Classify one stored run from its status, code and content-free summary."""
+def diagnose(item: dict[str, Any], *, current: bool = True) -> Diagnosis:
+    """Classify one stored run from its status, code and content-free summary.
+
+    ``current``: the run was made for the configuration's current fingerprint and answer code
+    (the qualification basis). A pass that is no longer current cannot be activated, so HR is
+    told to qualify the current configuration (the paid-run confirmation, budget checks and
+    decision 6a still apply to that new run). Only a pass is treated this way: a failure keeps
+    its own classification and escalation."""
 
     status, code = item.get("status"), str(item.get("code") or "")
     summary = item.get("summary") or {}
     if status == "running":
         return Diagnosis("running", "RUNNING", "WAIT")
     if status == "passed":
+        if not current:
+            return Diagnosis("configuration", "OUT_OF_DATE", "RUN_AGAIN", retryable=True)
         return Diagnosis("passed", "PASSED", "NONE")
     if status == "cancelled":
         return Diagnosis("cancelled", "CANCELLED", "RUN_AGAIN", retryable=True)
@@ -974,14 +982,39 @@ def eligible_run(
     came after it. Technical, budget, configuration, billing and cancelled outcomes never
     take a pass away. Returns (run, None), or (None, the blocker code)."""
 
+    item = _deciding_run(store, profile_id, fingerprint, basis)
+    if item is None:
+        return None, "NOT_QUALIFIED"
+    if item["status"] == "passed":
+        return item, None
+    return None, "QUALIFICATION_SUPERSEDED"
+
+
+def superseding_run(
+    store: ModelAdminStore, profile_id: str, fingerprint: str, basis: str
+) -> dict[str, Any] | None:
+    """The genuine quality failure that blocks this configuration under decision 6a, if any.
+    The AI Models page shows its escalation even when a later run (for example a pass made
+    for another configuration or answer code) is the latest one."""
+
+    item = _deciding_run(store, profile_id, fingerprint, basis)
+    return None if item is None or item["status"] == "passed" else item
+
+
+def _deciding_run(
+    store: ModelAdminStore, profile_id: str, fingerprint: str, basis: str
+) -> dict[str, Any] | None:
+    """The newest current run that decides decision 6a: a pass, or a genuine quality failure
+    that came after any pass. None when neither exists."""
+
     for item in store.qualifications_for(profile_id):
         if item["fingerprint"] != fingerprint or item["basis"] != basis:
             continue
         if item["status"] == "passed":
-            return item, None
+            return item
         if item["status"] != "running" and diagnose(item).supersedes_pass:
-            return None, "QUALIFICATION_SUPERSEDED"
-    return None, "NOT_QUALIFIED"
+            return item
+    return None
 
 
 def open_selector(
@@ -1147,11 +1180,19 @@ def model_admin_router(
             ) from None
 
     def qualification_view(
-        item: dict[str, Any] | None, entry: CatalogueEntry, basis: str
+        item: dict[str, Any] | None,
+        entry: CatalogueEntry,
+        basis: str,
+        superseding: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        """The last argument (the overview): the genuine quality failure that blocks this
+        configuration; its escalation is the advice whatever run came later (decision 6a)."""
+
         if item is None:
             return None
         summary = item.get("summary") or {}
+        current = item["fingerprint"] == entry.fingerprint and item["basis"] == basis
+        diagnosis = diagnose(superseding) if superseding else diagnose(item, current=current)
         return {
             "qualification_id": item["qualification_id"],
             "status": item["status"],
@@ -1162,7 +1203,7 @@ def model_admin_router(
             "done_turns": item["done_turns"],
             "total_turns": item["total_turns"],
             "cancel_requested": item["cancel_requested"],
-            "current": item["fingerprint"] == entry.fingerprint and item["basis"] == basis,
+            "current": current,
             "gates": summary.get("gates"),
             "metrics": summary.get("metrics"),
             "lines": summary.get("lines"),
@@ -1170,7 +1211,7 @@ def model_admin_router(
             "connection": summary.get("connection"),
             "quality": summary.get("quality"),
             "reproducibility": summary.get("reproducibility"),
-            "diagnosis": diagnose(item).view(),
+            "diagnosis": diagnosis.view(),
         }
 
     def readiness(entry: CatalogueEntry, blocker: str | None) -> list[str]:
@@ -1198,12 +1239,17 @@ def model_admin_router(
                 if store
                 else (None, "NOT_QUALIFIED")
             )
+            superseding = (
+                superseding_run(store, entry.profile_id, entry.fingerprint, basis)
+                if store and blocker == "QUALIFICATION_SUPERSEDED"
+                else None
+            )
             profiles.append(
                 {
                     **entry.view(),
                     "active": entry.profile_id == active.profile_id,
                     "connection_test": store.connection_test(entry.profile_id) if store else None,
-                    "qualification": qualification_view(latest, entry, basis),
+                    "qualification": qualification_view(latest, entry, basis, superseding),
                     "activation_blockers": readiness(entry, blocker),
                     # D-098: the passing run activation would use (it may be older than the
                     # latest run when that one failed for a technical or budget reason).

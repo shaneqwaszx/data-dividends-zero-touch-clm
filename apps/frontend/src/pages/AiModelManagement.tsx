@@ -87,8 +87,21 @@ const CATEGORY_LABEL: Record<ModelDiagnosis["category"], string> = {
   quality: "Answer quality",
   billing_uncertain: "Billing not reconciled",
 };
+
+// An earlier pass for another configuration or answer code: requalification, not a fault.
+const OUT_OF_DATE = "OUT_OF_DATE";
+const REQUALIFY_TEXT = "Run a new qualification with the current configuration and code. A paid run asks you to confirm its calls first, and the spending limits still apply. Activation stays blocked until it passes.";
+
+function categoryLabel(diagnosis: ModelDiagnosis): string {
+  return diagnosis.cause === OUT_OF_DATE ? "Qualification out of date" : CATEGORY_LABEL[diagnosis.category];
+}
+
+function actionText(diagnosis: ModelDiagnosis): string {
+  return diagnosis.cause === OUT_OF_DATE ? REQUALIFY_TEXT : ACTION_TEXT[diagnosis.action];
+}
 const CAUSE_TEXT: Record<string, string> = {
   PASSED: "The configuration passed every gating check.",
+  OUT_OF_DATE: "This pass was for an earlier configuration or answer code, so it can no longer be activated. The current configuration needs its own passing qualification.",
   RUNNING: "The qualification is running on the server. You may leave this page; it keeps going.",
   CANCELLED: "The run was cancelled before it finished.",
   INTERRUPTED: "The run stopped because the AI assistant service stopped or restarted. It was not restarted automatically.",
@@ -139,10 +152,10 @@ export function escalationSummary(item: ModelProfileView): string {
     "AI model qualification: escalation",
     `Configuration: ${profileName(item)} (${item.profile_id}, fingerprint ${item.fingerprint})`,
     `Run: ${run?.qualification_id ?? "none"}, ${run?.status ?? "not run"}${run?.code ? ` (${run.code})` : ""}`,
-    `Category: ${diagnosis ? CATEGORY_LABEL[diagnosis.category] : "unknown"}; cause: ${diagnosis?.cause ?? "unknown"}`,
+    `Category: ${diagnosis ? categoryLabel(diagnosis) : "unknown"}; cause: ${diagnosis?.cause ?? "unknown"}`,
     `Failed gates: ${failed.length ? failed.join(", ") : "none"}`,
     `Earlier pass still valid: ${item.eligible_qualification && !item.eligible_qualification.is_latest ? item.eligible_qualification.qualification_id : "no"}`,
-    `Recommended: ${diagnosis ? ACTION_TEXT[diagnosis.action] : "review"}`,
+    `Recommended: ${diagnosis ? actionText(diagnosis) : "review"}`,
   ].join("\n");
 }
 
@@ -165,7 +178,7 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
       {!run ? <p>Not qualified yet. {item.activation_blockers.map(readable).join(" ")}</p> : (
         <>
           <p>
-            <strong>{diagnosis ? CATEGORY_LABEL[diagnosis.category] : readable(run.status)}</strong>
+            <strong>{diagnosis ? categoryLabel(diagnosis) : readable(run.status)}</strong>
             {run.code && <> · {readable(run.code)}</>}
             {!run.current && <> · <span className="tag tag-warn">Out of date</span></>}
           </p>
@@ -180,13 +193,15 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
               ? (item.eligible_qualification.is_latest ? "This run is the valid qualification" : `Yes (passed ${formatTimestamp(item.eligible_qualification.finished_at ?? "")})`)
               : diagnosis?.supersedes_pass ? "No: this quality failure replaces any earlier pass" : "No"}</dd></div>
             {paid && <div><dt>Paid calls if retried</dt><dd>Up to {paid.calls ?? "—"} (reserved up to {microUsd(paid.estimate_micro_usd)}); available under the strictest limit {microUsd(paid.effective_remaining_micro_usd)}{paid.refusal ? ` · ${readable(paid.refusal)}` : ""}</dd></div>}
-            {diagnosis && <div><dt>Recommended action</dt><dd>{ACTION_TEXT[diagnosis.action]}</dd></div>}
+            {diagnosis && <div><dt>Recommended action</dt><dd>{actionText(diagnosis)}</dd></div>}
           </dl>
         </>
       )}
       <div>
         {diagnosis?.retryable && usable && (
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={onRetry}>Retry qualification…</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={onRetry}>
+            {diagnosis.cause === OUT_OF_DATE ? "Run new qualification…" : "Retry qualification…"}
+          </button>
         )}{" "}
         {(diagnosis?.action === "TEST_CONNECTION" || diagnosis?.action === "RETRY_LATER") && usable && (
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={onTest}>Test connection</button>
