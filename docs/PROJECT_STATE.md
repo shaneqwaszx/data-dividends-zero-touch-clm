@@ -1220,4 +1220,6 @@ D-095 delta; nothing here is merged or Live.
   `GET /api/onboarding/cases/{case_id}/document-digests` route.
 - **Open:** owner merge; hosted CI after 1 November 2026; the owner's decision on the
   repeated-US$1.00-days proposal (DECISION_LOG D-095 B1 to B6); physical Mongo evidence for
-  schema 16; any paid run needs T7 approval.
+  schema 16 (suite `apps/backend/tests/test_document_digests_real_mongo.py`, owned by
+  `scripts/run_physical_mongo_tests.py`; NOT RUN here, no MongoDB available); any paid run
+  needs T7 approval.
