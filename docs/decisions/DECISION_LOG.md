@@ -1323,3 +1323,50 @@ is unchanged.
   November 2026.
 
 D-092 stays PROPOSED. Further paid runs still need T7 approval.
+
+## D-095 - AI Assistant development synthetic mode, OpenRouter key sources and a US$1.00 daily cap (OWNER-DIRECTED, local development scope only)
+
+Status: owner-directed on 2026-10-28 (the D-095 assignment and its API-key addendum).
+Built on branch `claude/gracious-lovelace-bjvh2z`; not merged. It is recorded separately and
+does not repurpose D-094: without the new flag, D-094 behaves exactly as before and stays the
+known working fallback. D-091 (accepted, dormant A2 scope) and D-093 are unchanged except as
+listed in V8 and V9. **D-092 stays PROPOSED.** Not sponsor policy. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+
+**Why D-094 fell back with `SYNTHETIC_VALUE_NOT_APPROVED`.** D-094 admits one case and checks
+every client value against 19 values generated from the saved Garden fixtures
+(`synthetic_boundary.json`). A Garden case the owner creates in the app carries values the
+fixtures never held: a GoldTier id issued by the Mock GoldTier connector (`GT-MOCK-<id>`, the
+fixture has `GT-SYNTHETIC-0001`), IDP readings of an uploaded document that differ from the
+fixture text, typed observations and decisions. Each is refused as `SYNTHETIC_VALUE_NOT_APPROVED`.
+Other demo companies are refused earlier (`SYNTHETIC_CASE_NOT_APPROVED`), other documents by
+file name (`SYNTHETIC_DOCUMENT_NOT_APPROVED`) and most natural questions by the word list
+(`SYNTHETIC_TEXT_NOT_APPROVED`). Separately, director questions declined because the case facts
+carry only the status of the registry officer lookup (P11), so no allowed line could name a
+director. The provider and budget controls were not the cause.
+
+| # | Decision |
+| --- | --- |
+| V1 | **Flag.** Off unless `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` **and** every D-094 T1 condition holds (D-094 decision, D-091/D-092 interlocks, approved endpoint, loopback CLM backend, local `http` browser origins, owner attestations). Only then does the chat use `synthetic_eligibility.check` instead of the D-094 boundary. |
+| V2 | **Which cases may be sent externally (provenance, not value lists).** Only a case whose company `(UEN, legal name)` is in the generated manifest (`synthetic_eligibility.json`: the backend Mock ACRA connector's fixtures, asked through the connector, and the project's synthetic company packs), with registry details from ACRA in MOCK mode, and whose requested UEN and registry acquisition are for that company. A Mock flag, a name or a UEN alone is not enough. Every document on the case must be a verified synthetic fixture: file name, detected media type and exact byte size (both measured by the backend from the uploaded bytes) must match a synthetic document the repository tracks (`apps/backend/tests/fixtures/uat/**` and the D-094 Garden fixture documents). One unverified upload makes the whole case ineligible (`SYNTHETIC_DOCUMENT_NOT_VERIFIED`), as does a document the summary names that is not on the case, or an unreadable list. The viewer must be a seeded POC user. |
+| V3 | **Values.** Values from the Mock registry record or a verified document's extraction are trusted by provenance, whatever they say. A value a person typed (case-creation input, a manual decision, a review entry) must equal a trusted value (`SYNTHETIC_VALUE_NOT_GROUNDED`). A GoldTier id must have the Mock GoldTier connector's form `GT-MOCK-...` or be the synthetic fixture id (`SYNTHETIC_TARGET_NOT_VERIFIED`). |
+| V4 | **What may be in the prompt.** The unchanged prompt builder's output for an eligible case (case facts, allowed lines, topic lines), unchanged repository guidance and the synthetic seed only (no app-authored knowledge), and the question and history. Every message holds only printable ASCII, line breaks, tabs and the D-094 typographic marks. The question and history may use any words but no e-mail address, NRIC/FIN- or UEN-shaped id, date, or run of five or more digits (also split by spaces, dashes, dots, slashes or brackets) unless the case already holds it (`SYNTHETIC_TEXT_NOT_APPROVED`). |
+| V5 | **Defence in depth.** A passing check gives the exact messages a single-use ticket (120 s). The remote model sends only messages holding a ticket while D-095 is on, or passing the D-094 text check (qualification, D-094 mode); a caller that skips the check sends nothing. |
+| V6 | **Directors (answer coverage; project-defined wording, pending owner acceptance).** Topic-only line per current officer: "The ACRA (`<env>`) record for this case lists `<name>` as an officer (role: `<ROLE>`)." Only when the case's own officer lookup is COMPLETE for its UEN, the acquisition is COMPLETE or PARTIAL without error, the record count matches, the lookup and every officer come from the company's own non-live ACRA source, the registry stage is READY, at most 10 officers, former officers left out. The officer records are selection-only facts (never shown to the model except inside the line, never grounding). No other answer-quality change; the exact-line guard, guardrails and fallbacks are unchanged. |
+| V7 | **Daily cap.** At most US$1.00 (`DAILY_CAP_CEILING_MICRO_USD`, integer micro-USD) of reserved plus settled remote spend per Asia/Singapore calendar day (UTC+8, no daylight saving), checked in the ledger's own `BEGIN IMMEDIATE` admission transaction, so across threads, processes and restarts. Today's spend = charges of closed calls reserved since the last Singapore midnight + reservations of **all** open calls. `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` may only lower it; an out-of-range value refuses every call. It covers qualification and chat, every credential and every activation; the preflight requires room for one large-prompt reservation. Midnight only moves the window: no row, total, reservation, event or audit record is erased, and reconciliation never resets it. No ledger schema change. The lifetime cap, reconciliation, breaker, anomaly checks, per-call verification and the key's own provider limit are unchanged and independent; the strictest applies. Nothing raises a cap or a provider limit, and auto top-up stays off (owner attestation). The daily cap is not a guarantee against provider overbilling; verification and the breaker contain it. |
+| V8 | **Key sources (addendum; amends D-091 X3 and the D-094 "process environment only" statement for this local scope).** `OPENROUTER_API_KEY` from the process environment, else the git-ignored `apps/assistant/.env` (only that line, never copied into the environment), else a key an HR administrator enters on AI Models. A source holding a malformed value is reported `invalid` and nothing falls through. The HR key is held in server memory only (no OS-backed store was added: it could not be implemented and tested reliably here; no homemade encryption, no plaintext storage) and must be re-entered after a restart; the stored activation then reverts to the baseline at start (`STARTUP_REVERTED`, `CREDENTIAL_MISSING`) and HR activates again. The qualification process receives an HR key only in its environment, never on its command line. Changing the key rebuilds the model and re-runs the full preflight (the new key's limit and usage against the ledger) before the next call; the daily cap is the ledger's, so a new key never resets it. |
+| V9 | **Key management (HR only).** `GET/PUT/DELETE /assistant/admin/models/credential` and `GET /assistant/admin/models/budget` under the D-093 `MODEL_CONFIG_MANAGE` checks, re-checked inside the change; RM, Client Onboarder and Director are refused (`403`, audited). A change needs an allowed Origin header (required, not only checked), JSON, a key shaped like an OpenRouter key, at most 5 attempts per administrator in 10 minutes, and no environment or `.env` key (those cannot be replaced or cleared). The key is never returned, logged, audited or shown; the page shows only source and status. |
+| V10 | **Notices.** Model answers in D-095 mode: "Answered by GPT-OSS 120B through OpenRouter (D-095 development mode, verified synthetic case)." Refusals: "GPT-OSS 120B through OpenRouter is used only on verified synthetic development cases, so this answer comes straight from the case data. Reason: `<code>`." |
+| V11 | **Qualification basis.** The answer-code basis adds `synthetic_eligibility.py/.json`, `credentials.py` and `budget.py`, so earlier qualifications are out of date. The paid qualification is unchanged (the Phase B manifest under D-094 T2/T7). |
+
+Not decided here (left disabled): any non-synthetic, real customer or sponsor data; arbitrary
+uploads that are not tracked synthetic fixtures (a backend content digest would be the
+stronger provenance and needs its own change); hosted, shared or production deployment; use
+by anyone but the owner on their own machine; another endpoint or model; a lifetime
+allocation above D-092 P3's US$1.00 over the ledger's opening usage (sustained US$1.00 days
+need that separate decision); owner acceptance of the V6 wording and of names in UBO or
+ownership answers; and T7 approval for any paid call. Known limits: the text screen cannot
+recognise a person's name or details spelled out in words, so the owner must not type real
+customer details; a deliberately forged document with a fixture's exact name, type and size
+would pass V2. Evidence from this mode is external evaluation on synthetic data, never Live
+CLM behaviour.

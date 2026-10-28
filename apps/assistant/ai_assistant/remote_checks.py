@@ -66,6 +66,8 @@ class Check:
 @dataclass
 class Preflight:
     checks: list[Check] = field(default_factory=list)
+    # The key's provider-reported remaining limit when it was read (D-095 budget status).
+    key_remaining_micro_usd: int | None = None
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.checks.append(Check(name, ok, detail))
@@ -450,6 +452,8 @@ def run_preflight(
     max_tokens = settings.llm_max_answer_tokens + settings.llm_reasoning_allowance_tokens
     reservation = typical_reservation(endpoint, max_tokens)
     check_key(report, key, reservation)
+    if key.limit_remaining_usd is not None:
+        report.key_remaining_micro_usd = micro_usd(key.limit_remaining_usd)
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
     try:
         ledger = BudgetLedger.open(ledger_file)
@@ -466,4 +470,24 @@ def run_preflight(
         report.add("ledger.earlier_calls_verified", False, f"refused: {error.code}")
         return report, None, account
     check_ledger(report, key, status, ledger.last_call_id() > 0, reservation)
+    check_daily(report, ledger, settings.budget_daily_cap_micro_usd, reservation)
     return report, ledger, account
+
+
+def check_daily(
+    report: Preflight, ledger: BudgetLedger, daily_cap_micro_usd: int, reservation_micro: int
+) -> None:
+    """D-095: today's allowance (Asia/Singapore day) has room for one reservation. A daily cap
+    setting outside 0..US$1.00 reads as no allowance, so it fails closed."""
+
+    try:
+        daily = ledger.daily_status(daily_cap_micro_usd)
+    except LedgerError as error:
+        report.add("ledger.daily_room_for_one_call", False, f"refused: {error.code}")
+        return
+    report.add(
+        "ledger.daily_room_for_one_call",
+        daily.remaining >= reservation_micro,
+        f"today's remaining allowance {_usd(daily.remaining)} of {_usd(daily.cap)}"
+        f" (Asia/Singapore day) >= one reservation {_usd(reservation_micro)}",
+    )

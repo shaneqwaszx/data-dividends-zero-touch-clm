@@ -38,6 +38,14 @@ from tests.remote_fixtures import ENDPOINT, new_ledger
 DAY = 86_400.0
 
 
+@pytest.fixture(autouse=True)
+def lifetime_cap_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These D-091 tests exercise the lifetime cap with multi-dollar synthetic amounts in one
+    day; the D-095 daily allowance is lifted for them and tested in test_budget_daily.py."""
+
+    monkeypatch.setattr("ai_assistant.budget.DAILY_CAP_CEILING_MICRO_USD", MAX_MICRO_USD)
+
+
 class Clock:
     def __init__(self, start: float = 1_800_000_000.0) -> None:
         self.now = start
@@ -705,7 +713,8 @@ def _process_worker(path: str, count: int, results: Any) -> None:
 
 
 def test_two_processes_on_one_file_never_exceed_the_cap(tmp_path: Path) -> None:
-    path = new_ledger(tmp_path / "ledger.sqlite3", cap=1_500_000)
+    # Below the D-095 daily allowance, which the spawned processes keep (no monkeypatch there).
+    path = new_ledger(tmp_path / "ledger.sqlite3", cap=900_000)
     context = multiprocessing.get_context("spawn")
     results = context.Queue()
     workers = [
@@ -718,8 +727,8 @@ def test_two_processes_on_one_file_never_exceed_the_cap(tmp_path: Path) -> None:
         assert worker.exitcode == 0
     outcomes = [results.get(timeout=10) for _ in range(24)]
 
-    assert sum(outcomes) == 15
-    assert BudgetLedger.open(path).status().committed == 1_500_000
+    assert sum(outcomes) == 9
+    assert BudgetLedger.open(path).status().committed == 900_000
 
 
 # --- randomised invariants (T4-26, T4-32) --------------------------------------------------
@@ -811,6 +820,8 @@ def test_the_ledger_has_no_way_to_set_the_baseline_directly() -> None:
         "last_call_id",
         "record_verification",
         "unverified_closed_calls",
+        # D-095: today's allowance, read-only.
+        "daily_status",
     }
     assert MAX_MICRO_USD == 10**12
 

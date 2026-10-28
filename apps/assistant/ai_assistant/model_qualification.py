@@ -73,6 +73,11 @@ BASIS_FILES = (
     "remote_checks.py",
     "synthetic_boundary.py",
     "synthetic_boundary.json",
+    # D-095: the development eligibility gate, its manifest and the key sources.
+    "synthetic_eligibility.py",
+    "synthetic_eligibility.json",
+    "credentials.py",
+    "budget.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = (

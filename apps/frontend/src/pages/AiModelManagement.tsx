@@ -5,11 +5,14 @@ import {
   activateModel,
   AiAssistantError,
   cancelModelQualification,
+  clearModelCredential,
   fetchModelAudit,
   fetchModelOverview,
   rollbackModel,
+  saveModelCredential,
   startModelQualification,
   testModelConnection,
+  type ModelBudgetStatus,
   type ModelOverview,
   type ModelProfileView,
   type ModelQualification,
@@ -54,6 +57,14 @@ const REASON_TEXT: Record<string, string> = {
   REMOTE_SETTINGS_INVALID: "The remote model's reasoning settings are not valid on the server.",
   REMOTE_MANIFEST_MISSING: "The paid qualification's question list and count are not configured on the server.",
   LEDGER_UNAVAILABLE: "The spending ledger is missing or unhealthy.",
+  // D-095 spending view.
+  DAILY_ALLOWANCE_EXHAUSTED: "Today's allowance (Singapore day) has no room for another call.",
+  DAILY_CAP_INVALID: "The daily cap setting is not valid, so no call is allowed.",
+  LIFETIME_CAP_EXHAUSTED: "The lifetime ledger cap has no room for another call.",
+  PROVIDER_LIMIT_EXHAUSTED: "The OpenRouter key's own limit has no room for another call.",
+  PROVIDER_LIMIT_NOT_CHECKED: "The OpenRouter key's limit has not been checked yet. Run Test connection.",
+  PROVIDER_CHECK_FAILED: "The last OpenRouter key check failed. Run Test connection.",
+  CREDENTIAL_INVALID: "The configured OpenRouter API key is not valid.",
 };
 
 // "GATES_FAILED:G-6,G-7" from a failed qualification: the gate ids keep their own spelling.
@@ -83,6 +94,94 @@ function value(item: unknown): string {
   if (typeof item === "number") return Number.isInteger(item) ? item.toLocaleString() : item.toFixed(3);
   if (typeof item === "object") return Object.entries(item as Record<string, unknown>).map(([key, entry]) => `${readable(key)}: ${value(entry)}`).join(" · ");
   return String(item);
+}
+
+const usd = (amount: string | null | undefined) => (amount ? `US$${amount}` : "—");
+
+const CREDENTIAL_SOURCE: Record<string, string> = {
+  environment: "Set on the server in the process environment (OPENROUTER_API_KEY). Managed outside this page.",
+  env_file: "Set on the server in apps/assistant/.env. Managed outside this page.",
+  hr_memory: "Entered on this page. Kept in the AI Assistant's memory only: enter it again after the service restarts.",
+  none: "No key is set on the server.",
+};
+
+function SpendingLimits({ budget }: { budget: ModelBudgetStatus }) {
+  const daily = budget.daily;
+  return (
+    <section className="card" aria-labelledby="spending-heading">
+      <h2 id="spending-heading">OpenRouter daily spending limit</h2>
+      <p className="ds-banner ds-banner-warn" role="note">
+        At most {usd((budget.daily_cap_micro_usd / 1_000_000).toFixed(2))} of reserved plus settled OpenRouter spending per Singapore calendar day ({budget.timezone}), for qualification and chat together. The lowest of this allowance, the lifetime ledger cap and the key's own OpenRouter limit applies. It does not rule out unexpected provider billing; a mismatch stops further calls.
+      </p>
+      <dl className="acra-detail-list">
+        <div><dt>Settled today</dt><dd>{usd(daily?.settled_today_usd)}</dd></div>
+        <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : "—"}</dd></div>
+        <div><dt>Remaining today</dt><dd>{usd(daily?.remaining_usd)}</dd></div>
+        <div><dt>Lifetime headroom</dt><dd>{usd(budget.ledger?.headroom_usd)}</dd></div>
+        <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
+        <div><dt>Available now</dt><dd>{usd(budget.effective_remaining_usd)}</dd></div>
+        <div><dt>Next daily reset</dt><dd>{formatTimestamp(budget.next_reset_at)} (midnight, Singapore)</dd></div>
+        <div><dt>Status</dt><dd>{budget.ledger?.breaker_open ? `Stopped: ${readable(budget.ledger.breaker_code)} (an operator must reconcile)` : budget.refusal ? readable(budget.refusal) : "Calls allowed"}</dd></div>
+      </dl>
+    </section>
+  );
+}
+
+function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
+  budget: ModelBudgetStatus;
+  remoteProfileId: string | null;
+  busy: boolean;
+  onChanged: () => void;
+}) {
+  // The key lives only in this input until it is sent; it is never stored in the browser.
+  const [key, setKey] = useState("");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const credential = budget.credential;
+  const label = credential.status === "configured" ? "Configured" : credential.status === "invalid" ? "Invalid" : "Not Configured";
+
+  async function run(action: () => Promise<unknown>, done: string): Promise<void> {
+    setPending(true);
+    setMessage(null);
+    try {
+      await action();
+      setMessage({ kind: "ok", text: done });
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setKey("");
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  return (
+    <section className="card" aria-labelledby="openrouter-key-heading">
+      <h2 id="openrouter-key-heading">OpenRouter API Key — {label}</h2>
+      <p>
+        <span className={`tag ${credential.status === "configured" ? "tag-accent" : "tag-warn"}`} role="status">{label}</span>{" "}
+        {CREDENTIAL_SOURCE[credential.source]}
+        {credential.source === "hr_memory" && credential.set_by && <> Entered by {credential.set_by}.</>}
+      </p>
+      {credential.hr_editable && (
+        <form onSubmit={(event) => { event.preventDefault(); const value = key; void run(() => saveModelCredential(value), "Key saved on the server."); }}>
+          <label className="control-help" htmlFor="openrouter-key-input">API key</label>{" "}
+          <input id="openrouter-key-input" type="password" autoComplete="off" spellCheck={false} value={key}
+            onChange={(event) => setKey(event.target.value)} disabled={pending || busy} />{" "}
+          <button type="submit" className="btn btn-primary" disabled={pending || busy || !key}>Save Key</button>{" "}
+          {credential.source === "hr_memory" && (
+            <button type="button" className="btn btn-secondary" disabled={pending || busy}
+              onClick={() => void run(clearModelCredential, "Key cleared.")}>Clear Key</button>
+          )}
+        </form>
+      )}
+      {remoteProfileId && (
+        <button type="button" className="btn btn-secondary" disabled={pending || busy || credential.status !== "configured"}
+          onClick={() => void run(() => testModelConnection(remoteProfileId), "Connection test finished; see the model table.")}>Test Connection</button>
+      )}
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
+    </section>
+  );
 }
 
 function QualificationDetail({ qualification }: { qualification: ModelQualification }) {
@@ -232,12 +331,23 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
         </section>
       )}
 
+      {overview?.budget?.configured && (
+        <>
+          <OpenRouterKey budget={overview.budget} busy={busy}
+            remoteProfileId={overview.profiles.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
+            onChanged={refresh} />
+          <SpendingLimits budget={overview.budget} />
+        </>
+      )}
+
       {confirming && overview && (
         <section className="card" role="dialog" aria-labelledby="confirm-heading">
           <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
-            <p className="ds-banner ds-banner-warn">This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing.</p>
+            <p className="ds-banner ds-banner-warn">{overview.budget?.mode === "D-095"
+              ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. At most US$1.00 per Singapore day."
+              : "This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing."}</p>
           )}
           {confirming.profileId !== "env_default" && unscored && (
             <label className="control-help">
@@ -272,7 +382,9 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                   return (
                     <tr key={item.profile_id}>
                       <td><strong>{item.display_name}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
-                        {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">External API (D-094): answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls.</small></>}</td>
+                        {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">{overview.budget?.mode === "D-095"
+                          ? "External API (D-095): answers only on verified synthetic development cases; every other case gets the case-data answer. At most US$1.00 per Singapore day. Test connection is a free preflight; qualification makes paid calls."
+                          : "External API (D-094): answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls."}</small></>}</td>
                       <td>{readable(item.deployment)}</td>
                       <td>{item.endpoint ?? "Not shown"}</td>
                       <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>

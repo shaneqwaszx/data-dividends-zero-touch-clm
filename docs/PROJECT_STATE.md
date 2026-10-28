@@ -1196,3 +1196,25 @@ report-only commit. This section records only the D-094 delta. The structured
   - What the screen allows: only printable ASCII plus named typographic marks, words from
     the synthetic vocabulary, and at most three number groups across the user turns, never
     two side by side.
+
+## AI Assistant D-095 development synthetic mode, key sources and daily cap (branch, not merged) - 2026-10-28
+
+Branch `claude/gracious-lovelace-bjvh2z` from main `7119905`. This section records only the
+D-095 delta; nothing here is merged or Live.
+- **Decisions:** D-095 (owner-directed, local development scope only; DECISION_LOG). D-094 is
+  unchanged without the new flag and stays the fallback. D-091 X3 is amended for the key
+  sources (V8). D-092 is still PROPOSED. The V6 officer wording is project-defined, pending
+  owner acceptance.
+- **Behaviour:** off by default. With `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` on a ready
+  D-094 set-up, the existing chat may use GPT-OSS 120B on any verified synthetic development
+  case (approved Mock ACRA company, tracked synthetic fixture documents, grounded typed values,
+  Mock GoldTier ids, seeded viewers, repository knowledge, no personal identifiers in the
+  question). The ledger enforces at most US$1.00 reserved plus settled per Singapore day for
+  every remote call. The OpenRouter key may come from the environment, the git-ignored `.env`
+  or HR (memory only). AI Models shows the key status (never the key) and the spending view.
+- **New owners:** `ai_assistant/synthetic_eligibility.py` (with its generated
+  `synthetic_eligibility.json` and `scripts/build_synthetic_eligibility.py`) and
+  `ai_assistant/credentials.py`.
+- **Open:** owner review and merge; hosted CI after 1 November 2026; a separate decision for
+  a lifetime allocation above US$1.00 over the ledger's opening usage; any paid run needs T7
+  approval.

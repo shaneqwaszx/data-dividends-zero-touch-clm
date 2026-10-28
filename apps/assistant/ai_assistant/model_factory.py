@@ -15,18 +15,20 @@ is dormant (D-091) and refuses to compose unless every lock holds:
 
 Every refusal is a ``ProfileConfigError`` with a closed code and a message that names the
 setting, never its value. ``OPENROUTER_API_KEY`` is read last, only for the remote profile,
-only after all other checks pass, and only from the process environment.
+only after all other checks pass: from the process environment, else (D-095 addendum) the
+git-ignored apps/assistant/.env, else a key an HR administrator entered (memory only); see
+``credentials.py``.
 """
 
 import math
 import os
-import re
 import urllib.request
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from pydantic import SecretStr
 
+from . import credentials
 from .budget import LEASE_GRACE_SECONDS, BudgetedChatModel, BudgetLedger, LedgerError
 from .config import AiAssistantSettings
 from .llm import ChatModel, OpenAICompatibleChatModel, is_local_model_url
@@ -44,8 +46,7 @@ from .model_profiles import (
 from .openrouter import LIVE_NETWORK, OpenRouterChatModel, require_offline_transport
 from .openrouter_account import OpenRouterAccount
 
-CREDENTIAL_VARIABLE = "OPENROUTER_API_KEY"
-_CREDENTIAL = re.compile(r"[\x21-\x7e]{1,256}")
+CREDENTIAL_VARIABLE = credentials.CREDENTIAL_VARIABLE
 _DEFAULTS = AiAssistantSettings.model_fields
 ASSISTANT_DIR = Path(__file__).resolve().parents[1]
 
@@ -67,6 +68,7 @@ _BOUNDED = (
     "remote_max_prompt_bytes",
     "budget_max_in_flight",
     "budget_settle_lag_seconds",
+    "budget_daily_cap_micro_usd",
 )
 
 
@@ -90,16 +92,17 @@ def _within_declared_bounds(settings: AiAssistantSettings, name: str) -> bool:
     return True
 
 
-def resolve_remote_credential(environ: Mapping[str, str]) -> SecretStr:
-    """The remote key from the process environment, checked offline for shape only."""
+def resolve_remote_credential(environ: Mapping[str, str] | None = None) -> SecretStr:
+    """The remote key (``credentials.resolve``), checked offline for shape only. ``environ``
+    given: that mapping only (tests and seams)."""
 
-    value = environ.get(CREDENTIAL_VARIABLE)
-    if not isinstance(value, str) or not _CREDENTIAL.fullmatch(value):
+    key, _ = credentials.resolve(environ)
+    if key is None:
         raise ProfileConfigError(
             "CREDENTIAL_MISSING",
             f"{CREDENTIAL_VARIABLE} is missing or malformed for the remote profile",
         )
-    return SecretStr(value)
+    return key
 
 
 PROXY_VARIABLES = (
@@ -242,7 +245,7 @@ def _remote(
         ) from None
     if ledger_profile != profile.profile_id:
         raise ProfileConfigError("LEDGER_UNAVAILABLE", "the budget ledger is for another profile")
-    credential = resolve_remote_credential(os.environ if environ is None else environ)
+    credential = resolve_remote_credential(environ)
     adapter = OpenRouterChatModel(
         endpoint=endpoint,
         credential=credential,
@@ -260,6 +263,7 @@ def _remote(
         ledger,
         max_in_flight=settings.budget_max_in_flight,
         lease_seconds=settings.llm_timeout_seconds + LEASE_GRACE_SECONDS,
+        daily_cap_micro_usd=settings.budget_daily_cap_micro_usd,
     )
 
 
@@ -317,5 +321,5 @@ def build_account_client(
             "DECISION_INTERLOCK",
             "AI_ASSISTANT_REMOTE_INFERENCE_DECISION does not name the required decision",
         )
-    credential = resolve_remote_credential(os.environ if environ is None else environ)
+    credential = resolve_remote_credential(environ)
     return OpenRouterAccount(credential, transport=transport)

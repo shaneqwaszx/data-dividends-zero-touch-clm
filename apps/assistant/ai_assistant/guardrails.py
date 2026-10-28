@@ -78,6 +78,7 @@ from .guide import (
     UEN_MEANING,
     difference_explanations,
     difference_line,
+    officer_record_line,
     officers_empty_line,
     who_resolves_line,
 )
@@ -154,6 +155,28 @@ def officers_line(facts: dict[str, Any]) -> str | None:
     if sections.get("registry") != "READY" or environment is None:
         return None
     return officers_empty_line(environment.group(1))
+
+
+def officer_record_lines(facts: dict[str, Any]) -> list[str]:
+    """One line per current officer from the case's own non-live ACRA officer lookup (D-095,
+    context._registry_officer_records), only while the registry stage is READY; each name is
+    checked like a template value and the whole line passes the sentence checks."""
+
+    records = facts.get("registry_officer_records") or []
+    sections = (facts.get("readiness") or {}).get("sections") or {}
+    environment = _NOT_LIVE_SOURCE.search(registry_source_line(facts, acra_only=True) or "")
+    if not records or sections.get("registry") != "READY" or environment is None:
+        return []
+    lines: list[str] = []
+    ctx = Context(facts)
+    for record in records:
+        name, role = record.get("name"), record.get("role")
+        if not _safe_template_text(name) or not isinstance(role, str):
+            continue
+        line = officer_record_line(environment.group(1), str(name), role)
+        if _check(line, ctx) is None:
+            lines.append(line)
+    return list(dict.fromkeys(lines))
 
 
 def entity_status_live(facts: dict[str, Any]) -> bool:
@@ -296,6 +319,7 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
     officers = officers_line(facts)
     if officers is not None:
         allowed.append(officers)
+    allowed.extend(officer_record_lines(facts))
     if entity_status_live(facts):
         allowed.append(ENTITY_STATUS_LIVE)
     if uen_explained(facts):

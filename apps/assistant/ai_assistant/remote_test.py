@@ -23,6 +23,14 @@ metadata after it. The model refuses any message outside the text part of the sy
 boundary itself, whoever calls it. It makes at most AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS calls
 (open calls included) from when it was activated or the service restarted; the ledger cap is
 the money limit across restarts. Its blocking checks run off the event loop.
+
+D-095 (development synthetic mode, synthetic_eligibility.py) adds, without changing the above:
+the chat may also send messages that passed the eligibility check (a single-use ticket for
+exactly those messages); every call is inside the ledger's daily allowance (US$1.00 per
+Singapore day at most, budget.py) and the preflight checks it; the key may come from the
+process environment, the git-ignored .env or an HR administrator (credentials.py), and when it
+changes the model is rebuilt with it and the full preflight runs again before the next call.
+``budget_status`` is the read-only spending view for the AI Models page.
 """
 
 import hashlib
@@ -33,13 +41,22 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import aclosing
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import anyio
 
-from .budget import BudgetLedger, ClosedCall, LedgerError
+from . import credentials, synthetic_eligibility
+from .budget import (
+    DAILY_CAP_CEILING_MICRO_USD,
+    BudgetLedger,
+    ClosedCall,
+    LedgerError,
+    next_singapore_reset_ms,
+    singapore_day_start_ms,
+)
 from .config import AiAssistantSettings
 from .llm import ChatModel, ModelAnswer, ModelCallError, Piece, is_local_model_url
 from .model_factory import build_account_client, build_chat_model, ledger_path
@@ -55,7 +72,13 @@ from .model_profiles import (
     ProfileConfigError,
 )
 from .openrouter_account import OpenRouterAccount
-from .remote_checks import Preflight, fetch_public, run_preflight, verify_earlier_calls
+from .remote_checks import (
+    Preflight,
+    fetch_public,
+    run_preflight,
+    typical_reservation,
+    verify_earlier_calls,
+)
 from .synthetic_boundary import check_messages
 
 log = logging.getLogger("ai_assistant.remote_test")
@@ -193,7 +216,7 @@ def preflight(
             return build_account_client(remote, transport=transport, environ=environ)
         return build_account_client(remote, environ=environ, allow_live_network=True)
 
-    return run_preflight(
+    result = run_preflight(
         remote,
         open_account,
         ledger_file=ledger_path(remote),
@@ -201,6 +224,25 @@ def preflight(
         owner_attests_prompt_logging_off="prompt_logging_off" in attestations(settings),
         fetch=fetch,
     )
+    _remember_provider(result[0])
+    return result
+
+
+# The provider-side key limit as the last preflight read it (content-free, process memory).
+_provider: dict[str, Any] = {}
+_provider_lock = threading.Lock()
+
+
+def _remember_provider(report: Preflight) -> None:
+    checks = [c for c in report.checks if c.name.startswith(("key.", "gate.account"))]
+    with _provider_lock:
+        _provider.clear()
+        _provider.update(
+            checked_at=time.time(),
+            passed=bool(checks) and all(c.ok for c in checks),
+            remaining_micro_usd=report.key_remaining_micro_usd,
+            checks=[{"check": c.name, "ok": c.ok, "detail": c.detail} for c in checks],
+        )
 
 
 def connection_check(settings: AiAssistantSettings, **kwargs: Any) -> dict[str, Any]:
@@ -249,16 +291,9 @@ class RemoteTestModel:
         self._fetch = fetch
         self._clock = clock
         self._background = background
-        remote = remote_settings(settings)
-        self._ledger_file = ledger_path(remote)
-        if transport is not None:  # tests: an in-memory transport only
-            self._inner = build_chat_model(
-                remote, transport=transport, environ=environ, budget_ledger=self._ledger_file
-            )
-        else:
-            self._inner = build_chat_model(
-                remote, environ=environ, budget_ledger=self._ledger_file, allow_live_network=True
-            )
+        self._ledger_file = ledger_path(remote_settings(settings))
+        self._credential = credentials.identity(credentials.resolve(environ)[0])
+        self._inner = self._build_inner()
         try:
             self._start_call = BudgetLedger.open(self._ledger_file).last_call_id()
         except LedgerError:
@@ -268,6 +303,24 @@ class RemoteTestModel:
         self._lock = threading.Lock()
         self._checked_at: float | None = None
         self._account: OpenRouterAccount | None = None
+
+    def _build_inner(self) -> ChatModel:
+        """The budget-guarded remote adapter with the current key (model_factory.py)."""
+
+        remote = remote_settings(self._settings)
+        if self._transport is not None:  # tests: an in-memory transport only
+            return build_chat_model(
+                remote,
+                transport=self._transport,
+                environ=self._environ,
+                budget_ledger=self._ledger_file,
+            )
+        return build_chat_model(
+            remote,
+            environ=self._environ,
+            budget_ledger=self._ledger_file,
+            allow_live_network=True,
+        )
 
     @property
     def name(self) -> str:
@@ -285,15 +338,31 @@ class RemoteTestModel:
         log.warning("remote test call refused: %s", reason)
         return ModelCallError("budget_refused")
 
-    def _ready(self, messages: list[dict[str, str]]) -> None:
-        """Blocking (preflight requests, a bounded metadata wait): never on the event loop."""
+    def _ready(self, messages: list[dict[str, str]]) -> ChatModel:
+        """Blocking (preflight requests, a bounded metadata wait): never on the event loop.
+        Returns the guarded adapter to call (rebuilt when the key changed)."""
 
-        # Defence in depth: the text part of the synthetic boundary, whoever the caller is.
-        if check_messages(messages) is not None:
+        # Defence in depth, whoever the caller is: the messages passed the D-095 eligibility
+        # check (their single-use ticket) or the text part of the D-094 synthetic boundary.
+        ticket = synthetic_eligibility.admitted(messages)
+        if not (ticket and synthetic_eligibility.mode(self._settings)) and (
+            check_messages(messages) is not None
+        ):
             raise self._refuse("text outside the synthetic boundary")
         with self._lock:
             if readiness(self._settings) is not None:
                 raise self._refuse("not ready")
+            marker = credentials.identity(credentials.resolve(self._environ)[0])
+            if marker is None:
+                raise self._refuse("no usable key")
+            if marker != self._credential:
+                # Another key: rebuild with it, and run the full preflight (its limit, its
+                # usage against the ledger) before it is used.
+                try:
+                    self._inner = self._build_inner()
+                except ProfileConfigError:
+                    raise self._refuse("model rebuild") from None
+                self._credential, self._checked_at, self._account = marker, None, None
             ledger = BudgetLedger.open(self._ledger_file)
             # Calls since this model was built (activation or restart), open ones included.
             calls = len(ledger.closed_calls_after(self._start_call)) + ledger.status().open_calls
@@ -316,12 +385,13 @@ class RemoteTestModel:
                     self._checked_at = None
                     raise self._refuse("preflight")
                 self._account, self._checked_at = account, now
-                return
+                return self._inner
             assert self._account is not None
             report = Preflight()
             verify_earlier_calls(report, ledger, self._account, self._endpoint)
             if not report.passed or ledger.status().breaker_open:
                 raise self._refuse("verification")
+            return self._inner
 
     def verify_now(self) -> Preflight:
         """Verify every closed call not yet verified (bounded wait for its metadata)."""
@@ -355,18 +425,18 @@ class RemoteTestModel:
         threading.Thread(target=work, name="remote-verification", daemon=True).start()
 
     def complete(self, messages: list[dict[str, str]]) -> ModelAnswer:
-        self._ready(messages)
+        inner = self._ready(messages)
         try:
-            answer: ModelAnswer = self._inner.complete(messages)
+            answer: ModelAnswer = inner.complete(messages)
             return answer
         finally:
             self._verify_after()
 
     async def stream(self, messages: list[dict[str, str]]) -> AsyncGenerator[Piece, None]:
-        await anyio.to_thread.run_sync(self._ready, messages)
+        inner = await anyio.to_thread.run_sync(self._ready, messages)
         try:
             # Closing this generator closes the guarded one, so its ledger settlement runs.
-            async with aclosing(self._inner.stream(messages)) as source:
+            async with aclosing(inner.stream(messages)) as source:
                 async for piece in source:
                     yield piece
         finally:
@@ -382,3 +452,112 @@ def is_remote_test_model(model: ChatModel | None) -> bool:
 
 def ledger_file(settings: AiAssistantSettings) -> Path:
     return ledger_path(remote_settings(settings))
+
+
+def _usd(micro: int | None) -> str | None:
+    return None if micro is None else f"{micro / 1_000_000:.6f}"
+
+
+def _iso(seconds: float) -> str:
+    return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
+
+
+def budget_status(
+    settings: AiAssistantSettings, *, environ: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """The remote profile's spending view (read-only: the ledger is checked, never recovered
+    or changed, and the provider is not asked; its limit is as the last preflight read it).
+    Amounts are micro-USD integers, with a 6-decimal USD string beside each."""
+
+    code = readiness(settings)
+    view: dict[str, Any] = {
+        "configured": settings.local_api_test_decision == TEST_DECISION_ID,
+        "mode": "D-095" if synthetic_eligibility.mode(settings) else "D-094",
+        "timezone": "Asia/Singapore",
+        "daily_cap_ceiling_micro_usd": DAILY_CAP_CEILING_MICRO_USD,
+        "daily_cap_micro_usd": settings.budget_daily_cap_micro_usd,
+    }
+    _, credential = credentials.resolve(environ)
+    view["credential"] = credential.view()
+    now = time.time()
+    view["next_reset_at"] = _iso(next_singapore_reset_ms(int(now * 1000)) / 1000)
+    with _provider_lock:
+        provider = dict(_provider)
+    view["provider"] = (
+        {
+            "checked_at": _iso(provider["checked_at"]),
+            "passed": provider["passed"],
+            "remaining_micro_usd": provider["remaining_micro_usd"],
+            "remaining_usd": _usd(provider["remaining_micro_usd"]),
+            "checks": provider["checks"],
+        }
+        if provider
+        else None
+    )
+    refusal: str | None = code
+    try:
+        ledger = BudgetLedger(ledger_file(settings))
+        ledger.verify()
+        status = ledger.status()
+        daily = ledger.daily_status(settings.budget_daily_cap_micro_usd)
+    except LedgerError as error:
+        view.update(ledger=None, daily=None, effective_remaining_micro_usd=0)
+        view["effective_remaining_usd"] = _usd(0)
+        view["refusal"] = refusal or error.code
+        return view
+    endpoint = endpoint_for(settings)
+    reservation = (
+        typical_reservation(
+            endpoint, settings.llm_max_answer_tokens + settings.llm_reasoning_allowance_tokens
+        )
+        if endpoint is not None
+        else None
+    )
+    view["ledger"] = {
+        "cap_micro_usd": status.cap,
+        "committed_micro_usd": status.committed,
+        "headroom_micro_usd": status.headroom,
+        "headroom_usd": _usd(max(status.headroom, 0)),
+        "open_calls": status.open_calls,
+        "breaker_open": status.breaker_open,
+        "breaker_code": status.breaker_code,
+    }
+    view["daily"] = {
+        "cap_micro_usd": daily.cap,
+        "settled_today_micro_usd": daily.settled_today,
+        "settled_today_usd": _usd(daily.settled_today),
+        "in_flight_micro_usd": daily.open_reserved,
+        "in_flight_usd": _usd(daily.open_reserved),
+        "in_flight_calls": daily.open_calls,
+        "remaining_micro_usd": daily.remaining,
+        "remaining_usd": _usd(daily.remaining),
+        "day_started_at": _iso(singapore_day_start_ms(int(now * 1000)) / 1000),
+    }
+    limits = [daily.remaining, max(status.headroom, 0)]
+    if provider.get("remaining_micro_usd") is not None:
+        limits.append(max(provider["remaining_micro_usd"], 0))
+    effective = min(limits)
+    view["effective_remaining_micro_usd"] = effective
+    view["effective_remaining_usd"] = _usd(effective)
+    view["reservation_micro_usd"] = reservation
+    if refusal is None and credential.status != "configured":
+        refusal = "CREDENTIAL_" + credential.status.upper()
+    if refusal is None and status.breaker_open:
+        refusal = f"BREAKER_OPEN:{status.breaker_code}"
+    if refusal is None and daily.cap == 0:
+        refusal = "DAILY_CAP_INVALID"
+    if refusal is None and reservation is not None:
+        if daily.remaining < reservation:
+            refusal = "DAILY_ALLOWANCE_EXHAUSTED"
+        elif status.headroom < reservation:
+            refusal = "LIFETIME_CAP_EXHAUSTED"
+        elif provider.get("remaining_micro_usd") is not None and (
+            provider["remaining_micro_usd"] < reservation
+        ):
+            refusal = "PROVIDER_LIMIT_EXHAUSTED"
+    if refusal is None and not provider:
+        refusal = "PROVIDER_LIMIT_NOT_CHECKED"
+    elif refusal is None and not provider["passed"]:
+        refusal = "PROVIDER_CHECK_FAILED"
+    view["refusal"] = refusal
+    return view

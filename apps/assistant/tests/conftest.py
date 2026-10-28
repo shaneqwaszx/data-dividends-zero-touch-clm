@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from ai_assistant import credentials, synthetic_eligibility
 from ai_assistant.config import AiAssistantSettings
 
 AiAssistantSettings.model_config = {**AiAssistantSettings.model_config, "env_file": None}
@@ -19,6 +20,19 @@ os.environ["AI_ASSISTANT_LLM_ENABLED"] = "false"
 os.environ["AI_ASSISTANT_CLM_BACKEND_URL"] = "http://127.0.0.1:1"
 # Phase A2 (D-091, proposed): tests use sentinel keys passed explicitly, never this variable.
 os.environ.pop("OPENROUTER_API_KEY", None)
+# D-095 addendum: the owner's apps/assistant/.env is never read by a test (it may hold a key).
+credentials.ENV_FILE = credentials.ENV_FILE.with_name(".env.test-suite-never-read")
+
+
+@pytest.fixture(autouse=True)
+def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """Every test starts with no .env key and an empty HR key store."""
+
+    monkeypatch.setattr(credentials, "ENV_FILE", tmp_path / "no-such.env")
+    monkeypatch.setattr(credentials, "HR_STORE", credentials.HrCredential())
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    synthetic_eligibility._tickets.clear()  # D-095 tickets never carry over between tests
+
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 

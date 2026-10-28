@@ -61,13 +61,18 @@ export class AiAssistantError extends Error {
   }
 }
 
-async function send(path: string, body: unknown | undefined, signal?: AbortSignal): Promise<Response> {
+async function send(
+  path: string,
+  body: unknown | undefined,
+  signal?: AbortSignal,
+  method: "GET" | "POST" | "PUT" | "DELETE" = body === undefined ? "GET" : "POST",
+): Promise<Response> {
   let response: Response;
   try {
     response = await authenticatedFetch(`${AI_ASSISTANT_BASE_URL}/api/assistant${path}`, body === undefined
-      ? { method: "GET", credentials: "include", signal }
+      ? { method, credentials: "include", signal }
       : {
-          method: "POST",
+          method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
           credentials: "include",
@@ -137,6 +142,12 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The model did not pass the connection test.",
   "There is no earlier model to roll back to.",
   "This model is already active.",
+  // D-095: the OpenRouter key (never echoed back).
+  "That is not an OpenRouter API key. Nothing was saved.",
+  "The OpenRouter key is set on the server (environment or .env) and cannot be changed here.",
+  "There is no key entered here to clear.",
+  "Too many key changes. Wait a few minutes and try again.",
+  "This change must come from the AI Models page.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -189,8 +200,13 @@ async function readJsonBody(response: Response, maxBytes: number, signal?: Abort
   }
 }
 
-async function request<T>(path: string, body: unknown | undefined, signal?: AbortSignal): Promise<T> {
-  return await readJsonBody(await send(path, body, signal), MAX_JSON_BODY_BYTES, signal) as T;
+async function request<T>(
+  path: string,
+  body: unknown | undefined,
+  signal?: AbortSignal,
+  method?: "PUT" | "DELETE",
+): Promise<T> {
+  return await readJsonBody(await send(path, body, signal, method), MAX_JSON_BODY_BYTES, signal) as T;
 }
 
 export function fetchAiAssistantBrief(caseId: string, signal?: AbortSignal): Promise<AiAssistantBrief> {
@@ -613,6 +629,60 @@ export interface ModelOverview {
   basis: string;
   running: { qualification_id: string; profile_id: string; done_turns: number; total_turns: number; started_by: string } | null;
   profiles: ModelProfileView[];
+  /** D-095: the remote profile's spending view (null unless the remote test mode is configured). */
+  budget?: ModelBudgetStatus | null;
+}
+
+/** D-095 addendum: where the OpenRouter key comes from. Never the key, nor any part of it. */
+export interface ModelCredentialStatus {
+  source: "environment" | "env_file" | "hr_memory" | "none";
+  status: "configured" | "missing" | "invalid";
+  hr_editable: boolean;
+  persistence: "memory_only" | "server";
+  set_at: number | null;
+  set_by: string | null;
+}
+
+/** D-095: read-only spending view. Amounts are micro-USD integers with USD strings beside. */
+export interface ModelBudgetStatus {
+  configured: boolean;
+  mode: "D-094" | "D-095";
+  timezone: string;
+  daily_cap_ceiling_micro_usd: number;
+  daily_cap_micro_usd: number;
+  next_reset_at: string;
+  credential: ModelCredentialStatus;
+  provider: {
+    checked_at: string;
+    passed: boolean;
+    remaining_micro_usd: number | null;
+    remaining_usd: string | null;
+    checks: { check: string; ok: boolean; detail: string }[];
+  } | null;
+  ledger: {
+    cap_micro_usd: number;
+    committed_micro_usd: number;
+    headroom_micro_usd: number;
+    headroom_usd: string;
+    open_calls: number;
+    breaker_open: boolean;
+    breaker_code: string | null;
+  } | null;
+  daily: {
+    cap_micro_usd: number;
+    settled_today_micro_usd: number;
+    settled_today_usd: string;
+    in_flight_micro_usd: number;
+    in_flight_usd: string;
+    in_flight_calls: number;
+    remaining_micro_usd: number;
+    remaining_usd: string;
+    day_started_at: string;
+  } | null;
+  effective_remaining_micro_usd: number;
+  effective_remaining_usd: string;
+  reservation_micro_usd?: number | null;
+  refusal: string | null;
 }
 
 export interface ModelAuditEvent {
@@ -652,3 +722,10 @@ export const rollbackModel = (expectedRevision: number, acknowledgeQualityUnscor
     expected_revision: expectedRevision,
     acknowledge_quality_unscored: acknowledgeQualityUnscored,
   });
+// The key goes to the server once and is never returned; the page keeps no copy.
+export const fetchModelCredential = (signal?: AbortSignal) =>
+  request<ModelCredentialStatus>("/admin/models/credential", undefined, signal);
+export const saveModelCredential = (apiKey: string) =>
+  request<ModelCredentialStatus>("/admin/models/credential", { api_key: apiKey }, undefined, "PUT");
+export const clearModelCredential = () =>
+  request<ModelCredentialStatus>("/admin/models/credential", undefined, undefined, "DELETE");

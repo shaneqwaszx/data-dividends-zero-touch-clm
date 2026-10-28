@@ -10,11 +10,18 @@ qualification, activation, rollback and an audit history.
                                POST /assistant/admin/models/{id}/activate
                                POST /assistant/admin/models/rollback
                                GET  /assistant/admin/models/audit
+                               GET  /assistant/admin/models/budget          (D-095)
+                               GET  /assistant/admin/models/credential      (D-095 addendum)
+                               PUT  /assistant/admin/models/credential
+                               DELETE /assistant/admin/models/credential
 
 Who is asking, and whether they hold ``MODEL_CONFIG_MANAGE``, always comes from the CLM
 backend with the caller's own session; activation and rollback ask again inside the lock
 that applies them. Refusals of a signed-in caller are audited. Nothing here reads a case or
-an answer record, and the browser can only name a profile id.
+an answer record, and the browser can only name a profile id, except that an HR
+administrator may hand the server an OpenRouter key when no environment or .env key exists
+(credentials.py): it is kept in server memory only and never sent back, logged or audited;
+changing it needs the Origin header of an allowed page and is rate limited.
 
 Switching is atomic: each answer takes one snapshot of the active model when it starts and
 keeps it to the end, and the choice is a compare-and-set on the stored revision, which every
@@ -25,7 +32,9 @@ failing at run time is never switched automatically: the RM gets the determinist
 answer and an administrator decides.
 """
 
+import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -38,8 +47,9 @@ from typing import Annotated, Any
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from . import credentials
 from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .llm import ChatModel, OpenAICompatibleChatModel
@@ -64,7 +74,12 @@ from .model_catalog import (
 from .model_factory import ASSISTANT_DIR
 from .model_profiles import ProfileConfigError
 from .model_qualification import connection_test, qualification_basis, quality_state
-from .remote_test import RemoteTestModel, connection_check, qualification_manifest
+from .remote_test import (
+    RemoteTestModel,
+    budget_status,
+    connection_check,
+    qualification_manifest,
+)
 
 log = logging.getLogger("ai_assistant.model_admin")
 
@@ -79,6 +94,10 @@ SUPERVISE_SECONDS = 1.0
 CANCEL_GRACE_SECONDS = 15.0
 # Extra time a process gets beyond its own limit before the service ends it.
 DEADLINE_GRACE_SECONDS = 60.0
+# Key changes (D-095 addendum): at most this many attempts per administrator in the window.
+CREDENTIAL_ATTEMPTS = 5
+CREDENTIAL_WINDOW_SECONDS = 600.0
+MAX_CREDENTIAL_BODY = 1024
 
 # Fixed messages only (the browser shows these and nothing else from a refusal).
 MESSAGES = {
@@ -102,6 +121,13 @@ MESSAGES = {
     "REMOTE_MANIFEST_MISSING": (
         "The paid qualification's question list and count are not configured on the server."
     ),
+    "CREDENTIAL_INVALID": "That is not an OpenRouter API key. Nothing was saved.",
+    "CREDENTIAL_ENVIRONMENT_MANAGED": (
+        "The OpenRouter key is set on the server (environment or .env) and cannot be changed here."
+    ),
+    "CREDENTIAL_NOT_HR_MANAGED": "There is no key entered here to clear.",
+    "CREDENTIAL_RATE_LIMITED": "Too many key changes. Wait a few minutes and try again.",
+    "ORIGIN_REQUIRED": "This change must come from the AI Models page.",
 }
 
 
@@ -185,6 +211,7 @@ class ModelSelector:
                 str(path),
             ],
             cwd=ASSISTANT_DIR,
+            env=qualification_environment(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -354,6 +381,17 @@ class ModelSelector:
             )
             self._active = self._restore()
             raise ProfileConfigError(problem or "BUILD_FAILED", "activation undone")
+
+
+def qualification_environment() -> dict[str, str] | None:
+    """The qualification process's environment: this one's, plus an HR-entered key (which only
+    this process's memory holds) as OPENROUTER_API_KEY. Never on its command line; None (the
+    inherited environment) when the key comes from the environment or .env, or there is none."""
+
+    key, status = credentials.resolve()
+    if key is None or status.source != "hr_memory":
+        return None
+    return {**os.environ, credentials.CREDENTIAL_VARIABLE: key.get_secret_value()}
 
 
 def _last_good(stored: Activation) -> Choice | None:
@@ -600,6 +638,10 @@ def model_admin_router(
                 "started_by": running["started_by"],
             },
             "profiles": profiles,
+            # D-095: the remote profile's spending view and key status (never the key).
+            "budget": budget_status(settings, environ=selector.environ)
+            if settings.local_api_test_decision
+            else None,
         }
 
     @router.get("")
@@ -932,5 +974,86 @@ def model_admin_router(
             return entry, qualified_choice(entry, last.qualification_id)
 
         return change(request, profile, body, "ROLLED_BACK", target)
+
+    # --- D-095: the daily spending view and the OpenRouter key (never the key itself) -------
+
+    @router.get("/budget")
+    def get_budget(profile: Admin) -> dict[str, Any]:
+        return budget_status(settings, environ=selector.environ)
+
+    def credential_view() -> dict[str, Any]:
+        return credentials.resolve(selector.environ)[1].view()
+
+    @router.get("/credential")
+    def get_credential(profile: Admin) -> dict[str, Any]:
+        return credential_view()
+
+    attempts: dict[str, list[float]] = {}
+    attempts_lock = threading.Lock()
+
+    def guard_change(request: Request, profile: dict[str, Any], action: str) -> None:
+        """A key change must come from an allowed page (the Origin header is required, not
+        only checked when present) and stay within the per-administrator rate limit."""
+
+        if not request.headers.get("origin"):
+            audit(profile, action, "refused", code="ORIGIN_REQUIRED")
+            raise _refusal(403, "ORIGIN_REQUIRED")
+        now = time.monotonic()
+        user = str(profile.get("user_id"))
+        with attempts_lock:
+            recent = [at for at in attempts.get(user, []) if now - at < CREDENTIAL_WINDOW_SECONDS]
+            limited = len(recent) >= CREDENTIAL_ATTEMPTS
+            if not limited:
+                recent.append(now)
+            attempts[user] = recent
+        if limited:
+            audit(profile, action, "refused", code="CREDENTIAL_RATE_LIMITED")
+            raise _refusal(429, "CREDENTIAL_RATE_LIMITED")
+
+    def environment_managed() -> bool:
+        return credentials.resolve(selector.environ)[1].source in ("environment", "env_file")
+
+    @router.put("/credential")
+    async def put_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        action = "CREDENTIAL_SET"
+        guard_change(request, profile, action)
+        # Parsed here, not by a request model, so a refusal can never echo the value back.
+        raw = await request.body()
+        key: object = None
+        if len(raw) <= MAX_CREDENTIAL_BODY and request.headers.get("content-type", "").startswith(
+            "application/json"
+        ):
+            try:
+                body = json.loads(raw)
+            except ValueError:
+                body = None
+            if isinstance(body, dict) and set(body) == {"api_key"}:
+                key = body["api_key"]
+        if not isinstance(key, str) or not credentials.HR_KEY.fullmatch(key):
+            audit(profile, action, "refused", code="CREDENTIAL_INVALID")
+            raise _refusal(400, "CREDENTIAL_INVALID")
+        secret = SecretStr(key)
+        del key, raw
+        await anyio.to_thread.run_sync(recheck, request, profile, action)
+        if environment_managed():
+            audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
+            raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
+        credentials.HR_STORE.set(secret, str(profile.get("user_id")))
+        audit(profile, action, "applied")
+        return credential_view()
+
+    @router.delete("/credential")
+    def delete_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        action = "CREDENTIAL_CLEARED"
+        guard_change(request, profile, action)
+        recheck(request, profile, action)
+        if environment_managed():
+            audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
+            raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
+        if not credentials.HR_STORE.clear():
+            audit(profile, action, "refused", code="CREDENTIAL_NOT_HR_MANAGED")
+            raise _refusal(409, "CREDENTIAL_NOT_HR_MANAGED")
+        audit(profile, action, "applied")
+        return credential_view()
 
     return router

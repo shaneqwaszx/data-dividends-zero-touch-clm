@@ -308,6 +308,22 @@ _OFFICERS_EMPTY = re.compile(
     r"\(director\) records; this does not show that the company has no directors\.$"
 )
 
+
+# D-095 (project-defined wording, pending owner acceptance): one current officer that the
+# case's own non-live ACRA officer lookup returned, named exactly as the registry record names
+# it; never a document's or a person's claim. (Comments, not docstrings, here: this module's
+# strings are part of the D-094 question vocabulary.)
+def officer_record_line(environment: str, name: str, role: str) -> str:
+    return (
+        f"The ACRA ({environment}) record for this case lists {name} as an officer (role: {role})."
+    )
+
+
+_OFFICER_RECORD = re.compile(
+    r"^The ACRA \((?:MOCK|LOCAL|SANDBOX|PARTIAL|DORMANT)\) record for this case lists .+ as an "
+    r"officer \(role: [^()]{1,40}\)\.$"
+)
+
 # Allowed lines the model is shown only in a QUESTION TOPIC message, never in the case facts
 # every question carries (keeps the everyday prompt unchanged).
 TOPIC_ONLY_LINES = frozenset(
@@ -329,7 +345,11 @@ TOPIC_ONLY_LINES = frozenset(
 def is_topic_only(line: str) -> bool:
     """A topic-only line, including the officer line filled with its environment."""
 
-    return line in TOPIC_ONLY_LINES or _OFFICERS_EMPTY.match(line) is not None
+    return (
+        line in TOPIC_ONLY_LINES
+        or _OFFICERS_EMPTY.match(line) is not None
+        or _OFFICER_RECORD.match(line) is not None
+    )
 
 
 MOCK_NOT_LIVE = (

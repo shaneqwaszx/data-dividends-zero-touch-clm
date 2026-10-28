@@ -37,6 +37,7 @@ from .context import readable_time as when
 from .guardrails import (
     allowed_guidance,
     compact_facts,
+    officer_record_lines,
     officers_line,
     registry_source_line,
     ubo_completion_not_offered,
@@ -426,7 +427,11 @@ def _director_lines(facts: dict[str, Any], text: str) -> tuple[str, list[str]]:
     compare, the general (conditional) check and reasons, and where to look."""
 
     officers = officers_line(facts)
-    lookup = [*([officers] if officers else []), _open_section("Registry verification")]
+    lookup = [
+        *officer_record_lines(facts),
+        *([officers] if officers else []),
+        _open_section("Registry verification"),
+    ]
     if not _DIRECTOR_DIFFERENCE.search(text):
         return "who the company's directors are", lookup
     return "a difference in the company's directors", [

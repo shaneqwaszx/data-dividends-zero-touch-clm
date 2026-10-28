@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ModelOverview, ModelProfileView, ModelQualification } from "../aiAssistant";
+import type { ModelBudgetStatus, ModelOverview, ModelProfileView, ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
@@ -350,5 +350,138 @@ describe("AiModelManagement D-094 local synthetic test mode", () => {
     expect(readable("PREFLIGHT_FAILED:key.limit_set,ledger.healthy")).toBe(
       "Preflight failed: key.limit_set, ledger.healthy",
     );
+  });
+});
+
+// --- D-095: daily spending limit and the OpenRouter key -----------------------------------------
+
+// Built at run time so the secret scanner never sees a key-shaped literal.
+const FAKE_KEY = ["sk", "or", "v1-fake-browser-test-key-0000000000"].join("-");
+
+function budget(credential: Partial<ModelBudgetStatus["credential"]> = {}): ModelBudgetStatus {
+  return {
+    configured: true, mode: "D-095", timezone: "Asia/Singapore",
+    daily_cap_ceiling_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
+    next_reset_at: "2026-10-28T16:00:00Z",
+    credential: {
+      source: "none", status: "missing", hr_editable: true, persistence: "memory_only",
+      set_at: null, set_by: null, ...credential,
+    },
+    provider: null,
+    ledger: {
+      cap_micro_usd: 1_100_000, committed_micro_usd: 1_001_076, headroom_micro_usd: 98_924,
+      headroom_usd: "0.098924", open_calls: 0, breaker_open: false, breaker_code: null,
+    },
+    daily: {
+      cap_micro_usd: 1_000_000, settled_today_micro_usd: 1_440, settled_today_usd: "0.001440",
+      in_flight_micro_usd: 0, in_flight_usd: "0.000000", in_flight_calls: 0,
+      remaining_micro_usd: 998_560, remaining_usd: "0.998560", day_started_at: "2026-10-27T16:00:00Z",
+    },
+    effective_remaining_micro_usd: 98_924, effective_remaining_usd: "0.098924",
+    reservation_micro_usd: 21_300, refusal: "PROVIDER_LIMIT_NOT_CHECKED",
+  };
+}
+
+const remoteSelectable = profile({
+  profile_id: "openrouter_gpt_oss_120b", display_name: "GPT-OSS 120B via OpenRouter (synthetic test only, D-094)",
+  source: "code", deployment: "openrouter", endpoint: "deepinfra/bf16", status: "selectable",
+  active: false, activation_blockers: ["NOT_QUALIFIED"],
+});
+
+function keyServer(data: ModelOverview, calls: Array<{ method: string; url: string; body: string | null }>) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
+    if (url.endsWith("/admin/models/credential") && method === "PUT") {
+      return json({ source: "hr_memory", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin" });
+    }
+    if (url.endsWith("/admin/models/credential") && method === "DELETE") {
+      return json({ source: "none", status: "missing", hr_editable: true, persistence: "memory_only", set_at: null, set_by: null });
+    }
+    if (method === "POST") return json({ outcome: "passed", code: null, listed: null, complete_ms: null, stream_ms: null, first_piece_ms: null });
+    if (url.endsWith("/api/assistant/admin/models")) return json(data);
+    if (url.includes("/admin/models/audit")) return json({ events: [] });
+    return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+  });
+}
+
+function typeInto(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  act(() => {
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
+  it("shows Not Configured with a masked input, sends the key once and keeps no copy", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: budget() };
+    const view = mount(keyServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Not Configured"));
+    const input = view.querySelector<HTMLInputElement>("#openrouter-key-input");
+    expect(input?.type).toBe("password");
+    expect(input?.autocomplete).toBe("off");
+    expect(button(view, "Save Key").disabled).toBe(true);
+    expect(button(view, "Test Connection").disabled).toBe(true);
+    typeInto(input!, FAKE_KEY);
+    await act(async () => button(view, "Save Key").click());
+    await waitFor(() => expect(view.textContent).toContain("Key saved on the server."));
+    const put = calls.find((call) => call.method === "PUT");
+    expect(put?.url).toContain("/api/assistant/admin/models/credential");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ api_key: FAKE_KEY });
+    expect(view.querySelector<HTMLInputElement>("#openrouter-key-input")?.value).toBe("");
+    expect(view.innerHTML).not.toContain(FAKE_KEY);
+    expect(JSON.stringify({ ...localStorage })).not.toContain(FAKE_KEY);
+    expect(JSON.stringify({ ...sessionStorage })).not.toContain(FAKE_KEY);
+    expect(document.cookie).not.toContain(FAKE_KEY);
+  });
+
+  it("offers Clear Key and Test Connection for an HR-entered key, and says it is memory-only", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = {
+      ...overview, profiles: [profile({}), remoteSelectable],
+      budget: budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
+    };
+    const view = mount(keyServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
+    expect(view.textContent).toContain("enter it again after the service restarts");
+    await act(async () => button(view, "Test Connection").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.url.endsWith("/openrouter_gpt_oss_120b/connection-test"))).toBe(true));
+    await act(async () => button(view, "Clear Key").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE")).toBe(true));
+  });
+
+  it("does not offer to change an environment-managed key", async () => {
+    const data = {
+      ...overview, profiles: [profile({}), remoteSelectable],
+      budget: budget({ source: "env_file", status: "configured", hr_editable: false, persistence: "server" }),
+    };
+    const view = mount(keyServer(data, []));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
+    expect(view.textContent).toContain("apps/assistant/.env");
+    expect(view.querySelector("#openrouter-key-input")).toBeNull();
+    expect(() => button(view, "Save Key")).toThrow();
+    expect(() => button(view, "Clear Key")).toThrow();
+  });
+
+  it("shows the US$1.00 Singapore-day limit, today's spending and why calls are refused", async () => {
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: { ...budget(), refusal: "DAILY_ALLOWANCE_EXHAUSTED" } };
+    const view = mount(keyServer(data, []));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter daily spending limit"));
+    expect(view.textContent).toContain("US$1.00 of reserved plus settled OpenRouter spending per Singapore calendar day");
+    expect(view.textContent).toContain("US$0.001440");
+    expect(view.textContent).toContain("US$0.998560");
+    expect(view.textContent).toContain("US$0.098924");
+    expect(view.textContent).toContain("midnight, Singapore");
+    expect(view.textContent).toContain("has no room for another call");
+  });
+
+  it("shows no key or spending panel when the remote test mode is not configured", async () => {
+    const view = mount(server(overview));
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    expect(view.textContent).not.toContain("OpenRouter API Key");
+    expect(view.textContent).not.toContain("daily spending limit");
   });
 });
