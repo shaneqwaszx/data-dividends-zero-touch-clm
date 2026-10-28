@@ -1300,3 +1300,26 @@ in R2, non-ASCII symbols and invisible tag characters. Not decided here: any non
 by anyone other than the owner on their own machine, another endpoint or model, or a larger
 allocation. Evidence from this mode is external evaluation on synthetic data, never Live CLM
 behaviour. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+
+**Merge and first paid run (2026-10-28).** This records events only; the decision text above
+is unchanged.
+
+- **Merge.** The repository owner squash-merged PR #123 to main as `9a0dcd5`, with a single
+  parent, `c36b8af`. The tree equals the independently reviewed head `0f6e081`.
+- **Owner's approval (T7).** Before the first paid run, the owner approved:
+  - endpoint `deepinfra/bf16` only;
+  - qualification `P01#1,P02#0` (2 calls) plus four listed chat questions on a fresh GARDEN
+    BUSINESS case;
+  - at most 6 calls;
+  - a ledger cap of committed spend plus US$0.10.
+- **Run.** It made exactly 6 calls, all verified for provider, model and cost, US$0.001076 in
+  total.
+  - The qualification passed G-1 to G-8.
+  - The four chat answers came from `openai/gpt-oss-120b` with the T5 notice.
+  - A negative control was refused (`SYNTHETIC_TEXT_NOT_APPROVED`) and sent nothing.
+  - Rollback returned to the local baseline.
+- **Hosted CI** for PR #123 was not executed: it is billing-blocked, and that is not a pass.
+  The owner accepted a temporary exception for this PR, and hosted CI is to be rerun after 1
+  November 2026.
+
+D-092 stays PROPOSED. Further paid runs still need T7 approval.
