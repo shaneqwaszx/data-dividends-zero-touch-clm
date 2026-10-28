@@ -184,6 +184,10 @@ def test_a_stored_fast_activation_reverts_when_fast_is_no_longer_offered(
     )
     active = restarted.current()
     assert active.profile_id != FAST and active.reverted == "PROFILE_MISSING"
+    # D-098: no substitute model (the environment baseline may be a local LLM): none at all.
+    from ai_assistant.model_admin import CASE_DATA_ONLY_ID
+
+    assert active.profile_id == CASE_DATA_ONLY_ID and active.model is None
     actions = [event["action"] for event in store.events(20)]
     assert "STARTUP_REVERTED" in actions
 

@@ -918,13 +918,26 @@ class BudgetLedger:
     # -- operator actions (scripts/budget_ledger.py) --
 
     def set_cap(
-        self, cap_micro_usd: int, *, allow_raise: bool = False, confirm: int | None = None
+        self,
+        cap_micro_usd: int,
+        *,
+        allow_raise: bool = False,
+        confirm: int | None = None,
+        expected: int | None = None,
     ) -> None:
+        """Set the lifetime cap. ``expected`` (D-098): the cap the caller decided on; checked
+        in the same write transaction, so a change made in between by anyone (another
+        process, the operator's script) refuses this one instead of being replaced."""
+
         if type(cap_micro_usd) is not int or not 0 <= cap_micro_usd <= MAX_MICRO_USD:
             raise LedgerError("INVALID_INPUT", "the cap must be a micro-USD count")
+        if expected is not None and (type(expected) is not int or expected < 0):
+            raise LedgerError("INVALID_INPUT", "the expected cap must be a micro-USD count")
 
         def change(connection: sqlite3.Connection) -> None:
             current = self._meta(connection)["cap_micro_usd"]
+            if expected is not None and current != expected:
+                raise LedgerError("CAP_CHANGED", "the cap changed since it was read")
             if cap_micro_usd > current and not (allow_raise and confirm == cap_micro_usd):
                 raise LedgerError(
                     "CAP_RAISE_REFUSED", "raising the cap needs explicit confirmation"

@@ -893,6 +893,32 @@ describe("AiModelManagement recovery (D-098)", () => {
     expect(view.textContent).not.toContain("cannot be retried away");
   });
 
+  it("shows that an active model stays valid after a later failed run, but cannot be re-activated by it", async () => {
+    const view = mount(server(recovering({
+      remote_profiles: [
+        { profile_id: balanced.profile_id, active: true, qualified: false, previous_pass_current: true, active_qualification_current: true,
+          state: { code: "GATES_FAILED:G-2", category: "TEMPORARILY_UNAVAILABLE", action: "RUN_QUALIFICATION", retryable: true },
+          qualification: { code: "GATES_FAILED:G-2", category: "TEMPORARILY_UNAVAILABLE", action: "RUN_QUALIFICATION", retryable: true,
+            findings: [{ code: "G-2", gate: "G-2", category: "TEMPORARILY_UNAVAILABLE", action: "RUN_QUALIFICATION", retryable: true }] } },
+      ],
+    })));
+    await waitFor(() => expect(view.textContent).toContain("Activation still valid"));
+    expect(view.textContent).toContain("its activation keeps the passing qualification it was activated with, so the active model continues.");
+    expect(view.textContent).toContain("A new activation or a re-activation after a rollback needs a new passing run.");
+  });
+
+  it("names the no-model state after GPT-OSS could not be used, and says nothing was substituted", async () => {
+    const data = recovering({ status: "QUALIFICATION_REQUIRED", remote_active: false, action: "RUN_QUALIFICATION" });
+    const view = mount(server({
+      ...data,
+      active: { ...data.active, profile_id: "case_data_only", display_name: "case_data_only", model_id: null, reverted: "QUALIFICATION_OUT_OF_DATE" },
+      profiles: data.profiles.map((item) => ({ ...item, active: false })),
+    }));
+    await waitFor(() => expect(view.textContent).toContain("No AI model (case-data answers only)"));
+    expect(view.textContent).toContain("so no AI model is active: answers come from case data only. No other model was substituted.");
+    expect(view.textContent).not.toContain("so the environment baseline is active");
+  });
+
   it("names a security block and an operator stop without offering a bypass", async () => {
     const view = mount(server(recovering({
       status: "OPERATOR_REQUIRED", action: "CONTACT_OPERATOR",

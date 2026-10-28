@@ -82,6 +82,7 @@ from .model_admin_store import (
 )
 from .model_catalog import (
     BASELINE_ID,
+    OPENROUTER_FAST_PROFILE_ID,
     BoundedPromptModel,
     Catalogue,
     CatalogueEntry,
@@ -92,7 +93,7 @@ from .model_catalog import (
     profiles_path,
 )
 from .model_factory import ASSISTANT_DIR
-from .model_profiles import ProfileConfigError
+from .model_profiles import OPENROUTER_PROFILE_ID, ProfileConfigError
 from .model_qualification import connection_test, qualification_basis, quality_state
 from .remote_test import (
     RemoteTestModel,
@@ -107,6 +108,12 @@ from .remote_test import (
 log = logging.getLogger("ai_assistant.model_admin")
 
 CAPABILITY = "MODEL_CONFIG_MANAGE"
+# D-098 (owner: GPT-OSS only, no substitute model): what a GPT-OSS activation that can no
+# longer be used reverts to. No model at all: every answer is the case-data answer. It is
+# stored like an activation (audited, kept across restarts) until HR activates a model.
+CASE_DATA_ONLY_ID = "case_data_only"
+# The remote GPT-OSS configurations (catalogue source "code"), listed or not.
+REMOTE_PROFILE_IDS = frozenset({OPENROUTER_PROFILE_ID, OPENROUTER_FAST_PROFILE_ID})
 SYSTEM_ACTOR = "system"
 _QUALIFICATION_ID = re.compile(r"[0-9a-f]{32}")
 # The qualification runs the dev-only evaluation harness in its own process (never in this one).
@@ -393,6 +400,12 @@ def diagnose_service(
                 "active": bool(item.get("active")),
                 "qualified": not blockers and item.get("status") == "selectable",
                 "previous_pass_current": item.get("previous_pass_current", False),
+                # D-098: the activation in use keeps the passing run it was activated with
+                # (checked when it was built); a later failed run does not end it, it only
+                # stops a new activation. Not so once IT changed the profile's settings.
+                "active_qualification_current": bool(item.get("active"))
+                and active.get("qualification_id") is not None
+                and not active.get("config_changed"),
                 "state": state,
                 "qualification": diagnosis,
             }
@@ -526,6 +539,19 @@ class ModelSelector:
             reverted=reverted,
         )
 
+    def case_data_only_choice(self) -> Choice:
+        return Choice(CASE_DATA_ONLY_ID, CASE_DATA_ONLY_ID)
+
+    def _case_data_only(self, revision: int, reverted: str | None = None) -> Active:
+        return Active(
+            revision=revision,
+            profile_id=CASE_DATA_ONLY_ID,
+            fingerprint=CASE_DATA_ONLY_ID,
+            model=None,
+            base_url=None,
+            reverted=reverted,
+        )
+
     def current(self) -> Active:
         """The active model for one request (read once, used for the whole answer), with the
         HR spending controls that apply now (another process may have changed them)."""
@@ -621,13 +647,18 @@ class ModelSelector:
             stored = self.store.activation(self.baseline_choice())
             if stored.active_profile_id == BASELINE_ID:
                 return self._baseline(stored.revision)
+            if stored.active_profile_id == CASE_DATA_ONLY_ID:
+                return self._case_data_only(stored.revision)
             active, problem = self._build_stored(stored)
             if active is not None:
                 return active
+            # D-098: a GPT-OSS configuration is never replaced by another model (the
+            # environment baseline may be a local one): it reverts to no model.
+            remote = stored.active_profile_id in REMOTE_PROFILE_IDS
             try:
                 revision = self.store.activate(
                     stored.revision,
-                    self.baseline_choice(),
+                    self.case_data_only_choice() if remote else self.baseline_choice(),
                     _last_good(stored),
                     SYSTEM_ACTOR,
                 )
@@ -643,7 +674,11 @@ class ModelSelector:
                 code=problem,
                 revision=revision,
             )
+            if remote:
+                return self._case_data_only(revision, reverted=problem)
             return self._baseline(revision, reverted=problem)
+        if self._active.profile_id in REMOTE_PROFILE_IDS | {CASE_DATA_ONLY_ID}:
+            return self._case_data_only(self._active.revision)
         return self._baseline(self._active.revision)
 
     def remote_options(self) -> dict[str, Any]:
@@ -733,9 +768,15 @@ class ModelSelector:
             # Changed between the checks and the store: put the previous model back (as it
             # was, last good model included), record that, and restore it as at start-up
             # (which falls back to the baseline, audited, if it is no longer usable either).
-            undo = self.store.activate(
-                revision, previous or self.baseline_choice(), _last_good(before), by
+            # D-098: exactly the activation that was in place (no model included), never a
+            # substitute for it.
+            was = Choice(
+                before.active_profile_id,
+                before.active_fingerprint,
+                before.active_qualification_id,
+                before.active_prompt_limit,
             )
+            undo = self.store.activate(revision, was, _last_good(before), by)
             self.store.record(
                 actor=by,
                 role=None,
@@ -1409,11 +1450,16 @@ def model_admin_router(
                 if probe["outcome"] != "passed":
                     raise refuse("CONNECTION_FAILED")
                 choice = qualified
-            previous = Choice(
-                stored.active_profile_id,
-                stored.active_fingerprint,
-                stored.active_qualification_id,
-                stored.active_prompt_limit,
+            previous = (
+                # D-098: "no model" is not a rollback target; the earlier one stays.
+                _last_good(stored)
+                if stored.active_profile_id == CASE_DATA_ONLY_ID
+                else Choice(
+                    stored.active_profile_id,
+                    stored.active_fingerprint,
+                    stored.active_qualification_id,
+                    stored.active_prompt_limit,
+                )
             )
             try:
                 active = selector.apply(
@@ -1770,8 +1816,19 @@ def model_admin_router(
                 verify_increase(profile, action)
             if cap != status.cap:
                 try:
-                    ledger.set_cap(cap, allow_raise=raising, confirm=cap if raising else None)
-                except LedgerError:
+                    # D-098: the cap this decision was made on is compared again in the
+                    # ledger's own write transaction (the provider check above takes time,
+                    # and the operator's script or another process may change the cap).
+                    ledger.set_cap(
+                        cap,
+                        allow_raise=raising,
+                        confirm=cap if raising else None,
+                        expected=status.cap,
+                    )
+                except LedgerError as error:
+                    if error.code in ("CAP_CHANGED", "CAP_RAISE_REFUSED"):
+                        audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                        raise _refusal(409, "CONTROLS_CONFLICT") from None
                     audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                     raise _refusal(409, "LEDGER_UNAVAILABLE") from None
                 audit(

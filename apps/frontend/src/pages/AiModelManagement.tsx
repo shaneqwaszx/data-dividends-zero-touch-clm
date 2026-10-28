@@ -83,6 +83,11 @@ const SCOPE_LABEL: Record<string, string> = {
   NOT_AUTHORISED: "Not authorised",
 };
 
+// D-098: the state a GPT-OSS activation reverts to when it can no longer be used (no model;
+// no other model is substituted). Not a profile: HR leaves it by activating a model.
+export const CASE_DATA_ONLY_ID = "case_data_only";
+const CASE_DATA_ONLY_NAME = "No AI model (case-data answers only)";
+
 export function profileName(profile: Pick<ModelProfileView, "display_name" | "details">): string {
   const details = profile.details;
   if (!details?.model) return profile.display_name;
@@ -484,6 +489,7 @@ function Recovery({ overview, busy, onAction, onRetry }: {
   const recovery = overview.recovery as ModelRecovery;
   const category = CATEGORY_TEXT[recovery.status];
   const nameOf = (profileId: string) => {
+    if (profileId === CASE_DATA_ONLY_ID) return CASE_DATA_ONLY_NAME;
     const found = overview.profiles.find((item) => item.profile_id === profileId);
     return found ? profileName(found) : profileId;
   };
@@ -528,8 +534,11 @@ function Recovery({ overview, busy, onAction, onRetry }: {
             <li key={item.profile_id}>
               <strong>{nameOf(item.profile_id)}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}{" "}
               <span className={`tag ${state.tag}`}>{item.qualified ? "Qualified" : state.label}</span>{" "}
+              {item.active && item.active_qualification_current && !item.qualified && <><span className="tag tag-accent">Activation still valid</span>{" "}</>}
               <small className="control-help">
-                {item.qualified
+                {item.active && item.active_qualification_current
+                  ? `In use: its activation keeps the passing qualification it was activated with, so the active model continues.${item.qualified ? "" : " A new activation or a re-activation after a rollback needs a new passing run."}`
+                  : item.qualified
                   ? "Its passing qualification matches the current configuration and code."
                   : item.previous_pass_current
                     ? `An earlier pass matches this configuration and code, but the latest run did not pass, so it cannot be activated again until a new run passes.${item.active ? " The current activation keeps running." : ""}`
@@ -634,6 +643,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
   const detail = overview?.profiles.find((item) => item.profile_id === selected);
   // A profile's page name (remote configurations by model and reasoning setting).
   const nameOf = (profileId: string, fallback: string) => {
+    if (profileId === CASE_DATA_ONLY_ID) return CASE_DATA_ONLY_NAME;
     const found = overview?.profiles.find((item) => item.profile_id === profileId);
     return found ? profileName(found) : fallback;
   };
@@ -676,7 +686,10 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
       {overview && (
         <section className="card" aria-labelledby="active-model-heading">
           <h2 id="active-model-heading">Active model</h2>
-          {overview.active.reverted && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
+          {overview.active.reverted && <p className="ds-banner ds-banner-warn" role="alert">{overview.active.profile_id === CASE_DATA_ONLY_ID
+            ? `GPT-OSS 120B could not be used at start-up (${readable(overview.active.reverted)}), so no AI model is active: answers come from case data only. No other model was substituted. Qualify it again, then activate it.`
+            : `The saved model could not be used at start-up (${readable(overview.active.reverted)}), so the environment baseline is active.`}</p>}
+          {overview.active.profile_id === CASE_DATA_ONLY_ID && !overview.active.reverted && <p className="ds-banner ds-banner-warn" role="status">No AI model is active: answers come from case data only, until HR activates a qualified model.</p>}
           {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
           <dl className="acra-detail-list">
             <div><dt>Name</dt><dd>{nameOf(overview.active.profile_id, overview.active.display_name)}</dd></div>

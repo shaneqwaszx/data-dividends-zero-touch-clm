@@ -564,6 +564,36 @@ def test_a_read_only_ledger_fails_closed(tmp_path: Path) -> None:
 # --- operator actions (cap, breaker) --------------------------------------------------------
 
 
+def test_a_cap_change_decided_on_an_older_cap_is_refused_in_the_write_transaction(
+    tmp_path: Path,
+) -> None:
+    """D-098: ``expected`` is compared inside the write, so a change made in between by another
+    connection (the operator's script, another process) refuses the later one; nothing else in
+    the ledger changes."""
+
+    path = tmp_path / "ledger.sqlite3"
+    hr = _ledger(tmp_path, cap=600_000)
+    shown = hr.status().cap
+    operator = BudgetLedger.open(path)
+    operator.set_cap(300_000)  # the operator lowers it while HR decides
+    before = _rows(path, "SELECT * FROM operator_events")
+    for kwargs in (
+        {"allow_raise": True, "confirm": 2_000_000},  # a raise
+        {},  # a lowering to a value now above the cap
+    ):
+        cap = 2_000_000 if kwargs else 500_000
+        with pytest.raises(LedgerError) as raised:
+            hr.set_cap(cap, expected=shown, **kwargs)  # type: ignore[arg-type]
+        assert raised.value.code == "CAP_CHANGED"
+    assert hr.status().cap == 300_000
+    assert _rows(path, "SELECT * FROM operator_events") == before
+    hr.set_cap(2_000_000, allow_raise=True, confirm=2_000_000, expected=300_000)
+    assert hr.status().cap == 2_000_000
+    with pytest.raises(LedgerError) as invalid:
+        hr.set_cap(1_000_000, expected=-1)
+    assert invalid.value.code == "INVALID_INPUT"
+
+
 def test_the_cap_can_be_lowered_but_raised_only_with_confirmation(tmp_path: Path) -> None:
     ledger = _ledger(tmp_path, cap=7_000_000)
     ledger.set_cap(5_000_000)

@@ -15,7 +15,7 @@ from ai_assistant.budget import MAX_MICRO_USD, BudgetLedger
 from ai_assistant.model_admin import ModelSelector
 from ai_assistant.model_admin_store import ModelAdminStore, RevisionConflict
 from ai_assistant.model_catalog import load_catalogue
-from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID
+from ai_assistant.model_profiles import OPENROUTER_MODEL_ID, OPENROUTER_PROFILE_ID
 from ai_assistant.model_qualification import qualification_basis
 from tests.test_model_management import API
 from tests.test_remote_test import SENTINEL, Journey, _settle_verification, wait_for
@@ -703,10 +703,19 @@ def test_a_daily_limit_above_one_dollar_survives_a_restart_and_keeps_todays_spen
     spent = _ledger(journey).daily_status().settled_today
     assert _controls(journey, 3_000_000, 20).status_code == 200
     store = ModelAdminStore(Path(journey.settings.model_admin_db_path))
-    other = ModelSelector(journey.settings, None, store)
+    # A restarted service process (with the same key and provider access as the service).
+    other = ModelSelector(
+        journey.settings,
+        None,
+        store,
+        environ=journey.selector.environ,
+        transport=journey.selector.transport,
+    )
+    assert other.current().profile_id == OPENROUTER_PROFILE_ID
     assert other.controlled().budget_daily_cap_micro_usd == 3_000_000
     assert _ledger(journey).daily_status(3_000_000).settled_today == spent  # not reset
-    assert journey.ask()["answered_by"] == "model"
+    reply = journey.ask()
+    assert reply["answered_by"] == "model" and reply["model"] == OPENROUTER_MODEL_ID
 
 
 def test_two_administrators_cannot_overwrite_each_others_raise(
@@ -782,3 +791,59 @@ def test_a_lifetime_raise_from_a_stale_view_is_refused(
         LIFETIME, json={"cap_micro_usd": 100_000, "expected_cap_micro_usd": 300_000}
     )
     assert lower.status_code == 409
+
+
+def test_an_operator_lowering_during_an_hr_raise_is_never_overwritten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-098 (owner: fix before merge): the operator lowers the cap with the ledger script
+    while an HR raise waits for its provider check. The raise is refused at the ledger's write
+    and the operator's cap stays; spend, calls, reconciliation and the daily view are unchanged."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    assert journey.ask()["answered_by"] == "model"
+    _settle_verification()
+    (ledger_id, opening), calls_before, _ = _ledger_rows(journey)
+    status_before = _ledger(journey).status()
+    daily_before = _ledger(journey).daily_status()
+    shown = status_before.cap
+    original = model_admin.preflight
+
+    def operator_lowers_meanwhile(*args: Any, **kwargs: Any) -> Any:
+        BudgetLedger.open(Path(journey.settings.budget_ledger_path)).set_cap(400_000)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(model_admin, "preflight", operator_lowers_meanwhile)
+    body = {
+        "cap_micro_usd": 3_000_000,
+        "confirm_cap_micro_usd": 3_000_000,
+        "expected_cap_micro_usd": shown,
+    }
+    refused = journey.client.put(LIFETIME, json=body)
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "CONTROLS_CONFLICT"
+    after = _ledger(journey).status()
+    assert after.cap == 400_000  # the operator's value
+    (ledger_id_after, opening_after), calls_after, events = _ledger_rows(journey)
+    assert (ledger_id_after, opening_after, calls_after) == (ledger_id, opening, calls_before)
+    assert events[-1] == ("cap_lowered", 400_000)
+    assert ("cap_raised", 3_000_000) not in events
+    assert (after.committed, after.open_calls, after.breaker_open) == (
+        status_before.committed,
+        status_before.open_calls,
+        status_before.breaker_open,
+    )
+    assert _ledger(journey).daily_status().settled_today == daily_before.settled_today
+    audited = [
+        (e["action"], e["outcome"], e["code"])
+        for e in journey.client.get(f"{API}/audit").json()["events"]
+    ]
+    assert ("LIFETIME_CAP_CHANGED", "refused", "CONTROLS_CONFLICT") in audited
+
+    # With the cap the operator left, the same raise goes through (still provider-checked).
+    monkeypatch.setattr(model_admin, "preflight", original)
+    accepted = journey.client.put(LIFETIME, json={**body, "expected_cap_micro_usd": 400_000})
+    assert accepted.status_code == 200, accepted.text
+    assert _ledger(journey).status().cap == 3_000_000
+    assert journey.ask()["answered_by"] == "model"  # spending still works after the change

@@ -655,6 +655,8 @@ export interface RecoveryProfile {
   active: boolean;
   qualified: boolean;
   previous_pass_current: boolean;
+  /** D-098: the activation in use keeps its own passing run (a later failed run does not end it). */
+  active_qualification_current?: boolean;
   state: RecoveryFinding;
   qualification: (RecoveryFinding & { findings: RecoveryFinding[] }) | null;
 }

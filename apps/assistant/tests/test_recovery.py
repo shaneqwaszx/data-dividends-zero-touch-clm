@@ -10,16 +10,19 @@ import pytest
 
 from ai_assistant import model_admin
 from ai_assistant.model_admin import (
+    CASE_DATA_ONLY_ID,
     HEALTHY,
     OPERATOR_REQUIRED,
     POLICY_BLOCKED,
     QUALIFICATION_REQUIRED,
     RECOVERABLE_BY_HR,
     TEMPORARILY_UNAVAILABLE,
+    ModelSelector,
     diagnose_qualification,
     diagnose_service,
 )
-from ai_assistant.model_catalog import OPENROUTER_FAST_PROFILE_ID, load_catalogue
+from ai_assistant.model_admin_store import ModelAdminStore
+from ai_assistant.model_catalog import BASELINE_ID, OPENROUTER_FAST_PROFILE_ID, load_catalogue
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID
 from ai_assistant.model_qualification import qualification_basis
 from tests.test_model_management import API, ThreadRun
@@ -427,3 +430,121 @@ def store_blocked(store: Any, profile_id: str, fingerprint: str, basis: str) -> 
         return True
     store.finish_qualification(run, "cancelled", "CANCELLED", None)
     return False
+
+
+# --- D-098 owner decision: GPT-OSS only, no substitute model -------------------------------------
+
+
+def _restart(journey: Journey, **update: Any) -> Any:
+    settings = journey.settings.model_copy(update=update) if update else journey.settings
+    return ModelSelector(
+        settings,
+        journey.baseline,
+        ModelAdminStore(Path(journey.settings.model_admin_db_path)),
+        environ=journey.selector.environ,
+        transport=journey.selector.transport,
+    )
+
+
+def test_an_unusable_gpt_oss_activation_reverts_to_no_model_not_the_local_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    _settle_verification()
+    # The answer code changes (as the D-098 ceiling removal does): the qualification is out
+    # of date at the next start.
+    monkeypatch.setattr(model_admin, "qualification_basis", lambda: "2" * 64)
+    restarted = _restart(journey)
+    active = restarted.current()
+    assert (active.profile_id, active.model, active.reverted) == (
+        CASE_DATA_ONLY_ID,
+        None,
+        "QUALIFICATION_OUT_OF_DATE",
+    )
+    events = restarted.store.events(5)  # type: ignore[union-attr]
+    assert (events[0]["action"], events[0]["code"], events[0]["profile_id"]) == (
+        "STARTUP_REVERTED",
+        "QUALIFICATION_OUT_OF_DATE",
+        OPENROUTER_PROFILE_ID,
+    )
+    # The running service follows the stored change: case-data answers, no model called
+    # (neither GPT-OSS nor the environment baseline), nothing sent to OpenRouter.
+    chats, local = len(journey.openrouter.chats), journey.baseline.calls
+    for stream in (False, True):
+        assert journey.ask(stream=stream)["answered_by"] == "case_data"
+    assert (len(journey.openrouter.chats), journey.baseline.calls) == (chats, local)
+    overview = journey.client.get(API).json()
+    assert overview["active"]["profile_id"] == CASE_DATA_ONLY_ID
+    assert overview["active"]["model_id"] is None
+    assert overview["recovery"]["status"] == QUALIFICATION_REQUIRED
+    # It stays so across another restart; GPT-OSS stays the rollback target.
+    again = _restart(journey).current()
+    assert (again.profile_id, again.model) == (CASE_DATA_ONLY_ID, None)
+    assert overview["last_good"] is None or overview["last_good"]["profile_id"] != (
+        CASE_DATA_ONLY_ID
+    )
+
+
+def test_hr_may_still_choose_the_local_baseline_by_hand(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    _settle_verification()
+    monkeypatch.setattr(model_admin, "qualification_basis", lambda: "2" * 64)
+    _restart(journey).current()
+    revision = journey.client.get(API).json()["revision"]
+    chosen = journey.client.post(
+        f"{API}/{BASELINE_ID}/activate",
+        json={"expected_revision": revision, "acknowledge_quality_unscored": True},
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["active"]["profile_id"] == BASELINE_ID
+    actions = [(e["action"], e["outcome"]) for e in _events(journey)]
+    assert ("ACTIVATED", "applied") in actions
+
+
+def test_a_local_profile_still_reverts_to_the_environment_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local-only configurations keep their D-093 behaviour (an IT profile reverts to the
+    environment baseline): the D-098 change is for the GPT-OSS configurations only."""
+
+    journey = Journey(tmp_path, monkeypatch)
+    store = journey.selector.store
+    assert store is not None
+    stored = store.activation(journey.selector.baseline_choice())
+    from ai_assistant.model_admin_store import Choice
+
+    store.activate(stored.revision, Choice("lmstudio_qwen3_8b", "0" * 12, None, None), None, "hr")
+    active = _restart(journey).current()
+    assert active.profile_id == BASELINE_ID and active.reverted is not None
+
+
+def test_a_failed_run_never_invalidates_the_active_still_valid_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    journey.activate_remote()
+    _settle_verification()
+    store = journey.selector.store
+    assert store is not None
+    entry = load_catalogue(journey.settings).get(OPENROUTER_PROFILE_ID)
+    assert entry is not None
+    failed = store.begin_qualification(
+        entry.profile_id, entry.fingerprint, qualification_basis(), "hr-admin", 0
+    )
+    store.finish_qualification(failed, "failed", "GATES_FAILED:G-6", None)
+    # In this process and after a restart, the activation keeps its own passing run.
+    assert journey.ask()["answered_by"] == "model"
+    active = _restart(journey).current()
+    assert active.profile_id == OPENROUTER_PROFILE_ID and active.reverted is None
+    view = journey.client.get(API).json()
+    balanced = next(
+        p for p in view["recovery"]["remote_profiles"] if p["profile_id"] == OPENROUTER_PROFILE_ID
+    )
+    # Its activation stays valid; a new activation (or a re-run) is what the failure blocks.
+    assert balanced["active"] and balanced["active_qualification_current"]
+    assert not balanced["qualified"]
+    assert view["recovery"]["remote_active"] and view["recovery"]["issues"] == []
