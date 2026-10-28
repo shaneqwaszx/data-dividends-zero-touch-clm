@@ -157,6 +157,9 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Confirm the new lifetime limit to raise it. Nothing changed.",
   "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed.",
   "The OpenRouter key could not be checked. Nothing changed.",
+  // D-098: a paid qualification is confirmed and refused before it starts if it cannot end.
+  "Confirm the number of paid calls this qualification makes. Nothing started.",
+  "The spending limits do not leave room for a paid call of this qualification. Nothing started.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -621,6 +624,57 @@ export interface ModelProfileView {
   connection_test: ModelConnectionTest | null;
   qualification: ModelQualification | null;
   activation_blockers: string[];
+  /** D-098: an earlier passing run still matches today's configuration and answer code. */
+  previous_pass_current?: boolean;
+}
+
+/** D-098: one problem and what to do about it (closed codes; the page words them). */
+export type RecoveryCategory =
+  | "HEALTHY"
+  | "QUALIFICATION_REQUIRED"
+  | "RECOVERABLE_BY_HR"
+  | "TEMPORARILY_UNAVAILABLE"
+  | "OPERATOR_REQUIRED"
+  | "POLICY_BLOCKED";
+
+export interface RecoveryFinding {
+  code: string | null;
+  category: RecoveryCategory;
+  action: string;
+  retryable: boolean;
+  gate?: string;
+  scope?: string;
+}
+
+export interface RecoveryProfile {
+  profile_id: string;
+  active: boolean;
+  qualified: boolean;
+  previous_pass_current: boolean;
+  state: RecoveryFinding;
+  qualification: (RecoveryFinding & { findings: RecoveryFinding[] }) | null;
+}
+
+export interface ModelRecovery {
+  status: RecoveryCategory;
+  remote_active: boolean;
+  action: string;
+  issues: RecoveryFinding[];
+  remote_profiles: RecoveryProfile[];
+  other_qualified: string[];
+  last_failure: { source: "QUALIFICATION" | "CONNECTION_TEST"; profile_id: string; code: string | null; at: string | null } | null;
+  qualification_cost: {
+    paid_calls: number;
+    reservation_micro_usd: number | null;
+    needed_micro_usd: number | null;
+    available_micro_usd: number | null;
+    /** Room for the first call (each call is admitted by the ledger on its own). */
+    budget_ok: boolean;
+    /** Room even if every call cost its whole reservation. */
+    worst_case_ok: boolean;
+    call_limit_ok: boolean;
+    provider_checked: boolean;
+  } | null;
 }
 
 export interface ModelOverview {
@@ -647,6 +701,8 @@ export interface ModelOverview {
   profiles: ModelProfileView[];
   /** D-095: the remote profile's spending view (null unless the remote test mode is configured). */
   budget?: ModelBudgetStatus | null;
+  /** D-098: what stops the model and what HR can do about it. */
+  recovery?: ModelRecovery | null;
 }
 
 /** D-095 addendum: where the OpenRouter key comes from. Never the key, nor any part of it. */
@@ -747,8 +803,10 @@ export const fetchModelAudit = (signal?: AbortSignal) =>
   request<{ events: ModelAuditEvent[] }>("/admin/models/audit?limit=100", undefined, signal);
 export const testModelConnection = (profileId: string) =>
   request<ModelConnectionTest>(`${modelPath(profileId)}/connection-test`, {});
-export const startModelQualification = (profileId: string) =>
-  request<{ qualification_id: string }>(`${modelPath(profileId)}/qualifications`, {});
+// D-098: a paid (remote) qualification repeats its number of paid calls back to the server.
+export const startModelQualification = (profileId: string, confirmPaidCalls?: number) =>
+  request<{ qualification_id: string }>(`${modelPath(profileId)}/qualifications`,
+    confirmPaidCalls === undefined ? {} : { confirm_paid_calls: confirmPaidCalls });
 export const fetchModelQualification = (qualificationId: string, signal?: AbortSignal) =>
   request<ModelQualification>(`/admin/models/qualifications/${encodeURIComponent(qualificationId)}`, undefined, signal);
 export const cancelModelQualification = (qualificationId: string) =>

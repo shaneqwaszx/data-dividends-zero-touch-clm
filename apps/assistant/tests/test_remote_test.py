@@ -660,7 +660,10 @@ class Journey:
     def activate_remote(self) -> dict[str, Any]:
         test = self.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
         assert test.status_code == 200 and test.json()["outcome"] == "passed", test.text
-        started = self.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/qualifications")
+        calls = self.client.get(API).json()["recovery"]["qualification_cost"]["paid_calls"]
+        started = self.client.post(
+            f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
+        )
         assert started.status_code == 202, started.text
         result = wait_for(self.client, started.json()["qualification_id"])
         assert result["status"] == "passed", result

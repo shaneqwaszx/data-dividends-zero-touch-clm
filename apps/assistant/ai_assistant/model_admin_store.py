@@ -492,6 +492,17 @@ class ModelAdminStore:
             ).fetchone()
         return _qualification(row) if row else None
 
+    def last_passed_qualification(self, profile_id: str) -> dict[str, Any] | None:
+        """The newest passing run of a profile (whatever ran after it)."""
+
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM qualifications WHERE profile_id = ? AND status = 'passed'"
+                " ORDER BY started_at DESC, rowid DESC LIMIT 1",
+                (profile_id,),
+            ).fetchone()
+        return _qualification(row) if row else None
+
     def running_qualification(self) -> dict[str, Any] | None:
         with self._connect() as db:
             row = db.execute(

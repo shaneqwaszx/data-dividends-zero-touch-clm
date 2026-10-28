@@ -698,3 +698,133 @@ describe("AiModelManagement GPT-OSS 120B naming", () => {
     expect(button(view, "Activate", "GPT-OSS 120B — Fast").disabled).toBe(true);
   });
 });
+
+// --- D-098: recovery ----------------------------------------------------------------------------
+
+describe("AiModelManagement recovery (D-098)", () => {
+  const fast = profile({
+    profile_id: "openrouter_gpt_oss_120b_low", display_name: "GPT-OSS 120B (low reasoning)",
+    source: "code", deployment: "openrouter", endpoint: "deepinfra/bf16", status: "selectable",
+    active: false, activation_blockers: ["NOT_QUALIFIED"],
+    details: { model: "GPT-OSS 120B", provider: "OPENROUTER_DEEPINFRA", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "low" },
+  });
+  const balanced = {
+    ...remoteSelectable, active: true, activation_blockers: [],
+    details: { model: "GPT-OSS 120B", provider: "OPENROUTER_DEEPINFRA", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium" },
+  };
+  const cost = {
+    paid_calls: 2, reservation_micro_usd: 4_000, needed_micro_usd: 8_000,
+    available_micro_usd: 900_000, budget_ok: true, worst_case_ok: true, call_limit_ok: true, provider_checked: true,
+  };
+  function recovering(overrides: Partial<NonNullable<ModelOverview["recovery"]>> = {}): ModelOverview {
+    return {
+      ...overview,
+      active: { ...overview.active, profile_id: balanced.profile_id, display_name: balanced.display_name },
+      profiles: [profile({ active: false }), balanced, fast],
+      budget: controlled({ calls_used: 1, calls_remaining: 19 }),
+      recovery: {
+        status: "HEALTHY", remote_active: true, action: "NONE", issues: [],
+        remote_profiles: [
+          { profile_id: balanced.profile_id, active: true, qualified: true, previous_pass_current: true, qualification: null,
+            state: { code: null, category: "HEALTHY", action: "NONE", retryable: false } },
+          { profile_id: fast.profile_id, active: false, qualified: false, previous_pass_current: false,
+            state: { code: "GATES_FAILED:G-6", category: "OPERATOR_REQUIRED", action: "CONTACT_IT", retryable: false },
+            qualification: { code: "GATES_FAILED:G-6", category: "OPERATOR_REQUIRED", action: "CONTACT_IT", retryable: false,
+              findings: [{ code: "G-6", gate: "G-6", category: "OPERATOR_REQUIRED", action: "CONTACT_IT", retryable: false }] } },
+        ],
+        other_qualified: [],
+        last_failure: { source: "QUALIFICATION", profile_id: fast.profile_id, code: "GATES_FAILED:G-6", at: "2026-10-28T02:00:00Z" },
+        qualification_cost: cost,
+        ...overrides,
+      },
+    };
+  }
+
+  it("keeps Balanced active when Fast fails, and explains Fast's gate as not retryable", async () => {
+    const view = mount(server(recovering()));
+    await waitFor(() => expect(view.textContent).toContain("AI model status and recovery"));
+    expect(view.textContent).toContain("Healthy");
+    expect(view.textContent).toContain("GPT-OSS 120B — Balanced (external, paid)");
+    expect(view.textContent).toContain("Answer validity: too few answer lines were valid");
+    expect(view.textContent).toContain("Not retryable.");
+    expect(view.textContent).toContain("HR cannot resolve this alone.");
+    expect(view.textContent).toContain("cannot be retried away");
+    expect(view.textContent).toContain("Qualification of GPT-OSS 120B — Fast: Gates failed: G-6");
+    const panel = view.querySelector("[aria-labelledby='recovery-heading']") as HTMLElement;
+    expect([...panel.querySelectorAll("button")].some((item) => item.textContent === "Retry Qualification")).toBe(false);
+  });
+
+  it("asks for confirmation with the paid calls and budget before retrying, and sends the count", async () => {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    const data = recovering({
+      status: "QUALIFICATION_REQUIRED", remote_active: false, action: "RUN_QUALIFICATION",
+      remote_profiles: [
+        { profile_id: balanced.profile_id, active: false, qualified: false, previous_pass_current: false, qualification: null,
+          state: { code: "QUALIFICATION_OUT_OF_DATE", category: "QUALIFICATION_REQUIRED", action: "RUN_QUALIFICATION", retryable: true } },
+      ],
+      last_failure: null,
+    });
+    const view = mount(server(data, (url, body) => { posts.push({ url, body }); return json({ qualification_id: "b".repeat(32) }, 202); }));
+    await waitFor(() => expect(view.textContent).toContain("Qualification required"));
+    expect(view.textContent).toContain("No GPT-OSS 120B configuration is qualified now");
+    expect(view.textContent).toContain("no other AI model is substituted");
+    act(() => button(view, "Retry Qualification").click());
+    expect(view.textContent).toContain("This makes 2 paid OpenRouter calls");
+    expect(view.textContent).toContain("Each call holds up to US$0.004000 until it settles; at most US$0.008000 in all. Available now US$0.900000");
+    const run = button(view, "Run Qualification");
+    expect(run.disabled).toBe(true);
+    expect(posts).toEqual([]);
+    act(() => (view.querySelector("[aria-labelledby='retry-heading'] input[type='checkbox']") as HTMLInputElement).click());
+    await act(async () => button(view, "Run Qualification").click());
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].url).toContain("/admin/models/openrouter_gpt_oss_120b/qualifications");
+    expect(posts[0].body).toEqual({ confirm_paid_calls: 2 });
+  });
+
+  it("routes the table's remote Run qualification through the same confirmation", async () => {
+    const posts: unknown[] = [];
+    const view = mount(server(recovering(), (_url, body) => { posts.push(body); return json({}); }));
+    await waitFor(() => expect(view.textContent).toContain("AI model status and recovery"));
+    act(() => button(view, "Run qualification", "Fast").click());
+    expect(view.textContent).toContain("Run the qualification of GPT-OSS 120B — Fast?");
+    expect(posts).toEqual([]);
+  });
+
+  it("will not start a retry the limits cannot finish", async () => {
+    const view = mount(server(recovering({
+      status: "RECOVERABLE_BY_HR", action: "REVIEW_BUDGET",
+      issues: [{ code: "DAILY_ALLOWANCE_EXHAUSTED", category: "RECOVERABLE_BY_HR", action: "REVIEW_BUDGET", retryable: true, scope: "SPENDING" }],
+      remote_profiles: [
+        { profile_id: fast.profile_id, active: false, qualified: false, previous_pass_current: false, qualification: null,
+          state: { code: "NOT_QUALIFIED", category: "QUALIFICATION_REQUIRED", action: "RUN_QUALIFICATION", retryable: true } },
+      ],
+      qualification_cost: { ...cost, available_micro_usd: 1_000, budget_ok: false, worst_case_ok: false },
+    })));
+    await waitFor(() => expect(view.textContent).toContain("Recoverable by HR"));
+    expect(view.textContent).toContain("Today's allowance (Singapore day) has no room for another call.");
+    expect(view.textContent).toContain("Review the spending limits");
+    act(() => button(view, "Retry Qualification").click());
+    expect(view.textContent).toContain("the server will not start it");
+    act(() => (view.querySelector("[aria-labelledby='retry-heading'] input[type='checkbox']") as HTMLInputElement).click());
+    expect(button(view, "Run Qualification").disabled).toBe(true);
+  });
+
+  it("says a running qualification continues on the server through sign-in changes", async () => {
+    const view = mount(server({
+      ...recovering(),
+      running: { qualification_id: "c".repeat(32), profile_id: fast.profile_id, done_turns: 1, total_turns: 2, started_by: "hr-admin" },
+    }));
+    await waitFor(() => expect(view.textContent).toContain("The qualification runs on the AI Assistant server"));
+    expect(view.textContent).toContain("it keeps running, is not repeated");
+  });
+
+  it("names a security block and an operator stop without offering a bypass", async () => {
+    const view = mount(server(recovering({
+      status: "OPERATOR_REQUIRED", action: "CONTACT_OPERATOR",
+      issues: [{ code: "BREAKER_OPEN:QUARANTINED", category: "OPERATOR_REQUIRED", action: "CONTACT_OPERATOR", retryable: false, scope: "SPENDING" }],
+    })));
+    await waitFor(() => expect(view.textContent).toContain("Operator intervention required"));
+    expect(view.textContent).toContain("nothing on this page can override it");
+    expect(view.textContent).toContain("Contact the owner/operator");
+  });
+});

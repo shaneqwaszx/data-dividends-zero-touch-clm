@@ -14,6 +14,7 @@ from ai_assistant import model_admin, remote_test
 from ai_assistant.budget import BudgetLedger
 from ai_assistant.model_admin import ModelSelector
 from ai_assistant.model_admin_store import ModelAdminStore, RevisionConflict
+from ai_assistant.model_catalog import load_catalogue
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID
 from ai_assistant.model_qualification import qualification_basis
 from tests.test_model_management import API
@@ -308,10 +309,25 @@ def test_the_qualification_honours_the_hr_daily_limit(
     journey = Journey(tmp_path, monkeypatch)
     test = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
     assert test.json()["outcome"] == "passed"
+    calls = journey.client.get(API).json()["recovery"]["qualification_cost"]["paid_calls"]
     assert _controls(journey, 0, 20).status_code == 200  # no daily allowance
-    started = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/qualifications")
-    assert started.status_code == 202, started.text
-    result = wait_for(journey.client, started.json()["qualification_id"])
+    # D-098: the run is refused before it starts (it could not finish its paid calls).
+    refused = journey.client.post(
+        f"{API}/{OPENROUTER_PROFILE_ID}/qualifications", json={"confirm_paid_calls": calls}
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "QUALIFICATION_BUDGET_TOO_LOW"
+    assert journey.client.get(API).json()["running"] is None
+    # The process applies the HR limit itself too (as for a run started before the change).
+    store = journey.selector.store
+    assert store is not None
+    entry = load_catalogue(journey.settings).get(OPENROUTER_PROFILE_ID)
+    assert entry is not None
+    qualification_id = store.begin_qualification(
+        entry.profile_id, entry.fingerprint, qualification_basis(), "hr", 0
+    )
+    journey.selector.launch(qualification_id).wait()
+    result = wait_for(journey.client, qualification_id)
     assert result["status"] != "passed"
     assert journey.openrouter.chats == []  # no paid call was made
 

@@ -28,7 +28,10 @@ def _profiles(journey: Journey) -> dict[str, dict[str, Any]]:
 def _qualify_and_activate(journey: Journey, profile_id: str) -> dict[str, Any]:
     test = journey.client.post(f"{API}/{profile_id}/connection-test")
     assert test.status_code == 200 and test.json()["outcome"] == "passed", test.text
-    started = journey.client.post(f"{API}/{profile_id}/qualifications")
+    calls = journey.client.get(API).json()["recovery"]["qualification_cost"]["paid_calls"]
+    started = journey.client.post(
+        f"{API}/{profile_id}/qualifications", json={"confirm_paid_calls": calls}
+    )
     assert started.status_code == 202, started.text
     result = wait_for(journey.client, started.json()["qualification_id"])
     assert result["status"] == "passed", result

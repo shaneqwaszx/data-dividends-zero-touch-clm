@@ -125,6 +125,8 @@ BUDGET_ATTEMPTS = 20
 # The lifetime cap may be set from the ledger's opening provider usage up to this much above
 # it (the D-092 allocation the preflight's ledger.cap_within_allocation check also enforces).
 LIFETIME_ALLOCATION_MICRO_USD = micro_usd(ALLOCATION_LIMIT_USD)
+# D-098: at most one audit event a minute for sessions refused while a qualification runs.
+SESSION_AUDIT_SECONDS = 60.0
 # Reconciliation checks a lifetime cap increase needs (remote_checks.check_ledger).
 CAP_RAISE_CHECKS = ("ledger.breaker_closed_no_open_calls", "ledger.usage_reconciled")
 
@@ -173,7 +175,230 @@ MESSAGES = {
         " for) before the lifetime limit can be raised. Nothing changed."
     ),
     "PROVIDER_CHECK_FAILED": "The OpenRouter key could not be checked. Nothing changed.",
+    # D-098: a paid qualification is confirmed, and refused before it starts if it cannot end.
+    "PAID_CONFIRMATION_REQUIRED": (
+        "Confirm the number of paid calls this qualification makes. Nothing started."
+    ),
+    "QUALIFICATION_BUDGET_TOO_LOW": (
+        "The spending limits do not leave room for a paid call of this qualification."
+        " Nothing started."
+    ),
 }
+
+
+# --- D-098: the Recovery Centre's diagnosis (closed codes only; the page words them) --------
+#
+# Every problem gets one category and one recommended action. HR may act on RECOVERABLE_BY_HR
+# and QUALIFICATION_REQUIRED (and retry a TEMPORARILY_UNAVAILABLE one later); the others need an
+# operator or IT, and no ordinary action can bypass them (gates, thresholds, the breaker,
+# provider verification and synthetic eligibility are not settings).
+
+HEALTHY = "HEALTHY"
+QUALIFICATION_REQUIRED = "QUALIFICATION_REQUIRED"
+RECOVERABLE_BY_HR = "RECOVERABLE_BY_HR"
+TEMPORARILY_UNAVAILABLE = "TEMPORARILY_UNAVAILABLE"
+OPERATOR_REQUIRED = "OPERATOR_REQUIRED"
+POLICY_BLOCKED = "POLICY_BLOCKED"
+_CATEGORY_ORDER = (
+    HEALTHY,
+    QUALIFICATION_REQUIRED,
+    RECOVERABLE_BY_HR,
+    TEMPORARILY_UNAVAILABLE,
+    OPERATOR_REQUIRED,
+    POLICY_BLOCKED,
+)
+# The settings and decisions only IT or the owner can change (remote_test.readiness codes).
+_POLICY_CODES = frozenset(
+    {
+        "REMOTE_NOT_AUTHORISED",
+        "MODEL_DISABLED_BY_ENVIRONMENT",
+        "DECISION_INTERLOCK",
+        "NOT_DEVELOPMENT_ENVIRONMENT",
+        "OWNER_ATTESTATION_MISSING",
+        "ENDPOINT_NOT_APPROVED",
+        "REMOTE_SETTINGS_INVALID",
+    }
+)
+# (category, action, retryable) for a spending-view refusal or a closed run/start-up code.
+_SERVICE_CODES: dict[str, tuple[str, str, bool]] = {
+    "CREDENTIAL_MISSING": (RECOVERABLE_BY_HR, "ENTER_KEY", True),
+    "CREDENTIAL_INVALID": (RECOVERABLE_BY_HR, "ENTER_KEY", True),
+    "DAILY_CAP_INVALID": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "DAILY_ALLOWANCE_EXHAUSTED": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "LIFETIME_CAP_EXHAUSTED": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "CALL_LIMIT_REACHED": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "PROVIDER_LIMIT_NOT_CHECKED": (RECOVERABLE_BY_HR, "REFRESH_LIMITS", True),
+    "PROVIDER_CHECK_FAILED": (TEMPORARILY_UNAVAILABLE, "REFRESH_LIMITS", True),
+    "PROVIDER_LIMIT_EXHAUSTED": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
+    "QUALIFICATION_OUT_OF_DATE": (QUALIFICATION_REQUIRED, "RUN_QUALIFICATION", True),
+    "NOT_QUALIFIED": (QUALIFICATION_REQUIRED, "RUN_QUALIFICATION", True),
+    "CONFIG_MISMATCH": (QUALIFICATION_REQUIRED, "RUN_QUALIFICATION", True),
+    "CANCELLED": (QUALIFICATION_REQUIRED, "RUN_QUALIFICATION", True),
+    "DEADLINE": (TEMPORARILY_UNAVAILABLE, "RUN_QUALIFICATION", True),
+    "STALE": (TEMPORARILY_UNAVAILABLE, "RUN_QUALIFICATION", True),
+    "PROCESS_EXITED": (TEMPORARILY_UNAVAILABLE, "RUN_QUALIFICATION", True),
+    "HARNESS_ERROR": (TEMPORARILY_UNAVAILABLE, "RUN_QUALIFICATION", True),
+    "REMOTE_MANIFEST_MISSING": (OPERATOR_REQUIRED, "CONTACT_IT", False),
+    "QUALIFICATION_UNAVAILABLE": (OPERATOR_REQUIRED, "CONTACT_IT", False),
+    "LEDGER_UNAVAILABLE": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
+    "PROFILE_MISSING": (OPERATOR_REQUIRED, "CONTACT_IT", False),
+    "PROFILE_CHANGED": (QUALIFICATION_REQUIRED, "RUN_QUALIFICATION", True),
+    "PROFILE_UNAVAILABLE": (OPERATOR_REQUIRED, "CONTACT_IT", False),
+}
+# Qualification gates (model_qualification.py): what a failure means for HR. G-3 (an unsafe
+# line), G-6 (answer validity), G-7 (capacity) and G-8 (provider verification) are never
+# retried away: they go to IT or an operator.
+_GATE_CODES: dict[str, tuple[str, str, bool]] = {
+    "G-1": (TEMPORARILY_UNAVAILABLE, "TEST_CONNECTION", True),
+    "G-2": (TEMPORARILY_UNAVAILABLE, "RUN_QUALIFICATION", True),
+    "G-3": (POLICY_BLOCKED, "CONTACT_IT", False),
+    "G-4": (TEMPORARILY_UNAVAILABLE, "REVIEW_BUDGET", True),
+    "G-6": (OPERATOR_REQUIRED, "CONTACT_IT", False),
+    "G-7": (OPERATOR_REQUIRED, "CONTACT_IT", False),
+    "G-8": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
+}
+# Preflight checks (remote_checks.py) behind a failed connection (G-1).
+_CHECK_CODES: dict[str, tuple[str, str, bool]] = {
+    "key.status": (TEMPORARILY_UNAVAILABLE, "TEST_CONNECTION", True),
+    "endpoint.listing": (TEMPORARILY_UNAVAILABLE, "TEST_CONNECTION", True),
+    "ledger.headroom_for_one_call": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "ledger.daily_room_for_one_call": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "ledger.cap_within_allocation": (RECOVERABLE_BY_HR, "REVIEW_BUDGET", True),
+    "ledger.healthy": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
+    "ledger.breaker_closed_no_open_calls": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
+    "ledger.usage_reconciled": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
+    "ledger.earlier_calls_verified": (OPERATOR_REQUIRED, "CONTACT_OPERATOR", False),
+    "test_mode.ready": (POLICY_BLOCKED, "CONTACT_IT", False),
+    "gate.account": (POLICY_BLOCKED, "CONTACT_IT", False),
+}
+
+
+def _classified(code: str, table: dict[str, tuple[str, str, bool]]) -> tuple[str, str, bool]:
+    """(category, action, retryable) for a code: its own entry, else by kind; anything not
+    known needs an operator (never a retry)."""
+
+    if code in table:
+        return table[code]
+    if code in _SERVICE_CODES:
+        return _SERVICE_CODES[code]
+    if code in _POLICY_CODES or code.startswith("owner."):
+        return POLICY_BLOCKED, "CONTACT_IT", False
+    if code.startswith("endpoint."):
+        # The provider's listing changed (price, quantization, ZDR, provider): IT reviews.
+        return POLICY_BLOCKED, "CONTACT_IT", False
+    if code.startswith("key."):
+        # The key's own settings live in the OpenRouter dashboard: the owner changes them.
+        return OPERATOR_REQUIRED, "CONTACT_OPERATOR", False
+    return OPERATOR_REQUIRED, "CONTACT_OPERATOR", False
+
+
+def _finding(code: str, table: dict[str, tuple[str, str, bool]], **extra: Any) -> dict[str, Any]:
+    category, action, retryable = _classified(code, table)
+    return {"code": code, "category": category, "action": action, "retryable": retryable, **extra}
+
+
+def diagnose_qualification(item: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Why a qualification run did not pass, gate by gate, as closed codes (None: it passed,
+    is running, or never ran)."""
+
+    if item is None or item["status"] in ("passed", "running"):
+        return None
+    code = str(item.get("code") or "HARNESS_ERROR")
+    summary = item.get("summary") or {}
+    findings: list[dict[str, Any]] = []
+    if code.startswith("GATES_FAILED:"):
+        for gate in code.removeprefix("GATES_FAILED:").split(","):
+            if gate == "G-1":
+                connection = summary.get("connection") or item.get("connection") or {}
+                checks = [c["check"] for c in connection.get("checks") or [] if not c.get("ok")]
+                for check in checks or ["key.status"]:
+                    findings.append(_finding(check, _CHECK_CODES, gate="G-1"))
+                continue
+            findings.append(_finding(gate, _GATE_CODES, gate=gate))
+    else:
+        findings.append(_finding(code, _SERVICE_CODES))
+    worst = max(findings, key=lambda f: _CATEGORY_ORDER.index(f["category"]))
+    return {
+        "code": code,
+        "category": worst["category"],
+        "action": worst["action"],
+        "retryable": all(f["retryable"] for f in findings),
+        "findings": findings,
+    }
+
+
+def diagnose_service(
+    *,
+    active: dict[str, Any],
+    profiles: list[dict[str, Any]],
+    budget: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The recovery view: the active model's state, what stops it now, and each profile of the
+    remote model, each with one category and one action to take. Closed codes and numbers
+    only (no key, prompt, answer or case data)."""
+
+    issues: list[dict[str, Any]] = []
+    active_view = next((p for p in profiles if p["profile_id"] == active["profile_id"]), None)
+    remote_active = bool(active_view and active_view.get("deployment") == "openrouter")
+    if active.get("reverted"):
+        issues.append(_finding(str(active["reverted"]), _SERVICE_CODES, scope="ACTIVE"))
+    if active.get("config_changed"):
+        issues.append(_finding("PROFILE_CHANGED", _SERVICE_CODES, scope="ACTIVE"))
+    if budget is not None and budget.get("configured") and (remote_active or not issues):
+        refusal = budget.get("refusal")
+        if refusal and (remote_active or refusal not in _POLICY_CODES):
+            issues.append(_finding(str(refusal), _SERVICE_CODES, scope="SPENDING"))
+        controls = budget.get("controls") or {}
+        if remote_active and controls.get("calls_remaining") == 0:
+            issues.append(_finding("CALL_LIMIT_REACHED", _SERVICE_CODES, scope="SPENDING"))
+    configurations = []
+    for item in profiles:
+        if item.get("source") != "code":
+            continue
+        diagnosis = diagnose_qualification(item.get("qualification"))
+        blockers = list(item.get("activation_blockers") or [])
+        reason = item.get("reason")
+        if item.get("status") != "selectable" and reason:
+            state = _finding(str(reason), _SERVICE_CODES)
+        elif diagnosis is not None:
+            state = {key: diagnosis[key] for key in ("code", "category", "action", "retryable")}
+        elif blockers:
+            state = _finding(str(blockers[0]), _SERVICE_CODES)
+        else:
+            state = {"code": None, "category": HEALTHY, "action": "NONE", "retryable": False}
+        configurations.append(
+            {
+                "profile_id": item["profile_id"],
+                "active": bool(item.get("active")),
+                "qualified": not blockers and item.get("status") == "selectable",
+                "previous_pass_current": item.get("previous_pass_current", False),
+                "state": state,
+                "qualification": diagnosis,
+            }
+        )
+    alternatives = [
+        c["profile_id"]
+        for c in configurations
+        if remote_active and not c["active"] and c["qualified"]
+    ]
+    status = max((i["category"] for i in issues), key=_CATEGORY_ORDER.index) if issues else HEALTHY
+    if (
+        not remote_active
+        and status == HEALTHY
+        and configurations
+        and not any(c["qualified"] for c in configurations)
+    ):
+        # The remote model is not in use and no configuration could be: say why.
+        status = min((c["state"]["category"] for c in configurations), key=_CATEGORY_ORDER.index)
+    first = issues[0] if issues else None
+    return {
+        "status": status,
+        "remote_active": remote_active,
+        "action": first["action"] if first else "NONE",
+        "issues": issues,
+        "remote_profiles": configurations,
+        "other_qualified": alternatives,
+    }
 
 
 def _refusal(status: int, code: str, message_code: str | None = None) -> HTTPException:
@@ -559,6 +784,15 @@ class SpendingControlsRequest(BaseModel):
     max_calls: StrictInt
 
 
+class QualificationRequest(BaseModel):
+    """A paid (remote) qualification needs its number of paid calls repeated back (the HR
+    confirmation step); a local one needs no body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_paid_calls: StrictInt | None = None
+
+
 class LifetimeCapRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -587,11 +821,45 @@ def model_admin_router(
             **fields,
         )
 
+    rejected_at = [0.0]  # the last refused-session audit event (at most one per window)
+
+    def session_rejected(exc: ClmBackendError) -> None:
+        """D-098 diagnostics: a refused session while a qualification runs is logged and (at
+        most once a minute) audited, with codes only, so a sign-out can be found. Nothing
+        about the run changes: it carries on in its own process."""
+
+        if exc.status_code != 401 or selector.store is None:
+            return
+        try:
+            running = selector.store.running_qualification()
+        except Exception:
+            return
+        if running is None:
+            return
+        log.warning("session refused by the CLM backend while a qualification runs")
+        now_at = time.monotonic()
+        with attempts_lock:
+            if now_at - rejected_at[0] < SESSION_AUDIT_SECONDS:
+                return
+            rejected_at[0] = now_at
+        try:
+            selector.store.record(
+                actor="unknown",
+                role=None,
+                action="SESSION_REFUSED",
+                outcome="refused",
+                profile_id=running["profile_id"],
+                code=exc.code,
+            )
+        except Exception:
+            log.error("refused session could not be recorded")
+
     def load(request: Request) -> dict[str, Any]:
         check_origin(request)
         try:
             actor = backend.load_actor(request.cookies.get(SESSION_COOKIE_NAME))
         except ClmBackendError as exc:
+            session_rejected(exc)
             raise HTTPException(
                 status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
             ) from None
@@ -718,6 +986,60 @@ def model_admin_router(
             return ["NOT_QUALIFIED"]
         return []
 
+    def last_failure(profiles: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """The newest failed qualification or connection test (codes and times only)."""
+
+        failures = []
+        for item in profiles:
+            run = item.get("qualification")
+            if run and run["status"] not in ("passed", "running"):
+                failures.append(
+                    {
+                        "source": "QUALIFICATION",
+                        "profile_id": item["profile_id"],
+                        "code": run["code"],
+                        "at": run["finished_at"] or run["started_at"],
+                    }
+                )
+            test = item.get("connection_test")
+            if test and test.get("outcome") != "passed":
+                failures.append(
+                    {
+                        "source": "CONNECTION_TEST",
+                        "profile_id": item["profile_id"],
+                        "code": test.get("code"),
+                        "at": test.get("at"),
+                    }
+                )
+        return max(failures, key=lambda f: f["at"] or "", default=None)
+
+    def qualification_cost(budget: dict[str, Any] | None) -> dict[str, Any] | None:
+        """What a remote (paid) qualification needs: its calls (one after another, each
+        admitted by the ledger on its own), the reservation each holds until it is charged, the
+        worst case if every call cost its whole reservation, and whether the limits leave room
+        for the first call and for that worst case."""
+
+        manifest = qualification_manifest(settings)
+        if manifest is None or budget is None or not budget.get("configured"):
+            return None
+        reservation = budget.get("reservation_micro_usd")
+        needed = len(manifest) * reservation if isinstance(reservation, int) else None
+        available = budget.get("effective_remaining_micro_usd")
+        return {
+            "paid_calls": len(manifest),
+            "reservation_micro_usd": reservation,
+            "needed_micro_usd": needed,
+            "available_micro_usd": available,
+            "budget_ok": isinstance(reservation, int)
+            and isinstance(available, int)
+            and available >= reservation,
+            "worst_case_ok": needed is not None
+            and isinstance(available, int)
+            and available >= needed,
+            "call_limit_ok": settings.local_api_test_max_calls >= len(manifest),
+            "provider_checked": budget.get("provider") is not None,
+        }
+
     def overview() -> dict[str, Any]:
         catalogue = load_catalogue(settings)
         active = selector.current()
@@ -728,6 +1050,7 @@ def model_admin_router(
         profiles = []
         for entry in catalogue.entries:
             latest = store.latest_qualification(entry.profile_id) if store else None
+            passed = store.last_passed_qualification(entry.profile_id) if store else None
             profiles.append(
                 {
                     **entry.view(),
@@ -735,29 +1058,35 @@ def model_admin_router(
                     "connection_test": store.connection_test(entry.profile_id) if store else None,
                     "qualification": qualification_view(latest, entry, basis),
                     "activation_blockers": readiness(entry, latest, basis),
+                    # D-098: an earlier pass for today's configuration and code still counts.
+                    "previous_pass_current": passed is not None
+                    and passed["fingerprint"] == entry.fingerprint
+                    and passed["basis"] == basis,
                 }
             )
         active_entry = catalogue.get(active.profile_id)
         last_good = _last_good(stored) if stored else None
         running = store.running_qualification() if store else None
+        active_view = {
+            "profile_id": active.profile_id,
+            "display_name": active_entry.display_name if active_entry else active.profile_id,
+            "model_id": active.model.name if active.model is not None else None,
+            "prompt_limit": active.prompt_limit,
+            "qualification_id": active.qualification_id,
+            "changed_at": stored.changed_at if stored else None,
+            "changed_by": stored.changed_by if stored else None,
+            "config_changed": active_entry is not None
+            and active_entry.fingerprint != active.fingerprint,
+            "reverted": active.reverted,
+        }
+        budget = budget_view() if settings.local_api_test_decision else None
         return {
             "configured": selector.managed,
             "file_status": catalogue.file_status,
             "file_errors": list(catalogue.file_errors),
             "model_enabled": settings.llm_enabled,
             "revision": active.revision if selector.managed else 0,
-            "active": {
-                "profile_id": active.profile_id,
-                "display_name": active_entry.display_name if active_entry else active.profile_id,
-                "model_id": active.model.name if active.model is not None else None,
-                "prompt_limit": active.prompt_limit,
-                "qualification_id": active.qualification_id,
-                "changed_at": stored.changed_at if stored else None,
-                "changed_by": stored.changed_by if stored else None,
-                "config_changed": active_entry is not None
-                and active_entry.fingerprint != active.fingerprint,
-                "reverted": active.reverted,
-            },
+            "active": active_view,
             "last_good": None
             if last_good is None
             else {
@@ -778,7 +1107,13 @@ def model_admin_router(
             },
             "profiles": profiles,
             # D-095: the remote profile's spending view and key status (never the key).
-            "budget": budget_view() if settings.local_api_test_decision else None,
+            "budget": budget,
+            # D-098: what to do when the model cannot answer (closed codes; the page words them).
+            "recovery": {
+                **diagnose_service(active=active_view, profiles=profiles, budget=budget),
+                "last_failure": last_failure(profiles),
+                "qualification_cost": qualification_cost(budget),
+            },
         }
 
     @router.get("")
@@ -874,22 +1209,36 @@ def model_admin_router(
             log.error("qualification outcome could not be recorded")
 
     @router.post("/{profile_id}/qualifications", status_code=202)
-    def post_qualification(profile_id: str, profile: Admin) -> dict[str, Any]:
+    def post_qualification(
+        profile_id: str, profile: Admin, body: QualificationRequest | None = None
+    ) -> dict[str, Any]:
         store = managed()
         entry = entry_for(load_catalogue(settings), profile_id, profile, "QUALIFICATION_STARTED")
+
+        def refuse(code: str) -> HTTPException:
+            audit(
+                profile,
+                "QUALIFICATION_STARTED",
+                "refused",
+                profile_id=entry.profile_id,
+                fingerprint=entry.fingerprint,
+                code=code,
+            )
+            return _refusal(409, code)
+
         # The same checks the qualification process applies, before anything starts.
         if entry.source == "code":
             # D-094: a paid run, so only the configured, counted question manifest.
             if qualification_manifest(settings) is None:
-                audit(
-                    profile,
-                    "QUALIFICATION_STARTED",
-                    "refused",
-                    profile_id=entry.profile_id,
-                    fingerprint=entry.fingerprint,
-                    code="REMOTE_MANIFEST_MISSING",
-                )
-                raise _refusal(409, "REMOTE_MANIFEST_MISSING")
+                raise refuse("REMOTE_MANIFEST_MISSING")
+            # D-098: HR repeats the number of paid calls back, and a run the limits leave no
+            # room to start is not started (the ledger still admits every call itself).
+            cost = qualification_cost(budget_view())
+            confirmed = body.confirm_paid_calls if body is not None else None
+            if cost is None or confirmed != cost["paid_calls"]:
+                raise refuse("PAID_CONFIRMATION_REQUIRED")
+            if not (cost["budget_ok"] and cost["call_limit_ok"]):
+                raise refuse("QUALIFICATION_BUDGET_TOO_LOW")
         else:
             adapter_for(entry, profile, "QUALIFICATION_STARTED", loopback=True)
         try:

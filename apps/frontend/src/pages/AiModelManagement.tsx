@@ -19,6 +19,9 @@ import {
   type ModelOverview,
   type ModelProfileView,
   type ModelQualification,
+  type ModelRecovery,
+  type RecoveryCategory,
+  type RecoveryFinding,
 } from "../aiAssistant";
 import { formatTimestamp } from "../shared";
 import type { AuthenticatedProfile } from "../types";
@@ -386,6 +389,181 @@ function QualificationDetail({ qualification }: { qualification: ModelQualificat
   );
 }
 
+// --- D-098: recovery (the server classifies; this page words its closed codes) -------------
+
+export const CATEGORY_TEXT: Record<RecoveryCategory, { label: string; tag: string; text: string }> = {
+  HEALTHY: { label: "Healthy", tag: "tag-accent", text: "Nothing stops the active model." },
+  QUALIFICATION_REQUIRED: { label: "Qualification required", tag: "tag-warn", text: "A configuration needs a new passing qualification before it can be used." },
+  RECOVERABLE_BY_HR: { label: "Recoverable by HR", tag: "tag-warn", text: "HR can fix this on this page." },
+  TEMPORARILY_UNAVAILABLE: { label: "Temporarily unavailable", tag: "tag-warn", text: "Usually clears by itself; check again or retry later." },
+  OPERATOR_REQUIRED: { label: "Operator intervention required", tag: "tag-warn", text: "The owner or IT must act; nothing on this page can override it." },
+  POLICY_BLOCKED: { label: "Security or policy blocked", tag: "tag-warn", text: "A safety or authorisation rule stops this. It cannot be bypassed from this page; contact IT." },
+};
+
+export const ACTION_TEXT: Record<string, string> = {
+  NONE: "No action needed.",
+  ENTER_KEY: "Enter or replace the OpenRouter API key.",
+  REVIEW_BUDGET: "Review the spending limits (daily, lifetime and calls).",
+  REFRESH_LIMITS: "Refresh the OpenRouter limits (free, no model call).",
+  TEST_CONNECTION: "Run Test connection (free preflight, no model call).",
+  RUN_QUALIFICATION: "Run the qualification again (paid calls; you confirm first).",
+  CONTACT_IT: "Contact IT: a server setting, safety result or provider listing needs review.",
+  CONTACT_OPERATOR: "Contact the owner/operator: the ledger, the provider's own key limit or a verification needs reconciling.",
+};
+
+// What each gate means for HR (model_qualification.py). G-3, G-6, G-7 and G-8 are never retried away.
+export const GATE_TEXT: Record<string, string> = {
+  "G-1": "Connection: the free preflight failed before any question (see the checks below).",
+  "G-2": "Completion: not every question got an answer in time.",
+  "G-3": "Unsafe display: a line that should never be shown got through. This is a safety result; IT must review it.",
+  "G-4": "Availability: too many questions had no model answer (often limits or a provider outage).",
+  "G-6": "Answer validity: too few answer lines were valid. A model-quality result; IT must review it.",
+  "G-7": "Context capacity: the model could not take the prompt size needed.",
+  "G-8": "Provider verification: a call could not be matched with OpenRouter's own record. The owner must reconcile.",
+};
+
+const CHECK_TEXT: Record<string, string> = {
+  "key.status": "OpenRouter's key status could not be read (provider down or network).",
+  "endpoint.listing": "OpenRouter's endpoint listing could not be read.",
+  "ledger.headroom_for_one_call": "The lifetime ledger limit has no room for a call.",
+  "ledger.daily_room_for_one_call": "Today's allowance has no room for a call.",
+  "ledger.cap_within_allocation": "The lifetime limit is outside its allowed range.",
+  "ledger.healthy": "The spending ledger is not healthy.",
+  "ledger.breaker_closed_no_open_calls": "The ledger is stopped or has an unsettled call.",
+  "ledger.usage_reconciled": "The ledger does not match OpenRouter's reported usage.",
+  "ledger.earlier_calls_verified": "An earlier call is not verified yet.",
+};
+
+const findingText = (finding: RecoveryFinding) =>
+  (finding.gate && finding.gate !== "G-1" ? GATE_TEXT[finding.gate] : null)
+  ?? CHECK_TEXT[finding.code ?? ""]
+  ?? readable(finding.code);
+
+function Finding({ finding }: { finding: RecoveryFinding }) {
+  const category = CATEGORY_TEXT[finding.category];
+  return (
+    <li>
+      {finding.gate && <strong>{finding.gate}: </strong>}{findingText(finding)}{" "}
+      <span className={`tag ${category.tag}`}>{category.label}</span>{" "}
+      <small className="control-help">
+        {finding.retryable ? "Retryable." : "Not retryable."}{" "}
+        {finding.category === "RECOVERABLE_BY_HR" || finding.category === "QUALIFICATION_REQUIRED" ? "HR can resolve this." : "HR cannot resolve this alone."}{" "}
+        Next: {ACTION_TEXT[finding.action] ?? readable(finding.action)}
+      </small>
+    </li>
+  );
+}
+
+function Recovery({ overview, busy, onAction, onRetry }: {
+  overview: ModelOverview;
+  busy: boolean;
+  onAction: (run: () => Promise<unknown>) => void;
+  onRetry: (profileId: string) => void;
+}) {
+  const recovery = overview.recovery as ModelRecovery;
+  const category = CATEGORY_TEXT[recovery.status];
+  const nameOf = (profileId: string) => {
+    const found = overview.profiles.find((item) => item.profile_id === profileId);
+    return found ? profileName(found) : profileId;
+  };
+  const cost = recovery.qualification_cost;
+  const remoteTarget = recovery.remote_profiles.find((item) => item.active)?.profile_id
+    ?? recovery.remote_profiles[0]?.profile_id ?? null;
+  const noneUsable = !recovery.remote_active && recovery.remote_profiles.length > 0
+    && !recovery.remote_profiles.some((item) => item.qualified);
+  return (
+    <section className="card" aria-labelledby="recovery-heading">
+      <h2 id="recovery-heading">AI model status and recovery</h2>
+      <p>
+        <span className={`tag ${category.tag}`} role="status">{category.label}</span>{" "}
+        {category.text}
+      </p>
+      <dl className="acra-detail-list">
+        <div><dt>Active model</dt><dd>{nameOf(overview.active.profile_id)}{recovery.remote_active ? " (external, paid)" : " (no external model)"}</dd></div>
+        <div><dt>Next action</dt><dd>{ACTION_TEXT[recovery.action] ?? readable(recovery.action)}</dd></div>
+        {recovery.last_failure && (
+          <div><dt>Last failure</dt><dd>{recovery.last_failure.source === "QUALIFICATION" ? "Qualification" : "Connection test"} of {nameOf(recovery.last_failure.profile_id)}: {readable(recovery.last_failure.code)}{recovery.last_failure.at ? ` (${formatTimestamp(recovery.last_failure.at)})` : ""}</dd></div>
+        )}
+        {recovery.remote_active && (
+          <div><dt>Other qualified configuration</dt><dd>{recovery.other_qualified.length ? recovery.other_qualified.map(nameOf).join(", ") + " (switching is a manual HR activation; nothing switches automatically)" : "None"}</dd></div>
+        )}
+      </dl>
+      {noneUsable && (
+        <p className="ds-banner ds-banner-warn" role="status">No GPT-OSS 120B configuration is qualified now, so the AI model is not used. Relationship managers still get the case-data answer with any approved guidance; no other AI model is substituted.</p>
+      )}
+      {recovery.issues.length > 0 && (
+        <ul aria-label="What stops the model now">{recovery.issues.map((issue, index) => <Finding key={`${issue.code}-${index}`} finding={issue} />)}</ul>
+      )}
+      {overview.running && (
+        <p className="control-help" role="note">The qualification runs on the AI Assistant server, not in this page. You can leave, refresh or sign in again: it keeps running, is not repeated, and its result appears here. Signing in elsewhere with the same account ends this page's session but not the qualification.</p>
+      )}
+
+      <h3>GPT-OSS 120B configurations</h3>
+      <ul aria-label="Configurations">
+        {recovery.remote_profiles.map((item) => {
+          const state = CATEGORY_TEXT[item.state.category];
+          const canRetry = item.qualification?.retryable ?? item.state.action === "RUN_QUALIFICATION";
+          return (
+            <li key={item.profile_id}>
+              <strong>{nameOf(item.profile_id)}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}{" "}
+              <span className={`tag ${state.tag}`}>{item.qualified ? "Qualified" : state.label}</span>{" "}
+              <small className="control-help">
+                {item.previous_pass_current ? "An earlier pass is still valid for this configuration." : "No pass is valid for the current configuration and code."}
+                {item.state.code && <> Reason: {readable(item.state.code)}.</>}
+              </small>
+              {item.qualification && (
+                <ul aria-label={`Why ${nameOf(item.profile_id)} did not pass`}>
+                  {item.qualification.findings.map((finding, index) => <Finding key={`${finding.code}-${index}`} finding={finding} />)}
+                </ul>
+              )}
+              {!item.qualified && canRetry && (
+                <>{" "}<button type="button" className="btn btn-secondary" disabled={busy || !cost} onClick={() => onRetry(item.profile_id)}>Retry Qualification</button></>
+              )}
+              {item.qualification && !item.qualification.retryable && (
+                <p className="control-help">This result cannot be retried away: thresholds, safety filters and model settings are not HR settings. Send IT the profile and the result code above.</p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <div>
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => onAction(refreshProviderLimits)}>Refresh Limits</button>{" "}
+        {remoteTarget && <><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => onAction(() => testModelConnection(remoteTarget))}>Test Connection</button>{" "}</>}
+        <button type="button" className="btn btn-secondary" disabled={!overview.budget?.configured}
+          onClick={() => document.getElementById("daily-limit-input")?.focus()}>Review Budget</button>
+      </div>
+    </section>
+  );
+}
+
+function RetryDialog({ name, cost, onConfirm, onCancel }: {
+  name: string;
+  cost: NonNullable<ModelRecovery["qualification_cost"]>;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [agreed, setAgreed] = useState(false);
+  const fits = cost.budget_ok && cost.call_limit_ok;
+  return (
+    <section className="card" role="dialog" aria-labelledby="retry-heading">
+      <h2 id="retry-heading">Run the qualification of {name}?</h2>
+      <p className="ds-banner ds-banner-warn">
+        This makes {cost.paid_calls} paid OpenRouter call{cost.paid_calls === 1 ? "" : "s"} on synthetic questions only, one after another. Each call holds up to {cost.reservation_micro_usd === null ? "—" : usd(exactDollars(cost.reservation_micro_usd))} until it settles; at most {cost.needed_micro_usd === null ? "—" : usd(exactDollars(cost.needed_micro_usd))} in all. Available now {cost.available_micro_usd === null ? "—" : usd(exactDollars(cost.available_micro_usd))}{cost.provider_checked ? "" : " (the OpenRouter key limit has not been read yet; the qualification reads it first)"}. It runs once; a failed or interrupted run is never repeated automatically.
+      </p>
+      {!fits && <p className="ds-banner ds-banner-warn" role="alert">The spending limits do not leave room for a paid call, so the server will not start it. Review the budget first.</p>}
+      {fits && !cost.worst_case_ok && <p className="control-help" role="note">If every call cost its whole reservation the limits would run out part-way; the run would then stop (no call is made beyond the limits) and need a new confirmed run.</p>}
+      <label className="control-help">
+        <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+        {" "}I confirm {cost.paid_calls} paid call{cost.paid_calls === 1 ? "" : "s"}.
+      </label>
+      <div>
+        <button type="button" className="btn btn-primary" disabled={!agreed || !fits} onClick={onConfirm}>Run Qualification</button>{" "}
+        <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+      </div>
+    </section>
+  );
+}
+
 export default function AiModelManagement({ actor }: { actor: AuthenticatedProfile }) {
   const queryClient = useQueryClient();
   const overviewQuery = useQuery({
@@ -414,6 +592,8 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ kind: "activate" | "rollback"; profileId: string; name: string } | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  // D-098: the paid qualification waiting for HR's confirmation (never started without it).
+  const [retrying, setRetrying] = useState<string | null>(null);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: modelManagementQueryKeys.root(actor.user_id) });
   const action = useMutation({
     mutationFn: async (run: () => Promise<unknown>) => await run(),
@@ -487,6 +667,22 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
         </section>
       )}
 
+      {overview?.recovery && (
+        <Recovery overview={overview} busy={busy} onAction={(run) => action.mutate(run)} onRetry={setRetrying} />
+      )}
+
+      {retrying && overview?.recovery?.qualification_cost && (
+        <RetryDialog name={nameOf(retrying, retrying)} cost={overview.recovery.qualification_cost}
+          onCancel={() => setRetrying(null)}
+          onConfirm={() => {
+            const profileId = retrying;
+            const calls = overview.recovery!.qualification_cost!.paid_calls;
+            setRetrying(null);
+            setSelected(profileId);
+            action.mutate(() => startModelQualification(profileId, calls));
+          }} />
+      )}
+
       {overview?.budget?.configured && (
         <>
           <OpenRouterKey budget={overview.budget} busy={busy}
@@ -551,7 +747,12 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                       <td>{qualification ? <button type="button" className="btn btn-secondary" onClick={() => setSelected(item.profile_id)}>{readable(qualification.status)}{!qualification.current ? " (out of date)" : ""}</button> : "Not run"}</td>
                       <td>
                         <button type="button" className="btn btn-secondary" disabled={!usable || busy} onClick={() => action.mutate(() => testModelConnection(item.profile_id))}>Test connection</button>{" "}
-                        <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={() => { setSelected(item.profile_id); action.mutate(() => startModelQualification(item.profile_id)); }}>Run qualification</button>{" "}
+                        <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={() => {
+                          // A paid (remote) run is confirmed first; a local one starts at once.
+                          if (item.deployment === REMOTE_DEPLOYMENT) { setRetrying(item.profile_id); return; }
+                          setSelected(item.profile_id);
+                          action.mutate(() => startModelQualification(item.profile_id));
+                        }}>Run qualification</button>{" "}
                         <button type="button" className="btn btn-primary" disabled={!usable || busy || item.active || item.activation_blockers.length > 0}
                           title={item.activation_blockers.map(readable).join(" ")}
                           onClick={() => setConfirming({ kind: "activate", profileId: item.profile_id, name: profileName(item) })}>Activate</button>
