@@ -200,6 +200,8 @@ class Active:
     prompt_limit: int | None = None
     qualification_id: str | None = None
     reverted: str | None = None
+    # A remote configuration's own settings (its reasoning effort), kept when HR controls apply.
+    settings_update: tuple[tuple[str, object], ...] = ()
 
 
 class ModelSelector:
@@ -333,7 +335,8 @@ class ModelSelector:
         budget guard's daily cap; both are read under the model's own lock or per reservation.
         The daily cap is still enforced by the ledger inside its admission transaction."""
 
-        model = (active or self._active).model
+        current = active or self._active
+        model = current.model
         if not isinstance(model, RemoteTestModel):
             return
         # Read inside the lock that applies them, so a late reader can never put an older
@@ -344,6 +347,8 @@ class ModelSelector:
             if self._controls_applied == key and controls is not None:
                 return
             settings = apply_controls(self.settings, controls)
+            if current.settings_update:  # the configuration's own reasoning effort stays
+                settings = settings.model_copy(update=dict(current.settings_update))
             with model._lock:  # noqa: SLF001 - see the docstring
                 model._settings = settings  # noqa: SLF001
                 inner = model._inner  # noqa: SLF001
@@ -429,7 +434,9 @@ class ModelSelector:
         if entry.source == "code":
             # D-094: the remote model, gated per call and per case (remote_test.py).
             try:
-                remote = RemoteTestModel(self.controlled(), **self.remote_options())
+                remote = RemoteTestModel(
+                    entry.settings_for(self.controlled()), **self.remote_options()
+                )
             except ProfileConfigError as exc:
                 return None, exc.code
             return (
@@ -441,6 +448,7 @@ class ModelSelector:
                     base_url=None,
                     prompt_limit=stored.active_prompt_limit,
                     qualification_id=stored.active_qualification_id,
+                    settings_update=entry.settings_update,
                 ),
                 "",
             )
@@ -789,7 +797,9 @@ def model_admin_router(
         entry = entry_for(load_catalogue(settings), profile_id, profile, "CONNECTION_TEST")
         if entry.source == "code":
             # D-094 remote model: its preflight (no inference, no case data).
-            result = connection_check(selector.controlled(), **selector.remote_options())
+            result = connection_check(
+                entry.settings_for(selector.controlled()), **selector.remote_options()
+            )
         else:
             model = adapter_for(entry, profile, "CONNECTION_TEST")
             result = anyio.run(connection_test, model, model.name)
@@ -1005,7 +1015,9 @@ def model_admin_router(
                 if unscored and not body.acknowledge_quality_unscored:
                     raise refuse("ACKNOWLEDGEMENT_REQUIRED")
                 probe = (
-                    connection_check(selector.controlled(), **selector.remote_options())
+                    connection_check(
+                        entry.settings_for(selector.controlled()), **selector.remote_options()
+                    )
                     if entry.source == "code"
                     else anyio.run(
                         connection_test, adapter_for(entry, profile, action), entry.model_id or ""

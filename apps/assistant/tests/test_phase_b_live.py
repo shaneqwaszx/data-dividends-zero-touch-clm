@@ -308,11 +308,37 @@ def test_generation_waits_while_unpublished_then_reads_metadata_only() -> None:
     assert facts.provider_name == "Fictional Provider" and facts.total_cost_usd == Decimal(
         "0.00072"
     )
-    assert sleeps == [2.0] and len(account.requests) == 2
+    # Read again after one second (the early reads), not after the caller's 2 s interval.
+    assert sleeps == [1.0] and len(account.requests) == 2
     assert all(
         str(r.url) == "https://openrouter.ai/api/v1/generation?id=gen-1761-test"
         for r in account.requests
     )
+
+
+def _unpublished(attempts: int, wait: float) -> tuple[list[float], int]:
+    sleeps: list[float] = []
+    account = _Account([httpx.Response(404, json={}) for _ in range(400)])
+    client = build_account_client(
+        remote_settings(), transport=httpx.MockTransport(account.handler), environ=ENVIRON
+    )
+    client._sleep = sleeps.append
+    with pytest.raises(AccountCheckError) as error:
+        client.generation("gen-1761-test", attempts=attempts, wait_seconds=wait)
+    assert error.value.code == "not_published"
+    return sleeps, len(account.requests)
+
+
+def test_generation_never_waits_longer_than_the_callers_bound() -> None:
+    # The verification's own bound: 25 reads 5 s apart (120 s in total).
+    sleeps, reads = _unpublished(25, 5.0)
+    assert sum(sleeps) == pytest.approx(120.0)
+    assert sleeps[:10] == [1.0] * 10 and set(sleeps[10:]) == {5.0}
+    assert reads == len(sleeps) + 1 == 33  # 8 more free metadata reads than before
+    # A short bound is still the bound; a short interval is never stretched.
+    assert sum(_unpublished(3, 2.0)[0]) == pytest.approx(4.0)
+    assert set(_unpublished(5, 0.5)[0]) == {0.5}
+    assert _unpublished(1, 5.0) == ([], 1)
 
 
 def test_generation_refuses_a_bad_reference_without_a_request() -> None:
@@ -526,15 +552,17 @@ def test_mismatch_quarantines_and_stops_the_batch(
 def test_unpublished_metadata_quarantines_after_the_bounded_wait(tmp_path: Path) -> None:
     ledger, model = _completed_call(tmp_path)
     call = _settle_one(ledger, model)
-    mock = _Account([httpx.Response(404, json={})] * live.METADATA_ATTEMPTS)
+    mock = _Account([httpx.Response(404, json={}) for _ in range(60)])
     account = mock.client()
     sleeps: list[float] = []
     account._sleep = sleeps.append
     row = live.verify_call(call, ENDPOINT, account, ledger, "P00#0@0")
     assert row.verification == "quarantined" and row.verification_note == "metadata not_published"
     assert ledger.status().breaker_open
-    # Bounded: 25 requests, 24 waits of 5 s (two minutes), then fail closed.
-    assert len(mock.requests) == 25 and sleeps == [5.0] * 24 and sum(sleeps) == 120.0
+    # Bounded: the same two minutes in total (25 reads 5 s apart), read every second for the
+    # first 10 s, then every 5 s; then fail closed.
+    assert sleeps == [1.0] * 10 + [5.0] * 22 and sum(sleeps) == 120.0
+    assert len(mock.requests) == 33
 
 
 def test_metadata_published_late_within_the_wait_verifies(tmp_path: Path) -> None:
@@ -553,7 +581,7 @@ def test_metadata_published_late_within_the_wait_verifies(tmp_path: Path) -> Non
 def _quarantined_by_missing_metadata(tmp_path: Path) -> BudgetLedger:
     ledger, model = _completed_call(tmp_path)
     call = _settle_one(ledger, model)
-    account = _Account([httpx.Response(404, json={})] * live.METADATA_ATTEMPTS).client()
+    account = _Account([httpx.Response(404, json={}) for _ in range(60)]).client()
     account._sleep = lambda _: None
     live.verify_call(call, ENDPOINT, account, ledger, "P00#0@0")
     status = ledger.status()
@@ -598,7 +626,7 @@ def test_recheck_fails_on_any_mismatch(
 
 def test_recheck_fails_when_metadata_is_still_unpublished(tmp_path: Path) -> None:
     ledger = _quarantined_by_missing_metadata(tmp_path)
-    account = _Account([httpx.Response(404, json={})] * live.METADATA_ATTEMPTS).client()
+    account = _Account([httpx.Response(404, json={}) for _ in range(60)]).client()
     account._sleep = lambda _: None
     report = live.Preflight()
     rows = live.recheck_quarantined(report, ledger, account, ENDPOINT, _key("0.00072"))

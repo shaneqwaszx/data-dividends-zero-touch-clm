@@ -28,6 +28,12 @@ from .model_profiles import OPENROUTER_BASE_URL
 from .openrouter import GENERATION_REF, require_allowed_transport
 
 MAX_BODY_BYTES = 64 * 1024
+# Generation metadata usually appears within seconds of the answer. Within the caller's own
+# total wait, ask every second for the first seconds, then at the caller's interval: a next
+# question waiting for this verification starts as soon as the metadata exists, at the cost of
+# a few more free metadata reads (at most EARLY_POLL_SECONDS / EARLY_POLL_INTERVAL).
+EARLY_POLL_SECONDS = 10.0
+EARLY_POLL_INTERVAL = 1.0
 _MAX_USD = Decimal("100000")
 
 
@@ -167,19 +173,30 @@ class OpenRouterAccount:
     def generation(
         self, ref: str, *, attempts: int = 8, wait_seconds: float = 2.0
     ) -> GenerationFacts:
-        """Metadata for one generation, waiting (bounded) while it is not yet published."""
+        """Metadata for one generation, waiting (bounded) while it is not yet published: never
+        longer in total than ``attempts`` reads ``wait_seconds`` apart, read every second at
+        first."""
 
         if not GENERATION_REF.fullmatch(ref) or not ref.startswith("gen-"):
             raise AccountCheckError("bad_reference")
-        for attempt in range(max(1, attempts)):
+        bound = max(0.0, (max(1, attempts) - 1) * wait_seconds)
+        waited = 0.0
+        while True:
             status, data = self._get("/generation", {"id": ref})
             if status == 200:
                 return self._facts(data)
             if status != 404:
                 raise AccountCheckError(f"http_{status}" if 400 <= status < 600 else "http_other")
-            if attempt + 1 < attempts:
-                self._sleep(wait_seconds)
-        raise AccountCheckError("not_published")
+            interval = (
+                min(wait_seconds, EARLY_POLL_INTERVAL)
+                if waited < EARLY_POLL_SECONDS
+                else wait_seconds
+            )
+            step = min(interval, bound - waited)
+            if step <= 0:
+                raise AccountCheckError("not_published")
+            self._sleep(step)
+            waited += step
 
     @staticmethod
     def _facts(data: dict[str, Any]) -> GenerationFacts:

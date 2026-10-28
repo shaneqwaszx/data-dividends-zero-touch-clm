@@ -242,6 +242,8 @@ type StreamEvent = { type: "text"; text: string } | ({ type: "done" } & AiAssist
  * Ask a question and show the answer while it is being written. The service sends one JSON
  * object per line: "text" events carry the checked answer so far (replace, don't append),
  * and a final "done" event carries the full answer, like askAiAssistant.
+ * ``onConnected`` runs when the service starts its reply: it sends that only after it has read
+ * the case and prepared the question (the model has not been asked yet).
  */
 export async function askAiAssistantStreaming(
   caseId: string,
@@ -250,6 +252,7 @@ export async function askAiAssistantStreaming(
   onText: (textSoFar: string) => void,
   signal?: AbortSignal,
   earlierAnswerIds: string[] = [],
+  onConnected?: () => void,
 ): Promise<AiAssistantAnswer> {
   const response = await send(
     `/cases/${encodeURIComponent(caseId)}/chat/stream`,
@@ -268,6 +271,8 @@ export async function askAiAssistantStreaming(
   let totalBytes = 0;
   const aborted = () => { void reader.cancel().catch(() => undefined); };
   signal?.addEventListener("abort", aborted, { once: true });
+  // After the reader exists, so an abort still cancels the body (the loop below throws).
+  if (!signal?.aborted) onConnected?.();
 
   function parseLine(line: string): AiAssistantAnswer | null {
     signal?.throwIfAborted();
@@ -610,6 +615,8 @@ export interface ModelProfileView {
   fingerprint: string;
   status: ModelStatus;
   reason: string | null;
+  /** Remote configurations only: closed codes and plain values the page names (see AiModelManagement). */
+  details?: Record<string, string> | null;
   active: boolean;
   connection_test: ModelConnectionTest | null;
   qualification: ModelQualification | null;

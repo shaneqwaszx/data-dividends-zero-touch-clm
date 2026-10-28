@@ -973,3 +973,44 @@
 .knowledge-review-request .knowledge-review-meta {
   margin: 0;
 }
+
+/* The question in progress: observed stages only, compact. */
+.ai-assistant-activity {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-neutral-700, #605d5d);
+  font-size: 12px;
+}
+
+.ai-assistant-activity ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-assistant-activity li.is-current {
+  color: var(--color-text, #201f1d);
+}
+
+.ai-assistant-activity-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* After an answer: how it was produced (not a summary of model reasoning). */
+.ai-assistant-used {
+  margin-top: 6px;
+  color: var(--color-neutral-700, #605d5d);
+  font-size: 12px;
+}
+
+.ai-assistant-used summary {
+  cursor: pointer;
+}
+
+.ai-assistant-used ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

@@ -70,6 +70,35 @@ const REASON_TEXT: Record<string, string> = {
   CREDENTIAL_INVALID: "The configured OpenRouter API key is not valid.",
 };
 
+// Remote configurations (GPT-OSS 120B): the server sends closed codes, the page names them.
+// "Fast" and "Balanced" are reasoning settings of one model, not separate models.
+export const REASONING_LABEL: Record<string, string> = { low: "Fast", medium: "Balanced", high: "Thorough" };
+const PROVIDER_LABEL: Record<string, string> = { OPENROUTER_DEEPINFRA: "OpenRouter / DeepInfra" };
+const SCOPE_LABEL: Record<string, string> = {
+  VERIFIED_SYNTHETIC_CASES: "Verified synthetic cases only",
+  APPROVED_SYNTHETIC_CASE: "The approved synthetic test case only",
+  NOT_AUTHORISED: "Not authorised",
+};
+
+export function profileName(profile: Pick<ModelProfileView, "display_name" | "details">): string {
+  const details = profile.details;
+  if (!details?.model) return profile.display_name;
+  const label = REASONING_LABEL[details.reasoning_effort ?? ""];
+  return label ? `${details.model} — ${label}` : details.model;
+}
+
+function RemoteDetails({ details }: { details: Record<string, string> }) {
+  const effort = details.reasoning_effort;
+  return (
+    <small className="control-help">
+      Model: {details.model} · Provider: {PROVIDER_LABEL[details.provider] ?? details.provider} · Framework: Case-grounded Assistant
+      {effort && <> · Reasoning: {effort.charAt(0).toUpperCase() + effort.slice(1)}</>}
+      {" "}· External inference: {SCOPE_LABEL[details.scope] ?? details.scope}
+      {details.decision && <> ({details.decision})</>}
+    </small>
+  );
+}
+
 // "GATES_FAILED:G-6,G-7" from a failed qualification: the gate ids keep their own spelling.
 const GATES_FAILED = "GATES_FAILED:";
 // "PREFLIGHT_FAILED:key.limit_set,..." from the remote model's connection test.
@@ -396,6 +425,11 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
   const unscored = overview?.quality.status !== "SCORED";
   const busy = action.isPending || Boolean(overview?.running);
   const detail = overview?.profiles.find((item) => item.profile_id === selected);
+  // A profile's page name (remote configurations by model and reasoning setting).
+  const nameOf = (profileId: string, fallback: string) => {
+    const found = overview?.profiles.find((item) => item.profile_id === profileId);
+    return found ? profileName(found) : fallback;
+  };
 
   function confirm(): void {
     if (!overview || !confirming) return;
@@ -438,7 +472,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           {overview.active.reverted && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
           {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
           <dl className="acra-detail-list">
-            <div><dt>Name</dt><dd>{overview.active.display_name}</dd></div>
+            <div><dt>Name</dt><dd>{nameOf(overview.active.profile_id, overview.active.display_name)}</dd></div>
             <div><dt>Model</dt><dd>{overview.active.model_id ?? "None (case-data answers only)"}</dd></div>
             <div><dt>Changed</dt><dd>{overview.active.changed_at ? `${formatTimestamp(overview.active.changed_at)} by ${overview.active.changed_by}` : "Never (environment baseline)"}</dd></div>
             <div><dt>Prompt bound</dt><dd>{overview.active.prompt_limit ? `${overview.active.prompt_limit.toLocaleString()} (${overview.profiles.find((item) => item.active)?.deployment === REMOTE_DEPLOYMENT ? "enforced byte limit" : "verified capacity"})` : "Not applied (baseline)"}</dd></div>
@@ -446,8 +480,8 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           </dl>
           {overview.configured && (
             <button type="button" className="btn btn-secondary" disabled={!overview.last_good || busy}
-              onClick={() => overview.last_good && setConfirming({ kind: "rollback", profileId: overview.last_good.profile_id, name: overview.last_good.display_name })}>
-              {overview.last_good ? `Roll back to ${overview.last_good.display_name}` : "No earlier model to roll back to"}
+              onClick={() => overview.last_good && setConfirming({ kind: "rollback", profileId: overview.last_good.profile_id, name: nameOf(overview.last_good.profile_id, overview.last_good.display_name) })}>
+              {overview.last_good ? `Roll back to ${nameOf(overview.last_good.profile_id, overview.last_good.display_name)}` : "No earlier model to roll back to"}
             </button>
           )}
         </section>
@@ -503,10 +537,12 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                   const qualification = item.qualification;
                   return (
                     <tr key={item.profile_id}>
-                      <td><strong>{item.display_name}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
+                      <td><strong>{profileName(item)}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
+                        {item.details && <><br /><RemoteDetails details={item.details} /></>}
                         {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">{overview.budget?.mode === "D-095"
-                          ? "External API (D-095): answers only on verified synthetic development cases; every other case gets the case-data answer. At most US$1.00 per Singapore day. Test connection is a free preflight; qualification makes paid calls."
-                          : "External API (D-094): answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls."}</small></>}</td>
+                          ? "External API: answers only on verified synthetic development cases; every other case gets the case-data answer. At most US$1.00 per Singapore day. Test connection is a free preflight; qualification makes paid calls."
+                          : "External API: answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls."}</small></>}
+                        {item.details?.reasoning_effort === "low" && <><br /><small className="control-help">Fast is the same model, endpoint and limits with less reasoning. It needs its own passing qualification; the Balanced qualification does not count for it, and its answer quality is not established.</small></>}</td>
                       <td>{readable(item.deployment)}</td>
                       <td>{item.endpoint ?? "Not shown"}</td>
                       <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>
@@ -518,7 +554,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                         <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={() => { setSelected(item.profile_id); action.mutate(() => startModelQualification(item.profile_id)); }}>Run qualification</button>{" "}
                         <button type="button" className="btn btn-primary" disabled={!usable || busy || item.active || item.activation_blockers.length > 0}
                           title={item.activation_blockers.map(readable).join(" ")}
-                          onClick={() => setConfirming({ kind: "activate", profileId: item.profile_id, name: item.display_name })}>Activate</button>
+                          onClick={() => setConfirming({ kind: "activate", profileId: item.profile_id, name: profileName(item) })}>Activate</button>
                         {item.activation_blockers.length > 0 && usable && <><br /><small>{item.activation_blockers.map(readable).join(" ")}</small></>}
                       </td>
                     </tr>
@@ -532,7 +568,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
       {detail?.qualification && (
         <section className="card" aria-labelledby="qualification-heading">
-          <h2 id="qualification-heading">Qualification: {detail.display_name}</h2>
+          <h2 id="qualification-heading">Qualification: {profileName(detail)}</h2>
           <QualificationDetail qualification={detail.qualification} />
         </section>
       )}

@@ -1235,3 +1235,23 @@ D-095 delta; nothing here is merged or Live.
   `scripts/run_physical_mongo_tests.py`) is NOT RUN (no MongoDB in the cloud session); the
   approved immediate use is local memory mode; run the suite before any Mongo-mode use; any
   paid run needs T7 approval.
+
+## AI Assistant D-097 GPT-OSS naming, optional Fast configuration, answer progress and latency (branch, not merged) - 2026-10-28
+
+Branch `claude/gracious-lovelace-bjvh2z` restarted from main `025ebc7` (PR #126, D-095/D-096,
+squash-merged). Delta only; nothing here is merged or Live.
+- **Decision:** D-097 (owner-authorised, local development scope). Evidence:
+  `.ai-pipeline/reports/D097_GPT_OSS_LATENCY_FAST_MODE_AND_NAMING.md`.
+- **Behaviour:** AI Models names the remote model *GPT-OSS 120B — Balanced* with provider,
+  framework, reasoning and external-inference scope shown separately (profile id and
+  fingerprint unchanged). Optional *GPT-OSS 120B — Fast* (reasoning low,
+  `AI_ASSISTANT_REMOTE_LOW_REASONING_PROFILE_ENABLED`, off by default) with its own fingerprint
+  and its own required qualification. The chat replaces "Thinking…" with observed stages and
+  elapsed time, and adds "What this answer used". Generation metadata is read every second
+  for the first 10 s within the unchanged 120 s bound (−1.9 s for a quick follow-up, offline).
+- **Qualification:** basis `2bd93aeb8886…` unchanged; the existing Balanced qualification stays
+  current. Fast is unqualified.
+- **New tool:** `apps/assistant/scripts/benchmark_chat_latency.py` (offline, mock provider).
+- **Open:** owner merge; a bounded paid Medium-vs-Low comparison needs T7 approval; the
+  basis-file improvements in the D-097 report need a paid requalification decision; the D-095
+  section above still reads "branch, not merged" (closeout refresh for PR #126 pending).

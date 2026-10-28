@@ -33,6 +33,18 @@ interface ChatMessage extends AiAssistantTurn {
   answerId?: string | null;
   /** A small-talk reply: it never has a record, so nothing failed when answerId is missing. */
   smallTalk?: boolean;
+  /** How the finished answer was produced, as the service reported it (for its summary). */
+  answeredBy?: "model" | "case_data";
+  model?: string | null;
+  /** Measured in this browser, from sending the question to the final answer. */
+  elapsedMs?: number;
+}
+
+/** What the page has actually observed of a question in progress (no estimate, no percentage). */
+interface Activity {
+  startedAt: number;
+  /** The service started its reply: it has read the case and prepared the question. */
+  connected: boolean;
 }
 
 interface Thread {
@@ -96,9 +108,72 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
         brief: Boolean(message.brief),
         streaming: Boolean(message.streaming),
         sources: (message.sources ?? []) as unknown as Record<string, unknown>[],
+        answeredBy: message.answeredBy ?? null,
+        model: message.model ?? null,
+        elapsedMs: message.elapsedMs ?? null,
+        smallTalk: Boolean(message.smallTalk),
       },
     },
   };
+}
+
+const MODEL_NAMES: Record<string, string> = { "openai/gpt-oss-120b": "GPT-OSS 120B" };
+
+export function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+}
+
+/**
+ * The stages of a question as the page observes them: each finished stage is shown only after
+ * the event that ends it (the reply starting, the first checked line), and the current one says
+ * what is being waited for. No percentage, no estimate, nothing the model wrote but did not
+ * pass the check.
+ */
+export function AnswerActivity({ activity, writing, now }: { activity: Activity; writing: boolean; now: number }) {
+  const stages: { label: string; done: boolean }[] = [{ label: "Preparing case information", done: activity.connected }];
+  if (activity.connected) stages.push({ label: "Checking model readiness and waiting for the answer", done: writing });
+  if (writing) stages.push({ label: "Showing lines that passed the check", done: false });
+  const current = stages.find((stage) => !stage.done);
+  return (
+    <div className="ai-assistant-activity">
+      <ol aria-label="Answer progress">
+        {stages.map((stage) => (
+          <li key={stage.label} className={stage.done ? "is-done" : "is-current"}>
+            <span aria-hidden="true">{stage.done ? "✓" : "…"}</span> {stage.label}
+          </li>
+        ))}
+      </ol>
+      <span className="ai-assistant-activity-time" aria-hidden="true">{seconds(Math.max(0, now - activity.startedAt))}</span>
+      <span className="sr-only" role="status">{current?.label ?? ""}</span>
+    </div>
+  );
+}
+
+/** After an answer: how it was produced, from the service's reply and this page's clock only.
+ * ``sources`` counts the cited sources only (the ones the source chips show). */
+export function AnswerUsed({ answeredBy, model, sources, elapsedMs }: {
+  answeredBy: "model" | "case_data";
+  model: string | null;
+  sources: number;
+  elapsedMs: number | null;
+}) {
+  return (
+    <details className="ai-assistant-used">
+      <summary>What this answer used</summary>
+      <ul>
+        {answeredBy === "model" ? (
+          <>
+            <li>Model: {model ? MODEL_NAMES[model] ?? model : "AI model"}</li>
+            <li>Every line shown was checked against this case's approved wording before display.</li>
+          </>
+        ) : (
+          <li>No AI model wrote this answer: it comes from this case's data and any approved guidance cited.</li>
+        )}
+        {sources > 0 && <li>Approved sources cited: {sources}</li>}
+        {elapsedMs !== null && <li>Time to answer: {seconds(elapsedMs)} (measured in this browser)</li>}
+      </ul>
+    </details>
+  );
 }
 
 function AiAssistantIcon() {
@@ -201,6 +276,8 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
   const [canReview, setCanReview] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const pending = useRef<AbortController | null>(null);
+  const [activity, setActivity] = useState<Activity | null>(null);
+  const [now, setNow] = useState(() => performance.now());
   const briefRequest = useRef<AbortController | null>(null);
 
   const thread = (activeCaseId && threads[activeCaseId]) || EMPTY_THREAD;
@@ -216,6 +293,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     briefRequest.current = null;
     updateThread(key, () => EMPTY_THREAD);
     setBusy(false);
+    setActivity(null);
   }
 
   // Opening summary of the case, built from app data (no AI), so it is quick. Nothing is
@@ -271,7 +349,15 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     pending.current?.abort();
     pending.current = null;
     setBusy(false);
+    setActivity(null);
   }, [activeCaseId]);
+
+  // The elapsed time beside the progress stages: one tick a second, only while a question runs.
+  useEffect(() => {
+    if (!activity) return undefined;
+    const timer = window.setInterval(() => setNow(performance.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [activity]);
 
   useEffect(() => () => pending.current?.abort(), []);
 
@@ -297,6 +383,9 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     }));
     setBusy(true);
     setError(null);
+    const startedAt = performance.now();
+    setActivity({ startedAt, connected: false });
+    setNow(startedAt);
     const controller = new AbortController();
     pending.current = controller;
     const withoutDraft = (messages: ChatMessage[]) => messages.filter((item) => !item.streaming);
@@ -313,6 +402,9 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
       },
       controller.signal,
       earlierAnswerIds,
+      () => {
+        if (!controller.signal.aborted) setActivity((current) => current && { ...current, connected: true });
+      },
     )
       .then((reply) => {
         if (controller.signal.aborted) return;
@@ -328,6 +420,9 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
               sources: reply.sources ?? [],
               answerId: reply.answer_id ?? null,
               smallTalk: reply.small_talk === true,
+              answeredBy: reply.answered_by,
+              model: reply.model,
+              elapsedMs: performance.now() - startedAt,
             },
           ],
           suggestions: reply.suggested_questions,
@@ -345,6 +440,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
         if (pending.current === controller) {
           pending.current = null;
           setBusy(false);
+          setActivity(null);
         }
       });
   }
@@ -553,6 +649,10 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
                   brief?: boolean;
                   streaming?: boolean;
                   sources?: AiAssistantSource[];
+                  answeredBy?: "model" | "case_data" | null;
+                  model?: string | null;
+                  elapsedMs?: number | null;
+                  smallTalk?: boolean;
                 };
                 const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
                 if (custom.streaming && !text) return null;
@@ -565,12 +665,16 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
                     {message.role === "assistant" ? <AiAssistantText text={text} onSection={goToSection} /> : <p>{text}</p>}
                     {custom.note && <span className="ai-assistant-note">{custom.note}</span>}
                     {finished && <SourceChips sources={custom.sources ?? []} />}
+                    {finished && custom.answeredBy && !custom.smallTalk && (
+                      <AnswerUsed answeredBy={custom.answeredBy} model={custom.model ?? null}
+                        sources={(custom.sources ?? []).filter((source) => source.cited).length} elapsedMs={custom.elapsedMs ?? null} />
+                    )}
                     {finished && feedbackControls(message.id)}
                   </div>
                 );
               }}
             </ThreadPrimitive.Messages>
-            {busy && !writing && <p className="ai-assistant-hint">Thinking…</p>}
+            {busy && activity && <AnswerActivity activity={activity} writing={writing} now={now} />}
             {error && <p className="ai-assistant-error" role="alert">{error}</p>}
           </ThreadPrimitive.Viewport>
 

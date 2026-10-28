@@ -9,7 +9,11 @@
                       synthetic evaluation only): listed as pending authorisation, never usable,
                       unless the D-094 local synthetic test mode is configured (remote_test.py);
                       then selectable, and the chat uses it only on the approved synthetic
-                      test case (synthetic_boundary.py)
+                      test case (synthetic_boundary.py), or (D-095) on verified synthetic
+                      development cases. With
+                      AI_ASSISTANT_REMOTE_LOW_REASONING_PROFILE_ENABLED a second configuration
+                      of the same model is listed: reasoning effort low, with its own profile
+                      id and fingerprint, so it needs its own qualification
 
 The file holds no credential: a profile may name one environment variable from the reviewed
 allowlist below, read on the server when the model is built and never shown or stored. The
@@ -29,7 +33,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from . import remote_test
+from . import remote_test, synthetic_eligibility
 from .config import AiAssistantSettings
 from .llm import (
     ModelAnswer,
@@ -157,6 +161,10 @@ class CatalogueEntry:
     status: Status
     reason: str | None
     profile: LocalProfile | None = None
+    # Remote configurations only: what the page shows about the model, and the settings this
+    # configuration changes from the service's (empty for the configured one).
+    details: tuple[tuple[str, str], ...] = ()
+    settings_update: tuple[tuple[str, object], ...] = ()
 
     @property
     def base_url(self) -> str | None:
@@ -181,7 +189,17 @@ class CatalogueEntry:
             "fingerprint": self.fingerprint[:12],
             "status": self.status,
             "reason": self.reason,
+            "details": dict(self.details) if self.details else None,
         }
+
+    def settings_for(self, settings: AiAssistantSettings) -> AiAssistantSettings:
+        """The service's settings as this configuration runs (its own reasoning effort)."""
+
+        return (
+            settings.model_copy(update=dict(self.settings_update))
+            if self.settings_update
+            else settings
+        )
 
 
 @dataclass(frozen=True)
@@ -229,6 +247,39 @@ def baseline_entry(settings: AiAssistantSettings) -> CatalogueEntry:
     )
 
 
+# A second configuration of the remote model, reasoning effort low (same model, endpoint, key
+# and limits). The page names the efforts; the server sends only the effort and closed codes.
+OPENROUTER_FAST_PROFILE_ID = "openrouter_gpt_oss_120b_low"
+FAST_REASONING_EFFORT = "low"
+MODEL_NAME = "GPT-OSS 120B"
+
+
+def _remote_details(
+    settings: AiAssistantSettings, *, authorised: bool
+) -> tuple[tuple[str, str], ...]:
+    """What the page shows about the remote model, as closed codes and plain values."""
+
+    if not authorised:
+        return (
+            ("model", MODEL_NAME),
+            ("provider", "OPENROUTER_DEEPINFRA"),
+            ("scope", "NOT_AUTHORISED"),
+        )
+    development = synthetic_eligibility.mode(settings)
+    return (
+        ("model", MODEL_NAME),
+        ("provider", "OPENROUTER_DEEPINFRA"),
+        ("scope", "VERIFIED_SYNTHETIC_CASES" if development else "APPROVED_SYNTHETIC_CASE"),
+        ("reasoning_effort", settings.llm_reasoning_effort or ""),
+        ("decision", "D-095" if development else "D-094"),
+    )
+
+
+def _remote_name(settings: AiAssistantSettings) -> str:
+    effort = settings.llm_reasoning_effort
+    return f"{MODEL_NAME} (reasoning {effort})" if effort else MODEL_NAME
+
+
 def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]:
     entries = []
     for profile in APPROVED_PROFILES.values():
@@ -240,7 +291,7 @@ def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
             entries.append(
                 CatalogueEntry(
                     profile_id=profile.profile_id,
-                    display_name="GPT-OSS 120B via OpenRouter (remote)",
+                    display_name=MODEL_NAME,
                     source="code",
                     deployment="remote",
                     model_id=profile.model_id,
@@ -254,29 +305,46 @@ def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
                     fingerprint=fingerprint({"profile": profile.profile_id}),
                     status="pending_authorisation",
                     reason="REMOTE_NOT_AUTHORISED",
+                    details=_remote_details(settings, authorised=False),
                 )
             )
             continue
-        # D-094 local synthetic test mode: usable only on the approved synthetic test case.
-        entries.append(
-            CatalogueEntry(
-                profile_id=profile.profile_id,
-                display_name="GPT-OSS 120B via OpenRouter (synthetic test only, D-094)",
-                source="code",
-                deployment="openrouter",
-                model_id=profile.model_id,
-                model_version=settings.llm_reasoning_effort or None,
-                endpoint=f"openrouter.ai · {settings.openrouter_endpoint or '—'}",
-                context_window_tokens=None,
-                max_answer_tokens=settings.llm_max_answer_tokens,
-                temperature=settings.llm_temperature,
-                timeout_seconds=settings.llm_timeout_seconds,
-                streaming=profile.capabilities.streaming,
-                fingerprint=remote_test.remote_fingerprint(settings),
-                status="selectable" if problem is None else "unavailable",
-                reason=problem,
+        # D-094 local synthetic test mode (D-095: verified synthetic development cases).
+        configurations: list[tuple[str, AiAssistantSettings, tuple[tuple[str, object], ...]]] = [
+            (profile.profile_id, settings, ())
+        ]
+        if (
+            settings.remote_low_reasoning_profile_enabled
+            and settings.llm_reasoning_effort != FAST_REASONING_EFFORT
+        ):
+            low: tuple[tuple[str, object], ...] = (("llm_reasoning_effort", FAST_REASONING_EFFORT),)
+            configurations.append(
+                (OPENROUTER_FAST_PROFILE_ID, settings.model_copy(update=dict(low)), low)
             )
-        )
+        for profile_id, variant, update in configurations:
+            problem = remote_test.readiness(variant)
+            entries.append(
+                CatalogueEntry(
+                    profile_id=profile_id,
+                    display_name=_remote_name(variant),
+                    source="code",
+                    deployment="openrouter",
+                    model_id=profile.model_id,
+                    model_version=variant.llm_reasoning_effort or None,
+                    endpoint=f"openrouter.ai · {variant.openrouter_endpoint or '—'}",
+                    context_window_tokens=None,
+                    max_answer_tokens=variant.llm_max_answer_tokens,
+                    temperature=variant.llm_temperature,
+                    timeout_seconds=variant.llm_timeout_seconds,
+                    streaming=profile.capabilities.streaming,
+                    # The reasoning effort is part of it: Fast never matches the configured one.
+                    fingerprint=remote_test.remote_fingerprint(variant),
+                    status="selectable" if problem is None else "unavailable",
+                    reason=problem,
+                    details=_remote_details(variant, authorised=True),
+                    settings_update=update,
+                )
+            )
     return tuple(entries)
 
 
