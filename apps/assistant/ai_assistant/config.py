@@ -44,6 +44,11 @@ class AiAssistantSettings(BaseSettings):
     budget_ledger_path: str = "data/budget/ledger.sqlite3"
     budget_max_in_flight: int = Field(default=1, ge=1, le=4)
     budget_settle_lag_seconds: int = Field(default=600, ge=0, le=86400)
+    # D-095: the most reserved plus settled remote spend per Singapore calendar day, in
+    # micro-USD. US$1.00 is the ceiling (budget.DAILY_CAP_CEILING_MICRO_USD); this may only
+    # lower it. It applies to every remote call: qualification and chat. D-096: the default
+    # until an HR administrator sets the daily limit on AI Models (stored, never above US$1.00).
+    budget_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=1_000_000)
 
     # D-094 local synthetic test mode (off unless named): an HR administrator may then select
     # the remote profile in model management, and the chat uses it only on the approved
@@ -53,13 +58,18 @@ class AiAssistantSettings(BaseSettings):
     # "auto_topup_off,prompt_logging_off": neither is readable through the provider's API.
     local_api_test_owner_attests: str = ""
     # The most remote calls the activated model makes before the next activation or restart
-    # (open calls included; the ledger cap bounds the spend across restarts).
+    # (open calls included; the ledger cap bounds the spend across restarts). D-096: the
+    # default until an HR administrator sets the call limit on AI Models (1 to 200).
     local_api_test_max_calls: int = Field(default=20, ge=1, le=200)
     # A passing preflight is reused for this long before the next call checks again.
     local_api_test_preflight_seconds: int = Field(default=300, ge=0, le=3600)
     # The paid qualification: Phase B question ids (P01#1,...) and their count.
     local_api_test_qualification_questions: str = ""
     local_api_test_qualification_count: int = Field(default=0, ge=0, le=17)
+    # D-095 development synthetic mode (off unless named, and only on top of a ready D-094
+    # mode): the chat may then use the remote model on any verified synthetic development case
+    # (synthetic_eligibility.py), not only the one D-094 fixture case. Never for real data.
+    synthetic_dev_decision: str = ""
 
     # Model management (D-093, local loopback models only): off unless IT names a profiles file
     # (model_catalog.py). Then an HR administrator (MODEL_CONFIG_MANAGE) may test, qualify,

@@ -728,7 +728,7 @@ def test_the_acceptance_round_trips_in_schema_fifteen_and_older_readers_reject_i
     record = ownership.analyze(case_id=case.case_id)
     assert record.poc_acceptance is not None
     encoded = snapshot_of(onboarding, record).model_dump(mode="json")
-    assert encoded["schema_version"] == 15
+    assert encoded["schema_version"] == 16
     assert DurableCaseSnapshot.model_validate(encoded).ownership == record
     with pytest.raises(ValueError, match="D-085 POC acceptance"):
         reject_scenario_poc_legacy_fields(encoded)

@@ -84,6 +84,8 @@ from .remote_test import is_remote_test_model
 from .small_talk import small_talk_reply
 from .synthetic_boundary import approved_entry
 from .synthetic_boundary import check as synthetic_boundary_check
+from .synthetic_eligibility import check as synthetic_eligibility_check
+from .synthetic_eligibility import mode as synthetic_dev_mode
 from .telemetry import (
     PARTS,
     AnsweredBy,
@@ -199,6 +201,15 @@ REMOTE_BOUNDARY_NOTICE = (
     "GPT-OSS 120B through OpenRouter is used only on the approved synthetic test case, so this "
     "answer comes straight from the case data."
 )
+# D-095 development synthetic mode (synthetic_eligibility.py).
+REMOTE_DEV_NOTICE = (
+    "Answered by GPT-OSS 120B through OpenRouter (D-095 development mode, verified synthetic case)."
+)
+REMOTE_ELIGIBILITY_NOTICE = (
+    "GPT-OSS 120B through OpenRouter is used only on verified synthetic development cases, so "
+    "this answer comes straight from the case data."
+)
+_REMOTE_REFUSALS = (REMOTE_BOUNDARY_NOTICE, REMOTE_ELIGIBILITY_NOTICE)
 
 
 log = logging.getLogger("ai_assistant")
@@ -662,18 +673,33 @@ def create_app(
         recorder.record(build)
 
     def remote_gate(
-        active: Active, snapshot: CaseSnapshot, prep: Prepared
+        active: Active,
+        snapshot: CaseSnapshot,
+        prep: Prepared,
+        case_id: UUID,
+        session: str | None,
     ) -> tuple[ChatModel | None, str | None]:
         """The model this answer may use, and the lead notice. The D-094 remote test model is
-        used only when the whole prompt is inside the synthetic boundary; otherwise nothing
-        is sent and the RM gets the case-data answer (notice REMOTE_BOUNDARY_NOTICE, followed
-        by the closed reason code, never a value)."""
+        used only when the whole prompt is inside the synthetic boundary (D-095 mode: the case
+        is a verified synthetic development case); otherwise nothing is sent and the RM gets
+        the case-data answer (notice REMOTE_BOUNDARY_NOTICE or REMOTE_ELIGIBILITY_NOTICE,
+        followed by the closed reason code, never a value)."""
 
         if not is_remote_test_model(active.model):
             return active.model, None
-        refusal = synthetic_boundary_check(
-            snapshot, prep.facts, prep.messages, [item.hit.entry for item in prep.tagged]
-        )
+        entries = [item.hit.entry for item in prep.tagged]
+        if synthetic_dev_mode(config):
+            # D-095: any verified synthetic development case, by provenance. The document
+            # digests are read only here, with the RM's own session.
+            digests = backend.load_document_digests(case_id, session) if snapshot.documents else []
+            refusal = synthetic_eligibility_check(
+                snapshot, prep.facts, prep.messages, entries, digests=digests
+            )
+            if refusal is not None:
+                log.info("remote test model not used: %s", refusal)
+                return None, f"{REMOTE_ELIGIBILITY_NOTICE} Reason: {refusal}."
+            return active.model, REMOTE_DEV_NOTICE
+        refusal = synthetic_boundary_check(snapshot, prep.facts, prep.messages, entries)
         if refusal is not None:
             log.info("remote test model not used: %s", refusal)
             return None, f"{REMOTE_BOUNDARY_NOTICE} Reason: {refusal}."
@@ -684,7 +710,7 @@ def create_app(
     ) -> ChatResponse:
         notice = FALLBACK_NOTICE
         model = outcome.model
-        if model is None and lead is not None and lead.startswith(REMOTE_BOUNDARY_NOTICE):
+        if model is None and lead is not None and lead.startswith(_REMOTE_REFUSALS):
             notice = lead
             outcome.fallback_reason = "remote_boundary"
         elif model is None:
@@ -770,7 +796,7 @@ def create_app(
         delivered = False
         try:
             notice = FALLBACK_NOTICE
-            if model is None and lead is not None and lead.startswith(REMOTE_BOUNDARY_NOTICE):
+            if model is None and lead is not None and lead.startswith(_REMOTE_REFUSALS):
                 notice = lead
                 outcome.fallback_reason = "remote_boundary"
             elif model is None:
@@ -887,7 +913,9 @@ def create_app(
         )
 
     @app.post("/assistant/cases/{case_id}/chat", response_model=ChatResponse)
-    def chat(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> ChatResponse:
+    def chat(
+        case_id: UUID, body: ChatRequest, snapshot: Snapshot, request: Request
+    ) -> ChatResponse:
         started = time.monotonic()
         active = selector.current()
         facts = build_case_facts(snapshot)
@@ -905,7 +933,9 @@ def create_app(
                 small_talk=True,
             )
         prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
-        model, lead = remote_gate(active, snapshot, prep)
+        model, lead = remote_gate(
+            active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
+        )
         outcome = _Outcome(model=model)
         response = record(
             case_id, snapshot, body, prep, answer_with_model(prep, outcome, lead), outcome
@@ -914,7 +944,9 @@ def create_app(
         return response
 
     @app.post("/assistant/cases/{case_id}/chat/stream")
-    def chat_stream(case_id: UUID, body: ChatRequest, snapshot: Snapshot) -> StreamingResponse:
+    def chat_stream(
+        case_id: UUID, body: ChatRequest, snapshot: Snapshot, request: Request
+    ) -> StreamingResponse:
         """Like /chat, but the answer appears while the model is still writing it."""
 
         started = time.monotonic()
@@ -940,7 +972,9 @@ def create_app(
             )
         else:
             prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
-            model, lead = remote_gate(active, snapshot, prep)
+            model, lead = remote_gate(
+                active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
+            )
 
             def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
                 return record(case_id, snapshot, body, prep, response, outcome)

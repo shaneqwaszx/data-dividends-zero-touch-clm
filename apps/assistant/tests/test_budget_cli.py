@@ -50,6 +50,9 @@ def test_init_and_status_show_amounts_and_codes_only(
     assert "cap: 7.000000" in out and "opening usage: 3.000000" in out
     assert "committed: 3.000000" in out and "headroom: 4.000000" in out
     assert "breaker: closed" in out and "key alias: key-01" in out
+    # D-095: today's allowance, from the same ledger (nothing spent yet).
+    assert "daily cap: 1.000000" in out and "remaining today: 1.000000" in out
+    assert "next daily reset: " in out and "+08:00" in out
 
 
 def test_init_refuses_an_existing_ledger(

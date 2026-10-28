@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[15] = 15
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[16] = 16
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -759,12 +759,54 @@ class DurableCaseSnapshotV14(BaseModel):
         return self
 
 
+class DurableCaseSnapshotV15(BaseModel):
+    """Exact schema-15 envelope: D-085..D-089 evidence without D-095 document digests."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[15] = 15
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_document_digest_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        # From the attributes, not model_dump: a dump would drop backend-only excluded
+        # evidence (for example reconciliation raw values and automation digests).
+        return DurableCaseSnapshot.model_validate(
+            {
+                **{name: getattr(self, name) for name in type(self).model_fields},
+                "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION,
+            }
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV15":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[15] = 15
+    schema_version: Literal[16] = 16
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -942,6 +984,17 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
             for item in audit.get("records", ()) or ()
         ):
             raise ValueError("Historical schema cannot contain a D-088 business profile.")
+
+
+def reject_document_digest_legacy_fields(value: Any) -> None:
+    """Schema <= 15 envelopes cannot carry a D-095 document content digest, even if null.
+
+    A schema-15 document reads as having no digest (``None``): it is never treated as a
+    verified synthetic fixture, and the read does not rewrite it.
+    """
+    raw = _explicit_fields(value)
+    if any("content_sha256" in _explicit_fields(doc) for doc in raw.get("documents", ())):
+        raise ValueError("Historical schema cannot contain a document content digest.")
 
 
 def reject_session2_legacy_fields(value: Any) -> None:

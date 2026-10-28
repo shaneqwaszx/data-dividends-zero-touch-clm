@@ -122,6 +122,7 @@ BUDGET_OUTCOMES = frozenset(
         "settled",
         "unsettled",
         "refused_cap",
+        "refused_daily_cap",
         "refused_breaker",
         "refused_busy",
         "refused_ledger",

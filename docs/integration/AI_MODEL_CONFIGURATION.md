@@ -2,7 +2,8 @@
 
 Decision: D-093 (accepted for the local-only POC scope; ADR-012 Amendment 4). Classification:
 `LOCAL`. Nothing here enables a remote or cloud model, except the owner's separately recorded
-D-094 local synthetic test mode on a development machine (section 9).
+D-094 local synthetic test mode on a development machine (section 9) and its D-095 development
+synthetic mode, OpenRouter key sources and US$1.00 daily cap (section 10).
 
 ## What IT configures and what HR does
 
@@ -68,8 +69,9 @@ $env:AI_ASSISTANT_MODEL_KEY_LM_STUDIO = "<your LM Studio API key>"
 
 The key is read only when the model is built and is never returned to the browser, logged or
 written to the audit history. A missing key refuses the model (`CREDENTIAL_MISSING`).
-`OPENROUTER_API_KEY` can never be named. The secret scanner flags any literal assignment to
-these names.
+`OPENROUTER_API_KEY` can never be named in the profiles file. The secret scanner flags any
+literal assignment to these names. (The OpenRouter key for the D-094/D-095 remote profile is
+configured as described in section 10.)
 
 ## 4. Context windows (Ollama in particular)
 
@@ -147,7 +149,7 @@ like a local model:
 | Endpoint | `AI_ASSISTANT_OPENROUTER_ENDPOINT=deepinfra/bf16` (the approved one), `AI_ASSISTANT_LLM_REASONING_EFFORT`, `AI_ASSISTANT_LLM_REASONING_ALLOWANCE_TOKENS` (at least 256) |
 | Development machine | the CLM backend URL is a literal loopback address and every allowed browser origin is a local `http` origin |
 | Owner attestation | `AI_ASSISTANT_LOCAL_API_TEST_OWNER_ATTESTS=auto_topup_off,prompt_logging_off` |
-| Key and budget | `OPENROUTER_API_KEY` in the process environment only; an initialised budget ledger (`scripts/budget_ledger.py`) |
+| Key and budget | `OPENROUTER_API_KEY` (process environment, `apps/assistant/.env` or HR entry: section 10); an initialised budget ledger (`scripts/budget_ledger.py`) |
 
 Otherwise the page says which condition is missing. What each action does:
 
@@ -194,3 +196,73 @@ The activated model makes at most `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` calls 
 included) until it is activated again or the service restarts; the ledger cap bounds the
 spend. Model answers say "Answered by GPT-OSS 120B through OpenRouter (D-094 local synthetic
 test mode)."
+
+## 10. D-095 development synthetic mode, OpenRouter key and daily cap
+
+D-095 is an owner-directed, local-development-only extension of section 9. Without
+`AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` the D-094 mode above is unchanged.
+
+### 10.1 Which cases GPT-OSS may answer
+
+With the flag set (and every section 9 condition holding), the chat uses the remote model on
+any **verified synthetic development case**, decided from the backend's own reply:
+
+- the company's UEN and legal name are an approved synthetic company in the generated manifest
+  `apps/assistant/ai_assistant/synthetic_eligibility.json` (the backend Mock ACRA fixtures and
+  the project's synthetic company packs), its registry details came from ACRA in MOCK mode,
+  and the requested UEN and registry acquisition are for that company;
+- every document on the case is a synthetic fixture the repository tracks, by content: the
+  SHA-256 the backend computed from the uploaded bytes must be the digest of a file under
+  `apps/backend/tests/fixtures/uat/` (with its media type and size). Any other upload, one
+  altered byte, or a document uploaded before the backend kept digests makes the whole case
+  ineligible (upload the fixture again);
+- typed values (case-creation input, manual decisions) equal a value from the Mock registry
+  record or a verified document; a GoldTier id is a Mock GoldTier id (`GT-MOCK-...`);
+- the viewer is a seeded POC user, and only unchanged repository guidance and the synthetic
+  seed are used;
+- the question and history may use any words, but no e-mail address, NRIC/FIN- or UEN-shaped
+  id, date, or run of five or more digits that the case does not already hold.
+
+Anything else gets the case-data answer with "GPT-OSS 120B through OpenRouter is used only on
+verified synthetic development cases, so this answer comes straight from the case data.
+Reason: `<code>`." and nothing is sent. Regenerate the manifest after adding a synthetic
+company or fixture document (`scripts/build_synthetic_eligibility.py`; a test checks it is
+current). Director questions can now name officers that the case's own Mock ACRA officer
+lookup returned. Do not type real customer details: the screen cannot recognise a name.
+
+### 10.2 The OpenRouter key
+
+The service uses the first of:
+
+1. `OPENROUTER_API_KEY` in the process environment;
+2. `OPENROUTER_API_KEY=<key>` in `apps/assistant/.env` (git-ignored; only that line is read);
+3. a key an HR administrator enters on **AI Models → OpenRouter API Key**.
+
+A key from 1 or 2 is used automatically and cannot be changed or cleared from the page. When
+none is set, the page shows **OpenRouter API Key — Not Configured** with a masked input,
+**Save Key**, **Clear Key**, **Test Connection** and the status. An HR-entered key is kept in
+the service's memory only (never on disk, in the browser, in logs or in the audit history) and
+must be entered again after the assistant restarts; until then the activated GPT-OSS model is
+replaced by the baseline at start (`CREDENTIAL_MISSING`) and HR activates it again. Key
+changes need the AI Models page's origin and are limited to 5 attempts per administrator in 10
+minutes. Changing the key re-runs the full preflight (the new key's own limit and usage
+against the ledger) before the next call; if its usage does not reconcile with the ledger,
+reconcile with `scripts/budget_ledger.py` first.
+
+### 10.3 Spending limits
+
+| Limit | Where | Notes |
+| --- | --- | --- |
+| Daily allowance | the ledger, checked on every call | At most US$1.00 reserved plus settled per Asia/Singapore calendar day, for qualification and chat together. HR sets it on AI Models (US$0.00 to US$1.00, D-096); until then `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` (default 1000000) applies. Resets at Singapore midnight without erasing anything; lowering it never resets today's spend. |
+| Calls per activation | the active model, counted from the ledger | HR sets 1 to 200 on AI Models (D-096); until then `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` (default 20). Counted from activation or service start; a change applies at once and never resets the count. The paid qualification keeps the environment value. |
+| Lifetime cap | the ledger | HR may set it on AI Models from the ledger's opening usage up to US$1.00 above it (D-092 P3, D-096 W3); a raise needs the amount confirmed and passing reconciliation checks against OpenRouter's reported usage. `scripts/budget_ledger.py set-cap` still works for the operator. |
+| Key limit | OpenRouter | Unchanged and never changed by the CLM: a non-resetting limit with at most US$1.00 plus one reservation remaining. AI Models can re-read it ("Refresh OpenRouter Limits"). |
+
+The strictest applies. AI Models shows today's settled spend, in-flight reservations, today's
+remaining allowance, lifetime headroom, the key limit as last checked, the available allowance
+(the strictest of the three), calls used and remaining, the next reset and why calls are
+refused. HR changes are stored in the model state database (shared by every service process),
+audited and applied without a restart, a new activation or a new qualification (the
+qualification basis does not include them). `scripts/budget_ledger.py status` shows the
+environment daily figure, not an HR value. Nothing raises a cap or a key limit automatically,
+and auto top-up must stay off.

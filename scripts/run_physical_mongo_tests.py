@@ -39,6 +39,7 @@ PHYSICAL_SUITES = (
     BACKEND_ROOT / "tests" / "test_s3_submission_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_policy_recovery_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_recursive_ownership_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_document_digests_real_mongo.py",
 )
 _SUMMARY_PATTERN = re.compile(
     r"(?P<count>\d+)\s+(?P<kind>passed|failed|skipped|errors?)\b",

@@ -5,6 +5,7 @@ from what it already computed, never re-derived here. Every fact carries where i
 from. Text read out of uploaded documents is marked as untrusted document content.
 """
 
+import re
 from typing import Any
 
 from .clm_client import CaseSnapshot
@@ -339,7 +340,7 @@ def _readiness(summary: dict[str, Any]) -> dict[str, Any]:
 
 # Facts that only choose catalog lines (D-092 P11): never shown to the model and never
 # grounding for knowledge text (guardrails.Context), so they cannot vouch for a quoted label.
-SELECTION_ONLY_FACTS = ("goldtier_readback", "registry_officers")
+SELECTION_ONLY_FACTS = ("goldtier_readback", "registry_officers", "registry_officer_records")
 
 # Statuses of the backend's registry operation result (domain RegistryOperationStatus).
 _OFFICER_LOOKUP_STATUSES = frozenset(
@@ -386,6 +387,59 @@ def _registry_officers(summary: dict[str, Any]) -> str | None:
         ):
             return None
     return status
+
+
+# At most this many officers are offered as lines; a longer list offers none.
+MAX_OFFICER_RECORDS = 10
+_ROLE = re.compile(r"[A-Z_]{1,40}")
+
+
+def _registry_officer_records(summary: dict[str, Any]) -> list[dict[str, str]] | None:
+    """D-095 answer coverage: the current officers (name and role code only) that this case's
+    own registry officer lookup returned, or None. Only when the lookup is COMPLETE for the
+    case's UEN, the acquisition is COMPLETE or PARTIAL without error, the record count matches,
+    and the lookup and every officer come from the same registry and environment as the
+    company details. Selection only: the model sees an officer only inside its catalog line."""
+
+    case = _dict(summary.get("case"))
+    entity = _dict(case.get("entity"))
+    acquisition = _dict(case.get("registry_acquisition"))
+    if _registry_officers(summary) != "COMPLETE":
+        return None
+    result = next(
+        _dict(item)
+        for item in _list(acquisition.get("operation_results"))
+        if _dict(item).get("operation") == "OFFICERS"
+    )
+    source = _dict(entity.get("source"))
+    officers = [_dict(item) for item in _list(acquisition.get("officers"))]
+
+    def same_source(provenance: Any) -> bool:
+        data = _dict(provenance)
+        return bool(source.get("source_system")) and (
+            data.get("provider") == source.get("source_system")
+            and data.get("environment") == source.get("environment")
+        )
+
+    if (
+        acquisition.get("status") not in ("COMPLETE", "PARTIAL")
+        or result.get("error") is not None
+        or result.get("record_count") != len(officers)
+        or not officers
+        or len(officers) > MAX_OFFICER_RECORDS
+        or not same_source(result.get("provenance"))
+        or not all(same_source(item.get("provenance")) for item in officers)
+    ):
+        return None
+    records = []
+    for officer in officers:
+        if officer.get("cessation_date"):
+            continue  # a former officer is not offered as a current one
+        name, role = officer.get("name"), officer.get("role")
+        if not isinstance(name, str) or not isinstance(role, str) or not _ROLE.fullmatch(role):
+            return None
+        records.append({"name": " ".join(name.split()), "role": role})
+    return records or None
 
 
 def _goldtier_readback(summary: dict[str, Any]) -> str | None:
@@ -449,5 +503,6 @@ def build_case_facts(snapshot: CaseSnapshot) -> dict[str, Any]:
         # Used only to choose catalog lines; prompts.facts_for_model does not show them.
         "goldtier_readback": _goldtier_readback(summary),
         "registry_officers": _registry_officers(summary),
+        "registry_officer_records": _registry_officer_records(summary),
         "timeline": _timeline(summary),
     }

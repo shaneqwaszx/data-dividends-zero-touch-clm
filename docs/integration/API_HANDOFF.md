@@ -85,6 +85,14 @@ staged readiness/submission routes remain for regression and development diagnos
 They are not the sponsor's primary walkthrough. See generated `/docs` for their exact
 schemas; keep them under **Legacy manual diagnostics** in the browser.
 
+`GET /api/onboarding/cases/{case_id}/document-digests` (D-095, case-scoped like the document
+list) returns `[{document_id, document_version, content_sha256}]`: the SHA-256 the backend
+computed from each document's uploaded bytes at upload (stored on the document record, case
+snapshot schema 16; `null` for records stored earlier). It exists only so the AI Assistant can
+recognise approved synthetic fixtures before any external inference; the browser does not use
+it, and the digest is not part of any other document response. No document content is
+returned.
+
 ## Common safe failures
 
 - `422`: malformed UEN/request, PDF metadata/body, unsupported action, or field input.

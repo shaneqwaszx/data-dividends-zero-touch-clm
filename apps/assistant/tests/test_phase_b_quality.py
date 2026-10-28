@@ -392,9 +392,14 @@ def test_selection_only_facts_never_ground_knowledge_text(body: str) -> None:
 
 
 def test_selection_only_facts_are_the_two_new_keys() -> None:
-    assert set(SELECTION_ONLY_FACTS) == {"registry_officers", "goldtier_readback"}
+    # D-095 adds the officer records, which choose officer lines only.
+    assert set(SELECTION_ONLY_FACTS) == {
+        "registry_officers",
+        "goldtier_readback",
+        "registry_officer_records",
+    }
     known = Context(FACTS).known
-    assert "registry_officers" not in known and "goldtier_readback" not in known
+    assert all(key not in known for key in SELECTION_ONLY_FACTS)
 
 
 def test_the_everyday_prompt_is_unchanged_by_the_new_facts() -> None:

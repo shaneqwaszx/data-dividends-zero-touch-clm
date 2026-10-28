@@ -14,7 +14,7 @@ init           create a ledger where none exists. The opening provider usage is 
                current cumulative usage as the OpenRouter dashboard shows it, so a new ledger
                never resets what the key already spent. The cap is the key's lifetime usage
                limit for this ledger, opening usage included.
-status         amounts (USD) and codes only.
+status         amounts (USD) and codes only, with today's D-095 allowance (Asia/Singapore day).
 set-cap        lowering is always allowed; raising needs --raise and the same amount again.
 reconcile      anchor the ledger on the key's cumulative usage from the dashboard. Refused
                while a call is open, too soon after the last call (the configured
@@ -30,6 +30,7 @@ Phase A2 creates no real ledger; the remote profile is dormant.
 
 import argparse
 import sys
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -39,6 +40,7 @@ sys.path.insert(0, str(HERE))
 from ai_assistant.budget import (  # noqa: E402
     KEY_ALIASES,
     MAX_MICRO_USD,
+    SINGAPORE,
     BudgetLedger,
     LedgerError,
 )
@@ -84,7 +86,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    status = BudgetLedger.open(_path(args)).status()
+    ledger = BudgetLedger.open(_path(args))
+    status = ledger.status()
+    daily = ledger.daily_status(AiAssistantSettings(_env_file=None).budget_daily_cap_micro_usd)
+    reset = datetime.fromtimestamp(daily.next_reset_at / 1000, SINGAPORE)
     for name, value in (
         ("cap", usd(status.cap)),
         ("opening usage", usd(status.opening_usage)),
@@ -97,6 +102,11 @@ def cmd_status(args: argparse.Namespace) -> int:
         ("open calls", str(status.open_calls)),
         ("breaker", status.breaker_code or "closed"),
         ("key alias", status.key_alias),
+        ("daily cap", usd(daily.cap)),
+        ("settled today", usd(daily.settled_today)),
+        ("in flight today", usd(daily.open_reserved)),
+        ("remaining today", usd(daily.remaining)),
+        ("next daily reset", reset.isoformat()),
     ):
         print(f"{name}: {value}")
     return 0

@@ -33,6 +33,7 @@ from app.api_models import (
     CasePortfolioPageResponse,
     CasePriorityResponse,
     ClmCaseSummaryResponse,
+    DocumentDigestResponse,
     DocumentProcessingResponse,
     ExistingCustomerConfirmationRequest,
     OnboardingCaseResponse,
@@ -3306,6 +3307,34 @@ def create_app(
         except DocumentRequestError as exc:
             raise _document_http_error(exc) from None
         return [document_response(record) for record in records]
+
+    @application.get(
+        "/api/onboarding/cases/{case_id}/document-digests",
+        response_model=list[DocumentDigestResponse],
+        tags=["documents"],
+    )
+    def list_document_digests(
+        case_id: UUID,
+        active_documents: Annotated[
+            DocumentProcessingService, Depends(get_document_processing_service)
+        ],
+    ) -> list[DocumentDigestResponse]:
+        """D-095: the SHA-256 this backend computed from each document's uploaded bytes, read
+        from the same stored records as the document list (same case scope). Used only by the
+        AI assistant to recognise approved synthetic fixtures; no content is returned."""
+
+        try:
+            records = active_documents.list_documents(case_id=case_id)
+        except DocumentRequestError as exc:
+            raise _document_http_error(exc) from None
+        return [
+            DocumentDigestResponse(
+                document_id=record.document_id,
+                document_version=record.document_version,
+                content_sha256=record.content_sha256,
+            )
+            for record in records
+        ]
 
     @application.get(
         "/api/onboarding/cases/{case_id}/documents/{document_id}",

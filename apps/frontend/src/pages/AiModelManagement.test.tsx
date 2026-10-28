@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ModelOverview, ModelProfileView, ModelQualification } from "../aiAssistant";
+import type { ModelBudgetStatus, ModelOverview, ModelProfileView, ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
@@ -15,7 +15,9 @@ import AiModelManagement, {
   AUDIT_REFRESH_MS,
   modelManagementQueryKeys,
   readable,
+  amountText,
   RUNNING_REFRESH_MS,
+  toMicroUsd,
 } from "./AiModelManagement";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -350,5 +352,310 @@ describe("AiModelManagement D-094 local synthetic test mode", () => {
     expect(readable("PREFLIGHT_FAILED:key.limit_set,ledger.healthy")).toBe(
       "Preflight failed: key.limit_set, ledger.healthy",
     );
+  });
+});
+
+// --- D-095: daily spending limit and the OpenRouter key -----------------------------------------
+
+// Built at run time so the secret scanner never sees a key-shaped literal.
+const FAKE_KEY = ["sk", "or", "v1-fake-browser-test-key-0000000000"].join("-");
+
+function budget(credential: Partial<ModelBudgetStatus["credential"]> = {}): ModelBudgetStatus {
+  return {
+    configured: true, mode: "D-095", timezone: "Asia/Singapore",
+    daily_cap_ceiling_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
+    next_reset_at: "2026-10-28T16:00:00Z",
+    credential: {
+      source: "none", status: "missing", hr_editable: true, persistence: "memory_only",
+      set_at: null, set_by: null, ...credential,
+    },
+    provider: null,
+    ledger: {
+      cap_micro_usd: 1_100_000, committed_micro_usd: 1_001_076, headroom_micro_usd: 98_924,
+      headroom_usd: "0.098924", open_calls: 0, breaker_open: false, breaker_code: null,
+    },
+    daily: {
+      cap_micro_usd: 1_000_000, settled_today_micro_usd: 1_440, settled_today_usd: "0.001440",
+      in_flight_micro_usd: 0, in_flight_usd: "0.000000", in_flight_calls: 0,
+      remaining_micro_usd: 998_560, remaining_usd: "0.998560", day_started_at: "2026-10-27T16:00:00Z",
+    },
+    effective_remaining_micro_usd: 98_924, effective_remaining_usd: "0.098924",
+    reservation_micro_usd: 21_300, refusal: "PROVIDER_LIMIT_NOT_CHECKED",
+  };
+}
+
+const remoteSelectable = profile({
+  profile_id: "openrouter_gpt_oss_120b", display_name: "GPT-OSS 120B via OpenRouter (synthetic test only, D-094)",
+  source: "code", deployment: "openrouter", endpoint: "deepinfra/bf16", status: "selectable",
+  active: false, activation_blockers: ["NOT_QUALIFIED"],
+});
+
+function keyServer(data: ModelOverview, calls: Array<{ method: string; url: string; body: string | null }>) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
+    if (url.endsWith("/admin/models/credential") && method === "PUT") {
+      return json({ source: "hr_memory", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin" });
+    }
+    if (url.endsWith("/admin/models/credential") && method === "DELETE") {
+      return json({ source: "none", status: "missing", hr_editable: true, persistence: "memory_only", set_at: null, set_by: null });
+    }
+    if (method === "POST") return json({ outcome: "passed", code: null, listed: null, complete_ms: null, stream_ms: null, first_piece_ms: null });
+    if (url.endsWith("/api/assistant/admin/models")) return json(data);
+    if (url.includes("/admin/models/audit")) return json({ events: [] });
+    return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+  });
+}
+
+function typeInto(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  act(() => {
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
+  it("shows Not Configured with a masked input, sends the key once and keeps no copy", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: budget() };
+    const view = mount(keyServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Not Configured"));
+    const input = view.querySelector<HTMLInputElement>("#openrouter-key-input");
+    expect(input?.type).toBe("password");
+    expect(input?.autocomplete).toBe("off");
+    expect(button(view, "Save Key").disabled).toBe(true);
+    expect(button(view, "Test Connection").disabled).toBe(true);
+    typeInto(input!, FAKE_KEY);
+    await act(async () => button(view, "Save Key").click());
+    await waitFor(() => expect(view.textContent).toContain("Key saved on the server."));
+    const put = calls.find((call) => call.method === "PUT");
+    expect(put?.url).toContain("/api/assistant/admin/models/credential");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ api_key: FAKE_KEY });
+    expect(view.querySelector<HTMLInputElement>("#openrouter-key-input")?.value).toBe("");
+    expect(view.innerHTML).not.toContain(FAKE_KEY);
+    expect(JSON.stringify({ ...localStorage })).not.toContain(FAKE_KEY);
+    expect(JSON.stringify({ ...sessionStorage })).not.toContain(FAKE_KEY);
+    expect(document.cookie).not.toContain(FAKE_KEY);
+  });
+
+  it("offers Clear Key and Test Connection for an HR-entered key, and says it is memory-only", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = {
+      ...overview, profiles: [profile({}), remoteSelectable],
+      budget: budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
+    };
+    const view = mount(keyServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
+    expect(view.textContent).toContain("enter it again after the service restarts");
+    await act(async () => button(view, "Test Connection").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.url.endsWith("/openrouter_gpt_oss_120b/connection-test"))).toBe(true));
+    await act(async () => button(view, "Clear Key").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE")).toBe(true));
+  });
+
+  it("does not offer to change an environment-managed key", async () => {
+    const data = {
+      ...overview, profiles: [profile({}), remoteSelectable],
+      budget: budget({ source: "env_file", status: "configured", hr_editable: false, persistence: "server" }),
+    };
+    const view = mount(keyServer(data, []));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
+    expect(view.textContent).toContain("apps/assistant/.env");
+    expect(view.querySelector("#openrouter-key-input")).toBeNull();
+    expect(() => button(view, "Save Key")).toThrow();
+    expect(() => button(view, "Clear Key")).toThrow();
+  });
+
+  it("shows the US$1.00 Singapore-day limit, today's spending and why calls are refused", async () => {
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: { ...budget(), refusal: "DAILY_ALLOWANCE_EXHAUSTED" } };
+    const view = mount(keyServer(data, []));
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter daily spending limit"));
+    expect(view.textContent).toContain("US$1.00 of reserved plus settled OpenRouter spending per Singapore calendar day");
+    expect(view.textContent).toContain("US$0.001440");
+    expect(view.textContent).toContain("US$0.998560");
+    expect(view.textContent).toContain("US$0.098924");
+    expect(view.textContent).toContain("midnight, Singapore");
+    expect(view.textContent).toContain("has no room for another call");
+  });
+
+  it("shows no key or spending panel when the remote test mode is not configured", async () => {
+    const view = mount(server(overview));
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    expect(view.textContent).not.toContain("OpenRouter API Key");
+    expect(view.textContent).not.toContain("daily spending limit");
+  });
+});
+
+// --- D-096: HR spending controls -----------------------------------------------------------------
+
+function controlled(overrides: Partial<NonNullable<ModelBudgetStatus["controls"]>> = {}): ModelBudgetStatus {
+  return {
+    ...budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
+    controls: {
+      revision: 3, readable: true,
+      daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000, daily_cap_source: "hr",
+      max_calls: 20, max_calls_range: [1, 200], max_calls_source: "hr",
+      calls_used: 20, calls_remaining: 0,
+      changed_at: "2026-10-28T03:00:00Z", changed_by: "hr-admin",
+      lifetime: {
+        opening_usage_micro_usd: 100_000, cap_micro_usd: 600_000,
+        max_cap_micro_usd: 1_100_000, committed_micro_usd: 590_000,
+      },
+      ...overrides,
+    },
+  };
+}
+
+function controlsServer(data: ModelOverview, calls: Array<{ method: string; url: string; body: string | null }>) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
+    if (url.includes("/admin/models/budget/")) return json(data.budget);
+    if (url.endsWith("/api/assistant/admin/models")) return json(data);
+    if (url.includes("/admin/models/audit")) return json({ events: [] });
+    return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+  });
+}
+
+function input(view: HTMLElement, id: string): HTMLInputElement {
+  const found = view.querySelector<HTMLInputElement>(`#${id}`);
+  if (!found) throw new Error(`no #${id}`);
+  return found;
+}
+
+describe("AiModelManagement HR spending controls (D-096)", () => {
+  it("converts typed US$ amounts to whole micro-USD and refuses anything else", () => {
+    expect(toMicroUsd("0.25")).toBe(250_000);
+    expect(toMicroUsd("1")).toBe(1_000_000);
+    expect(toMicroUsd(" 0.000001 ")).toBe(1);
+    for (const bad of ["", "-1", "1e3", "0.0000001", "abc", "1,5", "0x10"]) expect(toMicroUsd(bad)).toBeNull();
+  });
+
+  it("shows calls used and remaining, the effective allowance, and saves both limits", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Calls this activation"));
+    expect(view.textContent).toContain("20 used, 0 remaining of 20");
+    expect(view.textContent).toContain("the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit");
+    expect(view.textContent).toContain("Set by hr-admin");
+    typeInto(input(view, "daily-limit-input"), "0.5");
+    typeInto(input(view, "call-limit-input"), "40");
+    await act(async () => button(view, "Save Limits").click());
+    await waitFor(() => expect(view.textContent).toContain("Limits saved."));
+    const put = calls.find((call) => call.method === "PUT" && call.url.endsWith("/admin/models/budget/controls"));
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ expected_revision: 3, daily_cap_micro_usd: 500_000, max_calls: 40 });
+  });
+
+  it("does not send limits outside US$0 to US$1 or 1 to 200 calls", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Daily and call limits"));
+    for (const [daily, count] of [["1.01", "20"], ["0.5", "0"], ["0.5", "201"], ["-0.1", "20"], ["0.5", "2.5"]]) {
+      typeInto(input(view, "daily-limit-input"), daily);
+      typeInto(input(view, "call-limit-input"), count);
+      expect(button(view, "Save Limits").disabled).toBe(true);
+    }
+    expect(calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+
+  it("needs an explicit confirmation to raise the lifetime limit, and none to lower it", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Lifetime limit (ledger)"));
+    expect(view.textContent).toContain("up to US$1.100000 (US$1.00 above it)");
+    typeInto(input(view, "lifetime-limit-input"), "1.2"); // above the allocation
+    expect(button(view, "Update Lifetime Limit").disabled).toBe(true);
+    typeInto(input(view, "lifetime-limit-input"), "0.9");
+    expect(button(view, "Update Lifetime Limit").disabled).toBe(true); // not confirmed yet
+    const confirm = [...view.querySelectorAll<HTMLInputElement>("input[type=checkbox]")]
+      .find((item) => item.parentElement?.textContent?.includes("I confirm raising the lifetime limit to US$0.900000"));
+    expect(confirm).toBeDefined();
+    act(() => confirm!.click());
+    await act(async () => button(view, "Update Lifetime Limit").click());
+    await waitFor(() => expect(view.textContent).toContain("Lifetime limit updated."));
+    const raise = calls.filter((call) => call.method === "PUT" && call.url.endsWith("/admin/models/budget/lifetime-cap"));
+    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({ cap_micro_usd: 900_000, confirm_cap_micro_usd: 900_000 });
+
+    typeInto(input(view, "lifetime-limit-input"), "0.4"); // lower: no confirmation
+    expect(view.textContent).not.toContain("I confirm raising");
+    await act(async () => button(view, "Update Lifetime Limit").click());
+    await waitFor(() => expect(calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))).toHaveLength(2));
+    const lower = calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))[1];
+    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ cap_micro_usd: 400_000, confirm_cap_micro_usd: null });
+  });
+
+  it("refreshes the OpenRouter limits read-only and never shows the key", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Refresh OpenRouter Limits"));
+    await act(async () => button(view, "Refresh OpenRouter Limits").click());
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter limits refreshed."));
+    const refresh = calls.find((call) => call.url.endsWith("/admin/models/budget/provider-refresh"));
+    expect(refresh?.method).toBe("POST");
+    expect(view.textContent).toContain("The API key and its OpenRouter limit are never shown or changed here.");
+    expect(refresh?.body).toBe("{}"); // nothing is sent but the request itself
+  });
+
+  it("refills the form when another administrator changed the limits, so a save never reverts them (QG F1)", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(input(view, "daily-limit-input").value).toBe("1.00"));
+    // Elsewhere: daily limit lowered to US$0.05 (revision 4). This page re-reads on refresh.
+    data.budget = controlled({ revision: 4, daily_cap_micro_usd: 50_000 });
+    await act(async () => button(view, "Refresh OpenRouter Limits").click());
+    await waitFor(() => expect(input(view, "daily-limit-input").value).toBe("0.05"));
+    typeInto(input(view, "call-limit-input"), "30"); // only the call limit is changed here
+    await act(async () => button(view, "Save Limits").click());
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith("/budget/controls"))).toBe(true));
+    const put = calls.find((call) => call.url.endsWith("/budget/controls"));
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ expected_revision: 4, daily_cap_micro_usd: 50_000, max_calls: 30 });
+  });
+
+  it("shows stored amounts exactly, so saving another field keeps them (QG F3)", async () => {
+    expect(amountText(1_000_000)).toBe("1.00");
+    expect(amountText(50_000)).toBe("0.05");
+    expect(amountText(5_000)).toBe("0.005");
+    expect(amountText(125_000)).toBe("0.125");
+    expect(amountText(1_500)).toBe("0.0015");
+    expect(amountText(1)).toBe("0.000001");
+    for (const micro of [0, 1, 1_500, 5_000, 125_000, 999_999, 1_000_000]) expect(toMicroUsd(amountText(micro))).toBe(micro);
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled({ daily_cap_micro_usd: 5_000 }) };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(input(view, "daily-limit-input").value).toBe("0.005"));
+    typeInto(input(view, "call-limit-input"), "25");
+    await act(async () => button(view, "Save Limits").click());
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith("/budget/controls"))).toBe(true));
+    const put = calls.find((call) => call.url.endsWith("/budget/controls"));
+    expect(JSON.parse(put?.body ?? "{}").daily_cap_micro_usd).toBe(5_000);
+  });
+
+  it("shows the fixed refusal when a raise is not reconciled", async () => {
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/budget/lifetime-cap")) {
+        return json({ detail: { code: "RECONCILIATION_REQUIRED", message: "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed." } }, 409);
+      }
+      if (url.endsWith("/api/assistant/admin/models")) return json(data);
+      if (url.includes("/admin/models/audit")) return json({ events: [] });
+      return json({}, init?.method === "POST" ? 200 : 404);
+    });
+    const view = mount(fetchMock);
+    await waitFor(() => expect(view.textContent).toContain("Lifetime limit (ledger)"));
+    typeInto(input(view, "lifetime-limit-input"), "0.9");
+    const confirm = [...view.querySelectorAll<HTMLInputElement>("input[type=checkbox]")]
+      .find((item) => item.parentElement?.textContent?.includes("I confirm raising"));
+    act(() => confirm!.click());
+    await act(async () => button(view, "Update Lifetime Limit").click());
+    await waitFor(() => expect(view.textContent).toContain("The ledger must be reconciled with OpenRouter"));
   });
 });

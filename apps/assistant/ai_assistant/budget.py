@@ -19,6 +19,18 @@ than bounded, lack usage, look misrouted, or end with a provider refusal open a 
 that only an operator can close after reconciling (scripts/budget_ledger.py). Anything
 uncertain is charged at its full reservation. The ledger never creates itself, never
 repairs itself and refuses when missing, corrupt, newer or inconsistent.
+
+Daily allowance (D-095). On top of the lifetime cap, every admission also needs
+
+    D   today's spend: charges of closed calls reserved since the last Singapore midnight
+        (Asia/Singapore, UTC+8, no daylight saving) plus the reservations of ALL open calls
+        (an open call from yesterday still counts today)
+    D + r <= daily cap, which is at most DAILY_CAP_CEILING_MICRO_USD (US$1.00)
+
+It is worked out from the call rows in the same ``BEGIN IMMEDIATE`` transaction as the
+lifetime check, so it holds across threads, processes and restarts, survives reconciliation
+(which never deletes a call) and needs no schema change: the "reset" at midnight is only the
+window moving on; no row, total or event is erased. It does not depend on which key is used.
 """
 
 import secrets
@@ -27,6 +39,7 @@ import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing, closing, suppress
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import partial
 from pathlib import Path
@@ -59,6 +72,10 @@ LEASE_GRACE_SECONDS = 60
 # A provider usage above the ledger by more than this opens the breaker.
 RECONCILE_TOLERANCE_MICRO_USD = 50_000
 MAX_MICRO_USD = 10**12
+# D-095: the most the remote profile may reserve plus spend in one Singapore calendar day.
+# A setting may lower it (AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD), never raise it.
+DAILY_CAP_CEILING_MICRO_USD = 1_000_000
+SINGAPORE = timezone(timedelta(hours=8), "Asia/Singapore")
 _MILLION = Decimal(1_000_000)
 
 # Provider refusals that would repeat on the next call: stop and let an operator look.
@@ -299,6 +316,65 @@ class ClosedCall:
     verification: str
     error_class: str | None
     anomaly_bits: int
+
+
+def singapore_day_start_ms(now_ms: int) -> int:
+    """The last Singapore midnight at or before ``now_ms`` (epoch milliseconds)."""
+
+    moment = datetime.fromtimestamp(now_ms / 1000, SINGAPORE)
+    midnight = moment.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(midnight.timestamp() * 1000)
+
+
+def next_singapore_reset_ms(now_ms: int) -> int:
+    start = datetime.fromtimestamp(singapore_day_start_ms(now_ms) / 1000, SINGAPORE)
+    return int((start + timedelta(days=1)).timestamp() * 1000)
+
+
+def daily_cap_for(setting: int | None) -> int | None:
+    """The daily cap to enforce: the ceiling, or a lower configured value; None when the
+    setting is not a micro-USD count within 0..ceiling (the caller refuses)."""
+
+    if setting is None:
+        return DAILY_CAP_CEILING_MICRO_USD
+    if type(setting) is not int or not 0 <= setting <= DAILY_CAP_CEILING_MICRO_USD:
+        return None
+    return setting
+
+
+@dataclass(frozen=True)
+class DailyStatus:
+    """Today's allowance (D-095), content-free. Times are epoch milliseconds."""
+
+    cap: int
+    settled_today: int
+    open_reserved: int
+    open_calls: int
+    day_started_at: int
+    next_reset_at: int
+
+    @property
+    def committed(self) -> int:
+        return self.settled_today + self.open_reserved
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.cap - self.committed)
+
+
+def _daily_committed(connection: sqlite3.Connection, day_start: int) -> tuple[int, int, int]:
+    """(closed charges reserved today, reservations of all open calls, open calls)."""
+
+    settled, reserved, open_calls = connection.execute(
+        "SELECT"
+        " COALESCE(SUM(CASE WHEN state != 'open' AND created_at >= ?"
+        " THEN charged_micro_usd END), 0),"
+        " COALESCE(SUM(CASE WHEN state = 'open' THEN reserved_micro_usd END), 0),"
+        " COALESCE(SUM(state = 'open'), 0)"
+        " FROM calls",
+        (day_start,),
+    ).fetchone()
+    return int(settled), int(reserved), int(open_calls)
 
 
 def _hex32() -> str:
@@ -546,6 +622,27 @@ class BudgetLedger:
         result: LedgerStatus = self._transaction(read)
         return result
 
+    def daily_status(self, daily_cap_micro_usd: int | None = None) -> DailyStatus:
+        """Today's allowance, read-only (an invalid configured cap reads as no allowance)."""
+
+        cap = daily_cap_for(daily_cap_micro_usd)
+
+        def read(connection: sqlite3.Connection) -> DailyStatus:
+            now = self._now()
+            start = singapore_day_start_ms(now)
+            settled, reserved, open_calls = _daily_committed(connection, start)
+            return DailyStatus(
+                cap=0 if cap is None else cap,
+                settled_today=settled,
+                open_reserved=reserved,
+                open_calls=open_calls,
+                day_started_at=start,
+                next_reset_at=next_singapore_reset_ms(now),
+            )
+
+        result: DailyStatus = self._transaction(read)
+        return result
+
     # -- calls --
 
     def _open_breaker(self, connection: sqlite3.Connection, code: str) -> None:
@@ -597,9 +694,15 @@ class BudgetLedger:
         endpoint_slug: str,
         max_in_flight: int,
         lease_seconds: float,
+        daily_cap_micro_usd: int | None = None,
     ) -> str:
-        """Admit one call atomically, or raise ``BudgetRefusedError`` with a closed outcome."""
+        """Admit one call atomically, or raise ``BudgetRefusedError`` with a closed outcome.
+        The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` may only lower
+        the ceiling; a value outside 0..ceiling refuses."""
 
+        daily_cap = daily_cap_for(daily_cap_micro_usd)
+        if daily_cap is None:
+            raise BudgetRefusedError("refused_daily_cap", reservation.micro_usd)
         if not ENDPOINT_SLUG.fullmatch(endpoint_slug) or reservation.micro_usd <= 0:
             raise BudgetRefusedError("refused_reservation")
 
@@ -621,6 +724,12 @@ class BudgetLedger:
                 refused = "refused_busy"
             elif committed + reservation.micro_usd > meta["cap_micro_usd"]:
                 refused = "refused_cap"
+            else:
+                settled, reserved, _ = _daily_committed(
+                    connection, singapore_day_start_ms(self._now())
+                )
+                if settled + reserved + reservation.micro_usd > daily_cap:
+                    refused = "refused_daily_cap"
             if refused is not None:
                 # Commit any abandonment above, then refuse.
                 return refused
@@ -905,11 +1014,13 @@ class BudgetedChatModel:
         *,
         max_in_flight: int,
         lease_seconds: float,
+        daily_cap_micro_usd: int | None = None,
     ) -> None:
         self._inner = inner
         self._ledger = ledger
         self._max_in_flight = max_in_flight
         self._lease_seconds = lease_seconds
+        self._daily_cap = daily_cap_micro_usd
 
     def __repr__(self) -> str:
         return f"BudgetedChatModel({self._inner!r})"
@@ -939,6 +1050,7 @@ class BudgetedChatModel:
             endpoint_slug=self.endpoint_slug,
             max_in_flight=self._max_in_flight,
             lease_seconds=self._lease_seconds,
+            daily_cap_micro_usd=self._daily_cap,
         )
         return reservation_id, reservation
 

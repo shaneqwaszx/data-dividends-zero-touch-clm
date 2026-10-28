@@ -1323,3 +1323,96 @@ is unchanged.
   November 2026.
 
 D-092 stays PROPOSED. Further paid runs still need T7 approval.
+
+## D-095 - AI Assistant development synthetic mode, OpenRouter key sources and a US$1.00 daily cap (OWNER-DIRECTED, local development scope only)
+
+Status: owner-directed on 2026-10-28 (the D-095 assignment and its API-key addendum). The
+owner then **accepted** the development direction for verified synthetic data on the owner's
+own development machine, and the V6 officer-line wording for current, grounded Mock ACRA
+officer records (no claim of regulatory verification or sponsor approval), and required V2's
+document provenance to use a backend-computed SHA-256 (owner review of PR #126, recorded
+below). Built on branch `claude/gracious-lovelace-bjvh2z`; not merged. It is recorded separately and
+does not repurpose D-094: without the new flag, D-094 behaves exactly as before and stays the
+known working fallback. D-091 (accepted, dormant A2 scope) and D-093 are unchanged except as
+listed in V8 and V9. **D-092 stays PROPOSED.** Not sponsor policy. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+
+**Why D-094 fell back with `SYNTHETIC_VALUE_NOT_APPROVED`.** D-094 admits one case and checks
+every client value against 19 values generated from the saved Garden fixtures
+(`synthetic_boundary.json`). A Garden case the owner creates in the app carries values the
+fixtures never held: a GoldTier id issued by the Mock GoldTier connector (`GT-MOCK-<id>`, the
+fixture has `GT-SYNTHETIC-0001`), IDP readings of an uploaded document that differ from the
+fixture text, typed observations and decisions. Each is refused as `SYNTHETIC_VALUE_NOT_APPROVED`.
+Other demo companies are refused earlier (`SYNTHETIC_CASE_NOT_APPROVED`), other documents by
+file name (`SYNTHETIC_DOCUMENT_NOT_APPROVED`) and most natural questions by the word list
+(`SYNTHETIC_TEXT_NOT_APPROVED`). Separately, director questions declined because the case facts
+carry only the status of the registry officer lookup (P11), so no allowed line could name a
+director. The provider and budget controls were not the cause.
+
+| # | Decision |
+| --- | --- |
+| V1 | **Flag.** Off unless `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` **and** every D-094 T1 condition holds (D-094 decision, D-091/D-092 interlocks, approved endpoint, loopback CLM backend, local `http` browser origins, owner attestations). Only then does the chat use `synthetic_eligibility.check` instead of the D-094 boundary. |
+| V2 | **Which cases may be sent externally (provenance, not value lists).** Only a case whose company `(UEN, legal name)` is in the generated manifest (`synthetic_eligibility.json`: the backend Mock ACRA connector's fixtures, asked through the connector, and the project's synthetic company packs), with registry details from ACRA in MOCK mode, and whose requested UEN and registry acquisition are for that company. A Mock flag, a name or a UEN alone is not enough. Every document on the case must be a verified synthetic fixture **by content**: the backend computes the SHA-256 of the uploaded bytes at upload, stores it on the document record (case snapshot schema 16) and serves it only on the case-scoped `GET /api/onboarding/cases/{case_id}/document-digests`; the assistant reads it with the RM's session and requires it to be the digest of a synthetic fixture file the repository tracks (`apps/backend/tests/fixtures/uat/**`, hashed into the manifest), with that file's media type and size. The digest list must name exactly the listed documents (id and version). An altered byte, another file under a fixture's name, a record stored before schema 16 (no digest), or an unreadable list fails closed (`SYNTHETIC_DOCUMENT_NOT_VERIFIED` / `SYNTHETIC_DOCUMENT_DIGEST_UNAVAILABLE`) before anything is sent; so does a document the summary names that is not one of the verified ones. The viewer must be a seeded POC user. (Revised at owner review: the first version compared name, type and size only.) |
+| V3 | **Values.** Values from the Mock registry record or a verified document's extraction are trusted by provenance, whatever they say. A value a person typed (case-creation input, a manual decision, a review entry) must equal a trusted value (`SYNTHETIC_VALUE_NOT_GROUNDED`). A GoldTier id must have the Mock GoldTier connector's form `GT-MOCK-...` or be the synthetic fixture id (`SYNTHETIC_TARGET_NOT_VERIFIED`). |
+| V4 | **What may be in the prompt.** The unchanged prompt builder's output for an eligible case (case facts, allowed lines, topic lines), unchanged repository guidance and the synthetic seed only (no app-authored knowledge), and the question and history. Every message holds only printable ASCII, line breaks, tabs and the D-094 typographic marks. The question and history may use any words but no e-mail address, NRIC/FIN- or UEN-shaped id, date, or run of five or more digits (also split by spaces, dashes, dots, slashes or brackets) unless the case already holds it (`SYNTHETIC_TEXT_NOT_APPROVED`). |
+| V5 | **Defence in depth.** A passing check gives the exact messages a single-use ticket (120 s). The remote model sends only messages holding a ticket while D-095 is on, or passing the D-094 text check (qualification, D-094 mode); a caller that skips the check sends nothing. |
+| V6 | **Directors (answer coverage; project-defined wording, pending owner acceptance).** Topic-only line per current officer: "The ACRA (`<env>`) record for this case lists `<name>` as an officer (role: `<ROLE>`)." Only when the case's own officer lookup is COMPLETE for its UEN, the acquisition is COMPLETE or PARTIAL without error, the record count matches, the lookup and every officer come from the company's own non-live ACRA source, the registry stage is READY, at most 10 officers, former officers left out. The officer records are selection-only facts (never shown to the model except inside the line, never grounding). No other answer-quality change; the exact-line guard, guardrails and fallbacks are unchanged. |
+| V7 | **Daily cap.** At most US$1.00 (`DAILY_CAP_CEILING_MICRO_USD`, integer micro-USD) of reserved plus settled remote spend per Asia/Singapore calendar day (UTC+8, no daylight saving), checked in the ledger's own `BEGIN IMMEDIATE` admission transaction, so across threads, processes and restarts. Today's spend = charges of closed calls reserved since the last Singapore midnight + reservations of **all** open calls. `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` may only lower it; an out-of-range value refuses every call. It covers qualification and chat, every credential and every activation; the preflight requires room for one large-prompt reservation. Midnight only moves the window: no row, total, reservation, event or audit record is erased, and reconciliation never resets it. No ledger schema change. The lifetime cap, reconciliation, breaker, anomaly checks, per-call verification and the key's own provider limit are unchanged and independent; the strictest applies. Nothing raises a cap or a provider limit, and auto top-up stays off (owner attestation). The daily cap is not a guarantee against provider overbilling; verification and the breaker contain it. |
+| V8 | **Key sources (addendum; amends D-091 X3 and the D-094 "process environment only" statement for this local scope).** `OPENROUTER_API_KEY` from the process environment, else the git-ignored `apps/assistant/.env` (only that line, never copied into the environment), else a key an HR administrator enters on AI Models. A source holding a malformed value is reported `invalid` and nothing falls through. The HR key is held in server memory only (no OS-backed store was added: it could not be implemented and tested reliably here; no homemade encryption, no plaintext storage) and must be re-entered after a restart; the stored activation then reverts to the baseline at start (`STARTUP_REVERTED`, `CREDENTIAL_MISSING`) and HR activates again. The qualification process receives an HR key only in its environment, never on its command line. Changing the key rebuilds the model and re-runs the full preflight (the new key's limit and usage against the ledger) before the next call; the daily cap is the ledger's, so a new key never resets it. |
+| V9 | **Key management (HR only).** `GET/PUT/DELETE /assistant/admin/models/credential` and `GET /assistant/admin/models/budget` under the D-093 `MODEL_CONFIG_MANAGE` checks, re-checked inside the change; RM, Client Onboarder and Director are refused (`403`, audited). A change needs an allowed Origin header (required, not only checked), JSON, a key shaped like an OpenRouter key, at most 5 attempts per administrator in 10 minutes, and no environment or `.env` key (those cannot be replaced or cleared). The key is never returned, logged, audited or shown; the page shows only source and status. |
+| V10 | **Notices.** Model answers in D-095 mode: "Answered by GPT-OSS 120B through OpenRouter (D-095 development mode, verified synthetic case)." Refusals: "GPT-OSS 120B through OpenRouter is used only on verified synthetic development cases, so this answer comes straight from the case data. Reason: `<code>`." |
+| V11 | **Qualification basis.** The answer-code basis adds `synthetic_eligibility.py/.json`, `key_sources.py` and `budget.py`, so earlier qualifications are out of date. The paid qualification is unchanged (the Phase B manifest under D-094 T2/T7). |
+
+Not decided here (left disabled): any non-synthetic, real customer or sponsor data; uploads
+that are not byte-identical tracked synthetic fixtures (synthetic documents generated on the
+fly must be added to the fixtures and the manifest regenerated); hosted, shared or production
+deployment; use by anyone but the owner on their own machine; another endpoint or model; a
+lifetime allocation above D-092 P3's US$1.00 over the ledger's opening usage (see the
+proposal below); names in UBO or ownership answers; and T7 approval for any paid call. Known
+limits: the text screen cannot recognise a person's name or details spelled out in words, so
+the owner must not type real customer details. The D-094 Garden fixture documents
+(`garden-business-01..03`) were never in the repository as files, so D-095 cannot verify them;
+D-094 mode is unchanged for them. Evidence from this mode is external evaluation on synthetic
+data, never Live CLM behaviour.
+
+**Owner review of PR #126 (2026-10-28).** The owner accepted the D-095 direction and the V6
+wording as above, kept the PR on hold for one required correction (V2 by backend-computed
+SHA-256, implemented as revised V2: domain field `DocumentProcessingRecord.content_sha256`,
+backend-only like the other excluded evidence (persisted, but in no `model_dump`, so older
+cases' evidence fingerprints and every browser projection are unchanged); case snapshot
+schema 15 to 16 with a strict schema-15 reader that rejects a digest key, reads older
+documents as digest-less, keeps every hidden field and never rewrites the stored envelope;
+the narrow case-scoped digests route; fixture hashes in the manifest), kept US$1.00 per Singapore day as the desired ceiling, and asked for a separate
+proposal for repeated US$1.00 days. No paid inference is authorised.
+
+**Proposal: repeated US$1.00 days (PROPOSED, not implemented; needs the owner's decision).**
+
+| # | Proposal |
+| --- | --- |
+| B1 | Keep the daily allowance (V7) as the working limit, and replace D-092 P3's fixed lifetime allocation (US$1.00 above the ledger's opening usage) with an owner-set **period allocation**: for example US$7.00 for a named seven-day test window, recorded in the decision log with its dates. The lifetime cap stays in the ledger and is raised only by the operator CLI's explicit `set-cap --raise --confirm-new-cap`, never by the service. |
+| B2 | The preflight's two allocation checks (`ledger.cap_within_allocation`, `key.limit_within_allocation`) take the approved period allocation as a setting that can only be lowered at run time, so a cap raise without a matching decision still fails closed. |
+| B3 | The OpenRouter key keeps a **non-resetting** limit set by the owner in the OpenRouter dashboard to at most the ledger cap plus one reservation (about US$0.021), so the provider stops spending if the ledger is ever wrong. Auto top-up stays off. |
+| B4 | Before each raise: no open calls, every call verified, `budget_ledger.py reconcile --provider-usage <dashboard usage>` after the settle lag, the breaker closed, and the dashboard key usage within US$0.05 of the ledger. A drift above that keeps the breaker open until the operator investigates. |
+| B5 | A ledger belongs to one key. A replacement key is first tried against the existing ledger (the preflight's usage check, then `reconcile`); if its usage cannot reconcile, the old key is revoked in the dashboard and a new ledger is initialised at the new key's current usage, keeping the old ledger file for history. So that this never restarts a day's allowance, the service would refuse a new ledger until the next Singapore day after the old ledger's last call (to be implemented and tested before use). |
+| B6 | AI Models keeps showing today's spend, lifetime headroom and the key limit; a weekly read of `budget_ledger.py status` and the dashboard is the operator's reconciliation routine. |
+
+## D-096 - AI Assistant HR spending controls on AI Models (OWNER-AUTHORISED, local development scope only)
+
+Status: owner-authorised on 2026-10-28 ("PR #126 — HR Budget Controls and Main Integration").
+GPT-OSS 120B was already qualified and activated on the owner's machine; the internal spending
+and call limits stopped further testing, and the owner asked for HR Admin → AI Models to
+manage them directly. Same scope as D-094/D-095: synthetic data, the owner's own development
+machine. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Not sponsor policy.
+D-092 stays PROPOSED; D-095 V7 and the D-095 B1–B6 proposal are amended only as stated in W3.
+
+| # | Decision |
+| --- | --- |
+| W1 | **Daily limit.** HR may set US$0.00 to US$1.00 per Singapore calendar day (integer micro-USD; the D-095 V7 ceiling stays the hard maximum). Until HR saves a value, `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` applies (default US$1.00); once saved, the HR value replaces it. It is stored in the model state database (`spending_controls`, one row, compare-and-set on its own revision, CHECK clauses repeating the bounds), read on every request by every service process (a request applies the values in force when it reserves its call) and when a qualification run starts, and enforced exactly as before: per reservation inside the ledger's `BEGIN IMMEDIATE` admission. Lowering it never resets spend: today's spend is still computed from the ledger's call rows. Unreadable controls fail closed (no daily allowance). |
+| W2 | **Calls per activation.** HR may set 1 to 200 (the existing setting range); until then `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` applies. It applies to the active model on its next request without a restart, new activation or requalification, and the activation's call count (ledger calls since activation or service start, open calls included) is never reset. The paid qualification keeps the environment value, so a low chat limit cannot break a run. |
+| W3 | **Lifetime cap through the application (amends D-095 B1's "never by the service").** HR may set the existing ledger's cap from its opening provider usage up to US$1.00 above it (the D-092 allocation that the preflight's `ledger.cap_within_allocation` check already enforces). A raise needs the same amount confirmed, HR capability re-checked inside the change lock, an allowed Origin, and the existing reconciliation checks against OpenRouter's reported key usage, run by the existing free preflight (public listing, GET `/key`, verification of earlier calls; no inference): breaker closed, no open call, usage accounted for (`check_ledger`); an incomplete check refuses. It uses the ledger's own confirmed `set_cap`, which records `cap_raised`/`cap_lowered`. The opening usage, every call, charge, reservation and earlier event are kept; no ledger is ever created or replaced; neither the key nor its OpenRouter limit is changed. Lowering needs no provider check. |
+| W4 | **Provider limits.** AI Models shows the key's remaining OpenRouter limit, the last read time and status, and offers a read-only "Refresh OpenRouter Limits" (the existing free preflight: public listing and GET `/key`, no inference, no case data). The available allowance shown is the strictest of today's allowance, the lifetime headroom and the key limit; calls used and remaining are shown beside it. |
+| W5 | **Routes and safeguards.** `PUT /assistant/admin/models/budget/controls`, `PUT /assistant/admin/models/budget/lifetime-cap`, `POST /assistant/admin/models/budget/provider-refresh` (each returns the spending view; `GET .../budget` and the overview carry the controls). HR-only (`MODEL_CONFIG_MANAGE`, re-checked), Origin required, at most 20 spending changes or refreshes per administrator in 10 minutes, every change and refusal audited (content-free; amounts as codes). The provider-side key limit, the US$1.00 daily ceiling, ledger integrity and atomic reservations, model verification and preflight, breaker and reconciliation, qualification and activation, the synthetic-data restrictions and SHA-256 document verification are unchanged. |
+| W6 | **Qualifications stay valid.** None of the qualification basis files (`model_qualification.BASIS_FILES`, including `budget.py`, `remote_test.py`, `remote_checks.py` and `synthetic_boundary.json`) is changed, so the basis hash is unchanged and an existing passing qualification and activation remain current. The controls are applied to the active remote model by model management (`model_admin.py`) in place. |
+
+Not decided here: any amount above US$1.00 a day or US$1.00 over the opening usage (D-095 B1–B6
+remain a proposal for that); changing the OpenRouter key's own limit; any non-synthetic data.

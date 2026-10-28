@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 15,
+  "case_envelope_schema_version": 16,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1196,3 +1196,42 @@ report-only commit. This section records only the D-094 delta. The structured
   - What the screen allows: only printable ASCII plus named typographic marks, words from
     the synthetic vocabulary, and at most three number groups across the user turns, never
     two side by side.
+
+## AI Assistant D-095 development synthetic mode, key sources and daily cap (branch, not merged) - 2026-10-28
+
+Branch `claude/gracious-lovelace-bjvh2z` from main `7119905`. This section records only the
+D-095 delta; nothing here is merged or Live.
+- **Decisions:** D-095 (owner-directed, local development scope only; DECISION_LOG). D-094 is
+  unchanged without the new flag and stays the fallback. D-091 X3 is amended for the key
+  sources (V8). D-092 is still PROPOSED. The owner accepted the D-095 direction and the V6
+  officer wording at the PR #126 review and required V2 document provenance by SHA-256.
+- **Behaviour:** off by default. With `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` on a ready
+  D-094 set-up, the existing chat may use GPT-OSS 120B on any verified synthetic development
+  case (approved Mock ACRA company, documents whose backend-computed SHA-256 is a tracked
+  synthetic fixture's, grounded typed values,
+  Mock GoldTier ids, seeded viewers, repository knowledge, no personal identifiers in the
+  question). The ledger enforces at most US$1.00 reserved plus settled per Singapore day for
+  every remote call. The OpenRouter key may come from the environment, the git-ignored `.env`
+  or HR (memory only). AI Models shows the key status (never the key) and the spending view.
+- **New owners:** `ai_assistant/synthetic_eligibility.py` (with its generated
+  `synthetic_eligibility.json` and `scripts/build_synthetic_eligibility.py`) and
+  `ai_assistant/key_sources.py`. Backend: `DocumentProcessingRecord.content_sha256` (computed
+  at upload), case snapshot schema 16 (strict schema-15 reader), and the case-scoped
+  `GET /api/onboarding/cases/{case_id}/document-digests` route.
+- **D-096 HR spending controls (same branch):** HR sets on AI Models the daily limit (US$0 to
+  US$1.00 per Singapore day), the calls per activation (1 to 200) and the existing ledger's
+  lifetime cap (opening usage up to US$1.00 above it; a raise needs confirmation and passing
+  reconciliation checks), and can refresh the OpenRouter key limit read-only. Stored in the
+  model state database (`spending_controls`, CAS), applied to the active model per request
+  without a restart, new activation or requalification; spend and call counts are never
+  reset. No qualification-basis file changed (basis hash unchanged), so existing
+  qualifications stay current.
+- **Open:** owner squash merge (agents do not merge); hosted CI is
+  `HOSTED_CI_NOT_EXECUTED - BILLING/INFRASTRUCTURE BLOCKED` on `c1d9069` (no runner assigned,
+  0 steps) and needs the owner's PR-specific manual-CI exception and a rerun after
+  1 November 2026; the owner's decision on the repeated-US$1.00-days proposal (DECISION_LOG
+  D-095 B1 to B6); **deferred verification risk (PR #126 only):** physical Mongo evidence for
+  schema 16 (suite `apps/backend/tests/test_document_digests_real_mongo.py`, owned by
+  `scripts/run_physical_mongo_tests.py`) is NOT RUN (no MongoDB in the cloud session); the
+  approved immediate use is local memory mode; run the suite before any Mongo-mode use; any
+  paid run needs T7 approval.

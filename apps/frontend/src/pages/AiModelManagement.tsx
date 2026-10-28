@@ -5,11 +5,17 @@ import {
   activateModel,
   AiAssistantError,
   cancelModelQualification,
+  clearModelCredential,
   fetchModelAudit,
   fetchModelOverview,
+  refreshProviderLimits,
   rollbackModel,
+  saveLifetimeCap,
+  saveModelCredential,
+  saveSpendingControls,
   startModelQualification,
   testModelConnection,
+  type ModelBudgetStatus,
   type ModelOverview,
   type ModelProfileView,
   type ModelQualification,
@@ -54,6 +60,14 @@ const REASON_TEXT: Record<string, string> = {
   REMOTE_SETTINGS_INVALID: "The remote model's reasoning settings are not valid on the server.",
   REMOTE_MANIFEST_MISSING: "The paid qualification's question list and count are not configured on the server.",
   LEDGER_UNAVAILABLE: "The spending ledger is missing or unhealthy.",
+  // D-095 spending view.
+  DAILY_ALLOWANCE_EXHAUSTED: "Today's allowance (Singapore day) has no room for another call.",
+  DAILY_CAP_INVALID: "The daily cap setting is not valid, so no call is allowed.",
+  LIFETIME_CAP_EXHAUSTED: "The lifetime ledger cap has no room for another call.",
+  PROVIDER_LIMIT_EXHAUSTED: "The OpenRouter key's own limit has no room for another call.",
+  PROVIDER_LIMIT_NOT_CHECKED: "The OpenRouter key's limit has not been checked yet. Run Test connection.",
+  PROVIDER_CHECK_FAILED: "The last OpenRouter key check failed. Run Test connection.",
+  CREDENTIAL_INVALID: "The configured OpenRouter API key is not valid.",
 };
 
 // "GATES_FAILED:G-6,G-7" from a failed qualification: the gate ids keep their own spelling.
@@ -83,6 +97,213 @@ function value(item: unknown): string {
   if (typeof item === "number") return Number.isInteger(item) ? item.toLocaleString() : item.toFixed(3);
   if (typeof item === "object") return Object.entries(item as Record<string, unknown>).map(([key, entry]) => `${readable(key)}: ${value(entry)}`).join(" · ");
   return String(item);
+}
+
+const usd = (amount: string | null | undefined) => (amount ? `US$${amount}` : "—");
+
+const CREDENTIAL_SOURCE: Record<string, string> = {
+  environment: "Set on the server in the process environment (OPENROUTER_API_KEY). Managed outside this page.",
+  env_file: "Set on the server in apps/assistant/.env. Managed outside this page.",
+  hr_memory: "Entered on this page. Kept in the AI Assistant's memory only: enter it again after the service restarts.",
+  none: "No key is set on the server.",
+};
+
+// Whole micro-USD from a US$ amount typed by HR ("0.25" -> 250000); null when not a plain amount.
+export function toMicroUsd(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d{1,4}(\.\d{1,6})?$/.test(trimmed)) return null;
+  const [whole, fraction = ""] = trimmed.split(".");
+  return Number(whole) * 1_000_000 + Number(fraction.padEnd(6, "0"));
+}
+
+const dollars = (micro: number) => (micro / 1_000_000).toFixed(2);
+const exactDollars = (micro: number) => (micro / 1_000_000).toFixed(6);
+// A stored amount as an input value, exact (never rounded), so saving it unchanged keeps it.
+export const amountText = (micro: number) =>
+  micro % 10_000 === 0 ? dollars(micro) : exactDollars(micro).replace(/0+$/, "");
+
+function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus; busy: boolean; onChanged: () => void }) {
+  const daily = budget.daily;
+  const controls = budget.controls;
+  const lifetime = controls?.lifetime ?? null;
+  const dailySeed = () => amountText(controls?.daily_cap_micro_usd ?? budget.daily_cap_micro_usd);
+  const callsSeed = () => String(controls?.max_calls ?? "");
+  const capSeed = () => (lifetime ? amountText(lifetime.cap_micro_usd) : "");
+  const [dailyText, setDailyText] = useState(dailySeed);
+  const [callsText, setCallsText] = useState(callsSeed);
+  const [capText, setCapText] = useState(capSeed);
+  // The revision and cap the inputs were filled from. When the stored values change (another
+  // administrator, another tab), the inputs are refilled, so a save never sends values read
+  // under an older revision with the newer one (which would bypass the server's check).
+  const [formRevision, setFormRevision] = useState(controls?.revision ?? null);
+  const [formCap, setFormCap] = useState(lifetime?.cap_micro_usd ?? null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  if ((controls?.revision ?? null) !== formRevision) {
+    setFormRevision(controls?.revision ?? null);
+    setDailyText(dailySeed());
+    setCallsText(callsSeed());
+  }
+  if ((lifetime?.cap_micro_usd ?? null) !== formCap) {
+    setFormCap(lifetime?.cap_micro_usd ?? null);
+    setCapText(capSeed());
+    setConfirmed(false);
+  }
+
+  const dailyMicro = toMicroUsd(dailyText);
+  const calls = /^\d{1,3}$/.test(callsText.trim()) ? Number(callsText.trim()) : null;
+  const [lowCalls, highCalls] = controls?.max_calls_range ?? [1, 200];
+  const controlsValid = dailyMicro !== null && dailyMicro <= (controls?.daily_cap_max_micro_usd ?? 1_000_000)
+    && calls !== null && calls >= lowCalls && calls <= highCalls;
+  const capMicro = toMicroUsd(capText);
+  const capValid = lifetime !== null && capMicro !== null
+    && capMicro >= lifetime.opening_usage_micro_usd && capMicro <= lifetime.max_cap_micro_usd;
+  const raising = capValid && lifetime !== null && capMicro! > lifetime.cap_micro_usd;
+  const disabled = pending || busy;
+
+  async function run(action: () => Promise<unknown>, done: string): Promise<void> {
+    setPending(true);
+    setMessage(null);
+    try {
+      await action();
+      setMessage({ kind: "ok", text: done });
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setConfirmed(false);
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  return (
+    <section className="card" aria-labelledby="spending-heading">
+      <h2 id="spending-heading">OpenRouter daily spending limit, lifetime limit and calls</h2>
+      <p className="ds-banner ds-banner-warn" role="note">
+        At most {usd(dollars(budget.daily_cap_micro_usd))} of reserved plus settled OpenRouter spending per Singapore calendar day ({budget.timezone}), for qualification and chat together. The lowest of this allowance, the lifetime ledger limit and the key's own OpenRouter limit applies. It does not rule out unexpected provider billing; a mismatch stops further calls.
+      </p>
+      <dl className="acra-detail-list">
+        <div><dt>Settled today</dt><dd>{usd(daily?.settled_today_usd)}</dd></div>
+        <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : "—"}</dd></div>
+        <div><dt>Remaining today</dt><dd>{usd(daily?.remaining_usd)}</dd></div>
+        <div><dt>Lifetime headroom</dt><dd>{usd(budget.ledger?.headroom_usd)}</dd></div>
+        <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
+        <div><dt>Available now</dt><dd><strong>{usd(budget.effective_remaining_usd)}</strong> (the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit)</dd></div>
+        {controls && <div><dt>Calls this activation</dt><dd>{controls.calls_used === null ? `GPT-OSS is not the active model (limit ${controls.max_calls} per activation)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls} (counted since activation or the service's last start)`}</dd></div>}
+        <div><dt>Next daily reset</dt><dd>{formatTimestamp(budget.next_reset_at)} (midnight, Singapore)</dd></div>
+        <div><dt>Status</dt><dd>{budget.ledger?.breaker_open ? `Stopped: ${readable(budget.ledger.breaker_code)} (an operator must reconcile)` : budget.refusal ? readable(budget.refusal) : "Calls allowed"}</dd></div>
+      </dl>
+      <button type="button" className="btn btn-secondary" disabled={disabled}
+        onClick={() => void run(refreshProviderLimits, "OpenRouter limits refreshed.")}>Refresh OpenRouter Limits</button>
+      <p className="control-help">Reads the key's limit only (no model call, no case data). The API key and its OpenRouter limit are never shown or changed here.</p>
+
+      {controls && (
+        <form aria-label="Daily and call limits" onSubmit={(event) => {
+          event.preventDefault();
+          if (!controlsValid || formRevision === null) return;
+          const revision = formRevision;
+          void run(() => saveSpendingControls(revision, dailyMicro!, calls!), "Limits saved. They apply to the active model now.");
+        }}>
+          <h3>Daily and call limits</h3>
+          <p className="control-help">
+            {controls.daily_cap_source === "hr" || controls.max_calls_source === "hr"
+              ? `Set by ${controls.changed_by ?? "HR"}${controls.changed_at ? ` ${formatTimestamp(controls.changed_at)}` : ""}.`
+              : "Not set here yet: the server's defaults apply."}
+            {" "}Lowering a limit never resets today's spending or the activation's call count.
+          </p>
+          <label className="control-help" htmlFor="daily-limit-input">Daily limit (US$0.00 to US${dollars(controls.daily_cap_max_micro_usd)})</label>{" "}
+          <input id="daily-limit-input" inputMode="decimal" value={dailyText} onChange={(event) => setDailyText(event.target.value)} disabled={disabled} />{" "}
+          <label className="control-help" htmlFor="call-limit-input">Calls per activation ({lowCalls} to {highCalls})</label>{" "}
+          <input id="call-limit-input" inputMode="numeric" value={callsText} onChange={(event) => setCallsText(event.target.value)} disabled={disabled} />{" "}
+          <button type="submit" className="btn btn-primary" disabled={disabled || !controlsValid || !controls.readable}>Save Limits</button>
+          {!controlsValid && <p className="control-help" role="status">Enter a daily limit from US$0.00 to US${dollars(controls.daily_cap_max_micro_usd)} and {lowCalls} to {highCalls} calls.</p>}
+        </form>
+      )}
+
+      {lifetime && (
+        <form aria-label="Lifetime limit" onSubmit={(event) => {
+          event.preventDefault();
+          if (!capValid || (raising && !confirmed)) return;
+          const cap = capMicro!;
+          void run(() => saveLifetimeCap(cap, raising ? cap : null), "Lifetime limit updated.");
+        }}>
+          <h3>Lifetime limit (ledger)</h3>
+          <p className="control-help">
+            The key's usage when the ledger was created: {usd(exactDollars(lifetime.opening_usage_micro_usd))}. Current limit {usd(exactDollars(lifetime.cap_micro_usd))}; committed {usd(exactDollars(lifetime.committed_micro_usd))}. It may be set from the opening usage up to {usd(exactDollars(lifetime.max_cap_micro_usd))} (US$1.00 above it). The ledger keeps every charge and is never replaced.
+          </p>
+          <label className="control-help" htmlFor="lifetime-limit-input">New lifetime limit (US$)</label>{" "}
+          <input id="lifetime-limit-input" inputMode="decimal" value={capText} onChange={(event) => { setCapText(event.target.value); setConfirmed(false); }} disabled={disabled} />{" "}
+          {raising && (
+            <label className="control-help">
+              <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={disabled} />
+              {" "}I confirm raising the lifetime limit to {usd(exactDollars(capMicro!))}. The server first checks the ledger against OpenRouter's reported usage.
+            </label>
+          )}{" "}
+          <button type="submit" className="btn btn-primary" disabled={disabled || !capValid || capMicro === lifetime.cap_micro_usd || (raising && !confirmed)}>Update Lifetime Limit</button>
+          {!capValid && <p className="control-help" role="status">Enter an amount from {usd(exactDollars(lifetime.opening_usage_micro_usd))} to {usd(exactDollars(lifetime.max_cap_micro_usd))}.</p>}
+        </form>
+      )}
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
+    </section>
+  );
+}
+
+function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
+  budget: ModelBudgetStatus;
+  remoteProfileId: string | null;
+  busy: boolean;
+  onChanged: () => void;
+}) {
+  // The key lives only in this input until it is sent; it is never stored in the browser.
+  const [key, setKey] = useState("");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const credential = budget.credential;
+  const label = credential.status === "configured" ? "Configured" : credential.status === "invalid" ? "Invalid" : "Not Configured";
+
+  async function run(action: () => Promise<unknown>, done: string): Promise<void> {
+    setPending(true);
+    setMessage(null);
+    try {
+      await action();
+      setMessage({ kind: "ok", text: done });
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setKey("");
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  return (
+    <section className="card" aria-labelledby="openrouter-key-heading">
+      <h2 id="openrouter-key-heading">OpenRouter API Key — {label}</h2>
+      <p>
+        <span className={`tag ${credential.status === "configured" ? "tag-accent" : "tag-warn"}`} role="status">{label}</span>{" "}
+        {CREDENTIAL_SOURCE[credential.source]}
+        {credential.source === "hr_memory" && credential.set_by && <> Entered by {credential.set_by}.</>}
+      </p>
+      {credential.hr_editable && (
+        <form onSubmit={(event) => { event.preventDefault(); const value = key; void run(() => saveModelCredential(value), "Key saved on the server."); }}>
+          <label className="control-help" htmlFor="openrouter-key-input">API key</label>{" "}
+          <input id="openrouter-key-input" type="password" autoComplete="off" spellCheck={false} value={key}
+            onChange={(event) => setKey(event.target.value)} disabled={pending || busy} />{" "}
+          <button type="submit" className="btn btn-primary" disabled={pending || busy || !key}>Save Key</button>{" "}
+          {credential.source === "hr_memory" && (
+            <button type="button" className="btn btn-secondary" disabled={pending || busy}
+              onClick={() => void run(clearModelCredential, "Key cleared.")}>Clear Key</button>
+          )}
+        </form>
+      )}
+      {remoteProfileId && (
+        <button type="button" className="btn btn-secondary" disabled={pending || busy || credential.status !== "configured"}
+          onClick={() => void run(() => testModelConnection(remoteProfileId), "Connection test finished; see the model table.")}>Test Connection</button>
+      )}
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
+    </section>
+  );
 }
 
 function QualificationDetail({ qualification }: { qualification: ModelQualification }) {
@@ -232,12 +453,23 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
         </section>
       )}
 
+      {overview?.budget?.configured && (
+        <>
+          <OpenRouterKey budget={overview.budget} busy={busy}
+            remoteProfileId={overview.profiles.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
+            onChanged={refresh} />
+          <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
+        </>
+      )}
+
       {confirming && overview && (
         <section className="card" role="dialog" aria-labelledby="confirm-heading">
           <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
-            <p className="ds-banner ds-banner-warn">This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing.</p>
+            <p className="ds-banner ds-banner-warn">{overview.budget?.mode === "D-095"
+              ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. At most US$1.00 per Singapore day."
+              : "This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing."}</p>
           )}
           {confirming.profileId !== "env_default" && unscored && (
             <label className="control-help">
@@ -272,7 +504,9 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
                   return (
                     <tr key={item.profile_id}>
                       <td><strong>{item.display_name}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
-                        {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">External API (D-094): answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls.</small></>}</td>
+                        {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">{overview.budget?.mode === "D-095"
+                          ? "External API (D-095): answers only on verified synthetic development cases; every other case gets the case-data answer. At most US$1.00 per Singapore day. Test connection is a free preflight; qualification makes paid calls."
+                          : "External API (D-094): answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls."}</small></>}</td>
                       <td>{readable(item.deployment)}</td>
                       <td>{item.endpoint ?? "Not shown"}</td>
                       <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>
