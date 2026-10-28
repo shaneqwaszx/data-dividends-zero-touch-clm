@@ -148,6 +148,15 @@ const SAFE_ERROR_MESSAGES = new Set([
   "There is no key entered here to clear.",
   "Too many key changes. Wait a few minutes and try again.",
   "This change must come from the AI Models page.",
+  // D-096: HR spending controls (apps/assistant/ai_assistant/model_admin.py).
+  "The daily limit must be US$0.00 to US$1.00 and the call limit 1 to 200. Nothing changed.",
+  "The spending limits changed since this view. Refresh and try again.",
+  "Too many spending changes. Wait a few minutes and try again.",
+  "The spending ledger is missing or not usable. Nothing changed.",
+  "The lifetime limit must stay between the key's opening usage and US$1.00 above it.",
+  "Confirm the new lifetime limit to raise it. Nothing changed.",
+  "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed.",
+  "The OpenRouter key could not be checked. Nothing changed.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -683,6 +692,31 @@ export interface ModelBudgetStatus {
   effective_remaining_usd: string;
   reservation_micro_usd?: number | null;
   refusal: string | null;
+  /** D-096: the HR spending controls that apply (absent from older servers). */
+  controls?: ModelSpendingControls;
+}
+
+/** D-096: HR spending controls. "environment" means HR has not set the value yet. */
+export interface ModelSpendingControls {
+  revision: number | null;
+  readable: boolean;
+  daily_cap_micro_usd: number;
+  daily_cap_max_micro_usd: number;
+  daily_cap_source: "hr" | "environment";
+  max_calls: number;
+  max_calls_range: [number, number];
+  max_calls_source: "hr" | "environment";
+  /** Calls the active remote model made since its activation or the service's start. */
+  calls_used: number | null;
+  calls_remaining: number | null;
+  changed_at: string | null;
+  changed_by: string | null;
+  lifetime: {
+    opening_usage_micro_usd: number;
+    cap_micro_usd: number;
+    max_cap_micro_usd: number;
+    committed_micro_usd: number;
+  } | null;
 }
 
 export interface ModelAuditEvent {
@@ -729,3 +763,19 @@ export const saveModelCredential = (apiKey: string) =>
   request<ModelCredentialStatus>("/admin/models/credential", { api_key: apiKey }, undefined, "PUT");
 export const clearModelCredential = () =>
   request<ModelCredentialStatus>("/admin/models/credential", undefined, undefined, "DELETE");
+// D-096: HR spending controls. Amounts are whole micro-USD; the server checks every bound.
+export const saveSpendingControls = (expectedRevision: number, dailyCapMicroUsd: number, maxCalls: number) =>
+  request<ModelBudgetStatus>("/admin/models/budget/controls", {
+    expected_revision: expectedRevision,
+    daily_cap_micro_usd: dailyCapMicroUsd,
+    max_calls: maxCalls,
+  }, undefined, "PUT");
+// A raise sends the same amount again as the HR confirmation; a decrease needs none.
+export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null) =>
+  request<ModelBudgetStatus>("/admin/models/budget/lifetime-cap", {
+    cap_micro_usd: capMicroUsd,
+    confirm_cap_micro_usd: confirmCapMicroUsd,
+  }, undefined, "PUT");
+// Read-only: the free preflight reads the key's OpenRouter limit; nothing is changed.
+export const refreshProviderLimits = () =>
+  request<ModelBudgetStatus>("/admin/models/budget/provider-refresh", {});

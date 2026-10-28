@@ -253,11 +253,16 @@ reconcile with `scripts/budget_ledger.py` first.
 
 | Limit | Where | Notes |
 | --- | --- | --- |
-| Daily allowance | the ledger, checked on every call | At most US$1.00 reserved plus settled per Asia/Singapore calendar day, for qualification and chat together. `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` (default 1000000) may only lower it. Resets at Singapore midnight without erasing anything. |
-| Lifetime cap | the ledger (`scripts/budget_ledger.py`) | Unchanged. The preflight still allows at most US$1.00 above the ledger's opening usage (D-092 P3). |
-| Key limit | OpenRouter | Unchanged: a non-resetting limit with at most US$1.00 plus one reservation remaining. |
+| Daily allowance | the ledger, checked on every call | At most US$1.00 reserved plus settled per Asia/Singapore calendar day, for qualification and chat together. HR sets it on AI Models (US$0.00 to US$1.00, D-096); until then `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` (default 1000000) applies. Resets at Singapore midnight without erasing anything; lowering it never resets today's spend. |
+| Calls per activation | the active model, counted from the ledger | HR sets 1 to 200 on AI Models (D-096); until then `AI_ASSISTANT_LOCAL_API_TEST_MAX_CALLS` (default 20). Counted from activation or service start; a change applies at once and never resets the count. The paid qualification keeps the environment value. |
+| Lifetime cap | the ledger | HR may set it on AI Models from the ledger's opening usage up to US$1.00 above it (D-092 P3, D-096 W3); a raise needs the amount confirmed and passing reconciliation checks against OpenRouter's reported usage. `scripts/budget_ledger.py set-cap` still works for the operator. |
+| Key limit | OpenRouter | Unchanged and never changed by the CLM: a non-resetting limit with at most US$1.00 plus one reservation remaining. AI Models can re-read it ("Refresh OpenRouter Limits"). |
 
 The strictest applies. AI Models shows today's settled spend, in-flight reservations, today's
-remaining allowance, lifetime headroom, the key limit as last checked, the next reset and why
-calls are refused. `scripts/budget_ledger.py status` shows the same daily figures. Nothing
-raises a cap or a key limit automatically, and auto top-up must stay off.
+remaining allowance, lifetime headroom, the key limit as last checked, the available allowance
+(the strictest of the three), calls used and remaining, the next reset and why calls are
+refused. HR changes are stored in the model state database (shared by every service process),
+audited and applied without a restart, a new activation or a new qualification (the
+qualification basis does not include them). `scripts/budget_ledger.py status` shows the
+environment daily figure, not an HR value. Nothing raises a cap or a key limit automatically,
+and auto top-up must stay off.

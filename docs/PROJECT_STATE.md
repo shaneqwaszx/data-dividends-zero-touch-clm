@@ -1218,8 +1218,20 @@ D-095 delta; nothing here is merged or Live.
   `ai_assistant/key_sources.py`. Backend: `DocumentProcessingRecord.content_sha256` (computed
   at upload), case snapshot schema 16 (strict schema-15 reader), and the case-scoped
   `GET /api/onboarding/cases/{case_id}/document-digests` route.
-- **Open:** owner merge; hosted CI after 1 November 2026; the owner's decision on the
-  repeated-US$1.00-days proposal (DECISION_LOG D-095 B1 to B6); physical Mongo evidence for
+- **D-096 HR spending controls (same branch):** HR sets on AI Models the daily limit (US$0 to
+  US$1.00 per Singapore day), the calls per activation (1 to 200) and the existing ledger's
+  lifetime cap (opening usage up to US$1.00 above it; a raise needs confirmation and passing
+  reconciliation checks), and can refresh the OpenRouter key limit read-only. Stored in the
+  model state database (`spending_controls`, CAS), applied to the active model per request
+  without a restart, new activation or requalification; spend and call counts are never
+  reset. No qualification-basis file changed (basis hash unchanged), so existing
+  qualifications stay current.
+- **Open:** owner squash merge (agents do not merge); hosted CI is
+  `HOSTED_CI_NOT_EXECUTED - BILLING/INFRASTRUCTURE BLOCKED` on `c1d9069` (no runner assigned,
+  0 steps) and needs the owner's PR-specific manual-CI exception and a rerun after
+  1 November 2026; the owner's decision on the repeated-US$1.00-days proposal (DECISION_LOG
+  D-095 B1 to B6); **deferred verification risk (PR #126 only):** physical Mongo evidence for
   schema 16 (suite `apps/backend/tests/test_document_digests_real_mongo.py`, owned by
-  `scripts/run_physical_mongo_tests.py`; NOT RUN here, no MongoDB available); any paid run
-  needs T7 approval.
+  `scripts/run_physical_mongo_tests.py`) is NOT RUN (no MongoDB in the cloud session); the
+  approved immediate use is local memory mode; run the suite before any Mongo-mode use; any
+  paid run needs T7 approval.

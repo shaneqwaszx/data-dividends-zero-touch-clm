@@ -14,6 +14,11 @@ Only one qualification may run at a time across every process sharing the databa
 holds the ``running`` row and refreshes its heartbeat; a run whose heartbeat is older than
 ``STALE_SECONDS`` is closed as an error before another may start. The service refreshes the
 heartbeat while it supervises the process; the process refreshes it between steps.
+
+HR spending controls (D-096): the remote model's daily allowance and its call limit per
+activation, as an HR administrator set them. One row, changed only by compare-and-set on its
+own revision; until it exists the environment settings apply. Its CHECKs repeat the
+hard bounds (at most US$1.00 a Singapore day, 1 to 200 calls), so no writer can store more.
 """
 
 import json
@@ -25,6 +30,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from .config import AiAssistantSettings
 
 MAX_EVENTS = 5000
 MAX_REFUSED_EVENTS = 1000
@@ -87,9 +94,21 @@ CREATE TABLE IF NOT EXISTS connection_tests (
     code TEXT,
     summary TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS spending_controls (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    daily_cap_micro_usd INTEGER NOT NULL
+        CHECK (daily_cap_micro_usd BETWEEN 0 AND 1000000),
+    max_calls INTEGER NOT NULL CHECK (max_calls BETWEEN 1 AND 200),
+    changed_at TEXT NOT NULL,
+    changed_by TEXT NOT NULL
+);
 """
 
 QUALIFICATION_STATES = frozenset({"running", "passed", "failed", "cancelled", "error"})
+# The hard bounds of the HR spending controls (the table's CHECKs say the same).
+DAILY_CAP_MAX_MICRO_USD = 1_000_000
+MAX_CALLS_RANGE = (1, 200)
 
 
 class RevisionConflict(Exception):
@@ -117,6 +136,43 @@ class Activation:
     last_good_prompt_limit: int | None
     changed_at: str | None
     changed_by: str | None
+
+
+@dataclass(frozen=True)
+class SpendingControls:
+    """The HR spending controls as stored (revision 0: never set, the environment applies)."""
+
+    revision: int
+    daily_cap_micro_usd: int | None
+    max_calls: int | None
+    changed_at: str | None
+    changed_by: str | None
+
+
+def valid_controls(daily_cap_micro_usd: object, max_calls: object) -> bool:
+    low, high = MAX_CALLS_RANGE
+    return (
+        type(daily_cap_micro_usd) is int
+        and 0 <= daily_cap_micro_usd <= DAILY_CAP_MAX_MICRO_USD
+        and type(max_calls) is int
+        and low <= max_calls <= high
+    )
+
+
+def apply_controls(
+    settings: AiAssistantSettings, controls: SpendingControls | None, *, calls: bool = True
+) -> AiAssistantSettings:
+    """The settings with the HR spending controls in place of the environment defaults.
+    ``None`` (the controls could not be read) fails closed: no daily allowance."""
+
+    if controls is None:
+        return settings.model_copy(update={"budget_daily_cap_micro_usd": 0})
+    update: dict[str, int] = {}
+    if controls.daily_cap_micro_usd is not None:
+        update["budget_daily_cap_micro_usd"] = controls.daily_cap_micro_usd
+    if calls and controls.max_calls is not None:
+        update["local_api_test_max_calls"] = controls.max_calls
+    return settings.model_copy(update=update) if update else settings
 
 
 @dataclass(frozen=True)
@@ -224,6 +280,49 @@ class ModelAdminStore:
                     " last_good_prompt_limit = ?, changed_at = ?, changed_by = ?"
                     " WHERE id = 1 AND revision = ?",
                     (*values, expected_revision),
+                )
+        return expected_revision + 1
+
+    # --- HR spending controls (D-096) -------------------------------------------------------
+
+    def spending_controls(self) -> SpendingControls:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM spending_controls WHERE id = 1").fetchone()
+        if row is None:
+            return SpendingControls(0, None, None, None, None)
+        return SpendingControls(
+            revision=int(row["revision"]),
+            daily_cap_micro_usd=int(row["daily_cap_micro_usd"]),
+            max_calls=int(row["max_calls"]),
+            changed_at=row["changed_at"],
+            changed_by=row["changed_by"],
+        )
+
+    def set_spending_controls(
+        self, expected_revision: int, daily_cap_micro_usd: int, max_calls: int, by: str
+    ) -> int:
+        """Store both controls only if the revision is still ``expected_revision`` (0 when
+        never set). Returns the new revision. Nothing else (spend, calls) is touched."""
+
+        if not valid_controls(daily_cap_micro_usd, max_calls):
+            raise ValueError("spending controls out of range")
+        with self._write() as db:
+            row = db.execute("SELECT revision FROM spending_controls WHERE id = 1").fetchone()
+            current = int(row["revision"]) if row else 0
+            if current != expected_revision:
+                raise RevisionConflict
+            if row is None:
+                db.execute(
+                    "INSERT INTO spending_controls (id, revision, daily_cap_micro_usd, max_calls,"
+                    " changed_at, changed_by) VALUES (1, 1, ?, ?, ?, ?)",
+                    (daily_cap_micro_usd, max_calls, now(), by),
+                )
+            else:
+                db.execute(
+                    "UPDATE spending_controls SET revision = revision + 1,"
+                    " daily_cap_micro_usd = ?, max_calls = ?, changed_at = ?, changed_by = ?"
+                    " WHERE id = 1 AND revision = ?",
+                    (daily_cap_micro_usd, max_calls, now(), by, expected_revision),
                 )
         return expected_revision + 1
 

@@ -14,6 +14,9 @@ qualification, activation, rollback and an audit history.
                                GET  /assistant/admin/models/credential      (D-095 addendum)
                                PUT  /assistant/admin/models/credential
                                DELETE /assistant/admin/models/credential
+                               PUT  /assistant/admin/models/budget/controls     (D-096)
+                               PUT  /assistant/admin/models/budget/lifetime-cap
+                               POST /assistant/admin/models/budget/provider-refresh
 
 Who is asking, and whether they hold ``MODEL_CONFIG_MANAGE``, always comes from the CLM
 backend with the caller's own session; activation and rollback ask again inside the lock
@@ -22,6 +25,15 @@ an answer record, and the browser can only name a profile id, except that an HR
 administrator may hand the server an OpenRouter key when no environment or .env key exists
 (key_sources.py): it is kept in server memory only and never sent back, logged or audited;
 changing it needs the Origin header of an allowed page and is rate limited.
+
+D-096: an HR administrator also sets the remote model's spending controls here: the daily
+allowance (at most US$1.00 per Singapore day) and the calls per activation (1 to 200), stored
+in the model state database (compare-and-set, every process reads them per request, applied to
+the active model without a restart or a new activation, its call count kept); the ledger's
+lifetime cap, from the key's opening provider usage up to US$1.00 above it (a raise needs the
+amount confirmed and the existing reconciliation checks against OpenRouter's reported usage);
+and a read-only refresh of the key's OpenRouter limit. Spend, calls and ledger history are
+never reset, no ledger is created, and neither the key nor its OpenRouter limit is changed.
 
 Switching is atomic: each answer takes one snapshot of the active model when it starts and
 keeps it to the end, and the choice is a compare-and-set on the stored revision, which every
@@ -47,18 +59,24 @@ from typing import Annotated, Any
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
 
 from . import key_sources
+from .budget import BudgetedChatModel, BudgetLedger, LedgerError
 from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
-from .llm import ChatModel, OpenAICompatibleChatModel
+from .llm import ChatModel, OpenAICompatibleChatModel, micro_usd
 from .model_admin_store import (
+    DAILY_CAP_MAX_MICRO_USD,
+    MAX_CALLS_RANGE,
     Activation,
     Choice,
     ModelAdminStore,
     QualificationBusy,
     RevisionConflict,
+    SpendingControls,
+    apply_controls,
+    valid_controls,
 )
 from .model_catalog import (
     BASELINE_ID,
@@ -74,11 +92,14 @@ from .model_catalog import (
 from .model_factory import ASSISTANT_DIR
 from .model_profiles import ProfileConfigError
 from .model_qualification import connection_test, qualification_basis, quality_state
+from .remote_checks import ALLOCATION_LIMIT_USD
 from .remote_test import (
     RemoteTestModel,
     budget_status,
     connection_check,
     forget_provider,
+    ledger_file,
+    preflight,
     qualification_manifest,
 )
 
@@ -99,6 +120,13 @@ DEADLINE_GRACE_SECONDS = 60.0
 CREDENTIAL_ATTEMPTS = 5
 CREDENTIAL_WINDOW_SECONDS = 600.0
 MAX_CREDENTIAL_BODY = 1024
+# HR spending changes and provider-limit refreshes (D-096), per administrator in the window.
+BUDGET_ATTEMPTS = 20
+# The lifetime cap may be set from the ledger's opening provider usage up to this much above
+# it (the D-092 allocation the preflight's ledger.cap_within_allocation check also enforces).
+LIFETIME_ALLOCATION_MICRO_USD = micro_usd(ALLOCATION_LIMIT_USD)
+# Reconciliation checks a lifetime cap increase needs (remote_checks.check_ledger).
+CAP_RAISE_CHECKS = ("ledger.breaker_closed_no_open_calls", "ledger.usage_reconciled")
 
 # Fixed messages only (the browser shows these and nothing else from a refusal).
 MESSAGES = {
@@ -129,6 +157,22 @@ MESSAGES = {
     "CREDENTIAL_NOT_HR_MANAGED": "There is no key entered here to clear.",
     "CREDENTIAL_RATE_LIMITED": "Too many key changes. Wait a few minutes and try again.",
     "ORIGIN_REQUIRED": "This change must come from the AI Models page.",
+    # D-096: HR spending controls.
+    "CONTROLS_INVALID": (
+        "The daily limit must be US$0.00 to US$1.00 and the call limit 1 to 200. Nothing changed."
+    ),
+    "CONTROLS_CONFLICT": "The spending limits changed since this view. Refresh and try again.",
+    "BUDGET_RATE_LIMITED": "Too many spending changes. Wait a few minutes and try again.",
+    "LEDGER_UNAVAILABLE": "The spending ledger is missing or not usable. Nothing changed.",
+    "CAP_OUT_OF_RANGE": (
+        "The lifetime limit must stay between the key's opening usage and US$1.00 above it."
+    ),
+    "CAP_CONFIRMATION_REQUIRED": "Confirm the new lifetime limit to raise it. Nothing changed.",
+    "RECONCILIATION_REQUIRED": (
+        "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted"
+        " for) before the lifetime limit can be raised. Nothing changed."
+    ),
+    "PROVIDER_CHECK_FAILED": "The OpenRouter key could not be checked. Nothing changed.",
 }
 
 
@@ -184,6 +228,9 @@ class ModelSelector:
         self._lock = threading.Lock()
         # Serialises administrator changes in this process (the store's CAS covers others).
         self.change_lock = threading.Lock()
+        # Which HR spending controls (model object, revision) the active model runs with.
+        self._controls_lock = threading.Lock()
+        self._controls_applied: tuple[int, int] | None = None
         self._active = self._baseline(0)
         if store is not None:
             self._active = replace(self._active, revision=-1)
@@ -232,8 +279,14 @@ class ModelSelector:
         )
 
     def current(self) -> Active:
-        """The active model for one request (read once, used for the whole answer)."""
+        """The active model for one request (read once, used for the whole answer), with the
+        HR spending controls that apply now (another process may have changed them)."""
 
+        active = self._current()
+        self.sync_controls(active)
+        return active
+
+    def _current(self) -> Active:
         if self.store is None:
             return self._active
         try:
@@ -251,6 +304,65 @@ class ModelSelector:
                 # Never fail an answer on model state: keep the model already in use.
                 log.error("model state could not be reloaded; keeping the current model")
             return self._active
+
+    # --- HR spending controls (D-096) -------------------------------------------------------
+
+    def spending_controls(self) -> SpendingControls | None:
+        """The stored controls (revision 0 when never set), or None when unreadable."""
+
+        if self.store is None:
+            return SpendingControls(0, None, None, None, None)
+        try:
+            return self.store.spending_controls()
+        except Exception:
+            log.error("spending controls unavailable; no daily allowance until they are")
+            return None
+
+    def controlled(self) -> AiAssistantSettings:
+        """The settings the remote model runs with: HR values in place of the environment
+        defaults; unreadable controls fail closed (no daily allowance)."""
+
+        return apply_controls(self.settings, self.spending_controls())
+
+    def sync_controls(self, active: Active | None = None) -> None:
+        """Put the current HR controls into the active remote model in place, so a change
+        applies without a restart or a new activation and its call count is kept.
+
+        remote_test.py is part of the qualification basis (changing it would make every
+        earlier qualification out of date), so this module sets the model's settings and its
+        budget guard's daily cap; both are read under the model's own lock or per reservation.
+        The daily cap is still enforced by the ledger inside its admission transaction."""
+
+        model = (active or self._active).model
+        if not isinstance(model, RemoteTestModel):
+            return
+        # Read inside the lock that applies them, so a late reader can never put an older
+        # revision back over a newer one.
+        with self._controls_lock:
+            controls = self.spending_controls()
+            key = (id(model), controls.revision if controls is not None else -1)
+            if self._controls_applied == key and controls is not None:
+                return
+            settings = apply_controls(self.settings, controls)
+            with model._lock:  # noqa: SLF001 - see the docstring
+                model._settings = settings  # noqa: SLF001
+                inner = model._inner  # noqa: SLF001
+                if isinstance(inner, BudgetedChatModel):
+                    inner._daily_cap = settings.budget_daily_cap_micro_usd  # noqa: SLF001
+            self._controls_applied = key
+
+    def calls_used(self) -> int | None:
+        """Calls the active remote model made since its activation or this service's start
+        (open calls included), as its own call limit counts them; None when it is not active.
+        Read-only: the ledger is checked, never recovered or changed."""
+
+        model = self._active.model
+        if not isinstance(model, RemoteTestModel):
+            return None
+        ledger = BudgetLedger(model._ledger_file)  # noqa: SLF001 - see sync_controls
+        ledger.verify()
+        start = model._start_call  # noqa: SLF001
+        return len(ledger.closed_calls_after(start)) + ledger.status().open_calls
 
     def _restore(self) -> Active:
         assert self.store is not None
@@ -317,7 +429,7 @@ class ModelSelector:
         if entry.source == "code":
             # D-094: the remote model, gated per call and per case (remote_test.py).
             try:
-                remote = RemoteTestModel(self.settings, **self.remote_options())
+                remote = RemoteTestModel(self.controlled(), **self.remote_options())
             except ProfileConfigError as exc:
                 return None, exc.code
             return (
@@ -427,6 +539,24 @@ class ChangeRequest(BaseModel):
 
     expected_revision: int = Field(ge=0)
     acknowledge_quality_unscored: bool = False
+
+
+class SpendingControlsRequest(BaseModel):
+    """Both controls at once; bounds are checked by the route (a fixed refusal message)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: StrictInt = Field(ge=0)
+    daily_cap_micro_usd: StrictInt
+    max_calls: StrictInt
+
+
+class LifetimeCapRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cap_micro_usd: StrictInt
+    # A raise needs the same amount again (the HR confirmation step).
+    confirm_cap_micro_usd: StrictInt | None = None
 
 
 def model_admin_router(
@@ -640,9 +770,7 @@ def model_admin_router(
             },
             "profiles": profiles,
             # D-095: the remote profile's spending view and key status (never the key).
-            "budget": budget_status(settings, environ=selector.environ)
-            if settings.local_api_test_decision
-            else None,
+            "budget": budget_view() if settings.local_api_test_decision else None,
         }
 
     @router.get("")
@@ -661,7 +789,7 @@ def model_admin_router(
         entry = entry_for(load_catalogue(settings), profile_id, profile, "CONNECTION_TEST")
         if entry.source == "code":
             # D-094 remote model: its preflight (no inference, no case data).
-            result = connection_check(settings, **selector.remote_options())
+            result = connection_check(selector.controlled(), **selector.remote_options())
         else:
             model = adapter_for(entry, profile, "CONNECTION_TEST")
             result = anyio.run(connection_test, model, model.name)
@@ -877,7 +1005,7 @@ def model_admin_router(
                 if unscored and not body.acknowledge_quality_unscored:
                     raise refuse("ACKNOWLEDGEMENT_REQUIRED")
                 probe = (
-                    connection_check(settings, **selector.remote_options())
+                    connection_check(selector.controlled(), **selector.remote_options())
                     if entry.source == "code"
                     else anyio.run(
                         connection_test, adapter_for(entry, profile, action), entry.model_id or ""
@@ -980,7 +1108,7 @@ def model_admin_router(
 
     @router.get("/budget")
     def get_budget(profile: Admin) -> dict[str, Any]:
-        return budget_status(settings, environ=selector.environ)
+        return budget_view()
 
     def credential_view() -> dict[str, Any]:
         return key_sources.resolve(selector.environ)[1].view()
@@ -1058,5 +1186,199 @@ def model_admin_router(
         forget_provider()
         audit(profile, action, "applied")
         return credential_view()
+
+    # --- D-096: HR spending controls, the lifetime ledger cap and provider limits -----------
+
+    def budget_view() -> dict[str, Any]:
+        """The D-095 spending view with the HR controls that apply, the calls the active model
+        has left, and the range the lifetime cap may be set within. Read-only."""
+
+        controls = selector.spending_controls()
+        effective = apply_controls(settings, controls)
+        view = budget_status(effective, environ=selector.environ)
+        try:
+            used = selector.calls_used()
+        except LedgerError:
+            used = None
+        limit = effective.local_api_test_max_calls
+        lifetime = None
+        try:
+            ledger = BudgetLedger(ledger_file(settings))
+            ledger.verify()
+            status = ledger.status()
+            lifetime = {
+                "opening_usage_micro_usd": status.opening_usage,
+                "cap_micro_usd": status.cap,
+                "max_cap_micro_usd": status.opening_usage + LIFETIME_ALLOCATION_MICRO_USD,
+                "committed_micro_usd": status.committed,
+            }
+        except LedgerError:
+            pass
+        view["controls"] = {
+            "revision": controls.revision if controls is not None else None,
+            "readable": controls is not None,
+            "daily_cap_micro_usd": effective.budget_daily_cap_micro_usd,
+            "daily_cap_max_micro_usd": DAILY_CAP_MAX_MICRO_USD,
+            "daily_cap_source": "hr"
+            if controls is not None and controls.daily_cap_micro_usd is not None
+            else "environment",
+            "max_calls": limit,
+            "max_calls_range": list(MAX_CALLS_RANGE),
+            "max_calls_source": "hr"
+            if controls is not None and controls.max_calls is not None
+            else "environment",
+            "calls_used": used,
+            "calls_remaining": None if used is None else max(limit - used, 0),
+            "changed_at": controls.changed_at if controls is not None else None,
+            "changed_by": controls.changed_by if controls is not None else None,
+            "lifetime": lifetime,
+        }
+        return view
+
+    budget_attempts: dict[str, list[float]] = {}
+
+    def guard_budget(request: Request, profile: dict[str, Any], action: str) -> None:
+        """Like a key change: the Origin header of an allowed page is required, and each
+        administrator has a bounded number of spending changes and refreshes per window."""
+
+        if not request.headers.get("origin"):
+            audit(profile, action, "refused", code="ORIGIN_REQUIRED")
+            raise _refusal(403, "ORIGIN_REQUIRED")
+        now = time.monotonic()
+        user = str(profile.get("user_id"))
+        with attempts_lock:
+            recent = [
+                at for at in budget_attempts.get(user, []) if now - at < CREDENTIAL_WINDOW_SECONDS
+            ]
+            limited = len(recent) >= BUDGET_ATTEMPTS
+            if not limited:
+                recent.append(now)
+            budget_attempts[user] = recent
+        if limited:
+            audit(profile, action, "refused", code="BUDGET_RATE_LIMITED")
+            raise _refusal(429, "BUDGET_RATE_LIMITED")
+
+    @router.put("/budget/controls")
+    def put_spending_controls(
+        body: SpendingControlsRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """The daily allowance (US$0 to US$1.00 per Singapore day) and the calls per
+        activation (1 to 200). Spend and the activation's call count are never reset."""
+
+        action = "SPENDING_CONTROLS_CHANGED"
+        guard_budget(request, profile, action)
+        store = managed()
+        if not valid_controls(body.daily_cap_micro_usd, body.max_calls):
+            audit(profile, action, "refused", code="CONTROLS_INVALID")
+            raise _refusal(400, "CONTROLS_INVALID")
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                revision = store.set_spending_controls(
+                    body.expected_revision,
+                    body.daily_cap_micro_usd,
+                    body.max_calls,
+                    str(profile.get("user_id")),
+                )
+            except RevisionConflict:
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _refusal(409, "CONTROLS_CONFLICT") from None
+            audit(
+                profile,
+                action,
+                "applied",
+                code=f"DAILY_{body.daily_cap_micro_usd}_MICRO_USD_CALLS_{body.max_calls}",
+                revision=revision,
+            )
+        selector.sync_controls()
+        return budget_view()
+
+    def reconciliation_failures() -> list[str] | None:
+        """The existing reconciliation checks (``remote_checks.check_ledger`` inside the free
+        preflight: GET /key against the ledger; no inference, nothing changed). The failed
+        checks, or None when OpenRouter or the ledger could not be checked at all."""
+
+        report, _, _ = preflight(selector.controlled(), **selector.remote_options())
+        found = {check.name: check.ok for check in report.checks}
+        if any(name not in found for name in CAP_RAISE_CHECKS):
+            return None
+        return [name for name in CAP_RAISE_CHECKS if not found[name]]
+
+    @router.put("/budget/lifetime-cap")
+    def put_lifetime_cap(
+        body: LifetimeCapRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Set the ledger's lifetime cap between its opening provider usage and the US$1.00
+        allocation above it. A raise needs the same amount confirmed and passing
+        reconciliation checks; the ledger keeps every call, charge and earlier event."""
+
+        action = "LIFETIME_CAP_CHANGED"
+        guard_budget(request, profile, action)
+        managed()  # a change is made only where it can be audited
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                ledger = BudgetLedger.open(ledger_file(settings))
+                status = ledger.status()
+            except LedgerError:
+                audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
+                raise _refusal(409, "LEDGER_UNAVAILABLE") from None
+            cap = body.cap_micro_usd
+            if not (
+                status.opening_usage <= cap <= status.opening_usage + LIFETIME_ALLOCATION_MICRO_USD
+            ):
+                audit(profile, action, "refused", code="CAP_OUT_OF_RANGE")
+                raise _refusal(409, "CAP_OUT_OF_RANGE")
+            raising = cap > status.cap
+            if raising:
+                if body.confirm_cap_micro_usd != cap:
+                    audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
+                    raise _refusal(400, "CAP_CONFIRMATION_REQUIRED")
+                try:
+                    failed = reconciliation_failures()
+                except (ProfileConfigError, LedgerError):
+                    failed = None
+                if failed is None:
+                    audit(profile, action, "refused", code="PROVIDER_CHECK_FAILED")
+                    raise _refusal(409, "PROVIDER_CHECK_FAILED")
+                if failed:
+                    audit(
+                        profile,
+                        action,
+                        "refused",
+                        code="RECONCILIATION_REQUIRED:" + ",".join(failed),
+                    )
+                    raise _refusal(409, "RECONCILIATION_REQUIRED")
+            if cap != status.cap:
+                try:
+                    ledger.set_cap(cap, allow_raise=raising, confirm=cap if raising else None)
+                except LedgerError:
+                    audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
+                    raise _refusal(409, "LEDGER_UNAVAILABLE") from None
+                audit(
+                    profile,
+                    action,
+                    "applied",
+                    code=f"{'RAISED' if raising else 'LOWERED'}_TO_{cap}_MICRO_USD",
+                )
+        return budget_view()
+
+    @router.post("/budget/provider-refresh")
+    def post_provider_refresh(profile: Admin, request: Request) -> dict[str, Any]:
+        """Read the OpenRouter key's limit again (the free preflight: no inference, no case
+        data; the key and its provider-side limit are never changed)."""
+
+        action = "PROVIDER_LIMITS_REFRESHED"
+        guard_budget(request, profile, action)
+        managed()  # audited like every other spending action
+        report, _, _ = preflight(selector.controlled(), **selector.remote_options())
+        failed = [check.name for check in report.checks if not check.ok]
+        audit(
+            profile,
+            action,
+            "passed" if report.passed else "failed",
+            code=None if report.passed else "PREFLIGHT_FAILED:" + ",".join(failed),
+        )
+        return budget_view()
 
     return router

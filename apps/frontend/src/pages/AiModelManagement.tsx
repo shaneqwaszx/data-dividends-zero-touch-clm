@@ -8,8 +8,11 @@ import {
   clearModelCredential,
   fetchModelAudit,
   fetchModelOverview,
+  refreshProviderLimits,
   rollbackModel,
+  saveLifetimeCap,
   saveModelCredential,
+  saveSpendingControls,
   startModelQualification,
   testModelConnection,
   type ModelBudgetStatus,
@@ -105,13 +108,80 @@ const CREDENTIAL_SOURCE: Record<string, string> = {
   none: "No key is set on the server.",
 };
 
-function SpendingLimits({ budget }: { budget: ModelBudgetStatus }) {
+// Whole micro-USD from a US$ amount typed by HR ("0.25" -> 250000); null when not a plain amount.
+export function toMicroUsd(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d{1,4}(\.\d{1,6})?$/.test(trimmed)) return null;
+  const [whole, fraction = ""] = trimmed.split(".");
+  return Number(whole) * 1_000_000 + Number(fraction.padEnd(6, "0"));
+}
+
+const dollars = (micro: number) => (micro / 1_000_000).toFixed(2);
+const exactDollars = (micro: number) => (micro / 1_000_000).toFixed(6);
+// A stored amount as an input value, exact (never rounded), so saving it unchanged keeps it.
+export const amountText = (micro: number) =>
+  micro % 10_000 === 0 ? dollars(micro) : exactDollars(micro).replace(/0+$/, "");
+
+function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus; busy: boolean; onChanged: () => void }) {
   const daily = budget.daily;
+  const controls = budget.controls;
+  const lifetime = controls?.lifetime ?? null;
+  const dailySeed = () => amountText(controls?.daily_cap_micro_usd ?? budget.daily_cap_micro_usd);
+  const callsSeed = () => String(controls?.max_calls ?? "");
+  const capSeed = () => (lifetime ? amountText(lifetime.cap_micro_usd) : "");
+  const [dailyText, setDailyText] = useState(dailySeed);
+  const [callsText, setCallsText] = useState(callsSeed);
+  const [capText, setCapText] = useState(capSeed);
+  // The revision and cap the inputs were filled from. When the stored values change (another
+  // administrator, another tab), the inputs are refilled, so a save never sends values read
+  // under an older revision with the newer one (which would bypass the server's check).
+  const [formRevision, setFormRevision] = useState(controls?.revision ?? null);
+  const [formCap, setFormCap] = useState(lifetime?.cap_micro_usd ?? null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  if ((controls?.revision ?? null) !== formRevision) {
+    setFormRevision(controls?.revision ?? null);
+    setDailyText(dailySeed());
+    setCallsText(callsSeed());
+  }
+  if ((lifetime?.cap_micro_usd ?? null) !== formCap) {
+    setFormCap(lifetime?.cap_micro_usd ?? null);
+    setCapText(capSeed());
+    setConfirmed(false);
+  }
+
+  const dailyMicro = toMicroUsd(dailyText);
+  const calls = /^\d{1,3}$/.test(callsText.trim()) ? Number(callsText.trim()) : null;
+  const [lowCalls, highCalls] = controls?.max_calls_range ?? [1, 200];
+  const controlsValid = dailyMicro !== null && dailyMicro <= (controls?.daily_cap_max_micro_usd ?? 1_000_000)
+    && calls !== null && calls >= lowCalls && calls <= highCalls;
+  const capMicro = toMicroUsd(capText);
+  const capValid = lifetime !== null && capMicro !== null
+    && capMicro >= lifetime.opening_usage_micro_usd && capMicro <= lifetime.max_cap_micro_usd;
+  const raising = capValid && lifetime !== null && capMicro! > lifetime.cap_micro_usd;
+  const disabled = pending || busy;
+
+  async function run(action: () => Promise<unknown>, done: string): Promise<void> {
+    setPending(true);
+    setMessage(null);
+    try {
+      await action();
+      setMessage({ kind: "ok", text: done });
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setConfirmed(false);
+      setPending(false);
+      onChanged();
+    }
+  }
+
   return (
     <section className="card" aria-labelledby="spending-heading">
-      <h2 id="spending-heading">OpenRouter daily spending limit</h2>
+      <h2 id="spending-heading">OpenRouter daily spending limit, lifetime limit and calls</h2>
       <p className="ds-banner ds-banner-warn" role="note">
-        At most {usd((budget.daily_cap_micro_usd / 1_000_000).toFixed(2))} of reserved plus settled OpenRouter spending per Singapore calendar day ({budget.timezone}), for qualification and chat together. The lowest of this allowance, the lifetime ledger cap and the key's own OpenRouter limit applies. It does not rule out unexpected provider billing; a mismatch stops further calls.
+        At most {usd(dollars(budget.daily_cap_micro_usd))} of reserved plus settled OpenRouter spending per Singapore calendar day ({budget.timezone}), for qualification and chat together. The lowest of this allowance, the lifetime ledger limit and the key's own OpenRouter limit applies. It does not rule out unexpected provider billing; a mismatch stops further calls.
       </p>
       <dl className="acra-detail-list">
         <div><dt>Settled today</dt><dd>{usd(daily?.settled_today_usd)}</dd></div>
@@ -119,10 +189,62 @@ function SpendingLimits({ budget }: { budget: ModelBudgetStatus }) {
         <div><dt>Remaining today</dt><dd>{usd(daily?.remaining_usd)}</dd></div>
         <div><dt>Lifetime headroom</dt><dd>{usd(budget.ledger?.headroom_usd)}</dd></div>
         <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
-        <div><dt>Available now</dt><dd>{usd(budget.effective_remaining_usd)}</dd></div>
+        <div><dt>Available now</dt><dd><strong>{usd(budget.effective_remaining_usd)}</strong> (the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit)</dd></div>
+        {controls && <div><dt>Calls this activation</dt><dd>{controls.calls_used === null ? `GPT-OSS is not the active model (limit ${controls.max_calls} per activation)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls} (counted since activation or the service's last start)`}</dd></div>}
         <div><dt>Next daily reset</dt><dd>{formatTimestamp(budget.next_reset_at)} (midnight, Singapore)</dd></div>
         <div><dt>Status</dt><dd>{budget.ledger?.breaker_open ? `Stopped: ${readable(budget.ledger.breaker_code)} (an operator must reconcile)` : budget.refusal ? readable(budget.refusal) : "Calls allowed"}</dd></div>
       </dl>
+      <button type="button" className="btn btn-secondary" disabled={disabled}
+        onClick={() => void run(refreshProviderLimits, "OpenRouter limits refreshed.")}>Refresh OpenRouter Limits</button>
+      <p className="control-help">Reads the key's limit only (no model call, no case data). The API key and its OpenRouter limit are never shown or changed here.</p>
+
+      {controls && (
+        <form aria-label="Daily and call limits" onSubmit={(event) => {
+          event.preventDefault();
+          if (!controlsValid || formRevision === null) return;
+          const revision = formRevision;
+          void run(() => saveSpendingControls(revision, dailyMicro!, calls!), "Limits saved. They apply to the active model now.");
+        }}>
+          <h3>Daily and call limits</h3>
+          <p className="control-help">
+            {controls.daily_cap_source === "hr" || controls.max_calls_source === "hr"
+              ? `Set by ${controls.changed_by ?? "HR"}${controls.changed_at ? ` ${formatTimestamp(controls.changed_at)}` : ""}.`
+              : "Not set here yet: the server's defaults apply."}
+            {" "}Lowering a limit never resets today's spending or the activation's call count.
+          </p>
+          <label className="control-help" htmlFor="daily-limit-input">Daily limit (US$0.00 to US${dollars(controls.daily_cap_max_micro_usd)})</label>{" "}
+          <input id="daily-limit-input" inputMode="decimal" value={dailyText} onChange={(event) => setDailyText(event.target.value)} disabled={disabled} />{" "}
+          <label className="control-help" htmlFor="call-limit-input">Calls per activation ({lowCalls} to {highCalls})</label>{" "}
+          <input id="call-limit-input" inputMode="numeric" value={callsText} onChange={(event) => setCallsText(event.target.value)} disabled={disabled} />{" "}
+          <button type="submit" className="btn btn-primary" disabled={disabled || !controlsValid || !controls.readable}>Save Limits</button>
+          {!controlsValid && <p className="control-help" role="status">Enter a daily limit from US$0.00 to US${dollars(controls.daily_cap_max_micro_usd)} and {lowCalls} to {highCalls} calls.</p>}
+        </form>
+      )}
+
+      {lifetime && (
+        <form aria-label="Lifetime limit" onSubmit={(event) => {
+          event.preventDefault();
+          if (!capValid || (raising && !confirmed)) return;
+          const cap = capMicro!;
+          void run(() => saveLifetimeCap(cap, raising ? cap : null), "Lifetime limit updated.");
+        }}>
+          <h3>Lifetime limit (ledger)</h3>
+          <p className="control-help">
+            The key's usage when the ledger was created: {usd(exactDollars(lifetime.opening_usage_micro_usd))}. Current limit {usd(exactDollars(lifetime.cap_micro_usd))}; committed {usd(exactDollars(lifetime.committed_micro_usd))}. It may be set from the opening usage up to {usd(exactDollars(lifetime.max_cap_micro_usd))} (US$1.00 above it). The ledger keeps every charge and is never replaced.
+          </p>
+          <label className="control-help" htmlFor="lifetime-limit-input">New lifetime limit (US$)</label>{" "}
+          <input id="lifetime-limit-input" inputMode="decimal" value={capText} onChange={(event) => { setCapText(event.target.value); setConfirmed(false); }} disabled={disabled} />{" "}
+          {raising && (
+            <label className="control-help">
+              <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={disabled} />
+              {" "}I confirm raising the lifetime limit to {usd(exactDollars(capMicro!))}. The server first checks the ledger against OpenRouter's reported usage.
+            </label>
+          )}{" "}
+          <button type="submit" className="btn btn-primary" disabled={disabled || !capValid || capMicro === lifetime.cap_micro_usd || (raising && !confirmed)}>Update Lifetime Limit</button>
+          {!capValid && <p className="control-help" role="status">Enter an amount from {usd(exactDollars(lifetime.opening_usage_micro_usd))} to {usd(exactDollars(lifetime.max_cap_micro_usd))}.</p>}
+        </form>
+      )}
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
     </section>
   );
 }
@@ -336,7 +458,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           <OpenRouterKey budget={overview.budget} busy={busy}
             remoteProfileId={overview.profiles.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
             onChanged={refresh} />
-          <SpendingLimits budget={overview.budget} />
+          <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
         </>
       )}
 

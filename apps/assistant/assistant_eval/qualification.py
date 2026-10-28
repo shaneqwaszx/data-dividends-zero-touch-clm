@@ -23,7 +23,7 @@ import anyio
 
 from ai_assistant.config import AiAssistantSettings
 from ai_assistant.llm import ChatModel, OpenAICompatibleChatModel
-from ai_assistant.model_admin_store import ModelAdminStore
+from ai_assistant.model_admin_store import ModelAdminStore, apply_controls
 from ai_assistant.model_catalog import (
     BASELINE_ID,
     build_baseline_adapter,
@@ -454,7 +454,10 @@ def run_job(
         store.finish_qualification(qualification_id, "error", "CONFIG_MISMATCH", None)
         return
     if entry.source == "code":
-        _run_remote(store, qualification_id, item, settings, environ, transport, basis, fetch)
+        # D-096: the HR daily allowance applies to the paid qualification too (its own call
+        # count stays the environment's, so a low chat call limit cannot break a run).
+        remote = apply_controls(settings, store.spending_controls(), calls=False)
+        _run_remote(store, qualification_id, item, remote, environ, transport, basis, fetch)
         return
     try:
         model = (
