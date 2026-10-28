@@ -1128,10 +1128,13 @@ conflicts. Not merged to main; this section records only the candidate's delta.
   scored; any model activated through management must be re-qualified after a later change
   to the answer code.
 
-## AI Assistant D-094 local synthetic test mode - unmerged candidate, 2026-10-27
+## AI Assistant D-094 local synthetic test mode merged - 2026-10-28
 
-Branch `feat/assistant-openrouter-local-test-20261027`, from main `c36b8af`. Not merged; this
-section records only the candidate's delta.
+Merged to main `9a0dcd5f1af78214e987e38aab3b62f92a0cf168` by the repository owner
+(`shaneqwaszx`) on 2026-10-28. PR #123 was squash-merged with a single parent, `c36b8af`. Its
+tree, `57f59a2`, equals the reviewed head `0f6e081`: product commit `71e4654` plus a
+report-only commit. This section records only the D-094 delta. The structured
+`verified_main_sha` baseline above is unchanged (`8fb5a43`).
 - **Decisions:** D-094 (owner-authorised, local development scope only). D-091 and D-093 are
   unchanged apart from D-094 T3. D-092 is still PROPOSED.
 - **Behaviour:** off by default. With D-094 configured on a loopback development set-up, HR
@@ -1144,11 +1147,45 @@ section records only the candidate's delta.
 - **New owners:** `ai_assistant/remote_test.py`, `ai_assistant/synthetic_boundary.py` (with
   its generated `synthetic_boundary.json` and `scripts/build_synthetic_boundary.py`), and
   `ai_assistant/remote_checks.py`, which moved unchanged from the harness.
-- **Evidence:** offline tests only (mock OpenRouter, fake public listing, synthetic ledger,
-  fake CLM backend). No paid call has been made.
-- **Open:** owner approval of the first paid manifest, maximum calls and cap. A typed
-  question is screened against accidental entry, not deliberate encoding, so it cannot be
-  proven synthetic. A name made of ordinary English words, or numbers spelled out as words,
-  would pass, and the number cap is per request. The screen allows only printable ASCII plus named typographic marks, uses the
-  synthetic vocabulary, and allows at most three number groups across the user turns, never
-  two side by side.
+- **Offline evidence:**
+  - Tests used a mock OpenRouter, a fake public listing, a synthetic ledger and a fake CLM
+    backend.
+  - The full assistant suite ran 2,442 tests. 14 failed, all Windows `Errno 24`. The same 14
+    test IDs also fail on main `c36b8af`, and they pass in isolation.
+  - Frontend: 1,123 tests passed.
+  - A real-stack browser E2E ran with a mocked OpenRouter.
+  - Independent Quality Gates R1, R2 and R4 failed and R3 passed with minor fixes; each
+    was remediated, and R5 passed. The pre-PR check passed.
+- **Paid smoke test (owner-approved, 2026-10-28, head `0f6e081`):**
+  - Set-up: the real assistant, the backend in memory mode with ACRA MOCK, the Vite
+    frontend, and real OpenRouter `openai/gpt-oss-120b` on `deepinfra/bf16`.
+  - HR's connection test passed, and the qualification `P01#1,P02#0` passed G-1 to G-8,
+    with G-8 showing 2/2 calls verified. HR then activated the model.
+  - On a fresh GARDEN BUSINESS case, all four RM questions were answered by the model with
+    the D-094 notice. The directors question received the decline "I can't answer that from
+    this case's data."
+  - A negative control ("Is Tan Ah Kow a director?") was refused with
+    `SYNTHETIC_TEXT_NOT_APPROVED` and sent nothing.
+  - Rollback returned to the local `ministral-3:8b`.
+  - There were 6 calls (ledger rows 29 to 34). All were settled and verified for provider
+    (DeepInfra), model and cost, US$0.001076 in total.
+  - The ledger's committed spend is now US$0.006960, against a cap lowered to US$0.105884.
+  - This is synthetic external evaluation on the owner's machine, never Live CLM behaviour.
+    No provider classification in the metadata changes.
+- **CI:** hosted CI was `HOSTED_CI_NOT_EXECUTED - BILLING/INFRASTRUCTURE BLOCKED`: push run
+  40609162932 and `pull_request` run 40609235296, each 9 jobs with 0 steps. The owner
+  accepted a temporary exception for this PR. Hosted CI is to be rerun once billing access
+  returns after 1 November 2026.
+- **Open:**
+  - Rerun hosted CI.
+  - The six optional advisories from the Quality Gates: R5-A1, R4-A1, R4-A2, R4-A3, R3-A1
+    and R2-5.
+  - Find out why the directors question declined.
+  - The owner's decision on D-092 (still PROPOSED).
+- **Known limit:** a typed question is screened against accidental entry, not deliberate
+  encoding, so it cannot be proven synthetic.
+  - What gets through: a name made of ordinary English words, numbers spelled out as words,
+    and number groups spread over several requests (the cap is per request).
+  - What the screen allows: only printable ASCII plus named typographic marks, words from
+    the synthetic vocabulary, and at most three number groups across the user turns, never
+    two side by side.
