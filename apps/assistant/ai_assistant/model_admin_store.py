@@ -24,7 +24,8 @@ accounts for any paid call it had open.
 HR spending controls (D-096): the remote model's daily allowance and its call limit per
 activation, as an HR administrator set them. One row, changed only by compare-and-set on its
 own revision; until it exists the environment settings apply. Its CHECKs repeat the
-hard bounds (at most US$1.00 a Singapore day, 1 to 200 calls), so no writer can store more.
+hard bounds (1 to 200 calls; D-098: the daily allowance has no US$1 ceiling, only the
+ledger's technical bound), so no writer can store more.
 """
 
 import json
@@ -102,20 +103,26 @@ CREATE TABLE IF NOT EXISTS connection_tests (
     code TEXT,
     summary TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS spending_controls (
+"""
+# D-098: no US$1 daily ceiling; the bound is the ledger's technical MAX_MICRO_USD (10**12).
+_SPENDING_CONTROLS = """
+CREATE TABLE IF NOT EXISTS {name} (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     revision INTEGER NOT NULL CHECK (revision >= 1),
     daily_cap_micro_usd INTEGER NOT NULL
-        CHECK (daily_cap_micro_usd BETWEEN 0 AND 1000000),
+        CHECK (daily_cap_micro_usd BETWEEN 0 AND 1000000000000),
     max_calls INTEGER NOT NULL CHECK (max_calls BETWEEN 1 AND 200),
     changed_at TEXT NOT NULL,
     changed_by TEXT NOT NULL
 );
 """
+# The D-096 table's daily CHECK, which an existing database still has until it is upgraded.
+_D096_DAILY_CHECK = "BETWEEN 0 AND 1000000)"
 
 QUALIFICATION_STATES = frozenset({"running", "passed", "failed", "cancelled", "error"})
-# The hard bounds of the HR spending controls (the table's CHECKs say the same).
-DAILY_CAP_MAX_MICRO_USD = 1_000_000
+# The hard bounds of the HR spending controls (the table's CHECKs say the same). D-098: the
+# daily bound is only technical (budget.MAX_MICRO_USD); US$1.00 is the default, not a ceiling.
+DAILY_CAP_MAX_MICRO_USD = 10**12
 MAX_CALLS_RANGE = (1, 200)
 
 
@@ -198,17 +205,32 @@ class ModelAdminStore:
         self._path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
-            db.executescript(_SCHEMA)
+            db.executescript(_SCHEMA + _SPENDING_CONTROLS.format(name="spending_controls"))
         self._upgrade()
 
     def _upgrade(self) -> None:
-        """D-098 additions to a database an earlier version made (each applied once, in one
-        transaction, keeping every row): the supervisor stamp on qualifications."""
+        """D-098 changes to a database an earlier version made (each applied once, in one
+        transaction, keeping every row): the supervisor stamp on qualifications, and the
+        spending controls table without the US$1 daily CHECK (SQLite cannot alter a CHECK,
+        so the one row is copied as it is into the new table, then the old one is dropped)."""
 
         with self._write() as db:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(qualifications)")}
             if "supervised_at" not in columns:
                 db.execute("ALTER TABLE qualifications ADD COLUMN supervised_at TEXT")
+            row = db.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'spending_controls'"
+            ).fetchone()
+            if row is not None and _D096_DAILY_CHECK in str(row["sql"]):
+                db.execute(_SPENDING_CONTROLS.format(name="spending_controls_d098"))
+                db.execute(
+                    "INSERT INTO spending_controls_d098 (id, revision, daily_cap_micro_usd,"
+                    " max_calls, changed_at, changed_by) SELECT id, revision,"
+                    " daily_cap_micro_usd, max_calls, changed_at, changed_by"
+                    " FROM spending_controls"
+                )
+                db.execute("DROP TABLE spending_controls")
+                db.execute("ALTER TABLE spending_controls_d098 RENAME TO spending_controls")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

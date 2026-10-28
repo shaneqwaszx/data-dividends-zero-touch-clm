@@ -364,7 +364,7 @@ const FAKE_KEY = ["sk", "or", "v1-fake-browser-test-key-0000000000"].join("-");
 function budget(credential: Partial<ModelBudgetStatus["credential"]> = {}): ModelBudgetStatus {
   return {
     configured: true, mode: "D-095", timezone: "Asia/Singapore",
-    daily_cap_ceiling_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
+    daily_cap_default_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
     next_reset_at: "2026-10-28T16:00:00Z",
     credential: {
       source: "none", status: "missing", hr_editable: true, persistence: "memory_only",
@@ -496,13 +496,13 @@ function controlled(overrides: Partial<NonNullable<ModelBudgetStatus["controls"]
     ...budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
     controls: {
       revision: 3, readable: true,
-      daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000, daily_cap_source: "hr",
+      daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000_000_000, daily_cap_source: "hr",
       max_calls: 20, max_calls_range: [1, 200], max_calls_source: "hr",
       calls_used: 20, calls_remaining: 0,
       changed_at: "2026-10-28T03:00:00Z", changed_by: "hr-admin",
       lifetime: {
         opening_usage_micro_usd: 100_000, cap_micro_usd: 600_000,
-        max_cap_micro_usd: 1_100_000, committed_micro_usd: 590_000,
+        max_cap_micro_usd: 1_000_000_000_000, committed_micro_usd: 590_000,
       },
       ...overrides,
     },
@@ -551,7 +551,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ expected_revision: 3, daily_cap_micro_usd: 500_000, max_calls: 40 });
   });
 
-  it("does not send limits outside US$0 to US$1 or 1 to 200 calls", async () => {
+  it("does not send invalid limits or an unconfirmed daily raise (D-098: no US$1 ceiling)", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
     const view = mount(controlsServer(data, calls));
@@ -569,8 +569,8 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
     const view = mount(controlsServer(data, calls));
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit (ledger)"));
-    expect(view.textContent).toContain("up to US$1.100000 (US$1.00 above it)");
-    typeInto(input(view, "lifetime-limit-input"), "1.2"); // above the allocation
+    expect(view.textContent).toContain("with no fixed ceiling");
+    typeInto(input(view, "lifetime-limit-input"), "1.2"); // above the old allocation: a raise, unconfirmed
     expect(button(view, "Update Lifetime Limit").disabled).toBe(true);
     typeInto(input(view, "lifetime-limit-input"), "0.9");
     expect(button(view, "Update Lifetime Limit").disabled).toBe(true); // not confirmed yet
@@ -769,5 +769,27 @@ describe("AiModelManagement D-098 recovery", () => {
     const view = mount(server({ ...withRemote({}), active: { ...overview.active, profile_id: "ai_unavailable", display_name: "AI unavailable", model_id: null, reverted: "QUALIFICATION_SUPERSEDED", unavailable: true } }));
     await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
     expect(view.querySelector("[data-testid=ai-unavailable]")?.textContent).toContain("No other model was put in its place");
+  });
+});
+
+describe("AiModelManagement D-098 flexible limits", () => {
+  it("raises the daily limit above US$1.00 only with an explicit confirmation", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Daily and call limits"));
+    expect(view.textContent).toContain("default US$1.00, may be higher or lower");
+    typeInto(input(view, "daily-limit-input"), "3");
+    typeInto(input(view, "call-limit-input"), "20");
+    expect(button(view, "Save Limits").disabled).toBe(true);  // a raise, not confirmed yet
+    const confirm = view.querySelector<HTMLInputElement>("[data-testid=daily-raise-confirm]");
+    expect(confirm?.parentElement?.textContent).toContain("I confirm raising the daily limit to US$3.000000");
+    act(() => confirm!.click());
+    await act(async () => button(view, "Save Limits").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    const put = calls.find((call) => call.method === "PUT" && call.url.endsWith("/budget/controls"));
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      expected_revision: 3, daily_cap_micro_usd: 3_000_000, max_calls: 20, confirm_daily_cap_micro_usd: 3_000_000,
+    });
   });
 });

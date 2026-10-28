@@ -43,7 +43,7 @@ def lifetime_cap_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """These D-091 tests exercise the lifetime cap with multi-dollar synthetic amounts in one
     day; the D-095 daily allowance is lifted for them and tested in test_budget_daily.py."""
 
-    monkeypatch.setattr("ai_assistant.budget.DAILY_CAP_CEILING_MICRO_USD", MAX_MICRO_USD)
+    monkeypatch.setattr("ai_assistant.budget.DEFAULT_DAILY_CAP_MICRO_USD", MAX_MICRO_USD)
 
 
 class Clock:

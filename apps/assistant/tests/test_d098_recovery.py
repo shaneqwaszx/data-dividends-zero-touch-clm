@@ -464,3 +464,178 @@ def test_every_model_management_message_is_in_the_browser_safe_list() -> None:
     }
     missing = sorted(set(model_admin.MESSAGES.values()) - shown)
     assert missing == []
+
+
+# --- C. flexible daily and lifetime limits ---------------------------------------------------
+
+CONTROLS = f"{API}/budget/controls"
+LIFETIME = f"{API}/budget/lifetime-cap"
+
+
+def _key(journey: Journey, limit: float | None, remaining: float | None) -> None:
+    """The OpenRouter key's own limit as /key reports it (a mock; nothing is changed there)."""
+
+    import httpx
+
+    original = journey.openrouter.handler
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/key"):
+            data = {"limit": limit, "limit_reset": None, "limit_remaining": remaining, "usage": 0}
+            journey.openrouter.requests.append(request)
+            return httpx.Response(200, json={"data": data})
+        return original(request)
+
+    journey.selector.transport = httpx.MockTransport(handler)
+
+
+def _daily(journey: Journey, daily: int, confirm: int | None = None) -> Any:
+    revision = journey.client.get(f"{API}/budget").json()["controls"]["revision"]
+    body: dict[str, Any] = {
+        "expected_revision": revision,
+        "daily_cap_micro_usd": daily,
+        "max_calls": 20,
+    }
+    if confirm is not None:
+        body["confirm_daily_cap_micro_usd"] = confirm
+    return journey.client.put(CONTROLS, json=body)
+
+
+def test_hr_raises_the_daily_limit_above_one_dollar_only_confirmed_with_a_finite_key_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    _key(journey, None, None)  # a key with no limit is never permission to spend more
+    assert _daily(journey, 3_000_000).json()["detail"]["code"] == "DAILY_CONFIRMATION_REQUIRED"
+    refused = _daily(journey, 3_000_000, confirm=3_000_000)
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "PROVIDER_LIMIT_REQUIRED"
+    assert journey.client.get(f"{API}/budget").json()["controls"]["revision"] == 0
+
+    _key(journey, 5.0, 5.0)  # a finite, never-resetting key limit (read, never changed)
+    applied = _daily(journey, 3_000_000, confirm=3_000_000)
+    assert applied.status_code == 200, applied.text
+    view = applied.json()
+    assert view["controls"]["daily_cap_micro_usd"] == 3_000_000
+    assert view["daily"]["cap_micro_usd"] == 3_000_000
+    # Lowering needs no confirmation and no provider check.
+    assert _daily(journey, 500_000).status_code == 200
+    assert all(r.method == "GET" for r in journey.openrouter.requests)
+    assert journey.openrouter.chats == []
+
+
+def test_the_strictest_limit_wins_and_a_higher_daily_limit_cannot_bypass_the_lifetime_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    _key(journey, 5.0, 5.0)
+    assert _daily(journey, 4_000_000, confirm=4_000_000).status_code == 200
+    journey.client.post(f"{API}/budget/provider-refresh")
+    view = journey.client.get(f"{API}/budget").json()
+    # Daily US$4, key US$5, lifetime cap US$1 (the ledger): US$1 is what may be spent.
+    assert view["daily"]["remaining_micro_usd"] == 4_000_000
+    assert view["ledger"]["headroom_micro_usd"] == 1_000_000
+    assert view["effective_remaining_micro_usd"] == 1_000_000
+
+
+def test_hr_raises_the_lifetime_cap_above_one_dollar_keeping_every_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_assistant.budget import BudgetLedger
+
+    journey = Journey(tmp_path, monkeypatch)
+    _key(journey, None, None)
+    body = {"cap_micro_usd": 3_000_000, "confirm_cap_micro_usd": 3_000_000}
+    refused = journey.client.put(LIFETIME, json=body)
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "PROVIDER_LIMIT_REQUIRED"
+    ledger = BudgetLedger.open(Path(journey.settings.budget_ledger_path))
+    assert ledger.status().cap == 1_000_000
+
+    _key(journey, 5.0, 5.0)
+    raised = journey.client.put(LIFETIME, json=body)
+    assert raised.status_code == 200, raised.text
+    assert ledger.status().cap == 3_000_000
+    assert ledger.status().opening_usage == 0  # nothing reset
+    audited = [
+        e
+        for e in journey.client.get(f"{API}/audit").json()["events"]
+        if e["action"] == "LIFETIME_CAP_CHANGED"
+    ]
+    assert audited[0]["code"] == "RAISED_TO_3000000_MICRO_USD"
+    assert [e["code"] for e in audited if e["outcome"] == "refused"] == [
+        "PROVIDER_LIMIT_REQUIRED:key.limit_set,key.limit_finite"
+    ]
+
+
+def test_the_preflight_needs_a_finite_key_limit_but_no_us1_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+
+    from ai_assistant.remote_test import connection_check
+    from tests.test_remote_test import SENTINEL, listing
+
+    journey = Journey(tmp_path, monkeypatch)
+
+    def key(limit: float | None, remaining: float | None) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/key"):
+                data = {
+                    "limit": limit,
+                    "limit_reset": None,
+                    "limit_remaining": remaining,
+                    "usage": 0,
+                }
+                return httpx.Response(200, json={"data": data})
+            return journey.openrouter.handler(request)
+
+        return httpx.MockTransport(handler)
+
+    environ = {"OPENROUTER_API_KEY": SENTINEL}
+    # A US$5 key limit: refused before D-098 (key.limit_within_allocation), allowed now.
+    roomy = connection_check(
+        journey.settings, environ=environ, transport=key(5.0, 5.0), fetch=listing
+    )
+    assert roomy["outcome"] == "passed", roomy
+    names = {c["check"] for c in roomy["checks"]}
+    assert "key.limit_finite" in names and "ledger.cap_above_opening" in names
+    assert "key.limit_within_allocation" not in names
+    # No key limit at all: the preflight fails, so the model refuses every call before sending.
+    unbounded = connection_check(
+        journey.settings, environ=environ, transport=key(None, None), fetch=listing
+    )
+    assert unbounded["outcome"] == "failed"
+    assert {"key.limit_set", "key.limit_finite"} <= {
+        c["check"] for c in unbounded["checks"] if not c["ok"]
+    }
+    assert journey.openrouter.chats == []
+
+
+def test_an_earlier_database_keeps_its_controls_and_loses_only_the_us1_check(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "admin.sqlite3"
+    with sqlite3.connect(path) as db:  # the D-096 table, as an earlier version made it
+        db.execute(
+            "CREATE TABLE spending_controls (id INTEGER PRIMARY KEY CHECK (id = 1),"
+            " revision INTEGER NOT NULL CHECK (revision >= 1), daily_cap_micro_usd INTEGER"
+            " NOT NULL CHECK (daily_cap_micro_usd BETWEEN 0 AND 1000000), max_calls INTEGER"
+            " NOT NULL CHECK (max_calls BETWEEN 1 AND 200), changed_at TEXT NOT NULL,"
+            " changed_by TEXT NOT NULL)"
+        )
+        db.execute(
+            "INSERT INTO spending_controls VALUES (1, 4, 250000, 30, '2026-10-28T01:00:00+00:00',"
+            " 'hr-admin')"
+        )
+    store = ModelAdminStore(path)
+    kept = store.spending_controls()
+    assert (kept.revision, kept.daily_cap_micro_usd, kept.max_calls, kept.changed_by) == (
+        4,
+        250_000,
+        30,
+        "hr-admin",
+    )
+    assert store.set_spending_controls(4, 5_000_000, 30, "hr-admin") == 5
+    ModelAdminStore(path)  # opening it again changes nothing more
+    assert store.spending_controls().daily_cap_micro_usd == 5_000_000
