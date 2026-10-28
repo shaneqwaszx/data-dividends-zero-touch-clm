@@ -1256,10 +1256,12 @@ squash-merged). Delta only; nothing here is merged or Live.
   basis-file improvements in the D-097 report need a paid requalification decision; the D-095
   section above still reads "branch, not merged" (closeout refresh for PR #126 pending).
 
-## AI Assistant D-098 qualification recovery, GPT-OSS-only fallback and flexible limits (stacked branch, not merged) - 2026-10-28
+## AI Assistant D-098 qualification recovery, GPT-OSS-only fallback and flexible limits (branch, not merged) - 2026-10-28
 
-Branch `feat/d098-ai-model-recovery-budget-controls`, stacked on PR #127
-(`claude/gracious-lovelace-bjvh2z` @ `65535ce`). Delta only; nothing here is merged or Live.
+Branch `feat/d098-ai-model-recovery-budget-controls`, built on PR #127's head `65535ce` and
+integrated with main `f88e170` (#127's squash merge, the same tree). The owner chose it as the
+canonical D-098 (Option A) and proposed replacement for draft PR #128, with #128's lifetime-cap
+compare-and-set and fail-closed start-up ported. Delta only; nothing here is merged or Live.
 - **Decision:** D-098 (owner-authorised, local development scope). Evidence:
   `.ai-pipeline/reports/D098_AI_MODEL_RECOVERY_AND_BUDGET_CONTROLS.md`.
 - **Behaviour:** the sign-in page says why a session ended (closed reason header; lifetime and
@@ -1270,12 +1272,16 @@ Branch `feat/d098-ai-model-recovery-budget-controls`, stacked on PR #127
   substitute model, and flexible daily and lifetime limits (US$1.00 default, no US$1 ceiling;
   raises confirmed and gated on a finite, verified OpenRouter key limit; strictest wins).
   The chat labels case-data guidance as not AI-generated.
-- **Qualification:** basis `2bd93aeb8886…` → `62bab2deec8d…` (budget and preflight files):
+- **Qualification:** basis `2bd93aeb8886…` → `c3c5d3132194…` (budget and preflight files):
   every earlier GPT-OSS qualification is out of date on this code; an active GPT-OSS
   configuration starts as *AI unavailable*. Paid requalification of Balanced (and Fast if
   used) is required after integration and needs owner approval; none was run.
 - **Persistence:** model state SQLite only: `qualifications.supervised_at` added in place; the
   `spending_controls` table rebuilt once without the US$1 CHECK, keeping its row. No Mongo
   or case-data change.
-- **Open:** owner merges #127 first; then rebase/retarget D-098 onto main, re-verify, and
-  approve the paid requalification.
+- **Also (Option A):** lifetime-cap changes are compare-and-set in the ledger; start-up never
+  stands in another model for GPT-OSS (unreadable state, failed or conflicting revert
+  writes, lost audit entries all handled); the spending view shows the key's own limit,
+  usage and reset; an exhausted key is an owner action.
+- **Open:** owner review of the replacement draft PR against main and closure of PR #128;
+  owner merge; then the separately authorised Windows-local paid requalification.

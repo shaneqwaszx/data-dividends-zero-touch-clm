@@ -93,7 +93,7 @@ the paid-run pre-check is min(daily remaining, lifetime headroom, key remaining)
 
 Basis files changed: `budget.py`, `remote_checks.py`, `remote_test.py`,
 `synthetic_boundary.json` (regenerated from string constants). Basis `2bd93aeb8886…` →
-`62bab2deec8d5e58e11b7d51b0641ecae7c55080d379878a59f3a211823a4f13`. **Balanced's existing
+`c3c5d3132194c8c577589f7a49c2cf447ce3636e5d2cbf4e7a462f505d93ad7f`. **Balanced's existing
 qualification is not valid on this code**, nor is any Fast qualification. History is kept;
 nothing is marked qualified; at start-up an active GPT-OSS configuration is stored as
 *AI unavailable* (`QUALIFICATION_OUT_OF_DATE`, audited). Required after integration (owner
@@ -133,6 +133,47 @@ Run on the commits A–D plus the E test adjustment, Windows, Python 3.12 venv, 
 - **A-1, A-2 (advisory):** an unrecognised G-8-only failure is classed technical; on start-up with an expired cookie the reason is probed twice. Both are noted, with no change.
 
 A fresh independent review follows the remediation.
+
+## 8b. Owner Option A: canonical candidate plus two safeguards from PR #128 (2026-10-29)
+
+The owner chose this branch as the canonical D-098, a proposed replacement for draft PR #128 (`d16dcbe`, later `4648b9c`), with two #128 safeguards ported in commit `2fae796`. Main `f88e170` (#127 squash) has the same tree as `65535ce`; it is merged in at `d3e16bf` with no content change.
+
+### Feature checklist (source → canonical)
+
+| Feature | Source | Status |
+| --- | --- | --- |
+| Session-end reasons (backend header, sign-in notice) | local | preserved |
+| Interrupted-run closing (supervisor stamp) | local | preserved |
+| Decision 6a across Activate, Rollback, active model, revalidation and start-up | local | preserved |
+| Outcome classification (budget ≠ quality; billing ≠ quality) | local | preserved |
+| Paid run: confirmed call count, every call's full reservation must fit | local | preserved |
+| Recovery Centre, paid-run dialog, AI-unavailable banner | local | preserved |
+| "Case-data guidance, not AI-generated" chat label | local | preserved |
+| Safe error messages (plus a test that every message is listed) | local | preserved |
+| Flexible daily and lifetime limits, finite key limit required | local / #128 (equivalent) | preserved |
+| F1 lifetime-cap compare-and-set in the ledger write (`expected_cap_micro_usd`, `set_cap(expected=)`) | #128 Z7 | **imported**; deterministic interleaving test |
+| F2 fail-closed start-up: unreadable state, failed or conflicting revert writes, no baseline stand-in | #128 R4/R5 | **imported** |
+| F2 extensions: lost revert audit written later; stored revision shown so HR activation is never blocked | #128 advisories A2/A3 | **imported and fixed** |
+| Key limit, usage and reset shown; account credits never read | #128 | **imported** |
+| Exhausted key = owner action (`ESCALATE_KEY_OWNER`, `PROVIDER_KEY_LIMIT_EXHAUSTED`) | owner instruction | **added** |
+| Latest-run-only activation; Z6 keeping a superseded model active; G-8 as quality; one-call paid pre-check | #128 | **excluded** (conflicts with 6a and the owner decisions) |
+| Automatic Fast→Balanced switching | #128 (design only) | **excluded** (not approved) |
+| Requalification plan document | #128 | not imported; impact recorded in §7 and D-098 R9 |
+
+### Evidence on `2fae796` (docs-only changes since)
+
+| Check | Result |
+| --- | --- |
+| Focused assistant suites (D-098, spending, budget, remote, model management, reasoning, eligibility, Phase B live, credentials) | 446 passed, 0 failed |
+| F1 | HR raise during an operator lowering is refused, the operator's cap stands, spend/calls/daily/events unchanged; stale view refused; ledger `CAP_CHANGED` |
+| F2 | Unreadable state → no model; revert write failure → no model at −1, retried, stored and audited once; 3 conflicts → no baseline stand-in; lost audit written later; HR activates while a revert is pending; local profile → baseline |
+| Assistant full | 2,630 collected: 2,616 passed, **14 failed**, all `OSError: [Errno 24] Too many open files` raised from `ssl` while loading certificates (`test_required_p2` ×5, `test_streaming_resources` ×7, `test_model_factory` suite guard, `test_phase_b_live` marker) |
+| Same 14 on the unchanged PR #127 head | identical 14 failures (2,577 collected), same error |
+| Those 4 modules on their own at `2fae796` | 289 passed, 0 failed |
+| Frontend full vitest / build | 66 files, 1,154 passed / built |
+| Backend full | **rerun NOT_COMPLETED**: stalled at zero CPU (the known Windows pytest socketpair stall) and stopped. The last complete run (3,373 tests, 0 failed, 182 skipped) used backend code identical to the current head (no `apps/backend` change since `6d28401`). |
+
+**The 14 failures.** File-handle exhaustion late in the single-process run: the C runtime's per-process file limit is reached by handles that earlier tests leave open, until `ssl.create_default_context()` cannot open the certificate store. This is pre-existing: the same 14 tests fail with the same error on unchanged PR #127, the failure count does not grow with D-098's 53 extra tests, and the tests pass on their own. It is not a D-098 leak, but it is a real test-hygiene defect, recorded as a separate follow-up; no test was changed or skipped to hide it.
 
 ## 9. Change classes
 

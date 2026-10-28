@@ -350,6 +350,22 @@ a backstop; at every call the strictest of the three applies. Raising a limit is
 checked against OpenRouter first; lowering is not. Existing model state databases keep their
 spending controls (the table is rebuilt once without the US$1 check).
 
+**Lifetime-cap changes are compare-and-set.** HR's change carries the cap the page showed and
+is checked again inside the ledger's write: if the operator (`scripts/budget_ledger.py
+set-cap`) or another process changed the cap in between, HR's change is refused and the
+operator's value stands.
+
+**Start-up never stands in another model.** If the state database cannot be read, or a
+GPT-OSS revert cannot be stored, there is no model (case-data guidance only) until it can;
+the revert and its audit entry are written as soon as the database accepts writes, and HR
+can still activate a model meanwhile.
+
+**The key's own limit.** AI Models shows the key's limit, usage and whether it resets; account
+credits are not read. An exhausted key limit can only be raised by the key's owner at
+OpenRouter; HR's spending controls cannot change it. IT may set the environment daily default
+above US$1.00 (`AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD`) as a privileged deployment setting;
+the lifetime cap and the key's own limit still apply.
+
 **Requalification.** D-098 changes qualification-basis files (`budget.py`, `remote_checks.py`,
 `remote_test.py`, `synthetic_boundary.json`), so every earlier GPT-OSS qualification is out of
 date on this code: at start-up an active GPT-OSS configuration becomes *AI unavailable* until
