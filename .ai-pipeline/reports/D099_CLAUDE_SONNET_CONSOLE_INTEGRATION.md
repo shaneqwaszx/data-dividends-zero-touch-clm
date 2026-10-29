@@ -136,11 +136,13 @@ Prerequisites before Claude could ever be enabled, recorded rather than built:
   probe, interrupted-run billing) by provider;
 - add the Claude ids to telemetry `PROFILE_IDS`;
 - implement a Claude key source and ledger;
-- add the adapter to `BASIS_FILES`.
+- add the adapter to `BASIS_FILES`;
+- fix QG F1 (reject a second `message_start`, drop the cost) and F2 (check
+  `synthetic_eligibility.mode(settings)` on every call, as `remote_test.py` does).
 
 ## 5. Tests (offline)
 
-- `tests/test_claude_console.py`: 40 tests.
+- `tests/test_claude_console.py`: 41 tests.
   - **Console behaviour:** both configurations listed with accurate details; the decision
     changes only the reason; every action refused before any network call and audited (6
     refusals); RM, Client Onboarder and Director forbidden; distinct and stable fingerprints,
@@ -160,15 +162,35 @@ Prerequisites before Claude could ever be enabled, recorded rather than built:
     code entry".
 - Frontend: `AiModelManagement.test.tsx` 41 of 41 (2 new); `tsc -b` clean.
 - ruff, format and strict mypy clean on the new and changed files. The remaining mypy errors
-  are in two existing test modules this work imports and does not change.
+  are on unchanged lines of two existing test modules this work imports (`remote_fixtures.py`
+  and `test_model_management.py`, whose only edit here is the composition assertion); the same
+  `test_model_management.py` errors occur on base `c2630cd`.
 - Secret-scanner tests 33 of 33; repository scan clean.
-- Regression (17 suites: the new Claude tests plus model management, D-098 recovery, remote
-  test, reasoning configurations, spending controls, budget guard/ledger/daily/CLI, OpenRouter
-  adapter, Phase B live, synthetic eligibility, credentials, evaluation harness, telemetry,
-  model factory): **798 tests, 797 passed, 1 failed, 0 errors**. The one failure is the B2
-  boundary-currency test (`test_remote_test.py::test_the_boundary_file_is_current`).
-- Independent QG: **not run yet**. It should review the candidate after B2 is decided, so it
-  runs once on final content.
+- Before B2: the regression set (17 suites) ran 798 tests, with 797 passed. The one failure was
+  the boundary-currency test.
+- After the owner-approved B2 regeneration (final candidate):
+  - the 108 boundary and eligibility tests pass, including the currency test and every refusal
+    category;
+  - a new test shows the seven words never widen question or history text;
+  - the **full assistant suite** ran 2,698 tests, with 14 failures, all
+    `OSError: [Errno 24] Too many open files`;
+  - the Errno 24 failures are the known Windows file-handle limit in a long run. Their four test
+    files, re-run on their own, pass 289 of 289;
+  - frontend 41 of 41, `tsc -b` clean, secret-scanner tests 33 of 33, repository scan clean.
+- **Independent QG: PASS** on the exact candidate (`D099_CLAUDE_SONNET_CONSOLE_QUALITY_GATE.md`;
+  diff SHA-256 `c5b20254…`). It found no Critical, High or Medium issue. Its findings:
+  - **F1 (Low):** a repeated `message_start` is not rejected.
+  - **F2 (Low):** the eligibility-ticket mode is fixed at construction rather than checked on
+    every call.
+  - F3 to F5 (Info): see the QG report.
+
+  F1 and F2 cannot be reached while the adapter is dormant. They are recorded as enablement
+  prerequisites (section 4) and were not changed, so the reviewed content stays identical.
+- **Integration:** PR #129 was squash-merged to `main` as `8c7ea99` during this work, with a tree
+  identical to `c2630cd`. The reviewed commit `1c515e8` was merged with `origin/main` (merge
+  `5d70ceb`). Three documentation conflicts arose only because the squash shares no history with
+  `c2630cd`. In each, `main`'s file is byte-identical to `c2630cd`'s, so our side was kept. The
+  merged tree equals the reviewed tree (`750cac42…`).
 
 ## 6. Catalog issues (inspection only; nothing changed)
 
@@ -188,7 +210,8 @@ Prerequisites before Claude could ever be enabled, recorded rather than built:
   Claude configuration;
 - the prompt-size bound in `test_speed` (9,250 characters) needs checking.
 
-Bundle these with the B2 regeneration so requalification happens once.
+B2 has been applied on its own. Any of these changes moves the basis again. If they are
+authorised, schedule them before the GPT-OSS requalification so it happens once.
 
 ## 7. Change statement
 
