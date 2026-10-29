@@ -699,6 +699,38 @@ describe("AiModelManagement GPT-OSS 120B naming", () => {
   });
 });
 
+// --- D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast, listed but never usable ---------------
+
+describe("AiModelManagement Claude Sonnet 5.5 (D-099 proposed)", () => {
+  const claude = (profileId: string, effort: string, thinking: string, reason: string, scope: string) => profile({
+    profile_id: profileId, display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: effort, endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: reason === "ANTHROPIC_NOT_AUTHORISED" ? "pending_authorisation" : "unavailable",
+    reason, active: false, activation_blockers: [reason],
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope, reasoning_effort: effort, thinking, decision: "D-099" },
+  });
+
+  it("names both configurations, their provider and thinking, and keeps every action disabled", async () => {
+    const balanced = claude("anthropic_claude_sonnet_5_5_medium", "medium", "adaptive", "ANTHROPIC_NOT_AUTHORISED", "NOT_AUTHORISED");
+    const fast = claude("anthropic_claude_sonnet_5_5_low", "low", "between_tools", "ANTHROPIC_NOT_AUTHORISED", "NOT_AUTHORISED");
+    expect(profileName(balanced)).toBe("Claude Sonnet 5.5 — Balanced");
+    expect(profileName(fast)).toBe("Claude Sonnet 5.5 — Fast");
+    const view = mount(server({ ...overview, profiles: [profile({}), balanced, fast] }));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Fast"));
+    expect(view.textContent).toContain("Provider: Anthropic API · Framework: Case-grounded Assistant · Reasoning: Medium · Thinking: adaptive");
+    expect(view.textContent).toContain("Reasoning: Low · Thinking: between tool calls only");
+    expect(view.textContent).toContain("not authorised for CLM use (D-099 proposed)");
+    for (const row of ["Claude Sonnet 5.5 — Balanced", "Claude Sonnet 5.5 — Fast"]) {
+      expect(button(view, "Activate", row).disabled).toBe(true);
+    }
+  });
+
+  it("explains why a named decision still leaves them unusable", () => {
+    expect(readable("ANTHROPIC_PROVIDER_CONTROLS_MISSING")).toContain("readable key limit, per-call cost verification and usage reconciliation");
+    expect(readable("ANTHROPIC_NOT_AUTHORISED")).toContain("D-099 proposed");
+  });
+});
+
 // --- D-098: recovery centre and paid qualification confirmation --------------------------------
 
 describe("AiModelManagement D-098 recovery", () => {

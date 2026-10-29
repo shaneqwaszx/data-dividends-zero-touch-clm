@@ -76,6 +76,10 @@ class AiAssistantSettings(BaseSettings):
     # mode): the chat may then use the remote model on any verified synthetic development case
     # (synthetic_eligibility.py), not only the one D-094 fixture case. Never for real data.
     synthetic_dev_decision: str = ""
+    # D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast are listed on AI Models but never
+    # usable (anthropic_profiles.py: the provider-side spending controls the remote profile
+    # relies on are missing for a direct Anthropic key). Naming D-099 only changes the reason.
+    anthropic_decision: str = ""
 
     # Model management (D-093, local loopback models only): off unless IT names a profiles file
     # (model_catalog.py). Then an HR administrator (MODEL_CONFIG_MANAGE) may test, qualify,

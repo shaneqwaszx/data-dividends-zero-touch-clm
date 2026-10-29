@@ -381,3 +381,30 @@ the lifetime cap and the key's own limit still apply.
 `remote_test.py`, `synthetic_boundary.json`), so every earlier GPT-OSS qualification is out of
 date on this code: at start-up an active GPT-OSS configuration becomes *AI unavailable* until
 HR runs a new (paid) qualification and activates it. Historical runs are kept.
+
+## 13. Claude Sonnet 5.5 Balanced and Fast (D-099, proposed): listed, not usable
+
+AI Models lists two configurations of one model, `claude-sonnet-5-5` on the Anthropic Messages
+API: *Claude Sonnet 5.5 — Balanced* (effort medium, adaptive thinking; recommended) and
+*Claude Sonnet 5.5 — Fast* (effort low, thinking between tool calls only). Each has its own
+fingerprint and qualification history. Neither can be tested, qualified or activated:
+
+| Setting | What AI Models shows | Refusal |
+| --- | --- | --- |
+| `AI_ASSISTANT_ANTHROPIC_DECISION` unset | Not authorised (`ANTHROPIC_NOT_AUTHORISED`) | `REMOTE_NOT_AUTHORISED` |
+| `AI_ASSISTANT_ANTHROPIC_DECISION=D-099` | Unavailable: provider spending controls missing (`ANTHROPIC_PROVIDER_CONTROLS_MISSING`) | `PROFILE_NOT_SELECTABLE` |
+
+The missing controls are the ones GPT-OSS relies on through OpenRouter: a key limit the service
+can read, a per-call provider record of model and cost, and provider-reported usage to reconcile
+the ledger against. Anthropic enforces Console spend limits but does not expose them to an API
+key, and its usage and cost are readable only with an organisation Admin key. Until the owner
+decides which equivalent controls are acceptable, no Claude answer can be served, there is no
+Claude key setting, and nothing switches to or from Claude automatically. GPT-OSS Balanced and
+Fast are unchanged.
+
+**Requalification.** D-099 regenerates `synthetic_boundary.json` (a qualification-basis file:
+seven words added to the service's own system-message vocabulary, owner-approved), so the
+basis moves from `b4049047884e…` to `235030035ccc…`. Every earlier GPT-OSS qualification,
+including one made on the D-098 code, is out of date once this merges: an active GPT-OSS
+configuration becomes *AI unavailable* at start-up until HR runs a new (paid, separately
+approved) qualification and activates it. Historical runs are kept.

@@ -394,6 +394,9 @@ def test_a_valid_file_lists_baseline_file_profiles_and_the_pending_remote(tmp_pa
         "no_stream": ("unavailable", "STREAMING_REQUIRED"),
         "switched_off": ("disabled", "PROFILE_DISABLED"),
         "openrouter_gpt_oss_120b": ("pending_authorisation", "REMOTE_NOT_AUTHORISED"),
+        # D-099 (proposed): listed, never usable.
+        "anthropic_claude_sonnet_5_5_medium": ("pending_authorisation", "ANTHROPIC_NOT_AUTHORISED"),
+        "anthropic_claude_sonnet_5_5_low": ("pending_authorisation", "ANTHROPIC_NOT_AUTHORISED"),
     }
     remote_box = catalogue.get("remote_box")
     assert remote_box is not None and remote_box.view()["endpoint"] is None
@@ -422,7 +425,8 @@ def test_a_wrong_file_lists_no_file_profile_and_names_only_the_field(
     catalogue = load_catalogue(settings(tmp_path, path))
     assert catalogue.file_status == "invalid"
     assert field in catalogue.file_errors
-    assert [entry.source for entry in catalogue.entries] == ["environment", "code"]
+    # The baseline, GPT-OSS and the two D-099 Claude configurations (never a file profile).
+    assert [entry.source for entry in catalogue.entries] == ["environment", "code", "code", "code"]
     assert "sk-not-allowed" not in json.dumps(catalogue.file_errors)
 
 
