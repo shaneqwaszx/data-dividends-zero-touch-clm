@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
@@ -421,15 +421,17 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
 
   return (
     <section className="card" aria-labelledby="spending-heading">
+      <p className="card-kicker">GPT-OSS 120B · OpenRouter ledger</p>
       <h2 id="spending-heading">OpenRouter daily spending limit, lifetime limit and calls</h2>
+      <Responsibilities label="Who can change the GPT-OSS limits" duties={GPT_OSS_SPENDING_DUTIES} />
       <p className="ds-banner ds-banner-warn" role="note">
         At most {usd(dollars(budget.daily_cap_micro_usd))} of reserved plus settled OpenRouter spending per Singapore calendar day ({budget.timezone}), for qualification and chat together. The lowest of this allowance, the lifetime ledger limit and the key's own OpenRouter limit applies. It does not rule out unexpected provider billing; a mismatch stops further calls.
       </p>
       <dl className="acra-detail-list">
-        <div><dt>Settled today</dt><dd>{usd(daily?.settled_today_usd)}</dd></div>
-        <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : "—"}</dd></div>
-        <div><dt>Remaining today</dt><dd>{usd(daily?.remaining_usd)}</dd></div>
-        <div><dt>Lifetime headroom</dt><dd>{usd(budget.ledger?.headroom_usd)}</dd></div>
+        <div><dt>Settled today</dt><dd>{daily ? usd(daily.settled_today_usd) : LEDGER_UNREAD}</dd></div>
+        <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : LEDGER_UNREAD}</dd></div>
+        <div><dt>Remaining today</dt><dd>{daily ? usd(daily.remaining_usd) : LEDGER_UNREAD}</dd></div>
+        <div><dt>Lifetime headroom</dt><dd>{budget.ledger ? usd(budget.ledger.headroom_usd) : LEDGER_UNREAD}</dd></div>
         <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining{budget.provider.limit_usd ? ` of ${usd(budget.provider.limit_usd)}` : ""}{budget.provider.usage_usd ? `, ${usd(budget.provider.usage_usd)} used` : ""} ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
         {budget.provider && <div><dt>Key limit resets</dt><dd>{budget.provider.limit_reset ? `Yes (${budget.provider.limit_reset}): not accepted, a lifetime key limit is required` : "Never (a lifetime key limit, as required)"}</dd></div>}
         {budget.provider && <div><dt>Account credits</dt><dd>Not read. The key's own limit above is what applies; only the key's owner can change it at OpenRouter.</dd></div>}
@@ -530,8 +532,8 @@ function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
   }
 
   return (
-    <section className="card" aria-labelledby="openrouter-key-heading">
-      <h2 id="openrouter-key-heading">OpenRouter API Key — {label}</h2>
+    <section className="console-subcard" aria-labelledby="openrouter-key-heading">
+      <h3 id="openrouter-key-heading">OpenRouter API Key — {label}</h3>
       <p>
         <span className={`tag ${credential.status === "configured" ? "tag-accent" : "tag-warn"}`} role="status">{label}</span>{" "}
         {CREDENTIAL_SOURCE[credential.source]}
@@ -555,6 +557,261 @@ function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
       )}
       {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
     </section>
+  );
+}
+
+// --- D-100 Phase 2: Providers and Spending & Limits ---------------------------------------------
+// Presentation only, from the overview the page already reads (no new request). The server sends
+// GPT-OSS's key and spending view in `budget`. For Claude it sends only each configuration's
+// status, codes, connection test and paid-qualification estimate, so nothing more is shown: no
+// Claude key status, usage, ledger headroom or reconciliation time is inferred.
+
+type ProviderKind = "openrouter" | "anthropic" | "local";
+
+/** Built-in remote configurations (`source` "code") other than Claude are GPT-OSS via OpenRouter. */
+function providerKind(item: Pick<ModelProfileView, "deployment" | "source">): ProviderKind {
+  if (item.deployment === ANTHROPIC_DEPLOYMENT) return "anthropic";
+  return item.source === "code" ? "openrouter" : "local";
+}
+
+const LEDGER_UNREAD = "Unavailable: the ledger could not be read";
+
+type DutyHolder = "hr" | "operator" | "owner";
+interface Duty { who: DutyHolder; text: string }
+const DUTY_LABEL: Record<DutyHolder, string> = {
+  hr: "You (HR), on this page",
+  operator: "An operator or IT, on the server",
+  owner: "The key or workspace owner, at the provider",
+};
+
+/** Who may change what: HR on this page, an operator on the server, the owner at the provider. */
+function Responsibilities({ label, duties }: { label: string; duties: Duty[] }) {
+  return (
+    <div className="console-duties" role="group" aria-label={label}>
+      {(["hr", "operator", "owner"] as const).map((who) => {
+        const items = duties.filter((duty) => duty.who === who);
+        if (items.length === 0) return null;
+        return (
+          <div key={who} className={`console-duty console-duty--${who}`}>
+            <span className="console-label">{DUTY_LABEL[who]}</span>
+            <ul>{items.map((duty) => <li key={duty.text}>{duty.text}</li>)}</ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const GPT_OSS_SPENDING_DUTIES: Duty[] = [
+  { who: "hr", text: "Set the daily limit and calls per activation; lowering needs no confirmation, raising the daily limit does." },
+  { who: "hr", text: "Raise or lower the lifetime ledger limit (a raise needs your confirmation and a ledger that reconciles)." },
+  { who: "operator", text: "Reconcile the ledger with OpenRouter when calls are stopped (scripts/budget_ledger.py)." },
+  { who: "owner", text: "Set the key's own lifetime limit at OpenRouter. It is never shown or changed here." },
+];
+
+const OPENROUTER_DUTIES = (hrKey: boolean): Duty[] => [
+  hrKey
+    ? { who: "hr", text: "Enter or clear the OpenRouter key (kept in the AI Assistant's memory only)." }
+    : { who: "operator", text: "Set the OpenRouter key on the server (process environment or apps/assistant/.env)." },
+  { who: "hr", text: "Run Test connection (a free preflight that reads the key's limit; no model call, no case data)." },
+  { who: "hr", text: "Change the GPT-OSS limits in Spending & Limits." },
+  { who: "operator", text: "Authorise the remote test mode and reconcile the ledger." },
+  { who: "owner", text: "Set the key's own lifetime limit at OpenRouter." },
+];
+
+const ANTHROPIC_DUTIES: Duty[] = [
+  { who: "hr", text: "Run Test connection (a free workspace and model read), confirm a paid qualification and activate, from Models & Overview." },
+  { who: "operator", text: "Set the Anthropic inference key on the server (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env). There is no HR key entry." },
+  { who: "operator", text: "Keep Claude's fixed limits within the Option B ceilings and reconcile its ledger (scripts/budget_ledger.py --anthropic)." },
+  { who: "owner", text: "Keep the dedicated Anthropic workspace's monthly spend limit (attested at most US$5.00) in the Anthropic Console." },
+];
+
+const LOCAL_DUTIES: Duty[] = [
+  { who: "hr", text: "Run Test connection, qualify and activate, from Models & Overview." },
+  { who: "operator", text: "Add or change local profiles in the model profiles file and keep the local model server running." },
+];
+
+// Codes that say the Anthropic key itself is the problem (all from the server).
+const ANTHROPIC_KEY_CODES = ["CREDENTIAL_MISSING", "CREDENTIAL_INVALID", "CREDENTIAL_ADMIN_REFUSED"];
+
+/** Every closed code the server reported for these configurations, once each, in order. */
+function reportedCodes(items: ModelProfileView[]): string[] {
+  const codes = new Set<string>();
+  for (const item of items) {
+    for (const code of [item.reason, ...item.activation_blockers, item.paid_qualification?.refusal, item.connection_test?.code]) {
+      if (code) codes.add(code);
+    }
+  }
+  return [...codes];
+}
+
+function connectionText(item: ModelProfileView): string {
+  const test = item.connection_test;
+  if (!test) return "Not run";
+  const when = test.at ? `, ${formatTimestamp(test.at)}${test.by_user ? ` by ${test.by_user}` : ""}` : "";
+  return `${readable(test.outcome)}${test.code ? ` · ${readable(test.code, item.deployment)}` : ""}${when}`;
+}
+
+/** The provider's configurations, each with its own availability and last connection test. */
+function ProviderConfigurations({ items }: { items: ModelProfileView[] }) {
+  return (
+    <ul className="console-config-list" aria-label="Configurations">
+      {items.map((item) => (
+        <li key={item.profile_id}>
+          <span className="console-config-list__name">
+            {profileName(item)}
+            {item.active && <> <Chip state={{ label: "Active", tone: "active" }} /></>}
+          </span>
+          <Chip state={availabilityState(item)} />
+          <span className="console-config-list__detail">
+            Connection test: {connectionText(item)}
+            {item.reason && <><br />{readable(item.reason, item.deployment)}</>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ReportedCodes({ codes, deployment }: { codes: string[]; deployment: string }) {
+  if (codes.length === 0) return <p className="console-help">The server reports no refusal or readiness code for these configurations.</p>;
+  return (
+    <ul className="console-codes" aria-label="Codes reported by the server">
+      {codes.map((code) => <li key={code}><code>{code}</code> {readable(code, deployment)}</li>)}
+    </ul>
+  );
+}
+
+function ProviderCard({ kind, title, subtitle, children }: { kind: ProviderKind; title: string; subtitle: string; children: ReactNode }) {
+  const headingId = `provider-${kind}-heading`;
+  return (
+    <section className="card console-provider" aria-labelledby={headingId} data-testid={`provider-${kind}`}>
+      <div className="console-provider__head">
+        <h2 id={headingId}>{title}</h2>
+        <span>{subtitle}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOverview; busy: boolean; onChanged: () => void }) {
+  const byKind = (kind: ProviderKind) => overview.profiles.filter((item) => providerKind(item) === kind);
+  const openrouter = byKind("openrouter");
+  const anthropic = byKind("anthropic");
+  const local = byKind("local");
+  const budget = overview.budget?.configured ? overview.budget : null;
+  const anthropicCodes = reportedCodes(anthropic);
+  const keyIssue = anthropicCodes.find((code) => ANTHROPIC_KEY_CODES.includes(code));
+  const stale = anthropicCodes.includes("RECONCILIATION_STALE");
+  const claudeUsable = anthropic.filter((item) => item.status === "selectable").length;
+  return (
+    <>
+      {(openrouter.length > 0 || budget) && (
+        <ProviderCard kind="openrouter" title="OpenRouter" subtitle="GPT-OSS 120B through OpenRouter / DeepInfra · external, paid">
+          <ProviderConfigurations items={openrouter} />
+          {budget ? (
+            <>
+              <dl className="acra-detail-list">
+                <div><dt>Key limit check</dt><dd>{budget.provider ? `${budget.provider.passed ? "Checks passed" : "Checks failed"}, read ${formatTimestamp(budget.provider.checked_at)}` : "Not checked yet in this server process. Run Test connection."}</dd></div>
+                <div><dt>Spending</dt><dd>Its own ledger and HR-managed limits: see <Link to={{ search: sectionSearch("spending") }}>Spending &amp; Limits</Link>.</dd></div>
+              </dl>
+              <OpenRouterKey budget={budget} busy={busy}
+                remoteProfileId={openrouter.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
+                onChanged={onChanged} />
+            </>
+          ) : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so there is no provider key to manage here.</p>}
+          <Responsibilities label="Who manages OpenRouter" duties={OPENROUTER_DUTIES(budget?.credential.hr_editable ?? false)} />
+        </ProviderCard>
+      )}
+
+      {anthropic.length > 0 && (
+        <ProviderCard kind="anthropic" title="Anthropic API" subtitle="One provider for Claude Sonnet 5.5 Balanced and Fast · external, paid · D-099 proposed">
+          <p className="console-help">Balanced and Fast are two configurations (reasoning settings) of one model on one Anthropic provider: they share the key, the workspace and Claude's single ledger, and each needs its own passing qualification.</p>
+          <ProviderConfigurations items={anthropic} />
+          <dl className="acra-detail-list">
+            <div><dt>Availability</dt><dd>{claudeUsable} of {anthropic.length} configuration{anthropic.length === 1 ? "" : "s"} available</dd></div>
+            <div><dt>Inference key</dt><dd>{keyIssue
+              ? readable(keyIssue, ANTHROPIC_DEPLOYMENT)
+              : "Its status is not sent to this page. An operator sets it on the server; any key problem appears among the server's codes below."}</dd></div>
+            <div><dt>Workspace check</dt><dd>Test connection reads the attested workspace and the model (free; no case data). Each configuration's last result is listed above.</dd></div>
+            <div><dt>Spending</dt><dd>Claude's own ledger with fixed limits (at most US$5.00 lifetime, US$1.00 a Singapore day and 20 calls an activation, within the attested workspace limit). Not changeable on this page; the GPT-OSS controls never apply to it. <Link to={{ search: sectionSearch("spending") }}>View Claude's limits</Link>.</dd></div>
+            <div><dt>Reconciliation</dt><dd>{stale
+              ? readable("RECONCILIATION_STALE", ANTHROPIC_DEPLOYMENT)
+              : "An operator reconciles Claude's ledger with the Anthropic Console. The time of the last reconciliation is not sent to this page; a paid call is refused when it is out of date."}</dd></div>
+          </dl>
+          <h3 className="console-subheading">Codes reported by the server</h3>
+          <ReportedCodes codes={anthropicCodes} deployment={ANTHROPIC_DEPLOYMENT} />
+          <Responsibilities label="Who manages the Anthropic API" duties={ANTHROPIC_DUTIES} />
+        </ProviderCard>
+      )}
+
+      {local.length > 0 && (
+        <ProviderCard kind="local" title="Local models" subtitle="Loopback model servers set up by IT · no key, no paid calls">
+          <ProviderConfigurations items={local} />
+          <p className="console-help">Local models run on this server's loopback address, so they need no key and have no spending limits. Their availability depends on the local model server IT runs.</p>
+          <Responsibilities label="Who manages local models" duties={LOCAL_DUTIES} />
+        </ProviderCard>
+      )}
+    </>
+  );
+}
+
+/** Claude's spending, read-only: only what the server sends for a paid qualification. */
+function ClaudeSpending({ items }: { items: ModelProfileView[] }) {
+  return (
+    <section className="card" aria-labelledby="claude-spending-heading" data-testid="claude-spending">
+      <p className="card-kicker">Claude Sonnet 5.5 · Anthropic ledger</p>
+      <h2 id="claude-spending-heading">Claude's limits (fixed on the server, read-only)</h2>
+      <p className="ds-banner" role="note">
+        Claude has its own separate ledger and fixed limits: at most US$5.00 lifetime, US$1.00 a Singapore day and 20 calls an activation, within the owner-attested Anthropic workspace limit. Nothing on this page changes them, and the GPT-OSS limits never apply to Claude.
+      </p>
+      <p className="console-help">The server does not send Claude's spending today, lifetime usage or ledger headroom to this page. It sends only what a paid qualification of each available configuration may spend, against the strictest Claude limit.</p>
+      {items.map((item) => {
+        const paid = item.paid_qualification;
+        return (
+          <div key={item.profile_id} className="console-subcard">
+            <h3>{profileName(item)}</h3>
+            {paid ? (
+              <dl className="console-facts" aria-label={`${profileName(item)} paid qualification`}>
+                <div><dt>Available under the strictest Claude limit</dt><dd className="console-number">{microUsd(paid.effective_remaining_micro_usd)}</dd></div>
+                <div><dt>Reserved per call</dt><dd className="console-number">{microUsd(paid.reservation_micro_usd)}</dd></div>
+                <div><dt>Paid qualification</dt><dd className="console-number">Up to {paid.calls ?? "—"} calls, {microUsd(paid.estimate_micro_usd)}</dd></div>
+                <div><dt>Paid calls now</dt><dd>{paid.refusal ? `Refused: ${readable(paid.refusal, ANTHROPIC_DEPLOYMENT)}` : paid.sufficient ? "Allowed" : paid.estimate_micro_usd === null ? "Not allowed: the paid question count is not known" : "Not allowed: the limits do not leave room for every call"}</dd></div>
+              </dl>
+            ) : (
+              <p className="console-help">Not reported: this configuration is not available{item.reason ? ` (${readable(item.reason, ANTHROPIC_DEPLOYMENT)})` : ""}, so the server sends no Claude spending figure for it.</p>
+            )}
+          </div>
+        );
+      })}
+      <Responsibilities label="Who can change Claude's limits" duties={[
+        { who: "operator", text: "Change Claude's settings within the Option B ceilings, and reconcile its ledger (scripts/budget_ledger.py --anthropic)." },
+        { who: "owner", text: "Keep the Anthropic workspace's monthly spend limit in the Anthropic Console." },
+      ]} />
+    </section>
+  );
+}
+
+function SpendingSection({ overview, busy, onChanged }: { overview: ModelOverview; busy: boolean; onChanged: () => void }) {
+  const budget = overview.budget?.configured ? overview.budget : null;
+  const anthropic = overview.profiles.filter((item) => providerKind(item) === "anthropic");
+  if (!budget && anthropic.length === 0) {
+    return <p className="ds-banner" role="status">The remote test mode is not configured on this server, so no paid spending limits apply here.</p>;
+  }
+  return (
+    <>
+      <p className="text-muted">Each paid provider has its own ledger and limits. Neither provider's limits apply to the other, and nothing switches between them automatically. Local models make no paid calls.</p>
+      {budget ? (
+        <>
+          {anthropic.length > 0 && (
+            <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger with at most US$5.00 lifetime, US$1.00 a day and 20 calls an activation.</p>
+          )}
+          <SpendingLimits budget={budget} busy={busy} onChanged={onChanged} />
+        </>
+      ) : <p className="ds-banner" role="status">The OpenRouter test mode is not configured on this server, so no GPT-OSS spending limits apply here.</p>}
+      {anthropic.length > 0 && <ClaudeSpending items={anthropic} />}
+    </>
   );
 }
 
@@ -1114,22 +1371,9 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
             </>
           )}
 
-          {section === "providers" && overview && (overview.budget?.configured
-            ? (
-              <OpenRouterKey budget={overview.budget} busy={busy}
-                remoteProfileId={overview.profiles.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
-                onChanged={refresh} />
-            )
-            : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so there is no provider key to manage here.</p>)}
+          {section === "providers" && overview && <ProvidersSection overview={overview} busy={busy} onChanged={refresh} />}
 
-          {section === "spending" && overview && (overview.budget?.configured
-            ? <>
-              {overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) && (
-                <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger with at most US$5.00 lifetime, US$1.00 a day and 20 calls an activation.</p>
-              )}
-              <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
-            </>
-            : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so no paid spending limits apply here.</p>)}
+          {section === "spending" && overview && <SpendingSection overview={overview} busy={busy} onChanged={refresh} />}
 
           {section === "qualifications" && overview && (
             <>

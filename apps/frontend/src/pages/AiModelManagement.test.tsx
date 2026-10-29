@@ -1209,3 +1209,127 @@ describe("AiModelManagement D-100 console", () => {
     expect(view.querySelector('a.console-stat[href="/admin/ai-models?section=spending"]')).not.toBeNull();
   });
 });
+
+// --- D-100 Phase 2: Providers and Spending & Limits ---------------------------------------------
+
+describe("AiModelManagement D-100 providers and spending", () => {
+  const paid = { calls: 6, reservation_micro_usd: 96_000, estimate_micro_usd: 576_000, effective_remaining_micro_usd: 1_000_000, refusal: null, sufficient: true };
+  const claude = (effort: string, overrides: Partial<ModelProfileView> = {}) => profile({
+    profile_id: `anthropic_claude_sonnet_5_5_${effort}`, display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: effort, endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: "selectable", reason: null, active: false,
+    activation_blockers: ["NOT_QUALIFIED"], paid_qualification: paid,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: effort, thinking: "adaptive", decision: "D-099" },
+    ...overrides,
+  });
+  const withProviders = (budgetStatus: ModelBudgetStatus | null = controlled(), claudeOverrides: Partial<ModelProfileView> = {}): ModelOverview => ({
+    ...overview,
+    profiles: [overview.profiles[0], overview.profiles[1], remoteSelectable, claude("medium", claudeOverrides), claude("low", claudeOverrides)],
+    budget: budgetStatus,
+  });
+  const card = (view: HTMLElement, kind: string) => view.querySelector(`[data-testid=provider-${kind}]`);
+
+  it("shows one card per provider, with Balanced and Fast under one Anthropic provider", async () => {
+    const view = mount(controlsServer(withProviders(), []), "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    expect(card(view, "openrouter")?.textContent).toContain("GPT-OSS 120B");
+    expect(card(view, "local")?.textContent).toContain("Qwen3 8B (LM Studio)");
+    expect(card(view, "local")?.textContent).toContain("no key, no paid calls");
+    const anthropic = card(view, "anthropic")!.textContent ?? "";
+    expect(anthropic).toContain("One provider for Claude Sonnet 5.5 Balanced and Fast");
+    expect(anthropic).toContain("Claude Sonnet 5.5 — Balanced");
+    expect(anthropic).toContain("Claude Sonnet 5.5 — Fast");
+    expect(anthropic).toContain("2 of 2 configurations available");
+    expect(anthropic).not.toContain("OpenRouter");
+  });
+
+  it("never offers Anthropic key entry or Claude limits, and says what the server does not send", async () => {
+    const view = mount(controlsServer(withProviders(), []), "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    const anthropic = card(view, "anthropic")!;
+    expect(anthropic.querySelectorAll("input, form")).toHaveLength(0);
+    expect(anthropic.textContent).toContain("Its status is not sent to this page");
+    expect(anthropic.textContent).toContain("There is no HR key entry.");
+    expect(anthropic.textContent).toContain("The time of the last reconciliation is not sent to this page");
+    expect(anthropic.textContent).toContain("Not changeable on this page; the GPT-OSS controls never apply to it.");
+    // The OpenRouter key form stays in the OpenRouter card only.
+    expect(card(view, "openrouter")?.querySelector("#openrouter-key-input")).not.toBeNull();
+  });
+
+  it("names a server-reported Anthropic key or reconciliation problem in Anthropic terms, with its code", async () => {
+    const data = withProviders(controlled(), {
+      status: "unavailable", reason: "CREDENTIAL_MISSING", activation_blockers: ["CREDENTIAL_MISSING", "RECONCILIATION_STALE"], paid_qualification: null,
+    });
+    const view = mount(controlsServer(data, []), "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    const anthropic = card(view, "anthropic")!.textContent ?? "";
+    expect(anthropic).toContain("The server-side Anthropic inference key is not set.");
+    expect(anthropic).toContain("RECONCILIATION_STALE");
+    expect(anthropic).toContain("has not been reconciled with the provider's usage recently enough");
+    expect(anthropic).toContain("0 of 2 configurations available");
+  });
+
+  it("says who manages the OpenRouter key: HR when the server allows it, else an operator", async () => {
+    let view = mount(controlsServer(withProviders(), []), "providers");
+    await waitFor(() => expect(card(view, "openrouter")).not.toBeNull());
+    expect(card(view, "openrouter")?.textContent).toContain("Enter or clear the OpenRouter key");
+    act(() => root?.unmount());
+    root = null;
+    container?.remove();
+
+    const envKey = { ...controlled(), credential: { ...controlled().credential, source: "environment" as const, hr_editable: false, persistence: "server" as const } };
+    view = mount(controlsServer(withProviders(envKey), []), "providers");
+    await waitFor(() => expect(card(view, "openrouter")).not.toBeNull());
+    expect(card(view, "openrouter")?.textContent).not.toContain("Enter or clear the OpenRouter key");
+    expect(card(view, "openrouter")?.textContent).toContain("Set the OpenRouter key on the server");
+  });
+
+  it("reads providers and spending from the overview only, with no extra request", async () => {
+    const fetchMock = controlsServer(withProviders(), []);
+    const view = mount(fetchMock, "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    go(view, "Spending & Limits");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.every((url) => url.endsWith("/api/assistant/admin/models") || url.includes("/api/assistant/admin/models/audit"))).toBe(true);
+  });
+
+  it("keeps Claude's spending read-only and apart from the GPT-OSS limits", async () => {
+    const view = mount(controlsServer(withProviders(), []), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    const claudePanel = view.querySelector("[data-testid=claude-spending]")!;
+    expect(claudePanel.querySelectorAll("input, form, button")).toHaveLength(0);
+    expect(claudePanel.textContent).toContain("Nothing on this page changes them, and the GPT-OSS limits never apply to Claude.");
+    expect(claudePanel.textContent).toContain("does not send Claude's spending today, lifetime usage or ledger headroom");
+    expect(claudePanel.textContent).toContain("US$1.000000");  // the server's figure, as sent
+    expect(claudePanel.textContent).toContain("Allowed");
+    expect(claudePanel.textContent).not.toContain("OpenRouter");
+    // The GPT-OSS controls keep their own panel and form.
+    expect(view.querySelector("#spending-heading")?.textContent).toContain("OpenRouter daily spending limit");
+    expect(view.querySelector("#daily-limit-input")).not.toBeNull();
+    expect(claudePanel.contains(view.querySelector("#daily-limit-input"))).toBe(false);
+  });
+
+  it("shows Claude's limits even when the OpenRouter test mode is off, without claiming no paid limits apply", async () => {
+    const view = mount(server(withProviders(null)), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    expect(view.textContent).toContain("no GPT-OSS spending limits apply here");
+    expect(view.textContent).not.toContain("so no paid spending limits apply here");
+  });
+
+  it("says a Claude configuration that is not available has no spending figure, not a zero", async () => {
+    const view = mount(server(withProviders(null, { status: "pending_authorisation", reason: "ANTHROPIC_NOT_AUTHORISED", paid_qualification: null })), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    const text = view.querySelector("[data-testid=claude-spending]")!.textContent ?? "";
+    expect(text).toContain("Not reported: this configuration is not available");
+    expect(text).not.toContain("US$0.000000");
+  });
+
+  it("says when the GPT-OSS ledger could not be read instead of showing amounts", async () => {
+    const unread = { ...controlled(), ledger: null, daily: null, refusal: "LEDGER_UNAVAILABLE" };
+    const view = mount(controlsServer({ ...overview, profiles: [profile({}), remoteSelectable], budget: unread }, []), "spending");
+    await waitFor(() => expect(view.textContent).toContain("Unavailable: the ledger could not be read"));
+    expect(view.textContent).toContain("The spending ledger is missing or unhealthy.");
+    expect(view.querySelector("[aria-label='Who can change the GPT-OSS limits']")?.textContent).toContain("You (HR), on this page");
+  });
+});
