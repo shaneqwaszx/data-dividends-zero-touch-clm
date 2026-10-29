@@ -798,8 +798,10 @@ const modelPath = (profileId: string) => `/admin/models/${encodeURIComponent(pro
 
 export const fetchModelOverview = (signal?: AbortSignal) =>
   request<ModelOverview>("/admin/models", undefined, signal);
+/** How many of the most recent audit events the page asks for (newest first). */
+export const MODEL_AUDIT_LIMIT = 100;
 export const fetchModelAudit = (signal?: AbortSignal) =>
-  request<{ events: ModelAuditEvent[] }>("/admin/models/audit?limit=100", undefined, signal);
+  request<{ events: ModelAuditEvent[] }>(`/admin/models/audit?limit=${MODEL_AUDIT_LIMIT}`, undefined, signal);
 export const testModelConnection = (profileId: string) =>
   request<ModelConnectionTest>(`${modelPath(profileId)}/connection-test`, {});
 // D-098: a paid (remote) run is sent with the number of paid calls HR confirmed.

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -9,6 +9,7 @@ import {
   clearModelCredential,
   fetchModelAudit,
   fetchModelOverview,
+  MODEL_AUDIT_LIMIT,
   refreshProviderLimits,
   rollbackModel,
   saveLifetimeCap,
@@ -16,6 +17,7 @@ import {
   saveSpendingControls,
   startModelQualification,
   testModelConnection,
+  type ModelAuditEvent,
   type ModelBudgetStatus,
   type ModelDiagnosis,
   type ModelOverview,
@@ -99,6 +101,16 @@ const CLAUDE_REASON_TEXT: Record<string, string> = {
   LEDGER_UNAVAILABLE: "The separate Claude spending ledger is missing or unhealthy.",
   DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (at most US$1.00 a Singapore day) has no room for another call.",
   LIFETIME_CAP_EXHAUSTED: "The Claude ledger's lifetime cap has no room for another call.",
+};
+
+// D-100 (M-1): where the provider is not known (a start-up revert, an audit row without a
+// configuration), the shared codes whose usual wording names OpenRouter are said without a provider.
+export const ANY_PROVIDER = "*";
+const NEUTRAL_REASON_TEXT: Record<string, string> = {
+  PROVIDER_LIMIT_EXHAUSTED: "The provider's own key or workspace limit has no room for another call. It is not an HR spending setting.",
+  PROVIDER_LIMIT_NOT_CHECKED: "The provider's key or workspace has not been checked yet. Run Test connection.",
+  PROVIDER_CHECK_FAILED: "The last provider key or workspace check failed. Run Test connection.",
+  CREDENTIAL_INVALID: "The configured provider key is not valid.",
 };
 
 // D-098 Recovery Centre: the server classifies each outcome with closed codes; the page names
@@ -205,9 +217,41 @@ export function escalationSummary(item: ModelProfileView): string {
   ].join("\n");
 }
 
-function RecoveryCard({ item, busy, onRetry, onTest }: {
+// D-100 Phase 3: what to check for each provider before a retry. General guidance only; the
+// server's own codes on the card say what actually happened.
+const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: string; steps: string[] }> = {
+  openrouter: {
+    title: "Troubleshooting GPT-OSS 120B (OpenRouter)",
+    steps: [
+      "Providers: check that the OpenRouter key is configured and that Test connection passes (it reads the key's own limit; no model call).",
+      "Spending & Limits: check that today's allowance, the lifetime headroom and the key's own limit leave room for every paid call.",
+      "If paid calls are stopped, an operator reconciles the ledger with OpenRouter (scripts/budget_ledger.py) before any retry.",
+      "A key limit with no room is raised only by the key's owner at OpenRouter, never from this page.",
+    ],
+  },
+  anthropic: {
+    title: "Troubleshooting Claude Sonnet 5.5 (Anthropic API)",
+    steps: [
+      "Run Test connection: it reads the attested Anthropic workspace and the model (free; no case data).",
+      "The inference key, the workspace id and the four owner attestations are set on the server by an operator; HR cannot enter them.",
+      "Claude's limits are fixed on the server: wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic). A paid qualification needs a reconciliation within 24 hours.",
+      "The workspace's monthly spend limit is changed only by its owner in the Anthropic Console, never from this page.",
+    ],
+  },
+  local: {
+    title: "Troubleshooting a local model",
+    steps: [
+      "Check that the model server this configuration uses is running and has the model loaded, then run Test connection.",
+      "IT changes the configuration (the model profiles file, or the server environment for the baseline); any change needs a new qualification.",
+    ],
+  },
+};
+
+function RecoveryCard({ item, configured, busy, onRetry, onTest }: {
   item: ModelProfileView;
+  configured: boolean;
   busy: boolean;
+  /** Starts a qualification; a paid one always opens the confirmation first. */
   onRetry: () => void;
   onTest: () => void;
 }) {
@@ -218,20 +262,47 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
   const failedGates = (run?.gates ?? []).filter((gate) => gate.gating && !gate.passed);
   const usable = item.status === "selectable";
   const escalate = diagnosis?.action.startsWith("ESCALATE_") ?? false;
+  const kind = providerKind(item);
+  const claude = kind === "anthropic";
+  const paidRun = isPaidRemote(item.deployment);
+  const help = TROUBLESHOOTING[kind];
+  const technical = technicalState(item);
   return (
     <article className="model-recovery-card" data-testid={`recovery-${item.profile_id}`}>
-      <h3>{profileName(item)}</h3>
-      {!run ? <p>Not qualified yet. {item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ")}</p> : (
+      <div className="model-recovery-card__head">
+        <h3>{profileName(item)}</h3>
+        <span className="console-help">{item.details?.provider ? PROVIDER_LABEL[item.details.provider] ?? item.details.provider : readable(item.deployment)}</span>
+      </div>
+      <dl className="console-recovery-states">
+        <div><dt>Technical qualification</dt><dd><Chip state={technical} /></dd></div>
+        <div><dt>Answer quality</dt><dd><Chip state={qualityState(run?.quality)} /></dd></div>
+        <div><dt>Availability</dt><dd><Chip state={availabilityState(item)} /></dd></div>
+      </dl>
+      {!usable && (
+        <p className="console-note console-note--block">
+          Not available now: {item.reason ? readable(item.reason, item.deployment) : STATUS_LABEL[item.status]}. Retry and Test connection are offered once the server makes it available again.
+        </p>
+      )}
+      {!run ? (
+        <>
+          <p><strong>Not qualified yet.</strong> No qualification has been run for this configuration. Activation needs a passing technical qualification of its current settings.</p>
+          {item.activation_blockers.length > 0 && <p className="control-help">Activation blocked: {item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ")}</p>}
+        </>
+      ) : (
         <>
           <p>
             <strong>{diagnosis ? categoryLabel(diagnosis) : readable(run.status)}</strong>
-            {run.code && <> · {readable(run.code)}</>}
+            {run.code && <> · {readable(run.code, item.deployment)}</>}
             {!run.current && <> · <span className="tag tag-warn">Out of date</span></>}
           </p>
           {diagnosis && <p>{causeText(diagnosis, item.deployment)}</p>}
           {failedGates.length > 0 && (
             <p className="control-help">Failed gates: {failedGates.map((gate) => `${gate.gate} (${gate.rule})`).join("; ")}</p>
           )}
+          <p className="console-help console-codes-line">
+            Server codes: <code>{run.status}</code>{run.code && <> <code>{run.code}</code></>}
+            {diagnosis && <> <code>{diagnosis.category}</code> <code>{diagnosis.cause}</code> <code>{diagnosis.action}</code></>}
+          </p>
           <dl className="acra-detail-list">
             <div><dt>Last attempted</dt><dd>{formatTimestamp(run.started_at)} by {run.started_by}</dd></div>
             <div><dt>Retry worthwhile now</dt><dd>{diagnosis ? (diagnosis.retryable ? "Yes" : "No") : "—"}</dd></div>
@@ -243,29 +314,48 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
           </dl>
         </>
       )}
-      <div>
+      {!run && paid && <p className="control-help">A first paid qualification makes up to {paid.calls ?? "—"} calls (reserved up to {microUsd(paid.estimate_micro_usd)}){paid.refusal ? `; refused now: ${readable(paid.refusal, item.deployment)}` : ""}.</p>}
+      <div className="console-recovery-actions">
+        {!run && usable && configured && item.endpoint && (
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={onRetry}>
+            {paidRun ? "Run first qualification…" : "Run first qualification"}
+          </button>
+        )}
         {diagnosis?.retryable && usable && (
           <button type="button" className="btn btn-primary" disabled={busy} onClick={onRetry}>
             {diagnosis.cause === OUT_OF_DATE ? "Run new qualification…" : "Retry qualification…"}
           </button>
-        )}{" "}
+        )}
         {(diagnosis?.action === "TEST_CONNECTION" || diagnosis?.action === "RETRY_LATER") && usable && (
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={onTest}>Test connection</button>
-        )}{" "}
-        {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && <Link className="btn btn-secondary" to={{ search: sectionSearch("spending") }}>Review spending controls</Link>}{" "}
-        {paid?.refusal === "PROVIDER_LIMIT_EXHAUSTED" && (
-          <p className="ds-banner ds-banner-warn" role="note" data-testid="key-owner-action">
-            {ACTION_TEXT.ESCALATE_KEY_OWNER}
-          </p>
+        )}
+        {/* Claude's limits are not HR settings: the link only shows them, read-only. */}
+        {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && (
+          <Link className="btn btn-secondary" to={{ search: sectionSearch("spending") }}>{claude ? "View Claude's limits (read-only)" : "Review spending controls"}</Link>
         )}
         {escalate && (
           <button type="button" className="btn btn-secondary" onClick={() => {
             void navigator.clipboard?.writeText(escalationSummary(item)).then(() => setCopied(true), () => setCopied(false));
           }}>Copy escalation summary</button>
         )}
-        {copied && <small role="status"> Copied.</small>}
+        {copied && <small role="status">Copied.</small>}
       </div>
+      {paid?.refusal === "PROVIDER_LIMIT_EXHAUSTED" && (
+        <p className="ds-banner ds-banner-warn" role="note" data-testid="key-owner-action">
+          {(claude && CLAUDE_ACTION_TEXT.ESCALATE_KEY_OWNER) || ACTION_TEXT.ESCALATE_KEY_OWNER}
+        </p>
+      )}
       {escalate && <details><summary>Escalation summary</summary><pre className="control-help">{escalationSummary(item)}</pre></details>}
+      {run && run.status !== "running" && (
+        <details className="console-details">
+          <summary>Gates and measures of the latest run</summary>
+          <QualificationDetail qualification={run} deployment={item.deployment} />
+        </details>
+      )}
+      <details className="console-details">
+        <summary>{help.title}</summary>
+        <ol className="console-troubleshooting">{help.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+      </details>
     </article>
   );
 }
@@ -314,6 +404,7 @@ const isPaidRemote = (deployment: string | undefined) => deployment === REMOTE_D
 export function readable(code: string | null | undefined, deployment?: string): string {
   if (!code) return "";
   if (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_REASON_TEXT[code]) return CLAUDE_REASON_TEXT[code];
+  if (deployment === ANY_PROVIDER && NEUTRAL_REASON_TEXT[code]) return NEUTRAL_REASON_TEXT[code];
   if (code.startsWith(GATES_FAILED)) return `Gates failed: ${code.slice(GATES_FAILED.length).split(",").join(", ")}`;
   if (code.startsWith(PREFLIGHT_FAILED)) return `Preflight failed: ${code.slice(PREFLIGHT_FAILED.length).split(",").join(", ")}`;
   return REASON_TEXT[code] ?? code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
@@ -421,15 +512,17 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
 
   return (
     <section className="card" aria-labelledby="spending-heading">
+      <p className="card-kicker">GPT-OSS 120B · OpenRouter ledger</p>
       <h2 id="spending-heading">OpenRouter daily spending limit, lifetime limit and calls</h2>
+      <Responsibilities label="Who can change the GPT-OSS limits" duties={GPT_OSS_SPENDING_DUTIES} />
       <p className="ds-banner ds-banner-warn" role="note">
         At most {usd(dollars(budget.daily_cap_micro_usd))} of reserved plus settled OpenRouter spending per Singapore calendar day ({budget.timezone}), for qualification and chat together. The lowest of this allowance, the lifetime ledger limit and the key's own OpenRouter limit applies. It does not rule out unexpected provider billing; a mismatch stops further calls.
       </p>
       <dl className="acra-detail-list">
-        <div><dt>Settled today</dt><dd>{usd(daily?.settled_today_usd)}</dd></div>
-        <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : "—"}</dd></div>
-        <div><dt>Remaining today</dt><dd>{usd(daily?.remaining_usd)}</dd></div>
-        <div><dt>Lifetime headroom</dt><dd>{usd(budget.ledger?.headroom_usd)}</dd></div>
+        <div><dt>Settled today</dt><dd>{daily ? usd(daily.settled_today_usd) : LEDGER_UNREAD}</dd></div>
+        <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : LEDGER_UNREAD}</dd></div>
+        <div><dt>Remaining today</dt><dd>{daily ? usd(daily.remaining_usd) : LEDGER_UNREAD}</dd></div>
+        <div><dt>Lifetime headroom</dt><dd>{budget.ledger ? usd(budget.ledger.headroom_usd) : LEDGER_UNREAD}</dd></div>
         <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining{budget.provider.limit_usd ? ` of ${usd(budget.provider.limit_usd)}` : ""}{budget.provider.usage_usd ? `, ${usd(budget.provider.usage_usd)} used` : ""} ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
         {budget.provider && <div><dt>Key limit resets</dt><dd>{budget.provider.limit_reset ? `Yes (${budget.provider.limit_reset}): not accepted, a lifetime key limit is required` : "Never (a lifetime key limit, as required)"}</dd></div>}
         {budget.provider && <div><dt>Account credits</dt><dd>Not read. The key's own limit above is what applies; only the key's owner can change it at OpenRouter.</dd></div>}
@@ -530,8 +623,8 @@ function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
   }
 
   return (
-    <section className="card" aria-labelledby="openrouter-key-heading">
-      <h2 id="openrouter-key-heading">OpenRouter API Key — {label}</h2>
+    <section className="console-subcard" aria-labelledby="openrouter-key-heading">
+      <h3 id="openrouter-key-heading">OpenRouter API Key — {label}</h3>
       <p>
         <span className={`tag ${credential.status === "configured" ? "tag-accent" : "tag-warn"}`} role="status">{label}</span>{" "}
         {CREDENTIAL_SOURCE[credential.source]}
@@ -558,13 +651,267 @@ function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
   );
 }
 
-function QualificationDetail({ qualification }: { qualification: ModelQualification }) {
+// --- D-100 Phase 2: Providers and Spending & Limits ---------------------------------------------
+// Presentation only, from the overview the page already reads (no new request). The server sends
+// GPT-OSS's key and spending view in `budget`. For Claude it sends only each configuration's
+// status, codes, connection test and paid-qualification estimate, so nothing more is shown: no
+// Claude key status, usage, ledger headroom or reconciliation time is inferred.
+
+type ProviderKind = "openrouter" | "anthropic" | "local";
+
+/** Built-in remote configurations (`source` "code") other than Claude are GPT-OSS via OpenRouter. */
+function providerKind(item: Pick<ModelProfileView, "deployment" | "source">): ProviderKind {
+  if (item.deployment === ANTHROPIC_DEPLOYMENT) return "anthropic";
+  return item.source === "code" ? "openrouter" : "local";
+}
+
+const LEDGER_UNREAD = "Unavailable: the ledger could not be read";
+
+type DutyHolder = "hr" | "operator" | "owner";
+interface Duty { who: DutyHolder; text: string }
+const DUTY_LABEL: Record<DutyHolder, string> = {
+  hr: "You (HR), on this page",
+  operator: "An operator or IT, on the server",
+  owner: "The key or workspace owner, at the provider",
+};
+
+/** Who may change what: HR on this page, an operator on the server, the owner at the provider. */
+function Responsibilities({ label, duties }: { label: string; duties: Duty[] }) {
+  return (
+    <div className="console-duties" role="group" aria-label={label}>
+      {(["hr", "operator", "owner"] as const).map((who) => {
+        const items = duties.filter((duty) => duty.who === who);
+        if (items.length === 0) return null;
+        return (
+          <div key={who} className={`console-duty console-duty--${who}`}>
+            <span className="console-label">{DUTY_LABEL[who]}</span>
+            <ul>{items.map((duty) => <li key={duty.text}>{duty.text}</li>)}</ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const GPT_OSS_SPENDING_DUTIES: Duty[] = [
+  { who: "hr", text: "Set the daily limit and calls per activation; lowering needs no confirmation, raising the daily limit does." },
+  { who: "hr", text: "Raise or lower the lifetime ledger limit (a raise needs your confirmation and a ledger that reconciles)." },
+  { who: "operator", text: "Reconcile the ledger with OpenRouter when calls are stopped (scripts/budget_ledger.py)." },
+  { who: "owner", text: "Set the key's own lifetime limit at OpenRouter. It is never shown or changed here." },
+];
+
+const OPENROUTER_DUTIES = (hrKey: boolean): Duty[] => [
+  hrKey
+    ? { who: "hr", text: "Enter or clear the OpenRouter key (kept in the AI Assistant's memory only)." }
+    : { who: "operator", text: "Set the OpenRouter key on the server (process environment or apps/assistant/.env)." },
+  { who: "hr", text: "Run Test connection (a free preflight that reads the key's limit; no model call, no case data)." },
+  { who: "hr", text: "Change the GPT-OSS limits in Spending & Limits." },
+  { who: "operator", text: "Authorise the remote test mode and reconcile the ledger." },
+  { who: "owner", text: "Set the key's own lifetime limit at OpenRouter." },
+];
+
+const ANTHROPIC_DUTIES: Duty[] = [
+  { who: "hr", text: "Run Test connection (a free workspace and model read), confirm a paid qualification and activate, from Models & Overview." },
+  { who: "operator", text: "Set the Anthropic inference key on the server (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env). There is no HR key entry." },
+  { who: "operator", text: "Keep Claude's fixed limits within the Option B ceilings and reconcile its ledger (scripts/budget_ledger.py --anthropic)." },
+  { who: "owner", text: "Keep the dedicated Anthropic workspace's monthly spend limit (attested at most US$5.00) in the Anthropic Console." },
+];
+
+const LOCAL_DUTIES: Duty[] = [
+  { who: "hr", text: "Run Test connection, qualify and activate, from Models & Overview." },
+  { who: "operator", text: "Set the environment baseline on the server, add or change profiles in the model profiles file, and keep the model servers running." },
+];
+
+// Codes that say the Anthropic key itself is the problem (all from the server).
+const ANTHROPIC_KEY_CODES = ["CREDENTIAL_MISSING", "CREDENTIAL_INVALID", "CREDENTIAL_ADMIN_REFUSED"];
+
+/** Every closed code the server reported for these configurations, once each, in order. */
+function reportedCodes(items: ModelProfileView[]): string[] {
+  const codes = new Set<string>();
+  for (const item of items) {
+    for (const code of [item.reason, ...item.activation_blockers, item.paid_qualification?.refusal, item.connection_test?.code]) {
+      if (code) codes.add(code);
+    }
+  }
+  return [...codes];
+}
+
+function connectionText(item: ModelProfileView): string {
+  const test = item.connection_test;
+  if (!test) return "Not run";
+  const when = test.at ? `, ${formatTimestamp(test.at)}${test.by_user ? ` by ${test.by_user}` : ""}` : "";
+  return `${readable(test.outcome)}${test.code ? ` · ${readable(test.code, item.deployment)}` : ""}${when}`;
+}
+
+/** The provider's configurations, each with its own availability and last connection test. */
+function ProviderConfigurations({ items }: { items: ModelProfileView[] }) {
+  return (
+    <ul className="console-config-list" aria-label="Configurations">
+      {items.map((item) => (
+        <li key={item.profile_id}>
+          <span className="console-config-list__name">
+            {profileName(item)}
+            {item.active && <> <Chip state={{ label: "Active", tone: "active" }} /></>}
+          </span>
+          <Chip state={availabilityState(item)} />
+          <span className="console-config-list__detail">
+            Connection test: {connectionText(item)}
+            {item.reason && <><br />{readable(item.reason, item.deployment)}</>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ReportedCodes({ codes, deployment }: { codes: string[]; deployment: string }) {
+  if (codes.length === 0) return <p className="console-help">The server reports no refusal or readiness code for these configurations.</p>;
+  return (
+    <ul className="console-codes" aria-label="Codes reported by the server">
+      {codes.map((code) => <li key={code}><code>{code}</code> {readable(code, deployment)}</li>)}
+    </ul>
+  );
+}
+
+function ProviderCard({ kind, title, subtitle, children }: { kind: ProviderKind; title: string; subtitle: string; children: ReactNode }) {
+  const headingId = `provider-${kind}-heading`;
+  return (
+    <section className="card console-provider" aria-labelledby={headingId} data-testid={`provider-${kind}`}>
+      <div className="console-provider__head">
+        <h2 id={headingId}>{title}</h2>
+        <span>{subtitle}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOverview; busy: boolean; onChanged: () => void }) {
+  const byKind = (kind: ProviderKind) => overview.profiles.filter((item) => providerKind(item) === kind);
+  const openrouter = byKind("openrouter");
+  const anthropic = byKind("anthropic");
+  const local = byKind("local");
+  const budget = overview.budget?.configured ? overview.budget : null;
+  const anthropicCodes = reportedCodes(anthropic);
+  const keyIssue = anthropicCodes.find((code) => ANTHROPIC_KEY_CODES.includes(code));
+  const stale = anthropicCodes.includes("RECONCILIATION_STALE");
+  const claudeUsable = anthropic.filter((item) => item.status === "selectable").length;
+  return (
+    <>
+      {(openrouter.length > 0 || budget) && (
+        <ProviderCard kind="openrouter" title="OpenRouter" subtitle="GPT-OSS 120B through OpenRouter / DeepInfra · external, paid">
+          <ProviderConfigurations items={openrouter} />
+          {budget ? (
+            <>
+              <dl className="acra-detail-list">
+                <div><dt>Key limit check</dt><dd>{budget.provider ? `${budget.provider.passed ? "Checks passed" : "Checks failed"}, read ${formatTimestamp(budget.provider.checked_at)}` : "Not checked yet in this server process. Run Test connection."}</dd></div>
+                <div><dt>Spending</dt><dd>Its own ledger and HR-managed limits: see <Link to={{ search: sectionSearch("spending") }}>Spending &amp; Limits</Link>.</dd></div>
+              </dl>
+              <OpenRouterKey budget={budget} busy={busy}
+                remoteProfileId={openrouter.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
+                onChanged={onChanged} />
+            </>
+          ) : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so there is no provider key to manage here.</p>}
+          <Responsibilities label="Who manages OpenRouter" duties={OPENROUTER_DUTIES(budget?.credential.hr_editable ?? false)} />
+        </ProviderCard>
+      )}
+
+      {anthropic.length > 0 && (
+        <ProviderCard kind="anthropic" title="Anthropic API" subtitle="One provider for Claude Sonnet 5.5 Balanced and Fast · external, paid · D-099 proposed">
+          <p className="console-help">Balanced and Fast are two configurations (reasoning settings) of one model on one Anthropic provider: they share the key, the workspace and Claude's single ledger, and each needs its own passing qualification.</p>
+          <ProviderConfigurations items={anthropic} />
+          <dl className="acra-detail-list">
+            <div><dt>Availability</dt><dd>{claudeUsable} of {anthropic.length} configuration{anthropic.length === 1 ? "" : "s"} available</dd></div>
+            <div><dt>Inference key</dt><dd>{keyIssue
+              ? readable(keyIssue, ANTHROPIC_DEPLOYMENT)
+              : "Its status is not sent to this page. An operator sets it on the server; any key problem appears among the server's codes below."}</dd></div>
+            <div><dt>Workspace check</dt><dd>Test connection reads the attested workspace and the model (free; no case data). Each configuration's last result is listed above.</dd></div>
+            <div><dt>Spending</dt><dd>Claude's own ledger with fixed limits (at most US$5.00 lifetime, US$1.00 a Singapore day and 20 calls an activation, within the attested workspace limit). Not changeable on this page; the GPT-OSS controls never apply to it. <Link to={{ search: sectionSearch("spending") }}>View Claude's limits</Link>.</dd></div>
+            <div><dt>Reconciliation</dt><dd>{stale
+              ? readable("RECONCILIATION_STALE", ANTHROPIC_DEPLOYMENT)
+              : "An operator reconciles Claude's ledger with the Anthropic Console. The time of the last reconciliation is not sent to this page; a paid call is refused when it is out of date."}</dd></div>
+          </dl>
+          <h3 className="console-subheading">Codes reported by the server</h3>
+          <ReportedCodes codes={anthropicCodes} deployment={ANTHROPIC_DEPLOYMENT} />
+          <Responsibilities label="Who manages the Anthropic API" duties={ANTHROPIC_DUTIES} />
+        </ProviderCard>
+      )}
+
+      {local.length > 0 && (
+        <ProviderCard kind="local" title="Server-configured models" subtitle="The environment baseline and IT's model profiles · no spending ledger, no paid-run confirmation">
+          <ProviderConfigurations items={local} />
+          <p className="console-help">IT sets the environment baseline in the server environment. Profiles from the model profiles file must use a local loopback endpoint; any other is listed as not available. Neither has a key managed on this page or a spending ledger, and their availability depends on the model servers IT runs.</p>
+          <Responsibilities label="Who manages local models" duties={LOCAL_DUTIES} />
+        </ProviderCard>
+      )}
+    </>
+  );
+}
+
+/** Claude's spending, read-only: only what the server sends for a paid qualification. */
+function ClaudeSpending({ items }: { items: ModelProfileView[] }) {
+  return (
+    <section className="card" aria-labelledby="claude-spending-heading" data-testid="claude-spending">
+      <p className="card-kicker">Claude Sonnet 5.5 · Anthropic ledger</p>
+      <h2 id="claude-spending-heading">Claude's limits (fixed on the server, read-only)</h2>
+      <p className="ds-banner" role="note">
+        Claude has its own separate ledger and fixed limits: at most US$5.00 lifetime, US$1.00 a Singapore day and 20 calls an activation, within the owner-attested Anthropic workspace limit. Nothing on this page changes them, and the GPT-OSS limits never apply to Claude.
+      </p>
+      <p className="console-help">The server does not send Claude's spending today, lifetime usage or ledger headroom to this page. It sends only what a paid qualification of each available configuration may spend, against the strictest Claude limit.</p>
+      {items.map((item) => {
+        const paid = item.paid_qualification;
+        return (
+          <div key={item.profile_id} className="console-subcard">
+            <h3>{profileName(item)}</h3>
+            {paid ? (
+              <dl className="console-facts" aria-label={`${profileName(item)} paid qualification`}>
+                <div><dt>Available under the strictest Claude limit</dt><dd className="console-number">{microUsd(paid.effective_remaining_micro_usd)}</dd></div>
+                <div><dt>Reserved per call</dt><dd className="console-number">{microUsd(paid.reservation_micro_usd)}</dd></div>
+                <div><dt>Paid qualification</dt><dd className="console-number">Up to {paid.calls ?? "—"} calls, {microUsd(paid.estimate_micro_usd)}</dd></div>
+                <div><dt>Paid calls now</dt><dd>{paid.refusal ? `Refused: ${readable(paid.refusal, ANTHROPIC_DEPLOYMENT)}` : paid.sufficient ? "Allowed" : paid.estimate_micro_usd === null ? "Not allowed: the paid question count is not known" : "Not allowed: the limits do not leave room for every call"}</dd></div>
+              </dl>
+            ) : (
+              <p className="console-help">Not reported: this configuration is not available{item.reason ? ` (${readable(item.reason, ANTHROPIC_DEPLOYMENT)})` : ""}, so the server sends no Claude spending figure for it.</p>
+            )}
+          </div>
+        );
+      })}
+      <Responsibilities label="Who can change Claude's limits" duties={[
+        { who: "operator", text: "Change Claude's settings within the Option B ceilings, and reconcile its ledger (scripts/budget_ledger.py --anthropic)." },
+        { who: "owner", text: "Keep the Anthropic workspace's monthly spend limit in the Anthropic Console." },
+      ]} />
+    </section>
+  );
+}
+
+function SpendingSection({ overview, busy, onChanged }: { overview: ModelOverview; busy: boolean; onChanged: () => void }) {
+  const budget = overview.budget?.configured ? overview.budget : null;
+  const anthropic = overview.profiles.filter((item) => providerKind(item) === "anthropic");
+  if (!budget && anthropic.length === 0) {
+    return <p className="ds-banner" role="status">The remote test mode is not configured on this server, so no paid spending limits apply here.</p>;
+  }
+  return (
+    <>
+      {budget ? (
+        <>
+          {anthropic.length > 0 && (
+            <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger with at most US$5.00 lifetime, US$1.00 a day and 20 calls an activation.</p>
+          )}
+          <SpendingLimits budget={budget} busy={busy} onChanged={onChanged} />
+        </>
+      ) : <p className="ds-banner" role="status">The OpenRouter test mode is not configured on this server, so no GPT-OSS spending limits apply here.</p>}
+      {anthropic.length > 0 && <ClaudeSpending items={anthropic} />}
+    </>
+  );
+}
+
+function QualificationDetail({ qualification, deployment }: { qualification: ModelQualification; deployment: string }) {
   const metrics = qualification.metrics ?? {};
   return (
     <div className="model-qualification">
       <p>
         <strong>Qualification {readable(qualification.status)}</strong>
-        {qualification.code && <> · {readable(qualification.code)}</>}
+        {qualification.code && <> · {readable(qualification.code, deployment)}</>}
         {!qualification.current && <> · <span className="tag tag-warn">Out of date</span></>}
         {" "}· {qualification.done_turns}/{qualification.total_turns} turns · started by {qualification.started_by} {formatTimestamp(qualification.started_at)}
       </p>
@@ -912,10 +1259,127 @@ function ConfigurationDetails({ overview }: { overview: ModelOverview }) {
   );
 }
 
+// --- D-100 Phase 4: Audit History ----------------------------------------------------------------
+// The server sends the most recent events (newest first, at most MODEL_AUDIT_LIMIT). Search and
+// filters run in the browser over those loaded events only, and the page says so.
+
+function AuditHistory({ query, profiles }: { query: UseQueryResult<{ events: ModelAuditEvent[] }>; profiles: ModelProfileView[] }) {
+  const [search, setSearch] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [kind, setKind] = useState("");
+  const events = query.data?.events ?? [];
+  const profileOf = (profileId: string | null) => (profileId ? profiles.find((item) => item.profile_id === profileId) : undefined);
+  // A code is worded for the configuration's provider; with none (or one no longer listed), for any provider.
+  const codeText = (event: ModelAuditEvent) => (event.code ? readable(event.code, profileOf(event.profile_id)?.deployment ?? ANY_PROVIDER) : "");
+  const outcomes = [...new Set(events.map((event) => event.outcome))].sort();
+  const actions = [...new Set(events.map((event) => event.action))].sort();
+  const needle = search.trim().toLowerCase();
+  const filtering = needle !== "" || outcome !== "" || kind !== "";
+  const shown = events.filter((event) => {
+    if (outcome && event.outcome !== outcome) return false;
+    if (kind && event.action !== kind) return false;
+    if (!needle) return true;
+    const profile = profileOf(event.profile_id);
+    return [event.actor, event.role, event.action, readable(event.action), event.outcome, event.profile_id, profile && profileName(profile), event.code, codeText(event), String(event.seq)]
+      .some((text) => text?.toLowerCase().includes(needle));
+  });
+  const clear = () => { setSearch(""); setOutcome(""); setKind(""); };
+  const plural = (count: number) => `${count} event${count === 1 ? "" : "s"}`;
+
+  return (
+    <section className="card console-audit" aria-labelledby="model-audit-heading">
+      <div className="console-audit__head">
+        <h2 id="model-audit-heading">Audit history</h2>
+        {query.data && (
+          <p className="console-help">Read {formatTimestamp(new Date(query.dataUpdatedAt).toISOString())}; read again every {AUDIT_REFRESH_MS / 1000} seconds while this page is open.</p>
+        )}
+      </div>
+      {query.isPending && <p role="status">Loading audit history…</p>}
+      {query.isError && (
+        <div className="console-audit__error">
+          <p className="ds-banner ds-banner-warn" role="alert">
+            {safeError(query.error)}{query.data ? " The events below are the ones read before; they may be out of date." : ""}
+          </p>
+          <button type="button" className="btn btn-secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
+        </div>
+      )}
+      {query.data && (events.length === 0 ? (
+        <p>No model events recorded yet. Activations, qualifications, connection tests, key and limit changes, and refused requests appear here.</p>
+      ) : (
+        <>
+          <div className="console-filters" role="search" aria-label="Filter the loaded audit events">
+            <div>
+              <label htmlFor="audit-search">Search loaded events</label>
+              <input id="audit-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)}
+                placeholder="Person, action, configuration or code" autoComplete="off" />
+            </div>
+            <div>
+              <label htmlFor="audit-action">Action</label>
+              <select id="audit-action" value={kind} onChange={(event) => setKind(event.target.value)}>
+                <option value="">All actions</option>
+                {actions.map((item) => <option key={item} value={item}>{readable(item)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="audit-outcome">Outcome</label>
+              <select id="audit-outcome" value={outcome} onChange={(event) => setOutcome(event.target.value)}>
+                <option value="">All outcomes</option>
+                {outcomes.map((item) => <option key={item} value={item}>{readable(item)}</option>)}
+              </select>
+            </div>
+            {filtering && <button type="button" className="btn btn-secondary" onClick={clear}>Clear filters</button>}
+          </div>
+          <p className="console-help" data-testid="audit-scope">
+            The server sent the {plural(events.length)} most recently recorded{events.length >= MODEL_AUDIT_LIMIT ? ` (the most this page asks for; older events are not loaded)` : ""}. Search and filters look only at these loaded events.
+          </p>
+          <p className="console-audit__count" role="status" aria-live="polite">
+            {filtering ? `${shown.length} of ${plural(events.length)} loaded match.` : `Showing all ${plural(events.length)} loaded.`}
+          </p>
+          {shown.length === 0 ? (
+            <p>No loaded event matches these filters. Older events are not loaded, so they are not searched.</p>
+          ) : (
+            <div className="table-card table-scroll">
+              <table className="table console-audit__table" role="table">
+                <caption className="sr-only">Model audit events, newest first</caption>
+                <thead role="rowgroup"><tr role="row">{["When", "Who", "Action", "Configuration", "Outcome", "Code", "Revision"].map((name) => <th key={name} scope="col" role="columnheader">{name}</th>)}</tr></thead>
+                <tbody role="rowgroup">
+                  {shown.map((event) => {
+                    const profile = profileOf(event.profile_id);
+                    return (
+                      <tr key={event.seq} role="row">
+                        <td role="cell" data-label="When"><time dateTime={event.at}>{formatTimestamp(event.at)}</time><small className="console-raw">Event #{event.seq}</small></td>
+                        <td role="cell" data-label="Who">{event.actor}{event.role && <small className="console-raw">{event.role}</small>}</td>
+                        <td role="cell" data-label="Action">{readable(event.action)}<small className="console-raw"><code>{event.action}</code></small></td>
+                        <td role="cell" data-label="Configuration">{event.profile_id
+                          ? <>{profile ? profileName(profile) : "No longer listed"}<small className="console-raw"><code>{event.profile_id}</code></small></>
+                          : "—"}</td>
+                        <td role="cell" data-label="Outcome">{readable(event.outcome)}</td>
+                        <td role="cell" data-label="Code">{event.code ? <>{codeText(event)}<small className="console-raw"><code>{event.code}</code></small></> : "—"}</td>
+                        <td role="cell" data-label="Revision">{event.revision ?? "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      ))}
+    </section>
+  );
+}
+
 // After a confirmed action the opener is disabled while it runs: focus the inspector, else the page heading.
 const FOCUS_FALLBACKS = ["inspector-heading", "model-management-heading"] as const;
 
 const SECTION_LABEL = Object.fromEntries(CONSOLE_SECTIONS.map((item) => [item.id, item.label])) as Record<ConsoleSection, string>;
+const SECTION_INTRO: Record<ConsoleSection, string> = {
+  overview: "Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.",
+  providers: "Which provider each configuration uses, its key and checks, and who manages what. Keys are never shown on this page.",
+  spending: "Each paid provider's ledger and limits. HR changes the GPT-OSS limits here; Claude's limits are fixed on the server. Neither provider's limits apply to the other, nothing switches between them automatically, and server-configured models have no spending ledger here.",
+  qualifications: "What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next.",
+  audit: "Model events recorded by the AI Assistant service: activations, qualifications, connection tests, key and limit changes, and refused requests.",
+};
 
 export default function AiModelManagement({ actor }: { actor: AuthenticatedProfile }) {
   const queryClient = useQueryClient();
@@ -998,7 +1462,8 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
     action.mutate(() => startModelQualification(item.profile_id, calls));
   }
 
-  const recoverable = overview?.profiles.filter((item) => item.profile_id !== "env_default" && (item.qualification || item.deployment === REMOTE_DEPLOYMENT)) ?? [];
+  // D-100 (I-1): every external configuration is listed, Claude included, even before its first run.
+  const recoverable = overview?.profiles.filter((item) => item.profile_id !== "env_default" && (item.qualification || isPaidRemote(item.deployment))) ?? [];
   const paidPending = paidConfirm ? overview?.profiles.find((item) => item.profile_id === paidConfirm.profile_id) ?? paidConfirm : null;
   const inspectedItem = overview?.profiles.find((item) => item.profile_id === inspected)
     ?? overview?.profiles.find((item) => item.active)
@@ -1043,13 +1508,16 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           <header className="console-header">
             <p className="card-kicker">HR administration · AI Model Console</p>
             <h1 id="model-management-heading" tabIndex={-1}>{SECTION_LABEL[section]}</h1>
-            {section === "overview" && (
-              <p className="text-muted">Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.</p>
-            )}
+            <p className="text-muted">{SECTION_INTRO[section]}</p>
           </header>
 
-          {overviewQuery.isPending && <p>Loading model settings…</p>}
-          {overviewQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(overviewQuery.error)}</p>}
+          {overviewQuery.isPending && <p role="status">Loading model settings…</p>}
+          {overviewQuery.isError && (
+            <div className="console-audit__error">
+              <p className="ds-banner ds-banner-warn" role="alert">{safeError(overviewQuery.error)}{overview ? " The settings below are the ones read before; they may be out of date." : ""}</p>
+              <button type="button" className="btn btn-secondary" disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()}>Try again</button>
+            </div>
+          )}
           {action.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(action.error)}</p>}
 
           {overview && !overview.configured && (
@@ -1064,14 +1532,15 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           )}
           {overview?.active.unavailable && (
             <p className="ds-banner ds-banner-warn" role="alert" data-testid="ai-unavailable">
-              AI is unavailable: the external model configuration that was active (GPT-OSS or Claude) can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+              AI is unavailable: the external model configuration that was active (GPT-OSS or Claude) can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted, ANY_PROVIDER)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+              {overview.active.reverted && <> Server code: <code className="console-code">{overview.active.reverted}</code>.</>}
             </p>
           )}
           {overview?.file_status === "missing" && <p className="ds-banner ds-banner-warn" role="alert">The model profiles file named by IT was not found.</p>}
 
           {section === "overview" && overview && (
             <>
-              {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
+              {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted, ANY_PROVIDER)}), so the environment baseline is active.</p>}
               {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
 
               <ActiveModelBand overview={overview} busy={busy} nameOf={nameOf}
@@ -1108,28 +1577,15 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               {detail?.qualification && (
                 <section className="card" aria-labelledby="qualification-heading">
                   <h2 id="qualification-heading">Qualification: {profileName(detail)}</h2>
-                  <QualificationDetail qualification={detail.qualification} />
+                  <QualificationDetail qualification={detail.qualification} deployment={detail.deployment} />
                 </section>
               )}
             </>
           )}
 
-          {section === "providers" && overview && (overview.budget?.configured
-            ? (
-              <OpenRouterKey budget={overview.budget} busy={busy}
-                remoteProfileId={overview.profiles.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
-                onChanged={refresh} />
-            )
-            : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so there is no provider key to manage here.</p>)}
+          {section === "providers" && overview && <ProvidersSection overview={overview} busy={busy} onChanged={refresh} />}
 
-          {section === "spending" && overview && (overview.budget?.configured
-            ? <>
-              {overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) && (
-                <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger with at most US$5.00 lifetime, US$1.00 a day and 20 calls an activation.</p>
-              )}
-              <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
-            </>
-            : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so no paid spending limits apply here.</p>)}
+          {section === "spending" && overview && <SpendingSection overview={overview} busy={busy} onChanged={refresh} />}
 
           {section === "qualifications" && overview && (
             <>
@@ -1137,10 +1593,11 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               {recoverable.length > 0 ? (
                 <section className="card" aria-labelledby="recovery-heading">
                   <h2 id="recovery-heading">Model health and recovery</h2>
-                  <p className="text-muted">What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next. Retrying a paid qualification always asks first.</p>
+                  <p className="text-muted">Every external configuration is listed, including those not qualified yet. Starting or retrying a paid qualification always asks you to confirm its calls first; nothing is retried automatically.</p>
+                  <p className="console-help" data-testid="qualification-kinds">The technical qualification checks connection, safety filtering, availability and context capacity; it gates activation. Answer quality is reported only, never a gate, and a technical pass does not establish it.</p>
                   <div className="model-recovery-grid">
                     {recoverable.map((item) => (
-                      <RecoveryCard key={item.profile_id} item={item} busy={busy}
+                      <RecoveryCard key={item.profile_id} item={item} configured={overview.configured} busy={busy}
                         onRetry={() => runQualification(item)}
                         onTest={() => action.mutate(() => testModelConnection(item.profile_id))} />
                     ))}
@@ -1150,32 +1607,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
             </>
           )}
 
-          {section === "audit" && (
-            <section className="card" aria-labelledby="model-audit-heading">
-              <h2 id="model-audit-heading">Audit history</h2>
-              {auditQuery.isPending && <p>Loading audit history…</p>}
-              {auditQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(auditQuery.error)}</p>}
-              {auditQuery.data && (auditQuery.data.events.length === 0 ? <p>No model events recorded yet.</p> : (
-                <div className="table-card">
-                  <table className="table">
-                    <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Model</th><th>Outcome</th><th>Code</th></tr></thead>
-                    <tbody>
-                      {auditQuery.data.events.map((event) => (
-                        <tr key={event.seq}>
-                          <td>{formatTimestamp(event.at)}</td>
-                          <td>{event.actor}{event.role ? ` (${event.role})` : ""}</td>
-                          <td>{readable(event.action)}</td>
-                          <td>{event.profile_id ?? "—"}</td>
-                          <td>{readable(event.outcome)}</td>
-                          <td>{event.code ? readable(event.code) : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </section>
-          )}
+          {section === "audit" && <AuditHistory query={auditQuery} profiles={overview?.profiles ?? []} />}
         </div>
       </ConsoleShell>
 
@@ -1217,7 +1649,10 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           </dl>
           {paidPending.paid_qualification && !paidPending.paid_qualification.sufficient && (
             <p className="ds-banner ds-banner-warn" role="alert">
-              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal, paidPending.deployment) : "the spending limits do not leave room for every paid call."} Review the spending controls or run Test connection first.
+              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal, paidPending.deployment) : "the spending limits do not leave room for every paid call."}{" "}
+              {paidPending.deployment === ANTHROPIC_DEPLOYMENT
+                ? "Claude's limits are fixed on the server and are not changed on this page: run Test connection, wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger."
+                : "Review the GPT-OSS spending controls or run Test connection first."}
             </p>
           )}
           <div className="console-dialog__actions">
