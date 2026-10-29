@@ -376,6 +376,28 @@ def _with_an_unverified_call(ledger: BudgetLedger) -> int:
     return call.call_id
 
 
+def _with_an_expired_open_call(ledger: BudgetLedger, path: Path) -> None:
+    # An open call whose lease has run out: any ``recover()`` would abandon it and open the
+    # breaker (QG L-4 checks that the other provider never does).
+    ledger.reserve(
+        Reservation(10, 10, 1_000),
+        endpoint_slug="x/y",
+        max_in_flight=1,
+        lease_seconds=60,
+        profile_id=ledger.status().profile_id,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE calls SET lease_expires_at = 0 WHERE state = 'open'")
+
+
+def _untouched(path: Path, call_id: int) -> None:
+    probe = BudgetLedger(path)  # read without recovering
+    probe.verify()
+    status = probe.status()
+    assert status.open_calls == 1 and not status.breaker_open
+    assert [c.call_id for c in probe.unverified_closed_calls()] == [call_id]
+
+
 def test_the_two_ledger_paths_may_never_name_one_file(tmp_path: Path) -> None:
     settings = claude_config(
         tmp_path, anthropic_ledger_path=str(tmp_path / "budget" / "ledger.sqlite3")
@@ -396,14 +418,17 @@ def test_a_claude_preflight_never_recovers_or_verifies_the_openrouter_ledger(
     )
     ledger = BudgetLedger.open(path)
     call_id = _with_an_unverified_call(ledger)
+    _with_an_expired_open_call(ledger, path)
     claude = Claude()
     report = _preflight(settings, claude, within_seconds=PAID_RECONCILE_SECONDS)
     assert _failed(report) == ["ledger.profile"] and claude.requests == []
-    assert [c.call_id for c in ledger.unverified_closed_calls()] == [call_id]
-    assert not ledger.status().breaker_open
+    _untouched(path, call_id)
+    with pytest.raises(ProfileConfigError):
+        _model(settings, claude)
+    _untouched(path, call_id)
     with pytest.raises(budget.LedgerError):
         anthropic_runtime.verify_calls(ledger)
-    assert [c.call_id for c in ledger.unverified_closed_calls()] == [call_id]
+    _untouched(path, call_id)
 
 
 def test_a_gpt_oss_preflight_never_recovers_or_verifies_the_anthropic_ledger(
@@ -421,6 +446,7 @@ def test_a_gpt_oss_preflight_never_recovers_or_verifies_the_anthropic_ledger(
         profile_id=LEDGER_PROFILE_ID,
     )
     call_id = _with_an_unverified_call(ledger)
+    _with_an_expired_open_call(ledger, path)
     openrouter = OpenRouter()
     report, opened, _ = remote_test.preflight(
         settings,
@@ -431,8 +457,7 @@ def test_a_gpt_oss_preflight_never_recovers_or_verifies_the_anthropic_ledger(
     assert not report.passed and opened is None
     healthy = next(c for c in report.checks if c.name == "ledger.healthy")
     assert not healthy.ok and "LEDGER_PROFILE_MISMATCH" in healthy.detail
-    assert [c.call_id for c in ledger.unverified_closed_calls()] == [call_id]
-    assert not ledger.status().breaker_open
+    _untouched(path, call_id)
     assert not any(r.url.path.endswith("/generation") for r in openrouter.requests)
 
 
@@ -442,16 +467,20 @@ def test_hr_never_changes_the_anthropic_ledgers_cap(
     journey = Journey(tmp_path, monkeypatch)
     path = Path(journey.settings.budget_ledger_path)
     path.unlink()
-    BudgetLedger.initialise(
+    ledger = BudgetLedger.initialise(
         path,
         cap_micro_usd=1_000_000,
         opening_usage_micro_usd=0,
         key_alias="key-01",
         profile_id=LEDGER_PROFILE_ID,
     )
+    call_id = _with_an_unverified_call(ledger)
+    _with_an_expired_open_call(ledger, path)
     reply = journey.client.put(f"{API}/budget/lifetime-cap", json={"cap_micro_usd": 500_000})
     assert reply.status_code == 409 and reply.json()["detail"]["code"] == "LEDGER_UNAVAILABLE"
-    assert BudgetLedger.open(path).status().cap == 1_000_000
+    _untouched(path, call_id)
+    probe = BudgetLedger(path)
+    assert probe.status().cap == 1_000_000
 
 
 def test_the_claude_model_refuses_the_openrouter_ledger(tmp_path: Path) -> None:

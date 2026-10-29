@@ -249,6 +249,21 @@ def _iso(seconds: float) -> str:
     return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
 
 
+def ledger_profile(path: Path) -> str:
+    # The ledger's profile, read without recovering it (``BudgetLedger.open`` abandons expired
+    # calls), so another provider's ledger is never changed by a check here (QG L-4).
+    probe = BudgetLedger(path)
+    probe.verify()
+    return probe.status().profile_id
+
+
+def open_own(path: Path) -> BudgetLedger:
+    # The Anthropic ledger, opened (and recovered) only once its profile is known.
+    if ledger_profile(path) != LEDGER_PROFILE_ID:
+        raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the Anthropic ledger")
+    return BudgetLedger.open(path)
+
+
 def verify_calls(ledger: BudgetLedger) -> tuple[int, int]:
     # In-band verification of every closed call not yet verified: verified only when it settled
     # from complete reported usage with no anomaly (the reply named the attested workspace, the
@@ -300,12 +315,12 @@ def check_ledger(
     clock: Callable[[], float] = time.time,
 ) -> None:
     try:
-        ledger = BudgetLedger.open(ledger_file(settings))
-        profile = ledger.status().profile_id
+        profile = ledger_profile(ledger_file(settings))
     except LedgerError as error:
         report.add("ledger.healthy", False, f"refused: {error.code}")
         return
-    # QG M-1: the profile first; another provider's ledger is never recovered or verified.
+    # QG M-1/L-4: the profile first, read without recovering; another provider's ledger is
+    # never recovered or verified here.
     report.add(
         "ledger.profile",
         profile == LEDGER_PROFILE_ID,
@@ -314,7 +329,7 @@ def check_ledger(
     if profile != LEDGER_PROFILE_ID:
         return
     try:
-        ledger.recover()
+        ledger = open_own(ledger_file(settings))
         checked, quarantined = verify_calls(ledger)
         status = ledger.status()
         fresh = reconciled_within(ledger, within_seconds, clock=clock)
@@ -594,10 +609,7 @@ class ClaudeTestModel:
         self._within = within_seconds
         self._ledger_file = ledger_file(settings)
         try:
-            ledger = BudgetLedger.open(self._ledger_file)
-            if ledger.status().profile_id != LEDGER_PROFILE_ID:
-                raise LedgerError("INVALID_INPUT", "not the Anthropic ledger")
-            self._start_call = ledger.last_call_id()
+            self._start_call = open_own(self._ledger_file).last_call_id()
         except LedgerError:
             raise ProfileConfigError(
                 "LEDGER_UNAVAILABLE", "the Anthropic ledger is not usable"
@@ -648,7 +660,7 @@ class ClaudeTestModel:
         )
         return BudgetedChatModel(
             adapter,
-            BudgetLedger.open(self._ledger_file),
+            open_own(self._ledger_file),
             max_in_flight=1,
             lease_seconds=anthropic_profiles.TIMEOUT_SECONDS + LEASE_GRACE_SECONDS,
             daily_cap_micro_usd=self._settings.anthropic_daily_cap_micro_usd,
@@ -695,7 +707,7 @@ class ClaudeTestModel:
                 with _last_lock:
                     _last.clear()  # the shown preflight was another key's (QG L-2)
             try:
-                ledger = BudgetLedger.open(self._ledger_file)
+                ledger = open_own(self._ledger_file)
                 calls = len(ledger.closed_calls_after(self._start_call)) + (
                     ledger.status().open_calls
                 )
@@ -727,7 +739,7 @@ class ClaudeTestModel:
         report = Preflight()
         with self._lock:
             try:
-                checked, quarantined = verify_calls(BudgetLedger.open(self._ledger_file))
+                checked, quarantined = verify_calls(open_own(self._ledger_file))
             except LedgerError as error:
                 report.add("ledger.calls_verified", False, f"refused: {error.code}")
                 return report
@@ -739,7 +751,7 @@ class ClaudeTestModel:
         return report
 
     def calls_since_start(self) -> list[ClosedCall]:
-        return BudgetLedger.open(self._ledger_file).closed_calls_after(self._start_call)
+        return open_own(self._ledger_file).closed_calls_after(self._start_call)
 
     def calls_used(self) -> int:
         # Read-only: the ledger is checked, never recovered or changed.

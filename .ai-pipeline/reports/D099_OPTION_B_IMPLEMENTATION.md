@@ -70,7 +70,7 @@ remaining word is an identifier fragment of an approved format check (inference-
 admit nothing in a question or assistant history (tested), and no eligible-case or client-data
 rule changed. **Owner acknowledgement of these three words is requested before publication.**
 
-Qualification basis: `235030035ccc…` (PR #130) → `72b681dc85e83ee435a07b7e35cb7f6e6b5e4a03b65ffaf2d0eb428408b9b30e`
+Qualification basis: `235030035ccc…` (PR #130) → `adec795f61bdcdd03c95ea0109db28e1773d4ee038f4b7ea4b2a824c6bd25610`
 (recomputed after the final edits; see §4). Every GPT-OSS qualification is out of date once
 merged; Claude configurations need their own paid qualification (separately authorised).
 
@@ -119,7 +119,19 @@ Reviewed commit `778b468` (tree `fcdb0d6d`). Fixed in the remediation commit:
 Evidence on the remediated tree: 815 passed / 0 failed across the Claude, Phase B live, budget,
 model factory, telemetry, eligibility, GPT-OSS remote test, reasoning, model management,
 spending controls, D-098 recovery and OpenRouter adapter modules; boundary current (no new
-word); ruff, format, mypy clean. Basis `72b681dc85e8…`.
+word); ruff, format, mypy clean. Basis then `72b681dc85e8…`.
+
+**Round 2 gate** (`D099_OPTION_B_QUALITY_GATE_R2.md`, commit `6196c20`): PASS WITH FINDINGS — M-1,
+L-1 to L-3 resolved; new **L-4** (Low): `BudgetLedger.open()` recovers (abandons expired calls)
+before the new profile checks, so "never recovered" was untrue and a misconfigured path could
+abandon another provider's expired call. Fixed rather than reworded: the profile is now read
+without recovering (`anthropic_runtime.ledger_profile` / `open_own`; the same read-only probe in
+`remote_checks.run_preflight` and the HR lifetime-cap endpoint) before any ledger is opened; every
+Claude ledger open goes through `open_own`. Tests now put an expired open call on the other
+provider's ledger and assert it stays open with the breaker closed (Claude preflight and model
+build, GPT-OSS preflight, HR cap). Operator docs state that the two ledger paths must differ.
+Evidence: 815 passed / 0 failed on the same modules; boundary current; ruff, format, mypy
+clean. Basis `adec795f61bd…`.
 
 ## 5. Unresolved / for the owner
 

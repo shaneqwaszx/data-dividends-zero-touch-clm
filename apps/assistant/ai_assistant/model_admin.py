@@ -2039,11 +2039,14 @@ def model_admin_router(
         with selector.change_lock:
             recheck(request, profile, action)
             try:
+                # D-099 (QG M-1/L-4): HR changes the GPT-OSS ledger only, never the Anthropic
+                # one; its profile is read before the ledger is opened (and recovered).
+                probe = BudgetLedger(ledger_file(settings))
+                probe.verify()
+                if probe.status().profile_id != OPENROUTER_PROFILE_ID:
+                    raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the OpenRouter ledger")
                 ledger = BudgetLedger.open(ledger_file(settings))
                 status = ledger.status()
-                # D-099 (QG M-1): HR changes the GPT-OSS ledger only, never the Anthropic one.
-                if status.profile_id != OPENROUTER_PROFILE_ID:
-                    raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the OpenRouter ledger")
             except LedgerError:
                 audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                 raise _refusal(409, "LEDGER_UNAVAILABLE") from None

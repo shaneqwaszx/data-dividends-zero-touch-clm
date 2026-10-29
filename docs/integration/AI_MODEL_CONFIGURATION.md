@@ -407,7 +407,7 @@ development cases only, the same cases GPT-OSS may answer. Never real data.
 | `AI_ASSISTANT_ANTHROPIC_WORKSPACE_LIMIT_MICRO_USD` | the monthly limit set on that workspace in the Console, 1 to 5,000,000 (US$5.00) |
 | `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` | default and ceiling 1,000,000 (US$1.00 per Singapore day) |
 | `AI_ASSISTANT_ANTHROPIC_MAX_CALLS` | default and ceiling 20 per activation or restart |
-| `AI_ASSISTANT_ANTHROPIC_LEDGER_PATH` | default `data/budget/anthropic_ledger.sqlite3` (git-ignored) |
+| `AI_ASSISTANT_ANTHROPIC_LEDGER_PATH` | default `data/budget/anthropic_ledger.sqlite3` (git-ignored); must be a different file from the GPT-OSS ledger (`LEDGER_PATH_SHARED` otherwise) |
 | `AI_ASSISTANT_ANTHROPIC_API_KEY` | a workspace inference key (`sk-ant-api…` or `sk-ant-usr-…`); an Admin key, OAuth or session token is refused |
 
 Operator steps (offline; the script never contacts Anthropic):
@@ -435,7 +435,7 @@ from Claude automatically.
 **Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
 plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary
 only) and adds the Claude modules to the qualification basis, so the basis moves from
-`b4049047884e…` (D-098) to `72b681dc85e8…`. Every earlier GPT-OSS qualification is out of date
+`b4049047884e…` (D-098) to `adec795f61bd…`. Every earlier GPT-OSS qualification is out of date
 once this merges: an active GPT-OSS configuration becomes *AI unavailable* at start-up until HR
 runs a new (paid, separately approved) qualification and activates it. Historical runs are
 kept.
