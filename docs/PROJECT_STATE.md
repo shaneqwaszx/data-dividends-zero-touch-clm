@@ -1400,3 +1400,13 @@ Nothing is pushed, activated or Live; no paid or network call was made.
   Not changed here; it needs an owner decision.
 - **Open:** that boundary decision, independent integration QG, `pre_pr_check.py`, owner
   publication authorisation, then the separately approved paid requalifications.
+
+## AI Assistant D-102 re-integrated after PR #134 (branch `feat/claude-hr-spending-d102-int2`, not published) - 2026-10-30
+
+Delta only. PR #134 (synthetic boundary `onboarded`) is merged to main `25ed072`, resolving the
+boundary blocker recorded above. D-102's two integration commits are replayed onto it with
+byte-identical content; the synthetic boundary is current and the qualification basis is
+`65f22e46c509…`. Evidence `.ai-pipeline/reports/D102_INTEGRATION_R2.md`; the full assistant
+suite still has the 14 Windows `Errno 24` failures (not a clean PASS).
+- **Open:** independent integration QG, owner publication authorisation, then the separately
+  approved paid requalifications.
