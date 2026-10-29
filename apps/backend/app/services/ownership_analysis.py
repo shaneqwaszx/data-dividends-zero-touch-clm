@@ -80,6 +80,8 @@ from app.services.ownership_repository import (
 )
 
 _OWNERSHIP_PERCENT_ADAPTER = TypeAdapter(OwnershipPercent)
+# D-101: Government is classified exactly, but like OTHER it has no ownership method.
+_NO_OWNERSHIP_METHOD_FORMS = frozenset({RegistryLegalForm.OTHER, RegistryLegalForm.GOVERNMENT})
 
 
 def percentage_from_units(
@@ -590,6 +592,8 @@ def eligible_poc_acceptance(
         or root is None
         or root.registration_number != root_uen
         or record.legal_form is None
+        # D-101: a Government body has no ownership method, so no POC basis either.
+        or record.legal_form == RegistryLegalForm.GOVERNMENT
         or (legal_form_other and PocAssumption.UNCLASSIFIED_LEGAL_FORM not in declared)
         or record.error is not None
         or record.manual_review_receipt is not None
@@ -1986,7 +1990,7 @@ class OwnershipAnalysisService:
                 or has_conflict
                 or has_unbound
                 or has_unresolved_semantics
-                or record.legal_form == RegistryLegalForm.OTHER
+                or record.legal_form in _NO_OWNERSHIP_METHOD_FORMS
             ):
                 # An unquantified source is a review outcome, not a broken engine.
                 has_units = any(
@@ -1999,7 +2003,7 @@ class OwnershipAnalysisService:
                 ) or any(item.kind == "CONTROL" for item in record.evidence)
                 code = (
                     OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED
-                    if record.legal_form == RegistryLegalForm.OTHER
+                    if record.legal_form in _NO_OWNERSHIP_METHOD_FORMS
                     else OwnershipIssueCode.UBO_REVIEW_REQUIRED
                     if has_conflict
                     else OwnershipIssueCode.UBO_REVIEW_REQUIRED
@@ -2014,7 +2018,7 @@ class OwnershipAnalysisService:
                 )
                 message = (
                     "No ownership method is supported for this registry legal form."
-                    if record.legal_form == RegistryLegalForm.OTHER
+                    if record.legal_form in _NO_OWNERSHIP_METHOD_FORMS
                     else "Conflicting source ownership evidence requires review."
                     if has_conflict
                     else "Ownership scalar entity binding is unavailable; "

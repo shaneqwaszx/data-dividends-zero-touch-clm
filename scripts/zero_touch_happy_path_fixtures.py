@@ -9,6 +9,7 @@ from app.domain.models import (
     CanonicalLegalEntity,
     RegisteredAddress,
     RegistryAcquisitionBundle,
+    RegistryAcquisitionIssue,
     RegistryAcquisitionStatus,
     RegistryCacheKey,
     RegistryEvidenceProvenance,
@@ -52,6 +53,11 @@ class HappyPathCompany:
     unit: str | None = None
     native_document_name: str | None = None
     explicit_parties: tuple[tuple[str, str, str], ...] = ()
+    # D-101: partnership partners are registry parties by name and role only; their
+    # shares come from the partnership agreement (`expected`), never from the registry.
+    partners: tuple[str, ...] = ()
+    # D-101: a Government body's founding instrument, shown on its status document.
+    founding_instrument: str | None = None
 
     @property
     def document_fields(self) -> dict[str, str]:
@@ -76,8 +82,41 @@ class HappyPathCompany:
                 "Registration Type": "ACRA", "Customer External System": "DSD",
                 "Policy": "Singapore", "Booking Entity": "ANZBGL (Singapore Branch)"}
 
+    @property
+    def partnership_agreement_lines(self) -> tuple[str, ...]:
+        """D-101 fictional agreement: one exact labelled share line per partner."""
+        if not self.partners:
+            raise ValueError("Only a partnership fixture has a partnership agreement")
+        return (
+            "FICTIONAL FYP TEST DATA - SYNTHETIC PARTNERSHIP AGREEMENT",
+            *(f"{key}: {value}" for key, value in self.fields.items()),
+            "Agreement Date: 2026-01-05",
+            *(f"Partner Share: DEMO {self.code} PERSON {key}: {value} percent: NATURAL_PERSON"
+              for key, value in self.expected),
+            *(f"Signing Partner: DEMO {self.code} PERSON {key}" for key, _ in self.expected),
+            "Entirely synthetic. No real partnership or personal identity.",
+        )
+
+    @property
+    def government_status_lines(self) -> tuple[str, ...]:
+        """D-101 fictional status document; project-defined, not sponsor-confirmed."""
+        if self.founding_instrument is None:
+            raise ValueError("Only the Government fixture has a status document")
+        return (
+            "FICTIONAL FYP TEST DATA - SYNTHETIC GOVERNMENT STATUS LETTER",
+            *(f"{key}: {value}" for key, value in self.fields.items()),
+            f"Founding Instrument: {self.founding_instrument}",
+            f"KYC Customer Type: {self.kyc_customer_type}",
+            f"Client Segment: {self.client_segment}",
+            f"Authorised Signatory: DEMO {self.code} SIGNATORY 1 - CHIEF EXECUTIVE",
+            f"Authorised Signatory: DEMO {self.code} SIGNATORY 2 - DIRECTOR OF FINANCE",
+            "Letter of authority on fictional letterhead. Not ACRA-registered.",
+            "Entirely synthetic. No real ministry, agency, crest or official.",
+        )
+
     def bundle(self, now: datetime) -> RegistryAcquisitionBundle:
-        if not self.edges:
+        government = self.party_type == "GOVERNMENT"
+        if not self.edges and not self.partners and not government:
             raise ValueError("Classification-only fixture has no supported share ownership bundle")
         if not is_eligible_singapore_uen(self.uen):
             raise ValueError("fictional identifier is not supported")
@@ -119,6 +158,15 @@ class HappyPathCompany:
             )
             for owner in (() if self.explicit_parties else owners)
         )
+        if self.partners:
+            parties = tuple(
+                RegistryOwnershipParty(
+                    party_id=party_id(partner), party_type=RegistryPartyType.NATURAL_PERSON,
+                    name=f"DEMO {self.code} PERSON {partner}", country="SG",
+                    source_category="PARTNER",
+                    provenance=provenance(RegistryOperation.OWNERSHIP_PARTIES),
+                ) for partner in self.partners
+            )
         if self.explicit_parties:
             parties = tuple(
                 RegistryOwnershipParty(
@@ -136,7 +184,9 @@ class HappyPathCompany:
                 country="SG",
                 provenance=provenance(RegistryOperation.OFFICERS),
             )
-            for index, role in enumerate(("DIRECTOR", "SECRETARY"), 1)
+            for index, role in enumerate(
+                () if self.partners or government else ("DIRECTOR", "SECRETARY"), 1
+            )
         )
         relationships = tuple(
             RegistryRelationship(
@@ -149,6 +199,16 @@ class HappyPathCompany:
             for index, (owned, owner, percent) in enumerate(self.edges, 1)
         )
         counts = (1, len(officers), len(parties), len(relationships))
+        # Officers may be empty; a missing graph is EMPTY (attempted) or UNSUPPORTED.
+        statuses = (
+            RegistryOperationStatus.COMPLETE,
+            RegistryOperationStatus.COMPLETE if officers else RegistryOperationStatus.EMPTY,
+            RegistryOperationStatus.COMPLETE if parties else RegistryOperationStatus.UNSUPPORTED,
+            RegistryOperationStatus.COMPLETE if relationships
+            else RegistryOperationStatus.EMPTY if parties
+            else RegistryOperationStatus.UNSUPPORTED,
+        )
+        complete = statuses[2:] == (RegistryOperationStatus.COMPLETE,) * 2
         return RegistryAcquisitionBundle(
             requested_identifier=self.uen,
             root_party_id=root,
@@ -178,13 +238,32 @@ class HappyPathCompany:
             operation_results=tuple(
                 RegistryOperationResult(
                     operation=operation,
-                    status=RegistryOperationStatus.COMPLETE,
+                    status=status,
                     record_count=count,
-                    provenance=provenance(operation),
+                    provenance=(
+                        None if status == RegistryOperationStatus.UNSUPPORTED
+                        else provenance(operation)
+                    ),
                 )
-                for operation, count in zip(RegistryOperation, counts, strict=True)
+                for operation, count, status in zip(
+                    RegistryOperation, counts, statuses, strict=True
+                )
             ),
-            status=RegistryAcquisitionStatus.COMPLETE,
+            status=(
+                RegistryAcquisitionStatus.COMPLETE if complete
+                else RegistryAcquisitionStatus.PARTIAL
+            ),
+            issues=() if complete else (
+                RegistryAcquisitionIssue(
+                    code="REGISTRY_EXPECTED_DATA_MISSING",
+                    message=(
+                        "Not ACRA-registered; government status comes from a reviewed document."
+                        if government
+                        else "Partners are listed without shares; shares come from the "
+                        "partnership agreement."
+                    ),
+                ),
+            ),
             retrieved_at=now,
         )
 
@@ -230,9 +309,11 @@ COMPANIES = (
         "209990103C",
         "33 DEMO GAMMA WAY",
         "000103",
-        (("ROOT", "P1", "30"), ("ROOT", "P2", "25"), ("ROOT", "P3", "20"), ("ROOT", "P4", "10"), ("ROOT", "P5", "10"), ("ROOT", "P6", "5")),
+        # D-101: no registry shares; `expected` is the partnership agreement split.
+        (),
         (("P1", "30"), ("P2", "25"), ("P3", "20"), ("P4", "10"), ("P5", "10"), ("P6", "5")),
         kyc_customer_type="Partnership - Unregulated", party_type="PARTNERSHIP",
+        partners=("P1", "P2", "P3", "P4", "P5", "P6"),
     ),
     HappyPathCompany(
         "DELTA",
@@ -252,10 +333,17 @@ COMPANIES = (
     ),
 )
 
-# Classification-only: no fabricated Government natural-person share/control graph.
-GOVERNMENT = HappyPathCompany("GOVERNMENT", "DEMO GOVERNMENT FYP TEST AUTHORITY", "209990105E",
-    "55 DEMO GOVERNMENT WAY", "000105", (), (), kyc_customer_type="Government",
-    client_segment="DI - Government", party_type="GOVERNMENT")
+# D-101: the companies whose registry seed carries a share graph (Gamma's shares come from
+# its partnership agreement, confirmed by the RM).
+SHARE_COMPANIES = tuple(company for company in COMPANIES if company.edges)
+
+# D-101: a made-up agency with no share/control graph. The T-format UEN is fictional; its
+# letters are not an official entity-type code. Not ACRA-registered.
+GOVERNMENT = HappyPathCompany("GOVERNMENT", "DEMO PARKS FYP TEST AUTHORITY", "T99FY0105G",
+    "55 DEMO PARKS WAY", "000105", (), (), kyc_customer_type="Government",
+    client_segment="DI - Government", party_type="GOVERNMENT",
+    native_document_name="demo-parks-government-status.pdf",
+    founding_instrument="Demo Parks FYP Test Authority Act (fictional FYP test instrument)")
 
 
 # Data definitions feed the same normalized bundle/snapshot owner as Alpha through Delta.
@@ -273,7 +361,8 @@ NEW_COMPANIES = tuple(
         unit=c.unit, native_document_name=c.document_name, explicit_parties=c.parties,
     ) for c in SYNTHETIC_COMPANIES
 )
-ALL_COMPANIES = (*COMPANIES, *NEW_COMPANIES)
+# D-101: Government is seeded too (PARTIAL: identity only, no ownership operations).
+ALL_COMPANIES = (*COMPANIES, *NEW_COMPANIES, GOVERNMENT)
 
 # Explicit opt-in seed selection; legacy default and its negative neighbor stay intact.
 SPONSOR_DEMO_COMPANIES = (

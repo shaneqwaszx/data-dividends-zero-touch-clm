@@ -75,9 +75,11 @@ from app.persistence.models import (
     DurableCaseSnapshotV13,
     DurableCaseSnapshotV14,
     DurableCaseSnapshotV15,
+    DurableCaseSnapshotV16,
     _validate_case_bindings,
     reject_classification_legacy_fields,
     reject_document_digest_legacy_fields,
+    reject_entity_type_legacy_fields,
     reject_hybrid_overlay_legacy_fields,
     reject_official_shareholder_legacy_fields,
     reject_ownership_discovery_legacy_fields,
@@ -87,7 +89,7 @@ from app.persistence.models import (
 )
 
 _SUPPORTED_SCHEMA_VERSIONS = [
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, CASE_SNAPSHOT_SCHEMA_VERSION
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, CASE_SNAPSHOT_SCHEMA_VERSION
 ]
 
 
@@ -603,7 +605,7 @@ class MongoCaseStore:
         automation_value = value.get("automation")
         if (
             schema_version
-            in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, CASE_SNAPSHOT_SCHEMA_VERSION}
+            in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, CASE_SNAPSHOT_SCHEMA_VERSION}
             and isinstance(automation_value, dict)
             and "stage_order_version" not in automation_value
         ):
@@ -612,6 +614,8 @@ class MongoCaseStore:
                 "stage_order_version": LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
             }
         try:
+            if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}:
+                reject_entity_type_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}:
                 reject_document_digest_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
@@ -690,6 +694,10 @@ class MongoCaseStore:
                 legacy_v15 = DurableCaseSnapshotV15.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v15)
                 snapshot = legacy_v15.to_current()
+            elif schema_version == 16:
+                legacy_v16 = DurableCaseSnapshotV16.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v16)
+                snapshot = legacy_v16.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)

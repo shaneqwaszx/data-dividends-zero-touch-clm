@@ -33,7 +33,8 @@ def test_physical_shortlist_cli_preserves_legacy_and_is_idempotent(
         )
         store.initialize()
         now = datetime.now(UTC)
-        assert manage_fixtures(store, now=now, seed=True)["created"] == 8
+        # D-101: nine seeds, including the PARTIAL Government identity.
+        assert manage_fixtures(store, now=now, seed=True)["created"] == 9
         original = {c.uen: store.get(c.snapshot(now).key) for c in ALL_COMPANIES}
         monkeypatch.setenv("APP_ENV", "test")
         monkeypatch.setenv("MONGO_URI", MONGO_URI)
@@ -46,7 +47,8 @@ def test_physical_shortlist_cli_preserves_legacy_and_is_idempotent(
             assert "FIXTURE_COUNT=4" in output
             if MONGO_URI in output:
                 pytest.fail("Seed CLI exposed connection configuration")
-        assert connection[database]["clm_registry_snapshots"].count_documents({}) == 9
+        # D-101: nine default seeds (with Government) plus the sponsor-demo Aurora.
+        assert connection[database]["clm_registry_snapshots"].count_documents({}) == 10
         assert all(store.get(c.snapshot(now).key) == original[c.uen] for c in ALL_COMPANIES)
         assert manage_fixtures(
             store, now=datetime.now(UTC), seed=False, companies=SPONSOR_DEMO_COMPANIES,

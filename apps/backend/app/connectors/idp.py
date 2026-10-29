@@ -13,6 +13,7 @@ from app.domain.documents import (
     DocumentProfile,
     ExtractionMetadata,
     ExtractionQuality,
+    GovernmentStatusObservationValues,
     IdpEnvironment,
     OwnershipObservationValues,
     SafeProviderName,
@@ -88,6 +89,9 @@ class IdpSourceResult(BaseModel):
     classification_observations: tuple[ClassificationObservationValues, ...] = Field(
         default=(), max_length=64
     )
+    government_status_observations: tuple[GovernmentStatusObservationValues, ...] = Field(
+        default=(), max_length=8
+    )
 
     @model_validator(mode="after")
     def require_each_provisional_field_once(self) -> "IdpSourceResult":
@@ -100,9 +104,15 @@ class IdpSourceResult(BaseModel):
         if len(page_numbers) != len(set(page_numbers)):
             raise ValueError("source page evidence must be unique")
         bound_pages = set(page_numbers)
-        observations: tuple[OwnershipObservationValues | ClassificationObservationValues, ...] = (
+        observations: tuple[
+            OwnershipObservationValues
+            | ClassificationObservationValues
+            | GovernmentStatusObservationValues,
+            ...,
+        ] = (
             *self.ownership_observations,
             *self.classification_observations,
+            *self.government_status_observations,
         )
         if any(observation.page_number not in bound_pages for observation
                in observations):

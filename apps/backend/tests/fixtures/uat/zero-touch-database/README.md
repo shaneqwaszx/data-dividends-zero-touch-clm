@@ -38,3 +38,21 @@ four only with generate_synthetic_company_pack.py --sponsor-demo. Explicit seed/
 Aurora's fictional natural owners are65/35. Existing Pacific/Straits/Meridian graphs,
 Orion files and the negative018R neighbor fixture remain. Exact bytes and journey evidence
 are indexed in DEMO_FIXTURE_AND_DOCUMENT_MANIFEST.md under .ai-pipeline/reports.
+
+## D-101 partnership agreement and Government status letter
+
+Two image-only, single-page fictional PDFs, each visibly labelled FICTIONAL FYP TEST DATA.
+Written by `scripts/generate_zero_touch_happy_path_documents.py` (default run writes only
+these two; `--company-scans` is needed to regenerate the four company scans above, whose
+bytes are unchanged). Verdana-style glyphs are used so local Tesseract reads the partner
+tokens exactly.
+
+| Document | SHA256 | Content |
+|---|---|---|
+| demo-gamma-partnership-agreement.pdf | e45feb3aad2a02f9c493cfd7601acd0ec01774f4d8f1a46829f222344c08cd54 | Gamma identity labels, `Agreement Date: 2026-01-05`, one `Partner Share: DEMO GAMMA PERSON Pn: NN percent: NATURAL_PERSON` line per partner (30/25/20/10/10/5) and the signing partners |
+| demo-parks-government-status.pdf | ed3bb29eb88b80c0b3771a56f74ac5576e8d763878d0efca21d11a721daee5a8 | DEMO PARKS FYP TEST AUTHORITY, T99FY0105G (fictional T-format; the letters are not an official code), `Founding Instrument:`, `KYC Customer Type: Government`, `Client Segment: DI - Government`, two display-only authorised signatories; not ACRA-registered |
+
+Gamma's registry seed now lists P1-P6 as partners by name and role only, with no ownership
+links; the split comes only from the agreement, confirmed by the RM (D-101). The earlier
+classification-only `demo-government-scanned.pdf` (209990105E) is retired. No real
+ministry, agency, crest, partnership or person appears in either document.

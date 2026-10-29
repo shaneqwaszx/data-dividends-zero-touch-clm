@@ -5,6 +5,22 @@ Future-looking identifiers were generated to meet the repository's syntax valida
 they are not issued/verified ACRA registrations. No company is preseeded in GoldTier.
 Actual Sandbox absence is unknown until owner-authorized Search.
 
+## Worktree runs: import this checkout's code
+
+A shared virtual environment can hold an editable install that maps `app` to another
+checkout (usually the primary one). Run from a task worktree and the seed script and backend
+then silently import that other checkout's code: the seed writes the other branch's fixtures
+and cases fail registry verification. Do not change the shared environment. In every
+terminal that seeds or starts the backend, from the worktree root, first run:
+
+```zsh
+export PYTHONPATH=$PWD/apps/backend:$PWD
+```
+
+Check it with
+`python -c "import app, scripts.zero_touch_happy_path_fixtures as f; print(app.__file__, f.__file__)"`;
+both paths must be inside the worktree.
+
 ## Seed and safe check
 
 Use this branch's managed worktree and provision backend runtime secrets separately.

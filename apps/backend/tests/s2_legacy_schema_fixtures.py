@@ -6,10 +6,22 @@ from app.persistence.models import DurableCaseSnapshot
 from app.persistence.mongo_case_store import MongoCaseStore
 
 
+def without_d101_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    """A copy without the schema-17 D-101 keys, for relabelling as an older envelope."""
+    legacy = {**raw, "onboarding": dict(raw["onboarding"])}
+    legacy["onboarding"].pop("government_status_confirmation", None)
+    legacy["documents"] = [
+        {key: value for key, value in document.items() if key != "government_status_observations"}
+        for document in raw.get("documents", ())
+    ]
+    return legacy
+
+
 def omit_session2_fields(raw: dict[str, Any]) -> None:
     """Remove only later-version fields while building an older test fixture."""
     raw["onboarding"].pop("created_by_actor_id", None)
     raw["onboarding"].pop("target_classification_selections", None)
+    raw["onboarding"].pop("government_status_confirmation", None)  # D-101 (schema 17)
     metadata = (
         "extraction_method", "extraction_quality", "score_kind", "score_formula",
         "raw_ocr_mean_confidence", "raw_ocr_word_count", "candidates",
@@ -17,7 +29,7 @@ def omit_session2_fields(raw: dict[str, Any]) -> None:
     for document in raw.get("documents", ()):
         for name in (
             "document_version", "pages", "ownership_observations", "classification_observations",
-            "content_sha256",
+            "content_sha256", "government_status_observations",
         ):
             document.pop(name, None)
         for field in document.get("fields", ()):

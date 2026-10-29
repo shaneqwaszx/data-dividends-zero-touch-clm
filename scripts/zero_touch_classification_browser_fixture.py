@@ -5,11 +5,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import Settings
-from app.connectors.acra import (
-    AcraAddressPayload,
-    AcraCompanyPayload,
-    AcraOfficersPayload,
-)
 from app.persistence.composition import build_persistence_bundle
 from pydantic import SecretStr
 from pymongo import MongoClient
@@ -34,43 +29,6 @@ class NoRegistryCalls:
     fetch_company = fetch_officers = fetch_ownership_parties = fetch_relationships = (
         _refuse
     )
-
-
-class GovernmentIdentityOnly(NoRegistryCalls):
-    """Local fictional identity; the normal adapter reports unsupported Government shares."""
-
-    def fetch_company(self, uen):
-        if uen != GOVERNMENT.uen:
-            raise AssertionError("Government fixture refuses another identity")
-        self.calls.append("LOCAL_SYNTHETIC_ENTITY_PROFILE")
-        return AcraCompanyPayload(
-            uen=uen,
-            entity_name=GOVERNMENT.name,
-            country_code="SG",
-            entity_type="GOVERNMENT",
-            entity_status="SYNTHETIC",
-            registered_address=AcraAddressPayload(
-                block="55",
-                street="DEMO GOVERNMENT WAY",
-                postal_code=GOVERNMENT.postal_code,
-                country_code="SG",
-            ),
-            source_environment="MOCK",
-            source_endpoint="https://synthetic.acra.invalid/government",
-            retrieved_at=datetime.now(UTC),
-        )
-
-    def fetch_officers(self, uen):
-        if uen != GOVERNMENT.uen:
-            raise AssertionError("Government fixture refuses another identity")
-        self.calls.append("LOCAL_SYNTHETIC_OFFICERS_EMPTY")
-        return AcraOfficersPayload(
-            uen=uen,
-            source_environment="MOCK",
-            officers=(),
-            source_endpoint="https://synthetic.acra.invalid/government/officers",
-            retrieved_at=datetime.now(UTC),
-        )
 
 
 class DatabaseClassificationFixture:
@@ -108,11 +66,8 @@ class DatabaseClassificationFixture:
                 "local_ocr_executable": tesseract,
             }
         )
-        self.registry = (
-            GovernmentIdentityOnly()
-            if mode == "database-government"
-            else NoRegistryCalls()
-        )
+        # D-101: every mode, Government included, is served by the local synthetic seed.
+        self.registry = NoRegistryCalls()
         self.target = OfflineS3SandboxTransport(mode)
         self.company = (
             GOVERNMENT

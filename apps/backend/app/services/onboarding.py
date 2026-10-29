@@ -51,6 +51,7 @@ from app.domain.models import (
     EventOutcome,
     ExistingTargetStateProvenance,
     GoldTierResult,
+    GovernmentStatusConfirmation,
     IdentityCorrectionEvidence,
     InitialCustomerIdentity,
     InitialGoldTierSearchAttempt,
@@ -94,6 +95,7 @@ from app.domain.target_classification import (
     TargetClassificationKey,
     TargetClassificationSelection,
     bounded_classification_compatible,
+    classification_incompatibility_message,
 )
 from app.domain.target_preparation import GoldTierRequestPreview
 from app.domain.target_submission import (
@@ -664,6 +666,56 @@ class OnboardingService:
             )
             self._repository.save(OnboardingCase.model_validate(updated.model_dump()))
             return updated.model_copy(deep=True)
+
+    def confirm_government_status(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        expected_case_event_count: int,
+        document_id: UUID,
+        document_event_count: int,
+        evidence_fingerprint: str,
+    ) -> OnboardingCase:
+        """D-101: retain one RM Government-status confirmation; the caller owns evidence."""
+
+        with self.case_lock(case_id):
+            case = self.get_case(case_id)
+            if case is None or len(case.events) != expected_case_event_count:
+                raise ValueError("The onboarding case changed before Government confirmation.")
+            if case.goldtier_result is not None or self._target_executions.list_for_case(case_id):
+                raise ValueError("Submitted target evidence cannot be revised.")
+            timestamp = self._clock()
+            updated = case.model_copy(deep=True)
+            updated.government_status_confirmation = GovernmentStatusConfirmation(
+                confirmation_id=self._uuid_factory(),
+                actor_id=actor_id,
+                confirmed_at=timestamp,
+                case_event_count=expected_case_event_count,
+                document_id=document_id,
+                document_event_count=document_event_count,
+                evidence_fingerprint=evidence_fingerprint,
+            )
+            updated.target_dispatch_confirmation = None
+            updated.updated_at = timestamp
+            updated.events.append(
+                WorkflowEvent(
+                    sequence=len(updated.events) + 1,
+                    stage=updated.state,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=timestamp,
+                    case_id=updated.case_id,
+                    correlation_id=updated.correlation_id,
+                    code="GOVERNMENT_STATUS_CONFIRMED",
+                    message=(
+                        "The RM confirmed Government status from a reviewed document; "
+                        "this is not approval."
+                    ),
+                )
+            )
+            validated = OnboardingCase.model_validate(updated)
+            self._repository.save(validated)
+            return validated.model_copy(deep=True)
 
     def has_valid_target_dispatch_confirmation(
         self, case: OnboardingCase, *, clm_version: int | None = None
@@ -1287,16 +1339,20 @@ class OnboardingService:
                         value=value, authority=PolicyAuthority.USER_AUTHORIZED_POC
                     )
             selected_target = target.model_copy(update=values, deep=True)
+            kyc_selection = selections.get(TargetClassificationKey.KYC_CUSTOMER_TYPE)
             if (
                 case.entity is not None
                 and not bounded_classification_compatible(
-                    case.entity.party_type, selected_target.kyc_customer_type.value
+                    case.entity.party_type,
+                    selected_target.kyc_customer_type.value,
+                    automatic=kyc_selection is not None and kyc_selection.source == "DOCUMENT",
                 )
             ):
                 if document_selections is None:
                     raise ValueError(
-                        "Government is incompatible with the verified private-company "
-                        "legal form; review the evidence"
+                        classification_incompatibility_message(
+                            case.entity.party_type, selected_target.kyc_customer_type.value
+                        )
                     )
                 key = TargetClassificationKey.KYC_CUSTOMER_TYPE
                 selections.pop(key, None)

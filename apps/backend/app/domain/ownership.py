@@ -800,6 +800,8 @@ class OwnershipDocumentDiscrepancy(BaseModel):
         "OWNERSHIP_DOCUMENT_CONFLICT",
         "OWNERSHIP_DOCUMENT_INCOMPLETE",
         "OWNERSHIP_DOCUMENT_AMBIGUOUS",
+        # D-101: an agreement share for a partnership whose registry lists no shares.
+        "PARTNERSHIP_AGREEMENT_SHARE",
     ]
     verification_state: Literal["REVIEW_REQUIRED", "REVIEWED"] = "REVIEW_REQUIRED"
 

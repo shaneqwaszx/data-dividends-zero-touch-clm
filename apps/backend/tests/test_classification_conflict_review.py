@@ -246,7 +246,8 @@ def test_all_mode_adverse_currentness_and_local_compatible_resolution(mode, vari
     with runtime(provider_mode=mode) as (client, bundle, target, _):
         current = create(client)
         if variant == "prior-user":
-            current = save(client, current, "Partnership - Unregulated", "DI - Government").json()
+            # D-101: a different value that is still compatible with a company.
+            current = save(client, current, "Company - Public", "DI - Government").json()
         profile = {
             "type-only": {"KYC Customer Type": "Company - Private"},
             "segment-only": {"Client Segment": "Corporate"},
@@ -334,7 +335,7 @@ def test_earlier_schema10_missing_review_binding_stays_unknown_without_decode_mu
             selection.pop("actor_id")
         original = deepcopy(raw)
         restored = store._decode(raw)
-        assert restored.schema_version == 16
+        assert restored.schema_version == 17
         assert raw == original
         assert all(
             selection.evidence_fingerprint is None and selection.actor_id is None

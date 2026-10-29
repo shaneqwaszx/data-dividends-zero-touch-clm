@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import SecretStr, ValidationError
+from s2_legacy_schema_fixtures import without_d101_fields
 from scripts.five_layer_hybrid_fixture import (
     ALLOWLISTED_UENS,
     FIVE_LAYER_ROOT_NAME,
@@ -824,14 +825,16 @@ def test_hybrid_records_round_trip_in_schema_twelve_and_are_rejected_in_schema_e
     codec = object.__new__(MongoCaseStore)
     encoded = codec._encode(snapshot)  # noqa: SLF001
     decoded = codec._decode(encoded)  # noqa: SLF001
-    assert decoded.schema_version == 16
+    assert decoded.schema_version == 17
     assert decoded.ownership is not None and decoded.ownership.discovery == record.discovery
     assert decoded.ownership.candidates == record.candidates
     # An exact schema-11 envelope can never carry hybrid evidence (fail closed)...
     with pytest.raises(PersistenceDataInvalidError):
         codec._decode({**encoded, "schema_version": 11})  # noqa: SLF001
     # ...while ordinary schema-11 content still reads into the current form.
-    assert codec._decode({**encoded, "schema_version": 11, "ownership": None}).schema_version == 16  # noqa: SLF001
+    assert codec._decode(  # noqa: SLF001
+        {**without_d101_fields(encoded), "schema_version": 11, "ownership": None}
+    ).schema_version == 17
 
 
 # --- 5. Domain invariants and the labelled comparator ----------------------------------

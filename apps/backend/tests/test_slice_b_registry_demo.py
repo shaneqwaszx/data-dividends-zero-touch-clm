@@ -81,7 +81,10 @@ def start(client, fields, filename):
         client.put(
             f"/api/clm/zero-touch/cases/{case_id}/target-classification",
             json={
-                "kyc_customer_type": "Company - Private",
+                # D-101: Garden's BUSINESS legal form only takes a Partnership type.
+                "kyc_customer_type": (
+                    "Partnership - Unregulated" if fields is GARDEN_FIELDS else "Company - Private"
+                ),
                 "client_segment": "Corporate",
                 "expected_automation_version": created["version"],
                 "expected_case_event_count": len(created["case"]["events"]),

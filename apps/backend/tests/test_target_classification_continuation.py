@@ -10,7 +10,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from scripts.seed_zero_touch_happy_path_companies import manage_fixtures, require_safe_target
-from scripts.zero_touch_happy_path_fixtures import COMPANIES, GOVERNMENT
+from scripts.zero_touch_happy_path_fixtures import COMPANIES, GOVERNMENT, SHARE_COMPANIES
 from test_slice_b_registry_demo import confirm
 from test_zero_touch_database_happy_path import (
     NoAcra,
@@ -95,7 +95,8 @@ def save(client, current, kyc="Company - Private", segment="Corporate"):
     )
 
 
-@pytest.mark.parametrize("company", COMPANIES, ids=lambda c: c.code)
+# D-101: Gamma has no registry shares; its agreement journey is in test_zero_touch_entity_types.
+@pytest.mark.parametrize("company", SHARE_COMPANIES, ids=lambda c: c.code)
 def test_auto_bound_evidence_ready_package_final_review_and_zero_attempts(company):
     with runtime(company) as (client, bundle, target, acra):
         current = prepare(client, company)
@@ -462,12 +463,14 @@ def test_schema9_rejects_explicit_later_evidence_and_does_not_rewrite(explicit, 
         raw["schema_version"] = 9
         raw["onboarding"]["policy_snapshot"].pop("ownership_discovery")
         raw["onboarding"].pop("target_classification_selections")
+        raw["onboarding"].pop("government_status_confirmation")  # D-101 (schema 17)
         for doc in raw["documents"]:
             doc.pop("classification_observations")
             doc.pop("content_sha256")
+            doc.pop("government_status_observations")  # D-101 (schema 17)
         before = deepcopy(raw)
         decoded = object.__new__(MongoCaseStore)._decode(raw)
-        assert raw == before and decoded.schema_version == 16
+        assert raw == before and decoded.schema_version == 17
         assert decoded.onboarding.target_classification_selections == ()
         assert decoded.documents[0].classification_observations == ()
         if explicit == "target_classification_selections":
@@ -591,7 +594,8 @@ def test_prior_user_selection_must_review_later_trusted_document_conflict(confli
         current = save(
             client,
             current,
-            "Partnership - Unregulated" if conflicting else "Company - Private",
+            # D-101: a different value that is still compatible with a company.
+            "Company - Public" if conflicting else "Company - Private",
             "DI - Government" if conflicting else "Corporate",
         ).json()
         upload(client, current, COMPANIES[0].target_profile)
@@ -725,7 +729,8 @@ def test_mock_retained_classification_currentness_blocks_readiness_and_freeze(so
             add_retained_classification_conflict(bundle, cid)
         else:
             current = create(client)
-            selected = save(client, current, "Partnership - Unregulated", "DI - Government")
+            # D-101: a different value that is still compatible with a company.
+            selected = save(client, current, "Company - Public", "DI - Government")
             assert selected.status_code == 200
             current = selected.json()
             upload(client, current, COMPANIES[0].target_profile)

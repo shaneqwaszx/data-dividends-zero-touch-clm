@@ -41,6 +41,7 @@ const CODE_TARGET: Record<string, EvidenceFocusTarget> = {
   OWNERSHIP_CYCLE: "ownership",
   OWNERSHIP_INCOMPLETE: "ownership",
   OWNERSHIP_REVIEW_REQUIRED: "ownership",
+  GOVERNMENT_STATUS_REQUIRED: "ownership",
   GOLDTIER_CLASSIFICATION_REQUIRED: "classification",
   MOCK_FINALIZATION_RECOVERY_PENDING: "recovery",
   TARGET_OPERATION_RECOVERY_PENDING: "recovery",

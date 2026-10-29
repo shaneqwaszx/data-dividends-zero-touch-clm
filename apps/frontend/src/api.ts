@@ -780,6 +780,28 @@ export async function submitManualOwnershipEvidence(
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
 
+export interface GovernmentStatusConfirmationInput {
+  document_id: string;
+  document_event_count: number;
+  expected_automation_version: number;
+  expected_case_event_count: number;
+}
+
+export async function confirmGovernmentStatus(
+  caseId: string,
+  input: GovernmentStatusConfirmationInput,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/government-status-confirmation`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
 export interface PolicyRebindInput {
   rationale: string;
   expected_automation_version: number;

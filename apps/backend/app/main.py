@@ -40,6 +40,7 @@ from app.api_models import (
     OwnershipAnalysisResponse,
     ZeroTouchCaseListItemResponse,
     ZeroTouchCaseSummaryResponse,
+    project_entity_type_basis,
     project_processing_pipeline,
 )
 from app.api_policies import build_policy_router
@@ -456,6 +457,17 @@ class ZeroTouchExceptionResolutionRequest(BaseModel):
     evidence_version: str = Field(min_length=1, max_length=128)
 
 
+class GovernmentStatusConfirmationRequest(BaseModel):
+    """D-101: confirm Government status from one exact reviewed document version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: UUID
+    document_event_count: int = Field(ge=1)
+    expected_automation_version: int = Field(ge=1)
+    expected_case_event_count: int = Field(ge=1)
+
+
 class ManualOwnershipEvidenceRequest(BaseModel):
     """Typed reviewed declaration; actor identity is always supplied by the server."""
 
@@ -849,6 +861,15 @@ def create_app(
             zero_detail = ZeroTouchFailureDetail(
                 code="ZERO_TOUCH_MANUAL_OWNERSHIP_INVALID",
                 message="The manual ownership evidence request is invalid.",
+            )
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content={"detail": zero_detail.model_dump(mode="json", exclude_none=True)},
+            )
+        if request.url.path.endswith("/government-status-confirmation"):
+            zero_detail = ZeroTouchFailureDetail(
+                code="ZERO_TOUCH_GOVERNMENT_STATUS_INVALID",
+                message="The Government status confirmation request is invalid.",
             )
             return JSONResponse(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1263,6 +1284,15 @@ def create_app(
             ),
             team=administration.directory.get(case.team_id),
             ownership=ownership_record,
+            entity_type_basis=project_entity_type_basis(
+                case,
+                ownership_record,
+                [
+                    item
+                    for item in documents.list_documents(case_id=case.case_id)
+                    if item.is_current_evidence
+                ],
+            ),
             evidence_decision_authorized=access_policy.can_decide_evidence(actor, case),
             document_replacement_authorized=(
                 access_policy.can_decide_evidence(actor, case)
@@ -2491,6 +2521,39 @@ def create_app(
         return zero_touch_response(record, actor=actor)
 
     @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/government-status-confirmation",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def confirm_government_status(
+        case_id: UUID,
+        confirmation: GovernmentStatusConfirmationRequest,
+        request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.confirm_government_status(
+                case_id=case_id,
+                actor_id=actor.profile.user_id,
+                document_id=confirmation.document_id,
+                document_event_count=confirmation.document_event_count,
+                expected_automation_version=confirmation.expected_automation_version,
+                expected_case_event_count=confirmation.expected_case_event_count,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id,
+                    require_creator=True,
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
+        return zero_touch_response(record, actor=actor)
+
+    @application.post(
         "/api/clm/zero-touch/cases/{case_id}/verify-goldtier",
         response_model=CompletedTargetVerificationResponse,
         tags=["zero-touch"],
@@ -3539,6 +3602,8 @@ def _zero_touch_http_error(exc: ZeroTouchRequestError) -> HTTPException:
         "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED",
         "ZERO_TOUCH_REPLACEMENT_EVIDENCE_REQUIRED",
         "ZERO_TOUCH_TARGET_CLASSIFICATION_INVALID",
+        "ZERO_TOUCH_PARTNERSHIP_AGREEMENT_MISMATCH",
+        "ZERO_TOUCH_GOVERNMENT_STATUS_EVIDENCE_REQUIRED",
     }:
         status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     detail = ZeroTouchFailureDetail(code=exc.code, message=exc.public_message)

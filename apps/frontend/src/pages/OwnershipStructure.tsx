@@ -95,8 +95,10 @@ function calculatedForVerification(record: OwnershipAnalysisRecord): boolean {
     && record.issues.length > 0 && record.issues.every(issue => POC_VERIFICATION_ISSUES.has(issue.code));
 }
 
-export default function OwnershipStructure({ record, selectedPartyId, onSelectPerson }: {
+export default function OwnershipStructure({ record, selectedPartyId, onSelectPerson, unlinkedHint = null }: {
   record: OwnershipAnalysisRecord; selectedPartyId: string | null; onSelectPerson: (partyId: string) => void;
+  /** D-101: why an unlinked partner has no path yet (partnership awaiting RM confirmation). */
+  unlinkedHint?: string | null;
 }) {
   const { rows, limited } = useMemo(() => retainedRows(record), [record]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -188,6 +190,7 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
                   {qualifies && <span className="tag tag-warn">Provisional UBO</span>}
                   {row.cycle && <span className="tag tag-neutral">Cycle — traversal stopped</span>}
                   {row.unlinked && <span className="tag tag-neutral">No retained root path</span>}
+                  {row.unlinked && unlinkedHint && <small>{unlinkedHint}</small>}
                   {row.path.length > 8 && <small>Layer {row.path.length} from root</small>}
                 </span>
               </span>
