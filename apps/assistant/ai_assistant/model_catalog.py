@@ -349,15 +349,22 @@ def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
 
 
 def _claude_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]:
-    # D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast, listed but never selectable
-    # (anthropic_profiles.availability), so every action on them is refused before any call.
+    # D-099 Option B (proposed): Claude Sonnet 5.5 Balanced and Fast, selectable only when
+    # every Anthropic safeguard the runtime checks without a key or network holds
+    # (anthropic_runtime.readiness); otherwise every action on them is refused before any call.
+    # Its scope is the GPT-OSS one: the same synthetic boundary decides which cases it answers.
     # Comments, not docstrings: every string constant here feeds the synthetic boundary's
     # code vocabulary (scripts/build_synthetic_boundary.py).
 
     status, reason = anthropic_profiles.availability(settings)
-    scope = (
-        "NOT_AUTHORISED" if reason == "ANTHROPIC_NOT_AUTHORISED" else "PROVIDER_CONTROLS_MISSING"
-    )
+    if status == "pending_authorisation":
+        scope = "NOT_AUTHORISED"
+    elif status != "selectable":
+        scope = "PROVIDER_CONTROLS_MISSING"
+    elif synthetic_eligibility.mode(settings):
+        scope = "VERIFIED_SYNTHETIC_CASES"
+    else:
+        scope = "APPROVED_SYNTHETIC_CASE"
     return tuple(
         CatalogueEntry(
             profile_id=config.profile_id,

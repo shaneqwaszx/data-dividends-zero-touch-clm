@@ -1,8 +1,9 @@
-"""D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast on AI Models, listed but never usable.
+"""D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast on AI Models, and the adapter.
 
-Offline: the dormant adapter accepts only an in-memory ``httpx.MockTransport`` and the suite's
-socket guard (conftest) refuses any real connection. The key is a sentinel searched for in
-every output.
+Unconfigured (no D-099, or D-099 without its Option B safeguards) both are listed and never
+usable; the gated runtime is tested in test_claude_runtime.py. Offline: the adapter is given
+an in-memory ``httpx.MockTransport`` and the suite's socket guard (conftest) refuses any real
+connection. The key is a sentinel searched for in every output.
 """
 
 import json
@@ -112,15 +113,16 @@ def test_both_configurations_are_listed_with_accurate_details_and_not_authorised
     assert profiles["openrouter_gpt_oss_120b"]["status"] == "pending_authorisation"
 
 
-def test_naming_the_decision_only_changes_the_reason_never_the_availability(
+def test_naming_the_decision_alone_never_makes_them_usable(
     tmp_path: Path, backend: Backend, server: ModelServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # D-099 without the D-094 interlock and the owner's Option B attestations.
     client = _client(tmp_path, backend, server, monkeypatch, anthropic_decision="D-099")
     profiles = _profiles(client)
     for profile_id in CLAUDE:
         item = profiles[profile_id]
         assert item["status"] == "unavailable"
-        assert item["reason"] == "ANTHROPIC_PROVIDER_CONTROLS_MISSING"
+        assert item["reason"] == "DECISION_INTERLOCK"
         assert item["details"]["scope"] == "PROVIDER_CONTROLS_MISSING"
 
 
@@ -231,8 +233,9 @@ def test_a_pass_of_one_configuration_never_counts_for_another(tmp_path: Path) ->
 def test_a_stored_claude_activation_is_never_served_and_switches_to_nothing(
     tmp_path: Path, backend: Backend, server: ModelServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Unreachable through AI Models (activation is refused); a tampered state database must
-    # still never serve Claude nor switch to another model: D-098 "AI unavailable".
+    # Unconfigured, so unreachable through AI Models (activation is refused); a tampered state
+    # database must still never serve Claude nor switch to another model: D-098 "AI
+    # unavailable" (R6, extended to Claude by D-099).
     store = ModelAdminStore(tmp_path / "state" / "admin.sqlite3")
     entry = load_catalogue(settings(tmp_path)).get(BALANCED.profile_id)
     assert entry is not None
@@ -251,23 +254,15 @@ def test_an_it_profiles_file_cannot_take_a_claude_profile_id(tmp_path: Path) -> 
     assert catalogue.file_status == "invalid"
 
 
-def test_the_service_never_composes_the_adapter(tmp_path: Path) -> None:
-    for decision in ("", "D-099"):
-        with pytest.raises(ProfileConfigError) as error:
-            anthropic_chat.build(
-                BALANCED.profile_id, settings(tmp_path, anthropic_decision=decision)
-            )
-        assert error.value.code in {
-            "ANTHROPIC_NOT_AUTHORISED",
-            "ANTHROPIC_PROVIDER_CONTROLS_MISSING",
-        }
+def test_only_the_gated_runtime_builds_the_adapter() -> None:
+    assert not hasattr(anthropic_chat, "build")
     runtime = Path(anthropic_chat.__file__).parent
-    users = [
-        p.name
-        for p in runtime.rglob("*.py")
-        if "anthropic_chat" in p.read_text(encoding="utf-8") and p.name != "anthropic_chat.py"
-    ]
-    assert users == []  # no automatic or manual path builds it in the service
+    users = []
+    for path in runtime.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if path.name != "anthropic_chat.py" and "from .anthropic_chat import" in text:
+            users.append(path.name)
+    assert users == ["anthropic_runtime.py"]  # behind its readiness, key, ledger and preflight
 
 
 # --- the dormant adapter ------------------------------------------------------------------------
@@ -369,7 +364,10 @@ def _collect(
 
 
 @pytest.mark.parametrize("transport", [LIVE_NETWORK, httpx.AsyncHTTPTransport(), None])
-def test_only_an_in_memory_transport_is_accepted(transport: object) -> None:
+def test_only_an_in_memory_transport_or_the_claude_live_marker_is_accepted(
+    transport: object,
+) -> None:
+    # The OpenRouter live marker, a real transport or none are refused.
     with pytest.raises(ProfileConfigError) as error:
         AnthropicChatModel(
             configuration=BALANCED,
@@ -378,6 +376,34 @@ def test_only_an_in_memory_transport_is_accepted(transport: object) -> None:
             transport=transport,
         )
     assert error.value.code == "TRANSPORT_NOT_ALLOWED"
+
+
+def test_the_claude_live_marker_needs_the_attested_workspace() -> None:
+    with pytest.raises(ProfileConfigError) as error:
+        AnthropicChatModel(
+            configuration=BALANCED,
+            credential=SecretStr(SENTINEL),
+            max_prompt_bytes=1,
+            transport=anthropic_chat.LIVE_NETWORK,
+        )
+    assert error.value.code == "ANTHROPIC_WORKSPACE_INVALID"
+    model = AnthropicChatModel(
+        configuration=BALANCED,
+        credential=SecretStr(SENTINEL),
+        max_prompt_bytes=1,
+        transport=anthropic_chat.LIVE_NETWORK,
+        expected_workspace="wrkspc_TestWorkspace01",
+    )
+    assert SENTINEL not in repr(model)  # constructed only; nothing is sent here
+
+
+def test_the_budget_guard_reads_the_anthropic_record() -> None:
+    model = _model(Api())
+    assert model.profile_id == anthropic_profiles.LEDGER_PROFILE_ID
+    assert model.endpoint is anthropic_profiles.ENDPOINT
+    assert model.endpoint_slug == "anthropic/claude-sonnet-5-5"
+    assert (model.max_tokens, model.max_prompt_bytes) == (3000, 30000)
+    assert model.endpoint.max_tokens_includes_reasoning  # thinking counts towards max_tokens
 
 
 @pytest.mark.parametrize("configuration", [BALANCED, FAST])
@@ -413,6 +439,89 @@ def test_usage_is_settled_at_the_published_price_and_thinking_is_never_shown() -
     assert (last.usage.prompt_tokens, last.usage.completion_tokens) == (4000, 500)
     assert last.usage.generation_ref == "msg_test01" and last.usage.anomalies == ()
     assert SENTINEL not in repr(_model(Api()))
+
+
+def _workspace_model(api: Api) -> AnthropicChatModel:
+    return AnthropicChatModel(
+        configuration=BALANCED,
+        credential=SecretStr(SENTINEL),
+        max_prompt_bytes=30000,
+        transport=api.transport(),
+        expected_workspace="wrkspc_TestWorkspace01",
+    )
+
+
+class WorkspaceApi(Api):
+    def __init__(self, workspace: str | None, *replies: tuple[int, bytes]) -> None:
+        super().__init__(*replies)
+        self.workspace = workspace
+
+    def transport(self) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            status, body = self.replies.pop(0)
+            headers = {"content-type": "text/event-stream"}
+            if self.workspace is not None:
+                headers["anthropic-workspace-id"] = self.workspace
+            return httpx.Response(status, stream=Chunks([body]), headers=headers)
+
+        return httpx.MockTransport(handler)
+
+
+@pytest.mark.parametrize("workspace", [None, "wrkspc_SomeOtherSpace", "default"])
+def test_a_reply_from_another_workspace_stops_before_any_text(workspace: str | None) -> None:
+    pieces, error = _collect(_workspace_model(WorkspaceApi(workspace, (200, _reply()))))
+    assert pieces == [] and error is not None and error.error_class == "protocol"
+    assert error.usage is not None and error.usage.anomalies == ("provider_mismatch",)
+    assert error.usage.cost is None  # quarantined by the ledger (a routing anomaly)
+
+
+def test_the_attested_workspace_passes() -> None:
+    api = WorkspaceApi("wrkspc_TestWorkspace01", (200, _reply()))
+    pieces, error = _collect(_workspace_model(api))
+    assert error is None and "".join(p.text for p in pieces) == "Line one."
+
+
+def test_a_second_message_start_ends_the_call_unsettled() -> None:
+    # QG F1: one message per request; a later start (any model) is a protocol error.
+    first = _reply().split(b"event: content_block_start", 1)[0]
+    again = _sse(
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg_test02",
+                "model": "claude-sonnet-5-5",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        }
+    )
+    pieces, error = _collect(_model(Api((200, first + again))))
+    assert pieces == [] and error is not None and error.error_class == "protocol"
+    assert error.usage is not None and "usage_repeated" in error.usage.anomalies
+    assert error.usage.cost is None
+
+
+def test_admission_is_decided_on_every_call() -> None:
+    # QG F2: the runtime's rule is asked for the very messages of each call.
+    asked: list[list[dict[str, str]]] = []
+    allow = [True, False]
+
+    def admit(messages: list[dict[str, str]]) -> bool:
+        asked.append(messages)
+        return allow.pop(0)
+
+    api = Api((200, _reply()))
+    model = AnthropicChatModel(
+        configuration=BALANCED,
+        credential=SecretStr(SENTINEL),
+        max_prompt_bytes=30000,
+        transport=api.transport(),
+        admit=admit,
+    )
+    assert _collect(model)[1] is None
+    pieces, error = _collect(model)
+    assert pieces == [] and error is not None and error.error_class == "not_allowed"
+    assert asked == [MESSAGES, MESSAGES] and len(api.requests) == 1
 
 
 def test_another_model_answering_stops_before_any_text() -> None:
@@ -627,3 +736,16 @@ def test_the_seven_words_are_code_vocabulary_only_and_never_widen_user_or_histor
     ]
     for sent in (as_question, as_history):
         assert check_messages(sent) == "SYNTHETIC_TEXT_NOT_APPROVED"
+
+
+def test_option_b_adds_three_identifier_fragments_to_code_vocabulary_only() -> None:
+    # D-099 Option B: the inference-key and workspace-id format checks (anthropic_runtime)
+    # add "ant", "usr" and "wrkspc"; system messages only, never a question or history.
+    from ai_assistant.synthetic_boundary import boundary, check_messages
+
+    words = {"ant", "usr", "wrkspc"}
+    approved = boundary()
+    assert words <= approved.system
+    assert not words & approved.conversation and not words & approved.assistant
+    as_question = [*SYSTEM, {"role": "user", "content": "ant usr wrkspc"}]
+    assert check_messages(as_question) == "SYNTHETIC_TEXT_NOT_APPROVED"

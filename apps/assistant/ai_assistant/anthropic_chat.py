@@ -1,10 +1,9 @@
-# Claude Sonnet 5.5 through the Anthropic Messages API (D-099, PROPOSED): DORMANT adapter.
+# Claude Sonnet 5.5 through the Anthropic Messages API (D-099 Option B, PROPOSED).
 #
-# **Dormant.** It accepts only an in-memory ``httpx.MockTransport`` (the D-091 L1 containment,
-# ``openrouter.require_offline_transport``) and ``build`` always refuses, because the provider-side
-# spending controls the remote profile relies on are missing for a direct Anthropic key
-# (``anthropic_profiles``). Nothing in the service composes it; it exists so the request and
-# response handling are reviewed and tested before any decision to enable it.
+# It accepts an in-memory ``httpx.MockTransport`` (the D-091 L1 containment,
+# ``openrouter.require_offline_transport``) or ``LIVE_NETWORK``, which only the gated runtime
+# (``anthropic_runtime.ClaudeTestModel``) passes after its owner-attestation, key, Anthropic
+# ledger, reconciliation and free preflight checks. Nothing else in the service builds it.
 #
 # What it sends (fixed by ``anthropic_profiles.ClaudeConfiguration``): one ``POST /v1/messages``
 # per question to ``https://api.anthropic.com`` with ``anthropic-version: 2026-10-21``, the
@@ -15,11 +14,14 @@
 # so such a prompt is refused rather than reordered or relabelled. No retries; ``warm`` sends
 # nothing. Proxies, ``.netrc`` and certificate environment overrides are ignored.
 #
-# Before anything is sent the messages must hold a D-095 eligibility ticket (development mode)
-# or pass the D-094 synthetic text check, exactly like the GPT-OSS remote model (D-095 V5).
+# Before anything is sent the runtime's admission rule must pass the messages: a D-095
+# eligibility ticket (development mode) or the D-094 synthetic text check, exactly like the
+# GPT-OSS remote model (D-095 V5), decided on every call (QG F2).
 #
 # What it reads: text deltas only (thinking is never yielded, stored or logged), the stop reason
-# and the usage. The reply's model must be the pinned one at ``message_start``, before any text;
+# and the usage. The ``anthropic-workspace-id`` response header must name the owner-attested
+# workspace, and the reply's model must be the pinned one at ``message_start``, before any text;
+# a second ``message_start`` ends the call (QG F1);
 # a non-standard tier, geography or speed is a routing anomaly; prompt-cache tokens (never
 # requested) or missing counts make the usage malformed. The cost is the reported tokens at the
 # published standard prices, and is dropped (unsettled) whenever anything is anomalous. Errors
@@ -27,7 +29,7 @@
 # Provider error text is never kept.
 
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from decimal import Decimal
 from typing import Any
 
@@ -35,7 +37,7 @@ import anyio
 import httpx
 from pydantic import SecretStr
 
-from . import anthropic_profiles, synthetic_eligibility
+from . import anthropic_profiles
 from .anthropic_profiles import ClaudeConfiguration
 from .budget import PER_MESSAGE_OVERHEAD, TEMPLATE_OVERHEAD
 from .llm import (
@@ -71,8 +73,25 @@ _STATUS_CLASSES = {
     413: "prompt_too_large",
     429: "rate_limited",
 }
+WORKSPACE_HEADER = "anthropic-workspace-id"
 _TEXT_BLOCKS = frozenset({"text", "thinking", "redacted_thinking"})
 _HIDDEN_DELTAS = frozenset({"thinking_delta", "signature_delta"})
+
+
+class _AnthropicLive:
+    # Marker for the real HTTPS transport; it carries nothing. Only the gated runtime passes
+    # it. httpx then builds its own transport: certificates verified, no retries, and the
+    # client ignores proxies, ``.netrc`` and certificate environment overrides.
+    def __repr__(self) -> str:
+        return "ANTHROPIC_LIVE_NETWORK"
+
+
+LIVE_NETWORK = _AnthropicLive()
+
+
+def _text_check(messages: list[dict[str, str]]) -> bool:
+    # The default admission rule: the text part of the D-094 synthetic boundary.
+    return check_messages(messages) is None
 
 
 class PromptShapeError(ValueError):
@@ -215,7 +234,10 @@ class _Usage:
 
 
 class AnthropicChatModel:
-    # The ``ChatModel`` for one Claude Sonnet 5.5 configuration (dormant: mock transport).
+    # The ``ChatModel`` for one Claude Sonnet 5.5 configuration. ``admit`` decides on every
+    # call whether these messages may be sent (by default only the D-094 text check passes
+    # them). ``expected_workspace`` is the owner-attested workspace id the response header
+    # must name; a live adapter cannot be built without one.
     def __init__(
         self,
         *,
@@ -223,15 +245,20 @@ class AnthropicChatModel:
         credential: SecretStr,
         max_prompt_bytes: int,
         transport: object,
-        synthetic_dev: bool = False,
+        admit: Callable[[list[dict[str, str]]], bool] = _text_check,
+        expected_workspace: str | None = None,
     ) -> None:
-        self._transport = require_offline_transport(transport)
+        self._live = transport is LIVE_NETWORK
+        self._transport = None if self._live else require_offline_transport(transport)
         if configuration.profile_id not in anthropic_profiles.CONFIGURATIONS:
             raise ProfileConfigError("PROFILE_UNKNOWN", "not an approved Claude configuration")
+        if self._live and not expected_workspace:
+            raise ProfileConfigError("ANTHROPIC_WORKSPACE_INVALID", "no attested workspace")
         self._configuration = configuration
         self._credential = credential
         self._max_prompt_bytes = max_prompt_bytes
-        self._synthetic_dev = synthetic_dev
+        self._admit_messages = admit
+        self._expected_workspace = expected_workspace
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self._configuration.profile_id!r})"
@@ -243,6 +270,27 @@ class AnthropicChatModel:
     @property
     def configuration(self) -> ClaudeConfiguration:
         return self._configuration
+
+    # What the unchanged budget.BudgetedChatModel reads to reserve and settle each call.
+    @property
+    def profile_id(self) -> str:
+        return anthropic_profiles.LEDGER_PROFILE_ID
+
+    @property
+    def endpoint(self) -> Any:
+        return anthropic_profiles.ENDPOINT
+
+    @property
+    def endpoint_slug(self) -> str:
+        return anthropic_profiles.ENDPOINT.slug
+
+    @property
+    def max_tokens(self) -> int:
+        return anthropic_profiles.MAX_TOKENS
+
+    @property
+    def max_prompt_bytes(self) -> int:
+        return self._max_prompt_bytes
 
     def payload(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         system, conversation = system_and_conversation(messages)
@@ -264,8 +312,7 @@ class AnthropicChatModel:
     def _admit(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         # Refuse before anything is sent: outside the synthetic boundary, a prompt that cannot
         # be sent unchanged, or one above the byte bound.
-        ticket = synthetic_eligibility.admitted(messages) if self._synthetic_dev else False
-        if not ticket and check_messages(messages) is not None:
+        if not self._admit_messages(messages):
             raise ModelCallError("not_allowed")
         if message_bytes(messages) > self._max_prompt_bytes:
             raise ModelCallError("prompt_too_large")
@@ -324,6 +371,14 @@ class AnthropicChatModel:
                         raise ModelCallError(_status_class(reply.status_code, body))
                     if reply.headers.get("content-encoding", "identity").lower() != "identity":
                         raise ModelCallError("protocol")
+                    # The workspace that pays must be the attested one, before any text.
+                    if (
+                        self._expected_workspace is not None
+                        and reply.headers.get(WORKSPACE_HEADER) != self._expected_workspace
+                    ):
+                        raise ModelCallError(
+                            "protocol", usage=ModelUsage(anomalies=("provider_mismatch",))
+                        )
                     frames = OpenAICompatibleChatModel._sse_frames(reply, deadline)
                     while True:
                         try:
@@ -362,6 +417,11 @@ class AnthropicChatModel:
                                 seen.anomalies.append("model_mismatch")
                                 raise ModelCallError("protocol", usage=seen.result())
                             continue
+                        if kind == "message_start":
+                            # QG F1: one message per request. A second start ends the call,
+                            # its cost dropped (unsettled), whatever model it names.
+                            seen.anomalies.append("usage_repeated")
+                            raise ModelCallError("protocol", usage=seen.result())
                         if kind == "content_block_start":
                             block = event.get("content_block")
                             index = event.get("index")
@@ -438,10 +498,3 @@ class AnthropicChatModel:
             generation_ref=usage.generation_ref,
             anomalies=usage.anomalies,
         )
-
-
-def build(profile_id: str, settings: Any, **options: Any) -> AnthropicChatModel:
-    # Always refused in this build: the configuration is listed but never usable
-    # (``anthropic_profiles.availability``), so the service can never compose it.
-    _, reason = anthropic_profiles.availability(settings)
-    raise ProfileConfigError(reason, "not usable in this build")

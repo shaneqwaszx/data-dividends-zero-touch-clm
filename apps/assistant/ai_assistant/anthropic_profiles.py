@@ -1,4 +1,4 @@
-# Claude Sonnet 5.5 on AI Models (D-099, PROPOSED): two configurations, listed, never usable.
+# Claude Sonnet 5.5 on AI Models (D-099 Option B, PROPOSED): two configurations.
 #
 # Two configurations of ONE model, ``claude-sonnet-5-5`` on the Anthropic Messages API (Fast
 # is not a separate model):
@@ -17,8 +17,8 @@
 # has its own profile id and fingerprint, so a qualification of one never counts for the other or
 # for GPT-OSS.
 #
-# **Both are unavailable, whatever is configured.** The D-091 to D-098 remote controls rest on
-# three provider-side checks that a direct Anthropic API key cannot give:
+# The D-091 to D-098 remote controls rest on three provider-side checks that a direct Anthropic
+# API key cannot give (MISSING_CONTROLS):
 #
 #     provider_limit_readable          OpenRouter ``GET /key`` shows the key's own finite,
 #                                      never-resetting limit (D-098 R8). Anthropic spend limits
@@ -31,18 +31,22 @@
 #     provider_usage_reconciliation    the ledger is anchored on and reconciled against the key's
 #                                      provider-reported usage (D-091 X5). Anthropic usage and
 #                                      cost are readable only through the Admin API (an
-#                                      organisation Admin key; data after about 5 minutes; cost
-#                                      per day only).
+#                                      organisation Admin key, never used here).
 #
-# Until the owner decides which equivalent controls are acceptable, the catalogue lists both
-# configurations as not authorised (no decision configured) or as missing provider controls
-# (``AI_ASSISTANT_ANTHROPIC_DECISION=D-099``), and model management refuses every action on them
-# before any network call. Nothing here reads a credential.
+# D-099 Option B (owner-approved policy, NOT equivalent to OpenRouter) replaces them with
+# Anthropic-specific safeguards, all in ``anthropic_runtime``: an owner-attested monthly limit
+# of at most US$5 on a dedicated workspace, a separate Anthropic ledger (LEDGER_PROFILE_ID)
+# with a non-resetting US$5 lifetime ceiling, US$1 a day, 20 calls per activation, in-band
+# checks of the workspace, model and routing of every reply, and manual reconciliation against
+# the Console. Until every one of them holds, both configurations stay unavailable.
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any, Literal
+
+from .model_profiles import ApprovedEndpoint
 
 DECISION_ID = "D-099"
 PROVIDER = "ANTHROPIC"
@@ -57,11 +61,27 @@ INPUT_USD_PER_MTOK = Decimal("2")
 OUTPUT_USD_PER_MTOK = Decimal("10")
 MAX_TOKENS = 3000
 TIMEOUT_SECONDS = 90.0
-# The provider-side controls a direct Anthropic key cannot give (see the module docstring).
+# The provider-side controls a direct Anthropic key cannot give (see the header).
 MISSING_CONTROLS = (
     "provider_limit_readable",
     "per_call_cost_verification",
     "provider_usage_reconciliation",
+)
+
+# The separate Anthropic ledger's profile (budget.PROFILES): both configurations share it.
+LEDGER_PROFILE_ID = "anthropic_claude_sonnet_5_5"
+# The record the unchanged budget guard reserves against: the worst case bounds the prompt by
+# its bytes at the input price and every allowed output token (thinking is billed as output
+# and counts towards ``max_tokens``) at the output price. No per-request price.
+ENDPOINT = ApprovedEndpoint(
+    slug="anthropic/claude-sonnet-5-5",
+    prompt_price_per_m=INPUT_USD_PER_MTOK,
+    completion_price_per_m=OUTPUT_USD_PER_MTOK,
+    request_price=Decimal("0"),
+    max_completion_tokens=MAX_TOKENS,
+    max_tokens_includes_reasoning=True,
+    slug_unique_for_model=True,
+    evidence_date=date(2026, 10, 29),
 )
 
 Thinking = Literal["adaptive", "between_tools"]
@@ -113,9 +133,15 @@ CONFIGURATIONS = MappingProxyType({item.profile_id: item for item in (BALANCED, 
 PROFILE_IDS = frozenset(CONFIGURATIONS)
 
 
-def availability(settings: Any) -> tuple[Literal["pending_authorisation", "unavailable"], str]:
-    # (catalogue status, reason). Never selectable: the missing provider controls (module
-    # docstring) are not configurable, so naming the decision only changes the reason shown.
-    if getattr(settings, "anthropic_decision", "") != DECISION_ID:
-        return "pending_authorisation", "ANTHROPIC_NOT_AUTHORISED"
-    return "unavailable", "ANTHROPIC_PROVIDER_CONTROLS_MISSING"
+Status = Literal["pending_authorisation", "unavailable", "selectable"]
+
+
+def availability(settings: Any) -> tuple[Status, str | None]:
+    # (catalogue status, reason): selectable only when every Option B condition the runtime
+    # checks without a network call or a key holds (anthropic_runtime.readiness).
+    from . import anthropic_runtime  # the runtime imports this module
+
+    reason = anthropic_runtime.readiness(settings)
+    if reason == "ANTHROPIC_NOT_AUTHORISED":
+        return "pending_authorisation", reason
+    return ("selectable", None) if reason is None else ("unavailable", reason)

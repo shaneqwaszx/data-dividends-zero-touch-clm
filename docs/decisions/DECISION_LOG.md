@@ -1460,7 +1460,7 @@ separate US$0.30 A/B authorisation is unchanged and this decision grants no paid
 | R13 | **Key limit visibility.** The spending view shows the key's own limit, usage and reset policy as `/key` reports them; account credits are never read and are shown as such. An exhausted key limit is an owner action (`ESCALATE_KEY_OWNER`; a paid start is refused `PROVIDER_KEY_LIMIT_EXHAUSTED`), never an HR spending setting. |
 | R14 | **Owner decisions confirmed (2026-10-28).** Automatic Fast→Balanced switching: not approved. An IT-configured daily limit above US$1.00 (`AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD`) is permitted under privileged deployment control and the existing ledger and key-limit safeguards (no HR confirmation applies to it). HR call-count changes keep the existing audited behaviour for this slice. Changing the key's provider limit is the owner's or operator's responsibility, never an HR budget setting. No paid requalification is authorised yet. A failed answer-quality gate (supersedes a pass) and an unresolved billing verification (operator reconciliation; never bypassed) remain distinct. PR #128's conflicting qualification-retry and fallback rules (latest-run-only activation, Z6 keeping a superseded model active) are not adopted. |
 
-## D-099 - AI Assistant Claude Sonnet 5.5 Balanced and Fast on AI Models: listed, not usable (PROPOSED)
+## D-099 - AI Assistant Claude Sonnet 5.5 Balanced and Fast on AI Models under Anthropic-specific safeguards (PROPOSED)
 
 Status: PROPOSED by the project team on 2026-10-29 under the owner's "Claude Sonnet 5.5
 Balanced/Fast Integration" assignment (bounded development and offline verification only; no
@@ -1468,6 +1468,15 @@ paid call, activation, guardrail change or merge). Stacked on PR #129 (D-098). E
 `.ai-pipeline/reports/D099_CLAUDE_SONNET_CONSOLE_INTEGRATION.md` and the owner-scored benchmark
 (`CLAUDE_API_MODEL_BENCHMARK.md`, local commits `7fd0e43`, `cb9b996`, `5964ea2`). Not accepted
 until the owner says so; not sponsor policy. D-091 to D-098 are unchanged.
+
+Update 2026-10-29 (Option B): the owner approved implementing Anthropic-specific alternative
+spending safeguards (C6 to C9), explicitly **not** as a weakening, removal, bypass or
+replacement of any OpenRouter/GPT-OSS protection. Implemented offline on the D-099 branch
+(PR #130 stays draft); evidence `.ai-pipeline/reports/D099_OPTION_B_IMPLEMENTATION.md` and the
+design `.ai-pipeline/001_planner/D099_ANTHROPIC_SPENDING_CONTROL_DESIGN.md`. Not authorised:
+paid inference, paid qualification, real-data transmission, runtime activation, automatic
+provider switching, merge or production deployment. C2 and C4 below describe the state before
+Option B and are superseded where C6 to C9 say so.
 
 | # | Proposed decision |
 | --- | --- |
@@ -1484,3 +1493,10 @@ HR key entry, routing of model-management actions by provider, telemetry profile
 adapter to the qualification basis (which would make every GPT-OSS qualification out of date),
 the catalog gaps (P06#1, P01#0, P04#0) and deterministic action refusals. Evidence class: mock
 and offline only; no Live, Sandbox or provider-status claim.
+
+| # | Option B (owner-approved policy, implemented offline 2026-10-29) |
+| --- | --- |
+| C6 | **Policy (not equivalent to OpenRouter).** A dedicated, non-default Anthropic workspace and a workspace inference key (never an organisation Admin key; none is introduced into the runtime); a workspace monthly spend limit of at most US$5.00, set in the Console and owner-attested because it cannot be read with an API key; a separate Anthropic ledger (`anthropic_claude_sonnet_5_5`, its own file) whose cap may never exceed US$5.00 lifetime (never reset) nor the attested workspace limit; at most US$1.00 a Singapore day and 20 calls per activation or restart (policy ceilings enforced in settings and again at run time); conservative full-reservation accounting whenever billing is uncertain; the workspace (`anthropic-workspace-id` response header), the requested model and standard routing (tier, geography, speed) verified in every reply before any text; manual reconciliation against the Console's workspace usage within 24 hours before a paid qualification, an activation or a cap raise and within 7 days for chat; fail closed on stale reconciliation, provider mismatch or missing billing evidence; no automatic switch from Claude to GPT-OSS or any other model; the inference key revoked at the end of the FYP (owner attestation `key_revoked_at_fyp_end`). |
+| C7 | **Scope.** Verified synthetic development cases only, exactly the cases GPT-OSS may answer: the chat applies the unchanged D-094 synthetic boundary and D-095 eligibility to a Claude configuration, and the model itself re-checks every call (D-095 V5). Development machines only (loopback CLM backend, local browser origins), behind the same D-094/D-091/D-092 interlock as GPT-OSS plus `AI_ASSISTANT_ANTHROPIC_DECISION=D-099` and the four owner attestations. Never real data. |
+| C8 | **Changes P-1 to P-7 (additive, Anthropic-specific).** P-1 the owner-attested workspace limit and the ledger ceiling replace the readable key limit (R8) for Claude only. P-2 in-band verification (workspace, model, routing, complete usage) plus manual reconciliation replace the per-call generation record (P4) for Claude only. P-3 `budget.PROFILES` gains the Anthropic profile and every reservation names its profile, so neither provider's calls can be admitted by the other's ledger (existing OpenRouter ledgers keep working unchanged). P-4 Claude key sources: `AI_ASSISTANT_ANTHROPIC_API_KEY` from the process environment, else the git-ignored `.env`; inference keys only, Admin, OAuth and session tokens refused. P-5 per-provider controls: Claude has its own fixed settings; the GPT-OSS HR spending controls never apply to it (HR key entry and HR-editable Claude limits are deferred with the D-100 UI work). P-6 R6 extended: a stored Claude activation that is no longer usable becomes *AI unavailable*. P-7 boundary regeneration with the existing generator: three identifier fragments (`ant`, `usr`, `wrkspc`, from the inference-key and workspace-id format checks) added to `code_vocabulary` only; no question, history, eligibility or client-data change. Also fixed: QG F1 (a second `message_start` ends the call unsettled) and F2 (admission decided again per call). The adapter, profiles and runtime join `BASIS_FILES`; the basis moves to `e8d149ade8f8…`. |
+| C9 | **Residual billing risks (owner-accepted).** The workspace limit and the workspace's dedication are attested, not read; a reply's usage is Anthropic's own claim with no separate per-call record; Console usage lags and is reconciled by hand, so drift can persist up to the reconciliation window, bounded by the daily cap, the ledger ceiling and the workspace limit Anthropic itself enforces; follow-up questions whose prompt places knowledge or topic lines after history cannot be sent unchanged to the Messages API and get the case-data answer (refused before any reservation). |

@@ -382,29 +382,60 @@ the lifetime cap and the key's own limit still apply.
 date on this code: at start-up an active GPT-OSS configuration becomes *AI unavailable* until
 HR runs a new (paid) qualification and activates it. Historical runs are kept.
 
-## 13. Claude Sonnet 5.5 Balanced and Fast (D-099, proposed): listed, not usable
+## 13. Claude Sonnet 5.5 Balanced and Fast (D-099 Option B, proposed)
 
 AI Models lists two configurations of one model, `claude-sonnet-5-5` on the Anthropic Messages
 API: *Claude Sonnet 5.5 — Balanced* (effort medium, adaptive thinking; recommended) and
 *Claude Sonnet 5.5 — Fast* (effort low, thinking between tool calls only). Each has its own
-fingerprint and qualification history. Neither can be tested, qualified or activated:
+fingerprint and qualification history. They are selectable only on a development machine
+where every Option B safeguard below is configured; otherwise they are listed and refused
+before any network call (`ANTHROPIC_NOT_AUTHORISED` without the decision; `DECISION_INTERLOCK`,
+`NOT_DEVELOPMENT_ENVIRONMENT`, `ANTHROPIC_ATTESTATION_MISSING`, `WORKSPACE_NOT_ATTESTED`,
+`WORKSPACE_LIMIT_NOT_ATTESTED` or `ANTHROPIC_SETTINGS_INVALID` with it).
 
-| Setting | What AI Models shows | Refusal |
-| --- | --- | --- |
-| `AI_ASSISTANT_ANTHROPIC_DECISION` unset | Not authorised (`ANTHROPIC_NOT_AUTHORISED`) | `REMOTE_NOT_AUTHORISED` |
-| `AI_ASSISTANT_ANTHROPIC_DECISION=D-099` | Unavailable: provider spending controls missing (`ANTHROPIC_PROVIDER_CONTROLS_MISSING`) | `PROFILE_NOT_SELECTABLE` |
+**Not equivalent to GPT-OSS through OpenRouter.** A direct Anthropic key cannot read its spend
+limit, has no per-call cost record and cannot read usage without an organisation Admin key
+(never used here). The owner-approved substitutes are attested limits, in-band checks of every
+reply and manual reconciliation; see D-099 C6 to C9 for the residual risks. Synthetic
+development cases only, the same cases GPT-OSS may answer. Never real data.
 
-The missing controls are the ones GPT-OSS relies on through OpenRouter: a key limit the service
-can read, a per-call provider record of model and cost, and provider-reported usage to reconcile
-the ledger against. Anthropic enforces Console spend limits but does not expose them to an API
-key, and its usage and cost are readable only with an organisation Admin key. Until the owner
-decides which equivalent controls are acceptable, no Claude answer can be served, there is no
-Claude key setting, and nothing switches to or from Claude automatically. GPT-OSS Balanced and
-Fast are unchanged.
+| Setting (environment; `.env` for the key only) | Rule |
+| --- | --- |
+| `AI_ASSISTANT_ANTHROPIC_DECISION=D-099` | plus the D-094 interlock GPT-OSS needs (`AI_ASSISTANT_LOCAL_API_TEST_DECISION`, D-091, D-092) |
+| `AI_ASSISTANT_ANTHROPIC_OWNER_ATTESTS` | exactly `dedicated_workspace,workspace_limit_set,inference_key_only,key_revoked_at_fyp_end` |
+| `AI_ASSISTANT_ANTHROPIC_WORKSPACE_ID` | the dedicated, non-default workspace's id (`wrkspc_…`); every reply must name it |
+| `AI_ASSISTANT_ANTHROPIC_WORKSPACE_LIMIT_MICRO_USD` | the monthly limit set on that workspace in the Console, 1 to 5,000,000 (US$5.00) |
+| `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` | default and ceiling 1,000,000 (US$1.00 per Singapore day) |
+| `AI_ASSISTANT_ANTHROPIC_MAX_CALLS` | default and ceiling 20 per activation or restart |
+| `AI_ASSISTANT_ANTHROPIC_LEDGER_PATH` | default `data/budget/anthropic_ledger.sqlite3` (git-ignored) |
+| `AI_ASSISTANT_ANTHROPIC_API_KEY` | a workspace inference key (`sk-ant-api…` or `sk-ant-usr-…`); an Admin key, OAuth or session token is refused |
 
-**Requalification.** D-099 regenerates `synthetic_boundary.json` (a qualification-basis file:
-seven words added to the service's own system-message vocabulary, owner-approved), so the
-basis moves from `b4049047884e…` to `235030035ccc…`. Every earlier GPT-OSS qualification,
-including one made on the D-098 code, is out of date once this merges: an active GPT-OSS
-configuration becomes *AI unavailable* at start-up until HR runs a new (paid, separately
-approved) qualification and activates it. Historical runs are kept.
+Operator steps (offline; the script never contacts Anthropic):
+
+1. Create the ledger with the workspace's cumulative Console cost as its opening usage and a cap
+   no higher than US$5.00 or the workspace limit:
+   `scripts/budget_ledger.py --anthropic init --cap 5.00 --opening-provider-usage 0.00 --key-alias key-01`.
+2. Reconcile against the Console's workspace cost (cumulative, in USD) before use: within 24
+   hours before a paid qualification, an activation or a cap raise; at least every 7 days for
+   chat: `scripts/budget_ledger.py --anthropic reconcile --provider-usage 0.42`.
+3. A quarantined call (wrong workspace, model or route, unfinished stream, missing usage) or a
+   provider refusal opens the breaker; reconcile, then `reset-breaker --code <code>`.
+
+Each call then needs: the synthetic boundary (or a D-095 ticket, re-checked in the adapter), a
+valid key, the ledger's own profile with a closed breaker and no open call, every earlier call
+verified, room for one worst-case reservation (about US$0.096) in the ledger and today's
+allowance, the reconciliation window, and a free `GET /v1/models/claude-sonnet-5-5` naming the
+attested workspace (reused for `AI_ASSISTANT_LOCAL_API_TEST_PREFLIGHT_SECONDS`). Claude answers
+in the streamed chat only. Follow-up questions whose prompt puts knowledge or topic lines after
+the history get the case-data answer (refused before anything is reserved). The paid
+qualification's G-8 gate verifies Claude calls in-band. The GPT-OSS HR spending controls and
+HR key entry never apply to Claude (HR controls for Claude are deferred). Nothing switches to or
+from Claude automatically.
+
+**Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
+plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary
+only) and adds the Claude modules to the qualification basis, so the basis moves from
+`b4049047884e…` (D-098) to `e8d149ade8f8…`. Every earlier GPT-OSS qualification is out of date
+once this merges: an active GPT-OSS configuration becomes *AI unavailable* at start-up until HR
+runs a new (paid, separately approved) qualification and activates it. Historical runs are
+kept.

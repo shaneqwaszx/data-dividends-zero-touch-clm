@@ -1285,3 +1285,28 @@ compare-and-set and fail-closed start-up ported. Delta only; nothing here is mer
   usage and reset; an exhausted key is an owner action.
 - **Open:** owner review of the replacement draft PR against main and closure of PR #128;
   owner merge; then the separately authorised Windows-local paid requalification.
+
+## AI Assistant D-099 Claude Sonnet 5.5 under Anthropic-specific safeguards (draft PR #130, not merged) - 2026-10-29
+
+Branch `feat/assistant-claude-sonnet-console` (draft PR #130). Delta only; nothing here is
+merged, activated or Live, and no paid call was made.
+- **Decision:** D-099 (PROPOSED) with Option B (owner-approved policy, implemented offline):
+  Anthropic-specific safeguards that are **not equivalent** to OpenRouter's. Evidence:
+  `.ai-pipeline/reports/D099_OPTION_B_IMPLEMENTATION.md`.
+- **Provider status:** Anthropic Messages API for Claude Sonnet 5.5 Balanced/Fast is **Mock**
+  only here (offline tests); runtime composition exists behind the D-099 gate but is not
+  activated. GPT-OSS/OpenRouter status unchanged.
+- **Behaviour:** both Claude configurations are selectable only on a development machine with
+  D-099, the D-094 interlock, four owner attestations, a dedicated workspace id and its
+  attested monthly limit (at most US$5.00). Each call needs the synthetic boundary, an
+  inference key (Admin keys refused), the separate Anthropic ledger (lifetime ceiling
+  US$5.00, US$1.00 a day, 20 calls per activation), reconciliation within 7 days (24 hours for
+  paid runs, activation and cap raises) and a free model read naming the workspace. Replies
+  are verified in-band; anything uncertain is charged in full and stops later calls. No
+  automatic switch to GPT-OSS or any other model.
+- **Qualification:** basis `b4049047884e…` → `e8d149ade8f8…` (boundary words and the Claude
+  modules): every GPT-OSS qualification is out of date once merged.
+- **Persistence:** a second git-ignored SQLite ledger file; `budget.PROFILES` gains the
+  Anthropic profile (existing OpenRouter ledgers unchanged). No Mongo or case-data change.
+- **Open:** fresh independent QG, latest-main integration and final gate; owner publication
+  approval; HR key entry and HR-editable Claude limits deferred with the D-100 UI work.

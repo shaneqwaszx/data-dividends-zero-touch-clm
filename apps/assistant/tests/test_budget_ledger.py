@@ -822,6 +822,8 @@ def test_the_ledger_has_no_way_to_set_the_baseline_directly() -> None:
         "unverified_closed_calls",
         # D-095: today's allowance, read-only.
         "daily_status",
+        # D-099 Option B: when the operator last reconciled, read-only.
+        "last_reconciled_ms",
     }
     assert MAX_MICRO_USD == 10**12
 
