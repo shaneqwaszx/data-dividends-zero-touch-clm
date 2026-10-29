@@ -13,6 +13,7 @@ import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
 import { ConsoleDialog, consoleSection, sectionSearch, type ConsoleSection } from "./aiModels/ConsoleShell";
 import AiModelManagement, {
+  ANY_PROVIDER,
   AUDIT_REFRESH_MS,
   modelManagementQueryKeys,
   profileName,
@@ -1331,5 +1332,115 @@ describe("AiModelManagement D-100 providers and spending", () => {
     await waitFor(() => expect(view.textContent).toContain("Unavailable: the ledger could not be read"));
     expect(view.textContent).toContain("The spending ledger is missing or unhealthy.");
     expect(view.querySelector("[aria-label='Who can change the GPT-OSS limits']")?.textContent).toContain("You (HR), on this page");
+  });
+});
+
+// --- D-100 Phase 3: Qualifications and Recovery ------------------------------------------------
+
+describe("AiModelManagement D-100 qualifications and recovery", () => {
+  const paid = { calls: 6, reservation_micro_usd: 96_000, estimate_micro_usd: 576_000, effective_remaining_micro_usd: 1_000_000, refusal: null, sufficient: true };
+  const claude = (overrides: Partial<ModelProfileView> = {}) => profile({
+    profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: "medium", endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: "selectable", reason: null, active: false,
+    activation_blockers: ["NOT_QUALIFIED"], paid_qualification: paid,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" },
+    ...overrides,
+  });
+  const failed = (code: string, diagnosis: NonNullable<ModelQualification["diagnosis"]>): ModelQualification => ({
+    ...qualification, qualification_id: "b".repeat(32), status: "failed", code, diagnosis,
+  });
+  const recoveryCard = (view: HTMLElement, id: string) => view.querySelector(`[data-testid=recovery-${id}]`);
+  const withClaude = (overrides: Partial<ModelProfileView> = {}): ModelOverview => ({ ...overview, profiles: [overview.profiles[0], claude(overrides)] });
+
+  it("lists an unqualified Claude configuration and starts its first run only through the paid confirmation (I-1)", async () => {
+    const posts: unknown[] = [];
+    const view = mount(server(withClaude(), (_url, body) => { posts.push(body); return json({ qualification_id: "c".repeat(32) }); }), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
+    expect(card.textContent).toContain("Not qualified yet.");
+    expect(card.textContent).toContain("A first paid qualification makes up to 6 calls");
+    act(() => [...card.querySelectorAll("button")].find((item) => item.textContent === "Run first qualification…")!.click());
+    expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
+    expect(posts).toEqual([]);  // nothing starts before the confirmation
+    await act(async () => button(view, "Start paid qualification").click());
+    await waitFor(() => expect(posts).toEqual([{ confirm_paid_calls: 6 }]));
+  });
+
+  it("lists an unavailable Claude configuration without any action and says why", async () => {
+    const view = mount(server(withClaude({ status: "pending_authorisation", reason: "ANTHROPIC_NOT_AUTHORISED", activation_blockers: ["ANTHROPIC_NOT_AUTHORISED"], paid_qualification: null })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
+    expect(card.textContent).toContain("Not available now: Claude through the Anthropic API is not authorised for CLM use");
+    expect(card.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("shows technical qualification and answer quality apart, with quality never a gate", async () => {
+    const view = mount(server(withClaude({ qualification: { ...qualification, diagnosis: { category: "passed", cause: "PASSED", action: "NONE", retryable: false, supersedes_pass: false } } })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const states = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!.querySelector(".console-recovery-states")!;
+    const pairs = [...states.querySelectorAll("div")].map((item) => `${item.querySelector("dt")?.textContent}=${item.querySelector("dd")?.textContent}`);
+    expect(pairs).toEqual(["Technical qualification=Qualified", "Answer quality=Not scored", "Availability=Available"]);
+    expect(view.querySelector("[data-testid=qualification-kinds]")?.textContent).toContain("Answer quality is reported only, never a gate");
+  });
+
+  it("keeps the server's raw codes beside their meaning", async () => {
+    const run = failed("GATES_FAILED:G-6,G-8", { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false });
+    const view = mount(server({ ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, qualification: run }] }), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "openrouter_gpt_oss_120b")).not.toBeNull());
+    const codes = [...recoveryCard(view, "openrouter_gpt_oss_120b")!.querySelectorAll(".console-codes-line code")].map((item) => item.textContent);
+    expect(codes).toEqual(["failed", "GATES_FAILED:G-6,G-8", "budget", "CALLS_REFUSED", "REVIEW_SPENDING"]);
+  });
+
+  it("explains an interrupted run as a service stop, not a model fault", async () => {
+    const run = failed("INTERRUPTED", { category: "technical", cause: "INTERRUPTED", action: "RUN_AGAIN", retryable: true, supersedes_pass: false });
+    const view = mount(server({ ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, qualification: run, paid_qualification: paid }] }), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "openrouter_gpt_oss_120b")).not.toBeNull());
+    const card = recoveryCard(view, "openrouter_gpt_oss_120b")!;
+    expect(card.textContent).toContain("The run stopped because the AI assistant service stopped or restarted. It was not restarted automatically.");
+    expect([...card.querySelectorAll("button")].map((item) => item.textContent)).toContain("Retry qualification…");
+  });
+
+  it("names a Claude run's code and results in Anthropic terms (M-1)", async () => {
+    const run = failed("CREDENTIAL_INVALID", { category: "configuration", cause: "SERVER_SETTINGS", action: "ESCALATE_IT", retryable: false, supersedes_pass: false });
+    const view = mount(server(withClaude({ qualification: run })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!.textContent ?? "";
+    expect(card).toContain("The configured Anthropic key is not a valid inference key.");
+    expect(card).toContain("Troubleshooting Claude Sonnet 5.5 (Anthropic API)");
+    expect(card).not.toContain("OpenRouter");
+  });
+
+  it("names a provider-unknown code without naming a provider (M-1)", async () => {
+    expect(readable("CREDENTIAL_INVALID", ANY_PROVIDER)).not.toContain("OpenRouter");
+    expect(readable("PROVIDER_LIMIT_NOT_CHECKED", ANY_PROVIDER)).not.toContain("OpenRouter");
+    expect(readable("CREDENTIAL_INVALID")).toContain("OpenRouter");  // GPT-OSS wording unchanged
+    const view = mount(server({ ...withClaude(), active: { ...overview.active, profile_id: "ai_unavailable", unavailable: true, reverted: "CREDENTIAL_INVALID" } }));
+    await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
+    const banner = view.querySelector("[data-testid=ai-unavailable]")!.textContent ?? "";
+    expect(banner).toContain("The configured provider key is not valid.");
+    expect(banner).toContain("CREDENTIAL_INVALID");
+    expect(banner).not.toContain("OpenRouter");
+  });
+
+  it("never sends Claude to the GPT-OSS spending controls (M-2)", async () => {
+    const run = failed("GATES_FAILED:G-8", { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false });
+    const view = mount(server(withClaude({ qualification: run, paid_qualification: { ...paid, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
+    expect(card.querySelector("a[href='/admin/ai-models?section=spending']")?.textContent).toBe("View Claude's limits (read-only)");
+    expect(card.textContent).not.toContain("Review spending controls");
+    act(() => [...card.querySelectorAll("button")].find((item) => item.textContent === "Retry qualification…")!.click());
+    const dialog = view.querySelector("[data-testid=paid-confirm]")!.textContent ?? "";
+    expect(dialog).toContain("Claude's limits are fixed on the server and are not changed on this page");
+    expect(dialog).not.toContain("spending controls");
+    expect(button(view, "Start paid qualification").disabled).toBe(true);
+  });
+
+  it("keeps the GPT-OSS paid dialog pointing at its own spending controls", async () => {
+    const view = mount(server({ ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, activation_blockers: [], paid_qualification: { ...paid, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } }] }));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
+    { const target = button(view, "Run qualification…", "GPT-OSS"); act(() => target.click()); }
+    expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Review the GPT-OSS spending controls or run Test connection first.");
   });
 });

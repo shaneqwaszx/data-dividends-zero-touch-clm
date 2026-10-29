@@ -101,6 +101,16 @@ const CLAUDE_REASON_TEXT: Record<string, string> = {
   LIFETIME_CAP_EXHAUSTED: "The Claude ledger's lifetime cap has no room for another call.",
 };
 
+// D-100 (M-1): where the provider is not known (a start-up revert, an audit row without a
+// configuration), the shared codes whose usual wording names OpenRouter are said without a provider.
+export const ANY_PROVIDER = "*";
+const NEUTRAL_REASON_TEXT: Record<string, string> = {
+  PROVIDER_LIMIT_EXHAUSTED: "The provider's own key or workspace limit has no room for another call. It is not an HR spending setting.",
+  PROVIDER_LIMIT_NOT_CHECKED: "The provider's key or workspace has not been checked yet. Run Test connection.",
+  PROVIDER_CHECK_FAILED: "The last provider key or workspace check failed. Run Test connection.",
+  CREDENTIAL_INVALID: "The configured provider key is not valid.",
+};
+
 // D-098 Recovery Centre: the server classifies each outcome with closed codes; the page names
 // them. Nothing here can lower a gate, bypass a guardrail or start a paid run without HR.
 const CATEGORY_LABEL: Record<ModelDiagnosis["category"], string> = {
@@ -205,9 +215,41 @@ export function escalationSummary(item: ModelProfileView): string {
   ].join("\n");
 }
 
-function RecoveryCard({ item, busy, onRetry, onTest }: {
+// D-100 Phase 3: what to check for each provider before a retry. General guidance only; the
+// server's own codes on the card say what actually happened.
+const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: string; steps: string[] }> = {
+  openrouter: {
+    title: "Troubleshooting GPT-OSS 120B (OpenRouter)",
+    steps: [
+      "Providers: check that the OpenRouter key is configured and that Test connection passes (it reads the key's own limit; no model call).",
+      "Spending & Limits: check that today's allowance, the lifetime headroom and the key's own limit leave room for every paid call.",
+      "If paid calls are stopped, an operator reconciles the ledger with OpenRouter (scripts/budget_ledger.py) before any retry.",
+      "A key limit with no room is raised only by the key's owner at OpenRouter, never from this page.",
+    ],
+  },
+  anthropic: {
+    title: "Troubleshooting Claude Sonnet 5.5 (Anthropic API)",
+    steps: [
+      "Run Test connection: it reads the attested Anthropic workspace and the model (free; no case data).",
+      "The inference key, the workspace id and the four owner attestations are set on the server by an operator; HR cannot enter them.",
+      "Claude's limits are fixed on the server: wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic). A paid qualification needs a reconciliation within 24 hours.",
+      "The workspace's monthly spend limit is changed only by its owner in the Anthropic Console, never from this page.",
+    ],
+  },
+  local: {
+    title: "Troubleshooting a local model",
+    steps: [
+      "Check that the local model server named in the profile is running and has the model loaded, then run Test connection.",
+      "IT changes the profile (endpoint, model, context) in the model profiles file; any change needs a new qualification.",
+    ],
+  },
+};
+
+function RecoveryCard({ item, configured, busy, onRetry, onTest }: {
   item: ModelProfileView;
+  configured: boolean;
   busy: boolean;
+  /** Starts a qualification; a paid one always opens the confirmation first. */
   onRetry: () => void;
   onTest: () => void;
 }) {
@@ -218,20 +260,47 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
   const failedGates = (run?.gates ?? []).filter((gate) => gate.gating && !gate.passed);
   const usable = item.status === "selectable";
   const escalate = diagnosis?.action.startsWith("ESCALATE_") ?? false;
+  const kind = providerKind(item);
+  const claude = kind === "anthropic";
+  const paidRun = isPaidRemote(item.deployment);
+  const help = TROUBLESHOOTING[kind];
+  const technical = technicalState(item);
   return (
     <article className="model-recovery-card" data-testid={`recovery-${item.profile_id}`}>
-      <h3>{profileName(item)}</h3>
-      {!run ? <p>Not qualified yet. {item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ")}</p> : (
+      <div className="model-recovery-card__head">
+        <h3>{profileName(item)}</h3>
+        <span className="console-help">{item.details?.provider ? PROVIDER_LABEL[item.details.provider] ?? item.details.provider : readable(item.deployment)}</span>
+      </div>
+      <dl className="console-recovery-states">
+        <div><dt>Technical qualification</dt><dd><Chip state={technical} /></dd></div>
+        <div><dt>Answer quality</dt><dd><Chip state={qualityState(run?.quality)} /></dd></div>
+        <div><dt>Availability</dt><dd><Chip state={availabilityState(item)} /></dd></div>
+      </dl>
+      {!usable && (
+        <p className="console-note console-note--block">
+          Not available now: {item.reason ? readable(item.reason, item.deployment) : STATUS_LABEL[item.status]}. Retry and Test connection are offered once the server makes it available again.
+        </p>
+      )}
+      {!run ? (
+        <>
+          <p><strong>Not qualified yet.</strong> No qualification has been run for this configuration. Activation needs a passing technical qualification of its current settings.</p>
+          {item.activation_blockers.length > 0 && <p className="control-help">Activation blocked: {item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ")}</p>}
+        </>
+      ) : (
         <>
           <p>
             <strong>{diagnosis ? categoryLabel(diagnosis) : readable(run.status)}</strong>
-            {run.code && <> · {readable(run.code)}</>}
+            {run.code && <> · {readable(run.code, item.deployment)}</>}
             {!run.current && <> · <span className="tag tag-warn">Out of date</span></>}
           </p>
           {diagnosis && <p>{causeText(diagnosis, item.deployment)}</p>}
           {failedGates.length > 0 && (
             <p className="control-help">Failed gates: {failedGates.map((gate) => `${gate.gate} (${gate.rule})`).join("; ")}</p>
           )}
+          <p className="console-help console-codes-line">
+            Server codes: <code>{run.status}</code>{run.code && <> <code>{run.code}</code></>}
+            {diagnosis && <> <code>{diagnosis.category}</code> <code>{diagnosis.cause}</code> <code>{diagnosis.action}</code></>}
+          </p>
           <dl className="acra-detail-list">
             <div><dt>Last attempted</dt><dd>{formatTimestamp(run.started_at)} by {run.started_by}</dd></div>
             <div><dt>Retry worthwhile now</dt><dd>{diagnosis ? (diagnosis.retryable ? "Yes" : "No") : "—"}</dd></div>
@@ -243,29 +312,48 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
           </dl>
         </>
       )}
-      <div>
+      {!run && paid && <p className="control-help">A first paid qualification makes up to {paid.calls ?? "—"} calls (reserved up to {microUsd(paid.estimate_micro_usd)}){paid.refusal ? `; refused now: ${readable(paid.refusal, item.deployment)}` : ""}.</p>}
+      <div className="console-recovery-actions">
+        {!run && usable && configured && item.endpoint && (
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={onRetry}>
+            {paidRun ? "Run first qualification…" : "Run first qualification"}
+          </button>
+        )}
         {diagnosis?.retryable && usable && (
           <button type="button" className="btn btn-primary" disabled={busy} onClick={onRetry}>
             {diagnosis.cause === OUT_OF_DATE ? "Run new qualification…" : "Retry qualification…"}
           </button>
-        )}{" "}
+        )}
         {(diagnosis?.action === "TEST_CONNECTION" || diagnosis?.action === "RETRY_LATER") && usable && (
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={onTest}>Test connection</button>
-        )}{" "}
-        {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && <Link className="btn btn-secondary" to={{ search: sectionSearch("spending") }}>Review spending controls</Link>}{" "}
-        {paid?.refusal === "PROVIDER_LIMIT_EXHAUSTED" && (
-          <p className="ds-banner ds-banner-warn" role="note" data-testid="key-owner-action">
-            {ACTION_TEXT.ESCALATE_KEY_OWNER}
-          </p>
+        )}
+        {/* Claude's limits are not HR settings: the link only shows them, read-only. */}
+        {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && (
+          <Link className="btn btn-secondary" to={{ search: sectionSearch("spending") }}>{claude ? "View Claude's limits (read-only)" : "Review spending controls"}</Link>
         )}
         {escalate && (
           <button type="button" className="btn btn-secondary" onClick={() => {
             void navigator.clipboard?.writeText(escalationSummary(item)).then(() => setCopied(true), () => setCopied(false));
           }}>Copy escalation summary</button>
         )}
-        {copied && <small role="status"> Copied.</small>}
+        {copied && <small role="status">Copied.</small>}
       </div>
+      {paid?.refusal === "PROVIDER_LIMIT_EXHAUSTED" && (
+        <p className="ds-banner ds-banner-warn" role="note" data-testid="key-owner-action">
+          {(claude && CLAUDE_ACTION_TEXT.ESCALATE_KEY_OWNER) || ACTION_TEXT.ESCALATE_KEY_OWNER}
+        </p>
+      )}
       {escalate && <details><summary>Escalation summary</summary><pre className="control-help">{escalationSummary(item)}</pre></details>}
+      {run && run.status !== "running" && (
+        <details className="console-details">
+          <summary>Gates and measures of the latest run</summary>
+          <QualificationDetail qualification={run} deployment={item.deployment} />
+        </details>
+      )}
+      <details className="console-details">
+        <summary>{help.title}</summary>
+        <ol className="console-troubleshooting">{help.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+      </details>
     </article>
   );
 }
@@ -314,6 +402,7 @@ const isPaidRemote = (deployment: string | undefined) => deployment === REMOTE_D
 export function readable(code: string | null | undefined, deployment?: string): string {
   if (!code) return "";
   if (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_REASON_TEXT[code]) return CLAUDE_REASON_TEXT[code];
+  if (deployment === ANY_PROVIDER && NEUTRAL_REASON_TEXT[code]) return NEUTRAL_REASON_TEXT[code];
   if (code.startsWith(GATES_FAILED)) return `Gates failed: ${code.slice(GATES_FAILED.length).split(",").join(", ")}`;
   if (code.startsWith(PREFLIGHT_FAILED)) return `Preflight failed: ${code.slice(PREFLIGHT_FAILED.length).split(",").join(", ")}`;
   return REASON_TEXT[code] ?? code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
@@ -815,13 +904,13 @@ function SpendingSection({ overview, busy, onChanged }: { overview: ModelOvervie
   );
 }
 
-function QualificationDetail({ qualification }: { qualification: ModelQualification }) {
+function QualificationDetail({ qualification, deployment }: { qualification: ModelQualification; deployment: string }) {
   const metrics = qualification.metrics ?? {};
   return (
     <div className="model-qualification">
       <p>
         <strong>Qualification {readable(qualification.status)}</strong>
-        {qualification.code && <> · {readable(qualification.code)}</>}
+        {qualification.code && <> · {readable(qualification.code, deployment)}</>}
         {!qualification.current && <> · <span className="tag tag-warn">Out of date</span></>}
         {" "}· {qualification.done_turns}/{qualification.total_turns} turns · started by {qualification.started_by} {formatTimestamp(qualification.started_at)}
       </p>
@@ -1255,7 +1344,8 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
     action.mutate(() => startModelQualification(item.profile_id, calls));
   }
 
-  const recoverable = overview?.profiles.filter((item) => item.profile_id !== "env_default" && (item.qualification || item.deployment === REMOTE_DEPLOYMENT)) ?? [];
+  // D-100 (I-1): every external configuration is listed, Claude included, even before its first run.
+  const recoverable = overview?.profiles.filter((item) => item.profile_id !== "env_default" && (item.qualification || isPaidRemote(item.deployment))) ?? [];
   const paidPending = paidConfirm ? overview?.profiles.find((item) => item.profile_id === paidConfirm.profile_id) ?? paidConfirm : null;
   const inspectedItem = overview?.profiles.find((item) => item.profile_id === inspected)
     ?? overview?.profiles.find((item) => item.active)
@@ -1321,14 +1411,15 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           )}
           {overview?.active.unavailable && (
             <p className="ds-banner ds-banner-warn" role="alert" data-testid="ai-unavailable">
-              AI is unavailable: the external model configuration that was active (GPT-OSS or Claude) can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+              AI is unavailable: the external model configuration that was active (GPT-OSS or Claude) can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted, ANY_PROVIDER)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+              {overview.active.reverted && <> Server code: <code className="console-code">{overview.active.reverted}</code>.</>}
             </p>
           )}
           {overview?.file_status === "missing" && <p className="ds-banner ds-banner-warn" role="alert">The model profiles file named by IT was not found.</p>}
 
           {section === "overview" && overview && (
             <>
-              {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
+              {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted, ANY_PROVIDER)}), so the environment baseline is active.</p>}
               {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
 
               <ActiveModelBand overview={overview} busy={busy} nameOf={nameOf}
@@ -1365,7 +1456,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               {detail?.qualification && (
                 <section className="card" aria-labelledby="qualification-heading">
                   <h2 id="qualification-heading">Qualification: {profileName(detail)}</h2>
-                  <QualificationDetail qualification={detail.qualification} />
+                  <QualificationDetail qualification={detail.qualification} deployment={detail.deployment} />
                 </section>
               )}
             </>
@@ -1381,10 +1472,11 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               {recoverable.length > 0 ? (
                 <section className="card" aria-labelledby="recovery-heading">
                   <h2 id="recovery-heading">Model health and recovery</h2>
-                  <p className="text-muted">What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next. Retrying a paid qualification always asks first.</p>
+                  <p className="text-muted">What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next. Every external configuration is listed, including those not qualified yet. Starting or retrying a paid qualification always asks you to confirm its calls first; nothing is retried automatically.</p>
+                  <p className="console-help" data-testid="qualification-kinds">The technical qualification checks connection, safety filtering, availability and context capacity; it gates activation. Answer quality is reported only, never a gate, and a technical pass does not establish it.</p>
                   <div className="model-recovery-grid">
                     {recoverable.map((item) => (
-                      <RecoveryCard key={item.profile_id} item={item} busy={busy}
+                      <RecoveryCard key={item.profile_id} item={item} configured={overview.configured} busy={busy}
                         onRetry={() => runQualification(item)}
                         onTest={() => action.mutate(() => testModelConnection(item.profile_id))} />
                     ))}
@@ -1461,7 +1553,10 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           </dl>
           {paidPending.paid_qualification && !paidPending.paid_qualification.sufficient && (
             <p className="ds-banner ds-banner-warn" role="alert">
-              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal, paidPending.deployment) : "the spending limits do not leave room for every paid call."} Review the spending controls or run Test connection first.
+              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal, paidPending.deployment) : "the spending limits do not leave room for every paid call."}{" "}
+              {paidPending.deployment === ANTHROPIC_DEPLOYMENT
+                ? "Claude's limits are fixed on the server and are not changed on this page: run Test connection, wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger."
+                : "Review the GPT-OSS spending controls or run Test connection first."}
             </p>
           )}
           <div className="console-dialog__actions">
