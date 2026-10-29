@@ -149,6 +149,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
   "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
   "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
+  "Run Test connection first so the Anthropic workspace and model are checked (a free model read). Nothing started.",
   "The OpenRouter key's own spending limit has no room. Only the key's owner can raise it at OpenRouter; it is not an HR setting. Nothing started.",
   "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
   "A later qualification of this configuration failed on answer quality.",
@@ -797,8 +798,10 @@ const modelPath = (profileId: string) => `/admin/models/${encodeURIComponent(pro
 
 export const fetchModelOverview = (signal?: AbortSignal) =>
   request<ModelOverview>("/admin/models", undefined, signal);
+/** How many of the most recent audit events the page asks for (newest first). */
+export const MODEL_AUDIT_LIMIT = 100;
 export const fetchModelAudit = (signal?: AbortSignal) =>
-  request<{ events: ModelAuditEvent[] }>("/admin/models/audit?limit=100", undefined, signal);
+  request<{ events: ModelAuditEvent[] }>(`/admin/models/audit?limit=${MODEL_AUDIT_LIMIT}`, undefined, signal);
 export const testModelConnection = (profileId: string) =>
   request<ModelConnectionTest>(`${modelPath(profileId)}/connection-test`, {});
 // D-098: a paid (remote) run is sent with the number of paid calls HR confirmed.

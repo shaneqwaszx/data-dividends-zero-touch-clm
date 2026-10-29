@@ -490,6 +490,12 @@ def run_preflight(
     report.key_limit_reset = key.limit_reset
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
     try:
+        # D-099 (QG M-1/L-4): the profile is read without recovering, so another provider's
+        # ledger is never recovered or verified here.
+        probe = BudgetLedger(ledger_file)
+        probe.verify()
+        if probe.status().profile_id != OPENROUTER_PROFILE_ID:
+            raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the OpenRouter ledger")
         ledger = BudgetLedger.open(ledger_file)
         ledger.recover()
         status = ledger.status()

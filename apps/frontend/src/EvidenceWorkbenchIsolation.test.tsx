@@ -303,7 +303,6 @@ function renderCase(client: QueryClient, actor: AuthenticatedProfile, caseId: st
         caseId={caseId}
         actor={actor}
         onBack={() => undefined}
-        onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />
     </QueryClientProvider>

@@ -1,4 +1,6 @@
 import { displayTimestamp } from "../shared";
+import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
+import { DocumentIdentityWarningCard, documentIdentityWarning } from "./DocumentIdentityWarning";
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import type {
@@ -9,7 +11,7 @@ import type {
   ZeroTouchCaseSummary,
 } from "../types";
 
-const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt,image/png,.png,image/jpeg,.jpg,.jpeg,image/tiff,.tif,.tiff";
+const ACCEPTED_DOCUMENTS = UPLOAD_ACCEPT;
 
 type DocumentField = DocumentProcessingRecord["fields"][number];
 
@@ -139,6 +141,8 @@ function DocumentCard({
   onReview,
   onReplace,
   onRetry,
+  onReviewDifference,
+  onCorrectIdentity,
 }: {
   document: DocumentProcessingRecord;
   summary: ZeroTouchCaseSummary;
@@ -152,6 +156,8 @@ function DocumentCard({
   onReview: (document: DocumentProcessingRecord, request: DocumentReviewRequest, repair: boolean) => void;
   onReplace: (document: DocumentProcessingRecord, file: File) => void;
   onRetry: (document: DocumentProcessingRecord, file: File) => void;
+  onReviewDifference?: () => void;
+  onCorrectIdentity?: () => void;
 }) {
   const essential = presentation !== "more";
   const supporting = presentation !== "main";
@@ -169,6 +175,11 @@ function DocumentCard({
       || (summary.target_submission && summary.target_submission.state !== "NOT_SUBMITTED"));
   const replacementAuthorized = summary.document_replacement_authorized
     ?? (summary.status === "WAITING_FOR_REVIEW" && summary.current_stage === "DOCUMENT");
+  const reuploadRequired = isDocumentReuploadRequired(document, summary);
+  const replaceAllowed = replacementAuthorized
+    && (document.state !== "FAILED" || (summary.status === "WAITING_FOR_REVIEW" && summary.current_stage === "DOCUMENT"));
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const identityWarning = essential && !historical && isCurrentDocument(document) ? documentIdentityWarning(document, summary) : null;
 
   useEffect(() => {
     if (editingField) correctionInput.current?.focus();
@@ -227,6 +238,10 @@ function DocumentCard({
         {document.superseded_by_document_id ? ` · replaced by ${document.superseded_by_document_id}` : ""}
       </p>
       </>}
+      {identityWarning && <DocumentIdentityWarningCard key={identityWarning.key} warning={identityWarning}
+        replaceDisabled={reuploadRequired || replaceAllowed ? controlsDisabled : null}
+        onReplace={() => uploadInput.current?.click()}
+        onReviewDifference={onReviewDifference} onCorrectIdentity={onCorrectIdentity} />}
       {document.completion_method && <p className="control-help">Completion method: {document.completion_method.replaceAll("_", " ").toLowerCase()}</p>}
       {document.semantic_completion && <p className="control-help">Reconciliation status: {document.semantic_completion.replaceAll("_", " ")}. Document checkpoint completed by the retained operator reconciliation decisions. Original extraction and field review evidence is preserved.</p>}
       {essential && !historical && !document.semantic_completion && pendingCount > 0 && (
@@ -354,17 +369,18 @@ function DocumentCard({
 
       {essential && !historical && isCurrentDocument(document) && (
         <div className="document-card__actions">
-          {isDocumentReuploadRequired(document, summary) ? (
+          {reuploadRequired ? (
             <label className={`btn btn-primary document-upload-control${controlsDisabled ? " is-disabled" : ""}`}>
               Retry affected document
-              <input className="sr-only document-upload-input" type="file" accept={ACCEPTED_DOCUMENTS} disabled={controlsDisabled} onChange={(event) => handleFile(event, true)} />
+              <input className="sr-only document-upload-input" type="file" accept={ACCEPTED_DOCUMENTS} disabled={controlsDisabled} ref={uploadInput} onChange={(event) => handleFile(event, true)} />
             </label>
-          ) : replacementAuthorized && (document.state !== "FAILED" || (summary.status === "WAITING_FOR_REVIEW" && summary.current_stage === "DOCUMENT")) ? (
+          ) : replaceAllowed ? (
             <label className={`btn btn-ghost document-upload-control${controlsDisabled ? " is-disabled" : ""}`}>
               Replace current document
-              <input className="sr-only document-upload-input" type="file" accept={ACCEPTED_DOCUMENTS} disabled={controlsDisabled} onChange={(event) => handleFile(event, false)} />
+              <input className="sr-only document-upload-input" type="file" accept={ACCEPTED_DOCUMENTS} disabled={controlsDisabled} ref={uploadInput} onChange={(event) => handleFile(event, false)} />
             </label>
           ) : null}
+          {(reuploadRequired || replaceAllowed) && <span className="control-help">{UPLOAD_HELP_TEXT}</span>}
         </div>
       )}
     </article>
@@ -446,6 +462,8 @@ export default function DocumentEvidencePanel({
   onContinue,
   onRecoverRefresh,
   onRefresh,
+  onReviewDifference,
+  onCorrectIdentity,
 }: {
   summary: ZeroTouchCaseSummary;
   documents: DocumentProcessingRecord[];
@@ -466,6 +484,9 @@ export default function DocumentEvidencePanel({
   onContinue: () => void;
   onRecoverRefresh?: () => void;
   onRefresh: () => void;
+  /** Main-presentation warning actions; CaseDetail supplies them when that target exists. */
+  onReviewDifference?: () => void;
+  onCorrectIdentity?: () => void;
 }) {
   const current = documents.filter(isCurrentDocument);
   const history = documents.filter((document) => !isCurrentDocument(document));
@@ -504,7 +525,7 @@ export default function DocumentEvidencePanel({
       {loadFailed && <p className="ds-banner ds-banner-warn" role="alert">Document information could not be loaded. {documents.length > 0 && "Last-confirmed document information remains visible."}</p>}
       {loading && !loadFailed && <p className="text-muted" role="status">Loading document information…</p>}
       {!loading && !loadFailed && current.length === 0 && <p className="text-muted">{history.length > 0 ? presentation === "main" ? "No current document is retained; superseded evidence is in More details." : "No current document is retained; historical evidence is shown below." : emptyDocumentMessage(summary)}</p>}
-      {current.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} presentation={presentation} reviewInWorkspace={reviewInWorkspace} hideFields={hideFieldRows} busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}
+      {current.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} presentation={presentation} reviewInWorkspace={reviewInWorkspace} hideFields={hideFieldRows} busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} onReviewDifference={onReviewDifference} onCorrectIdentity={onCorrectIdentity} />)}
       {canContinue && <div id="case-document-intake-continue" className="ds-banner"><strong>Recovered intake is ready to be re-evaluated.</strong><span>The replacement lineage is current and the case remains at the document intake checkpoint.</span><button type="button" className="btn btn-primary" disabled={busy || mutationBlocked || summary.evidence_decision_authorized !== true} onClick={onContinue}>Continue recovered intake</button></div>}
       {presentation === "full" && history.length > 0 && <details className="evidence-history"><summary>Evidence history ({history.length})</summary>{history.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}</details>}
     </section>

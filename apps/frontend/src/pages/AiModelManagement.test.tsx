@@ -1,17 +1,19 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ModelBudgetStatus, ModelOverview, ModelProfileView, ModelQualification } from "../aiAssistant";
+import { MODEL_AUDIT_LIMIT, type ModelAuditEvent, type ModelBudgetStatus, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
+import { ConsoleDialog, consoleSection, sectionSearch, type ConsoleSection } from "./aiModels/ConsoleShell";
 import AiModelManagement, {
+  ANY_PROVIDER,
   AUDIT_REFRESH_MS,
   modelManagementQueryKeys,
   profileName,
@@ -132,23 +134,36 @@ function server(data: ModelOverview, onPost?: (url: string, body: unknown) => Re
   });
 }
 
-function mount(fetchMock: ReturnType<typeof vi.fn>): HTMLDivElement {
+function mount(fetchMock: ReturnType<typeof vi.fn>, section: ConsoleSection = "overview"): HTMLDivElement {
   vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  act(() => root?.render(<QueryClientProvider client={client}><AiModelManagement actor={hr} /></QueryClientProvider>));
+  const entry = `${paths.aiModels}${sectionSearch(section)}`;
+  act(() => root?.render(<MemoryRouter initialEntries={[entry]}><QueryClientProvider client={client}><AiModelManagement actor={hr} /></QueryClientProvider></MemoryRouter>));
   return container;
 }
 
+// D-100: a configuration's actions are in the inspector once its tile is selected.
 function button(view: HTMLElement, label: string, row?: string): HTMLButtonElement {
-  const scope = row
-    ? [...view.querySelectorAll("tr")].find((tr) => tr.textContent?.includes(row)) ?? view
-    : view;
+  let scope: ParentNode = view;
+  if (row) {
+    const tile = [...view.querySelectorAll<HTMLButtonElement>("[data-config-tile]")].find((item) => item.textContent?.includes(row));
+    if (!tile) throw new Error(`no configuration ${row}`);
+    if (tile.getAttribute("aria-pressed") !== "true") act(() => tile.click());
+    scope = view.querySelector("[data-testid=model-inspector]") ?? view;
+  }
   const found = [...scope.querySelectorAll("button")].find((item) => item.textContent === label);
   if (!found) throw new Error(`no button ${label}`);
   return found as HTMLButtonElement;
+}
+
+/** Opens a console section from its navigation link, as HR would. */
+function go(view: HTMLElement, label: string): void {
+  const link = [...view.querySelectorAll<HTMLAnchorElement>(".console-nav__link")].find((item) => item.textContent?.startsWith(label));
+  if (!link) throw new Error(`no section ${label}`);
+  act(() => link.click());
 }
 
 describe("AI model management access", () => {
@@ -177,14 +192,15 @@ describe("AiModelManagement", () => {
     expect(view.textContent).toContain("Remote inference is not authorised for CLM use");
     expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
     expect(button(view, "Test connection", "GPT-OSS").disabled).toBe(true);
-    await waitFor(() => expect(view.textContent).toContain("Access refused"));
     expect(button(view, "No earlier model to roll back to").disabled).toBe(true);
+    go(view, "Audit History");
+    await waitFor(() => expect(view.textContent).toContain("Access refused"));
   });
 
   it("shows qualification as technical only, with answer quality not scored and G-5 reported only", async () => {
     const view = mount(server(overview));
     await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
-    act(() => button(view, "Passed", "Qwen3").click());
+    { const target = button(view, "View qualification results", "Qwen3"); act(() => target.click()); }
     await waitFor(() => expect(view.textContent).toContain("Qualification: Qwen3 8B"));
     expect(view.textContent).toContain("NOT SCORED");
     expect(view.textContent).toContain("A pass is not proof of answer quality");
@@ -201,7 +217,7 @@ describe("AiModelManagement", () => {
     });
     const view = mount(fetchMock);
     await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
-    act(() => button(view, "Activate", "Qwen3").click());
+    { const target = button(view, "Activate", "Qwen3"); act(() => target.click()); }
     expect(view.textContent).toContain("Activate Qwen3 8B (LM Studio)?");
     const confirm = button(view, "Confirm");
     expect(confirm.disabled).toBe(true);
@@ -217,7 +233,7 @@ describe("AiModelManagement", () => {
   it("shows a refusal from the service with its fixed message", async () => {
     const view = mount(server(overview, () => json({ detail: { code: "REVISION_CONFLICT", message: "The model settings changed since this view. Refresh and try again." } }, 409)));
     await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
-    await act(async () => button(view, "Test connection", "Qwen3").click());
+    { const target = button(view, "Test connection", "Qwen3"); await act(async () => target.click()); }
     await waitFor(() => expect(view.textContent).toContain("The model settings changed since this view."));
   });
 
@@ -247,7 +263,7 @@ describe("AiModelManagement", () => {
     configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: unauthorized });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ detail: { code: "AUTHENTICATION_REQUIRED", message: "Please sign in again." } }, 401)));
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
-    act(() => root?.render(<QueryClientProvider client={client}><AiModelManagement actor={hr} /></QueryClientProvider>));
+    act(() => root?.render(<MemoryRouter initialEntries={[paths.aiModels]}><QueryClientProvider client={client}><AiModelManagement actor={hr} /></QueryClientProvider></MemoryRouter>));
     await waitFor(() => expect(unauthorized).toHaveBeenCalled());
     expect(client.getQueryCache().getAll().some((query) => query.queryKey.includes("sentinel"))).toBe(false);
   });
@@ -315,7 +331,7 @@ describe("AiModelManagement smoke-test fixes (S-1 to S-3)", () => {
     };
     const view = mount(server(failed));
     await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
-    act(() => button(view, "Failed", "Qwen3").click());
+    { const target = button(view, "View qualification results", "Qwen3"); act(() => target.click()); }
     await waitFor(() => expect(view.textContent).toContain("Gates failed: G-6, G-7"));
     expect(view.textContent).not.toContain("g-7");
   });
@@ -343,7 +359,7 @@ describe("AiModelManagement D-094 local synthetic test mode", () => {
     expect(view.textContent).toContain("answers only on the approved synthetic test case");
     expect(view.textContent).toContain("Test connection is a free preflight; qualification makes paid calls.");
     expect(button(view, "Run qualification…", "GPT-OSS").disabled).toBe(false);
-    act(() => button(view, "Activate", "GPT-OSS").click());
+    { const target = button(view, "Activate", "GPT-OSS"); act(() => target.click()); }
     expect(view.textContent).toContain("This is an external, paid API (D-094 local synthetic test mode).");
   });
 
@@ -421,7 +437,7 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
   it("shows Not Configured with a masked input, sends the key once and keeps no copy", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: budget() };
-    const view = mount(keyServer(data, calls));
+    const view = mount(keyServer(data, calls), "providers");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Not Configured"));
     const input = view.querySelector<HTMLInputElement>("#openrouter-key-input");
     expect(input?.type).toBe("password");
@@ -447,7 +463,7 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
       ...overview, profiles: [profile({}), remoteSelectable],
       budget: budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
     };
-    const view = mount(keyServer(data, calls));
+    const view = mount(keyServer(data, calls), "providers");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
     expect(view.textContent).toContain("enter it again after the service restarts");
     await act(async () => button(view, "Test Connection").click());
@@ -461,7 +477,7 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
       ...overview, profiles: [profile({}), remoteSelectable],
       budget: budget({ source: "env_file", status: "configured", hr_editable: false, persistence: "server" }),
     };
-    const view = mount(keyServer(data, []));
+    const view = mount(keyServer(data, []), "providers");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
     expect(view.textContent).toContain("apps/assistant/.env");
     expect(view.querySelector("#openrouter-key-input")).toBeNull();
@@ -471,7 +487,7 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
 
   it("shows the US$1.00 Singapore-day limit, today's spending and why calls are refused", async () => {
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: { ...budget(), refusal: "DAILY_ALLOWANCE_EXHAUSTED" } };
-    const view = mount(keyServer(data, []));
+    const view = mount(keyServer(data, []), "spending");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter daily spending limit"));
     expect(view.textContent).toContain("US$1.00 of reserved plus settled OpenRouter spending per Singapore calendar day");
     expect(view.textContent).toContain("US$0.001440");
@@ -538,7 +554,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
   it("shows calls used and remaining, the effective allowance, and saves both limits", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(view.textContent).toContain("Calls this activation"));
     expect(view.textContent).toContain("20 used, 0 remaining of 20");
     expect(view.textContent).toContain("the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit");
@@ -554,7 +570,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
   it("does not send invalid limits or an unconfirmed daily raise (D-098: no US$1 ceiling)", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(view.textContent).toContain("Daily and call limits"));
     for (const [daily, count] of [["1.01", "20"], ["0.5", "0"], ["0.5", "201"], ["-0.1", "20"], ["0.5", "2.5"]]) {
       typeInto(input(view, "daily-limit-input"), daily);
@@ -567,7 +583,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
   it("needs an explicit confirmation to raise the lifetime limit, and none to lower it", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit (ledger)"));
     expect(view.textContent).toContain("with no fixed ceiling");
     typeInto(input(view, "lifetime-limit-input"), "1.2"); // above the old allocation: a raise, unconfirmed
@@ -594,7 +610,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
   it("refreshes the OpenRouter limits read-only and never shows the key", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(view.textContent).toContain("Refresh OpenRouter Limits"));
     await act(async () => button(view, "Refresh OpenRouter Limits").click());
     await waitFor(() => expect(view.textContent).toContain("OpenRouter limits refreshed."));
@@ -607,7 +623,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
   it("refills the form when another administrator changed the limits, so a save never reverts them (QG F1)", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(input(view, "daily-limit-input").value).toBe("1.00"));
     // Elsewhere: daily limit lowered to US$0.05 (revision 4). This page re-reads on refresh.
     data.budget = controlled({ revision: 4, daily_cap_micro_usd: 50_000 });
@@ -630,7 +646,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     for (const micro of [0, 1, 1_500, 5_000, 125_000, 999_999, 1_000_000]) expect(toMicroUsd(amountText(micro))).toBe(micro);
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled({ daily_cap_micro_usd: 5_000 }) };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(input(view, "daily-limit-input").value).toBe("0.005"));
     typeInto(input(view, "call-limit-input"), "25");
     await act(async () => button(view, "Save Limits").click());
@@ -650,7 +666,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
       if (url.includes("/admin/models/audit")) return json({ events: [] });
       return json({}, init?.method === "POST" ? 200 : 404);
     });
-    const view = mount(fetchMock);
+    const view = mount(fetchMock, "spending");
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit (ledger)"));
     typeInto(input(view, "lifetime-limit-input"), "0.9");
     const confirm = [...view.querySelectorAll<HTMLInputElement>("input[type=checkbox]")]
@@ -699,6 +715,139 @@ describe("AiModelManagement GPT-OSS 120B naming", () => {
   });
 });
 
+// --- D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast, listed but never usable ---------------
+
+describe("AiModelManagement Claude Sonnet 5.5 (D-099 proposed)", () => {
+  const claude = (profileId: string, effort: string, thinking: string, reason: string, scope: string) => profile({
+    profile_id: profileId, display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: effort, endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: reason === "ANTHROPIC_NOT_AUTHORISED" ? "pending_authorisation" : "unavailable",
+    reason, active: false, activation_blockers: [reason],
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope, reasoning_effort: effort, thinking, decision: "D-099" },
+  });
+
+  it("names both configurations, their provider and thinking, and keeps every action disabled", async () => {
+    const balanced = claude("anthropic_claude_sonnet_5_5_medium", "medium", "adaptive", "ANTHROPIC_NOT_AUTHORISED", "NOT_AUTHORISED");
+    const fast = claude("anthropic_claude_sonnet_5_5_low", "low", "between_tools", "ANTHROPIC_NOT_AUTHORISED", "NOT_AUTHORISED");
+    expect(profileName(balanced)).toBe("Claude Sonnet 5.5 — Balanced");
+    expect(profileName(fast)).toBe("Claude Sonnet 5.5 — Fast");
+    const view = mount(server({ ...overview, profiles: [profile({}), balanced, fast] }));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Fast"));
+    expect(view.textContent).toContain("Provider: Anthropic API · Framework: Case-grounded Assistant · Reasoning: Medium · Thinking: adaptive");
+    expect(view.textContent).toContain("Reasoning: Low · Thinking: between tool calls only");
+    expect(view.textContent).toContain("not authorised for CLM use (D-099 proposed)");
+    for (const row of ["Claude Sonnet 5.5 — Balanced", "Claude Sonnet 5.5 — Fast"]) {
+      expect(button(view, "Activate", row).disabled).toBe(true);
+    }
+  });
+
+  it("shows the service's Anthropic-specific refusal as written (it is a browser-safe fixed message)", async () => {
+    const message = "Run Test connection first so the Anthropic workspace and model are checked (a free model read). Nothing started.";
+    const view = mount(server(overview, () => json({ detail: { code: "PROVIDER_LIMIT_NOT_CHECKED", message } }, 409)));
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    await act(async () => button(view, "Test connection", "Qwen3").click());
+    await waitFor(() => expect(view.textContent).toContain(message));
+  });
+
+  it("explains why a named decision still leaves them unusable", () => {
+    expect(readable("ANTHROPIC_PROVIDER_CONTROLS_MISSING")).toContain("readable key limit, per-call cost verification and usage reconciliation");
+    expect(readable("ANTHROPIC_NOT_AUTHORISED")).toContain("D-099 proposed");
+  });
+});
+
+// --- D-099 + D-100 Phase 1 integration: Claude in the AI Model Console ------------------------
+
+describe("AiModelManagement Claude in the console (D-099 with D-100)", () => {
+  const paid = { calls: 6, reservation_micro_usd: 96_000, estimate_micro_usd: 576_000, effective_remaining_micro_usd: 1_000_000, refusal: null, sufficient: true };
+  const claude = profile({
+    profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: "medium", endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: "selectable", reason: null, active: false,
+    activation_blockers: [], paid_qualification: paid,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" },
+  });
+  const withClaude = (overrides: Partial<ModelProfileView> = {}): ModelOverview => ({
+    ...overview, profiles: [overview.profiles[0], remoteSelectable, { ...claude, ...overrides }],
+  });
+
+  it("asks before a paid Claude run, names its own ledger and sends the confirmed calls", async () => {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    const view = mount(server(withClaude(), (url, body) => { posts.push({ url, body }); return json({ qualification_id: "c".repeat(32) }); }));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Balanced"));
+    { const target = button(view, "Run qualification…", "Claude Sonnet 5.5 — Balanced"); act(() => target.click()); }
+    const dialog = view.querySelector("[data-testid=paid-confirm]");
+    expect(dialog?.textContent).toContain("asks Claude Sonnet 5.5 the configured synthetic questions through the Anthropic API");
+    expect(dialog?.textContent).toContain("Claude's separate ledger (the GPT-OSS limits do not apply)");
+    expect(dialog?.textContent).not.toContain("OpenRouter");
+    expect(dialog?.textContent).toContain("Up to 6");
+    expect(posts).toEqual([]);  // nothing starts before the confirmation
+    await act(async () => button(view, "Start paid qualification").click());
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].url).toContain("/admin/models/anthropic_claude_sonnet_5_5_medium/qualifications");
+    expect(posts[0].body).toEqual({ confirm_paid_calls: 6 });
+  });
+
+  it("names a Claude refusal in Anthropic terms and keeps the GPT-OSS wording", async () => {
+    const view = mount(server(withClaude({ paid_qualification: { ...paid, sufficient: false, refusal: "PROVIDER_LIMIT_NOT_CHECKED" } })));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Balanced"));
+    { const target = button(view, "Run qualification…", "Claude Sonnet 5.5 — Balanced"); act(() => target.click()); }
+    expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Anthropic workspace and model check has not been run");
+    expect(button(view, "Start paid qualification").disabled).toBe(true);
+    expect(readable("PROVIDER_LIMIT_NOT_CHECKED")).toContain("OpenRouter key's limit");
+    expect(readable("PROVIDER_LIMIT_NOT_CHECKED", "openrouter")).toContain("OpenRouter key's limit");
+    expect(readable("DAILY_ALLOWANCE_EXHAUSTED", "anthropic")).toContain("Claude's own daily allowance");
+  });
+
+  it("explains Claude's own safeguards in the inspector and before activation", async () => {
+    const view = mount(server(withClaude()));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Balanced"));
+    { const target = button(view, "Activate", "Claude Sonnet 5.5 — Balanced"); act(() => target.click()); }
+    const inspector = view.querySelector("[data-testid=model-inspector]")?.textContent ?? "";
+    expect(inspector).toContain("Provider: Anthropic API");
+    expect(inspector).toContain("Thinking: adaptive");
+    expect(inspector).toContain("The GPT-OSS spending controls never apply to it.");
+    expect(view.textContent).toContain("This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, D-099 proposed).");
+    expect(view.textContent).toContain("Nothing switches to or from Claude automatically.");
+  });
+
+  it("labels the overview's spending figures as GPT-OSS when Claude is listed", async () => {
+    const view = mount(server({ ...withClaude(), budget: budget() }));
+    await waitFor(() => expect(view.textContent).toContain("Available now (GPT-OSS)"));
+  });
+
+  it("states on Spending & Limits that the controls are GPT-OSS only", async () => {
+    const view = mount(keyServer({ ...withClaude(), budget: budget() }, []), "spending");
+    await waitFor(() => expect(view.textContent).toContain("These limits apply to GPT-OSS 120B only."));
+    expect(view.textContent).toContain("Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards");
+  });
+
+  it("explains a Claude recovery in Anthropic terms, not OpenRouter's", async () => {
+    const run: ModelQualification = {
+      ...qualification, qualification_id: "d".repeat(32), status: "failed", code: "CONNECTION_FAILED",
+      diagnosis: { category: "billing_uncertain", cause: "LEDGER_NOT_RECONCILED", action: "ESCALATE_OPERATOR", retryable: false, supersedes_pass: false },
+    };
+    const view = mount(server(withClaude({ qualification: run, paid_qualification: { ...paid, sufficient: false, refusal: "PROVIDER_LIMIT_NOT_CHECKED" } })), "qualifications");
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-anthropic_claude_sonnet_5_5_medium]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-anthropic_claude_sonnet_5_5_medium]")!.textContent ?? "";
+    expect(card).toContain("reconciled with the Anthropic Console's usage");
+    expect(card).toContain("scripts/budget_ledger.py --anthropic");
+    expect(card).toContain("Anthropic workspace and model check has not been run");
+    expect(card).not.toContain("OpenRouter");
+  });
+
+  it("names no provider wrongly when the active external model became unusable", async () => {
+    const view = mount(server({ ...withClaude(), active: { ...overview.active, unavailable: true } as ModelOverview["active"] }));
+    await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
+    expect(view.querySelector("[data-testid=ai-unavailable]")?.textContent).toContain("external model configuration that was active (GPT-OSS or Claude)");
+  });
+
+  it("names the Option B readiness codes", () => {
+    for (const code of ["ANTHROPIC_ATTESTATION_MISSING", "WORKSPACE_NOT_ATTESTED", "WORKSPACE_LIMIT_NOT_ATTESTED", "LEDGER_PATH_SHARED", "LEDGER_PROFILE_MISMATCH", "LIFETIME_CEILING_EXCEEDED", "RECONCILIATION_STALE", "CREDENTIAL_ADMIN_REFUSED", "ANTHROPIC_SETTINGS_INVALID"]) {
+      expect(readable(code)).not.toBe(code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase()));
+    }
+  });
+});
+
 // --- D-098: recovery centre and paid qualification confirmation --------------------------------
 
 describe("AiModelManagement D-098 recovery", () => {
@@ -715,7 +864,7 @@ describe("AiModelManagement D-098 recovery", () => {
     const posts: Array<{ url: string; body: unknown }> = [];
     const view = mount(server(withRemote({}), (url, body) => { posts.push({ url, body }); return json({ qualification_id: "c".repeat(32) }); }));
     await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
-    act(() => button(view, "Run qualification…", "GPT-OSS").click());
+    { const target = button(view, "Run qualification…", "GPT-OSS"); act(() => target.click()); }
     const dialog = view.querySelector("[data-testid=paid-confirm]");
     expect(dialog?.textContent).toContain("Up to 2");
     expect(dialog?.textContent).toContain("US$0.060000");
@@ -729,20 +878,20 @@ describe("AiModelManagement D-098 recovery", () => {
   it("will not start a paid run the limits cannot cover", async () => {
     const view = mount(server(withRemote({ paid_qualification: { ...paid, effective_remaining_micro_usd: 10_000, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } })));
     await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
-    act(() => button(view, "Run qualification…", "GPT-OSS").click());
+    { const target = button(view, "Run qualification…", "GPT-OSS"); act(() => target.click()); }
     expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Today's allowance");
     expect(button(view, "Start paid qualification").disabled).toBe(true);
   });
 
   it("shows a budget failure as budget, keeps the earlier pass and offers a confirmed retry", async () => {
     const run = failedRun("GATES_FAILED:G-6,G-8", { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false });
-    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: "a".repeat(32), finished_at: "2026-10-27T01:05:00+00:00", is_latest: false } })));
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: "a".repeat(32), finished_at: "2026-10-27T01:05:00+00:00", is_latest: false } })), "qualifications");
     await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
     const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
     expect(card.textContent).toContain("Budget or limit");
     expect(card.textContent).toContain("refused before anything was sent");
     expect(card.textContent).toContain("Yes (passed");
-    expect(card.querySelector("a[href='#spending-heading']")?.textContent).toBe("Review spending controls");
+    expect(card.querySelector("a[href='/admin/ai-models?section=spending']")?.textContent).toBe("Review spending controls");
     act(() => [...card.querySelectorAll("button")].find((b) => b.textContent === "Retry qualification…")!.click());
     expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
   });
@@ -753,7 +902,7 @@ describe("AiModelManagement D-098 recovery", () => {
       { category: "quality", cause: "UNSAFE_LINE", action: "ESCALATE_DEVELOPER", retryable: false, supersedes_pass: true },
       [{ gate: "G-3", rule: "unsafe displayed lines = 0", value: 1, passed: false, gating: true }],
     );
-    const view = mount(server(withRemote({ qualification: run, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })));
+    const view = mount(server(withRemote({ qualification: run, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })), "qualifications");
     await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
     const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
     expect(card.textContent).toContain("Answer quality");
@@ -762,6 +911,7 @@ describe("AiModelManagement D-098 recovery", () => {
     const labels = [...card.querySelectorAll("button")].map((b) => b.textContent);
     expect(labels).not.toContain("Retry qualification…");
     expect(labels).toContain("Copy escalation summary");
+    go(view, "Models & Overview");
     expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
   });
 
@@ -771,7 +921,7 @@ describe("AiModelManagement D-098 recovery", () => {
       ...qualification, status: "passed", code: null, current: false,
       diagnosis: { category: "configuration", cause: "OUT_OF_DATE", action: "RUN_AGAIN", retryable: true, supersedes_pass: false },
     };
-    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["NOT_QUALIFIED"] }), (_url, body) => { posts.push(body); return json({ qualification_id: "c".repeat(32) }); }));
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["NOT_QUALIFIED"] }), (_url, body) => { posts.push(body); return json({ qualification_id: "c".repeat(32) }); }), "qualifications");
     await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
     const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
     expect(card.textContent).toContain("Qualification out of date");
@@ -779,10 +929,12 @@ describe("AiModelManagement D-098 recovery", () => {
     expect(card.textContent).toContain("Retry worthwhile nowYes");
     expect(card.textContent).toContain("Run a new qualification with the current configuration and code");
     expect(card.textContent).not.toContain("Nothing to do");
-    expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
     act(() => [...card.querySelectorAll("button")].find((b) => b.textContent === "Run new qualification…")!.click());
     expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
     expect(posts).toEqual([]);  // nothing starts before the paid confirmation
+    act(() => button(view, "Cancel").click());
+    go(view, "Models & Overview");
+    expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
   });
 
   it("keeps the quality escalation when a later out-of-date pass is the latest run", async () => {
@@ -790,7 +942,7 @@ describe("AiModelManagement D-098 recovery", () => {
       ...qualification, status: "passed", code: null, current: false,
       diagnosis: { category: "quality", cause: "UNSAFE_LINE", action: "ESCALATE_DEVELOPER", retryable: false, supersedes_pass: true },
     };
-    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })));
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })), "qualifications");
     await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
     const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
     expect(card.textContent).toContain("Answer quality");
@@ -807,7 +959,7 @@ describe("AiModelManagement D-098 recovery", () => {
       ...qualification, status: "passed", code: null, current: true,
       diagnosis: { category: "passed", cause: "PASSED", action: "NONE", retryable: false, supersedes_pass: false },
     };
-    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: run.qualification_id, finished_at: "2026-10-27T01:05:00+00:00", is_latest: true } })));
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: run.qualification_id, finished_at: "2026-10-27T01:05:00+00:00", is_latest: true } })), "qualifications");
     await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
     const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
     expect(card.textContent).toContain("Qualified");
@@ -835,7 +987,7 @@ describe("AiModelManagement D-098 key limit and owner action", () => {
       limit_reset: null, account_credits: null, checks: [],
     };
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: { ...status, provider } };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(view.textContent).toContain("Key limit resets"));
     expect(view.textContent).toContain("US$0.900000 remaining of US$1.000000, US$0.100000 used");
     expect(view.textContent).toContain("Never (a lifetime key limit, as required)");
@@ -850,11 +1002,11 @@ describe("AiModelManagement D-098 key limit and owner action", () => {
     };
     const paid = { calls: 2, reservation_micro_usd: 30_000, estimate_micro_usd: 60_000, effective_remaining_micro_usd: 0, refusal: "PROVIDER_LIMIT_EXHAUSTED", sufficient: false };
     const data = { ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, activation_blockers: [], qualification: run, paid_qualification: paid }] };
-    const view = mount(server(data));
+    const view = mount(server(data), "qualifications");
     await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
     const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
     expect(card.querySelector("[data-testid=key-owner-action]")?.textContent).toContain("key's owner");
-    expect(card.querySelector("a[href='#spending-heading']")).toBeNull();
+    expect(card.querySelector("a[href='/admin/ai-models?section=spending']")).toBeNull();
   });
 });
 
@@ -862,7 +1014,7 @@ describe("AiModelManagement D-098 flexible limits", () => {
   it("raises the daily limit above US$1.00 only with an explicit confirmation", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
-    const view = mount(controlsServer(data, calls));
+    const view = mount(controlsServer(data, calls), "spending");
     await waitFor(() => expect(view.textContent).toContain("Daily and call limits"));
     expect(view.textContent).toContain("default US$1.00, may be higher or lower");
     typeInto(input(view, "daily-limit-input"), "3");
@@ -877,5 +1029,568 @@ describe("AiModelManagement D-098 flexible limits", () => {
     expect(JSON.parse(put?.body ?? "{}")).toEqual({
       expected_revision: 3, daily_cap_micro_usd: 3_000_000, max_calls: 20, confirm_daily_cap_micro_usd: 3_000_000,
     });
+  });
+});
+
+// --- D-100 Phase 1: AI Model Console shell and Models & Overview ---------------------------------
+
+describe("AiModelManagement D-100 console", () => {
+  const details = (effort: string) => ({
+    model: "GPT-OSS 120B", provider: "OPENROUTER_DEEPINFRA", scope: "VERIFIED_SYNTHETIC_CASES",
+    reasoning_effort: effort, decision: "D-095",
+  });
+  const balanced = profile({
+    profile_id: "openrouter_gpt_oss_120b", display_name: "GPT-OSS 120B (reasoning medium)", source: "code",
+    deployment: "openrouter", endpoint: "openrouter.ai · deepinfra/bf16", active: false, details: details("medium"),
+  });
+  const fast = profile({
+    profile_id: "openrouter_gpt_oss_120b_low", display_name: "GPT-OSS 120B (reasoning low)", source: "code",
+    deployment: "openrouter", endpoint: "openrouter.ai · deepinfra/bf16", active: false,
+    activation_blockers: ["NOT_QUALIFIED"], details: details("low"),
+  });
+  const changes = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method && (init as RequestInit).method !== "GET");
+
+  it("reads the section from the location and falls back to the overview", async () => {
+    expect(consoleSection("audit")).toBe("audit");
+    expect(consoleSection("unknown")).toBe("overview");
+    expect(consoleSection(null)).toBe("overview");
+    const view = mount(server(overview), "audit");
+    await waitFor(() => expect(view.textContent).toContain("Access refused"));
+    expect(view.querySelector("h1")?.textContent).toBe("Audit History");
+    expect(view.querySelector(".console-nav__link[aria-current=page]")?.textContent).toBe("Audit History");
+    expect(view.querySelector("[data-testid=model-inspector]")).toBeNull();
+  });
+
+  it("changes section without sending anything to the server", async () => {
+    const fetchMock = server(overview);
+    const view = mount(fetchMock);
+    await waitFor(() => expect(view.textContent).toContain("Model catalogue"));
+    for (const label of ["Providers", "Spending & Limits", "Qualifications & Recovery", "Audit History", "Models & Overview"]) go(view, label);
+    expect(view.querySelector("h1")?.textContent).toBe("Models & Overview");
+    expect(changes(fetchMock)).toEqual([]);
+  });
+
+  it("keeps availability, technical qualification, answer quality and activation apart on each configuration", async () => {
+    const view = mount(server({ ...overview, profiles: [profile({}), fast, balanced, overview.profiles[1]] }));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS 120B — Fast"));
+    const family = view.querySelector('[aria-label="GPT-OSS 120B"]')!;
+    expect([...family.querySelectorAll("[data-config-tile]")].map((tile) => tile.getAttribute("data-config-tile")))
+      .toEqual(["openrouter_gpt_oss_120b", "openrouter_gpt_oss_120b_low"]); // Balanced before Fast
+    const fastTile = view.querySelector('[data-config-tile="openrouter_gpt_oss_120b_low"]')!;
+    expect(fastTile.textContent).toContain("AvailabilityAvailable");
+    expect(fastTile.textContent).toContain("TechnicalNot run");
+    expect(fastTile.textContent).toContain("Answer qualityNot scored");
+    expect(fastTile.textContent).toContain("Blocked");
+    const qwen = view.querySelector('[data-config-tile="lmstudio_qwen3_8b"]')!;
+    expect(qwen.textContent).toContain("TechnicalQualified");
+    expect(qwen.textContent).toContain("Ready");
+  });
+
+  it("shows the selected configuration in the inspector with the server's own blockers", async () => {
+    const view = mount(server({ ...overview, profiles: [profile({}), balanced, fast] }));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS 120B — Fast"));
+    const inspector = () => view.querySelector("[data-testid=model-inspector]")!;
+    expect(inspector().querySelector("h2")?.textContent).toBe("Environment baseline"); // the active one first
+    act(() => (view.querySelector('[data-config-tile="openrouter_gpt_oss_120b_low"]') as HTMLButtonElement).click());
+    expect(view.querySelector('[data-config-tile="openrouter_gpt_oss_120b_low"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(inspector().querySelector("h2")?.textContent).toBe("GPT-OSS 120B — Fast");
+    expect(inspector().textContent).toContain("Activation blocked: Needs a passing qualification for the current configuration.");
+    expect(inspector().textContent).toContain("the Balanced qualification does not count for it");
+    expect(button(view, "Activate", "GPT-OSS 120B — Fast").disabled).toBe(true);
+    expect(button(view, "Run qualification…", "GPT-OSS 120B — Fast").disabled).toBe(false);
+  });
+
+  it("confirms activation in a modal that Escape cancels without sending anything", async () => {
+    const fetchMock = server(overview);
+    const view = mount(fetchMock);
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    const activate = button(view, "Activate", "Qwen3");
+    activate.focus(); // as a keyboard user would
+    act(() => activate.click());
+    const dialog = view.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-labelledby")).toBe("confirm-heading");
+    expect(document.activeElement).toBe(dialog);
+    act(() => { dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(view.querySelector('[role="dialog"]')).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(activate));
+    expect(changes(fetchMock)).toEqual([]);
+  });
+
+  it("folds the section list behind one button on narrow screens", async () => {
+    const view = mount(server(overview));
+    await waitFor(() => expect(view.textContent).toContain("Model catalogue"));
+    const toggle = view.querySelector<HTMLButtonElement>(".console-nav__toggle")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("Models & Overview");
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    go(view, "Spending & Limits");
+    expect(view.querySelector(".console-nav__toggle")?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("moves focus to the inspector when a confirmed activation leaves its opener disabled (QG M1)", async () => {
+    const pendingPost = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return new Promise<Response>(() => {}); // still running
+      return server(overview)(input, init);
+    });
+    const view = mount(pendingPost);
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    const activate = button(view, "Activate", "Qwen3");
+    activate.focus();
+    act(() => activate.click());
+    act(() => (view.querySelector('[role="dialog"] input[type="checkbox"]') as HTMLInputElement).click());
+    await act(async () => button(view, "Confirm").click());
+    await waitFor(() => expect(activate.disabled).toBe(true));
+    await waitFor(() => expect(document.activeElement?.id).toBe("inspector-heading"));
+  });
+
+  it("cancels from the backdrop without sending anything and keeps focus on the opener (QG M1)", async () => {
+    const fetchMock = server(overview);
+    const view = mount(fetchMock);
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    const activate = button(view, "Activate", "Qwen3");
+    activate.focus();
+    act(() => activate.click());
+    const backdrop = view.querySelector<HTMLElement>(".console-dialog-backdrop")!;
+    const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => { backdrop.dispatchEvent(press); });
+    expect(press.defaultPrevented).toBe(true);
+    expect(view.querySelector('[role="dialog"]')).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(activate));
+    expect(changes(fetchMock)).toEqual([]);
+  });
+
+  it("keeps focus in a dialog opened under StrictMode and returns it to the opener", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open</button>
+          {open && <ConsoleDialog labelledBy="harness-heading" onClose={() => setOpen(false)}><h2 id="harness-heading">Title</h2><button type="button">Inside</button></ConsoleDialog>}
+        </>
+      );
+    }
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root?.render(<StrictMode><Harness /></StrictMode>));
+    const opener = container.querySelector("button")!;
+    opener.focus();
+    act(() => opener.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 5))); // a stale restore would fire here
+    expect(document.activeElement).toBe(dialog);
+    act(() => { dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  it("gives each section badge words a screen reader can say (QG M3)", async () => {
+    const outOfDate = { ...overview, profiles: overview.profiles.map((item) => item.qualification ? { ...item, qualification: { ...item.qualification, current: false } } : item) };
+    const view = mount(server(outOfDate));
+    await waitFor(() => expect(view.textContent).toContain("Model catalogue"));
+    const link = [...view.querySelectorAll(".console-nav__link")].find((item) => item.textContent?.startsWith("Qualifications & Recovery"))!;
+    expect(link.querySelector(".console-nav__badge [aria-hidden=true]")?.textContent).toBe("1");
+    expect(link.querySelector(".console-nav__badge .sr-only")?.textContent).toBe(", 1 needs attention");
+  });
+
+  it("summarises spending only when the server reports a budget", async () => {
+    let view = mount(server(overview));
+    await waitFor(() => expect(view.textContent).toContain("Model catalogue"));
+    expect(view.textContent).not.toContain("Available now");
+    act(() => root?.unmount());
+    root = null;
+    container?.remove();
+
+    view = mount(server({ ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() }));
+    await waitFor(() => expect(view.textContent).toContain("Available now"));
+    expect(view.textContent).toContain("US$0.098924");
+    expect(view.textContent).toContain("Calls this activation");
+    expect(view.querySelector('a.console-stat[href="/admin/ai-models?section=spending"]')).not.toBeNull();
+  });
+});
+
+// --- D-100 Phase 2: Providers and Spending & Limits ---------------------------------------------
+
+describe("AiModelManagement D-100 providers and spending", () => {
+  const paid = { calls: 6, reservation_micro_usd: 96_000, estimate_micro_usd: 576_000, effective_remaining_micro_usd: 1_000_000, refusal: null, sufficient: true };
+  const claude = (effort: string, overrides: Partial<ModelProfileView> = {}) => profile({
+    profile_id: `anthropic_claude_sonnet_5_5_${effort}`, display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: effort, endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: "selectable", reason: null, active: false,
+    activation_blockers: ["NOT_QUALIFIED"], paid_qualification: paid,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: effort, thinking: "adaptive", decision: "D-099" },
+    ...overrides,
+  });
+  const withProviders = (budgetStatus: ModelBudgetStatus | null = controlled(), claudeOverrides: Partial<ModelProfileView> = {}): ModelOverview => ({
+    ...overview,
+    profiles: [overview.profiles[0], overview.profiles[1], remoteSelectable, claude("medium", claudeOverrides), claude("low", claudeOverrides)],
+    budget: budgetStatus,
+  });
+  const card = (view: HTMLElement, kind: string) => view.querySelector(`[data-testid=provider-${kind}]`);
+
+  it("shows one card per provider, with Balanced and Fast under one Anthropic provider", async () => {
+    const view = mount(controlsServer(withProviders(), []), "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    expect(card(view, "openrouter")?.textContent).toContain("GPT-OSS 120B");
+    expect(card(view, "local")?.textContent).toContain("Qwen3 8B (LM Studio)");
+    expect(card(view, "local")?.textContent).toContain("no spending ledger, no paid-run confirmation");
+    expect(card(view, "local")?.textContent).toContain("IT sets the environment baseline in the server environment.");
+    const anthropic = card(view, "anthropic")!.textContent ?? "";
+    expect(anthropic).toContain("One provider for Claude Sonnet 5.5 Balanced and Fast");
+    expect(anthropic).toContain("Claude Sonnet 5.5 — Balanced");
+    expect(anthropic).toContain("Claude Sonnet 5.5 — Fast");
+    expect(anthropic).toContain("2 of 2 configurations available");
+    expect(anthropic).not.toContain("OpenRouter");
+  });
+
+  it("never offers Anthropic key entry or Claude limits, and says what the server does not send", async () => {
+    const view = mount(controlsServer(withProviders(), []), "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    const anthropic = card(view, "anthropic")!;
+    expect(anthropic.querySelectorAll("input, form")).toHaveLength(0);
+    expect(anthropic.textContent).toContain("Its status is not sent to this page");
+    expect(anthropic.textContent).toContain("There is no HR key entry.");
+    expect(anthropic.textContent).toContain("The time of the last reconciliation is not sent to this page");
+    expect(anthropic.textContent).toContain("Not changeable on this page; the GPT-OSS controls never apply to it.");
+    // The OpenRouter key form stays in the OpenRouter card only.
+    expect(card(view, "openrouter")?.querySelector("#openrouter-key-input")).not.toBeNull();
+  });
+
+  it("names a server-reported Anthropic key or reconciliation problem in Anthropic terms, with its code", async () => {
+    const data = withProviders(controlled(), {
+      status: "unavailable", reason: "CREDENTIAL_MISSING", activation_blockers: ["CREDENTIAL_MISSING", "RECONCILIATION_STALE"], paid_qualification: null,
+    });
+    const view = mount(controlsServer(data, []), "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    const anthropic = card(view, "anthropic")!.textContent ?? "";
+    expect(anthropic).toContain("The server-side Anthropic inference key is not set.");
+    expect(anthropic).toContain("RECONCILIATION_STALE");
+    expect(anthropic).toContain("has not been reconciled with the provider's usage recently enough");
+    expect(anthropic).toContain("0 of 2 configurations available");
+  });
+
+  it("says who manages the OpenRouter key: HR when the server allows it, else an operator", async () => {
+    let view = mount(controlsServer(withProviders(), []), "providers");
+    await waitFor(() => expect(card(view, "openrouter")).not.toBeNull());
+    expect(card(view, "openrouter")?.textContent).toContain("Enter or clear the OpenRouter key");
+    act(() => root?.unmount());
+    root = null;
+    container?.remove();
+
+    const envKey = { ...controlled(), credential: { ...controlled().credential, source: "environment" as const, hr_editable: false, persistence: "server" as const } };
+    view = mount(controlsServer(withProviders(envKey), []), "providers");
+    await waitFor(() => expect(card(view, "openrouter")).not.toBeNull());
+    expect(card(view, "openrouter")?.textContent).not.toContain("Enter or clear the OpenRouter key");
+    expect(card(view, "openrouter")?.textContent).toContain("Set the OpenRouter key on the server");
+  });
+
+  it("reads providers and spending from the overview only, with no extra request", async () => {
+    const fetchMock = controlsServer(withProviders(), []);
+    const view = mount(fetchMock, "providers");
+    await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
+    go(view, "Spending & Limits");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.every((url) => url.endsWith("/api/assistant/admin/models") || url.includes("/api/assistant/admin/models/audit"))).toBe(true);
+  });
+
+  it("keeps Claude's spending read-only and apart from the GPT-OSS limits", async () => {
+    const view = mount(controlsServer(withProviders(), []), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    const claudePanel = view.querySelector("[data-testid=claude-spending]")!;
+    expect(claudePanel.querySelectorAll("input, form, button")).toHaveLength(0);
+    expect(claudePanel.textContent).toContain("Nothing on this page changes them, and the GPT-OSS limits never apply to Claude.");
+    expect(claudePanel.textContent).toContain("does not send Claude's spending today, lifetime usage or ledger headroom");
+    expect(claudePanel.textContent).toContain("US$1.000000");  // the server's figure, as sent
+    expect(claudePanel.textContent).toContain("Allowed");
+    expect(claudePanel.textContent).not.toContain("OpenRouter");
+    // The GPT-OSS controls keep their own panel and form.
+    expect(view.querySelector("#spending-heading")?.textContent).toContain("OpenRouter daily spending limit");
+    expect(view.querySelector("#daily-limit-input")).not.toBeNull();
+    expect(claudePanel.contains(view.querySelector("#daily-limit-input"))).toBe(false);
+  });
+
+  it("shows Claude's limits even when the OpenRouter test mode is off, without claiming no paid limits apply", async () => {
+    const view = mount(server(withProviders(null)), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    expect(view.textContent).toContain("no GPT-OSS spending limits apply here");
+    expect(view.textContent).not.toContain("so no paid spending limits apply here");
+  });
+
+  it("says a Claude configuration that is not available has no spending figure, not a zero", async () => {
+    const view = mount(server(withProviders(null, { status: "pending_authorisation", reason: "ANTHROPIC_NOT_AUTHORISED", paid_qualification: null })), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
+    const text = view.querySelector("[data-testid=claude-spending]")!.textContent ?? "";
+    expect(text).toContain("Not reported: this configuration is not available");
+    expect(text).not.toContain("US$0.000000");
+  });
+
+  it("says when the GPT-OSS ledger could not be read instead of showing amounts", async () => {
+    const unread = { ...controlled(), ledger: null, daily: null, refusal: "LEDGER_UNAVAILABLE" };
+    const view = mount(controlsServer({ ...overview, profiles: [profile({}), remoteSelectable], budget: unread }, []), "spending");
+    await waitFor(() => expect(view.textContent).toContain("Unavailable: the ledger could not be read"));
+    expect(view.textContent).toContain("The spending ledger is missing or unhealthy.");
+    expect(view.querySelector("[aria-label='Who can change the GPT-OSS limits']")?.textContent).toContain("You (HR), on this page");
+  });
+});
+
+// --- D-100 Phase 3: Qualifications and Recovery ------------------------------------------------
+
+describe("AiModelManagement D-100 qualifications and recovery", () => {
+  const paid = { calls: 6, reservation_micro_usd: 96_000, estimate_micro_usd: 576_000, effective_remaining_micro_usd: 1_000_000, refusal: null, sufficient: true };
+  const claude = (overrides: Partial<ModelProfileView> = {}) => profile({
+    profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: "medium", endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: "selectable", reason: null, active: false,
+    activation_blockers: ["NOT_QUALIFIED"], paid_qualification: paid,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" },
+    ...overrides,
+  });
+  const failed = (code: string, diagnosis: NonNullable<ModelQualification["diagnosis"]>): ModelQualification => ({
+    ...qualification, qualification_id: "b".repeat(32), status: "failed", code, diagnosis,
+  });
+  const recoveryCard = (view: HTMLElement, id: string) => view.querySelector(`[data-testid=recovery-${id}]`);
+  const withClaude = (overrides: Partial<ModelProfileView> = {}): ModelOverview => ({ ...overview, profiles: [overview.profiles[0], claude(overrides)] });
+
+  it("lists an unqualified Claude configuration and starts its first run only through the paid confirmation (I-1)", async () => {
+    const posts: unknown[] = [];
+    const view = mount(server(withClaude(), (_url, body) => { posts.push(body); return json({ qualification_id: "c".repeat(32) }); }), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
+    expect(card.textContent).toContain("Not qualified yet.");
+    expect(card.textContent).toContain("A first paid qualification makes up to 6 calls");
+    act(() => [...card.querySelectorAll("button")].find((item) => item.textContent === "Run first qualification…")!.click());
+    expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
+    expect(posts).toEqual([]);  // nothing starts before the confirmation
+    await act(async () => button(view, "Start paid qualification").click());
+    await waitFor(() => expect(posts).toEqual([{ confirm_paid_calls: 6 }]));
+  });
+
+  it("lists an unavailable Claude configuration without any action and says why", async () => {
+    const view = mount(server(withClaude({ status: "pending_authorisation", reason: "ANTHROPIC_NOT_AUTHORISED", activation_blockers: ["ANTHROPIC_NOT_AUTHORISED"], paid_qualification: null })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
+    expect(card.textContent).toContain("Not available now: Claude through the Anthropic API is not authorised for CLM use");
+    expect(card.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("shows technical qualification and answer quality apart, with quality never a gate", async () => {
+    const view = mount(server(withClaude({ qualification: { ...qualification, diagnosis: { category: "passed", cause: "PASSED", action: "NONE", retryable: false, supersedes_pass: false } } })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const states = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!.querySelector(".console-recovery-states")!;
+    const pairs = [...states.querySelectorAll("div")].map((item) => `${item.querySelector("dt")?.textContent}=${item.querySelector("dd")?.textContent}`);
+    expect(pairs).toEqual(["Technical qualification=Qualified", "Answer quality=Not scored", "Availability=Available"]);
+    expect(view.querySelector("[data-testid=qualification-kinds]")?.textContent).toContain("Answer quality is reported only, never a gate");
+  });
+
+  it("keeps the server's raw codes beside their meaning", async () => {
+    const run = failed("GATES_FAILED:G-6,G-8", { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false });
+    const view = mount(server({ ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, qualification: run }] }), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "openrouter_gpt_oss_120b")).not.toBeNull());
+    const codes = [...recoveryCard(view, "openrouter_gpt_oss_120b")!.querySelectorAll(".console-codes-line code")].map((item) => item.textContent);
+    expect(codes).toEqual(["failed", "GATES_FAILED:G-6,G-8", "budget", "CALLS_REFUSED", "REVIEW_SPENDING"]);
+  });
+
+  it("explains an interrupted run as a service stop, not a model fault", async () => {
+    const run = failed("INTERRUPTED", { category: "technical", cause: "INTERRUPTED", action: "RUN_AGAIN", retryable: true, supersedes_pass: false });
+    const view = mount(server({ ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, qualification: run, paid_qualification: paid }] }), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "openrouter_gpt_oss_120b")).not.toBeNull());
+    const card = recoveryCard(view, "openrouter_gpt_oss_120b")!;
+    expect(card.textContent).toContain("The run stopped because the AI assistant service stopped or restarted. It was not restarted automatically.");
+    expect([...card.querySelectorAll("button")].map((item) => item.textContent)).toContain("Retry qualification…");
+  });
+
+  it("names a Claude run's code and results in Anthropic terms (M-1)", async () => {
+    const run = failed("CREDENTIAL_INVALID", { category: "configuration", cause: "SERVER_SETTINGS", action: "ESCALATE_IT", retryable: false, supersedes_pass: false });
+    const view = mount(server(withClaude({ qualification: run })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!.textContent ?? "";
+    expect(card).toContain("The configured Anthropic key is not a valid inference key.");
+    expect(card).toContain("Troubleshooting Claude Sonnet 5.5 (Anthropic API)");
+    expect(card).not.toContain("OpenRouter");
+  });
+
+  it("names a provider-unknown code without naming a provider (M-1)", async () => {
+    expect(readable("CREDENTIAL_INVALID", ANY_PROVIDER)).not.toContain("OpenRouter");
+    expect(readable("PROVIDER_LIMIT_NOT_CHECKED", ANY_PROVIDER)).not.toContain("OpenRouter");
+    expect(readable("CREDENTIAL_INVALID")).toContain("OpenRouter");  // GPT-OSS wording unchanged
+    const view = mount(server({ ...withClaude(), active: { ...overview.active, profile_id: "ai_unavailable", unavailable: true, reverted: "CREDENTIAL_INVALID" } }));
+    await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
+    const banner = view.querySelector("[data-testid=ai-unavailable]")!.textContent ?? "";
+    expect(banner).toContain("The configured provider key is not valid.");
+    expect(banner).toContain("CREDENTIAL_INVALID");
+    expect(banner).not.toContain("OpenRouter");
+  });
+
+  it("never sends Claude to the GPT-OSS spending controls (M-2)", async () => {
+    const run = failed("GATES_FAILED:G-8", { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false });
+    const view = mount(server(withClaude({ qualification: run, paid_qualification: { ...paid, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } })), "qualifications");
+    await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
+    const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
+    expect(card.querySelector("a[href='/admin/ai-models?section=spending']")?.textContent).toBe("View Claude's limits (read-only)");
+    expect(card.textContent).not.toContain("Review spending controls");
+    act(() => [...card.querySelectorAll("button")].find((item) => item.textContent === "Retry qualification…")!.click());
+    const dialog = view.querySelector("[data-testid=paid-confirm]")!.textContent ?? "";
+    expect(dialog).toContain("Claude's limits are fixed on the server and are not changed on this page");
+    expect(dialog).not.toContain("spending controls");
+    expect(button(view, "Start paid qualification").disabled).toBe(true);
+  });
+
+  it("keeps the GPT-OSS paid dialog pointing at its own spending controls", async () => {
+    const view = mount(server({ ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, activation_blockers: [], paid_qualification: { ...paid, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } }] }));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
+    { const target = button(view, "Run qualification…", "GPT-OSS"); act(() => target.click()); }
+    expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Review the GPT-OSS spending controls or run Test connection first.");
+  });
+});
+
+// --- D-100 Phase 4: Audit History, accessibility debt (D3, D5, D6) ------------------------------
+
+describe("AiModelManagement D-100 audit history", () => {
+  const event = (seq: number, overrides: Partial<ModelAuditEvent> = {}): ModelAuditEvent => ({
+    seq, at: `2026-10-29T0${seq % 10}:00:00+00:00`, actor: "hr-admin", role: "HR", action: "ACTIVATE",
+    profile_id: "lmstudio_qwen3_8b", fingerprint: "0123456789ab", outcome: "applied", code: null, revision: 4, ...overrides,
+  });
+  const events = [
+    event(3),
+    event(2, { action: "CONNECTION_TEST", outcome: "failed", code: "PROVIDER_CHECK_FAILED", profile_id: "anthropic_claude_sonnet_5_5_medium", revision: null }),
+    event(1, { actor: "ethan-tan", role: "RELATIONSHIP_MANAGER", action: "ACCESS_REFUSED", outcome: "refused", code: "CREDENTIAL_INVALID", profile_id: null, revision: null }),
+  ];
+  const claude = profile({ profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic", active: false,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" } });
+  const data: ModelOverview = { ...overview, profiles: [...overview.profiles, claude] };
+  function auditServer(list: ModelAuditEvent[] | (() => Response)) {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/assistant/admin/models")) return json(data);
+      if (url.includes("/admin/models/audit")) return typeof list === "function" ? list() : json({ events: list });
+      return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+    });
+  }
+  const rows = (view: HTMLElement) => [...view.querySelectorAll(".console-audit__table tbody tr")];
+  const select = (view: HTMLElement, id: string, choice: string) => {
+    const element = view.querySelector<HTMLSelectElement>(`#${id}`)!;
+    act(() => { element.value = choice; element.dispatchEvent(new Event("change", { bubbles: true })); });
+  };
+
+  it("shows each event's time, person, action, configuration, outcome and code, words and raw codes", async () => {
+    const view = mount(auditServer(events), "audit");
+    await waitFor(() => expect(rows(view)).toHaveLength(3));
+    const second = rows(view)[1];
+    expect(second.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-29T02:00:00+00:00");
+    expect(second.textContent).toContain("Event #2");
+    expect(second.textContent).toContain("Claude Sonnet 5.5 — Balanced");
+    expect(second.textContent).toContain("anthropic_claude_sonnet_5_5_medium");
+    expect(second.textContent).toContain("The last Anthropic workspace and model check failed.");
+    expect(second.textContent).toContain("PROVIDER_CHECK_FAILED");
+    // No configuration: the code is worded for any provider, never as OpenRouter's.
+    expect(rows(view)[2].textContent).toContain("The configured provider key is not valid.");
+    expect(rows(view)[2].textContent).not.toContain("OpenRouter");
+    expect(rows(view)[2].textContent).toContain("RELATIONSHIP_MANAGER");
+  });
+
+  it("searches and filters only the loaded events, says so, and sends no request to do it", async () => {
+    const fetchMock = auditServer(events);
+    const view = mount(fetchMock, "audit");
+    await waitFor(() => expect(rows(view)).toHaveLength(3));
+    expect(view.querySelector("[data-testid=audit-scope]")?.textContent).toContain("Search and filters look only at these loaded events.");
+    const before = fetchMock.mock.calls.length;
+    typeInto(view.querySelector<HTMLInputElement>("#audit-search")!, "provider_check");
+    expect(rows(view)).toHaveLength(1);
+    expect(view.querySelector(".console-audit__count")?.textContent).toBe("1 of 3 events loaded match.");
+    act(() => button(view, "Clear filters").click());
+    expect(rows(view)).toHaveLength(3);
+    select(view, "audit-outcome", "refused");
+    expect(rows(view).map((row) => row.textContent)).toEqual([expect.stringContaining("ethan-tan")]);
+    select(view, "audit-action", "ACTIVATE");
+    expect(rows(view)).toHaveLength(0);
+    expect(view.textContent).toContain("No loaded event matches these filters. Older events are not loaded, so they are not searched.");
+    expect(fetchMock.mock.calls.length).toBe(before);
+  });
+
+  it("says when older events were not loaded", async () => {
+    const many = Array.from({ length: MODEL_AUDIT_LIMIT }, (_, index) => event(MODEL_AUDIT_LIMIT - index));
+    const view = mount(auditServer(many), "audit");
+    await waitFor(() => expect(rows(view)).toHaveLength(MODEL_AUDIT_LIMIT));
+    expect(view.querySelector("[data-testid=audit-scope]")?.textContent).toContain(`The server sent the ${MODEL_AUDIT_LIMIT} events most recently recorded (the most this page asks for; older events are not loaded).`);
+  });
+
+  it("explains an empty history and offers a retry when it cannot be read", async () => {
+    let view = mount(auditServer([]), "audit");
+    await waitFor(() => expect(view.textContent).toContain("No model events recorded yet."));
+    expect(view.querySelector("#audit-search")).toBeNull();
+    act(() => root?.unmount());
+    root = null;
+    container?.remove();
+
+    let calls = 0;
+    const fetchMock = auditServer(() => { calls += 1; return json({ detail: { code: "SERVICE_UNAVAILABLE", message: "The AI assistant service is unavailable." } }, 503); });
+    view = mount(fetchMock, "audit");
+    await waitFor(() => expect(view.querySelector("[role=alert]")?.textContent).toContain("The AI assistant service is unavailable right now."));
+    const seen = calls;
+    await act(async () => button(view, "Try again").click());
+    await waitFor(() => expect(calls).toBeGreaterThan(seen));
+  });
+});
+
+describe("AiModelManagement D-100 dialogs and badges (D3, D5, D6)", () => {
+  it("makes the background inert and stops page scrolling while a dialog is open (D3)", async () => {
+    const view = mount(server(overview));
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    const layout = view.querySelector<HTMLElement>(".console-layout")!;
+    { const target = button(view, "Activate", "Qwen3"); act(() => target.click()); }
+    expect(layout.hasAttribute("inert")).toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(view.querySelector('[role="dialog"]')?.closest("[inert]")).toBeNull();
+    act(() => button(view, "Cancel").click());
+    expect(layout.hasAttribute("inert")).toBe(false);
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("never moves focus out of a dialog that replaced the one just closed (D5)", async () => {
+    function Swap() {
+      const [step, setStep] = useState(0);
+      return (
+        <>
+          <button type="button" onClick={() => setStep(1)}>Open</button>
+          {step === 1 && <ConsoleDialog key="first" labelledBy="first-heading" onClose={() => setStep(0)}><h2 id="first-heading">First</h2><button type="button" onClick={() => setStep(2)}>Next</button></ConsoleDialog>}
+          {step === 2 && <ConsoleDialog key="second" labelledBy="second-heading" onClose={() => setStep(0)}><h2 id="second-heading">Second</h2><button type="button">Inside</button></ConsoleDialog>}
+        </>
+      );
+    }
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root?.render(<StrictMode><Swap /></StrictMode>));
+    const opener = container.querySelector("button")!;
+    opener.focus();
+    act(() => opener.click());
+    act(() => [...container!.querySelectorAll("button")].find((item) => item.textContent === "Next")!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));  // the first dialog's restore fires here
+    expect(document.activeElement?.closest('[aria-labelledby="second-heading"]')).not.toBeNull();
+  });
+
+  it("names the key, spending and running states in each section badge (D6)", async () => {
+    const badge = (view: HTMLElement, section: string) => {
+      const link = [...view.querySelectorAll(".console-nav__link")].find((item) => item.textContent?.startsWith(section));
+      return link?.querySelector(".console-nav__badge .sr-only")?.textContent ?? null;
+    };
+    const cases: Array<[Partial<ModelOverview>, string, string]> = [
+      [{ budget: budget() }, "Providers", ", no OpenRouter key is set"],
+      [{ budget: budget({ status: "invalid", source: "environment" }) }, "Providers", ", the OpenRouter key is not valid"],
+      [{ budget: { ...controlled(), refusal: "DAILY_ALLOWANCE_EXHAUSTED" } }, "Spending & Limits", ", paid calls are refused now"],
+      [{ budget: { ...controlled(), ledger: { ...controlled().ledger!, breaker_open: true, breaker_code: "MISMATCH" } } }, "Spending & Limits", ", paid calls are stopped until an operator reconciles"],
+      [{ running: { qualification_id: "r".repeat(32), profile_id: "lmstudio_qwen3_8b", done_turns: 1, total_turns: 84, started_by: "hr-admin" } }, "Qualifications & Recovery", ", a qualification is running"],
+    ];
+    for (const [overrides, section, label] of cases) {
+      const view = mount(server({ ...overview, profiles: [profile({}), remoteSelectable], ...overrides }));
+      await waitFor(() => expect(view.textContent).toContain("Model catalogue"));
+      expect(badge(view, section)).toBe(label);
+      act(() => root?.unmount());
+      root = null;
+      container?.remove();
+    }
   });
 });

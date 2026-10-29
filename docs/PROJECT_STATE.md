@@ -224,7 +224,8 @@ owners recompute dependent state and resume until the next authoritative blocker
 This uses retained extraction rather than retained upload bytes or a new OCR claim.
 Replacement-document semantics and target no-replay remain separate.
 
-Cases and Onboarded offer server-side Created from / Created to filters over the
+The Cases page (All cases / In progress / Onboarded views; the separate Onboarded page was
+removed) offers server-side Created from / Created to filters over the
 authoritative automation `created_at`. Both selected Singapore calendar days are
 inclusive under the explicit UTC+08:00 convention: from 00:00 inclusive through the
 day after Created to at 00:00 exclusive. Actor/team scope remains backend-owned;
@@ -1285,3 +1286,81 @@ compare-and-set and fail-closed start-up ported. Delta only; nothing here is mer
   usage and reset; an exhausted key is an owner action.
 - **Open:** owner review of the replacement draft PR against main and closure of PR #128;
   owner merge; then the separately authorised Windows-local paid requalification.
+
+## AI Assistant D-099 Claude Sonnet 5.5 under Anthropic-specific safeguards (PR #130, merged to main `d949edb`) - 2026-10-29
+
+Branch `feat/assistant-claude-sonnet-console` (PR #130, merged to main `d949edb`). Delta only;
+nothing here is activated or Live, and no paid call was made.
+- **Decision:** D-099 (PROPOSED) with Option B (owner-approved policy, implemented offline):
+  Anthropic-specific safeguards that are **not equivalent** to OpenRouter's. Evidence:
+  `.ai-pipeline/reports/D099_OPTION_B_IMPLEMENTATION.md`.
+- **Provider status:** Anthropic Messages API for Claude Sonnet 5.5 Balanced/Fast is **Mock**
+  only here (offline tests); runtime composition exists behind the D-099 gate but is not
+  activated. GPT-OSS/OpenRouter status unchanged.
+- **Behaviour:** both Claude configurations are selectable only on a development machine with
+  D-099, the D-094 interlock, four owner attestations, a dedicated workspace id and its
+  attested monthly limit (at most US$5.00). Each call needs the synthetic boundary, an
+  inference key (Admin keys refused), the separate Anthropic ledger (lifetime ceiling
+  US$5.00, US$1.00 a day, 20 calls per activation), reconciliation within 7 days (24 hours for
+  paid runs, activation and cap raises) and a free model read naming the workspace. Replies
+  are verified in-band; anything uncertain is charged in full and stops later calls. No
+  automatic switch to GPT-OSS or any other model.
+- **Qualification:** basis `b4049047884e…` → `adec795f61bd…` (boundary words and the Claude
+  modules) → `33f602653de7…` (D-099-FU1 multi-turn conversion): every GPT-OSS qualification
+  is out of date once merged.
+- **D-099-FU1 (2026-10-29, offline):** Claude follow-up questions are sent; the service's
+  own knowledge, topic and case page terms messages after the history become top-level system
+  blocks (unchanged, in order); any other prompt shape is refused before any reservation.
+- **Persistence:** a second git-ignored SQLite ledger file (its path must differ from the GPT-OSS ledger's); `budget.PROFILES` gains the
+  Anthropic profile (existing OpenRouter ledgers unchanged). No Mongo or case-data change.
+- **Open:** HR key entry and HR-editable Claude limits stay deferred with the D-100 UI work.
+- **Status update (2026-10-29):** PR #130 was merged to main `d949edb`, including D-099-FU2
+  (the Anthropic-specific *Run Test connection first* refusal message). D-099 stays PROPOSED;
+  nothing is activated or Live. The paid GPT-OSS requalification on basis `33f602653de7…`
+  and Claude's own paid qualification each still need separate owner approval.
+
+## AI Assistant D-100 AI Model Console Phase 1 integrated with D-099 (draft PR #131, not merged) - 2026-10-29
+
+Delta only; nothing here is merged, activated or Live, and no paid call was made.
+- **D-100 Phase 1 (draft PR #131, PROPOSED):** AI Models becomes the AI Model Console (section
+  menu over Models & Overview, Providers, Spending & Limits, Qualifications & Recovery, Audit
+  History; `?section=` on the existing capability-checked route). Presentation only: no API,
+  qualification, gating, limit, key or permission change. Evidence:
+  `.ai-pipeline/reports/D100_AI_CONSOLE_PHASE1_REQG.md` (re-QG PASS).
+- **Integration with D-099 (on PR #131's branch after PR #130 merged):** main `d949edb`
+  (D-099 with D-099-FU1 and FU2) merged into D-100 Phase 1, with
+  narrow D-100 compatibility fixes for Claude: the paid-qualification confirmation and the
+  activation warning also cover the Anthropic deployment, with Claude's own wording (separate
+  ledger, GPT-OSS limits never apply, no automatic switch); the Option B readiness codes are
+  named; shared spending codes are worded per provider; the inspector shows provider,
+  reasoning and thinking; Spending & Limits states that its controls are GPT-OSS only. No
+  backend, API or spending-control change; FU2's Anthropic-specific refusal is shown as
+  written. The qualification basis stays `33f602653de7…`. Evidence:
+  `.ai-pipeline/reports/D099_D100_INTEGRATION.md`.
+- **Open:** owner review and merge of PR #131; D-100 Phase 2, HR key entry and HR-editable
+  Claude limits are not started.
+
+## AI Assistant D-100 AI Model Console Phases 2 to 4 (local branch, not published) - 2026-10-29
+
+Delta only. PR #131 (Phase 1 with D-099) is merged to main `90115e4`. Phases 2 to 4 are local
+commits on `feat/d100-ai-console-phases-2-4`; nothing is pushed, activated or Live, and no paid
+call was made. Presentation only: no API, schema, qualification, gate, limit, key, permission,
+routing or backend change; the qualification basis stays `33f602653de7…`.
+- **Phase 2:** Providers shows one card per provider (OpenRouter, Anthropic API, server-configured models)
+  with each configuration's availability and last connection test and who manages what (HR on
+  the page, an operator on the server, the key or workspace owner at the provider). Claude
+  Balanced and Fast are two configurations of one Anthropic provider. Spending & Limits keeps
+  the HR-editable GPT-OSS panel and adds a read-only Claude panel with only the server's
+  paid-qualification figures; the server sends no Claude key status, usage, headroom or
+  reconciliation time, and the page says so.
+- **Phase 3:** recovery cards show technical qualification, answer quality and availability
+  apart, raw server codes, gates and provider troubleshooting; unqualified Claude
+  configurations are listed (I-1) and start only through the paid confirmation; provider
+  wording follows the configuration, or names no provider when it is unknown (M-1); Claude is
+  never sent to the GPT-OSS spending controls (M-2).
+- **Phase 4:** Audit History searches and filters only the events the browser loaded (the
+  server's most recent 100) and says so; the dialog background is inert with scroll locked
+  (D3); a closing dialog never pulls focus out of a newer one (D5); badge variants are
+  unit-tested (D6); console text meets 4.5:1.
+- **Open:** independent Quality Gate, owner review and publication authorisation. HR key entry
+  and HR-editable Claude limits stay deferred (they need new backend authority).

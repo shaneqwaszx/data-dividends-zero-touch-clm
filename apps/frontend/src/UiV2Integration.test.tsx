@@ -20,7 +20,6 @@ import {
   retryZeroTouchIntakeDocument,
 } from "./api";
 import { shouldRefreshAfterMutationError } from "./pages/CaseDetail";
-import { ClientCaseControls, ClientRecordActions } from "./pages/ClientDetail";
 import {
   CompletedOverview,
   ConfirmDetailsPanel,
@@ -29,7 +28,6 @@ import {
   registryOperationProgressState,
   registryRouteProgressState,
 } from "./pages/CaseStatePanels";
-import OnboardedClients, { OnboardedActionColumnHeader } from "./pages/OnboardedClients";
 import { PolicyClassificationBadge } from "./pages/PolicyRules";
 import { isDocumentReuploadRequired } from "./pages/DocumentEvidencePanel";
 import HomeOnboarding from "./pages/HomeOnboarding";
@@ -37,7 +35,6 @@ import HumanInterventionPanel from "./pages/HumanInterventionPanel";
 import { createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
 import {
-  mapCompletedCaseToOnboardedRow,
   mapExecutionProfileToPolicy,
   mapZeroTouchCaseToCaseRow,
 } from "./viewModels";
@@ -172,7 +169,8 @@ afterEach(() => vi.unstubAllGlobals());
 describe("UI v2 backend integration adapters", () => {
   it("preserves the screenshot navigation and multi-format/folder uploader", () => {
     const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider></MemoryRouter>);
-    for (const label of ["Autoboard", "New onboarding", "Cases", "Onboarded", "Audit", "Policy", "Signed in as", "Maya Lim"]) {
+    expect(markup).not.toContain('href="/onboarded"'); // the Onboarded tab was folded into Cases
+    for (const label of ["Autoboard", "New onboarding", "Cases", "Audit", "Policy", "Signed in as", "Maya Lim"]) {
       expect(markup).toContain(label);
     }
     expect(markup).toContain("nav-tab--active");
@@ -191,16 +189,16 @@ describe("UI v2 backend integration adapters", () => {
     ];
     expect(validateIntakeFiles(accepted)).toBeNull();
     expect(validateIntakeFiles(Array.from({ length: 21 }, (_, index) => new File(["x"], `${index}.txt`, { type: "text/plain" })))).toContain("20");
-    expect(validateIntakeFiles([new File([new Uint8Array(5 * 1024 * 1024 + 1)], "large.pdf", { type: "application/pdf" })])).toContain("5 MiB");
+    expect(validateIntakeFiles([new File([new Uint8Array(5 * 1024 * 1024 + 1)], "large.pdf", { type: "application/pdf" })])).toContain("This file is larger than 5 MB");
     const total = Array.from({ length: 6 }, (_, index) => new File([new Uint8Array(5 * 1024 * 1024)], `${index}.pdf`, { type: "application/pdf" }));
-    expect(validateIntakeFiles(total)).toContain("25 MiB");
+    expect(validateIntakeFiles(total)).toContain("These files add up to more than 25 MB for this case");
   });
 
   it("maps backend list items without inventing assignment, client IDs, or risk", () => {
     const row = mapZeroTouchCaseToCaseRow(listItem);
     expect(row).toMatchObject({ active_exception_types: [], jurisdiction: "SG", status: "COMPLETED" });
     expect(row).not.toHaveProperty("assigned_to");
-    expect(mapCompletedCaseToOnboardedRow(listItem)).toMatchObject({ mock_goldtier_party_id: "GT-MOCK-1", risk_rating: null, next_review_date: null });
+    expect(row.goldtier_party_id).toBe("GT-MOCK-1");
   });
 
   it("maps execution-profile truth and marks unsupported policy fields unavailable", () => {
@@ -318,48 +316,13 @@ describe("UI v2 backend integration adapters", () => {
   );
 
   it("renders truthful POC completion, GoldTier party label, and disabled audit download", () => {
-    const markup = renderToStaticMarkup(<CompletedOverview summary={makePanelSummary("MATCH", "COMPLETED")} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />);
+    const markup = renderToStaticMarkup(<CompletedOverview summary={makePanelSummary("MATCH", "COMPLETED")} onViewAudit={() => undefined} />);
     expect(markup).toContain("Completed POC workflow");
     expect(markup).toContain("GoldTier party ID");
     expect(markup).toContain("GT-MOCK-1");
     expect(markup).toContain("Download audit trail");
     expect(markup).toContain("disabled");
     expect(markup).not.toContain("Ready for Approval");
-  });
-
-  it("preserves unsupported risk, record export, review, and rework controls as disabled disclosures", () => {
-    const onboarded = renderToStaticMarkup(
-      <QueryClientProvider client={createSessionQueryClient()}>
-        <MemoryRouter><OnboardedClients actor={actor} /></MemoryRouter>
-      </QueryClientProvider>,
-    );
-    const clientActions = renderToStaticMarkup(<ClientRecordActions />);
-    expect(onboarded).toContain("Completed POC workflow cases");
-    expect(onboarded).not.toContain("Completed Mock workflow");
-    expect(onboarded).toContain("Risk: All");
-    expect(onboarded).toContain("disabled");
-    expect(onboarded).toContain("Risk assessment is not connected");
-    expect(clientActions).toContain("Export record");
-    expect(clientActions).toContain("Start a review");
-    expect(clientActions.match(/disabled/g)?.length).toBe(2);
-  });
-
-  it("names the Onboarded action column without an out-of-flow hidden box", () => {
-    const markup = renderToStaticMarkup(
-      <table><thead><tr><OnboardedActionColumnHeader /></tr></thead></table>,
-    );
-    expect(markup).toContain('<th aria-label="Open"></th>');
-    expect(markup).not.toContain("sr-only");
-  });
-
-  it("routes an onboarded client back to the authoritative case controls", () => {
-    const caseId = "00000000-0000-4000-8000-000000000001";
-    const markup = renderToStaticMarkup(
-      <MemoryRouter><ClientCaseControls caseId={caseId} /></MemoryRouter>,
-    );
-
-    expect(markup).toContain("Open full case");
-    expect(markup).toContain(`href="/cases/${caseId}"`);
   });
 
   it("detects restart-interrupted documents only from the backend recovery code", () => {
@@ -377,7 +340,7 @@ describe("UI v2 backend integration adapters", () => {
 
   it("uses the lightweight list projection for every portfolio row field", () => {
     expect(mapZeroTouchCaseToCaseRow(listItem)).toMatchObject({ jurisdiction: "SG", created_at: listItem.created_at });
-    expect(mapCompletedCaseToOnboardedRow(listItem)).toMatchObject({ jurisdiction: "SG", mock_goldtier_party_id: "GT-MOCK-1", onboarded_at: listItem.completed_at });
+    expect(mapZeroTouchCaseToCaseRow(listItem)).toMatchObject({ goldtier_party_id: "GT-MOCK-1", completed_at: listItem.completed_at });
   });
 
   it("retains and routes a registry-stop case without attempting document intake", async () => {
@@ -613,7 +576,6 @@ describe("UI v2 backend integration adapters", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );

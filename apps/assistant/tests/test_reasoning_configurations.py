@@ -52,7 +52,7 @@ def test_the_remote_model_is_named_by_model_and_reasoning_not_by_its_decision(
     tmp_path: Path,
 ) -> None:
     settings = config(tmp_path, write_profiles(tmp_path / "profiles.json", profile()))
-    (entry,) = [e for e in load_catalogue(settings).entries if e.source == "code"]
+    (entry,) = [e for e in load_catalogue(settings).entries if e.deployment == "openrouter"]
     assert entry.profile_id == OPENROUTER_PROFILE_ID  # stable id
     assert entry.display_name == "GPT-OSS 120B (reasoning medium)"
     assert "D-094" not in entry.display_name and "synthetic" not in entry.display_name
@@ -68,14 +68,16 @@ def test_the_remote_model_is_named_by_model_and_reasoning_not_by_its_decision(
         write_profiles(tmp_path / "profiles.json", profile()),
         synthetic_dev_decision="D-095",
     )
-    (entry,) = [e for e in load_catalogue(development).entries if e.source == "code"]
+    (entry,) = [e for e in load_catalogue(development).entries if e.deployment == "openrouter"]
     assert dict(entry.details)["scope"] == "VERIFIED_SYNTHETIC_CASES"
     assert dict(entry.details)["decision"] == "D-095"
     # The pending (not authorised) entry keeps its own fingerprint and says so.
     from ai_assistant.config import AiAssistantSettings
 
     (pending,) = [
-        e for e in load_catalogue(AiAssistantSettings(_env_file=None)).entries if e.source == "code"
+        e
+        for e in load_catalogue(AiAssistantSettings(_env_file=None)).entries
+        if e.profile_id == OPENROUTER_PROFILE_ID
     ]
     assert pending.status == "pending_authorisation"
     assert dict(pending.details)["scope"] == "NOT_AUTHORISED"

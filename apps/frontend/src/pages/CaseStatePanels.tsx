@@ -1210,11 +1210,9 @@ function ObservationValue({ observations, showConfidence = false }: { observatio
 
 export function CompletedOverview({
   summary,
-  onViewOnboarded,
   onViewAudit,
 }: {
   summary: ZeroTouchCaseSummary;
-  onViewOnboarded?: (caseId: string) => void;
   onViewAudit?: (caseId: string) => void;
 }) {
   if (summary.status !== "COMPLETED") return null;
@@ -1262,7 +1260,6 @@ export function CompletedOverview({
           <div className="kv-row"><span className="kv-label">Next review</span><span className="kv-value">—</span></div>
           <div className="kv-row"><span className="kv-label">Human touches</span><span className="kv-value">{summary.metrics.human_interventions}</span></div>
           <div className="kv-row"><span className="kv-label">Recorded total automation duration</span><span className="kv-value">{summary.metrics.total_duration_ms === null ? "—" : formatDuration(summary.metrics.total_duration_ms)}</span></div>
-          {onViewOnboarded && <button className="btn btn-secondary btn-block" type="button" onClick={() => onViewOnboarded(summary.case.case_id)}>View in Onboarded</button>}
           {onViewAudit && <button className="btn btn-secondary btn-block" type="button" onClick={() => onViewAudit(summary.case.case_id)}>View audit trail</button>}
           <button className="btn btn-secondary btn-block" type="button" disabled title="Audit export is not available in current POC">Download audit trail</button>
         </aside>

@@ -2011,6 +2011,7 @@ def create_app(
     def list_case_portfolio(
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         status_filter: Annotated[AutomationStatus | None, Query(alias="status")] = None,
+        progress: Annotated[Literal["in_progress", "onboarded"] | None, Query()] = None,
         priority_filter: Annotated[
             PriorityFilter, Query(alias="priority_filter")
         ] = PriorityFilter.ALL,
@@ -2032,6 +2033,7 @@ def create_app(
             page = case_query.list_portfolio(
                 actor,
                 status=status_filter,
+                progress=progress,
                 priority_filter=priority_filter,
                 priority_sort=priority_sort,
                 team_filter=team_filter,

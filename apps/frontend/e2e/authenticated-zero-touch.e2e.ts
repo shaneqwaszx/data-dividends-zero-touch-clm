@@ -324,7 +324,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   })();
 
   await openWorkspaceTab(page, "Cases");
-  await page.getByLabel("Search cases").fill(caseId);
+  await page.getByLabel("Search", { exact: true }).fill(caseId);
   const caseLink = page.locator(`a[href="/cases/${caseId}"]`).first();
   await expect(caseLink).toBeVisible();
   await caseLink.click();
@@ -1203,7 +1203,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await casesLink.click();
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
   await expect(page.getByText("GoldTier target submitted", { exact: true })).toBeVisible();
-  await expect(page.getByText(/^Timing observed at /)).toHaveCount(1);
+  await expect(page.getByText(/^Updated (?:just now|.+ ago)$/)).toHaveCount(1);
   const completedTimingRow = page.getByRole("row").filter({
     has: page.locator(`a[href="/cases/${caseId}"]`),
   });
@@ -1231,14 +1231,14 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   );
   expect(portfolioRequests.length).toBeGreaterThan(noActionRequestCount);
   expect(portfolioRequests.length).toBeLessThanOrEqual(noActionRequestCount + 2);
-  await expect(page.getByText(/^Timing observed at /)).toHaveCount(1);
+  await expect(page.getByText(/^Updated (?:just now|.+ ago)$/)).toHaveCount(1);
 
   const timingSearchResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return url.pathname === "/api/clm/zero-touch/case-portfolio"
       && url.searchParams.get("search") === "209900104A";
   });
-  await page.getByLabel("Search cases").fill("209900104A");
+  await page.getByLabel("Search", { exact: true }).fill("209900104A");
   expect((await timingSearchResponse).status()).toBe(200);
   const activeTimingRow = page.getByRole("row").filter({ hasText: "209900104A" });
   await expect(activeTimingRow).toContainText("Case age:");
@@ -1478,7 +1478,7 @@ test("Cases filters exact open business-exception types without hiding other att
 
   await openWorkspaceTab(page, "Cases");
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
-  const attentionFilter = page.getByLabel("Open business exception type");
+  const attentionFilter = page.getByLabel("Needs attention", { exact: true });
   await expect(attentionFilter).toBeVisible();
 
   const filterRequests: Array<{ method: string; path: string }> = [];
@@ -1591,7 +1591,7 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   const targetUen = "209900104A";
 
   await openWorkspaceTab(page, "Cases");
-  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
   // React StrictMode may cancel and replay the initial development-mode fetch. Both
   // observations must still be the same single bounded page shape, never row fan-out.
   expect(new Set(portfolioRequests)).toEqual(new Set([
@@ -1600,7 +1600,7 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   expect(detailRequests).toEqual([]);
   expect(legacyListRequests).toEqual([]);
 
-  const search = page.getByLabel("Search cases");
+  const search = page.getByLabel("Search", { exact: true });
   await search.fill(targetUen);
   const searchedRow = page.getByRole("row").filter({ hasText: targetUen });
   await expect(searchedRow).toBeVisible();
@@ -1609,18 +1609,18 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   if (!targetCaseId) throw new Error("Seeded portfolio row did not expose its case identifier");
   expect(targetCaseId).toMatch(/^[0-9a-f-]{36}$/i);
   await expect.poll(() => portfolioRequests.at(-1)).toContain(`search=${targetUen}`);
-  await page.getByLabel("Jurisdiction filter").selectOption("SG");
+  await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await expect.poll(() => portfolioRequests.at(-1)).toContain("jurisdiction=SG");
   await expect.poll(() => portfolioRequests.at(-1)).toContain(`search=${targetUen}`);
   await search.fill("");
-  await page.getByLabel("Jurisdiction filter").selectOption("");
-  await page.getByLabel("Priority filter").selectOption("unset");
-  await page.getByLabel("Priority sort").selectOption("lowest_first");
+  await page.getByLabel("Jurisdiction", { exact: true }).selectOption("");
+  await page.getByLabel("Priority", { exact: true }).selectOption("unset");
+  await page.getByLabel("Sort", { exact: true }).selectOption("lowest_first");
   await expect.poll(() => portfolioRequests.at(-1)).toContain("priority_filter=unset");
   await expect.poll(() => portfolioRequests.at(-1)).toContain("priority_sort=lowest_first");
-  await page.getByLabel("Priority filter").selectOption("all");
-  await page.getByLabel("Priority sort").selectOption("highest_first");
-  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+  await page.getByLabel("Priority", { exact: true }).selectOption("all");
+  await page.getByLabel("Sort", { exact: true }).selectOption("highest_first");
+  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
 
   const nextResponse = page.waitForResponse((response) => (
     new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
@@ -1630,7 +1630,7 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await nextResponse;
   await expect(page.getByText(/Showing 51–/)).toBeVisible();
   await page.getByRole("button", { name: "Previous" }).click();
-  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
 
   await search.fill(targetUen);
   const targetRow = page.getByRole("row").filter({ hasText: targetUen });
@@ -1646,17 +1646,20 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await login(page, "ethan-tan");
   await openWorkspaceTab(page, "Cases");
-  await page.getByLabel("Search cases").fill(targetUen);
+  await page.getByLabel("Search", { exact: true }).fill(targetUen);
   const mutableRow = page.getByRole("row").filter({ hasText: targetUen });
   await expect(mutableRow).toBeVisible();
   const priorityResponse = page.waitForResponse((response) => (
     response.request().method() === "PATCH"
       && new URL(response.url()).pathname === `/api/clm/zero-touch/cases/${targetCaseId}/priority`
   ));
+  // The row's priority saves on change (no Set button or separate badge).
   await mutableRow.locator("select.priority-select").selectOption("5");
-  await mutableRow.getByRole("button", { name: "Set" }).click();
   expect((await priorityResponse).status()).toBe(200);
-  await expect(mutableRow.locator(".priority-badge")).toHaveText("Medium");
+  await expect(mutableRow.locator("select.priority-select")).toHaveValue("5");
+  // A fresh server read proves the value was stored, not just the control the test just changed.
+  const storedCase = await (await page.request.get(`/api/clm/zero-touch/cases/${targetCaseId}`)).json() as { case: { priority: number | null } };
+  expect(storedCase.case.priority).toBe(5);
 
   const deleteResponse = page.waitForResponse((response) => (
     response.request().method() === "DELETE"
@@ -1669,8 +1672,8 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await page.waitForTimeout(400);
   await expect(page.getByText(targetUen, { exact: true })).toHaveCount(0);
 
-  await page.getByLabel("Search cases").fill("");
-  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+  await page.getByLabel("Search", { exact: true }).fill("");
+  await expect(page.getByText(/^Showing 1–50$/)).toBeVisible();
   await page.setViewportSize({ width: 480, height: 900 });
   const scroller = page.getByLabel("Cases table");
   await scroller.focus();

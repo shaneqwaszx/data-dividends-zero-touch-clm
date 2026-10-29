@@ -1,5 +1,6 @@
 import { singaporeCalendarDate } from "../shared";
 import { formatOwnershipPercent } from "../ownershipDisplay";
+import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import { useMemo, useState, type FormEvent } from "react";
 
 import type { DocumentOwnershipObservation, DocumentProcessingRecord, OwnershipAnalysisRecord, OwnershipDocumentBinding, OwnershipParty } from "../types";
@@ -215,8 +216,8 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
     <p className="manual-ownership__source">Supplementary client-supplied evidence · operator review · LOCAL · MANUAL_DECLARATION_POC · {sourceSelection}</p>
     <p>This declaration is not ACRA evidence or verified ownership. Original graphs, document proposals and review receipts are retained; independent blockers remain authoritative.</p>
     {onUploadEvidence && <label id="case-ownership-evidence-upload" tabIndex={-1}>Upload ownership evidence
-      <input className="input" type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.tif,.tiff" disabled={disabled} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onUploadEvidence(file); }} />
-      <span className="control-help">Review uploaded evidence before deciding. Share counts never imply a denominator.</span>
+      <input className="input" type="file" accept={UPLOAD_ACCEPT} disabled={disabled} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onUploadEvidence(file); }} />
+      <span className="control-help">{UPLOAD_HELP_TEXT}. Review uploaded evidence before deciding. Share counts never imply a denominator.</span>
     </label>}
     {!reviewedDocuments.length ? <p className="ds-banner ds-banner-warn" role="status">No current reviewed document is available. Review a current document before supplying manual ownership evidence.</p> : <form onSubmit={submit} noValidate>
       <div className="manual-ownership__fields">

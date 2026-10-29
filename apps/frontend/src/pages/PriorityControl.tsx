@@ -4,6 +4,47 @@ import { ApiError, updateCasePriority } from "../api";
 import type { PriorityFilter, PrioritySort } from "../api";
 import { priorityTierControlValue, priorityTierLabel } from "../priority";
 
+/** A labelled filter select. Pass `id` when a visible `<label htmlFor>` names it. */
+export function PriorityFilterSelect({ value, onChange, id, allLabel = "Priority: All" }: {
+  value: PriorityFilter;
+  onChange: (value: PriorityFilter) => void;
+  id?: string;
+  allLabel?: string;
+}) {
+  return (
+    <select
+      className="input"
+      id={id}
+      aria-label={id ? undefined : "Priority filter"}
+      value={value}
+      onChange={(event) => onChange(event.target.value as PriorityFilter)}
+    >
+      <option value="all">{allLabel}</option>
+      <option value="prioritised">Prioritised only</option>
+      <option value="unset">Unprioritised only</option>
+    </select>
+  );
+}
+
+export function PrioritySortSelect({ value, onChange, id }: {
+  value: PrioritySort;
+  onChange: (value: PrioritySort) => void;
+  id?: string;
+}) {
+  return (
+    <select
+      className="input"
+      id={id}
+      aria-label={id ? undefined : "Priority sort"}
+      value={value}
+      onChange={(event) => onChange(event.target.value as PrioritySort)}
+    >
+      <option value="highest_first">Highest priority first</option>
+      <option value="lowest_first">Lowest priority first</option>
+    </select>
+  );
+}
+
 export function PriorityListControls({
   filter,
   sort,
@@ -17,25 +58,8 @@ export function PriorityListControls({
 }) {
   return (
     <>
-      <select
-        className="input"
-        aria-label="Priority filter"
-        value={filter}
-        onChange={(event) => onFilterChange(event.target.value as PriorityFilter)}
-      >
-        <option value="all">Priority: All</option>
-        <option value="prioritised">Prioritised only</option>
-        <option value="unset">Unprioritised only</option>
-      </select>
-      <select
-        className="input"
-        aria-label="Priority sort"
-        value={sort}
-        onChange={(event) => onSortChange(event.target.value as PrioritySort)}
-      >
-        <option value="highest_first">Highest priority first</option>
-        <option value="lowest_first">Lowest priority first</option>
-      </select>
+      <PriorityFilterSelect value={filter} onChange={onFilterChange} />
+      <PrioritySortSelect value={sort} onChange={onSortChange} />
     </>
   );
 }
@@ -63,12 +87,17 @@ export default function PriorityControl({
   onUpdated,
   disabled = false,
   onSave,
+  saveOnChange = false,
+  label = "Case priority",
 }: {
   caseId?: string;
   priority: number | null;
   onUpdated?: () => void | Promise<void>;
   disabled?: boolean;
   onSave?: (priority: number | null) => Promise<void>;
+  /** Save as soon as a tier is chosen (no Set button); a failure restores the saved tier. */
+  saveOnChange?: boolean;
+  label?: string;
 }) {
   const [selected, setSelected] = useState(priorityTierControlValue(priority));
   const [busy, setBusy] = useState(false);
@@ -78,15 +107,16 @@ export default function PriorityControl({
     setSelected(priorityTierControlValue(priority));
   }, [priority]);
 
-  async function save() {
+  async function save(value: "" | "1" | "5" | "10" = selected) {
     setBusy(true);
     setError(null);
     try {
-      const nextPriority = selected === "" ? null : Number(selected);
+      const nextPriority = value === "" ? null : Number(value);
       if (onSave) await onSave(nextPriority);
       else if (caseId && onUpdated) await updatePriorityAndRefresh(caseId, nextPriority, onUpdated);
       else throw new Error("Priority control is not configured.");
     } catch (requestError) {
+      if (saveOnChange) setSelected(priorityTierControlValue(priority));
       setError(
         requestError instanceof ApiError
           ? requestError.message
@@ -100,12 +130,17 @@ export default function PriorityControl({
   return (
     <div className="priority-control" onClick={(event) => event.stopPropagation()}>
       <label>
-        <span className="sr-only">Case priority</span>
+        <span className="sr-only">{label}</span>
         <select
           className="input priority-select"
           value={selected}
           disabled={busy || disabled}
-          onChange={(event) => setSelected(event.target.value as "" | "1" | "5" | "10")}
+          aria-busy={busy || undefined}
+          onChange={(event) => {
+            const value = event.target.value as "" | "1" | "5" | "10";
+            setSelected(value);
+            if (saveOnChange) void save(value);
+          }}
         >
           <option value="">Unset</option>
           <option value="1">Low</option>
@@ -113,9 +148,12 @@ export default function PriorityControl({
           <option value="10">High</option>
         </select>
       </label>
-      <button className="btn btn-secondary" type="button" disabled={busy || disabled} onClick={() => void save()}>
-        {busy ? "Saving…" : "Set"}
-      </button>
+      {!saveOnChange && (
+        <button className="btn btn-secondary" type="button" disabled={busy || disabled} onClick={() => void save()}>
+          {busy ? "Saving…" : "Set"}
+        </button>
+      )}
+      {saveOnChange && busy && <span className="cell-note" role="status">Saving…</span>}
       {error && <span className="cell-note cell-note--attention">{error}</span>}
     </div>
   );

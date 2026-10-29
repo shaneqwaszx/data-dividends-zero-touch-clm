@@ -12,7 +12,6 @@ import CaseQueue, {
   DEFAULT_CASE_QUEUE_PRESENTATION,
   type CaseQueuePresentationState,
 } from "./pages/CaseQueue";
-import OnboardedClients from "./pages/OnboardedClients";
 import { createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, ZeroTouchCaseListItem } from "./types";
 
@@ -151,31 +150,7 @@ describe("S1 Singapore creation-date filters", () => {
     expect(container.textContent).toContain("Asia/Singapore, UTC+08:00");
   });
 
-  it("Onboarded filters by case creation on the server and blocks a reversed range", async () => {
-    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse([completed]));
-    await act(async () => root.render(
-      <MemoryRouter><QueryClientProvider client={createSessionQueryClient()}>
-        <OnboardedClients actor={actor} />
-      </QueryClientProvider></MemoryRouter>,
-    ));
-    await waitForText("SYNTHETIC DATE CASE");
-    await setDate("Created from", "2026-10-04");
-    await setDate("Created to", "2026-10-04");
-    const selected = new URL(String(request.mock.lastCall?.[0]), "http://localhost");
-    expect(selected.pathname).toBe("/api/clm/zero-touch/cases");
-    expect(selected.searchParams.get("status")).toBe("COMPLETED");
-    expect(selected.searchParams.get("created_from")).toBe("2026-10-04");
-    expect(selected.searchParams.get("created_to")).toBe("2026-10-04");
-    const callsBeforeInvalid = request.mock.calls.length;
-    await setDate("Created from", "2026-10-06");
-    expect(container.querySelector('[role="alert"]')?.textContent)
-      .toBe("Created from must be on or before Created to.");
-    expect(container.textContent).not.toContain("SYNTHETIC DATE CASE");
-    expect(container.textContent).not.toContain("Loading clients");
-    expect(request).toHaveBeenCalledTimes(callsBeforeInvalid);
-  });
-
-  it.each(["Cases", "Onboarded"])("%s cancels an old date request and rejects its late response", async (page) => {
+  it.each(["Cases"])("%s cancels an old date request and rejects its late response", async (page) => {
     let releaseOldResponse: ((response: Response) => void) | undefined;
     let oldSignal: AbortSignal | undefined;
     const result = (name: string) => page === "Cases"
@@ -191,7 +166,7 @@ describe("S1 Singapore creation-date filters", () => {
     });
     await act(async () => root.render(
       <MemoryRouter><QueryClientProvider client={createSessionQueryClient()}>
-        {page === "Cases" ? <CasesHarness /> : <OnboardedClients actor={actor} />}
+        <CasesHarness />
       </QueryClientProvider></MemoryRouter>,
     ));
     await waitForText("INITIAL RANGE");
