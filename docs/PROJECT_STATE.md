@@ -1305,7 +1305,11 @@ merged, activated or Live, and no paid call was made.
   are verified in-band; anything uncertain is charged in full and stops later calls. No
   automatic switch to GPT-OSS or any other model.
 - **Qualification:** basis `b4049047884e…` → `adec795f61bd…` (boundary words and the Claude
-  modules): every GPT-OSS qualification is out of date once merged.
+  modules) → `33f602653de7…` (D-099-FU1 multi-turn conversion): every GPT-OSS qualification
+  is out of date once merged.
+- **D-099-FU1 (2026-10-29, offline):** Claude follow-up questions are sent; the service's
+  own knowledge, topic and case page terms messages after the history become top-level system
+  blocks (unchanged, in order); any other prompt shape is refused before any reservation.
 - **Persistence:** a second git-ignored SQLite ledger file (its path must differ from the GPT-OSS ledger's); `budget.PROFILES` gains the
   Anthropic profile (existing OpenRouter ledgers unchanged). No Mongo or case-data change.
 - **Open:** fresh independent QG, latest-main integration and final gate; owner publication

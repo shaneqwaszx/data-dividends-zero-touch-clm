@@ -426,8 +426,10 @@ valid key, the ledger's own profile with a closed breaker and no open call, ever
 verified, room for one worst-case reservation (about US$0.096) in the ledger and today's
 allowance, the reconciliation window, and a free `GET /v1/models/claude-sonnet-5-5` naming the
 attested workspace (reused for `AI_ASSISTANT_LOCAL_API_TEST_PREFLIGHT_SECONDS`). Claude answers
-in the streamed chat only. Follow-up questions whose prompt puts knowledge or topic lines after
-the history get the case-data answer (refused before anything is reserved). The paid
+in the streamed chat only. Follow-up questions are sent too (D-099-FU1): the service's own
+knowledge, topic and case page terms messages after the history become top-level system
+blocks after its leading ones, unchanged and in order, and any other prompt shape is refused
+before anything is reserved. The paid
 qualification's G-8 gate verifies Claude calls in-band. The GPT-OSS HR spending controls and
 HR key entry never apply to Claude (HR controls for Claude are deferred). Nothing switches to or
 from Claude automatically.
@@ -435,7 +437,8 @@ from Claude automatically.
 **Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
 plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary
 only) and adds the Claude modules to the qualification basis, so the basis moves from
-`b4049047884e…` (D-098) to `adec795f61bd…`. Every earlier GPT-OSS qualification is out of date
+`b4049047884e…` (D-098) to `adec795f61bd…`, and D-099-FU1 (the Claude adapter's multi-turn
+conversion) to `33f602653de7…`. Every earlier GPT-OSS qualification is out of date
 once this merges: an active GPT-OSS configuration becomes *AI unavailable* at start-up until HR
 runs a new (paid, separately approved) qualification and activates it. Historical runs are
 kept.

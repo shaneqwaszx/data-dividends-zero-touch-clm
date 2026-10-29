@@ -677,9 +677,9 @@ class ClaudeTestModel:
         development = ticket and synthetic_eligibility.mode(self._settings)
         if not development and check_messages(messages) is not None:
             raise self._refuse("text outside the synthetic boundary")
-        # A prompt the Messages API cannot take unchanged (a system message after the
-        # conversation started: knowledge or topic lines after history) is refused here, before
-        # anything is reserved, so it costs nothing and never opens the breaker.
+        # A prompt the Messages API cannot take (not the service's known shape; D-099-FU1) is
+        # refused here, before anything is reserved, so it costs nothing and never opens the
+        # breaker. Admission and the ticket above are for these exact messages, unconverted.
         try:
             system_and_conversation(messages)
         except PromptShapeError:
