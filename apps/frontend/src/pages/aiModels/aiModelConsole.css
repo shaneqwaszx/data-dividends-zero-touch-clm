@@ -15,6 +15,9 @@
 .model-console .btn { min-height: 36px; }
 .model-console .table-card { overflow-x: auto; }
 .model-console :is(a, button, input, summary):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* D-100 Phase 4: shared terms and kickers inside the console meet 4.5:1 (the app-wide ones are lighter). */
+.model-console .acra-detail-list dt { color: var(--console-muted); }
+.model-console .card .card-kicker { margin: 0; color: var(--console-accent-text); }
 
 .console-label {
   display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
@@ -236,6 +239,33 @@ a.console-stat:hover { border-color: var(--color-accent); }
   .console-recovery-actions .btn { width: 100%; min-height: 44px; justify-content: center; }
 }
 
+/* -- D-100 Phase 4: audit history -- */
+.console-audit__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+.console-audit__head h2, .console-audit__head p { margin: 0; }
+.console-audit__error { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.console-audit__error .ds-banner { flex: 1 1 320px; margin: 0; }
+.console-filters { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 14px; }
+.console-filters :is(input, select) { margin: 0; }
+.console-filters > div { display: flex; flex-direction: column; gap: 4px; flex: 1 1 180px; min-width: 0; }
+.console-filters > div:first-child { flex: 2 1 260px; }
+.console-filters label { margin: 0; font-size: 12px; font-weight: 600; color: #3d3a3a; }
+.console-filters :is(input, select) {
+  min-height: 40px; box-sizing: border-box; width: 100%; padding: 6px 10px; font: inherit; font-size: 13.5px;
+  color: var(--console-ink); background: #fff; border: 1px solid #8f8a8a; border-radius: 6px;
+}
+.console-filters :is(input, select):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.console-audit > p { margin: 0; }
+.console-audit__count { font-size: 12.5px; font-weight: 600; }
+.console-raw { display: block; margin-top: 2px; font-size: 11.5px; color: var(--console-muted); overflow-wrap: anywhere; }
+.console-raw code { font-size: 11px; }
+.console-audit__table td { vertical-align: top; }
+.model-console :is(select):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* -- D-100 Phase 4: a section name and its badge wrap as units, not word by word -- */
+.console-nav__link { flex-wrap: wrap; row-gap: 4px; }
+.console-nav__label { flex: 1 1 calc(100% - 40px); }
+.console-nav__badge { margin-left: 27px; white-space: nowrap; }
+
 /* -- confirmations -- */
 .console-dialog-backdrop {
   position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px;
@@ -293,4 +323,16 @@ a.console-stat:hover { border-color: var(--color-accent); }
   .console-dialog { width: 100%; max-height: 88vh; border-radius: 16px 16px 0 0; padding: 18px 16px 20px; }
   .console-dialog__actions { flex-direction: column-reverse; }
   .console-dialog__actions .btn { width: 100%; min-height: 48px; }
+  /* Audit rows become labelled cards; the explicit table roles keep their meaning. */
+  .console-audit .table-card { border: 0; background: transparent; overflow: visible; }
+  .console-audit__table, .console-audit__table tbody, .console-audit__table tr, .console-audit__table td { display: block; width: 100%; box-sizing: border-box; }
+  .console-audit__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .model-console .console-audit__table { border: 0; }
+  .model-console .console-audit__table tr { margin-bottom: 10px; padding: 8px 12px; border: 1px solid var(--color-divider); border-radius: 8px; background: #fff; }
+  .model-console .console-audit__table td { padding: 5px 0; border: 0; overflow-wrap: anywhere; }
+  .console-audit__table td::before {
+    content: attr(data-label); display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    font-weight: 600; color: var(--console-muted);
+  }
+  .console-filters .btn { width: 100%; min-height: 44px; }
 }

@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ModelBudgetStatus, ModelOverview, ModelProfileView, ModelQualification } from "../aiAssistant";
+import { MODEL_AUDIT_LIMIT, type ModelAuditEvent, type ModelBudgetStatus, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
@@ -1442,5 +1442,154 @@ describe("AiModelManagement D-100 qualifications and recovery", () => {
     await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
     { const target = button(view, "Run qualification…", "GPT-OSS"); act(() => target.click()); }
     expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Review the GPT-OSS spending controls or run Test connection first.");
+  });
+});
+
+// --- D-100 Phase 4: Audit History, accessibility debt (D3, D5, D6) ------------------------------
+
+describe("AiModelManagement D-100 audit history", () => {
+  const event = (seq: number, overrides: Partial<ModelAuditEvent> = {}): ModelAuditEvent => ({
+    seq, at: `2026-10-29T0${seq % 10}:00:00+00:00`, actor: "hr-admin", role: "HR", action: "ACTIVATE",
+    profile_id: "lmstudio_qwen3_8b", fingerprint: "0123456789ab", outcome: "applied", code: null, revision: 4, ...overrides,
+  });
+  const events = [
+    event(3),
+    event(2, { action: "CONNECTION_TEST", outcome: "failed", code: "PROVIDER_CHECK_FAILED", profile_id: "anthropic_claude_sonnet_5_5_medium", revision: null }),
+    event(1, { actor: "ethan-tan", role: "RELATIONSHIP_MANAGER", action: "ACCESS_REFUSED", outcome: "refused", code: "CREDENTIAL_INVALID", profile_id: null, revision: null }),
+  ];
+  const claude = profile({ profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic", active: false,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" } });
+  const data: ModelOverview = { ...overview, profiles: [...overview.profiles, claude] };
+  function auditServer(list: ModelAuditEvent[] | (() => Response)) {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/assistant/admin/models")) return json(data);
+      if (url.includes("/admin/models/audit")) return typeof list === "function" ? list() : json({ events: list });
+      return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+    });
+  }
+  const rows = (view: HTMLElement) => [...view.querySelectorAll(".console-audit__table tbody tr")];
+  const select = (view: HTMLElement, id: string, choice: string) => {
+    const element = view.querySelector<HTMLSelectElement>(`#${id}`)!;
+    act(() => { element.value = choice; element.dispatchEvent(new Event("change", { bubbles: true })); });
+  };
+
+  it("shows each event's time, person, action, configuration, outcome and code, words and raw codes", async () => {
+    const view = mount(auditServer(events), "audit");
+    await waitFor(() => expect(rows(view)).toHaveLength(3));
+    const second = rows(view)[1];
+    expect(second.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-29T02:00:00+00:00");
+    expect(second.textContent).toContain("Event #2");
+    expect(second.textContent).toContain("Claude Sonnet 5.5 — Balanced");
+    expect(second.textContent).toContain("anthropic_claude_sonnet_5_5_medium");
+    expect(second.textContent).toContain("The last Anthropic workspace and model check failed.");
+    expect(second.textContent).toContain("PROVIDER_CHECK_FAILED");
+    // No configuration: the code is worded for any provider, never as OpenRouter's.
+    expect(rows(view)[2].textContent).toContain("The configured provider key is not valid.");
+    expect(rows(view)[2].textContent).not.toContain("OpenRouter");
+    expect(rows(view)[2].textContent).toContain("RELATIONSHIP_MANAGER");
+  });
+
+  it("searches and filters only the loaded events, says so, and sends no request to do it", async () => {
+    const fetchMock = auditServer(events);
+    const view = mount(fetchMock, "audit");
+    await waitFor(() => expect(rows(view)).toHaveLength(3));
+    expect(view.querySelector("[data-testid=audit-scope]")?.textContent).toContain("Search and filters look only at these loaded events.");
+    const before = fetchMock.mock.calls.length;
+    typeInto(view.querySelector<HTMLInputElement>("#audit-search")!, "provider_check");
+    expect(rows(view)).toHaveLength(1);
+    expect(view.querySelector(".console-audit__count")?.textContent).toBe("1 of 3 events loaded match.");
+    act(() => button(view, "Clear filters").click());
+    expect(rows(view)).toHaveLength(3);
+    select(view, "audit-outcome", "refused");
+    expect(rows(view).map((row) => row.textContent)).toEqual([expect.stringContaining("ethan-tan")]);
+    select(view, "audit-action", "ACTIVATE");
+    expect(rows(view)).toHaveLength(0);
+    expect(view.textContent).toContain("No loaded event matches these filters. Older events are not loaded, so they are not searched.");
+    expect(fetchMock.mock.calls.length).toBe(before);
+  });
+
+  it("says when older events were not loaded", async () => {
+    const many = Array.from({ length: MODEL_AUDIT_LIMIT }, (_, index) => event(MODEL_AUDIT_LIMIT - index));
+    const view = mount(auditServer(many), "audit");
+    await waitFor(() => expect(rows(view)).toHaveLength(MODEL_AUDIT_LIMIT));
+    expect(view.querySelector("[data-testid=audit-scope]")?.textContent).toContain(`The server sent the ${MODEL_AUDIT_LIMIT} events most recently recorded (the most it sends at once; older events are not loaded).`);
+  });
+
+  it("explains an empty history and offers a retry when it cannot be read", async () => {
+    let view = mount(auditServer([]), "audit");
+    await waitFor(() => expect(view.textContent).toContain("No model events recorded yet."));
+    expect(view.querySelector("#audit-search")).toBeNull();
+    act(() => root?.unmount());
+    root = null;
+    container?.remove();
+
+    let calls = 0;
+    const fetchMock = auditServer(() => { calls += 1; return json({ detail: { code: "SERVICE_UNAVAILABLE", message: "The AI assistant service is unavailable." } }, 503); });
+    view = mount(fetchMock, "audit");
+    await waitFor(() => expect(view.querySelector("[role=alert]")?.textContent).toContain("The AI assistant service is unavailable right now."));
+    const seen = calls;
+    await act(async () => button(view, "Try again").click());
+    await waitFor(() => expect(calls).toBeGreaterThan(seen));
+  });
+});
+
+describe("AiModelManagement D-100 dialogs and badges (D3, D5, D6)", () => {
+  it("makes the background inert and stops page scrolling while a dialog is open (D3)", async () => {
+    const view = mount(server(overview));
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    const layout = view.querySelector<HTMLElement>(".console-layout")!;
+    { const target = button(view, "Activate", "Qwen3"); act(() => target.click()); }
+    expect(layout.hasAttribute("inert")).toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(view.querySelector('[role="dialog"]')?.closest("[inert]")).toBeNull();
+    act(() => button(view, "Cancel").click());
+    expect(layout.hasAttribute("inert")).toBe(false);
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("never moves focus out of a dialog that replaced the one just closed (D5)", async () => {
+    function Swap() {
+      const [step, setStep] = useState(0);
+      return (
+        <>
+          <button type="button" onClick={() => setStep(1)}>Open</button>
+          {step === 1 && <ConsoleDialog key="first" labelledBy="first-heading" onClose={() => setStep(0)}><h2 id="first-heading">First</h2><button type="button" onClick={() => setStep(2)}>Next</button></ConsoleDialog>}
+          {step === 2 && <ConsoleDialog key="second" labelledBy="second-heading" onClose={() => setStep(0)}><h2 id="second-heading">Second</h2><button type="button">Inside</button></ConsoleDialog>}
+        </>
+      );
+    }
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root?.render(<StrictMode><Swap /></StrictMode>));
+    const opener = container.querySelector("button")!;
+    opener.focus();
+    act(() => opener.click());
+    act(() => [...container!.querySelectorAll("button")].find((item) => item.textContent === "Next")!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));  // the first dialog's restore fires here
+    expect(document.activeElement?.closest('[aria-labelledby="second-heading"]')).not.toBeNull();
+  });
+
+  it("names the key, spending and running states in each section badge (D6)", async () => {
+    const badge = (view: HTMLElement, section: string) => {
+      const link = [...view.querySelectorAll(".console-nav__link")].find((item) => item.textContent?.startsWith(section));
+      return link?.querySelector(".console-nav__badge .sr-only")?.textContent ?? null;
+    };
+    const cases: Array<[Partial<ModelOverview>, string, string]> = [
+      [{ budget: budget() }, "Providers", ", no OpenRouter key is set"],
+      [{ budget: budget({ status: "invalid", source: "environment" }) }, "Providers", ", the OpenRouter key is not valid"],
+      [{ budget: { ...controlled(), refusal: "DAILY_ALLOWANCE_EXHAUSTED" } }, "Spending & Limits", ", paid calls are refused now"],
+      [{ budget: { ...controlled(), ledger: { ...controlled().ledger!, breaker_open: true, breaker_code: "MISMATCH" } } }, "Spending & Limits", ", paid calls are stopped until an operator reconciles"],
+      [{ running: { qualification_id: "r".repeat(32), profile_id: "lmstudio_qwen3_8b", done_turns: 1, total_turns: 84, started_by: "hr-admin" } }, "Qualifications & Recovery", ", a qualification is running"],
+    ];
+    for (const [overrides, section, label] of cases) {
+      const view = mount(server({ ...overview, profiles: [profile({}), remoteSelectable], ...overrides }));
+      await waitFor(() => expect(view.textContent).toContain("Model catalogue"));
+      expect(badge(view, section)).toBe(label);
+      act(() => root?.unmount());
+      root = null;
+      container?.remove();
+    }
   });
 });

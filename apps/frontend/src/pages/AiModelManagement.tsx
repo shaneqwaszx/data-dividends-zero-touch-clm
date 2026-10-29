@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -9,6 +9,7 @@ import {
   clearModelCredential,
   fetchModelAudit,
   fetchModelOverview,
+  MODEL_AUDIT_LIMIT,
   refreshProviderLimits,
   rollbackModel,
   saveLifetimeCap,
@@ -16,6 +17,7 @@ import {
   saveSpendingControls,
   startModelQualification,
   testModelConnection,
+  type ModelAuditEvent,
   type ModelBudgetStatus,
   type ModelDiagnosis,
   type ModelOverview,
@@ -890,7 +892,6 @@ function SpendingSection({ overview, busy, onChanged }: { overview: ModelOvervie
   }
   return (
     <>
-      <p className="text-muted">Each paid provider has its own ledger and limits. Neither provider's limits apply to the other, and nothing switches between them automatically. Local models make no paid calls.</p>
       {budget ? (
         <>
           {anthropic.length > 0 && (
@@ -1258,10 +1259,127 @@ function ConfigurationDetails({ overview }: { overview: ModelOverview }) {
   );
 }
 
+// --- D-100 Phase 4: Audit History ----------------------------------------------------------------
+// The server sends the most recent events (newest first, at most MODEL_AUDIT_LIMIT). Search and
+// filters run in the browser over those loaded events only, and the page says so.
+
+function AuditHistory({ query, profiles }: { query: UseQueryResult<{ events: ModelAuditEvent[] }>; profiles: ModelProfileView[] }) {
+  const [search, setSearch] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [kind, setKind] = useState("");
+  const events = query.data?.events ?? [];
+  const profileOf = (profileId: string | null) => (profileId ? profiles.find((item) => item.profile_id === profileId) : undefined);
+  // A code is worded for the configuration's provider; with none (or one no longer listed), for any provider.
+  const codeText = (event: ModelAuditEvent) => (event.code ? readable(event.code, profileOf(event.profile_id)?.deployment ?? ANY_PROVIDER) : "");
+  const outcomes = [...new Set(events.map((event) => event.outcome))].sort();
+  const actions = [...new Set(events.map((event) => event.action))].sort();
+  const needle = search.trim().toLowerCase();
+  const filtering = needle !== "" || outcome !== "" || kind !== "";
+  const shown = events.filter((event) => {
+    if (outcome && event.outcome !== outcome) return false;
+    if (kind && event.action !== kind) return false;
+    if (!needle) return true;
+    const profile = profileOf(event.profile_id);
+    return [event.actor, event.role, event.action, readable(event.action), event.outcome, event.profile_id, profile && profileName(profile), event.code, codeText(event), String(event.seq)]
+      .some((text) => text?.toLowerCase().includes(needle));
+  });
+  const clear = () => { setSearch(""); setOutcome(""); setKind(""); };
+  const plural = (count: number) => `${count} event${count === 1 ? "" : "s"}`;
+
+  return (
+    <section className="card console-audit" aria-labelledby="model-audit-heading">
+      <div className="console-audit__head">
+        <h2 id="model-audit-heading">Audit history</h2>
+        {query.data && (
+          <p className="console-help">Read {formatTimestamp(new Date(query.dataUpdatedAt).toISOString())}; read again every {AUDIT_REFRESH_MS / 1000} seconds while this page is open.</p>
+        )}
+      </div>
+      {query.isPending && <p role="status">Loading audit history…</p>}
+      {query.isError && (
+        <div className="console-audit__error">
+          <p className="ds-banner ds-banner-warn" role="alert">
+            {safeError(query.error)}{query.data ? " The events below are the ones read before; they may be out of date." : ""}
+          </p>
+          <button type="button" className="btn btn-secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
+        </div>
+      )}
+      {query.data && (events.length === 0 ? (
+        <p>No model events recorded yet. Activations, qualifications, connection tests, key and limit changes, and refused requests appear here.</p>
+      ) : (
+        <>
+          <div className="console-filters" role="search" aria-label="Filter the loaded audit events">
+            <div>
+              <label htmlFor="audit-search">Search loaded events</label>
+              <input id="audit-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)}
+                placeholder="Person, action, configuration or code" autoComplete="off" />
+            </div>
+            <div>
+              <label htmlFor="audit-action">Action</label>
+              <select id="audit-action" value={kind} onChange={(event) => setKind(event.target.value)}>
+                <option value="">All actions</option>
+                {actions.map((item) => <option key={item} value={item}>{readable(item)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="audit-outcome">Outcome</label>
+              <select id="audit-outcome" value={outcome} onChange={(event) => setOutcome(event.target.value)}>
+                <option value="">All outcomes</option>
+                {outcomes.map((item) => <option key={item} value={item}>{readable(item)}</option>)}
+              </select>
+            </div>
+            {filtering && <button type="button" className="btn btn-secondary" onClick={clear}>Clear filters</button>}
+          </div>
+          <p className="console-help" data-testid="audit-scope">
+            The server sent the {plural(events.length)} most recently recorded{events.length >= MODEL_AUDIT_LIMIT ? ` (the most it sends at once; older events are not loaded)` : ""}. Search and filters look only at these loaded events.
+          </p>
+          <p className="console-audit__count" role="status" aria-live="polite">
+            {filtering ? `${shown.length} of ${plural(events.length)} loaded match.` : `Showing all ${plural(events.length)} loaded.`}
+          </p>
+          {shown.length === 0 ? (
+            <p>No loaded event matches these filters. Older events are not loaded, so they are not searched.</p>
+          ) : (
+            <div className="table-card table-scroll">
+              <table className="table console-audit__table" role="table">
+                <caption className="sr-only">Model audit events, newest first</caption>
+                <thead role="rowgroup"><tr role="row">{["When", "Who", "Action", "Configuration", "Outcome", "Code", "Revision"].map((name) => <th key={name} scope="col" role="columnheader">{name}</th>)}</tr></thead>
+                <tbody role="rowgroup">
+                  {shown.map((event) => {
+                    const profile = profileOf(event.profile_id);
+                    return (
+                      <tr key={event.seq} role="row">
+                        <td role="cell" data-label="When"><time dateTime={event.at}>{formatTimestamp(event.at)}</time><small className="console-raw">Event #{event.seq}</small></td>
+                        <td role="cell" data-label="Who">{event.actor}{event.role && <small className="console-raw">{event.role}</small>}</td>
+                        <td role="cell" data-label="Action">{readable(event.action)}<small className="console-raw"><code>{event.action}</code></small></td>
+                        <td role="cell" data-label="Configuration">{event.profile_id
+                          ? <>{profile ? profileName(profile) : "No longer listed"}<small className="console-raw"><code>{event.profile_id}</code></small></>
+                          : "—"}</td>
+                        <td role="cell" data-label="Outcome">{readable(event.outcome)}</td>
+                        <td role="cell" data-label="Code">{event.code ? <>{codeText(event)}<small className="console-raw"><code>{event.code}</code></small></> : "—"}</td>
+                        <td role="cell" data-label="Revision">{event.revision ?? "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      ))}
+    </section>
+  );
+}
+
 // After a confirmed action the opener is disabled while it runs: focus the inspector, else the page heading.
 const FOCUS_FALLBACKS = ["inspector-heading", "model-management-heading"] as const;
 
 const SECTION_LABEL = Object.fromEntries(CONSOLE_SECTIONS.map((item) => [item.id, item.label])) as Record<ConsoleSection, string>;
+const SECTION_INTRO: Record<ConsoleSection, string> = {
+  overview: "Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.",
+  providers: "Which provider each configuration uses, its key and checks, and who manages what. Keys are never shown on this page.",
+  spending: "Each paid provider's ledger and limits. HR changes the GPT-OSS limits here; Claude's limits are fixed on the server. Neither provider's limits apply to the other, nothing switches between them automatically, and local models make no paid calls.",
+  qualifications: "What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next.",
+  audit: "Model events recorded by the AI Assistant service: activations, qualifications, connection tests, key and limit changes, and refused requests.",
+};
 
 export default function AiModelManagement({ actor }: { actor: AuthenticatedProfile }) {
   const queryClient = useQueryClient();
@@ -1390,13 +1508,16 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           <header className="console-header">
             <p className="card-kicker">HR administration · AI Model Console</p>
             <h1 id="model-management-heading" tabIndex={-1}>{SECTION_LABEL[section]}</h1>
-            {section === "overview" && (
-              <p className="text-muted">Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.</p>
-            )}
+            <p className="text-muted">{SECTION_INTRO[section]}</p>
           </header>
 
-          {overviewQuery.isPending && <p>Loading model settings…</p>}
-          {overviewQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(overviewQuery.error)}</p>}
+          {overviewQuery.isPending && <p role="status">Loading model settings…</p>}
+          {overviewQuery.isError && (
+            <div className="console-audit__error">
+              <p className="ds-banner ds-banner-warn" role="alert">{safeError(overviewQuery.error)}{overview ? " The settings below are the ones read before; they may be out of date." : ""}</p>
+              <button type="button" className="btn btn-secondary" disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()}>Try again</button>
+            </div>
+          )}
           {action.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(action.error)}</p>}
 
           {overview && !overview.configured && (
@@ -1472,7 +1593,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               {recoverable.length > 0 ? (
                 <section className="card" aria-labelledby="recovery-heading">
                   <h2 id="recovery-heading">Model health and recovery</h2>
-                  <p className="text-muted">What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next. Every external configuration is listed, including those not qualified yet. Starting or retrying a paid qualification always asks you to confirm its calls first; nothing is retried automatically.</p>
+                  <p className="text-muted">Every external configuration is listed, including those not qualified yet. Starting or retrying a paid qualification always asks you to confirm its calls first; nothing is retried automatically.</p>
                   <p className="console-help" data-testid="qualification-kinds">The technical qualification checks connection, safety filtering, availability and context capacity; it gates activation. Answer quality is reported only, never a gate, and a technical pass does not establish it.</p>
                   <div className="model-recovery-grid">
                     {recoverable.map((item) => (
@@ -1486,32 +1607,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
             </>
           )}
 
-          {section === "audit" && (
-            <section className="card" aria-labelledby="model-audit-heading">
-              <h2 id="model-audit-heading">Audit history</h2>
-              {auditQuery.isPending && <p>Loading audit history…</p>}
-              {auditQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(auditQuery.error)}</p>}
-              {auditQuery.data && (auditQuery.data.events.length === 0 ? <p>No model events recorded yet.</p> : (
-                <div className="table-card">
-                  <table className="table">
-                    <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Model</th><th>Outcome</th><th>Code</th></tr></thead>
-                    <tbody>
-                      {auditQuery.data.events.map((event) => (
-                        <tr key={event.seq}>
-                          <td>{formatTimestamp(event.at)}</td>
-                          <td>{event.actor}{event.role ? ` (${event.role})` : ""}</td>
-                          <td>{readable(event.action)}</td>
-                          <td>{event.profile_id ?? "—"}</td>
-                          <td>{readable(event.outcome)}</td>
-                          <td>{event.code ? readable(event.code) : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </section>
-          )}
+          {section === "audit" && <AuditHistory query={auditQuery} profiles={overview?.profiles ?? []} />}
         </div>
       </ConsoleShell>
 
