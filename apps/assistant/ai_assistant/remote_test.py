@@ -26,8 +26,10 @@ the money limit across restarts. Its blocking checks run off the event loop.
 
 D-095 (development synthetic mode, synthetic_eligibility.py) adds, without changing the above:
 the chat may also send messages that passed the eligibility check (a single-use ticket for
-exactly those messages); every call is inside the ledger's daily allowance (US$1.00 per
-Singapore day at most, budget.py) and the preflight checks it; the key may come from the
+exactly those messages); every call is inside the ledger's daily allowance (per Singapore
+day, budget.py; D-098: US$1.00 unless HR set another) and the preflight checks it, and the
+key's own finite, never-resetting limit is checked with no app allocation ceiling (D-098:
+the strictest of the daily, lifetime and key limits wins); the key may come from the
 process environment, the git-ignored .env or an HR administrator (key_sources.py), and when it
 changes the model is rebuilt with it and the full preflight runs again before the next call.
 ``budget_status`` is the read-only spending view for the AI Models page.
@@ -50,7 +52,7 @@ import anyio
 
 from . import key_sources, synthetic_eligibility
 from .budget import (
-    DAILY_CAP_CEILING_MICRO_USD,
+    DEFAULT_DAILY_CAP_MICRO_USD,
     BudgetLedger,
     ClosedCall,
     LedgerError,
@@ -219,6 +221,9 @@ def preflight(
     result = run_preflight(
         remote,
         open_account,
+        # D-098: no app allocation ceiling; the key must still have a finite limit that never
+        # resets, and the ledger cap must stay above the key's opening usage.
+        allocation=None,
         ledger_file=ledger_path(remote),
         owner_attests_auto_topup_off="auto_topup_off" in attestations(settings),
         owner_attests_prompt_logging_off="prompt_logging_off" in attestations(settings),
@@ -248,6 +253,10 @@ def _remember_provider(report: Preflight) -> None:
             checked_at=time.time(),
             passed=bool(checks) and all(c.ok for c in checks),
             remaining_micro_usd=report.key_remaining_micro_usd,
+            # D-098: the key's own limit, usage and reset policy (not account credits).
+            limit_micro_usd=report.key_limit_micro_usd,
+            usage_micro_usd=report.key_usage_micro_usd,
+            limit_reset=report.key_limit_reset,
             checks=[{"check": c.name, "ok": c.ok, "detail": c.detail} for c in checks],
         )
 
@@ -492,7 +501,7 @@ def budget_status(
         "configured": settings.local_api_test_decision == TEST_DECISION_ID,
         "mode": "D-095" if synthetic_eligibility.mode(settings) else "D-094",
         "timezone": "Asia/Singapore",
-        "daily_cap_ceiling_micro_usd": DAILY_CAP_CEILING_MICRO_USD,
+        "daily_cap_default_micro_usd": DEFAULT_DAILY_CAP_MICRO_USD,
         "daily_cap_micro_usd": settings.budget_daily_cap_micro_usd,
     }
     _, credential = key_sources.resolve(environ)
@@ -507,6 +516,14 @@ def budget_status(
             "passed": provider["passed"],
             "remaining_micro_usd": provider["remaining_micro_usd"],
             "remaining_usd": _usd(provider["remaining_micro_usd"]),
+            # D-098: the key's own limit and usage, and whether its limit resets (None:
+            # never). Account credits are never read, so they are always shown as unknown.
+            "limit_micro_usd": provider.get("limit_micro_usd"),
+            "limit_usd": _usd(provider.get("limit_micro_usd")),
+            "usage_micro_usd": provider.get("usage_micro_usd"),
+            "usage_usd": _usd(provider.get("usage_micro_usd")),
+            "limit_reset": provider.get("limit_reset"),
+            "account_credits": None,
             "checks": provider["checks"],
         }
         if provider

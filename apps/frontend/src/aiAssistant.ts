@@ -142,6 +142,16 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The model did not pass the connection test.",
   "There is no earlier model to roll back to.",
   "This model is already active.",
+  "The paid qualification's question list and count are not configured on the server.",
+  "Qualification is not available on this server.",
+  // D-098: paid qualification confirmation, budget and escalation.
+  "Confirm the number of paid calls this qualification may make. Nothing started.",
+  "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
+  "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
+  "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
+  "The OpenRouter key's own spending limit has no room. Only the key's owner can raise it at OpenRouter; it is not an HR setting. Nothing started.",
+  "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
+  "A later qualification of this configuration failed on answer quality.",
   // D-095: the OpenRouter key (never echoed back).
   "That is not an OpenRouter API key. Nothing was saved.",
   "The OpenRouter key is set on the server (environment or .env) and cannot be changed here.",
@@ -149,11 +159,13 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Too many key changes. Wait a few minutes and try again.",
   "This change must come from the AI Models page.",
   // D-096: HR spending controls (apps/assistant/ai_assistant/model_admin.py).
-  "The daily limit must be US$0.00 to US$1.00 and the call limit 1 to 200. Nothing changed.",
+  "The daily limit must be a non-negative US$ amount and the call limit 1 to 200. Nothing changed.",
+  "Confirm the new daily limit to raise it. Nothing changed.",
+  "The OpenRouter key must have its own finite spending limit that never resets before the app's spending limits can be raised. Nothing changed.",
   "The spending limits changed since this view. Refresh and try again.",
   "Too many spending changes. Wait a few minutes and try again.",
   "The spending ledger is missing or not usable. Nothing changed.",
-  "The lifetime limit must stay between the key's opening usage and US$1.00 above it.",
+  "The lifetime limit cannot be below the key's opening usage. Nothing changed.",
   "Confirm the new lifetime limit to raise it. Nothing changed.",
   "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed.",
   "The OpenRouter key could not be checked. Nothing changed.",
@@ -597,6 +609,29 @@ export interface ModelQualification {
   connection: ModelConnectionTest | null;
   quality: { status: "SCORED" | "NOT_SCORED"; reason: string | null } | null;
   reproducibility: Record<string, unknown> | null;
+  /** D-098: what the outcome means, as closed codes (absent from older servers). */
+  diagnosis?: ModelDiagnosis;
+}
+
+/** D-098: a qualification outcome classified for HR recovery. */
+export interface ModelDiagnosis {
+  category: "passed" | "running" | "cancelled" | "technical" | "budget" | "configuration" | "quality" | "billing_uncertain";
+  cause: string;
+  action: "NONE" | "WAIT" | "RUN_AGAIN" | "RETRY_LATER" | "TEST_CONNECTION" | "REVIEW_SPENDING" | "ESCALATE_IT" | "ESCALATE_DEVELOPER" | "ESCALATE_OPERATOR" | "ESCALATE_KEY_OWNER";
+  /** A retry is worth making now, without another change. */
+  retryable: boolean;
+  /** A genuine quality failure: an earlier pass of this configuration no longer counts. */
+  supersedes_pass: boolean;
+}
+
+/** D-098: what a paid qualification may spend, against the strictest applicable limit. */
+export interface ModelPaidQualification {
+  calls: number | null;
+  reservation_micro_usd: number | null;
+  estimate_micro_usd: number | null;
+  effective_remaining_micro_usd: number | null;
+  refusal: string | null;
+  sufficient: boolean;
 }
 
 export interface ModelProfileView {
@@ -621,6 +656,10 @@ export interface ModelProfileView {
   connection_test: ModelConnectionTest | null;
   qualification: ModelQualification | null;
   activation_blockers: string[];
+  /** D-098: the passing run Activate would use (may be older than the latest run). */
+  eligible_qualification?: { qualification_id: string; finished_at: string | null; is_latest: boolean } | null;
+  /** D-098: remote configurations only. */
+  paid_qualification?: ModelPaidQualification | null;
 }
 
 export interface ModelOverview {
@@ -639,6 +678,8 @@ export interface ModelOverview {
     changed_by: string | null;
     config_changed: boolean;
     reverted: string | null;
+    /** D-098: no model answers (a GPT-OSS configuration stopped being usable). */
+    unavailable?: boolean;
   };
   last_good: { profile_id: string; display_name: string } | null;
   quality: { status: "SCORED" | "NOT_SCORED"; reason: string | null };
@@ -664,7 +705,8 @@ export interface ModelBudgetStatus {
   configured: boolean;
   mode: "D-094" | "D-095";
   timezone: string;
-  daily_cap_ceiling_micro_usd: number;
+  /** D-098: the default daily limit (US$1.00), not a ceiling. */
+  daily_cap_default_micro_usd: number;
   daily_cap_micro_usd: number;
   next_reset_at: string;
   credential: ModelCredentialStatus;
@@ -673,6 +715,14 @@ export interface ModelBudgetStatus {
     passed: boolean;
     remaining_micro_usd: number | null;
     remaining_usd: string | null;
+    /** D-098: the key's own limit, usage and reset policy (absent from older servers). */
+    limit_micro_usd?: number | null;
+    limit_usd?: string | null;
+    usage_micro_usd?: number | null;
+    usage_usd?: string | null;
+    limit_reset?: string | null;
+    /** Account credits are never read: always null. */
+    account_credits?: null;
     checks: { check: string; ok: boolean; detail: string }[];
   } | null;
   ledger: {
@@ -708,7 +758,11 @@ export interface ModelSpendingControls {
   revision: number | null;
   readable: boolean;
   daily_cap_micro_usd: number;
+  /** D-098: only the ledger's technical bound (no US$1 ceiling). */
   daily_cap_max_micro_usd: number;
+  daily_cap_default_micro_usd?: number;
+  /** D-098: what raising either limit needs, as closed codes. */
+  raise_requires?: string[];
   daily_cap_source: "hr" | "environment";
   max_calls: number;
   max_calls_range: [number, number];
@@ -747,8 +801,12 @@ export const fetchModelAudit = (signal?: AbortSignal) =>
   request<{ events: ModelAuditEvent[] }>("/admin/models/audit?limit=100", undefined, signal);
 export const testModelConnection = (profileId: string) =>
   request<ModelConnectionTest>(`${modelPath(profileId)}/connection-test`, {});
-export const startModelQualification = (profileId: string) =>
-  request<{ qualification_id: string }>(`${modelPath(profileId)}/qualifications`, {});
+// D-098: a paid (remote) run is sent with the number of paid calls HR confirmed.
+export const startModelQualification = (profileId: string, confirmPaidCalls?: number) =>
+  request<{ qualification_id: string }>(
+    `${modelPath(profileId)}/qualifications`,
+    confirmPaidCalls === undefined ? {} : { confirm_paid_calls: confirmPaidCalls },
+  );
 export const fetchModelQualification = (qualificationId: string, signal?: AbortSignal) =>
   request<ModelQualification>(`/admin/models/qualifications/${encodeURIComponent(qualificationId)}`, undefined, signal);
 export const cancelModelQualification = (qualificationId: string) =>
@@ -771,17 +829,26 @@ export const saveModelCredential = (apiKey: string) =>
 export const clearModelCredential = () =>
   request<ModelCredentialStatus>("/admin/models/credential", undefined, undefined, "DELETE");
 // D-096: HR spending controls. Amounts are whole micro-USD; the server checks every bound.
-export const saveSpendingControls = (expectedRevision: number, dailyCapMicroUsd: number, maxCalls: number) =>
+// D-098: raising the daily limit sends the same amount again as the HR confirmation.
+export const saveSpendingControls = (
+  expectedRevision: number,
+  dailyCapMicroUsd: number,
+  maxCalls: number,
+  confirmDailyCapMicroUsd: number | null = null,
+) =>
   request<ModelBudgetStatus>("/admin/models/budget/controls", {
     expected_revision: expectedRevision,
     daily_cap_micro_usd: dailyCapMicroUsd,
     max_calls: maxCalls,
+    ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
   }, undefined, "PUT");
 // A raise sends the same amount again as the HR confirmation; a decrease needs none.
-export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null) =>
+// D-098 (F1): the cap the page showed is sent too, so a change made in between is refused.
+export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
   request<ModelBudgetStatus>("/admin/models/budget/lifetime-cap", {
     cap_micro_usd: capMicroUsd,
     confirm_cap_micro_usd: confirmCapMicroUsd,
+    expected_cap_micro_usd: expectedCapMicroUsd,
   }, undefined, "PUT");
 // Read-only: the free preflight reads the key's OpenRouter limit; nothing is changed.
 export const refreshProviderLimits = () =>

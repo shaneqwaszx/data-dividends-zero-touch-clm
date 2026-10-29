@@ -27,13 +27,17 @@ administrator may hand the server an OpenRouter key when no environment or .env 
 changing it needs the Origin header of an allowed page and is rate limited.
 
 D-096: an HR administrator also sets the remote model's spending controls here: the daily
-allowance (at most US$1.00 per Singapore day) and the calls per activation (1 to 200), stored
-in the model state database (compare-and-set, every process reads them per request, applied to
-the active model without a restart or a new activation, its call count kept); the ledger's
-lifetime cap, from the key's opening provider usage up to US$1.00 above it (a raise needs the
-amount confirmed and the existing reconciliation checks against OpenRouter's reported usage);
-and a read-only refresh of the key's OpenRouter limit. Spend, calls and ledger history are
-never reset, no ledger is created, and neither the key nor its OpenRouter limit is changed.
+allowance per Singapore day and the calls per activation (1 to 200), stored in the model state
+database (compare-and-set, every process reads them per request, applied to the active model
+without a restart or a new activation, its call count kept); the ledger's lifetime cap, at or
+above the key's opening provider usage; and a read-only refresh of the key's OpenRouter limit.
+D-098: neither limit has a US$1 ceiling (US$1.00 stays the daily default). Raising either
+needs the amount confirmed again and a fresh free preflight showing the key has a finite,
+never-resetting OpenRouter limit; raising the lifetime cap also needs the existing
+reconciliation checks against OpenRouter's reported usage. At every call the strictest of the
+daily allowance, the lifetime cap and the key's own limit applies. Spend, calls and ledger
+history are never reset, no ledger is created, and neither the key nor its OpenRouter limit is
+changed.
 
 Switching is atomic: each answer takes one snapshot of the active model when it starts and
 keeps it to the end, and the choice is a compare-and-set on the stored revision, which every
@@ -62,10 +66,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
 
 from . import key_sources
-from .budget import BudgetedChatModel, BudgetLedger, LedgerError
+from .budget import (
+    DEFAULT_DAILY_CAP_MICRO_USD,
+    MAX_MICRO_USD,
+    BudgetedChatModel,
+    BudgetLedger,
+    LedgerError,
+)
 from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
-from .llm import ChatModel, OpenAICompatibleChatModel, micro_usd
+from .llm import ChatModel, OpenAICompatibleChatModel
 from .model_admin_store import (
     DAILY_CAP_MAX_MICRO_USD,
     MAX_CALLS_RANGE,
@@ -80,6 +90,7 @@ from .model_admin_store import (
 )
 from .model_catalog import (
     BASELINE_ID,
+    OPENROUTER_FAST_PROFILE_ID,
     BoundedPromptModel,
     Catalogue,
     CatalogueEntry,
@@ -90,9 +101,13 @@ from .model_catalog import (
     profiles_path,
 )
 from .model_factory import ASSISTANT_DIR
-from .model_profiles import ProfileConfigError
-from .model_qualification import connection_test, qualification_basis, quality_state
-from .remote_checks import ALLOCATION_LIMIT_USD
+from .model_profiles import OPENROUTER_PROFILE_ID, ProfileConfigError
+from .model_qualification import (
+    G7_MAX_CUT_SHORT,
+    connection_test,
+    qualification_basis,
+    quality_state,
+)
 from .remote_test import (
     RemoteTestModel,
     budget_status,
@@ -107,6 +122,10 @@ log = logging.getLogger("ai_assistant.model_admin")
 
 CAPABILITY = "MODEL_CONFIG_MANAGE"
 SYSTEM_ACTOR = "system"
+# D-098: the stored "no model" state after a GPT-OSS configuration stopped being usable (never
+# a profile id in the catalogue, so it can never be activated or rolled back to).
+UNAVAILABLE_ID = "ai_unavailable"
+REMOTE_PROFILE_IDS = frozenset({OPENROUTER_PROFILE_ID, OPENROUTER_FAST_PROFILE_ID})
 _QUALIFICATION_ID = re.compile(r"[0-9a-f]{32}")
 # The qualification runs the dev-only evaluation harness in its own process (never in this one).
 QUALIFY_SCRIPT = ASSISTANT_DIR / "scripts" / "qualify_model.py"
@@ -122,11 +141,11 @@ CREDENTIAL_WINDOW_SECONDS = 600.0
 MAX_CREDENTIAL_BODY = 1024
 # HR spending changes and provider-limit refreshes (D-096), per administrator in the window.
 BUDGET_ATTEMPTS = 20
-# The lifetime cap may be set from the ledger's opening provider usage up to this much above
-# it (the D-092 allocation the preflight's ledger.cap_within_allocation check also enforces).
-LIFETIME_ALLOCATION_MICRO_USD = micro_usd(ALLOCATION_LIMIT_USD)
 # Reconciliation checks a lifetime cap increase needs (remote_checks.check_ledger).
 CAP_RAISE_CHECKS = ("ledger.breaker_closed_no_open_calls", "ledger.usage_reconciled")
+# D-098: what any increase of app spending authority needs from the key itself: a finite
+# provider-side limit that never resets (a missing limit is never read as permission).
+PROVIDER_LIMIT_CHECKS = ("key.limit_set", "key.limit_never_resets", "key.limit_finite")
 
 # Fixed messages only (the browser shows these and nothing else from a refusal).
 MESSAGES = {
@@ -159,13 +178,19 @@ MESSAGES = {
     "ORIGIN_REQUIRED": "This change must come from the AI Models page.",
     # D-096: HR spending controls.
     "CONTROLS_INVALID": (
-        "The daily limit must be US$0.00 to US$1.00 and the call limit 1 to 200. Nothing changed."
+        "The daily limit must be a non-negative US$ amount and the call limit 1 to 200."
+        " Nothing changed."
+    ),
+    "DAILY_CONFIRMATION_REQUIRED": "Confirm the new daily limit to raise it. Nothing changed.",
+    "PROVIDER_LIMIT_REQUIRED": (
+        "The OpenRouter key must have its own finite spending limit that never resets before"
+        " the app's spending limits can be raised. Nothing changed."
     ),
     "CONTROLS_CONFLICT": "The spending limits changed since this view. Refresh and try again.",
     "BUDGET_RATE_LIMITED": "Too many spending changes. Wait a few minutes and try again.",
     "LEDGER_UNAVAILABLE": "The spending ledger is missing or not usable. Nothing changed.",
     "CAP_OUT_OF_RANGE": (
-        "The lifetime limit must stay between the key's opening usage and US$1.00 above it."
+        "The lifetime limit cannot be below the key's opening usage. Nothing changed."
     ),
     "CAP_CONFIRMATION_REQUIRED": "Confirm the new lifetime limit to raise it. Nothing changed.",
     "RECONCILIATION_REQUIRED": (
@@ -173,6 +198,31 @@ MESSAGES = {
         " for) before the lifetime limit can be raised. Nothing changed."
     ),
     "PROVIDER_CHECK_FAILED": "The OpenRouter key could not be checked. Nothing changed.",
+    # D-098: paid qualification confirmation, budget and escalation.
+    "PAID_CONFIRMATION_REQUIRED": (
+        "Confirm the number of paid calls this qualification may make. Nothing started."
+    ),
+    "QUALIFICATION_BUDGET_INSUFFICIENT": (
+        "The spending limits do not leave room for every paid call this qualification may"
+        " make. Nothing started."
+    ),
+    "QUALIFICATION_BILLING_UNRECONCILED": (
+        "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started."
+    ),
+    "PROVIDER_LIMIT_NOT_CHECKED": (
+        "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started."
+    ),
+    "PROVIDER_KEY_LIMIT_EXHAUSTED": (
+        "The OpenRouter key's own spending limit has no room. Only the key's owner can raise"
+        " it at OpenRouter; it is not an HR setting. Nothing started."
+    ),
+    "QUALIFICATION_ESCALATION_REQUIRED": (
+        "This configuration failed on answer quality. A developer or IT must change it before"
+        " it is qualified again. Nothing started."
+    ),
+    "QUALIFICATION_SUPERSEDED": (
+        "A later qualification of this configuration failed on answer quality."
+    ),
 }
 
 
@@ -234,9 +284,18 @@ class ModelSelector:
         self._controls_lock = threading.Lock()
         self._controls_applied: tuple[int, int] | None = None
         self._active = self._baseline(0)
+        # D-098: how many qualification runs had finished when the active model was last
+        # checked (None: never), so a newly finished run is noticed by every process.
+        self._finished: int | None = None
+        # D-098 (F2): stored reverts whose audit write failed, recorded once writes work.
+        self._pending_audits: list[dict[str, Any]] = []
         if store is not None:
-            self._active = replace(self._active, revision=-1)
+            # D-098 (F2): until the stored activation is read and usable there is no model
+            # (never the environment baseline, which may be a local LLM, in place of GPT-OSS).
+            self._active = self._unavailable(-1)
             self.current()
+            # D-098: a run whose supervisor stopped with the previous service is closed now.
+            self.close_interrupted()
 
     @property
     def managed(self) -> bool:
@@ -293,19 +352,44 @@ class ModelSelector:
             return self._active
         try:
             revision = self.store.revision()
+            finished = self.store.finished_qualifications()
         except Exception:
             log.error("model state unavailable; keeping the current model")
             return self._active
-        if revision == self._active.revision:
+        if (
+            revision == self._active.revision
+            and finished == self._finished
+            and not self._pending_audits
+        ):
             return self._active
         with self._lock:
             try:
+                self._flush_audits()
                 if self.store.revision() != self._active.revision:
                     self._active = self._restore()
+                # D-098 decision 6a: a run finished (in any process, supervised or not), so
+                # the active configuration is checked again before this answer uses it.
+                finished = self.store.finished_qualifications()
+                if finished != self._finished:
+                    self._superseded_check()
+                    self._finished = finished
             except Exception:
                 # Never fail an answer on model state: keep the model already in use.
                 log.error("model state could not be reloaded; keeping the current model")
             return self._active
+
+    def _superseded_check(self) -> None:
+        """Under ``self._lock``: stop the active configuration (stored "AI unavailable", or
+        the baseline for a local profile, audited) when a later genuine quality failure
+        superseded its pass. Cheap: the qualification rows only; nothing is rebuilt."""
+
+        assert self.store is not None
+        active = self._active
+        if active.profile_id in (BASELINE_ID, UNAVAILABLE_ID):
+            return
+        basis = qualification_basis()
+        if eligible_run(self.store, active.profile_id, active.fingerprint, basis)[0] is None:
+            self._active = self._restore("QUALIFICATION_SUPERSEDED")
 
     # --- HR spending controls (D-096) -------------------------------------------------------
 
@@ -369,36 +453,154 @@ class ModelSelector:
         start = model._start_call  # noqa: SLF001
         return len(ledger.closed_calls_after(start)) + ledger.status().open_calls
 
-    def _restore(self) -> Active:
+    def revalidate(self) -> None:
+        """D-098 decision 6a: after a run finishes, an active configuration whose pass a
+        genuine quality failure superseded stops serving at once (audited); it is never
+        replaced by another model automatically. Every request makes the same check when a run
+        has finished (``_current``), so this only makes it happen without waiting for one."""
+
+        self._current()
+
+    def _restore(self, action: str = "STARTUP_REVERTED") -> Active:
+        """The stored activation as a model, or its audited revert when it cannot be used.
+
+        D-098 (F2, fail closed, ported from PR #128 R4/R5): a GPT-OSS configuration is never
+        replaced by another model, not even for a moment: if its revert cannot be stored
+        (the state database is locked or failing) there is no model now, at revision -1, so
+        the next request reads the state and tries again until the revert is stored; after
+        repeated conflicts the decision follows the last stored activation read, never a
+        model kept in memory. A local profile reverts to the baseline as in D-093."""
+
         assert self.store is not None
+        remote = self._active.profile_id in REMOTE_PROFILE_IDS | {UNAVAILABLE_ID}
         for _ in range(3):
             stored = self.store.activation(self.baseline_choice())
             if stored.active_profile_id == BASELINE_ID:
                 return self._baseline(stored.revision)
+            if stored.active_profile_id == UNAVAILABLE_ID:
+                return self._unavailable(stored.revision)
             active, problem = self._build_stored(stored)
             if active is not None:
                 return active
+            remote = self.is_remote(stored.active_profile_id)
+            target = Choice(UNAVAILABLE_ID, UNAVAILABLE_ID) if remote else self.baseline_choice()
             try:
                 revision = self.store.activate(
                     stored.revision,
-                    self.baseline_choice(),
+                    target,
                     _last_good(stored),
                     SYSTEM_ACTOR,
                 )
             except RevisionConflict:
                 continue
+            except Exception:
+                if not remote:
+                    raise
+                log.error("model state could not be updated; no model until it is")
+                return self._unavailable(-1, reverted=problem)
+            self._audit_revert(
+                {
+                    "actor": SYSTEM_ACTOR,
+                    "role": None,
+                    "action": action,
+                    "outcome": "reverted",
+                    "profile_id": stored.active_profile_id,
+                    "fingerprint": stored.active_fingerprint,
+                    "code": problem,
+                    "revision": revision,
+                }
+            )
+            if remote:
+                return self._unavailable(revision, reverted=problem)
+            return self._baseline(revision, reverted=problem)
+        if remote:
+            return self._unavailable(self._active.revision)
+        return self._baseline(self._active.revision)
+
+    def _audit_revert(self, event: dict[str, Any]) -> None:
+        """Record a stored revert; if the audit write fails, keep it (in this process) and
+        record it once the state database accepts writes again (``_flush_audits``)."""
+
+        self._pending_audits.append(event)
+        self._flush_audits()
+
+    def _flush_audits(self) -> None:
+        assert self.store is not None
+        while self._pending_audits:
+            try:
+                self.store.record(**self._pending_audits[0])
+            except Exception:
+                log.error("model change audit could not be written; retrying later")
+                return
+            self._pending_audits.pop(0)
+
+    def _unavailable(self, revision: int, reverted: str | None = None) -> Active:
+        """D-098: no model at all (the chat gives labelled case-data guidance)."""
+
+        return Active(
+            revision=revision,
+            profile_id=UNAVAILABLE_ID,
+            fingerprint=UNAVAILABLE_ID,
+            model=None,
+            base_url=None,
+            reverted=reverted,
+        )
+
+    def is_remote(self, profile_id: str) -> bool:
+        """A GPT-OSS configuration (listed now, or one of the known remote profile ids)."""
+
+        if profile_id in REMOTE_PROFILE_IDS:
+            return True
+        entry = load_catalogue(self.settings).get(profile_id)
+        return entry is not None and entry.source == "code"
+
+    def close_interrupted(self) -> list[str]:
+        """D-098: close every run whose supervising service has gone (a restart, a crash) as
+        ``INTERRUPTED``, or ``INTERRUPTED_BILLING_UNCERTAIN`` when a paid call of the remote
+        model may have been open. Never restarts a run; the ledger keeps any open call, which an
+        operator reconciles. Returns the ids closed."""
+
+        if self.store is None:
+            return []
+        try:
+            orphans = self.store.unsupervised()
+        except Exception:
+            log.error("qualification state unavailable; interrupted runs not checked")
+            return []
+        closed = []
+        for qualification_id in orphans:
+            item = self.store.qualification(qualification_id) or {}
+            entry = load_catalogue(self.settings).get(str(item.get("profile_id")))
+            code = "INTERRUPTED"
+            if entry is not None and entry.source == "code" and self._paid_call_uncertain():
+                code = "INTERRUPTED_BILLING_UNCERTAIN"
+            self.store.finish_qualification(qualification_id, "error", code, item.get("summary"))
+            final = self.store.qualification(qualification_id) or {}
+            if final.get("code") != code:
+                continue  # it finished by itself meanwhile
+            closed.append(qualification_id)
             self.store.record(
                 actor=SYSTEM_ACTOR,
                 role=None,
-                action="STARTUP_REVERTED",
-                outcome="reverted",
-                profile_id=stored.active_profile_id,
-                fingerprint=stored.active_fingerprint,
-                code=problem,
-                revision=revision,
+                action="QUALIFICATION_INTERRUPTED",
+                outcome="error",
+                profile_id=item.get("profile_id"),
+                fingerprint=item.get("fingerprint"),
+                code=code,
             )
-            return self._baseline(revision, reverted=problem)
-        return self._baseline(self._active.revision)
+        return closed
+
+    def _paid_call_uncertain(self) -> bool:
+        """A remote call is still open, or one was abandoned (read-only ledger check; an
+        unreadable ledger is treated as uncertain)."""
+
+        try:
+            ledger = BudgetLedger(ledger_file(self.settings))
+            ledger.verify()
+            status = ledger.status()
+        except LedgerError:
+            return True
+        return status.open_calls > 0 or status.breaker_code == "abandoned_call"
 
     def remote_options(self) -> dict[str, Any]:
         """The D-094 remote model's test seams (tests only; None in the service)."""
@@ -424,13 +626,17 @@ class ModelSelector:
             if stored.active_qualification_id
             else None
         )
+        basis = qualification_basis()
         if (
             qualification is None
             or qualification["status"] != "passed"
-            or qualification["basis"] != qualification_basis()
+            or qualification["basis"] != basis
             or not stored.active_prompt_limit
         ):
             return None, "QUALIFICATION_OUT_OF_DATE"
+        # D-098 decision 6a: a later genuine quality failure of this configuration ends it.
+        if eligible_run(self.store, entry.profile_id, entry.fingerprint, basis)[0] is None:
+            return None, "QUALIFICATION_SUPERSEDED"
         if entry.source == "code":
             # D-094: the remote model, gated per call and per case (remote_test.py).
             try:
@@ -484,21 +690,28 @@ class ModelSelector:
             if active is not None:
                 self._active = active
                 return self._active
-            # Changed between the checks and the store: put the previous model back (as it
-            # was, last good model included), record that, and restore it as at start-up
-            # (which falls back to the baseline, audited, if it is no longer usable either).
-            undo = self.store.activate(
-                revision, previous or self.baseline_choice(), _last_good(before), by
+            # Changed between the checks and the store: put back exactly what was stored
+            # before (D-098 F2: "AI unavailable" included, never the baseline or the last good
+            # model in its place), last good model included, record that, and restore it as at
+            # start-up (which reverts, audited, if it is no longer usable either).
+            was = Choice(
+                before.active_profile_id,
+                before.active_fingerprint,
+                before.active_qualification_id,
+                before.active_prompt_limit,
             )
-            self.store.record(
-                actor=by,
-                role=None,
-                action="ACTIVATION_UNDONE",
-                outcome="reverted",
-                profile_id=choice.profile_id,
-                fingerprint=choice.fingerprint,
-                code=problem or "BUILD_FAILED",
-                revision=undo,
+            undo = self.store.activate(revision, was, _last_good(before), by)
+            self._audit_revert(
+                {
+                    "actor": by,
+                    "role": None,
+                    "action": "ACTIVATION_UNDONE",
+                    "outcome": "reverted",
+                    "profile_id": choice.profile_id,
+                    "fingerprint": choice.fingerprint,
+                    "code": problem or "BUILD_FAILED",
+                    "revision": undo,
+                }
             )
             self._active = self._restore()
             raise ProfileConfigError(problem or "BUILD_FAILED", "activation undone")
@@ -526,6 +739,284 @@ def _last_good(stored: Activation) -> Choice | None:
     )
 
 
+# --- D-098: what a qualification outcome means, and which run makes a profile eligible -------
+
+# Preflight checks whose failure means spend is not accounted for: an operator reconciles.
+_BILLING_CHECKS = frozenset(
+    {
+        "ledger.breaker_closed_no_open_calls",
+        "ledger.usage_reconciled",
+        "ledger.earlier_calls_verified",
+        "ledger.healthy",
+    }
+)
+# Checks HR can resolve with the spending controls (or by waiting for the daily reset).
+_BUDGET_CHECKS = frozenset({"ledger.daily_room_for_one_call", "ledger.headroom_for_one_call"})
+# D-098: the OpenRouter key's own limit has no room. Only the key's owner can raise it at
+# OpenRouter; it is never an HR spending control.
+_KEY_LIMIT_CHECKS = frozenset({"key.room_for_one_call"})
+# Server settings, the key's own limit or owner attestations: IT or the owner.
+_CONFIGURATION_CHECKS = frozenset(
+    {
+        "test_mode.ready",
+        "gate.account",
+        "endpoint.approved",
+        "key.limit_set",
+        "key.limit_never_resets",
+        "key.limit_finite",
+        "ledger.cap_within_allocation",
+        "ledger.cap_above_opening",
+        "owner.auto_topup_off",
+        "owner.prompt_logging_off",
+    }
+)
+# Provider answers that trip the ledger breaker (budget.TRIP_ERROR_CLASSES): not retryable.
+_PROVIDER_REFUSALS = frozenset(
+    {
+        "bad_request",
+        "auth",
+        "payment",
+        "payment_key_limit",
+        "forbidden",
+        "not_allowed",
+        "no_provider",
+    }
+)
+# Errors that end a run without saying anything about the model.
+_TECHNICAL_ERRORS = frozenset(
+    {
+        "INTERRUPTED",
+        "STALE",
+        "PROCESS_EXITED",
+        "SUPERVISOR_FAILED",
+        "HARNESS_ERROR",
+        "DEADLINE",
+        "CANCELLED",
+    }
+)
+
+
+@dataclass(frozen=True)
+class Diagnosis:
+    """What a run's outcome means for HR, as closed codes (the page names them).
+
+    ``category``: passed, running, cancelled, technical, budget, configuration, quality or
+    billing_uncertain. ``retryable``: a retry is worth making now without another change.
+    ``supersedes_pass``: a genuine quality failure, so an earlier pass of the same
+    configuration no longer counts (D-098 decision 6a); nothing else ever supersedes one."""
+
+    category: str
+    cause: str
+    action: str
+    retryable: bool = False
+    supersedes_pass: bool = False
+
+    def view(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "cause": self.cause,
+            "action": self.action,
+            "retryable": self.retryable,
+            "supersedes_pass": self.supersedes_pass,
+        }
+
+
+def diagnose(item: dict[str, Any], *, current: bool = True) -> Diagnosis:
+    """Classify one stored run from its status, code and content-free summary.
+
+    ``current``: the run was made for the configuration's current fingerprint and answer code
+    (the qualification basis). A pass that is no longer current cannot be activated, so HR is
+    told to qualify the current configuration (the paid-run confirmation, budget checks and
+    decision 6a still apply to that new run). Only a pass is treated this way: a failure keeps
+    its own classification and escalation."""
+
+    status, code = item.get("status"), str(item.get("code") or "")
+    summary = item.get("summary") or {}
+    if status == "running":
+        return Diagnosis("running", "RUNNING", "WAIT")
+    if status == "passed":
+        if not current:
+            return Diagnosis("configuration", "OUT_OF_DATE", "RUN_AGAIN", retryable=True)
+        return Diagnosis("passed", "PASSED", "NONE")
+    if status == "cancelled":
+        return Diagnosis("cancelled", "CANCELLED", "RUN_AGAIN", retryable=True)
+    if code == "INTERRUPTED_BILLING_UNCERTAIN":
+        return Diagnosis("billing_uncertain", code, "ESCALATE_OPERATOR")
+    if code in _TECHNICAL_ERRORS:
+        return Diagnosis("technical", code, "RUN_AGAIN", retryable=True)
+    if code == "CONFIG_MISMATCH":
+        # The settings or the answer code changed while it ran: qualify the current ones.
+        return Diagnosis("configuration", code, "RUN_AGAIN", retryable=True)
+    if code == "CONNECTION_FAILED":
+        return _connection_diagnosis(summary.get("connection") or {})
+    if code.startswith("GATES_FAILED:"):
+        return _gate_diagnosis(summary)
+    # Settings the server refused (REMOTE_MANIFEST_MISSING, LEDGER_UNAVAILABLE, ...).
+    return Diagnosis("configuration", code or "UNKNOWN", "ESCALATE_IT")
+
+
+def _connection_diagnosis(connection: dict[str, Any]) -> Diagnosis:
+    failed = {str(c.get("check")) for c in connection.get("checks") or [] if not c.get("ok")}
+    if failed & _BILLING_CHECKS:
+        return Diagnosis("billing_uncertain", "LEDGER_NOT_RECONCILED", "ESCALATE_OPERATOR")
+    if failed & _CONFIGURATION_CHECKS:
+        return Diagnosis("configuration", "SERVER_SETTINGS", "ESCALATE_IT")
+    if failed & _KEY_LIMIT_CHECKS:
+        return Diagnosis("budget", "KEY_LIMIT_EXHAUSTED", "ESCALATE_KEY_OWNER")
+    if failed & _BUDGET_CHECKS:
+        return Diagnosis("budget", "NO_ROOM_FOR_CALLS", "REVIEW_SPENDING", retryable=True)
+    # The provider or its public listing could not be read, or a local model did not answer.
+    return Diagnosis("technical", "PROVIDER_UNAVAILABLE", "TEST_CONNECTION", retryable=True)
+
+
+def _gate_diagnosis(summary: dict[str, Any]) -> Diagnosis:
+    """The category explains what HR sees first (billing, budget, technical, quality); a
+    genuine quality failure supersedes an earlier pass whatever the category (D-098 6a),
+    so billing and quality stay distinct and neither hides the other."""
+
+    result = _gate_category(summary)
+    escalation = _quality_escalation(summary)
+    if not result.supersedes_pass and escalation is not None:
+        # The re-run is refused (QUALIFICATION_ESCALATION_REQUIRED), so the advice is the
+        # quality escalation, never a retry; an unreconciled billing run still goes to the
+        # operator first (both must be resolved).
+        action = result.action if result.category == "billing_uncertain" else escalation
+        return replace(result, action=action, retryable=False, supersedes_pass=True)
+    return result
+
+
+def _quality_escalation(summary: dict[str, Any]) -> str | None:
+    """Who resolves a genuine quality failure, or None: a developer for G-3 (an unsafe line
+    shown) or G-6 with lines written; IT for G-7 for the configuration's own reasons
+    (``_g7_cause``; never a provider failure mid-answer)."""
+
+    gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
+
+    def failed(gate: str) -> bool:
+        item = gates.get(gate)
+        return bool(item and item.get("gating") and not item.get("passed"))
+
+    validity = (gates.get("G-6") or {}).get("value")
+    if failed("G-3") or (failed("G-6") and isinstance(validity, int | float)):
+        return "ESCALATE_DEVELOPER"
+    return "ESCALATE_IT" if _g7_cause(summary) is not None else None
+
+
+def _g7_cause(summary: dict[str, Any]) -> str | None:
+    """Why G-7 failed, when it is the configuration's own failure: answers cut short by the
+    token limits beyond G7_MAX_CUT_SHORT once those cut short by a provider failure
+    mid-answer (``stream_partial``: technical, see G-4) are set aside, or context capacity
+    not verified for the prompts. None when G-7 passed or only provider failures explain it."""
+
+    gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
+    item = gates.get("G-7") or {}
+    if not item.get("gating") or item.get("passed"):
+        return None
+    raw = item.get("value")
+    value: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    limit, largest = value.get("prompt_limit"), value.get("largest_prompt_bound")
+    if value.get("capacity") != "verified" or (
+        isinstance(limit, int) and isinstance(largest, int) and largest > limit
+    ):
+        return "CAPACITY_NOT_VERIFIED"
+    metrics = summary.get("metrics") or {}
+    answers = metrics.get("answers")
+    rate = value.get("cut_short_rate")
+    if (
+        not isinstance(answers, int)
+        or isinstance(answers, bool)
+        or answers <= 0
+        or not isinstance(rate, int | float)
+    ):
+        return "ANSWERS_CUT_SHORT"  # cannot be explained away: fail safe
+    partial = (metrics.get("fallback_reasons") or {}).get("stream_partial", 0)
+    if not isinstance(partial, int) or isinstance(partial, bool) or partial < 0:
+        return "ANSWERS_CUT_SHORT"  # malformed: fail safe
+    # Whole answers, not the rounded rate (the rate is stored to 4 decimals): cut short by
+    # the configuration itself = all cut short - those cut short by a provider failure.
+    genuine = round(rate * answers) - partial
+    return "ANSWERS_CUT_SHORT" if genuine > G7_MAX_CUT_SHORT * answers else None
+
+
+def _gate_category(summary: dict[str, Any]) -> Diagnosis:
+    gates = {g.get("gate"): g for g in summary.get("gates") or [] if isinstance(g, dict)}
+    metrics = summary.get("metrics") or {}
+
+    def failed(gate: str) -> bool:
+        item = gates.get(gate)
+        return bool(item and item.get("gating") and not item.get("passed"))
+
+    reasons = metrics.get("fallback_reasons") or {}
+    errors = metrics.get("call_errors") or {}
+    calls, verified = metrics.get("remote_calls"), metrics.get("remote_calls_verified")
+    if failed("G-3"):  # a displayed line that is not allowed: never acceptable
+        return Diagnosis("quality", "UNSAFE_LINE", "ESCALATE_DEVELOPER", supersedes_pass=True)
+    if failed("G-8") and isinstance(calls, int) and calls > 0 and verified != calls:
+        return Diagnosis("billing_uncertain", "CALLS_NOT_VERIFIED", "ESCALATE_OPERATOR")
+    validity = (gates.get("G-6") or {}).get("value")
+    if failed("G-6") and isinstance(validity, int | float):
+        # Lines were written and too few passed the exact-line check.
+        return Diagnosis("quality", "LOW_LINE_VALIDITY", "ESCALATE_DEVELOPER", supersedes_pass=True)
+    if int(reasons.get("budget_refused", 0)) + int(reasons.get("remote_boundary", 0)) > 0:
+        # Calls were refused before anything was sent (allowance, limits, preflight).
+        return Diagnosis("budget", "CALLS_REFUSED", "REVIEW_SPENDING", retryable=True)
+    if failed("G-4") or failed("G-2") or (failed("G-6") and validity is None):
+        if set(errors) & _PROVIDER_REFUSALS:
+            return Diagnosis("technical", "PROVIDER_REFUSED", "ESCALATE_OPERATOR")
+        return Diagnosis("technical", "MODEL_UNAVAILABLE", "RETRY_LATER", retryable=True)
+    g7 = _g7_cause(summary)
+    if g7 == "ANSWERS_CUT_SHORT":
+        return Diagnosis("quality", g7, "ESCALATE_IT", supersedes_pass=True)
+    if g7 == "CAPACITY_NOT_VERIFIED":
+        return Diagnosis("configuration", g7, "ESCALATE_IT", supersedes_pass=True)
+    if failed("G-7"):  # only provider failures mid-answer cut the answers short
+        return Diagnosis("technical", "MODEL_UNAVAILABLE", "RETRY_LATER", retryable=True)
+    return Diagnosis("technical", "UNKNOWN", "RUN_AGAIN", retryable=True)
+
+
+def eligible_run(
+    store: ModelAdminStore, profile_id: str, fingerprint: str, basis: str
+) -> tuple[dict[str, Any] | None, str | None]:
+    """The run that lets this configuration be activated (D-098 decision 6a): its newest
+    passing run for the current fingerprint and answer code, unless a genuine quality failure
+    came after it. Technical, budget, configuration, billing and cancelled outcomes never
+    take a pass away. Returns (run, None), or (None, the blocker code)."""
+
+    item = _deciding_run(store, profile_id, fingerprint, basis)
+    if item is None:
+        return None, "NOT_QUALIFIED"
+    if item["status"] == "passed":
+        return item, None
+    return None, "QUALIFICATION_SUPERSEDED"
+
+
+def superseding_run(
+    store: ModelAdminStore, profile_id: str, fingerprint: str, basis: str
+) -> dict[str, Any] | None:
+    """The genuine quality failure that blocks this configuration under decision 6a, if any.
+    The AI Models page shows its escalation even when a later run (for example a pass made
+    for another configuration or answer code) is the latest one."""
+
+    item = _deciding_run(store, profile_id, fingerprint, basis)
+    return None if item is None or item["status"] == "passed" else item
+
+
+def _deciding_run(
+    store: ModelAdminStore, profile_id: str, fingerprint: str, basis: str
+) -> dict[str, Any] | None:
+    """The newest current run that decides decision 6a: a pass, or a genuine quality failure
+    that came after any pass. None when neither exists."""
+
+    for item in store.qualifications_for(profile_id):
+        if item["fingerprint"] != fingerprint or item["basis"] != basis:
+            continue
+        if item["status"] == "passed":
+            return item
+        if item["status"] != "running" and diagnose(item).supersedes_pass:
+            return item
+    return None
+
+
 def open_selector(
     settings: AiAssistantSettings, baseline_model: ChatModel | None, injected: bool
 ) -> ModelSelector:
@@ -549,6 +1040,14 @@ class ChangeRequest(BaseModel):
     acknowledge_quality_unscored: bool = False
 
 
+class QualificationRequest(BaseModel):
+    """D-098: a paid (remote) run needs its number of calls confirmed; a local run needs none."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_paid_calls: StrictInt | None = None
+
+
 class SpendingControlsRequest(BaseModel):
     """Both controls at once; bounds are checked by the route (a fixed refusal message)."""
 
@@ -557,6 +1056,8 @@ class SpendingControlsRequest(BaseModel):
     expected_revision: StrictInt = Field(ge=0)
     daily_cap_micro_usd: StrictInt
     max_calls: StrictInt
+    # D-098: a raise of the daily limit needs the same amount again (the HR confirmation).
+    confirm_daily_cap_micro_usd: StrictInt | None = None
 
 
 class LifetimeCapRequest(BaseModel):
@@ -565,6 +1066,8 @@ class LifetimeCapRequest(BaseModel):
     cap_micro_usd: StrictInt
     # A raise needs the same amount again (the HR confirmation step).
     confirm_cap_micro_usd: StrictInt | None = None
+    # D-098 (F1): the cap the page showed when HR decided (required for a raise).
+    expected_cap_micro_usd: StrictInt | None = None
 
 
 def model_admin_router(
@@ -677,11 +1180,19 @@ def model_admin_router(
             ) from None
 
     def qualification_view(
-        item: dict[str, Any] | None, entry: CatalogueEntry, basis: str
+        item: dict[str, Any] | None,
+        entry: CatalogueEntry,
+        basis: str,
+        superseding: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        """The last argument (the overview): the genuine quality failure that blocks this
+        configuration; its escalation is the advice whatever run came later (decision 6a)."""
+
         if item is None:
             return None
         summary = item.get("summary") or {}
+        current = item["fingerprint"] == entry.fingerprint and item["basis"] == basis
+        diagnosis = diagnose(superseding) if superseding else diagnose(item, current=current)
         return {
             "qualification_id": item["qualification_id"],
             "status": item["status"],
@@ -692,7 +1203,7 @@ def model_admin_router(
             "done_turns": item["done_turns"],
             "total_turns": item["total_turns"],
             "cancel_requested": item["cancel_requested"],
-            "current": item["fingerprint"] == entry.fingerprint and item["basis"] == basis,
+            "current": current,
             "gates": summary.get("gates"),
             "metrics": summary.get("metrics"),
             "lines": summary.get("lines"),
@@ -700,25 +1211,20 @@ def model_admin_router(
             "connection": summary.get("connection"),
             "quality": summary.get("quality"),
             "reproducibility": summary.get("reproducibility"),
+            "diagnosis": diagnosis.view(),
         }
 
-    def readiness(entry: CatalogueEntry, latest: dict[str, Any] | None, basis: str) -> list[str]:
+    def readiness(entry: CatalogueEntry, blocker: str | None) -> list[str]:
         if entry.profile_id == BASELINE_ID:
             return (
                 [] if entry.status == "selectable" else [entry.reason or "PROFILE_NOT_SELECTABLE"]
             )
         if entry.status != "selectable":
             return [entry.reason or "PROFILE_NOT_SELECTABLE"]
-        if (
-            latest is None
-            or latest["status"] != "passed"
-            or latest["fingerprint"] != entry.fingerprint
-            or latest["basis"] != basis
-        ):
-            return ["NOT_QUALIFIED"]
-        return []
+        return [blocker] if blocker else []
 
     def overview() -> dict[str, Any]:
+        selector.close_interrupted()
         catalogue = load_catalogue(settings)
         active = selector.current()
         basis = qualification_basis()
@@ -728,13 +1234,34 @@ def model_admin_router(
         profiles = []
         for entry in catalogue.entries:
             latest = store.latest_qualification(entry.profile_id) if store else None
+            eligible, blocker = (
+                eligible_run(store, entry.profile_id, entry.fingerprint, basis)
+                if store
+                else (None, "NOT_QUALIFIED")
+            )
+            superseding = (
+                superseding_run(store, entry.profile_id, entry.fingerprint, basis)
+                if store and blocker == "QUALIFICATION_SUPERSEDED"
+                else None
+            )
             profiles.append(
                 {
                     **entry.view(),
                     "active": entry.profile_id == active.profile_id,
                     "connection_test": store.connection_test(entry.profile_id) if store else None,
-                    "qualification": qualification_view(latest, entry, basis),
-                    "activation_blockers": readiness(entry, latest, basis),
+                    "qualification": qualification_view(latest, entry, basis, superseding),
+                    "activation_blockers": readiness(entry, blocker),
+                    # D-098: the passing run activation would use (it may be older than the
+                    # latest run when that one failed for a technical or budget reason).
+                    "eligible_qualification": None
+                    if eligible is None
+                    else {
+                        "qualification_id": eligible["qualification_id"],
+                        "finished_at": eligible["finished_at"],
+                        "is_latest": latest is not None
+                        and latest["qualification_id"] == eligible["qualification_id"],
+                    },
+                    "paid_qualification": paid_estimate(entry),
                 }
             )
         active_entry = catalogue.get(active.profile_id)
@@ -745,10 +1272,20 @@ def model_admin_router(
             "file_status": catalogue.file_status,
             "file_errors": list(catalogue.file_errors),
             "model_enabled": settings.llm_enabled,
-            "revision": active.revision if selector.managed else 0,
+            # D-098 (F2): while a revert is not yet stored (in-memory revision -1) the page
+            # gets the stored revision, so HR can still activate a model (compare-and-set).
+            "revision": (active.revision if active.revision >= 0 else stored.revision)
+            if selector.managed and stored is not None
+            else 0,
             "active": {
                 "profile_id": active.profile_id,
-                "display_name": active_entry.display_name if active_entry else active.profile_id,
+                "display_name": active_entry.display_name
+                if active_entry
+                else (
+                    "AI unavailable" if active.profile_id == UNAVAILABLE_ID else active.profile_id
+                ),
+                # D-098: no model answers; the chat gives labelled case-data guidance only.
+                "unavailable": active.profile_id == UNAVAILABLE_ID,
                 "model_id": active.model.name if active.model is not None else None,
                 "prompt_limit": active.prompt_limit,
                 "qualification_id": active.qualification_id,
@@ -872,26 +1409,89 @@ def model_admin_router(
             )
         except Exception:
             log.error("qualification outcome could not be recorded")
+        selector.revalidate()
+
+    def paid_estimate(entry: CatalogueEntry) -> dict[str, Any] | None:
+        """D-098: what a paid qualification of this remote configuration may spend, against
+        what the strictest applicable limit leaves (read-only; None for a local model)."""
+
+        if entry.source != "code" or entry.status != "selectable":
+            return None
+        manifest = qualification_manifest(settings)
+        try:
+            view = budget_status(
+                entry.settings_for(selector.controlled()), environ=selector.environ
+            )
+        except Exception:  # an unreadable spending view never allows a paid run
+            log.error("spending view unavailable for the qualification estimate")
+            view = {"refusal": "LEDGER_UNAVAILABLE", "effective_remaining_micro_usd": 0}
+        calls = len(manifest) if manifest else None
+        reservation = view.get("reservation_micro_usd")
+        estimate = (
+            calls * reservation if calls is not None and isinstance(reservation, int) else None
+        )
+        remaining = view.get("effective_remaining_micro_usd")
+        refusal = view.get("refusal")
+        return {
+            "calls": calls,
+            "reservation_micro_usd": reservation,
+            "estimate_micro_usd": estimate,
+            "effective_remaining_micro_usd": remaining,
+            "refusal": refusal,
+            "sufficient": refusal is None
+            and estimate is not None
+            and isinstance(remaining, int)
+            and remaining >= estimate,
+        }
+
+    def refuse_start(
+        entry: CatalogueEntry, profile: dict[str, Any], code: str, status: int = 409
+    ) -> HTTPException:
+        audit(
+            profile,
+            "QUALIFICATION_STARTED",
+            "refused",
+            profile_id=entry.profile_id,
+            fingerprint=entry.fingerprint,
+            code=code,
+        )
+        return _refusal(status, code)
 
     @router.post("/{profile_id}/qualifications", status_code=202)
-    def post_qualification(profile_id: str, profile: Admin) -> dict[str, Any]:
+    def post_qualification(
+        profile_id: str, profile: Admin, body: QualificationRequest | None = None
+    ) -> dict[str, Any]:
         store = managed()
         entry = entry_for(load_catalogue(settings), profile_id, profile, "QUALIFICATION_STARTED")
         # The same checks the qualification process applies, before anything starts.
         if entry.source == "code":
             # D-094: a paid run, so only the configured, counted question manifest.
             if qualification_manifest(settings) is None:
-                audit(
-                    profile,
-                    "QUALIFICATION_STARTED",
-                    "refused",
-                    profile_id=entry.profile_id,
-                    fingerprint=entry.fingerprint,
-                    code="REMOTE_MANIFEST_MISSING",
-                )
-                raise _refusal(409, "REMOTE_MANIFEST_MISSING")
+                raise refuse_start(entry, profile, "REMOTE_MANIFEST_MISSING")
         else:
             adapter_for(entry, profile, "QUALIFICATION_STARTED", loopback=True)
+        # D-098: after a genuine quality failure the same configuration is not run again; a
+        # developer or IT changes it first (which makes it a new configuration or answer code).
+        if eligible_run(store, entry.profile_id, entry.fingerprint, qualification_basis())[1] == (
+            "QUALIFICATION_SUPERSEDED"
+        ):
+            raise refuse_start(entry, profile, "QUALIFICATION_ESCALATION_REQUIRED")
+        if entry.source == "code":
+            # D-098: a paid run starts only when HR confirmed its number of calls and every one
+            # of them fits the strictest applicable limit (daily, lifetime, the key's own).
+            estimate = paid_estimate(entry) or {}
+            if body is None or body.confirm_paid_calls != estimate.get("calls"):
+                raise refuse_start(entry, profile, "PAID_CONFIRMATION_REQUIRED", 400)
+            if not estimate.get("sufficient"):
+                refusal = str(estimate.get("refusal") or "")
+                if refusal.startswith("BREAKER_OPEN") or refusal == "LEDGER_UNAVAILABLE":
+                    raise refuse_start(entry, profile, "QUALIFICATION_BILLING_UNRECONCILED")
+                if refusal in ("PROVIDER_LIMIT_NOT_CHECKED", "PROVIDER_CHECK_FAILED"):
+                    raise refuse_start(entry, profile, "PROVIDER_LIMIT_NOT_CHECKED")
+                if refusal == "PROVIDER_LIMIT_EXHAUSTED":
+                    raise refuse_start(entry, profile, "PROVIDER_KEY_LIMIT_EXHAUSTED")
+                raise refuse_start(entry, profile, "QUALIFICATION_BUDGET_INSUFFICIENT")
+        selector.close_interrupted()
         try:
             qualification_id = store.begin_qualification(
                 entry.profile_id,
@@ -941,6 +1541,7 @@ def model_admin_router(
     @router.get("/qualifications/{qualification_id}")
     def get_qualification(qualification_id: str, profile: Admin) -> dict[str, Any]:
         store = managed()
+        selector.close_interrupted()
         item = (
             store.qualification(qualification_id)
             if _QUALIFICATION_ID.fullmatch(qualification_id)
@@ -955,6 +1556,10 @@ def model_admin_router(
     @router.post("/qualifications/{qualification_id}/cancel")
     def cancel_qualification(qualification_id: str, profile: Admin) -> dict[str, Any]:
         store = managed()
+        # D-098: a run with no supervisor left is closed as interrupted, not left to wait.
+        if qualification_id in selector.close_interrupted():
+            audit(profile, "QUALIFICATION_CANCEL_REQUESTED", "requested", code="INTERRUPTED")
+            return {"qualification_id": qualification_id, "cancel_requested": False}
         if not _QUALIFICATION_ID.fullmatch(qualification_id) or not store.request_cancel(
             qualification_id
         ):
@@ -1026,11 +1631,18 @@ def model_admin_router(
                 if probe["outcome"] != "passed":
                     raise refuse("CONNECTION_FAILED")
                 choice = qualified
-            previous = Choice(
-                stored.active_profile_id,
-                stored.active_fingerprint,
-                stored.active_qualification_id,
-                stored.active_prompt_limit,
+            last = _last_good(stored)
+            previous = (
+                # D-098: "AI unavailable" is never a rollback target; the last good one stays,
+                # unless it is the one now being made active.
+                (last if last is not None and last.profile_id != entry.profile_id else None)
+                if stored.active_profile_id == UNAVAILABLE_ID
+                else Choice(
+                    stored.active_profile_id,
+                    stored.active_fingerprint,
+                    stored.active_qualification_id,
+                    stored.active_prompt_limit,
+                )
             )
             try:
                 active = selector.apply(
@@ -1075,6 +1687,10 @@ def model_admin_router(
         limit = ((item.get("summary") or {}).get("capacity") or {}).get("prompt_limit")
         if not isinstance(limit, int) or limit <= 0:
             return None
+        # D-098 decision 6a: Activate and Rollback both refuse a pass that a later genuine
+        # quality failure of the same configuration superseded.
+        if eligible_run(store, entry.profile_id, entry.fingerprint, item["basis"])[0] is None:
+            return None
         return Choice(entry.profile_id, entry.fingerprint, item["qualification_id"], limit)
 
     @router.post("/{profile_id}/activate")
@@ -1087,8 +1703,13 @@ def model_admin_router(
             entry = entry_for(catalogue, profile_id, profile, "ACTIVATED")
             if entry.profile_id == BASELINE_ID:
                 return entry, None
-            latest = selector.store.latest_qualification(entry.profile_id)  # type: ignore[union-attr]
-            return entry, qualified_choice(entry, latest["qualification_id"] if latest else None)
+            assert selector.store is not None
+            eligible, _ = eligible_run(
+                selector.store, entry.profile_id, entry.fingerprint, qualification_basis()
+            )
+            return entry, qualified_choice(
+                entry, eligible["qualification_id"] if eligible else None
+            )
 
         return change(request, profile, body, "ACTIVATED", target)
 
@@ -1221,7 +1842,8 @@ def model_admin_router(
             lifetime = {
                 "opening_usage_micro_usd": status.opening_usage,
                 "cap_micro_usd": status.cap,
-                "max_cap_micro_usd": status.opening_usage + LIFETIME_ALLOCATION_MICRO_USD,
+                # D-098: only the ledger's technical bound (no US$1 allocation ceiling).
+                "max_cap_micro_usd": MAX_MICRO_USD,
                 "committed_micro_usd": status.committed,
             }
         except LedgerError:
@@ -1231,6 +1853,9 @@ def model_admin_router(
             "readable": controls is not None,
             "daily_cap_micro_usd": effective.budget_daily_cap_micro_usd,
             "daily_cap_max_micro_usd": DAILY_CAP_MAX_MICRO_USD,
+            "daily_cap_default_micro_usd": DEFAULT_DAILY_CAP_MICRO_USD,
+            # D-098: what a raise of either limit needs (shown on the page before HR asks).
+            "raise_requires": ["confirmation", "finite_provider_limit"],
             "daily_cap_source": "hr"
             if controls is not None and controls.daily_cap_micro_usd is not None
             else "environment",
@@ -1274,8 +1899,9 @@ def model_admin_router(
     def put_spending_controls(
         body: SpendingControlsRequest, profile: Admin, request: Request
     ) -> dict[str, Any]:
-        """The daily allowance (US$0 to US$1.00 per Singapore day) and the calls per
-        activation (1 to 200). Spend and the activation's call count are never reset."""
+        """The daily allowance per Singapore day (D-098: no US$1 ceiling) and the calls per
+        activation (1 to 200). A raise of the daily allowance needs the amount confirmed and
+        the key's own finite limit verified now. Spend and the call count are never reset."""
 
         action = "SPENDING_CONTROLS_CHANGED"
         guard_budget(request, profile, action)
@@ -1285,6 +1911,17 @@ def model_admin_router(
             raise _refusal(400, "CONTROLS_INVALID")
         with selector.change_lock:
             recheck(request, profile, action)
+            # The allowance in force now (unreadable controls read as none: any value raises).
+            stored = selector.spending_controls()
+            if stored is not None and stored.revision != body.expected_revision:
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _refusal(409, "CONTROLS_CONFLICT")
+            current = apply_controls(settings, stored)
+            if body.daily_cap_micro_usd > current.budget_daily_cap_micro_usd:
+                if body.confirm_daily_cap_micro_usd != body.daily_cap_micro_usd:
+                    audit(profile, action, "refused", code="DAILY_CONFIRMATION_REQUIRED")
+                    raise _refusal(400, "DAILY_CONFIRMATION_REQUIRED")
+                require_provider_limit(profile, action)
             try:
                 revision = store.set_spending_controls(
                     body.expected_revision,
@@ -1305,24 +1942,44 @@ def model_admin_router(
         selector.sync_controls()
         return budget_view()
 
-    def reconciliation_failures() -> list[str] | None:
-        """The existing reconciliation checks (``remote_checks.check_ledger`` inside the free
-        preflight: GET /key against the ledger; no inference, nothing changed). The failed
-        checks, or None when OpenRouter or the ledger could not be checked at all."""
+    def preflight_failures(names: tuple[str, ...]) -> list[str] | None:
+        """Which of ``names`` fail in the free preflight (GET /key against the ledger; no
+        inference, nothing changed), or None when OpenRouter or the ledger could not be
+        checked at all."""
 
-        report, _, _ = preflight(selector.controlled(), **selector.remote_options())
-        found = {check.name: check.ok for check in report.checks}
-        if any(name not in found for name in CAP_RAISE_CHECKS):
+        try:
+            report, _, _ = preflight(selector.controlled(), **selector.remote_options())
+        except (ProfileConfigError, LedgerError):
             return None
-        return [name for name in CAP_RAISE_CHECKS if not found[name]]
+        found = {check.name: check.ok for check in report.checks}
+        if any(name not in found for name in names):
+            return None
+        return [name for name in names if not found[name]]
+
+    def require_provider_limit(
+        profile: dict[str, Any], action: str, also: tuple[str, ...] = ()
+    ) -> list[str]:
+        """D-098: more app spending authority only with a verified, finite key limit (one
+        free preflight). Returns which of ``also`` failed in that same preflight."""
+
+        failed = preflight_failures(PROVIDER_LIMIT_CHECKS + also)
+        if failed is None:
+            audit(profile, action, "refused", code="PROVIDER_CHECK_FAILED")
+            raise _refusal(409, "PROVIDER_CHECK_FAILED")
+        key = [name for name in failed if name in PROVIDER_LIMIT_CHECKS]
+        if key:
+            audit(profile, action, "refused", code="PROVIDER_LIMIT_REQUIRED:" + ",".join(key))
+            raise _refusal(409, "PROVIDER_LIMIT_REQUIRED")
+        return [name for name in failed if name in also]
 
     @router.put("/budget/lifetime-cap")
     def put_lifetime_cap(
         body: LifetimeCapRequest, profile: Admin, request: Request
     ) -> dict[str, Any]:
-        """Set the ledger's lifetime cap between its opening provider usage and the US$1.00
-        allocation above it. A raise needs the same amount confirmed and passing
-        reconciliation checks; the ledger keeps every call, charge and earlier event."""
+        """Set the ledger's lifetime cap at or above its opening provider usage (D-098: no
+        US$1 allocation ceiling). A raise needs the same amount confirmed, the key's own
+        finite limit verified and passing reconciliation checks; the ledger keeps every call,
+        charge and earlier event."""
 
         action = "LIFETIME_CAP_CHANGED"
         guard_budget(request, profile, action)
@@ -1336,23 +1993,22 @@ def model_admin_router(
                 audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                 raise _refusal(409, "LEDGER_UNAVAILABLE") from None
             cap = body.cap_micro_usd
-            if not (
-                status.opening_usage <= cap <= status.opening_usage + LIFETIME_ALLOCATION_MICRO_USD
-            ):
+            if not status.opening_usage <= cap <= MAX_MICRO_USD:
                 audit(profile, action, "refused", code="CAP_OUT_OF_RANGE")
                 raise _refusal(409, "CAP_OUT_OF_RANGE")
             raising = cap > status.cap
+            # D-098 (F1): a change is decided on the cap the page showed; a raise must say
+            # which, and any change is refused if the cap moved since (another HR change).
+            if (raising or body.expected_cap_micro_usd is not None) and (
+                body.expected_cap_micro_usd != status.cap
+            ):
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _refusal(409, "CONTROLS_CONFLICT")
             if raising:
                 if body.confirm_cap_micro_usd != cap:
                     audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
                     raise _refusal(400, "CAP_CONFIRMATION_REQUIRED")
-                try:
-                    failed = reconciliation_failures()
-                except (ProfileConfigError, LedgerError):
-                    failed = None
-                if failed is None:
-                    audit(profile, action, "refused", code="PROVIDER_CHECK_FAILED")
-                    raise _refusal(409, "PROVIDER_CHECK_FAILED")
+                failed = require_provider_limit(profile, action, CAP_RAISE_CHECKS)
                 if failed:
                     audit(
                         profile,
@@ -1363,8 +2019,19 @@ def model_admin_router(
                     raise _refusal(409, "RECONCILIATION_REQUIRED")
             if cap != status.cap:
                 try:
-                    ledger.set_cap(cap, allow_raise=raising, confirm=cap if raising else None)
-                except LedgerError:
+                    # The cap this decision was made on is checked again inside the ledger's
+                    # own write transaction: a change in between (the operator's script,
+                    # another process) refuses this one; it is never overwritten.
+                    ledger.set_cap(
+                        cap,
+                        allow_raise=raising,
+                        confirm=cap if raising else None,
+                        expected=status.cap,
+                    )
+                except LedgerError as error:
+                    if error.code in ("CAP_CHANGED", "CAP_RAISE_REFUSED"):
+                        audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                        raise _refusal(409, "CONTROLS_CONFLICT") from None
                     audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                     raise _refusal(409, "LEDGER_UNAVAILABLE") from None
                 audit(

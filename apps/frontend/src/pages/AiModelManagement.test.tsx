@@ -342,7 +342,7 @@ describe("AiModelManagement D-094 local synthetic test mode", () => {
     await waitFor(() => expect(view.textContent).toContain("synthetic test only, D-094"));
     expect(view.textContent).toContain("answers only on the approved synthetic test case");
     expect(view.textContent).toContain("Test connection is a free preflight; qualification makes paid calls.");
-    expect(button(view, "Run qualification", "GPT-OSS").disabled).toBe(false);
+    expect(button(view, "Run qualification…", "GPT-OSS").disabled).toBe(false);
     act(() => button(view, "Activate", "GPT-OSS").click());
     expect(view.textContent).toContain("This is an external, paid API (D-094 local synthetic test mode).");
   });
@@ -364,7 +364,7 @@ const FAKE_KEY = ["sk", "or", "v1-fake-browser-test-key-0000000000"].join("-");
 function budget(credential: Partial<ModelBudgetStatus["credential"]> = {}): ModelBudgetStatus {
   return {
     configured: true, mode: "D-095", timezone: "Asia/Singapore",
-    daily_cap_ceiling_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
+    daily_cap_default_micro_usd: 1_000_000, daily_cap_micro_usd: 1_000_000,
     next_reset_at: "2026-10-28T16:00:00Z",
     credential: {
       source: "none", status: "missing", hr_editable: true, persistence: "memory_only",
@@ -496,13 +496,13 @@ function controlled(overrides: Partial<NonNullable<ModelBudgetStatus["controls"]
     ...budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
     controls: {
       revision: 3, readable: true,
-      daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000, daily_cap_source: "hr",
+      daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000_000_000, daily_cap_source: "hr",
       max_calls: 20, max_calls_range: [1, 200], max_calls_source: "hr",
       calls_used: 20, calls_remaining: 0,
       changed_at: "2026-10-28T03:00:00Z", changed_by: "hr-admin",
       lifetime: {
         opening_usage_micro_usd: 100_000, cap_micro_usd: 600_000,
-        max_cap_micro_usd: 1_100_000, committed_micro_usd: 590_000,
+        max_cap_micro_usd: 1_000_000_000_000, committed_micro_usd: 590_000,
       },
       ...overrides,
     },
@@ -551,7 +551,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ expected_revision: 3, daily_cap_micro_usd: 500_000, max_calls: 40 });
   });
 
-  it("does not send limits outside US$0 to US$1 or 1 to 200 calls", async () => {
+  it("does not send invalid limits or an unconfirmed daily raise (D-098: no US$1 ceiling)", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
     const view = mount(controlsServer(data, calls));
@@ -569,8 +569,8 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
     const view = mount(controlsServer(data, calls));
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit (ledger)"));
-    expect(view.textContent).toContain("up to US$1.100000 (US$1.00 above it)");
-    typeInto(input(view, "lifetime-limit-input"), "1.2"); // above the allocation
+    expect(view.textContent).toContain("with no fixed ceiling");
+    typeInto(input(view, "lifetime-limit-input"), "1.2"); // above the old allocation: a raise, unconfirmed
     expect(button(view, "Update Lifetime Limit").disabled).toBe(true);
     typeInto(input(view, "lifetime-limit-input"), "0.9");
     expect(button(view, "Update Lifetime Limit").disabled).toBe(true); // not confirmed yet
@@ -581,14 +581,14 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     await act(async () => button(view, "Update Lifetime Limit").click());
     await waitFor(() => expect(view.textContent).toContain("Lifetime limit updated."));
     const raise = calls.filter((call) => call.method === "PUT" && call.url.endsWith("/admin/models/budget/lifetime-cap"));
-    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({ cap_micro_usd: 900_000, confirm_cap_micro_usd: 900_000 });
+    expect(JSON.parse(raise[0]?.body ?? "{}")).toEqual({ cap_micro_usd: 900_000, confirm_cap_micro_usd: 900_000, expected_cap_micro_usd: 600_000 });
 
     typeInto(input(view, "lifetime-limit-input"), "0.4"); // lower: no confirmation
     expect(view.textContent).not.toContain("I confirm raising");
     await act(async () => button(view, "Update Lifetime Limit").click());
     await waitFor(() => expect(calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))).toHaveLength(2));
     const lower = calls.filter((call) => call.url.endsWith("/budget/lifetime-cap"))[1];
-    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ cap_micro_usd: 400_000, confirm_cap_micro_usd: null });
+    expect(JSON.parse(lower?.body ?? "{}")).toEqual({ cap_micro_usd: 400_000, confirm_cap_micro_usd: null, expected_cap_micro_usd: 600_000 });
   });
 
   it("refreshes the OpenRouter limits read-only and never shows the key", async () => {
@@ -696,5 +696,186 @@ describe("AiModelManagement GPT-OSS 120B naming", () => {
     expect(view.textContent).toContain("the Balanced qualification does not count for it");
     expect(view.textContent).not.toContain("synthetic test only, D-094");
     expect(button(view, "Activate", "GPT-OSS 120B — Fast").disabled).toBe(true);
+  });
+});
+
+// --- D-098: recovery centre and paid qualification confirmation --------------------------------
+
+describe("AiModelManagement D-098 recovery", () => {
+  const paid = { calls: 2, reservation_micro_usd: 30_000, estimate_micro_usd: 60_000, effective_remaining_micro_usd: 900_000, refusal: null, sufficient: true };
+  const failedRun = (code: string, diagnosis: NonNullable<ModelQualification["diagnosis"]>, gates = qualification.gates): ModelQualification => ({
+    ...qualification, qualification_id: "b".repeat(32), status: "failed", code, gates, diagnosis,
+  });
+  const withRemote = (overrides: Partial<ModelProfileView>): ModelOverview => ({
+    ...overview,
+    profiles: [overview.profiles[0], { ...remoteSelectable, activation_blockers: [], paid_qualification: paid, ...overrides }],
+  });
+
+  it("asks before a paid run and sends the confirmed number of calls", async () => {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    const view = mount(server(withRemote({}), (url, body) => { posts.push({ url, body }); return json({ qualification_id: "c".repeat(32) }); }));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
+    act(() => button(view, "Run qualification…", "GPT-OSS").click());
+    const dialog = view.querySelector("[data-testid=paid-confirm]");
+    expect(dialog?.textContent).toContain("Up to 2");
+    expect(dialog?.textContent).toContain("US$0.060000");
+    expect(posts).toEqual([]);  // nothing starts before the confirmation
+    await act(async () => button(view, "Start paid qualification").click());
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].url).toContain("/admin/models/openrouter_gpt_oss_120b/qualifications");
+    expect(posts[0].body).toEqual({ confirm_paid_calls: 2 });
+  });
+
+  it("will not start a paid run the limits cannot cover", async () => {
+    const view = mount(server(withRemote({ paid_qualification: { ...paid, effective_remaining_micro_usd: 10_000, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } })));
+    await waitFor(() => expect(view.textContent).toContain("GPT-OSS"));
+    act(() => button(view, "Run qualification…", "GPT-OSS").click());
+    expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Today's allowance");
+    expect(button(view, "Start paid qualification").disabled).toBe(true);
+  });
+
+  it("shows a budget failure as budget, keeps the earlier pass and offers a confirmed retry", async () => {
+    const run = failedRun("GATES_FAILED:G-6,G-8", { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false });
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: "a".repeat(32), finished_at: "2026-10-27T01:05:00+00:00", is_latest: false } })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Budget or limit");
+    expect(card.textContent).toContain("refused before anything was sent");
+    expect(card.textContent).toContain("Yes (passed");
+    expect(card.querySelector("a[href='#spending-heading']")?.textContent).toBe("Review spending controls");
+    act(() => [...card.querySelectorAll("button")].find((b) => b.textContent === "Retry qualification…")!.click());
+    expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
+  });
+
+  it("escalates a quality failure without any retry or override", async () => {
+    const run = failedRun(
+      "GATES_FAILED:G-3",
+      { category: "quality", cause: "UNSAFE_LINE", action: "ESCALATE_DEVELOPER", retryable: false, supersedes_pass: true },
+      [{ gate: "G-3", rule: "unsafe displayed lines = 0", value: 1, passed: false, gating: true }],
+    );
+    const view = mount(server(withRemote({ qualification: run, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Answer quality");
+    expect(card.textContent).toContain("No: this quality failure replaces any earlier pass");
+    expect(card.textContent).toContain("Failed gates: G-3");
+    const labels = [...card.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).not.toContain("Retry qualification…");
+    expect(labels).toContain("Copy escalation summary");
+    expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
+  });
+
+  it("recommends a confirmed new qualification for a pass that is out of date", async () => {
+    const posts: unknown[] = [];
+    const run: ModelQualification = {
+      ...qualification, status: "passed", code: null, current: false,
+      diagnosis: { category: "configuration", cause: "OUT_OF_DATE", action: "RUN_AGAIN", retryable: true, supersedes_pass: false },
+    };
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["NOT_QUALIFIED"] }), (_url, body) => { posts.push(body); return json({ qualification_id: "c".repeat(32) }); }));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Qualification out of date");
+    expect(card.textContent).toContain("can no longer be activated");
+    expect(card.textContent).toContain("Retry worthwhile nowYes");
+    expect(card.textContent).toContain("Run a new qualification with the current configuration and code");
+    expect(card.textContent).not.toContain("Nothing to do");
+    expect(button(view, "Activate", "GPT-OSS").disabled).toBe(true);
+    act(() => [...card.querySelectorAll("button")].find((b) => b.textContent === "Run new qualification…")!.click());
+    expect(view.querySelector("[data-testid=paid-confirm]")).not.toBeNull();
+    expect(posts).toEqual([]);  // nothing starts before the paid confirmation
+  });
+
+  it("keeps the quality escalation when a later out-of-date pass is the latest run", async () => {
+    const run: ModelQualification = {
+      ...qualification, status: "passed", code: null, current: false,
+      diagnosis: { category: "quality", cause: "UNSAFE_LINE", action: "ESCALATE_DEVELOPER", retryable: false, supersedes_pass: true },
+    };
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: null, activation_blockers: ["QUALIFICATION_SUPERSEDED"] })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Answer quality");
+    expect(card.textContent).not.toContain("Qualification out of date");
+    expect(card.textContent).toContain("No: this quality failure replaces any earlier pass");
+    const labels = [...card.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).not.toContain("Run new qualification…");
+    expect(labels).not.toContain("Retry qualification…");
+    expect(labels).toContain("Copy escalation summary");
+  });
+
+  it("keeps a current pass qualified with no retry advice", async () => {
+    const run: ModelQualification = {
+      ...qualification, status: "passed", code: null, current: true,
+      diagnosis: { category: "passed", cause: "PASSED", action: "NONE", retryable: false, supersedes_pass: false },
+    };
+    const view = mount(server(withRemote({ qualification: run, eligible_qualification: { qualification_id: run.qualification_id, finished_at: "2026-10-27T01:05:00+00:00", is_latest: true } })));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.textContent).toContain("Qualified");
+    expect(card.textContent).not.toContain("out of date");
+    expect(card.textContent).toContain("Retry worthwhile nowNo");
+    const labels = [...card.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).not.toContain("Run new qualification…");
+    expect(labels).not.toContain("Retry qualification…");
+  });
+
+  it("names the AI-unavailable state and that no other model stood in", async () => {
+    const view = mount(server({ ...withRemote({}), active: { ...overview.active, profile_id: "ai_unavailable", display_name: "AI unavailable", model_id: null, reverted: "QUALIFICATION_SUPERSEDED", unavailable: true } }));
+    await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
+    expect(view.querySelector("[data-testid=ai-unavailable]")?.textContent).toContain("No other model was put in its place");
+  });
+});
+
+describe("AiModelManagement D-098 key limit and owner action", () => {
+  it("shows the key's own limit, usage and reset policy, never account credits", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const status = controlled();
+    const provider = {
+      checked_at: "2026-10-28T03:00:00Z", passed: true, remaining_micro_usd: 900_000, remaining_usd: "0.900000",
+      limit_micro_usd: 1_000_000, limit_usd: "1.000000", usage_micro_usd: 100_000, usage_usd: "0.100000",
+      limit_reset: null, account_credits: null, checks: [],
+    };
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: { ...status, provider } };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Key limit resets"));
+    expect(view.textContent).toContain("US$0.900000 remaining of US$1.000000, US$0.100000 used");
+    expect(view.textContent).toContain("Never (a lifetime key limit, as required)");
+    expect(view.textContent).toContain("Account credits");
+    expect(view.textContent).toContain("Not read.");
+  });
+
+  it("sends an exhausted key to its owner, not to HR's spending controls", async () => {
+    const run: ModelQualification = {
+      ...qualification, qualification_id: "d".repeat(32), status: "failed", code: "GATES_FAILED:G-6,G-8",
+      diagnosis: { category: "budget", cause: "CALLS_REFUSED", action: "REVIEW_SPENDING", retryable: true, supersedes_pass: false },
+    };
+    const paid = { calls: 2, reservation_micro_usd: 30_000, estimate_micro_usd: 60_000, effective_remaining_micro_usd: 0, refusal: "PROVIDER_LIMIT_EXHAUSTED", sufficient: false };
+    const data = { ...overview, profiles: [overview.profiles[0], { ...remoteSelectable, activation_blockers: [], qualification: run, paid_qualification: paid }] };
+    const view = mount(server(data));
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-openrouter_gpt_oss_120b]")!;
+    expect(card.querySelector("[data-testid=key-owner-action]")?.textContent).toContain("key's owner");
+    expect(card.querySelector("a[href='#spending-heading']")).toBeNull();
+  });
+});
+
+describe("AiModelManagement D-098 flexible limits", () => {
+  it("raises the daily limit above US$1.00 only with an explicit confirmation", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls));
+    await waitFor(() => expect(view.textContent).toContain("Daily and call limits"));
+    expect(view.textContent).toContain("default US$1.00, may be higher or lower");
+    typeInto(input(view, "daily-limit-input"), "3");
+    typeInto(input(view, "call-limit-input"), "20");
+    expect(button(view, "Save Limits").disabled).toBe(true);  // a raise, not confirmed yet
+    const confirm = view.querySelector<HTMLInputElement>("[data-testid=daily-raise-confirm]");
+    expect(confirm?.parentElement?.textContent).toContain("I confirm raising the daily limit to US$3.000000");
+    act(() => confirm!.click());
+    await act(async () => button(view, "Save Limits").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    const put = calls.find((call) => call.method === "PUT" && call.url.endsWith("/budget/controls"));
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      expected_revision: 3, daily_cap_micro_usd: 3_000_000, max_calls: 20, confirm_daily_cap_micro_usd: 3_000_000,
+    });
   });
 });

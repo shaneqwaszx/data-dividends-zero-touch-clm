@@ -1014,3 +1014,12 @@
   margin: 4px 0 0;
   padding-left: 18px;
 }
+
+/* D-098: a case-data answer is labelled where it is read (not AI-generated). */
+.ai-assistant-guidance-label {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--ds-color-warn, #b26a00);
+  background: var(--ds-color-surface-muted, rgba(0, 0, 0, 0.04));
+  font-size: 0.85rem;
+}

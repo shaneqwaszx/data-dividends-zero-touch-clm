@@ -16,6 +16,7 @@ from app.domain.access import ROLE_CAPABILITIES, Capability, Role, TeamId, UserP
 from app.domain.administration import TeamRecord
 from app.services.administration import TeamDirectoryService
 from app.services.authentication import (
+    SESSION_END_REASONS,
     AuthenticatedSession,
     AuthenticationError,
     AuthenticationService,
@@ -30,6 +31,8 @@ from app.services.authorization import (
 from app.services.onboarding import OnboardingService
 
 SESSION_COOKIE_NAME = "clm_session"
+# D-098: on a 401 for a presented session, why it no longer works (authentication.py codes).
+SESSION_END_REASON_HEADER = "X-Session-End-Reason"
 DNS_HOST_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
 
 
@@ -233,12 +236,16 @@ def install_auth_boundary(
 
         try:
             session = auth.authenticate_session(request.cookies.get(SESSION_COOKIE_NAME))
-        except AuthenticationError:
-            return _fixed_error(
+        except AuthenticationError as error:
+            response = _fixed_error(
                 status.HTTP_401_UNAUTHORIZED,
                 "AUTHENTICATION_REQUIRED",
                 "A valid authenticated session is required.",
             )
+            # D-098: a closed code saying why (no identity, token or session detail).
+            if error.reason in SESSION_END_REASONS:
+                response.headers[SESSION_END_REASON_HEADER] = error.reason
+            return response
         request.state.auth_session = session
         request.state.actor = session.actor
 

@@ -9,6 +9,12 @@ service can use them without importing it.
     ledger     initialised for this key, breaker closed, no open calls, its cap allows at most
                the allocation (US$1.00 here) beyond the key's usage when the ledger was made,
                and the key's provider-reported usage is fully accounted for
+
+D-098: the CLM's own use (``remote_test.py``) passes ``allocation=None``. There is then no US$1
+allocation ceiling: the key's limit must still be set, never reset and be finite
+(``key.limit_finite``), and the ledger cap must stay above the key's opening usage
+(``ledger.cap_above_opening``); the daily allowance, the lifetime cap and the key's own limit
+are independent and the strictest wins. The Phase B harness keeps its D-092 allocation.
     owner      the owner attests auto top-up is off and prompt logging is off (neither is
                readable through the API)
 
@@ -27,6 +33,7 @@ from typing import Any
 import httpx
 
 from .budget import (
+    MAX_MICRO_USD,
     RECONCILE_TOLERANCE_MICRO_USD,
     BudgetLedger,
     ClosedCall,
@@ -68,6 +75,11 @@ class Preflight:
     checks: list[Check] = field(default_factory=list)
     # The key's provider-reported remaining limit when it was read (D-095 budget status).
     key_remaining_micro_usd: int | None = None
+    # D-098: the key's own limit, usage and reset policy as /key reported them (never the
+    # account's credits, which are not read).
+    key_limit_micro_usd: int | None = None
+    key_usage_micro_usd: int | None = None
+    key_limit_reset: str | None = None
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.checks.append(Check(name, ok, detail))
@@ -182,11 +194,11 @@ def check_key(
     report: Preflight,
     key: KeyStatus,
     reservation_micro: int,
-    allocation: Decimal = ALLOCATION_LIMIT_USD,
+    allocation: Decimal | None = ALLOCATION_LIMIT_USD,
 ) -> None:
     """The key's own limit (read before the ledger, whose opening usage must equal it). It
     is the provider-side backstop, so it may not leave more than the allocation plus one
-    reservation (plan section 8.1 nesting)."""
+    reservation (plan section 8.1 nesting). With no allocation (D-098) it must be finite."""
 
     report.add(
         "key.limit_set",
@@ -205,6 +217,14 @@ def check_key(
         remaining >= reservation_micro,
         f"limit remaining {_usd(max(remaining, 0))} >= one reservation {_usd(reservation_micro)}",
     )
+    if allocation is None:
+        # D-098: a missing or unbounded provider limit never reads as permission to spend.
+        report.add(
+            "key.limit_finite",
+            key.limit_usd is not None and 0 <= remaining <= MAX_MICRO_USD,
+            f"limit remaining {_usd(max(remaining, 0))} is a finite provider-side limit",
+        )
+        return
     backstop = micro_usd(allocation) + reservation_micro
     report.add(
         "key.limit_within_allocation",
@@ -220,7 +240,7 @@ def check_ledger(
     status: LedgerStatus,
     has_calls: bool,
     reservation_micro: int,
-    allocation: Decimal = ALLOCATION_LIMIT_USD,
+    allocation: Decimal | None = ALLOCATION_LIMIT_USD,
 ) -> None:
     report.add(
         "ledger.breaker_closed_no_open_calls",
@@ -228,13 +248,21 @@ def check_ledger(
         f"breaker {'open (' + str(status.breaker_code) + ')' if status.breaker_open else 'closed'},"
         f" open calls {status.open_calls}",
     )
-    allowed = micro_usd(allocation)
-    report.add(
-        "ledger.cap_within_allocation",
-        0 < status.cap - status.opening_usage <= allowed,
-        f"cap {_usd(status.cap)} - opening usage {_usd(status.opening_usage)}"
-        f" <= allocation {_usd(allowed)}",
-    )
+    if allocation is None:
+        # D-098: the HR lifetime cap has no allocation ceiling; it must allow some spend.
+        report.add(
+            "ledger.cap_above_opening",
+            status.cap - status.opening_usage > 0,
+            f"cap {_usd(status.cap)} > opening usage {_usd(status.opening_usage)}",
+        )
+    else:
+        allowed = micro_usd(allocation)
+        report.add(
+            "ledger.cap_within_allocation",
+            0 < status.cap - status.opening_usage <= allowed,
+            f"cap {_usd(status.cap)} - opening usage {_usd(status.opening_usage)}"
+            f" <= allocation {_usd(allowed)}",
+        )
     usage = micro_usd(key.usage_usd)
     accounted = status.baseline + status.local_charged
     if has_calls:
@@ -260,9 +288,9 @@ def check_key_and_ledger(
     status: LedgerStatus,
     has_calls: bool,
     reservation_micro: int,
-    allocation: Decimal = ALLOCATION_LIMIT_USD,
+    allocation: Decimal | None = ALLOCATION_LIMIT_USD,
 ) -> None:
-    check_key(report, key, reservation_micro)
+    check_key(report, key, reservation_micro, allocation)
     check_ledger(report, key, status, has_calls, reservation_micro, allocation)
 
 
@@ -422,9 +450,11 @@ def run_preflight(
     owner_attests_auto_topup_off: bool,
     owner_attests_prompt_logging_off: bool,
     fetch: Callable[[str], Any] = fetch_public,
+    allocation: Decimal | None = ALLOCATION_LIMIT_USD,
 ) -> tuple[Preflight, BudgetLedger | None, OpenRouterAccount | None]:
     """Every check a live call needs, failing closed at the first one that cannot be
-    evaluated. ``open_account`` opens the account client behind the caller's own gate."""
+    evaluated. ``open_account`` opens the account client behind the caller's own gate.
+    ``allocation`` None (D-098, the CLM's own use): no allocation ceiling, see the module."""
 
     report = Preflight()
     endpoint = APPROVED_PROFILES[OPENROUTER_PROFILE_ID].endpoint(settings.openrouter_endpoint)
@@ -451,9 +481,13 @@ def run_preflight(
         return report, None, account
     max_tokens = settings.llm_max_answer_tokens + settings.llm_reasoning_allowance_tokens
     reservation = typical_reservation(endpoint, max_tokens)
-    check_key(report, key, reservation)
+    check_key(report, key, reservation, allocation)
     if key.limit_remaining_usd is not None:
         report.key_remaining_micro_usd = micro_usd(key.limit_remaining_usd)
+    if key.limit_usd is not None:
+        report.key_limit_micro_usd = micro_usd(key.limit_usd)
+    report.key_usage_micro_usd = micro_usd(key.usage_usd)
+    report.key_limit_reset = key.limit_reset
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
     try:
         ledger = BudgetLedger.open(ledger_file)
@@ -469,7 +503,7 @@ def run_preflight(
     except LedgerError as error:
         report.add("ledger.earlier_calls_verified", False, f"refused: {error.code}")
         return report, None, account
-    check_ledger(report, key, status, ledger.last_call_id() > 0, reservation)
+    check_ledger(report, key, status, ledger.last_call_id() > 0, reservation, allocation)
     check_daily(report, ledger, settings.budget_daily_cap_micro_usd, reservation)
     return report, ledger, account
 
@@ -478,7 +512,7 @@ def check_daily(
     report: Preflight, ledger: BudgetLedger, daily_cap_micro_usd: int, reservation_micro: int
 ) -> None:
     """D-095: today's allowance (Asia/Singapore day) has room for one reservation. A daily cap
-    setting outside 0..US$1.00 reads as no allowance, so it fails closed."""
+    setting outside 0..MAX_MICRO_USD reads as no allowance, so it fails closed."""
 
     try:
         daily = ledger.daily_status(daily_cap_micro_usd)

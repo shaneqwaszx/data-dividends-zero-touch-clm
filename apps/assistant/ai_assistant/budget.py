@@ -25,7 +25,8 @@ Daily allowance (D-095). On top of the lifetime cap, every admission also needs
     D   today's spend: charges of closed calls reserved since the last Singapore midnight
         (Asia/Singapore, UTC+8, no daylight saving) plus the reservations of ALL open calls
         (an open call from yesterday still counts today)
-    D + r <= daily cap, which is at most DAILY_CAP_CEILING_MICRO_USD (US$1.00)
+    D + r <= daily cap: US$1.00 (DEFAULT_DAILY_CAP_MICRO_USD) unless HR set another
+    (D-098: above or below US$1.00, within the MAX_MICRO_USD technical bound)
 
 It is worked out from the call rows in the same ``BEGIN IMMEDIATE`` transaction as the
 lifetime check, so it holds across threads, processes and restarts, survives reconciliation
@@ -72,9 +73,10 @@ LEASE_GRACE_SECONDS = 60
 # A provider usage above the ledger by more than this opens the breaker.
 RECONCILE_TOLERANCE_MICRO_USD = 50_000
 MAX_MICRO_USD = 10**12
-# D-095: the most the remote profile may reserve plus spend in one Singapore calendar day.
-# A setting may lower it (AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD), never raise it.
-DAILY_CAP_CEILING_MICRO_USD = 1_000_000
+# D-095: what the remote profile may reserve plus spend in one Singapore calendar day when
+# nothing else is set. D-098: an HR or environment setting may be above or below it (no US$1
+# ceiling); the key's own verified limit and the lifetime cap still apply, the strictest wins.
+DEFAULT_DAILY_CAP_MICRO_USD = 1_000_000
 SINGAPORE = timezone(timedelta(hours=8), "Asia/Singapore")
 _MILLION = Decimal(1_000_000)
 
@@ -332,12 +334,12 @@ def next_singapore_reset_ms(now_ms: int) -> int:
 
 
 def daily_cap_for(setting: int | None) -> int | None:
-    """The daily cap to enforce: the ceiling, or a lower configured value; None when the
-    setting is not a micro-USD count within 0..ceiling (the caller refuses)."""
+    """The daily cap to enforce: the default, or the configured value; None when the setting
+    is not a micro-USD count within 0..MAX_MICRO_USD (the caller refuses)."""
 
     if setting is None:
-        return DAILY_CAP_CEILING_MICRO_USD
-    if type(setting) is not int or not 0 <= setting <= DAILY_CAP_CEILING_MICRO_USD:
+        return DEFAULT_DAILY_CAP_MICRO_USD
+    if type(setting) is not int or not 0 <= setting <= MAX_MICRO_USD:
         return None
     return setting
 
@@ -697,8 +699,8 @@ class BudgetLedger:
         daily_cap_micro_usd: int | None = None,
     ) -> str:
         """Admit one call atomically, or raise ``BudgetRefusedError`` with a closed outcome.
-        The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` may only lower
-        the ceiling; a value outside 0..ceiling refuses."""
+        The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` (the default when
+        None); a value outside 0..MAX_MICRO_USD refuses."""
 
         daily_cap = daily_cap_for(daily_cap_micro_usd)
         if daily_cap is None:
@@ -916,13 +918,26 @@ class BudgetLedger:
     # -- operator actions (scripts/budget_ledger.py) --
 
     def set_cap(
-        self, cap_micro_usd: int, *, allow_raise: bool = False, confirm: int | None = None
+        self,
+        cap_micro_usd: int,
+        *,
+        allow_raise: bool = False,
+        confirm: int | None = None,
+        expected: int | None = None,
     ) -> None:
+        """Set the lifetime cap. ``expected`` (D-098): the cap the caller decided on, checked
+        in this same write transaction, so a change made in between by anyone (another
+        process, the operator's script) refuses this one instead of being overwritten."""
+
         if type(cap_micro_usd) is not int or not 0 <= cap_micro_usd <= MAX_MICRO_USD:
             raise LedgerError("INVALID_INPUT", "the cap must be a micro-USD count")
+        if expected is not None and (type(expected) is not int or expected < 0):
+            raise LedgerError("INVALID_INPUT", "the expected cap must be a micro-USD count")
 
         def change(connection: sqlite3.Connection) -> None:
             current = self._meta(connection)["cap_micro_usd"]
+            if expected is not None and current != expected:
+                raise LedgerError("CAP_CHANGED", "the cap changed since it was read")
             if cap_micro_usd > current and not (allow_raise and confirm == cap_micro_usd):
                 raise LedgerError(
                     "CAP_RAISE_REFUSED", "raising the cap needs explicit confirmation"

@@ -550,6 +550,33 @@ describe("AiAssistantPanel", () => {
     expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
   });
 
+  it("labels a case-data answer as not AI-generated where it is read (D-098)", async () => {
+    const reply = (answeredBy: string, smallTalk = false) => async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        return new Response(
+          `${JSON.stringify({ type: "done", answer: "From ACRA (MOCK).", answered_by: answeredBy, model: answeredBy === "model" ? "openai/gpt-oss-120b" : null, notice: null, suggested_questions: [], answer_id: null, small_talk: smallTalk })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      return json({}, 404);
+    };
+    for (const [answeredBy, smallTalk, labelled] of [["case_data", false, true], ["model", false, false], ["case_data", true, false]] as const) {
+      stubFetch(reply(answeredBy, smallTalk));
+      const view = render("case-1");
+      click(view.querySelector(".ai-assistant-launcher"));
+      await flush();
+      click(view.querySelector(".ai-assistant-chip"));
+      await flush();
+      const label = view.querySelector("[data-testid=case-data-label]");
+      expect(Boolean(label)).toBe(labelled);
+      if (labelled) expect(label?.textContent).toContain("Case-data guidance, not AI-generated.");
+      act(() => root?.unmount());
+      root = null;
+    }
+  });
+
   it("does not say a record failed after small talk, which never has one", async () => {
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);

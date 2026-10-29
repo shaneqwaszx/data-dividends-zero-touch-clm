@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import secrets
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -26,7 +27,27 @@ MAX_SESSION_TOKEN_LENGTH = 128
 
 
 class AuthenticationError(Exception):
-    """Fixed authentication failure with no credential or identity detail."""
+    """Fixed authentication failure with no credential or identity detail.
+
+    ``reason`` (D-098) says only why a presented session no longer works, as a closed code:
+    it never names the user, the token or the other session."""
+
+    def __init__(self, reason: str = "SESSION_UNKNOWN") -> None:
+        super().__init__()  # the exception itself stays detail-free
+        self.reason = reason
+
+
+# D-098: why a session token stopped working. A token this process never issued (for example
+# after a backend restart, since sessions live in process memory) reads as SESSION_UNKNOWN.
+SESSION_END_REASONS = (
+    "SESSION_EXPIRED",
+    "SESSION_REPLACED",
+    "SESSION_REVOKED",
+    "SIGNED_OUT",
+    "SESSION_UNKNOWN",
+)
+# How many ended sessions are remembered (by digest only), and for how long.
+MAX_ENDED_SESSIONS = 1024
 
 
 class AuthenticationConfigurationError(Exception):
@@ -141,6 +162,8 @@ class AuthenticationService:
         )
         self._sessions: dict[str, SessionRecord] = {}
         self._session_by_user: dict[str, str] = {}
+        # Digest -> (reason, when it ended); bounded, oldest first, nothing else kept.
+        self._ended: OrderedDict[str, tuple[str, datetime]] = OrderedDict()
         self._session_lock = RLock()
 
     def login(self, user_id: str, credential: str) -> IssuedSession:
@@ -177,8 +200,11 @@ class AuthenticationService:
         with self._session_lock:
             self._purge_expired(now)
             previous_digest = self._session_by_user.pop(account.user_id, None)
-            if previous_digest is not None:
-                self._sessions.pop(previous_digest, None)
+            if (
+                previous_digest is not None
+                and self._sessions.pop(previous_digest, None) is not None
+            ):
+                self._remember_end(previous_digest, "SESSION_REPLACED", now)
             if len(self._sessions) >= self._max_active_sessions:
                 raise SessionCapacityError
             self._sessions[digest] = record
@@ -193,21 +219,23 @@ class AuthenticationService:
             or len(token) > MAX_SESSION_TOKEN_LENGTH
             or any(character.isspace() for character in token)
         ):
-            raise AuthenticationError
+            # No usable token was presented: nothing ended, so no end reason is given.
+            raise AuthenticationError("NO_SESSION")
         with self._session_lock:
             self._purge_expired(now)
-            record = self._sessions.get(_session_digest(token))
+            digest = _session_digest(token)
+            record = self._sessions.get(digest)
             if record is None or record.expires_at <= now:
-                raise AuthenticationError
+                raise AuthenticationError(self._end_reason(digest, now))
             account = self._profiles.get(record.user_id)
             if account is None or account.security_version != record.security_version:
-                self._remove_session(record)
-                raise AuthenticationError
+                self._remove_session(record, "SESSION_REVOKED", now)
+                raise AuthenticationError("SESSION_REVOKED")
             try:
                 actor = self._actor_for_account(account)
             except AuthenticationError:
-                self._remove_session(record)
-                raise
+                self._remove_session(record, "SESSION_REVOKED", now)
+                raise AuthenticationError("SESSION_REVOKED") from None
             return AuthenticatedSession(record=record, actor=actor)
 
     def verify_csrf(self, record: AuthenticatedSession, token: str | None) -> bool:
@@ -217,6 +245,7 @@ class AuthenticationService:
         with self._session_lock:
             record = self.authenticate_session(token)
             self._sessions.pop(record.digest, None)
+            self._remember_end(record.digest, "SIGNED_OUT", _as_utc(self._clock()))
             current = self._session_by_user.get(record.user_id)
             if current == record.digest:
                 self._session_by_user.pop(record.user_id, None)
@@ -224,8 +253,8 @@ class AuthenticationService:
     def revoke_user_sessions(self, user_id: str) -> None:
         with self._session_lock:
             digest = self._session_by_user.pop(user_id, None)
-            if digest is not None:
-                self._sessions.pop(digest, None)
+            if digest is not None and self._sessions.pop(digest, None) is not None:
+                self._remember_end(digest, "SESSION_REVOKED", _as_utc(self._clock()))
 
     def active_session_count(self) -> int:
         with self._session_lock:
@@ -236,13 +265,29 @@ class AuthenticationService:
         expired = [digest for digest, record in self._sessions.items() if record.expires_at <= now]
         for digest in expired:
             record = self._sessions.pop(digest)
+            self._remember_end(digest, "SESSION_EXPIRED", now)
             if self._session_by_user.get(record.user_id) == digest:
                 self._session_by_user.pop(record.user_id, None)
 
-    def _remove_session(self, record: SessionRecord) -> None:
+    def _remove_session(self, record: SessionRecord, reason: str, now: datetime) -> None:
         self._sessions.pop(record.digest, None)
+        self._remember_end(record.digest, reason, now)
         if self._session_by_user.get(record.user_id) == record.digest:
             self._session_by_user.pop(record.user_id, None)
+
+    def _remember_end(self, digest: str, reason: str, now: datetime) -> None:
+        """Keep why a session ended (digest only), bounded in count and in time."""
+
+        self._ended.pop(digest, None)
+        self._ended[digest] = (reason, now)
+        while len(self._ended) > MAX_ENDED_SESSIONS:
+            self._ended.popitem(last=False)
+
+    def _end_reason(self, digest: str, now: datetime) -> str:
+        ended = self._ended.get(digest)
+        if ended is None or now - ended[1] > SESSION_TTL:
+            return "SESSION_UNKNOWN"
+        return ended[0]
 
     def _actor_for_account(self, account: object) -> AuthenticatedActor:
         from app.domain.administration import UserAccountRecord

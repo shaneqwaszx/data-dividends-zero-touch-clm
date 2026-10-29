@@ -99,6 +99,31 @@ export async function fetchCurrentSession(): Promise<AuthSession> {
   return parseResponse<AuthSession>(response);
 }
 
+// D-098: why the backend stopped accepting this browser's session (closed codes only; the
+// backend sends X-Session-End-Reason on a 401 for a session it ended or does not know).
+export const SESSION_END_REASONS = [
+  "SESSION_EXPIRED",
+  "SESSION_REPLACED",
+  "SESSION_REVOKED",
+  "SIGNED_OUT",
+  "SESSION_UNKNOWN",
+] as const;
+export type SessionEndReason = (typeof SESSION_END_REASONS)[number];
+
+// Asks once, outside the authenticated transport (it never triggers the 401 handler).
+export async function fetchSessionEndReason(): Promise<SessionEndReason | null> {
+  try {
+    const response = await globalThis.fetch(`${API_BASE_URL}/api/auth/me`, { credentials: "include" });
+    if (response.status !== 401) return null;
+    const reason = response.headers.get("X-Session-End-Reason");
+    return (SESSION_END_REASONS as readonly string[]).includes(reason ?? "")
+      ? reason as SessionEndReason
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function logout(): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST" });
   if (!response.ok) await parseResponse<never>(response);

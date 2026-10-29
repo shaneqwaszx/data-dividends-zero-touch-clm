@@ -11,7 +11,8 @@ from typing import Any
 import pytest
 
 from ai_assistant.budget import (
-    DAILY_CAP_CEILING_MICRO_USD,
+    DEFAULT_DAILY_CAP_MICRO_USD,
+    MAX_MICRO_USD,
     BudgetLedger,
     BudgetRefusedError,
     Reservation,
@@ -75,12 +76,16 @@ def test_singapore_day_boundaries() -> None:
     assert singapore_day_start_ms(after) == start + 86_400_000
 
 
-def test_the_ceiling_is_one_dollar_and_a_setting_may_only_lower_it() -> None:
-    assert DAILY_CAP_CEILING_MICRO_USD == 1_000_000
+def test_the_default_is_one_dollar_and_a_setting_may_go_above_or_below_it() -> None:
+    # D-098: US$1.00 is the default, not a ceiling; only the technical bound applies.
+    assert DEFAULT_DAILY_CAP_MICRO_USD == 1_000_000
     assert daily_cap_for(None) == 1_000_000
     assert daily_cap_for(250_000) == 250_000
-    assert daily_cap_for(1_000_001) is None and daily_cap_for(-1) is None
+    assert daily_cap_for(5_000_000) == 5_000_000
+    assert daily_cap_for(MAX_MICRO_USD) == MAX_MICRO_USD
+    assert daily_cap_for(MAX_MICRO_USD + 1) is None and daily_cap_for(-1) is None
     assert daily_cap_for(True) is None  # type: ignore[arg-type]
+    assert daily_cap_for(MAX_MICRO_USD + 1) is None
 
 
 def test_settled_spend_plus_open_reservations_never_exceed_the_daily_cap(
@@ -108,8 +113,20 @@ def test_a_lower_setting_applies_and_an_out_of_range_setting_refuses(tmp_path: P
     ledger = _ledger(tmp_path, Clock())
     _admit(ledger, 200_000, daily=250_000)
     assert _refusal(ledger, 50_001, daily=250_000) == "refused_daily_cap"
-    assert _refusal(ledger, 1, daily=2_000_000) == "refused_daily_cap"
+    assert _refusal(ledger, 1, daily=MAX_MICRO_USD + 1) == "refused_daily_cap"
     assert ledger.status().open_calls == 1
+
+
+def test_a_daily_limit_above_one_dollar_still_meets_the_stricter_lifetime_cap(
+    tmp_path: Path,
+) -> None:
+    # D-098: HR may set the day above US$1.00; the lifetime cap (here US$1.20) still binds.
+    ledger = _ledger(tmp_path, Clock(), cap=1_200_000)
+    first = _admit(ledger, 900_000, daily=3_000_000)  # above the old US$1.00 ceiling
+    ledger.settle(first, usage=_usage("0.900000"), error_class=None)
+    assert _refusal(ledger, 400_000, daily=3_000_000) == "refused_cap"
+    _admit(ledger, 300_000, daily=3_000_000)
+    assert ledger.daily_status(3_000_000).settled_today == 900_000
 
 
 def test_the_stricter_lifetime_cap_still_applies(tmp_path: Path) -> None:

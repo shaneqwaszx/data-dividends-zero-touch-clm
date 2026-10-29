@@ -17,19 +17,27 @@ from ai_assistant.model_admin_store import ModelAdminStore, RevisionConflict
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID
 from ai_assistant.model_qualification import qualification_basis
 from tests.test_model_management import API
-from tests.test_remote_test import SENTINEL, Journey, _settle_verification, wait_for
+from tests.test_remote_test import SENTINEL, Journey, _settle_verification
 
 CONTROLS = f"{API}/budget/controls"
 LIFETIME = f"{API}/budget/lifetime-cap"
 REFRESH = f"{API}/budget/provider-refresh"
 
 
-def _controls(journey: Journey, daily: Any, calls: Any, revision: int | None = None) -> Any:
+def _controls(
+    journey: Journey, daily: Any, calls: Any, revision: int | None = None, confirm: Any = None
+) -> Any:
     if revision is None:
         revision = journey.client.get(f"{API}/budget").json()["controls"]["revision"]
     return journey.client.put(
         CONTROLS,
-        json={"expected_revision": revision, "daily_cap_micro_usd": daily, "max_calls": calls},
+        json={
+            "expected_revision": revision,
+            "daily_cap_micro_usd": daily,
+            "max_calls": calls,
+            # D-098: a raise of the daily limit needs the same amount confirmed.
+            **({} if confirm is None else {"confirm_daily_cap_micro_usd": confirm}),
+        },
     )
 
 
@@ -67,7 +75,7 @@ def test_until_hr_sets_them_the_environment_values_apply(
     assert controls["lifetime"] == {
         "opening_usage_micro_usd": 0,
         "cap_micro_usd": 1_000_000,
-        "max_cap_micro_usd": 1_000_000,
+        "max_cap_micro_usd": 10**12,  # D-098: only the technical bound
         "committed_micro_usd": 0,
     }
     # The overview carries the same view.
@@ -107,7 +115,7 @@ def test_hr_sets_both_controls_and_they_persist_for_every_process(
 @pytest.mark.parametrize(
     ("daily", "calls", "status"),
     [
-        (1_000_001, 20, 400),  # above the US$1.00 ceiling
+        (10**12 + 1, 20, 400),  # D-098: above the technical bound (no US$1 ceiling)
         (-1, 20, 400),
         (500_000, 0, 400),
         (500_000, 201, 400),
@@ -130,12 +138,14 @@ def test_out_of_range_controls_are_refused_and_nothing_changes(
 
 def test_the_store_itself_refuses_values_beyond_the_hard_bounds(tmp_path: Path) -> None:
     store = ModelAdminStore(tmp_path / "state.sqlite3")
-    for daily, calls in ((1_000_001, 1), (0, 0), (0, 201)):
+    for daily, calls in ((10**12 + 1, 1), (0, 0), (0, 201)):
         with pytest.raises(ValueError):
             store.set_spending_controls(0, daily, calls, "hr-admin")
     # Even a direct write past the API cannot store more (the table's CHECKs).
     with sqlite3.connect(tmp_path / "state.sqlite3") as db, pytest.raises(sqlite3.IntegrityError):
-        db.execute("INSERT INTO spending_controls VALUES (1, 1, 1000001, 20, 'now', 'someone')")
+        db.execute(
+            "INSERT INTO spending_controls VALUES (1, 1, 1000000000001, 20, 'now', 'someone')"
+        )
     assert store.set_spending_controls(0, 0, 1, "hr-admin") == 1
     with pytest.raises(RevisionConflict):
         store.set_spending_controls(0, 0, 1, "hr-admin")
@@ -224,7 +234,11 @@ def test_a_lower_daily_limit_applies_to_the_active_model_at_once_and_keeps_today
     # Back up: the same activation answers again; no restart, no new activation, no
     # requalification (the qualification basis does not include these controls).
     basis = qualification_basis()
-    assert _controls(journey, 1_000_000, 20).status_code == 200
+    # D-098: a raise needs the amount confirmed (and the key's finite limit, checked now).
+    assert _controls(journey, 1_000_000, 20).json()["detail"]["code"] == (
+        "DAILY_CONFIRMATION_REQUIRED"
+    )
+    assert _controls(journey, 1_000_000, 20, confirm=1_000_000).status_code == 200
     assert journey.ask()["answered_by"] == "model"
     _settle_verification()
     after = journey.client.get(API).json()
@@ -309,10 +323,11 @@ def test_the_qualification_honours_the_hr_daily_limit(
     test = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
     assert test.json()["outcome"] == "passed"
     assert _controls(journey, 0, 20).status_code == 200  # no daily allowance
-    started = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/qualifications")
-    assert started.status_code == 202, started.text
-    result = wait_for(journey.client, started.json()["qualification_id"])
-    assert result["status"] != "passed"
+    # D-098: refused before it starts, since not every paid call fits the daily limit.
+    started = journey.start_qualification()
+    assert started.status_code == 409, started.text
+    assert started.json()["detail"]["code"] == "QUALIFICATION_BUDGET_INSUFFICIENT"
+    assert journey.client.get(API).json()["running"] is None
     assert journey.openrouter.chats == []  # no paid call was made
 
 
@@ -334,23 +349,33 @@ def test_hr_lowers_and_raises_the_lifetime_cap_within_the_allocation(
 
     # A raise needs the same amount confirmed.
     for body in (
-        {"cap_micro_usd": 900_000},
-        {"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 1},
+        {"cap_micro_usd": 900_000, "expected_cap_micro_usd": 400_000},
+        {"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 1, "expected_cap_micro_usd": 400_000},
     ):
         refused = journey.client.put(LIFETIME, json=body)
         assert refused.status_code == 400
         assert refused.json()["detail"]["code"] == "CAP_CONFIRMATION_REQUIRED"
-    # Never beyond US$1.00 above the opening usage, never below the opening usage.
-    for cap in (1_000_001, opening - 1):
+    # Never beyond the technical bound (D-098: no US$1 ceiling), never below the opening usage.
+    for cap in (10**12 + 1, opening - 1):
         refused = journey.client.put(
-            LIFETIME, json={"cap_micro_usd": cap, "confirm_cap_micro_usd": cap}
+            LIFETIME,
+            json={
+                "cap_micro_usd": cap,
+                "confirm_cap_micro_usd": cap,
+                "expected_cap_micro_usd": 400_000,
+            },
         )
         assert refused.status_code in (409, 422)
     assert _ledger(journey).status().cap == 400_000
 
     key_reads = sum(1 for r in journey.openrouter.requests if r.url.path.endswith("/key"))
     raised = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 900_000, "confirm_cap_micro_usd": 900_000}
+        LIFETIME,
+        json={
+            "cap_micro_usd": 900_000,
+            "confirm_cap_micro_usd": 900_000,
+            "expected_cap_micro_usd": 400_000,
+        },
     )
     assert raised.status_code == 200, raised.text
     # The reconciliation check read the key's usage (GET /key only; nothing was changed).
@@ -383,7 +408,11 @@ def test_a_raise_needs_the_ledger_reconciled_with_openrouter(
         return original(request)
 
     journey.selector.transport = httpx.MockTransport(unaccounted)
-    body = {"cap_micro_usd": 800_000, "confirm_cap_micro_usd": 800_000}
+    body = {
+        "cap_micro_usd": 800_000,
+        "confirm_cap_micro_usd": 800_000,
+        "expected_cap_micro_usd": 500_000,
+    }
     refused = journey.client.put(LIFETIME, json=body)
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "RECONCILIATION_REQUIRED"
@@ -408,7 +437,12 @@ def test_a_missing_ledger_is_never_created(tmp_path: Path, monkeypatch: pytest.M
     journey = Journey(tmp_path, monkeypatch)
     Path(journey.settings.budget_ledger_path).unlink()
     refused = journey.client.put(
-        LIFETIME, json={"cap_micro_usd": 500_000, "confirm_cap_micro_usd": 500_000}
+        LIFETIME,
+        json={
+            "cap_micro_usd": 500_000,
+            "confirm_cap_micro_usd": 500_000,
+            "expected_cap_micro_usd": 1_000_000,
+        },
     )
     assert refused.status_code == 409 and refused.json()["detail"]["code"] == "LEDGER_UNAVAILABLE"
     assert not Path(journey.settings.budget_ledger_path).exists()

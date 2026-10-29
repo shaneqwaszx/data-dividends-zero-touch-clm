@@ -14,6 +14,7 @@ service also stops the process if it overruns.
 
 import logging
 import time
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -336,6 +337,11 @@ class RemoteQualificationJob:
         summary["metrics"]["largest_prompt_bound"] = watched.largest_bound
         summary["metrics"]["remote_calls"] = len(calls)
         summary["metrics"]["remote_calls_verified"] = verified
+        # D-098: each failed call's closed error class (rate_limited, timeout, payment, ...),
+        # so HR is told whether the provider, the budget or the answers failed.
+        summary["metrics"]["call_errors"] = dict(
+            sorted(Counter(call.error_class for call in calls if call.error_class).items())
+        )
         summary["lines"] = line_breakdown(turns)
         summary["gates"] = _remote_gates(
             gates(

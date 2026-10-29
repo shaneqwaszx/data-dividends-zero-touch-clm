@@ -726,14 +726,25 @@ def test_qualification_and_chat_share_the_daily_allowance(
     )
     # Room for the two qualification calls and one chat call (each settles at US$0.00072),
     # then less than a large prompt's reservation; the preflight runs before every call.
+    # D-098: a paid qualification starts only if every call's full reservation fits, so it
+    # runs under a roomier allowance that HR then lowers (a decrease needs no confirmation).
     journey = Journey(
         tmp_path,
         monkeypatch,
         **D095,
-        budget_daily_cap_micro_usd=reservation + 1440 + 500,
+        budget_daily_cap_micro_usd=2 * reservation + 1440,
         local_api_test_preflight_seconds=0,
     )
     journey.activate_remote()
+    lowered = journey.client.put(
+        f"{API}/budget/controls",
+        json={
+            "expected_revision": 0,
+            "daily_cap_micro_usd": reservation + 1440 + 500,
+            "max_calls": 20,
+        },
+    )
+    assert lowered.status_code == 200, lowered.text
     serve(monkeypatch, GARDEN)
     sent = len(journey.openrouter.chats)
     assert journey.ask()["answered_by"] == "model"

@@ -662,6 +662,12 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
                     className={`ai-assistant-message ai-assistant-${message.role}`}
                     aria-busy={custom.streaming || undefined}
                   >
+                    {/* D-098: an answer no AI model wrote is labelled where it is read, not only in the details below. */}
+                    {finished && custom.answeredBy === "case_data" && !custom.smallTalk && (
+                      <p className="ai-assistant-guidance-label" data-testid="case-data-label">
+                        <strong>Case-data guidance, not AI-generated.</strong> The AI model did not write this answer; it comes from this case's data and any approved guidance cited.
+                      </p>
+                    )}
                     {message.role === "assistant" ? <AiAssistantText text={text} onSection={goToSection} /> : <p>{text}</p>}
                     {custom.note && <span className="ai-assistant-note">{custom.note}</span>}
                     {finished && <SourceChips sources={custom.sources ?? []} />}
