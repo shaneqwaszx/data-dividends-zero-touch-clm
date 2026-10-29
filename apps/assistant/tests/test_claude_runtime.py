@@ -18,7 +18,7 @@ import httpx
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from ai_assistant import anthropic_runtime, budget, key_sources, remote_test
+from ai_assistant import anthropic_runtime, budget, key_sources, remote_test, synthetic_eligibility
 from ai_assistant.anthropic_chat import AnthropicChatModel
 from ai_assistant.anthropic_profiles import BALANCED, FAST, LEDGER_PROFILE_ID, PROFILE_IDS
 from ai_assistant.anthropic_runtime import (
@@ -32,7 +32,7 @@ from ai_assistant.anthropic_runtime import (
 from ai_assistant.budget import BudgetedChatModel, BudgetLedger, BudgetRefusedError, Reservation
 from ai_assistant.config import AiAssistantSettings
 from ai_assistant.llm import LlmUnavailableError, ModelCallError, Piece
-from ai_assistant.model_admin import UNAVAILABLE_ID, ModelSelector
+from ai_assistant.model_admin import UNAVAILABLE_ID, ModelSelector, _connection_diagnosis
 from ai_assistant.model_admin_store import ModelAdminStore
 from ai_assistant.model_catalog import load_catalogue
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID, ProfileConfigError
@@ -43,7 +43,7 @@ from tests.remote_fixtures import Chunks
 from tests.test_budget_cli import CLI as budget_ledger
 from tests.test_claude_console import _reply
 from tests.test_model_management import API, profile, wait_for, write_profiles
-from tests.test_remote_test import ALLOWED, Journey, config, new_ledger
+from tests.test_remote_test import ALLOWED, Journey, OpenRouter, config, listing, new_ledger
 from tests.test_remote_test import SENTINEL as OPENROUTER_SENTINEL
 
 WORKSPACE = "wrkspc_TestWorkspace01"
@@ -363,6 +363,97 @@ def test_an_existing_openrouter_ledger_keeps_working(
     assert ledger.settle(reservation_id, usage=None, error_class="timeout").outcome == "unsettled"
 
 
+def _with_an_unverified_call(ledger: BudgetLedger) -> int:
+    reservation_id = ledger.reserve(
+        Reservation(10, 10, 1_000),
+        endpoint_slug="x/y",
+        max_in_flight=1,
+        lease_seconds=60,
+        profile_id=ledger.status().profile_id,
+    )
+    ledger.settle(reservation_id, usage=None, error_class="timeout", cancelled=True)
+    (call,) = ledger.unverified_closed_calls()
+    return call.call_id
+
+
+def test_the_two_ledger_paths_may_never_name_one_file(tmp_path: Path) -> None:
+    settings = claude_config(
+        tmp_path, anthropic_ledger_path=str(tmp_path / "budget" / "ledger.sqlite3")
+    )
+    assert settings.anthropic_ledger_path == settings.budget_ledger_path
+    assert readiness(settings) == "LEDGER_PATH_SHARED"
+
+
+def test_a_claude_preflight_never_recovers_or_verifies_the_openrouter_ledger(
+    tmp_path: Path,
+) -> None:
+    # QG M-1: an OpenRouter ledger at the Claude path (a different file, so readiness holds).
+    settings = claude_config(tmp_path)
+    path = Path(settings.anthropic_ledger_path)
+    path.parent.mkdir(parents=True)
+    BudgetLedger.initialise(
+        path, cap_micro_usd=1_000_000, opening_usage_micro_usd=0, key_alias="key-01"
+    )
+    ledger = BudgetLedger.open(path)
+    call_id = _with_an_unverified_call(ledger)
+    claude = Claude()
+    report = _preflight(settings, claude, within_seconds=PAID_RECONCILE_SECONDS)
+    assert _failed(report) == ["ledger.profile"] and claude.requests == []
+    assert [c.call_id for c in ledger.unverified_closed_calls()] == [call_id]
+    assert not ledger.status().breaker_open
+    with pytest.raises(budget.LedgerError):
+        anthropic_runtime.verify_calls(ledger)
+    assert [c.call_id for c in ledger.unverified_closed_calls()] == [call_id]
+
+
+def test_a_gpt_oss_preflight_never_recovers_or_verifies_the_anthropic_ledger(
+    tmp_path: Path,
+) -> None:
+    # QG M-1, the other direction: an Anthropic ledger at the GPT-OSS path.
+    settings = config(tmp_path)
+    path = Path(settings.budget_ledger_path)
+    path.parent.mkdir(parents=True)
+    ledger = BudgetLedger.initialise(
+        path,
+        cap_micro_usd=1_000_000,
+        opening_usage_micro_usd=0,
+        key_alias="key-01",
+        profile_id=LEDGER_PROFILE_ID,
+    )
+    call_id = _with_an_unverified_call(ledger)
+    openrouter = OpenRouter()
+    report, opened, _ = remote_test.preflight(
+        settings,
+        environ={key_sources.CREDENTIAL_VARIABLE: OPENROUTER_SENTINEL},
+        transport=openrouter.transport(),
+        fetch=listing,
+    )
+    assert not report.passed and opened is None
+    healthy = next(c for c in report.checks if c.name == "ledger.healthy")
+    assert not healthy.ok and "LEDGER_PROFILE_MISMATCH" in healthy.detail
+    assert [c.call_id for c in ledger.unverified_closed_calls()] == [call_id]
+    assert not ledger.status().breaker_open
+    assert not any(r.url.path.endswith("/generation") for r in openrouter.requests)
+
+
+def test_hr_never_changes_the_anthropic_ledgers_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    path = Path(journey.settings.budget_ledger_path)
+    path.unlink()
+    BudgetLedger.initialise(
+        path,
+        cap_micro_usd=1_000_000,
+        opening_usage_micro_usd=0,
+        key_alias="key-01",
+        profile_id=LEDGER_PROFILE_ID,
+    )
+    reply = journey.client.put(f"{API}/budget/lifetime-cap", json={"cap_micro_usd": 500_000})
+    assert reply.status_code == 409 and reply.json()["detail"]["code"] == "LEDGER_UNAVAILABLE"
+    assert BudgetLedger.open(path).status().cap == 1_000_000
+
+
 def test_the_claude_model_refuses_the_openrouter_ledger(tmp_path: Path) -> None:
     settings = claude_config(tmp_path)
     path = Path(settings.anthropic_ledger_path)
@@ -608,6 +699,58 @@ def test_after_the_operator_reconciles_and_resets_calls_resume(tmp_path: Path) -
     ledger.reset_breaker("routing_anomaly")
     claude.reply_model = "claude-sonnet-5-5"
     assert _ask(model)[1] is None
+
+
+def test_a_d095_ticket_admits_its_messages_once_and_only_in_development_mode(
+    tmp_path: Path,
+) -> None:
+    # QG L-3 / F2: the ticket is used once in the runtime and the adapter re-checks the mode.
+    outside = [*SYSTEM, {"role": "user", "content": "Ünknown customer"}]
+    settings = claude_config(tmp_path, synthetic_dev_decision="D-095")
+    assert synthetic_eligibility.mode(settings)
+    claude_ledger(settings)
+    claude = Claude()
+    model = _model(settings, claude)
+    synthetic_eligibility.approve(outside)
+    assert _ask(model, outside)[1] is None and claude.posts == 1
+    _, error = _ask(model, outside)  # the ticket was used: refused, nothing sent
+    assert error is not None and error.error_class == "budget_refused" and claude.posts == 1
+    # A ticket without development mode admits nothing.
+    plain = claude_config(tmp_path / "plain")
+    claude_ledger(plain)
+    other = Claude()
+    synthetic_eligibility.approve(outside)
+    _, error = _ask(_model(plain, other), outside)
+    assert error is not None and other.requests == []
+
+
+def test_the_shown_preflight_holds_for_its_key_only(tmp_path: Path) -> None:
+    # QG L-2: a preflight passed with one key never vouches for another.
+    settings = claude_config(tmp_path)
+    claude_ledger(settings)
+    assert _preflight(settings, Claude()).passed
+    view = anthropic_runtime.budget_status(settings, environ={VAR: KEY})
+    assert view["refusal"] is None and view["preflight"]["passed"]
+    rotated = "sk-" + "ant-" + "api03-" + "RotatedSentinel" * 3
+    view = anthropic_runtime.budget_status(settings, environ={VAR: rotated})
+    assert view["refusal"] == "PROVIDER_LIMIT_NOT_CHECKED" and view["preflight"] is None
+
+
+@pytest.mark.parametrize(
+    ("check", "category"),
+    [
+        ("ledger.reconciled_recently", "billing_uncertain"),
+        ("ledger.profile", "billing_uncertain"),
+        ("anthropic.workspace_matches", "configuration"),
+        ("anthropic.inference_key", "configuration"),
+        ("ledger.cap_within_ceiling", "configuration"),
+        ("anthropic.models_reachable", "technical"),
+    ],
+)
+def test_hr_is_told_the_cause_of_a_failed_claude_check(check: str, category: str) -> None:
+    # QG L-1.
+    connection = {"checks": [{"check": check, "ok": False}, {"check": "x", "ok": True}]}
+    assert _connection_diagnosis(connection).category == category
 
 
 # --- the HR console journey (no automatic switch to another model) ---------------------------

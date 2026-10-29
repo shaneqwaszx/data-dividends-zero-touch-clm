@@ -1304,7 +1304,7 @@ merged, activated or Live, and no paid call was made.
   paid runs, activation and cap raises) and a free model read naming the workspace. Replies
   are verified in-band; anything uncertain is charged in full and stops later calls. No
   automatic switch to GPT-OSS or any other model.
-- **Qualification:** basis `b4049047884e…` → `e8d149ade8f8…` (boundary words and the Claude
+- **Qualification:** basis `b4049047884e…` → `72b681dc85e8…` (boundary words and the Claude
   modules): every GPT-OSS qualification is out of date once merged.
 - **Persistence:** a second git-ignored SQLite ledger file; `budget.PROFILES` gains the
   Anthropic profile (existing OpenRouter ledgers unchanged). No Mongo or case-data change.

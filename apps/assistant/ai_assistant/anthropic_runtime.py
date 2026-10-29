@@ -91,7 +91,7 @@ from .llm import (
     Piece,
     is_local_model_url,
 )
-from .model_factory import ASSISTANT_DIR
+from .model_factory import ASSISTANT_DIR, ledger_path
 from .model_profiles import LIVE_DECISION_ID, REMOTE_DECISION_ID, ProfileConfigError
 from .openrouter import require_offline_transport
 from .remote_checks import Preflight, check_daily, typical_reservation
@@ -182,6 +182,9 @@ def readiness(settings: AiAssistantSettings) -> str | None:
         and _bounded(settings.local_api_test_preflight_seconds, 0, 3600)
     ):
         return "ANTHROPIC_SETTINGS_INVALID"
+    # QG M-1: one ledger file per provider, so neither provider's checks touch the other's.
+    if ledger_file(settings).resolve() == ledger_path(settings).resolve():
+        return "LEDGER_PATH_SHARED"
     return None
 
 
@@ -251,6 +254,9 @@ def verify_calls(ledger: BudgetLedger) -> tuple[int, int]:
     # from complete reported usage with no anomaly (the reply named the attested workspace, the
     # pinned model and a standard route before any text). Anything else is quarantined and
     # opens the breaker. Returns (checked, quarantined).
+    # QG M-1: never on another provider's ledger (its calls follow that provider's rules).
+    if ledger.status().profile_id != LEDGER_PROFILE_ID:
+        raise LedgerError("INVALID_INPUT", "not the Anthropic ledger")
     calls = ledger.unverified_closed_calls()
     quarantined = 0
     for call in calls:
@@ -295,6 +301,19 @@ def check_ledger(
 ) -> None:
     try:
         ledger = BudgetLedger.open(ledger_file(settings))
+        profile = ledger.status().profile_id
+    except LedgerError as error:
+        report.add("ledger.healthy", False, f"refused: {error.code}")
+        return
+    # QG M-1: the profile first; another provider's ledger is never recovered or verified.
+    report.add(
+        "ledger.profile",
+        profile == LEDGER_PROFILE_ID,
+        f"profile {profile} (the separate Anthropic ledger)",
+    )
+    if profile != LEDGER_PROFILE_ID:
+        return
+    try:
         ledger.recover()
         checked, quarantined = verify_calls(ledger)
         status = ledger.status()
@@ -303,11 +322,6 @@ def check_ledger(
         report.add("ledger.healthy", False, f"refused: {error.code}")
         return
     report.add("ledger.healthy", True, f"alias {status.key_alias}")
-    report.add(
-        "ledger.profile",
-        status.profile_id == LEDGER_PROFILE_ID,
-        f"profile {status.profile_id} (the separate Anthropic ledger)",
-    )
     report.add(
         "ledger.earlier_calls_verified",
         quarantined == 0,
@@ -422,6 +436,8 @@ def preflight(
             _last.clear()
             _last.update(
                 checked_at=time.time(),
+                # QG L-2: the result holds for this key only.
+                key=key_sources.identity(key),
                 passed=report.passed,
                 checks=[{"check": c.name, "ok": c.ok, "detail": c.detail} for c in report.checks],
             )
@@ -463,12 +479,14 @@ def budget_status(
         "workspace_limit_micro_usd": settings.anthropic_workspace_limit_micro_usd,
         "lifetime_ceiling_micro_usd": LIFETIME_CEILING_MICRO_USD,
     }
-    _, credential, key_code = resolve_key(environ, env_file=env_file)
+    key, credential, key_code = resolve_key(environ, env_file=env_file)
     view["credential"] = credential.view()
     now = clock()
     view["next_reset_at"] = _iso(next_singapore_reset_ms(int(now * 1000)) / 1000)
     with _last_lock:
         last = dict(_last)
+    if last and last.get("key") != key_sources.identity(key):
+        last = {}  # another key's preflight (QG L-2)
     view["preflight"] = (
         {"checked_at": _iso(last["checked_at"]), "passed": last["passed"], "checks": last["checks"]}
         if last
@@ -674,6 +692,8 @@ class ClaudeTestModel:
                 except (ProfileConfigError, LedgerError):
                     raise self._refuse("model build") from None
                 self._credential, self._checked_at = marker, None
+                with _last_lock:
+                    _last.clear()  # the shown preflight was another key's (QG L-2)
             try:
                 ledger = BudgetLedger.open(self._ledger_file)
                 calls = len(ledger.closed_calls_after(self._start_call)) + (

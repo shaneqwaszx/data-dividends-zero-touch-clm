@@ -491,6 +491,9 @@ def run_preflight(
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
     try:
         ledger = BudgetLedger.open(ledger_file)
+        # D-099 (QG M-1): another provider's ledger is never recovered or verified here.
+        if ledger.status().profile_id != OPENROUTER_PROFILE_ID:
+            raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the OpenRouter ledger")
         ledger.recover()
         status = ledger.status()
     except LedgerError as error:

@@ -70,7 +70,7 @@ remaining word is an identifier fragment of an approved format check (inference-
 admit nothing in a question or assistant history (tested), and no eligible-case or client-data
 rule changed. **Owner acknowledgement of these three words is requested before publication.**
 
-Qualification basis: `235030035ccc…` (PR #130) → `e8d149ade8f8ec2506c8ab9ba58e58dc477d60dbefb58c6b39eeafe4503685bf`
+Qualification basis: `235030035ccc…` (PR #130) → `72b681dc85e83ee435a07b7e35cb7f6e6b5e4a03b65ffaf2d0eb428408b9b30e`
 (recomputed after the final edits; see §4). Every GPT-OSS qualification is out of date once
 merged; Claude configurations need their own paid qualification (separately authorised).
 
@@ -86,7 +86,7 @@ merged; Claude configurations need their own paid qualification (separately auth
 - `ruff check`, `ruff format --check`, `mypy` on all 15 touched Python files: clean.
   `scripts/check_secrets.py`: pass. `build_synthetic_boundary.py --check`: current.
   `git diff --check`: clean; EOL churn checked (`--stat` equals `--ignore-cr-at-eol`).
-- Final qualification basis: `e8d149ade8f8ec2506c8ab9ba58e58dc477d60dbefb58c6b39eeafe4503685bf`.
+- Qualification basis at that point: `e8d149ade8f8…` (superseded by the remediation; see 4a).
 - A late fix found during testing: the service's follow-up prompts put knowledge/topic system
   messages after history, which the adapter refuses by design; under the runtime that refusal
   would have come after reservation and opened the breaker. The runtime now refuses such a
@@ -95,6 +95,31 @@ merged; Claude configurations need their own paid qualification (separately auth
 - A label fix: Claude's attestation refusal is its own code (`ANTHROPIC_ATTESTATION_MISSING`), so
   the page never shows GPT-OSS's "auto top-up and prompt logging" text for it. New Claude
   reason codes have no page labels yet (shown as codes; UI deferred with D-100).
+
+## 4a. Remediation after the first independent gate (FAIL, `D099_OPTION_B_QUALITY_GATE.md`)
+
+Reviewed commit `778b468` (tree `fcdb0d6d`). Fixed in the remediation commit:
+
+- **M-1 (Medium):** ledger isolation now covers recovery and verification, not only admission.
+  The Claude preflight checks the ledger profile before `recover()`/`verify_calls()` and stops on
+  a mismatch; `verify_calls` refuses a non-Anthropic ledger; Claude readiness refuses when the
+  two ledger paths resolve to one file (`LEDGER_PATH_SHARED`); the GPT-OSS preflight
+  (`remote_checks.run_preflight`) refuses a non-OpenRouter ledger before recovering or verifying
+  it (`ledger.healthy` refused `LEDGER_PROFILE_MISMATCH`); the HR lifetime-cap endpoint refuses a
+  non-OpenRouter ledger (`LEDGER_UNAVAILABLE`). These only add refusals to GPT-OSS paths.
+- **L-1:** Claude check names classified for HR (billing: `ledger.profile`,
+  `ledger.reconciled_recently`; configuration: `anthropic.ready`, `anthropic.inference_key`,
+  `anthropic.workspace_matches`, `anthropic.model_available`, `ledger.cap_within_ceiling`).
+- **L-2:** the remembered preflight records its key marker; the spending view ignores another
+  key's result, and a key change clears it.
+- **L-3:** tests added for the D-095 ticket path (used once; no effect without D-095 mode) and
+  both isolation directions, the shared path, the HR cap refusal, the key-tied preflight and
+  the diagnosis.
+
+Evidence on the remediated tree: 815 passed / 0 failed across the Claude, Phase B live, budget,
+model factory, telemetry, eligibility, GPT-OSS remote test, reasoning, model management,
+spending controls, D-098 recovery and OpenRouter adapter modules; boundary current (no new
+word); ruff, format, mypy clean. Basis `72b681dc85e8…`.
 
 ## 5. Unresolved / for the owner
 

@@ -435,7 +435,7 @@ from Claude automatically.
 **Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
 plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary
 only) and adds the Claude modules to the qualification basis, so the basis moves from
-`b4049047884e…` (D-098) to `e8d149ade8f8…`. Every earlier GPT-OSS qualification is out of date
+`b4049047884e…` (D-098) to `72b681dc85e8…`. Every earlier GPT-OSS qualification is out of date
 once this merges: an active GPT-OSS configuration becomes *AI unavailable* at start-up until HR
 runs a new (paid, separately approved) qualification and activates it. Historical runs are
 kept.

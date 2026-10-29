@@ -785,6 +785,9 @@ _BILLING_CHECKS = frozenset(
         "ledger.usage_reconciled",
         "ledger.earlier_calls_verified",
         "ledger.healthy",
+        # D-099: the Anthropic ledger's own checks.
+        "ledger.profile",
+        "ledger.reconciled_recently",
     }
 )
 # Checks HR can resolve with the spending controls (or by waiting for the daily reset).
@@ -805,6 +808,12 @@ _CONFIGURATION_CHECKS = frozenset(
         "ledger.cap_above_opening",
         "owner.auto_topup_off",
         "owner.prompt_logging_off",
+        # D-099: the Claude configuration's settings, key, workspace and ledger ceiling.
+        "anthropic.ready",
+        "anthropic.inference_key",
+        "anthropic.workspace_matches",
+        "anthropic.model_available",
+        "ledger.cap_within_ceiling",
     }
 )
 # Provider answers that trip the ledger breaker (budget.TRIP_ERROR_CLASSES): not retryable.
@@ -2032,6 +2041,9 @@ def model_admin_router(
             try:
                 ledger = BudgetLedger.open(ledger_file(settings))
                 status = ledger.status()
+                # D-099 (QG M-1): HR changes the GPT-OSS ledger only, never the Anthropic one.
+                if status.profile_id != OPENROUTER_PROFILE_ID:
+                    raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the OpenRouter ledger")
             except LedgerError:
                 audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                 raise _refusal(409, "LEDGER_UNAVAILABLE") from None
