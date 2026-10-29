@@ -149,6 +149,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
   "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
   "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
+  "Run Test connection first so the Anthropic workspace and model are checked (a free model read). Nothing started.",
   "The OpenRouter key's own spending limit has no room. Only the key's owner can raise it at OpenRouter; it is not an HR setting. Nothing started.",
   "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
   "A later qualification of this configuration failed on answer quality.",

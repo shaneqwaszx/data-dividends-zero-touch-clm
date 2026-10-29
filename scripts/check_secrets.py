@@ -39,6 +39,7 @@ RUNTIME_VALUE_REFERENCE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][
 # Model management (D-093) adds the reviewed AI_ASSISTANT_MODEL_KEY_* allowlist.
 ASSISTANT_CREDENTIALS = (
     "OPENROUTER_API_KEY|AI_ASSISTANT_LLM_API_KEY|AI_ASSISTANT_MODEL_KEY_[A-Z0-9_]{1,40}"
+    "|AI_ASSISTANT_ANTHROPIC_API_KEY|ANTHROPIC_API_KEY"
 )
 # A whole angle-bracket placeholder (which may contain spaces), or a run without quotes.
 # A placeholder only counts when it is the whole value: only closing quotes, backticks and
@@ -116,6 +117,8 @@ RULES = (
     # An OpenRouter-shaped key without a name. The prefix is not documented, so the
     # name-based rules above are the primary control.
     Rule("openrouter-key", re.compile(r"\bsk-or-[A-Za-z0-9_-]{20,}")),
+    # An Anthropic API or Admin key without a name (Claude API benchmark).
+    Rule("anthropic-key", re.compile(r"\bsk-ant-[a-z]+(?:\d{2})?-[A-Za-z0-9_-]{20,}")),
 )
 CREDENTIAL_RULES = frozenset(
     {

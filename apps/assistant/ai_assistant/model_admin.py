@@ -65,7 +65,7 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
 
-from . import key_sources
+from . import anthropic_profiles, anthropic_runtime, key_sources
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
     MAX_MICRO_USD,
@@ -125,7 +125,10 @@ SYSTEM_ACTOR = "system"
 # D-098: the stored "no model" state after a GPT-OSS configuration stopped being usable (never
 # a profile id in the catalogue, so it can never be activated or rolled back to).
 UNAVAILABLE_ID = "ai_unavailable"
-REMOTE_PROFILE_IDS = frozenset({OPENROUTER_PROFILE_ID, OPENROUTER_FAST_PROFILE_ID})
+# D-099 Option B: the Claude configurations follow the same fail-closed rules (R6 extended).
+REMOTE_PROFILE_IDS = (
+    frozenset({OPENROUTER_PROFILE_ID, OPENROUTER_FAST_PROFILE_ID}) | anthropic_profiles.PROFILE_IDS
+)
 _QUALIFICATION_ID = re.compile(r"[0-9a-f]{32}")
 # The qualification runs the dev-only evaluation harness in its own process (never in this one).
 QUALIFY_SCRIPT = ASSISTANT_DIR / "scripts" / "qualify_model.py"
@@ -211,6 +214,12 @@ MESSAGES = {
     ),
     "PROVIDER_LIMIT_NOT_CHECKED": (
         "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started."
+    ),
+    # D-099: the same refusal for a Claude configuration, whose free check reads the attested
+    # Anthropic workspace and the model (there is no readable key limit).
+    "PROVIDER_LIMIT_NOT_CHECKED_ANTHROPIC": (
+        "Run Test connection first so the Anthropic workspace and model are checked (a free"
+        " model read). Nothing started."
     ),
     "PROVIDER_KEY_LIMIT_EXHAUSTED": (
         "The OpenRouter key's own spending limit has no room. Only the key's owner can raise"
@@ -446,6 +455,8 @@ class ModelSelector:
         Read-only: the ledger is checked, never recovered or changed."""
 
         model = self._active.model
+        if isinstance(model, anthropic_runtime.ClaudeTestModel):
+            return model.calls_used()
         if not isinstance(model, RemoteTestModel):
             return None
         ledger = BudgetLedger(model._ledger_file)  # noqa: SLF001 - see sync_controls
@@ -572,7 +583,11 @@ class ModelSelector:
             item = self.store.qualification(qualification_id) or {}
             entry = load_catalogue(self.settings).get(str(item.get("profile_id")))
             code = "INTERRUPTED"
-            if entry is not None and entry.source == "code" and self._paid_call_uncertain():
+            if (
+                entry is not None
+                and entry.source == "code"
+                and self._paid_call_uncertain(entry.deployment == "anthropic")
+            ):
                 code = "INTERRUPTED_BILLING_UNCERTAIN"
             self.store.finish_qualification(qualification_id, "error", code, item.get("summary"))
             final = self.store.qualification(qualification_id) or {}
@@ -590,12 +605,17 @@ class ModelSelector:
             )
         return closed
 
-    def _paid_call_uncertain(self) -> bool:
+    def _paid_call_uncertain(self, anthropic: bool = False) -> bool:
         """A remote call is still open, or one was abandoned (read-only ledger check; an
-        unreadable ledger is treated as uncertain)."""
+        unreadable ledger is treated as uncertain). D-099: a Claude run's own ledger."""
 
+        path = (
+            anthropic_runtime.ledger_file(self.settings)
+            if anthropic
+            else ledger_file(self.settings)
+        )
         try:
-            ledger = BudgetLedger(ledger_file(self.settings))
+            ledger = BudgetLedger(path)
             ledger.verify()
             status = ledger.status()
         except LedgerError:
@@ -609,6 +629,21 @@ class ModelSelector:
         if self.fetch is not None:
             options["fetch"] = self.fetch
         return options
+
+    def claude_options(self) -> dict[str, Any]:
+        """The Claude model's test seams (D-099; tests only, None in the service)."""
+
+        return {"environ": self.environ, "transport": self.transport}
+
+    def remote_check(self, entry: CatalogueEntry, within_seconds: int) -> dict[str, Any]:
+        """A code entry's free preflight (no inference). D-099: a Claude configuration's own
+        checks, with the reconciliation no older than ``within_seconds``."""
+
+        if entry.deployment == "anthropic":
+            return anthropic_runtime.connection_check(
+                self.settings, within_seconds=within_seconds, **self.claude_options()
+            )
+        return connection_check(entry.settings_for(self.controlled()), **self.remote_options())
 
     def _build_stored(self, stored: Activation) -> tuple[Active | None, str]:
         assert self.store is not None
@@ -638,10 +673,18 @@ class ModelSelector:
         if eligible_run(self.store, entry.profile_id, entry.fingerprint, basis)[0] is None:
             return None, "QUALIFICATION_SUPERSEDED"
         if entry.source == "code":
-            # D-094: the remote model, gated per call and per case (remote_test.py).
+            # D-094: the remote model, gated per call and per case (remote_test.py). D-099: a
+            # Claude configuration under its own Anthropic safeguards (anthropic_runtime.py);
+            # the HR spending controls are GPT-OSS's and never apply to it.
             try:
-                remote = RemoteTestModel(
-                    entry.settings_for(self.controlled()), **self.remote_options()
+                remote: ChatModel = (
+                    anthropic_runtime.ClaudeTestModel(
+                        self.settings, entry.profile_id, **self.claude_options()
+                    )
+                    if entry.deployment == "anthropic"
+                    else RemoteTestModel(
+                        entry.settings_for(self.controlled()), **self.remote_options()
+                    )
                 )
             except ProfileConfigError as exc:
                 return None, exc.code
@@ -748,6 +791,9 @@ _BILLING_CHECKS = frozenset(
         "ledger.usage_reconciled",
         "ledger.earlier_calls_verified",
         "ledger.healthy",
+        # D-099: the Anthropic ledger's own checks.
+        "ledger.profile",
+        "ledger.reconciled_recently",
     }
 )
 # Checks HR can resolve with the spending controls (or by waiting for the daily reset).
@@ -768,6 +814,12 @@ _CONFIGURATION_CHECKS = frozenset(
         "ledger.cap_above_opening",
         "owner.auto_topup_off",
         "owner.prompt_logging_off",
+        # D-099: the Claude configuration's settings, key, workspace and ledger ceiling.
+        "anthropic.ready",
+        "anthropic.inference_key",
+        "anthropic.workspace_matches",
+        "anthropic.model_available",
+        "ledger.cap_within_ceiling",
     }
 )
 # Provider answers that trip the ledger breaker (budget.TRIP_ERROR_CLASSES): not retryable.
@@ -1334,9 +1386,7 @@ def model_admin_router(
         entry = entry_for(load_catalogue(settings), profile_id, profile, "CONNECTION_TEST")
         if entry.source == "code":
             # D-094 remote model: its preflight (no inference, no case data).
-            result = connection_check(
-                entry.settings_for(selector.controlled()), **selector.remote_options()
-            )
+            result = selector.remote_check(entry, anthropic_runtime.CHAT_RECONCILE_SECONDS)
         else:
             model = adapter_for(entry, profile, "CONNECTION_TEST")
             result = anyio.run(connection_test, model, model.name)
@@ -1419,8 +1469,13 @@ def model_admin_router(
             return None
         manifest = qualification_manifest(settings)
         try:
-            view = budget_status(
-                entry.settings_for(selector.controlled()), environ=selector.environ
+            # D-099: a Claude run against the Anthropic ledger, reconciled within 24 hours.
+            view = (
+                anthropic_runtime.budget_status(settings, environ=selector.environ)
+                if entry.deployment == "anthropic"
+                else budget_status(
+                    entry.settings_for(selector.controlled()), environ=selector.environ
+                )
             )
         except Exception:  # an unreadable spending view never allows a paid run
             log.error("spending view unavailable for the qualification estimate")
@@ -1455,7 +1510,13 @@ def model_admin_router(
             fingerprint=entry.fingerprint,
             code=code,
         )
-        return _refusal(status, code)
+        # D-099: only the message differs for Claude; the code, status and audit are the same.
+        message = (
+            "PROVIDER_LIMIT_NOT_CHECKED_ANTHROPIC"
+            if code == "PROVIDER_LIMIT_NOT_CHECKED" and entry.deployment == "anthropic"
+            else None
+        )
+        return _refusal(status, code, message)
 
     @router.post("/{profile_id}/qualifications", status_code=202)
     def post_qualification(
@@ -1484,7 +1545,11 @@ def model_admin_router(
                 raise refuse_start(entry, profile, "PAID_CONFIRMATION_REQUIRED", 400)
             if not estimate.get("sufficient"):
                 refusal = str(estimate.get("refusal") or "")
-                if refusal.startswith("BREAKER_OPEN") or refusal == "LEDGER_UNAVAILABLE":
+                if refusal.startswith("BREAKER_OPEN") or refusal in (
+                    "LEDGER_UNAVAILABLE",
+                    "RECONCILIATION_STALE",
+                    "LEDGER_PROFILE_MISMATCH",
+                ):
                     raise refuse_start(entry, profile, "QUALIFICATION_BILLING_UNRECONCILED")
                 if refusal in ("PROVIDER_LIMIT_NOT_CHECKED", "PROVIDER_CHECK_FAILED"):
                     raise refuse_start(entry, profile, "PROVIDER_LIMIT_NOT_CHECKED")
@@ -1620,9 +1685,8 @@ def model_admin_router(
                 if unscored and not body.acknowledge_quality_unscored:
                     raise refuse("ACKNOWLEDGEMENT_REQUIRED")
                 probe = (
-                    connection_check(
-                        entry.settings_for(selector.controlled()), **selector.remote_options()
-                    )
+                    # D-099: a Claude configuration needs a reconciliation within 24 hours.
+                    selector.remote_check(entry, anthropic_runtime.PAID_RECONCILE_SECONDS)
                     if entry.source == "code"
                     else anyio.run(
                         connection_test, adapter_for(entry, profile, action), entry.model_id or ""
@@ -1987,6 +2051,12 @@ def model_admin_router(
         with selector.change_lock:
             recheck(request, profile, action)
             try:
+                # D-099 (QG M-1/L-4): HR changes the GPT-OSS ledger only, never the Anthropic
+                # one; its profile is read before the ledger is opened (and recovered).
+                probe = BudgetLedger(ledger_file(settings))
+                probe.verify()
+                if probe.status().profile_id != OPENROUTER_PROFILE_ID:
+                    raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the OpenRouter ledger")
                 ledger = BudgetLedger.open(ledger_file(settings))
                 status = ledger.status()
             except LedgerError:

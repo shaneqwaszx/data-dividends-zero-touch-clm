@@ -76,6 +76,25 @@ class AiAssistantSettings(BaseSettings):
     # mode): the chat may then use the remote model on any verified synthetic development case
     # (synthetic_eligibility.py), not only the one D-094 fixture case. Never for real data.
     synthetic_dev_decision: str = ""
+    # D-099 Option B (proposed): Claude Sonnet 5.5 Balanced and Fast on AI Models, under
+    # Anthropic-specific spending safeguards that are NOT equivalent to OpenRouter's
+    # (anthropic_runtime.py). Off unless D-099 is named, the D-094 local test interlock holds
+    # and the owner attests the workspace controls below.
+    anthropic_decision: str = ""
+    # Comma-separated owner attestations (anthropic_runtime.OWNER_ATTESTATIONS): a dedicated,
+    # non-default workspace; its monthly spend limit set in the Console; a workspace inference
+    # key (never an organisation Admin key); the key revoked at the end of the FYP.
+    anthropic_owner_attests: str = ""
+    # The dedicated workspace's id; every response must name it (``anthropic-workspace-id``).
+    anthropic_workspace_id: str = ""
+    # The monthly spend limit the owner set on that workspace (not readable with an API key;
+    # owner-attested). At most US$5.00; 0 means not set, which refuses.
+    anthropic_workspace_limit_micro_usd: int = Field(default=0, ge=0, le=5_000_000)
+    # The separate Anthropic ledger (relative to apps/assistant; git-ignored data/).
+    anthropic_ledger_path: str = "data/budget/anthropic_ledger.sqlite3"
+    # Policy ceilings: at most US$1.00 a Singapore day and 20 calls per activation or restart.
+    anthropic_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=1_000_000)
+    anthropic_max_calls: int = Field(default=20, ge=1, le=20)
 
     # Model management (D-093, local loopback models only): off unless IT names a profiles file
     # (model_catalog.py). Then an HR administrator (MODEL_CONFIG_MANAGE) may test, qualify,

@@ -22,6 +22,7 @@ from typing import Any
 
 import anyio
 
+from ai_assistant import anthropic_runtime
 from ai_assistant.config import AiAssistantSettings
 from ai_assistant.llm import ChatModel, OpenAICompatibleChatModel
 from ai_assistant.model_admin_store import ModelAdminStore, apply_controls
@@ -219,6 +220,13 @@ class QualificationJob:
 
 
 PHASE_B_QUESTIONS = EVAL_FIXTURES / "phase_b_questions.json"
+G8_RULE = "every remote call verified (serving provider, model and cost)"
+# D-099 Option B: Anthropic has no separate per-call record, so a Claude call is verified from
+# its own reply (not equivalent to the GPT-OSS generation metadata check).
+CLAUDE_G8_RULE = (
+    "every Claude call verified in-band (workspace, model and standard routing named in the"
+    " reply; cost settled from its complete reported usage)"
+)
 
 
 @dataclass
@@ -230,12 +238,15 @@ class RemoteQualificationJob:
 
     store: ModelAdminStore
     qualification_id: str
-    model: RemoteTestModel
+    model: RemoteTestModel | anthropic_runtime.ClaudeTestModel
     settings: AiAssistantSettings
     manifest: tuple[str, ...]
     basis: str
     deadline: float
     options: dict[str, Any]
+    # D-099: a Claude run's own free preflight (reconciled within 24 hours) and G-8 rule.
+    connection: Callable[[], dict[str, Any]] | None = None
+    g8_rule: str = G8_RULE
 
     def _stop(self, done_turns: int) -> None:
         if time.monotonic() > self.deadline:
@@ -262,7 +273,11 @@ class RemoteQualificationJob:
         scenarios = load_scenarios(PHASE_B_QUESTIONS)
         expected = len(self.manifest)
         self.store.heartbeat(self.qualification_id, 0, total_turns=expected)
-        connection = connection_check(self.settings, **self.options)
+        connection = (
+            self.connection()
+            if self.connection is not None
+            else connection_check(self.settings, **self.options)
+        )
         self._stop(0)
         summary: dict[str, Any] = {
             "connection": connection,
@@ -300,6 +315,7 @@ class RemoteQualificationJob:
                     largest_bound=0,
                 ),
                 None,
+                self.g8_rule,
             )
             return "failed", "CONNECTION_FAILED", summary
         watched = WatchedModel(self.model, self._stop)
@@ -358,6 +374,7 @@ class RemoteQualificationJob:
                 "verified": verified,
                 "passed": verification.passed and bool(calls) and verified == len(calls),
             },
+            self.g8_rule,
         )
         summary["reproducibility"]["prompt_version"] = result.manifest.get("prompt_version")
         summary["duration_ms"] = round((time.monotonic() - started) * 1000)
@@ -370,7 +387,7 @@ class RemoteQualificationJob:
 
 
 def _remote_gates(
-    items: list[dict[str, Any]], verification: dict[str, Any] | None
+    items: list[dict[str, Any]], verification: dict[str, Any] | None, rule: str = G8_RULE
 ) -> list[dict[str, Any]]:
     """The local gates, with G-7 restated for the adapter's enforced prompt limit, plus G-8."""
 
@@ -382,7 +399,7 @@ def _remote_gates(
     items.append(
         {
             "gate": "G-8",
-            "rule": "every remote call verified (serving provider, model and cost)",
+            "rule": rule,
             "value": None
             if verification is None
             else f"{verification['verified']}/{verification['calls']}",
@@ -402,6 +419,7 @@ def _run_remote(
     transport: object,
     basis: str,
     fetch: Callable[[str], Any] | None,
+    claude: str | None = None,
 ) -> None:
     manifest = qualification_manifest(settings)
     known = set(load_scenarios(PHASE_B_QUESTIONS).turn_keys())
@@ -409,14 +427,30 @@ def _run_remote(
         store.finish_qualification(qualification_id, "error", "REMOTE_MANIFEST_MISSING", None)
         return
     options: dict[str, Any] = {"environ": environ, "transport": transport}
-    if fetch is not None:
+    if fetch is not None and claude is None:
         options["fetch"] = fetch
+    paid = anthropic_runtime.PAID_RECONCILE_SECONDS
+    model: RemoteTestModel | anthropic_runtime.ClaudeTestModel
     try:
         # Verification runs after each call, before the next turn (as the Phase B harness).
-        model = RemoteTestModel(settings, background=False, **options)
+        # D-099: a Claude configuration (``claude``, its profile id) under its own safeguards,
+        # with a reconciliation no older than 24 hours for this paid run.
+        model = (
+            anthropic_runtime.ClaudeTestModel(settings, claude, within_seconds=paid, **options)
+            if claude is not None
+            else RemoteTestModel(settings, background=False, **options)
+        )
     except ProfileConfigError as exc:
         store.finish_qualification(qualification_id, "error", exc.code, None)
         return
+    extra: dict[str, Any] = {}
+    if claude is not None:
+        extra = {
+            "connection": lambda: anthropic_runtime.connection_check(
+                settings, within_seconds=paid, **options
+            ),
+            "g8_rule": CLAUDE_G8_RULE,
+        }
     RemoteQualificationJob(
         store=store,
         qualification_id=qualification_id,
@@ -426,6 +460,7 @@ def _run_remote(
         basis=basis,
         deadline=time.monotonic() + settings.model_qualification_max_seconds,
         options=options,
+        **extra,
     ).run()
 
 
@@ -458,6 +493,20 @@ def run_job(
         or basis != item["basis"]
     ):
         store.finish_qualification(qualification_id, "error", "CONFIG_MISMATCH", None)
+        return
+    if entry.deployment == "anthropic":
+        # D-099: the Anthropic settings as configured (the HR spending controls are GPT-OSS's).
+        _run_remote(
+            store,
+            qualification_id,
+            item,
+            settings,
+            environ,
+            transport,
+            basis,
+            None,
+            claude=entry.profile_id,
+        )
         return
     if entry.source == "code":
         # D-096: the HR daily allowance applies to the paid qualification too (its own call

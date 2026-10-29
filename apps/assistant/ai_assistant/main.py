@@ -40,6 +40,8 @@ from .answer_records import (
     new_answer_id,
 )
 from .answer_records import FallbackReason as RecordReason
+from .anthropic_runtime import NOTICES as CLAUDE_NOTICES
+from .anthropic_runtime import Notices
 from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
@@ -209,7 +211,19 @@ REMOTE_ELIGIBILITY_NOTICE = (
     "GPT-OSS 120B through OpenRouter is used only on verified synthetic development cases, so "
     "this answer comes straight from the case data."
 )
-_REMOTE_REFUSALS = (REMOTE_BOUNDARY_NOTICE, REMOTE_ELIGIBILITY_NOTICE)
+# D-099 Option B: a Claude configuration brings its own notices (anthropic_runtime.NOTICES).
+REMOTE_NOTICES = Notices(
+    answered=REMOTE_NOTICE,
+    boundary=REMOTE_BOUNDARY_NOTICE,
+    dev_answered=REMOTE_DEV_NOTICE,
+    eligibility=REMOTE_ELIGIBILITY_NOTICE,
+)
+_REMOTE_REFUSALS = (
+    REMOTE_BOUNDARY_NOTICE,
+    REMOTE_ELIGIBILITY_NOTICE,
+    CLAUDE_NOTICES.boundary,
+    CLAUDE_NOTICES.eligibility,
+)
 
 
 log = logging.getLogger("ai_assistant")
@@ -687,6 +701,7 @@ def create_app(
 
         if not is_remote_test_model(active.model):
             return active.model, None
+        notices: Notices = getattr(active.model, "notices", REMOTE_NOTICES)
         entries = [item.hit.entry for item in prep.tagged]
         if synthetic_dev_mode(config):
             # D-095: any verified synthetic development case, by provenance. The document
@@ -697,13 +712,13 @@ def create_app(
             )
             if refusal is not None:
                 log.info("remote test model not used: %s", refusal)
-                return None, f"{REMOTE_ELIGIBILITY_NOTICE} Reason: {refusal}."
-            return active.model, REMOTE_DEV_NOTICE
+                return None, f"{notices.eligibility} Reason: {refusal}."
+            return active.model, notices.dev_answered
         refusal = synthetic_boundary_check(snapshot, prep.facts, prep.messages, entries)
         if refusal is not None:
             log.info("remote test model not used: %s", refusal)
-            return None, f"{REMOTE_BOUNDARY_NOTICE} Reason: {refusal}."
-        return active.model, REMOTE_NOTICE
+            return None, f"{notices.boundary} Reason: {refusal}."
+        return active.model, notices.answered
 
     def answer_with_model(
         prep: Prepared, outcome: _Outcome, lead: str | None = None

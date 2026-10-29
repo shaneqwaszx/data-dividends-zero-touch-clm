@@ -29,7 +29,7 @@ from dataclasses import asdict, dataclass, field
 from functools import cache
 from typing import Any, Literal, Protocol
 
-from . import prompts
+from . import anthropic_profiles, prompts
 from .instructions import case_page_terms
 from .llm import BUDGET_OUTCOMES, MODEL_ERROR_CLASSES
 from .model_profiles import ENDPOINT_SLUG, LOCAL_PROFILE_ID, PROFILE_IDS
@@ -37,6 +37,11 @@ from .model_profiles import ENDPOINT_SLUG, LOCAL_PROFILE_ID, PROFILE_IDS
 # Version 2 (Phase A2, D-091 proposed) adds the model profile, the requested endpoint,
 # provider usage counts and cost, the budget outcome and the provider error class.
 METRICS_VERSION = 2
+# D-099 Option B: the Claude configurations are recorded by their own profile ids (the bare
+# adapter, as the evaluation harness uses it, by its ledger profile).
+RECORDED_PROFILE_IDS = (
+    PROFILE_IDS | anthropic_profiles.PROFILE_IDS | {anthropic_profiles.LEDGER_PROFILE_ID}
+)
 LOGGER_NAME = "ai_assistant.metrics"
 
 Route = Literal["chat", "stream"]
@@ -254,7 +259,7 @@ class AnswerMetrics:
         for name, timing in self.timings_ms.items():
             if timing is not None:
                 _count(f"timings_ms.{name}", timing)
-        _code("profile", self.profile, PROFILE_IDS)
+        _code("profile", self.profile, RECORDED_PROFILE_IDS)
         if self.requested_endpoint is not None:
             _pattern("requested_endpoint", self.requested_endpoint, ENDPOINT_SLUG)
         _flag("provider_verified", self.provider_verified)
