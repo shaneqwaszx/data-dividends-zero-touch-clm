@@ -95,6 +95,7 @@ import StageDisclosure, { revealStage } from "./StageDisclosure";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
 import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
+import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import PolicyRebindPanel, { PolicyRebindDetails } from "./PolicyRebindPanel";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
@@ -1319,8 +1320,10 @@ export default function CaseDetail({
   });
   const identityConflict = identityEditable && documentUenCandidates.length > 0;
   // Open discrepancies with no permitted value choice can only be cleared by replacement evidence.
+  // Company name and UEN are explained on the affected document's own warning card instead.
   const replacementFieldNames = summary.current_stage === "DOCUMENT"
-    ? [...new Set((summary.reconciliation?.discrepancies ?? []).filter(item => item.status === "OPEN" && item.allowed_actions.length === 0)
+    ? [...new Set((summary.reconciliation?.discrepancies ?? []).filter(item => item.status === "OPEN" && item.allowed_actions.length === 0
+      && item.field_name !== "legal_name" && item.field_name !== "registration_identifier")
       .map(item => item.field_name.replaceAll("_", " ")))]
     : [];
   // The comparison table shows whenever reconciliation evidence exists, so the chosen values stay visible later.
@@ -1481,13 +1484,15 @@ export default function CaseDetail({
           {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary)) && <label id="case-document-upload" className="btn btn-secondary document-upload-control">
             Upload required document
             <input type="file" className="sr-only document-upload-input"
-              accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+              accept={UPLOAD_ACCEPT}
               disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
               onChange={event => {
                 const file = event.target.files?.[0]; event.target.value = "";
                 if (file) void settleEvidenceMutation(() => intakeZeroTouchDocument(caseId, file, false), "Processing uploaded evidence…", "Document upload could not complete.");
               }} />
           </label>}
+          {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary))
+            && <p className="control-help">{UPLOAD_HELP_TEXT}</p>}
           {summary.status === "PENDING_INPUTS" && documents.some(isCurrentDocument)
             && !documents.some(doc => isCurrentDocument(doc) && doc.state === "FAILED")
             && !canContinueRecoveredIntake(summary, documents)
@@ -1551,7 +1556,9 @@ export default function CaseDetail({
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
           {error && reviewEdit.current?.target === "documents" && isCurrentCaseAction(reviewEdit.current)
             && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
-          <DocumentEvidencePanel presentation="main" embedded hideFieldRows={showComparison} reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
+          <DocumentEvidencePanel presentation="main" embedded hideFieldRows={showComparison} reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()}
+            onReviewDifference={summary.reconciliation && summary.current_stage === "DOCUMENT" ? () => focusEvidence("reconciliation") : undefined}
+            onCorrectIdentity={identityIncomplete || identityEditable ? () => focusEvidence("identity") : undefined} />
         </div>
         </section>
 
