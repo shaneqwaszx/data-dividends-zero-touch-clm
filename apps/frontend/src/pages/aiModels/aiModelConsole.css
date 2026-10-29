@@ -232,6 +232,7 @@ a.console-stat:hover { border-color: var(--color-accent); }
 .console-recovery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .console-recovery-actions:empty { display: none; }
 .console-codes-line code { margin-right: 2px; font-size: 11.5px; padding: 1px 6px; border-radius: 4px; background: #efeded; color: #3d3a3a; overflow-wrap: anywhere; }
+.model-recovery-card pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .console-troubleshooting { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .model-recovery-card .model-qualification { display: flex; flex-direction: column; gap: 10px; }
 .model-recovery-card .model-qualification > p { margin: 0; }
@@ -324,7 +325,9 @@ a.console-stat:hover { border-color: var(--color-accent); }
   .console-dialog__actions { flex-direction: column-reverse; }
   .console-dialog__actions .btn { width: 100%; min-height: 48px; }
   /* Audit rows become labelled cards; the explicit table roles keep their meaning. */
-  .console-audit .table-card { border: 0; background: transparent; overflow: visible; }
+  .console-audit .table-card { border: 0; background: transparent; overflow: visible; contain: none; }
+  /* The app-wide scroll-table minimum (720px) would clip the cards (QG R-1). */
+  .model-console .console-audit .table-scroll > .table { min-width: 0; }
   .console-audit__table, .console-audit__table tbody, .console-audit__table tr, .console-audit__table td { display: block; width: 100%; box-sizing: border-box; }
   .console-audit__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .model-console .console-audit__table { border: 0; }
