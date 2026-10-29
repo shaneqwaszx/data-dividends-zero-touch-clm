@@ -83,3 +83,31 @@ API/type: no. Schema: no. Connector: no (beyond D-099). Configuration: no. Busin
 Mapping: no. Auth/security: no change; paid-run confirmation now also covers Claude in the UI
 (the server already required it). Architecture: no. Provider status: unchanged (Claude
 Mock/offline; GPT-OSS unchanged). Runtime behaviour: console presentation only.
+
+## Remediation after the integrated QG round 1 (PASS WITH MINOR FIXES)
+
+The round 1 report is `.ai-pipeline/reports/D099_D100_INTEGRATION_QUALITY_GATE.md`. It raised
+L-1 to L-4; all are wording-only fixes in `AiModelManagement.tsx`:
+
+- **L-1:** the Recovery card's paid refusal now uses `readable(code, item.deployment)`.
+- **L-2:** `causeText` and `actionText(diagnosis, deployment)` give Claude wording, which names
+  the Anthropic Console and `budget_ledger.py --anthropic`. They are used by the Recovery card
+  and the escalation summary. GPT-OSS texts are unchanged. Claude wording covers:
+  - the causes `LEDGER_NOT_RECONCILED`, `SERVER_SETTINGS`, `CALLS_NOT_VERIFIED`,
+    `PROVIDER_REFUSED`, `KEY_LIMIT_EXHAUSTED` and `CALLS_REFUSED`;
+  - the actions `REVIEW_SPENDING`, `ESCALATE_KEY_OWNER` and `ESCALATE_OPERATOR`.
+- **L-3:** the AI-unavailable banner now names "the external model configuration that was
+  active (GPT-OSS or Claude)".
+- **L-4:** Claude's daily allowance and the Spending note's figures are stated as "at most".
+  `LIFETIME_CEILING_EXCEEDED` also covers a cap that is not above the opening usage.
+
+I-1 is left as a follow-up: the server refusal messages at `model_admin.py:215-221` name
+OpenRouter for Claude. That is D-099 backend wording, and this integration makes no backend
+change.
+
+Evidence after remediation:
+
+- `vitest run`: 66 files, 1,178 passed (2 new tests);
+- `tsc -b`: clean;
+- `npm run build`: built;
+- MOCK browser checks: 30/30 at 1440×900 and 360×740.

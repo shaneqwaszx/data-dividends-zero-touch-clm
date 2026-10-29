@@ -820,6 +820,26 @@ describe("AiModelManagement Claude in the console (D-099 with D-100)", () => {
     expect(view.textContent).toContain("Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards");
   });
 
+  it("explains a Claude recovery in Anthropic terms, not OpenRouter's", async () => {
+    const run: ModelQualification = {
+      ...qualification, qualification_id: "d".repeat(32), status: "failed", code: "CONNECTION_FAILED",
+      diagnosis: { category: "billing_uncertain", cause: "LEDGER_NOT_RECONCILED", action: "ESCALATE_OPERATOR", retryable: false, supersedes_pass: false },
+    };
+    const view = mount(server(withClaude({ qualification: run, paid_qualification: { ...paid, sufficient: false, refusal: "PROVIDER_LIMIT_NOT_CHECKED" } })), "qualifications");
+    await waitFor(() => expect(view.querySelector("[data-testid=recovery-anthropic_claude_sonnet_5_5_medium]")).not.toBeNull());
+    const card = view.querySelector("[data-testid=recovery-anthropic_claude_sonnet_5_5_medium]")!.textContent ?? "";
+    expect(card).toContain("reconciled with the Anthropic Console's usage");
+    expect(card).toContain("scripts/budget_ledger.py --anthropic");
+    expect(card).toContain("Anthropic workspace and model check has not been run");
+    expect(card).not.toContain("OpenRouter");
+  });
+
+  it("names no provider wrongly when the active external model became unusable", async () => {
+    const view = mount(server({ ...withClaude(), active: { ...overview.active, unavailable: true } as ModelOverview["active"] }));
+    await waitFor(() => expect(view.querySelector("[data-testid=ai-unavailable]")).not.toBeNull());
+    expect(view.querySelector("[data-testid=ai-unavailable]")?.textContent).toContain("external model configuration that was active (GPT-OSS or Claude)");
+  });
+
   it("names the Option B readiness codes", () => {
     for (const code of ["ANTHROPIC_ATTESTATION_MISSING", "WORKSPACE_NOT_ATTESTED", "WORKSPACE_LIMIT_NOT_ATTESTED", "LEDGER_PATH_SHARED", "LEDGER_PROFILE_MISMATCH", "LIFETIME_CEILING_EXCEEDED", "RECONCILIATION_STALE", "CREDENTIAL_ADMIN_REFUSED", "ANTHROPIC_SETTINGS_INVALID"]) {
       expect(readable(code)).not.toBe(code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase()));

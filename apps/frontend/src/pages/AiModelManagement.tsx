@@ -85,7 +85,7 @@ const REASON_TEXT: Record<string, string> = {
   WORKSPACE_LIMIT_NOT_ATTESTED: "The Anthropic workspace's monthly limit (at most US$5.00) is not attested on the server.",
   LEDGER_PATH_SHARED: "The Claude ledger file must be separate from the GPT-OSS ledger file.",
   LEDGER_PROFILE_MISMATCH: "The spending ledger belongs to another provider, so no call is allowed.",
-  LIFETIME_CEILING_EXCEEDED: "The ledger cap is above the lifetime ceiling or the attested workspace limit, so no call is allowed.",
+  LIFETIME_CEILING_EXCEEDED: "The ledger cap is not valid (above the lifetime ceiling or the attested workspace limit, or not above what was already spent when the ledger opened), so no call is allowed.",
   RECONCILIATION_STALE: "The ledger has not been reconciled with the provider's usage recently enough (an operator reconciles it).",
   CREDENTIAL_ADMIN_REFUSED: "An administrator key was refused: only an inference key may be used.",
 };
@@ -97,7 +97,7 @@ const CLAUDE_REASON_TEXT: Record<string, string> = {
   CREDENTIAL_MISSING: "The server-side Anthropic inference key is not set.",
   CREDENTIAL_INVALID: "The configured Anthropic key is not a valid inference key.",
   LEDGER_UNAVAILABLE: "The separate Claude spending ledger is missing or unhealthy.",
-  DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (US$1.00 a Singapore day) has no room for another call.",
+  DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (at most US$1.00 a Singapore day) has no room for another call.",
   LIFETIME_CAP_EXHAUSTED: "The Claude ledger's lifetime cap has no room for another call.",
 };
 
@@ -122,8 +122,13 @@ function categoryLabel(diagnosis: ModelDiagnosis): string {
   return diagnosis.cause === OUT_OF_DATE ? "Qualification out of date" : CATEGORY_LABEL[diagnosis.category];
 }
 
-function actionText(diagnosis: ModelDiagnosis): string {
-  return diagnosis.cause === OUT_OF_DATE ? REQUALIFY_TEXT : ACTION_TEXT[diagnosis.action];
+function actionText(diagnosis: ModelDiagnosis, deployment?: string): string {
+  if (diagnosis.cause === OUT_OF_DATE) return REQUALIFY_TEXT;
+  return (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_ACTION_TEXT[diagnosis.action]) || ACTION_TEXT[diagnosis.action];
+}
+
+function causeText(diagnosis: ModelDiagnosis, deployment?: string): string {
+  return (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_CAUSE_TEXT[diagnosis.cause]) || CAUSE_TEXT[diagnosis.cause] || readable(diagnosis.cause, deployment);
 }
 const CAUSE_TEXT: Record<string, string> = {
   PASSED: "The configuration passed every gating check.",
@@ -166,6 +171,21 @@ const ACTION_TEXT: Record<ModelDiagnosis["action"], string> = {
   ESCALATE_OPERATOR: "Ask an operator to reconcile the spending ledger with OpenRouter (scripts/budget_ledger.py). Paid calls stay stopped until then.",
 };
 
+// D-099 with D-100: the Recovery texts above that name OpenRouter, in Claude's terms.
+const CLAUDE_CAUSE_TEXT: Record<string, string> = {
+  LEDGER_NOT_RECONCILED: "Claude's spending ledger is stopped or has not been reconciled with the Anthropic Console's usage.",
+  SERVER_SETTINGS: "A server setting, the attested Anthropic workspace or its limit, or an owner attestation is not in place.",
+  CALLS_NOT_VERIFIED: "Some paid calls could not be verified in-band (workspace, model, standard routing and complete usage in the reply).",
+  PROVIDER_REFUSED: "The Anthropic API refused the calls (key, workspace spend limit or routing). Paid calls are stopped until an operator checks the workspace.",
+  KEY_LIMIT_EXHAUSTED: "The Anthropic workspace's spend limit has no room for a call. HR spending controls cannot change it.",
+  CALLS_REFUSED: "Paid calls were refused before anything was sent (Claude's daily allowance, lifetime cap, call limit or the reconciliation window). The answers were not judged.",
+};
+const CLAUDE_ACTION_TEXT: Partial<Record<ModelDiagnosis["action"], string>> = {
+  REVIEW_SPENDING: "Claude's limits are fixed on the server (not on this page): wait for the Singapore-day reset or ask an operator to reconcile the Claude ledger, then retry.",
+  ESCALATE_KEY_OWNER: "Ask the Anthropic workspace's owner to check its spend limit in the Anthropic Console (never changed from this page), then run Test connection.",
+  ESCALATE_OPERATOR: "Ask an operator to reconcile the Claude ledger with the Anthropic Console's usage (scripts/budget_ledger.py --anthropic). Paid calls stay stopped until then.",
+};
+
 function microUsd(micro: number | null | undefined): string {
   return typeof micro === "number" ? `US$${(micro / 1_000_000).toFixed(6)}` : "—";
 }
@@ -181,7 +201,7 @@ export function escalationSummary(item: ModelProfileView): string {
     `Category: ${diagnosis ? categoryLabel(diagnosis) : "unknown"}; cause: ${diagnosis?.cause ?? "unknown"}`,
     `Failed gates: ${failed.length ? failed.join(", ") : "none"}`,
     `Earlier pass still valid: ${item.eligible_qualification && !item.eligible_qualification.is_latest ? item.eligible_qualification.qualification_id : "no"}`,
-    `Recommended: ${diagnosis ? actionText(diagnosis) : "review"}`,
+    `Recommended: ${diagnosis ? actionText(diagnosis, item.deployment) : "review"}`,
   ].join("\n");
 }
 
@@ -208,7 +228,7 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
             {run.code && <> · {readable(run.code)}</>}
             {!run.current && <> · <span className="tag tag-warn">Out of date</span></>}
           </p>
-          {diagnosis && <p>{CAUSE_TEXT[diagnosis.cause] ?? readable(diagnosis.cause)}</p>}
+          {diagnosis && <p>{causeText(diagnosis, item.deployment)}</p>}
           {failedGates.length > 0 && (
             <p className="control-help">Failed gates: {failedGates.map((gate) => `${gate.gate} (${gate.rule})`).join("; ")}</p>
           )}
@@ -218,8 +238,8 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
             <div><dt>Earlier qualification still valid</dt><dd>{item.eligible_qualification
               ? (item.eligible_qualification.is_latest ? "This run is the valid qualification" : `Yes (passed ${formatTimestamp(item.eligible_qualification.finished_at ?? "")})`)
               : diagnosis?.supersedes_pass ? "No: this quality failure replaces any earlier pass" : "No"}</dd></div>
-            {paid && <div><dt>Paid calls if retried</dt><dd>Up to {paid.calls ?? "—"} (reserved up to {microUsd(paid.estimate_micro_usd)}); available under the strictest limit {microUsd(paid.effective_remaining_micro_usd)}{paid.refusal ? ` · ${readable(paid.refusal)}` : ""}</dd></div>}
-            {diagnosis && <div><dt>Recommended action</dt><dd>{actionText(diagnosis)}</dd></div>}
+            {paid && <div><dt>Paid calls if retried</dt><dd>Up to {paid.calls ?? "—"} (reserved up to {microUsd(paid.estimate_micro_usd)}); available under the strictest limit {microUsd(paid.effective_remaining_micro_usd)}{paid.refusal ? ` · ${readable(paid.refusal, item.deployment)}` : ""}</dd></div>}
+            {diagnosis && <div><dt>Recommended action</dt><dd>{actionText(diagnosis, item.deployment)}</dd></div>}
           </dl>
         </>
       )}
@@ -1044,7 +1064,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           )}
           {overview?.active.unavailable && (
             <p className="ds-banner ds-banner-warn" role="alert" data-testid="ai-unavailable">
-              AI is unavailable: the GPT-OSS configuration that was active can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+              AI is unavailable: the external model configuration that was active (GPT-OSS or Claude) can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
             </p>
           )}
           {overview?.file_status === "missing" && <p className="ds-banner ds-banner-warn" role="alert">The model profiles file named by IT was not found.</p>}
@@ -1105,7 +1125,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           {section === "spending" && overview && (overview.budget?.configured
             ? <>
               {overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) && (
-                <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger (at most US$5.00 lifetime), US$1.00 a day and 20 calls an activation.</p>
+                <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger with at most US$5.00 lifetime, US$1.00 a day and 20 calls an activation.</p>
               )}
               <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
             </>
