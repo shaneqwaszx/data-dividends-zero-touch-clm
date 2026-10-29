@@ -1383,3 +1383,20 @@ activated or Live, and no paid or network call was made.
 - **Qualification:** basis `33f602653de7…` → `4c54e4dd9dbd…`.
 - **Open:** independent Quality Gate, owner acceptance of D-102, commit/publication
   authorisation; then the separately approved paid qualifications.
+
+## AI Assistant D-102 owner acceptance and latest-main integration (branch `feat/claude-hr-spending-d102-int`, not published) - 2026-10-30
+
+Delta only. D-102 is ACCEPTED by the owner for synthetic-only FYP development (including the
+tightened Claude call-limit raise). The reviewed commit `93d154d` (content `e4f58e36…`, re-QG
+PASS) is cherry-picked onto main `2911b54` (PR #133): application code and tests are
+byte-identical; `docs/PROJECT_STATE.md` merged without conflict, keeping both histories.
+Nothing is pushed, activated or Live; no paid or network call was made.
+- **Evidence:** `.ai-pipeline/reports/D102_QUALITY_GATE.md`, `D102_REQG.md` and
+  `D102_INTEGRATION.md`. The full assistant suite is not a clean PASS on this machine (14
+  Windows `Errno 24` failures, identical on main, passing alone).
+- **Blocker found on main (not D-102):** main `2911b54` fails
+  `test_the_boundary_file_is_current`: PR #133 added the backend string `onboarded`, so the
+  synthetic boundary needs regenerating (one new code word; the qualification basis moves).
+  Not changed here; it needs an owner decision.
+- **Open:** that boundary decision, independent integration QG, `pre_pr_check.py`, owner
+  publication authorisation, then the separately approved paid requalifications.

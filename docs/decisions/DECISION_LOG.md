@@ -1532,9 +1532,13 @@ only the loaded events and says so; dialogs make the background inert (D3) and k
 newer dialog (D5). No API, gate, limit, key, permission, routing or basis change. HR key entry
 and HR-editable Claude limits remain deferred: they need new backend authority.
 
-## D-102 - AI Assistant Claude spending ceiling US$30.00 and HR-editable Claude limits (PROPOSED)
+## D-102 - AI Assistant Claude spending ceiling US$30.00 and HR-editable Claude limits (ACCEPTED, synthetic-only FYP development)
 
-Status: PROPOSED by the project team on 2026-10-29 at the owner's direction during D-099
+Status: ACCEPTED by the repository owner on 2026-10-30 for synthetic-only FYP development,
+including the revised spending limits, the HR controls, the tightened call-limit raise (E3)
+and the documented residual risks (update below). Not sponsor policy.
+
+Proposal record (2026-10-29): PROPOSED by the project team on 2026-10-29 at the owner's direction during D-099
 runtime set-up: the owner set the dedicated Anthropic workspace's monthly limit to US$30.00
 and asked for Claude's limits to be changeable from the HR AI Model Console. Implemented
 offline on branch `feat/claude-hr-spending-d102` (not committed or published). Not accepted
@@ -1563,3 +1567,18 @@ finding or approval.
 Residual risk (owner-accepted by the direction above, to be confirmed on review): up to US$30.00
 lifetime and US$5.00 a day may be spent on Claude instead of US$5.00 and US$1.00; the workspace
 limit is still attested, not read, and Anthropic's own workspace limit remains the outer bound.
+
+Update 2026-10-30 (owner acceptance, integration and evidence): the owner accepted D-102 as
+recorded in the status line, after the independent re-QG PASS on the remediated candidate
+`e4f58e36e17c…` (committed unchanged as `93d154d`, cherry-picked onto main `2911b54` with
+byte-identical application code and tests). Accepted limitations, unchanged: L4 (the raise
+checks are read just before the change, outside the ledger's write transaction; readiness does
+not require the key), N1 (the lifetime help text's "lowering it is always allowed" omits that a
+lower cap must stay above the opening usage and match the shown cap; the inline validation is
+exact) and I1 (with unreadable Claude controls, a direct API call that passes every gate ends in
+an unaudited HTTP 500 with nothing written, as on the GPT-OSS route). Evidence:
+`.ai-pipeline/reports/D102_QUALITY_GATE.md` (CONDITIONAL PASS, `f1d32387…`),
+`.ai-pipeline/reports/D102_REQG.md` (PASS, `e4f58e36…`) and
+`.ai-pipeline/reports/D102_INTEGRATION.md`. The full assistant suite on this Windows machine is
+not a clean PASS: 14 tests fail with `OSError: [Errno 24] Too many open files` in a full run
+(identically on unmodified main) and pass when run alone; that is an environmental limitation.
