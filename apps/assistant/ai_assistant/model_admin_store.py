@@ -26,6 +26,10 @@ activation, as an HR administrator set them. One row, changed only by compare-an
 own revision; until it exists the environment settings apply. Its CHECKs repeat the
 hard bounds (1 to 200 calls; D-098: the daily allowance has no US$1 ceiling, only the
 ledger's technical bound), so no writer can store more.
+
+Claude's HR spending controls (D-102, proposed): the same shape in their own row and table,
+never shared with GPT-OSS's, within D-099's policy limits (US$0.000001 to US$5.00 a day and
+1 to 20 calls per activation; the CHECKs repeat them).
 """
 
 import json
@@ -116,6 +120,17 @@ CREATE TABLE IF NOT EXISTS {name} (
     changed_by TEXT NOT NULL
 );
 """
+# D-102: Claude's own controls (anthropic_runtime.DAILY_CEILING_MICRO_USD, MAX_CALLS_CEILING).
+_CLAUDE_SPENDING_CONTROLS = """
+CREATE TABLE IF NOT EXISTS claude_spending_controls (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    daily_cap_micro_usd INTEGER NOT NULL CHECK (daily_cap_micro_usd BETWEEN 1 AND 5000000),
+    max_calls INTEGER NOT NULL CHECK (max_calls BETWEEN 1 AND 20),
+    changed_at TEXT NOT NULL,
+    changed_by TEXT NOT NULL
+);
+"""
 # The D-096 table's daily CHECK, which an existing database still has until it is upgraded.
 _D096_DAILY_CHECK = "BETWEEN 0 AND 1000000)"
 
@@ -124,6 +139,9 @@ QUALIFICATION_STATES = frozenset({"running", "passed", "failed", "cancelled", "e
 # daily bound is only technical (budget.MAX_MICRO_USD); US$1.00 is the default, not a ceiling.
 DAILY_CAP_MAX_MICRO_USD = 10**12
 MAX_CALLS_RANGE = (1, 200)
+# D-102: Claude's bounds (the D-099 policy ceilings; a test keeps them equal to the runtime's).
+CLAUDE_DAILY_CAP_RANGE = (1, 5_000_000)
+CLAUDE_MAX_CALLS_RANGE = (1, 20)
 
 
 class RevisionConflict(Exception):
@@ -190,6 +208,34 @@ def apply_controls(
     return settings.model_copy(update=update) if update else settings
 
 
+def valid_claude_controls(daily_cap_micro_usd: object, max_calls: object) -> bool:
+    low_cap, high_cap = CLAUDE_DAILY_CAP_RANGE
+    low, high = CLAUDE_MAX_CALLS_RANGE
+    return (
+        type(daily_cap_micro_usd) is int
+        and low_cap <= daily_cap_micro_usd <= high_cap
+        and type(max_calls) is int
+        and low <= max_calls <= high
+    )
+
+
+def apply_claude_controls(
+    settings: AiAssistantSettings, controls: SpendingControls | None, *, calls: bool = True
+) -> AiAssistantSettings:
+    """D-102: the settings with Claude's HR controls in place of the environment defaults.
+    ``None`` (unreadable) fails closed: a daily allowance of 0, which Claude's readiness
+    refuses, so no Claude call is made until the controls can be read."""
+
+    if controls is None:
+        return settings.model_copy(update={"anthropic_daily_cap_micro_usd": 0})
+    update: dict[str, int] = {}
+    if controls.daily_cap_micro_usd is not None:
+        update["anthropic_daily_cap_micro_usd"] = controls.daily_cap_micro_usd
+    if calls and controls.max_calls is not None:
+        update["anthropic_max_calls"] = controls.max_calls
+    return settings.model_copy(update=update) if update else settings
+
+
 @dataclass(frozen=True)
 class Choice:
     """A profile as activated: what it was, which qualification allowed it, its prompt bound."""
@@ -205,7 +251,11 @@ class ModelAdminStore:
         self._path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
-            db.executescript(_SCHEMA + _SPENDING_CONTROLS.format(name="spending_controls"))
+            db.executescript(
+                _SCHEMA
+                + _SPENDING_CONTROLS.format(name="spending_controls")
+                + _CLAUDE_SPENDING_CONTROLS
+            )
         self._upgrade()
 
     def _upgrade(self) -> None:
@@ -326,8 +376,16 @@ class ModelAdminStore:
     # --- HR spending controls (D-096) -------------------------------------------------------
 
     def spending_controls(self) -> SpendingControls:
+        return self._controls("spending_controls")
+
+    def claude_spending_controls(self) -> SpendingControls:
+        """D-102: Claude's own row (revision 0: never set, the environment applies)."""
+
+        return self._controls("claude_spending_controls")
+
+    def _controls(self, table: str) -> SpendingControls:
         with self._connect() as db:
-            row = db.execute("SELECT * FROM spending_controls WHERE id = 1").fetchone()
+            row = db.execute(f"SELECT * FROM {table} WHERE id = 1").fetchone()  # noqa: S608
         if row is None:
             return SpendingControls(0, None, None, None, None)
         return SpendingControls(
@@ -346,20 +404,39 @@ class ModelAdminStore:
 
         if not valid_controls(daily_cap_micro_usd, max_calls):
             raise ValueError("spending controls out of range")
+        return self._set_controls(
+            "spending_controls", expected_revision, daily_cap_micro_usd, max_calls, by
+        )
+
+    def set_claude_spending_controls(
+        self, expected_revision: int, daily_cap_micro_usd: int, max_calls: int, by: str
+    ) -> int:
+        """D-102: Claude's controls, compare-and-set on their own revision, as above."""
+
+        if not valid_claude_controls(daily_cap_micro_usd, max_calls):
+            raise ValueError("Claude spending controls out of range")
+        return self._set_controls(
+            "claude_spending_controls", expected_revision, daily_cap_micro_usd, max_calls, by
+        )
+
+    def _set_controls(
+        self, table: str, expected_revision: int, daily_cap_micro_usd: int, max_calls: int, by: str
+    ) -> int:
+        # ``table`` is one of the two names above, never caller input.
         with self._write() as db:
-            row = db.execute("SELECT revision FROM spending_controls WHERE id = 1").fetchone()
+            row = db.execute(f"SELECT revision FROM {table} WHERE id = 1").fetchone()  # noqa: S608
             current = int(row["revision"]) if row else 0
             if current != expected_revision:
                 raise RevisionConflict
             if row is None:
                 db.execute(
-                    "INSERT INTO spending_controls (id, revision, daily_cap_micro_usd, max_calls,"
+                    f"INSERT INTO {table} (id, revision, daily_cap_micro_usd, max_calls,"  # noqa: S608
                     " changed_at, changed_by) VALUES (1, 1, ?, ?, ?, ?)",
                     (daily_cap_micro_usd, max_calls, now(), by),
                 )
             else:
                 db.execute(
-                    "UPDATE spending_controls SET revision = revision + 1,"
+                    f"UPDATE {table} SET revision = revision + 1,"  # noqa: S608
                     " daily_cap_micro_usd = ?, max_calls = ?, changed_at = ?, changed_by = ?"
                     " WHERE id = 1 AND revision = ?",
                     (daily_cap_micro_usd, max_calls, now(), by, expected_revision),

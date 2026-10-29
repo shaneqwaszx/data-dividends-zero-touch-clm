@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MODEL_AUDIT_LIMIT, type ModelAuditEvent, type ModelBudgetStatus, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
+import { MODEL_AUDIT_LIMIT, type ModelAuditEvent, type ModelBudgetStatus, type ModelClaudeBudget, type ModelClaudeSpendingControls, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
@@ -818,7 +818,7 @@ describe("AiModelManagement Claude in the console (D-099 with D-100)", () => {
   it("states on Spending & Limits that the controls are GPT-OSS only", async () => {
     const view = mount(keyServer({ ...withClaude(), budget: budget() }, []), "spending");
     await waitFor(() => expect(view.textContent).toContain("These limits apply to GPT-OSS 120B only."));
-    expect(view.textContent).toContain("Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards");
+    expect(view.textContent).toContain("Claude Sonnet 5.5 (D-099 and D-102 proposed) has its own separate ledger and limits");
   });
 
   it("explains a Claude recovery in Anthropic terms, not OpenRouter's", async () => {
@@ -1245,15 +1245,16 @@ describe("AiModelManagement D-100 providers and spending", () => {
     expect(anthropic).not.toContain("OpenRouter");
   });
 
-  it("never offers Anthropic key entry or Claude limits, and says what the server does not send", async () => {
+  it("never offers Anthropic key entry or Claude limit inputs on Providers, and says what the server does not send", async () => {
     const view = mount(controlsServer(withProviders(), []), "providers");
     await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
     const anthropic = card(view, "anthropic")!;
     expect(anthropic.querySelectorAll("input, form")).toHaveLength(0);
     expect(anthropic.textContent).toContain("Its status is not sent to this page");
     expect(anthropic.textContent).toContain("There is no HR key entry.");
-    expect(anthropic.textContent).toContain("The time of the last reconciliation is not sent to this page");
-    expect(anthropic.textContent).toContain("Not changeable on this page; the GPT-OSS controls never apply to it.");
+    // D-102: Claude's limits are HR settings, but on Spending & Limits only (linked from here).
+    expect(anthropic.textContent).toContain("Spending & Limits shows when it was last done");
+    expect(anthropic.textContent).toContain("The GPT-OSS controls never apply to it.");
     // The OpenRouter key form stays in the OpenRouter card only.
     expect(card(view, "openrouter")?.querySelector("#openrouter-key-input")).not.toBeNull();
   });
@@ -1296,13 +1297,14 @@ describe("AiModelManagement D-100 providers and spending", () => {
     expect(urls.every((url) => url.endsWith("/api/assistant/admin/models") || url.includes("/api/assistant/admin/models/audit"))).toBe(true);
   });
 
-  it("keeps Claude's spending read-only and apart from the GPT-OSS limits", async () => {
+  it("keeps Claude's paid-qualification figures apart from the GPT-OSS limits when the server sends no Claude view", async () => {
     const view = mount(controlsServer(withProviders(), []), "spending");
     await waitFor(() => expect(view.querySelector("[data-testid=claude-spending]")).not.toBeNull());
     const claudePanel = view.querySelector("[data-testid=claude-spending]")!;
+    // An older server (no D-102 Claude view): nothing to edit, and it says so.
     expect(claudePanel.querySelectorAll("input, form, button")).toHaveLength(0);
-    expect(claudePanel.textContent).toContain("Nothing on this page changes them, and the GPT-OSS limits never apply to Claude.");
-    expect(claudePanel.textContent).toContain("does not send Claude's spending today, lifetime usage or ledger headroom");
+    expect(claudePanel.textContent).toContain("The GPT-OSS limits never apply to Claude");
+    expect(claudePanel.textContent).toContain("This server does not send Claude's spending or limits");
     expect(claudePanel.textContent).toContain("US$1.000000");  // the server's figure, as sent
     expect(claudePanel.textContent).toContain("Allowed");
     expect(claudePanel.textContent).not.toContain("OpenRouter");
@@ -1429,11 +1431,11 @@ describe("AiModelManagement D-100 qualifications and recovery", () => {
     const view = mount(server(withClaude({ qualification: run, paid_qualification: { ...paid, sufficient: false, refusal: "DAILY_ALLOWANCE_EXHAUSTED" } })), "qualifications");
     await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
     const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
-    expect(card.querySelector("a[href='/admin/ai-models?section=spending']")?.textContent).toBe("View Claude's limits (read-only)");
+    expect(card.querySelector("a[href='/admin/ai-models?section=spending']")?.textContent).toBe("Review Claude's limits");
     expect(card.textContent).not.toContain("Review spending controls");
     act(() => [...card.querySelectorAll("button")].find((item) => item.textContent === "Retry qualification…")!.click());
     const dialog = view.querySelector("[data-testid=paid-confirm]")!.textContent ?? "";
-    expect(dialog).toContain("Claude's limits are fixed on the server and are not changed on this page");
+    expect(dialog).toContain("Review Claude's own limits in Spending & Limits");
     expect(dialog).not.toContain("spending controls");
     expect(button(view, "Start paid qualification").disabled).toBe(true);
   });
@@ -1592,5 +1594,157 @@ describe("AiModelManagement D-100 dialogs and badges (D3, D5, D6)", () => {
       root = null;
       container?.remove();
     }
+  });
+});
+
+// --- D-102: Claude's own HR spending controls on Spending & Limits ---------------------------------
+
+describe("AiModelManagement D-102 Claude spending controls", () => {
+  const paid = { calls: 6, reservation_micro_usd: 96_000, estimate_micro_usd: 576_000, effective_remaining_micro_usd: 1_000_000, refusal: null, sufficient: true };
+  const claudeProfile = profile({
+    profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: "medium", endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: "selectable", reason: null, active: false,
+    activation_blockers: ["NOT_QUALIFIED"], paid_qualification: paid,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", reasoning_effort: "medium", decision: "D-099" },
+  });
+  const claudeView = (controls: Partial<ModelClaudeSpendingControls> = {}): ModelClaudeBudget => ({
+    configured: true,
+    timezone: "Asia/Singapore",
+    daily_cap_micro_usd: 1_000_000,
+    workspace_limit_micro_usd: 30_000_000,
+    lifetime_ceiling_micro_usd: 30_000_000,
+    next_reset_at: "2026-10-30T16:00:00Z",
+    preflight: null,
+    ledger: { profile_ok: true, cap_micro_usd: 5_000_000, committed_micro_usd: 830_000, headroom_micro_usd: 4_170_000, headroom_usd: "4.170000", open_calls: 0, breaker_open: false, breaker_code: null, reconciled_at: "2026-10-29T10:00:00Z" },
+    daily: { cap_micro_usd: 1_000_000, settled_today_micro_usd: 0, in_flight_micro_usd: 0, remaining_micro_usd: 1_000_000, remaining_usd: "1.000000" },
+    effective_remaining_micro_usd: 1_000_000,
+    effective_remaining_usd: "1.000000",
+    reservation_micro_usd: 96_000,
+    refusal: null,
+    controls: {
+      revision: 2, readable: true, daily_cap_micro_usd: 1_000_000, daily_cap_range: [1, 5_000_000],
+      daily_cap_default_micro_usd: 1_000_000, raise_requires: ["confirmation", "reconciled_within_one_day"],
+      daily_cap_source: "hr", max_calls: 20, max_calls_range: [1, 20], max_calls_source: "hr",
+      calls_used: null, calls_remaining: null, changed_at: "2026-10-29T10:00:00Z", changed_by: "hr-admin",
+      lifetime: { opening_usage_micro_usd: 830_000, cap_micro_usd: 5_000_000, max_cap_micro_usd: 30_000_000, committed_micro_usd: 830_000 },
+      ...controls,
+    },
+  });
+  const withClaudeBudget = (claude: ModelClaudeBudget | undefined = claudeView()): ModelOverview => ({
+    ...overview,
+    profiles: [overview.profiles[0], remoteSelectable, claudeProfile],
+    budget: { ...controlled(), claude },
+  });
+  const panel = (view: HTMLElement) => view.querySelector<HTMLElement>("[data-testid=claude-spending]")!;
+  const put = (calls: Array<{ method: string; url: string; body: string | null }>, path: string) =>
+    calls.filter((call) => call.method === "PUT" && call.url.endsWith(path));
+
+  it("shows Claude's own figures and saves lower limits on Claude's route only", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(controlsServer(withClaudeBudget(), calls), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-daily-limit-input")).not.toBeNull());
+    const text = panel(view).textContent ?? "";
+    expect(text).toContain("US$30.00 a month (owner-attested");
+    expect(text).toContain("US$4.170000");
+    expect(text).toContain("the lower of US$30.00 and the owner-attested Anthropic workspace limit");
+    expect(text).not.toContain("OpenRouter");
+    typeInto(input(view, "claude-daily-limit-input"), "0.5");
+    typeInto(input(view, "claude-call-limit-input"), "5");
+    expect(view.querySelector("[data-testid=claude-daily-raise-confirm]")).toBeNull(); // lowering
+    await act(async () => button(view, "Save Claude Limits").click());
+    await waitFor(() => expect(view.textContent).toContain("Claude's limits saved."));
+    const saved = put(calls, "/admin/models/budget/claude/controls");
+    expect(saved).toHaveLength(1);
+    expect(JSON.parse(saved[0].body ?? "{}")).toEqual({ expected_revision: 2, daily_cap_micro_usd: 500_000, max_calls: 5 });
+    expect(put(calls, "/admin/models/budget/controls")).toHaveLength(0); // GPT-OSS untouched
+  });
+
+  it("needs a confirmation to raise Claude's daily limit and never sends one above US$5.00", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(controlsServer(withClaudeBudget(), calls), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-daily-limit-input")).not.toBeNull());
+    typeInto(input(view, "claude-daily-limit-input"), "5.01");
+    expect(button(view, "Save Claude Limits").disabled).toBe(true);
+    typeInto(input(view, "claude-call-limit-input"), "21");
+    expect(button(view, "Save Claude Limits").disabled).toBe(true);
+    typeInto(input(view, "claude-call-limit-input"), "20");
+    typeInto(input(view, "claude-daily-limit-input"), "5");
+    expect(button(view, "Save Claude Limits").disabled).toBe(true); // not confirmed yet
+    await act(async () => view.querySelector<HTMLInputElement>("[data-testid=claude-daily-raise-confirm]")!.click());
+    await act(async () => button(view, "Save Claude Limits").click());
+    await waitFor(() => expect(put(calls, "/admin/models/budget/claude/controls")).toHaveLength(1));
+    expect(JSON.parse(put(calls, "/admin/models/budget/claude/controls")[0].body ?? "{}")).toEqual({
+      expected_revision: 2, daily_cap_micro_usd: 5_000_000, max_calls: 20, confirm_daily_cap_micro_usd: 5_000_000,
+    });
+  });
+
+  it("raises Claude's lifetime limit up to US$30.00 with the shown cap and a confirmation", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(controlsServer(withClaudeBudget(), calls), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-lifetime-limit-input")).not.toBeNull());
+    typeInto(input(view, "claude-lifetime-limit-input"), "30.01");
+    expect(button(view, "Update Claude Lifetime Limit").disabled).toBe(true);
+    typeInto(input(view, "claude-lifetime-limit-input"), "0.83"); // not above the opening usage
+    expect(button(view, "Update Claude Lifetime Limit").disabled).toBe(true);
+    typeInto(input(view, "claude-lifetime-limit-input"), "30");
+    expect(button(view, "Update Claude Lifetime Limit").disabled).toBe(true);
+    await act(async () => view.querySelector<HTMLInputElement>("[data-testid=claude-cap-raise-confirm]")!.click());
+    await act(async () => button(view, "Update Claude Lifetime Limit").click());
+    await waitFor(() => expect(put(calls, "/admin/models/budget/claude/lifetime-cap")).toHaveLength(1));
+    expect(JSON.parse(put(calls, "/admin/models/budget/claude/lifetime-cap")[0].body ?? "{}")).toEqual({
+      cap_micro_usd: 30_000_000, confirm_cap_micro_usd: 30_000_000, expected_cap_micro_usd: 5_000_000,
+    });
+    expect(put(calls, "/admin/models/budget/lifetime-cap")).toHaveLength(0);
+  });
+
+  it("caps the lifetime input at a lower attested workspace limit and explains a missing ledger", async () => {
+    const lower = claudeView();
+    lower.controls.lifetime = { ...lower.controls.lifetime!, max_cap_micro_usd: 10_000_000 };
+    const view = mount(controlsServer(withClaudeBudget(lower), []), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-lifetime-limit-input")).not.toBeNull());
+    typeInto(input(view, "claude-lifetime-limit-input"), "10.01");
+    expect(button(view, "Update Claude Lifetime Limit").disabled).toBe(true);
+    expect(panel(view).textContent).toContain("at most US$10.00");
+
+    const noLedger = mount(controlsServer(withClaudeBudget(claudeView({ lifetime: null })), []), "spending");
+    await waitFor(() => expect(noLedger.querySelector("#claude-daily-limit-input")).not.toBeNull());
+    expect(noLedger.querySelector("#claude-lifetime-limit-input")).toBeNull();
+    expect(panel(noLedger).textContent).toContain("The Claude ledger is not set up yet");
+  });
+
+  it("needs a confirmation to raise Claude's call limit and sends it (QG L1)", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(controlsServer(withClaudeBudget(claudeView({ max_calls: 5 })), calls), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-call-limit-input")).not.toBeNull());
+    typeInto(input(view, "claude-call-limit-input"), "10");
+    expect(button(view, "Save Claude Limits").disabled).toBe(true); // not confirmed yet
+    expect(view.querySelector("[data-testid=claude-daily-raise-confirm]")).toBeNull();
+    await act(async () => view.querySelector<HTMLInputElement>("[data-testid=claude-calls-raise-confirm]")!.click());
+    await act(async () => button(view, "Save Claude Limits").click());
+    await waitFor(() => expect(put(calls, "/admin/models/budget/claude/controls")).toHaveLength(1));
+    expect(JSON.parse(put(calls, "/admin/models/budget/claude/controls")[0].body ?? "{}")).toEqual({
+      expected_revision: 2, daily_cap_micro_usd: 1_000_000, max_calls: 10, confirm_max_calls: 10,
+    });
+  });
+
+  it("allows only a strictly lower lifetime limit when no workspace limit is attested (QG L2)", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const unattested = claudeView();
+    unattested.workspace_limit_micro_usd = 0;
+    unattested.controls.lifetime = { ...unattested.controls.lifetime!, max_cap_micro_usd: 0 };
+    const view = mount(controlsServer(withClaudeBudget(unattested), calls), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-lifetime-limit-input")).not.toBeNull());
+    typeInto(input(view, "claude-lifetime-limit-input"), "6");
+    expect(button(view, "Update Claude Lifetime Limit").disabled).toBe(true); // a raise
+    typeInto(input(view, "claude-lifetime-limit-input"), "5");
+    expect(button(view, "Update Claude Lifetime Limit").disabled).toBe(true); // unchanged
+    typeInto(input(view, "claude-lifetime-limit-input"), "2");
+    expect(view.querySelector("[data-testid=claude-cap-raise-confirm]")).toBeNull();
+    await act(async () => button(view, "Update Claude Lifetime Limit").click());
+    await waitFor(() => expect(put(calls, "/admin/models/budget/claude/lifetime-cap")).toHaveLength(1));
+    expect(JSON.parse(put(calls, "/admin/models/budget/claude/lifetime-cap")[0].body ?? "{}")).toEqual({
+      cap_micro_usd: 2_000_000, confirm_cap_micro_usd: null, expected_cap_micro_usd: 5_000_000,
+    });
   });
 });
