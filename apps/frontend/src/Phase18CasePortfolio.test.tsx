@@ -190,13 +190,14 @@ describe("Phase 18 paged Cases portfolio", () => {
         />
       </QueryClientProvider></MemoryRouter>,
     ));
-    expect(container?.textContent).toContain("Showing 1–1 on page 1");
-    expect(container?.textContent).toContain("Total results are not calculated");
+    expect(container?.textContent).toContain("Showing 1–1");
+    expect(container?.textContent).not.toContain("Total results are not calculated");
     const next = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .find((button) => button.textContent?.trim() === "Next");
     await act(async () => next?.click());
     expect(container?.textContent).toContain("BETA PTE. LTD.");
-    expect(container?.textContent).toContain("Showing 51–51 on page 2");
+    expect(container?.textContent).toContain("Showing 51–51");
+    expect(container?.textContent).toContain("Page 2");
     const previous = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .find((button) => button.textContent?.trim() === "Previous");
     expect(previous?.disabled).toBe(false);

@@ -360,8 +360,6 @@ test("responsive cases and representative routes preserve tables, priorities, an
       ["New onboarding", "/new-onboarding", ""],
       ["Cases", "/cases", "Cases"],
       [`/cases/${completedCaseId}`, `/cases/${completedCaseId}`, "Document evidence"],
-      ["Onboarded", "/onboarded", "Onboarded"],
-      [`/onboarded/${completedCaseId}`, `/onboarded/${completedCaseId}`, ""],
       ["Audit", "/audit", "Case activity"],
       ["Policy", "/policy", "Policy and rules"],
     ] as const;
@@ -369,7 +367,7 @@ test("responsive cases and representative routes preserve tables, priorities, an
       await test.step(`${width}px ${route}`, async () => {
         if (target.startsWith("/")) {
           if (target.startsWith("/cases/") && await page.locator(`a[href="${target}"]`).count() === 0) {
-            await page.getByLabel("Search cases").fill(target.split("/").at(-1)!);
+            await page.getByLabel("Search", { exact: true }).fill(target.split("/").at(-1)!);
             await expect(page.locator(`a[href="${target}"]`).first()).toBeVisible();
           }
           await page.locator(`a[href="${target}"]`).first().click();
@@ -385,7 +383,7 @@ test("responsive cases and representative routes preserve tables, priorities, an
         }
         if (heading) await expect(page.getByRole("heading", { name: heading })).toBeVisible();
         await expectShellContained(page);
-        if (route === "/cases" || route === "/onboarded" || route === "/audit" || route === "/policy") {
+        if (route === "/cases" || route === "/audit" || route === "/policy") {
           const scroller = page.locator(".table-scroll").first();
           if (await scroller.isVisible()) await expectLocalHorizontalScroller(page, scroller);
         }

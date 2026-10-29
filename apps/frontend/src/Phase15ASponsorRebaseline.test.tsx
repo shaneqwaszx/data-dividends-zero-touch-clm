@@ -38,7 +38,6 @@ describe("Phase 15A sponsor rebaseline copy", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );

@@ -82,7 +82,6 @@ export default function HomeOnboarding({
   onOpenCaseDetail = () => undefined,
   canDeleteCurrentCase = false,
   onDeleteCurrentCase = () => undefined,
-  onViewOnboarded,
   onViewAudit,
   registryProviderMode,
   onRetryIntake = () => undefined,
@@ -119,7 +118,6 @@ export default function HomeOnboarding({
   onOpenCaseDetail?: (caseId: string, focusNodeId?: string) => void;
   canDeleteCurrentCase?: boolean;
   onDeleteCurrentCase?: () => void;
-  onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
   registryProviderMode?: SimulationProfile["registry_provider_mode"];
   onRetryIntake?: () => void;
@@ -417,7 +415,7 @@ export default function HomeOnboarding({
 
         <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
         <ConfirmDetailsPanel summary={summary} isBusy={isResolving} />
-        <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
+        <CompletedOverview summary={summary} onViewAudit={onViewAudit} />
 
         <HumanInterventionPanel
           summary={summary}

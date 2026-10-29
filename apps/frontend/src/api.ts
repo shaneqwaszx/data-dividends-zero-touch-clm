@@ -330,8 +330,12 @@ export async function completeZeroTouchIntake(
 export type PriorityFilter = "all" | "prioritised" | "unset" | `${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10}`;
 export type PrioritySort = "highest_first" | "lowest_first";
 
+export type CasePortfolioProgress = "in_progress" | "onboarded";
+
 export interface CasePortfolioFilters {
   status?: ZeroTouchCaseListItem["status"];
+  /** Cases page view: in_progress = every status except COMPLETED; onboarded = COMPLETED. */
+  progress?: CasePortfolioProgress;
   priority: PriorityFilter;
   prioritySort: PrioritySort;
   teamFilter?: string;
@@ -350,6 +354,7 @@ export async function fetchCasePortfolio(
 ): Promise<CasePortfolioPage> {
   const query = new URLSearchParams();
   if (filters.status) query.set("status", filters.status);
+  if (filters.progress) query.set("progress", filters.progress);
   if (filters.priority !== "all") query.set("priority_filter", filters.priority);
   if (filters.prioritySort !== "highest_first") {
     query.set("priority_sort", filters.prioritySort);
