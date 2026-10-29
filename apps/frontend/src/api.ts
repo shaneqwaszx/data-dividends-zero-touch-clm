@@ -1,3 +1,4 @@
+import { UPLOAD_ERROR_BY_CODE } from "./uploadLimits";
 import type { ReviewDecisionBatch } from "./types";
 import { nextPollingDelay } from "./automationPolling";
 import type {
@@ -146,6 +147,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
     } catch {
       // Preserve the fixed local fallback; never project response bodies.
     }
+    if (code && UPLOAD_ERROR_BY_CODE[code]) message = UPLOAD_ERROR_BY_CODE[code];
     throw new ApiError(message, response.status, code, detail);
   }
   return (await response.json()) as T;

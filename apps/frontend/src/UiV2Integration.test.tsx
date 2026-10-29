@@ -191,9 +191,9 @@ describe("UI v2 backend integration adapters", () => {
     ];
     expect(validateIntakeFiles(accepted)).toBeNull();
     expect(validateIntakeFiles(Array.from({ length: 21 }, (_, index) => new File(["x"], `${index}.txt`, { type: "text/plain" })))).toContain("20");
-    expect(validateIntakeFiles([new File([new Uint8Array(5 * 1024 * 1024 + 1)], "large.pdf", { type: "application/pdf" })])).toContain("5 MiB");
+    expect(validateIntakeFiles([new File([new Uint8Array(5 * 1024 * 1024 + 1)], "large.pdf", { type: "application/pdf" })])).toContain("This file is larger than 5 MB");
     const total = Array.from({ length: 6 }, (_, index) => new File([new Uint8Array(5 * 1024 * 1024)], `${index}.pdf`, { type: "application/pdf" }));
-    expect(validateIntakeFiles(total)).toContain("25 MiB");
+    expect(validateIntakeFiles(total)).toContain("These files add up to more than 25 MB for this case");
   });
 
   it("maps backend list items without inventing assignment, client IDs, or risk", () => {

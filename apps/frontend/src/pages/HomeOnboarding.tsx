@@ -15,6 +15,7 @@ import { CompletedOverview, ConfirmDetailsPanel, DetailedProcessingInspector, On
 import HumanInterventionPanel from "./HumanInterventionPanel";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import { PriorityBadge } from "./PriorityControl";
+import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
 
@@ -26,7 +27,7 @@ export function openCaseDetailAtStage(
   openCaseDetail(caseId, node.node_id);
 }
 
-const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt,image/png,.png,image/jpeg,.jpg,.jpeg,image/tiff,.tif,.tiff";
+const ACCEPTED_DOCUMENTS = UPLOAD_ACCEPT;
 const FOLDER_INPUT_ATTRIBUTES = { webkitdirectory: "", directory: "" } as Record<string, string>;
 
 export function mergeSelectedFiles(current: File[], incoming: File[]): File[] {
@@ -276,7 +277,7 @@ export default function HomeOnboarding({
                   <button type="button" className="btn btn-ghost" onClick={(event) => { event.stopPropagation(); folderInputRef.current?.click(); }}>select folder</button>
                 </span>
                 <span className="text-muted" style={{ fontSize: 11, marginTop: 5 }}>
-                  PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF · up to 20 files
+                  {UPLOAD_HELP_TEXT} · up to 20 files
                 </span>
                 <input
                   id="home-document"
