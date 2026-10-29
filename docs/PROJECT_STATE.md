@@ -1338,3 +1338,28 @@ Delta only; nothing here is merged, activated or Live, and no paid call was made
   `.ai-pipeline/reports/D099_D100_INTEGRATION.md`.
 - **Open:** owner review and merge of PR #131; D-100 Phase 2, HR key entry and HR-editable
   Claude limits are not started.
+
+## AI Assistant D-100 AI Model Console Phases 2 to 4 (local branch, not published) - 2026-10-29
+
+Delta only. PR #131 (Phase 1 with D-099) is merged to main `90115e4`. Phases 2 to 4 are local
+commits on `feat/d100-ai-console-phases-2-4`; nothing is pushed, activated or Live, and no paid
+call was made. Presentation only: no API, schema, qualification, gate, limit, key, permission,
+routing or backend change; the qualification basis stays `33f602653de7…`.
+- **Phase 2:** Providers shows one card per provider (OpenRouter, Anthropic API, server-configured models)
+  with each configuration's availability and last connection test and who manages what (HR on
+  the page, an operator on the server, the key or workspace owner at the provider). Claude
+  Balanced and Fast are two configurations of one Anthropic provider. Spending & Limits keeps
+  the HR-editable GPT-OSS panel and adds a read-only Claude panel with only the server's
+  paid-qualification figures; the server sends no Claude key status, usage, headroom or
+  reconciliation time, and the page says so.
+- **Phase 3:** recovery cards show technical qualification, answer quality and availability
+  apart, raw server codes, gates and provider troubleshooting; unqualified Claude
+  configurations are listed (I-1) and start only through the paid confirmation; provider
+  wording follows the configuration, or names no provider when it is unknown (M-1); Claude is
+  never sent to the GPT-OSS spending controls (M-2).
+- **Phase 4:** Audit History searches and filters only the events the browser loaded (the
+  server's most recent 100) and says so; the dialog background is inert with scroll locked
+  (D3); a closing dialog never pulls focus out of a newer one (D5); badge variants are
+  unit-tested (D6); console text meets 4.5:1.
+- **Open:** independent Quality Gate, owner review and publication authorisation. HR key entry
+  and HR-editable Claude limits stay deferred (they need new backend authority).

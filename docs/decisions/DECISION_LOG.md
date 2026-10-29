@@ -1520,3 +1520,14 @@ console treats the Anthropic deployment as a second external, paid API (paid-run
 activation warning, provider-worded refusal codes, inspector details, a GPT-OSS-only note on
 Spending & Limits). Both providers keep their separate spending controls and confirmations;
 nothing switches between them automatically. Evidence `.ai-pipeline/reports/D099_D100_INTEGRATION.md`.
+
+Update 2026-10-29 (Phases 2 to 4, local branch `feat/d100-ai-console-phases-2-4`, not
+published): still presentation only, from the data the page already reads. Providers gains one
+card per provider with who manages what; Spending & Limits separates the HR-editable GPT-OSS
+limits from a read-only Claude panel showing only the server's paid-qualification figures;
+Qualifications & Recovery separates technical qualification from answer quality, lists
+unqualified Claude configurations (first run only through the paid confirmation) and words
+codes per provider (closing the integration gate's M-1, M-2 and I-1); Audit History filters
+only the loaded events and says so; dialogs make the background inert (D3) and keep focus in a
+newer dialog (D5). No API, gate, limit, key, permission, routing or basis change. HR key entry
+and HR-editable Claude limits remain deferred: they need new backend authority.
