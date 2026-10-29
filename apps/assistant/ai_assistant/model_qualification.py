@@ -78,6 +78,10 @@ BASIS_FILES = (
     "synthetic_eligibility.json",
     "key_sources.py",
     "budget.py",
+    # D-099 Option B: the Claude adapter, its configurations and its gated runtime.
+    "anthropic_chat.py",
+    "anthropic_profiles.py",
+    "anthropic_runtime.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = (

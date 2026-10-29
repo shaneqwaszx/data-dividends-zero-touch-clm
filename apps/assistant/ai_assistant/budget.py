@@ -48,6 +48,7 @@ from typing import Any
 
 import anyio
 
+from .anthropic_profiles import LEDGER_PROFILE_ID as ANTHROPIC_LEDGER_PROFILE_ID
 from .llm import (
     MODEL_ANOMALIES,
     MODEL_ERROR_CLASSES,
@@ -65,7 +66,10 @@ from .model_profiles import ENDPOINT_SLUG, OPENROUTER_PROFILE_ID, ApprovedEndpoi
 SCHEMA_VERSION = 1
 # Approved opaque operator identifiers for a key (S3). A label never holds a name or case.
 KEY_ALIASES = ("key-01", "key-02", "key-03", "key-04")
-PROFILES = (OPENROUTER_PROFILE_ID,)
+# D-099 Option B: a separate Anthropic ledger (its own file) for Claude Sonnet 5.5. A ledger
+# holds one profile for life, and every reservation names the profile it is for, so one
+# provider's calls can never be counted in (or admitted by) the other provider's ledger.
+PROFILES = (OPENROUTER_PROFILE_ID, ANTHROPIC_LEDGER_PROFILE_ID)
 # Engineering allowances for tokens the chat template adds (not documented; Phase B checks).
 PER_MESSAGE_OVERHEAD = 16
 TEMPLATE_OVERHEAD = 1024
@@ -697,10 +701,12 @@ class BudgetLedger:
         max_in_flight: int,
         lease_seconds: float,
         daily_cap_micro_usd: int | None = None,
+        profile_id: str | None = None,
     ) -> str:
         """Admit one call atomically, or raise ``BudgetRefusedError`` with a closed outcome.
         The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` (the default when
-        None); a value outside 0..MAX_MICRO_USD refuses."""
+        None); a value outside 0..MAX_MICRO_USD refuses. ``profile_id``, when given, must be
+        this ledger's own profile (D-099: one ledger per provider)."""
 
         daily_cap = daily_cap_for(daily_cap_micro_usd)
         if daily_cap is None:
@@ -720,7 +726,9 @@ class BudgetLedger:
                 + meta["local_charged_micro_usd"]
                 + meta["open_reserved_micro_usd"]
             )
-            if meta["breaker_open"]:
+            if profile_id is not None and meta["profile_id"] != profile_id:
+                refused = "refused_ledger"
+            elif meta["breaker_open"]:
                 refused = "refused_breaker"
             elif open_calls >= max_in_flight:
                 refused = "refused_busy"
@@ -892,6 +900,16 @@ class BudgetLedger:
             return int(value)
 
         result: int = self._transaction(read)
+        return result
+
+    def last_reconciled_ms(self) -> int | None:
+        # D-099: when the operator last anchored the ledger on provider usage (epoch ms), or
+        # None if never. Read-only.
+        def read(connection: sqlite3.Connection) -> int | None:
+            value = self._meta(connection)["last_reconciled_at"]
+            return None if value is None else int(value)
+
+        result: int | None = self._transaction(read)
         return result
 
     def record_verification(self, call_id: int, *, verified: bool, breaker_code: str) -> None:
@@ -1066,6 +1084,7 @@ class BudgetedChatModel:
             max_in_flight=self._max_in_flight,
             lease_seconds=self._lease_seconds,
             daily_cap_micro_usd=self._daily_cap,
+            profile_id=self.profile_id,
         )
         return reservation_id, reservation
 

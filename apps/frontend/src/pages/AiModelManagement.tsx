@@ -60,6 +60,9 @@ const REASON_TEXT: Record<string, string> = {
   NOT_DEVELOPMENT_ENVIRONMENT: "The server is not a local development set-up (loopback backend and browser origins only).",
   OWNER_ATTESTATION_MISSING: "The owner has not attested that auto top-up and prompt logging are off.",
   ENDPOINT_NOT_APPROVED: "The configured OpenRouter endpoint is not the approved one.",
+  // D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast are listed but not usable.
+  ANTHROPIC_NOT_AUTHORISED: "Claude through the Anthropic API is not authorised for CLM use (D-099 proposed).",
+  ANTHROPIC_PROVIDER_CONTROLS_MISSING: "Not usable: Anthropic does not provide the readable key limit, per-call cost verification and usage reconciliation that remote models require (D-099 proposed).",
   REMOTE_SETTINGS_INVALID: "The remote model's reasoning settings are not valid on the server.",
   REMOTE_MANIFEST_MISSING: "The paid qualification's question list and count are not configured on the server.",
   LEDGER_UNAVAILABLE: "The spending ledger is missing or unhealthy.",
@@ -229,11 +232,13 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
 // Remote configurations (GPT-OSS 120B): the server sends closed codes, the page names them.
 // "Fast" and "Balanced" are reasoning settings of one model, not separate models.
 export const REASONING_LABEL: Record<string, string> = { low: "Fast", medium: "Balanced", high: "Thorough" };
-const PROVIDER_LABEL: Record<string, string> = { OPENROUTER_DEEPINFRA: "OpenRouter / DeepInfra" };
+const PROVIDER_LABEL: Record<string, string> = { OPENROUTER_DEEPINFRA: "OpenRouter / DeepInfra", ANTHROPIC: "Anthropic API" };
+const THINKING_LABEL: Record<string, string> = { adaptive: "adaptive", between_tools: "between tool calls only" };
 const SCOPE_LABEL: Record<string, string> = {
   VERIFIED_SYNTHETIC_CASES: "Verified synthetic cases only",
   APPROVED_SYNTHETIC_CASE: "The approved synthetic test case only",
   NOT_AUTHORISED: "Not authorised",
+  PROVIDER_CONTROLS_MISSING: "Not available (provider spending controls missing)",
 };
 
 export function profileName(profile: Pick<ModelProfileView, "display_name" | "details">): string {
@@ -249,6 +254,7 @@ function RemoteDetails({ details }: { details: Record<string, string> }) {
     <small className="control-help">
       Model: {details.model} · Provider: {PROVIDER_LABEL[details.provider] ?? details.provider} · Framework: Case-grounded Assistant
       {effort && <> · Reasoning: {effort.charAt(0).toUpperCase() + effort.slice(1)}</>}
+      {details.thinking && <> · Thinking: {THINKING_LABEL[details.thinking] ?? details.thinking}</>}
       {" "}· External inference: {SCOPE_LABEL[details.scope] ?? details.scope}
       {details.decision && <> ({details.decision})</>}
     </small>
