@@ -111,3 +111,43 @@ Evidence after remediation:
 - `tsc -b`: clean;
 - `npm run build`: built;
 - MOCK browser checks: 30/30 at 1440×900 and 360×740.
+
+## Final integration on PR #131's branch after PR #130 merged (2026-10-29)
+
+PR #130 was merged to main `d949edb` (tree `df4954eb`), including D-099-FU2. The earlier
+candidate (`839b8ef`, local branch `integration/d099-d100-phase1-20261029`) was not merged or
+pushed. Instead, on `feat/d100-ai-console-phase1` (from `45ae602`, no history rewritten):
+
+1. `git merge --no-ff origin/main`: no conflicts. The merge tree differs from the earlier
+   reviewed merge `9b97737` only by FU2 (`model_admin.py`, `test_claude_runtime.py`,
+   `aiAssistant.ts` `SAFE_ERROR_MESSAGES`, one `AiModelManagement.test.tsx` test, two FU2
+   reports).
+2. `git cherry-pick 53f12ee ef9f5c0`: applied cleanly, no adaptation needed. The tree then
+   differs from the reviewed `ef9f5c0` (tree `d5f29a46`) only by those same FU2 files. The
+   overlapping `AiModelManagement.test.tsx` keeps every D-099, D-100 and integration test
+   plus FU2's test.
+3. Docs only: `PROJECT_STATE.md` records #130 as merged and this section as PR #131;
+   `AI_MODEL_CONFIGURATION.md` names PR #131 and FU2's message. The D-100 decision-log entry is
+   kept unchanged.
+
+FU2's Anthropic-specific *Run Test connection first* message reaches the page because it is
+in `SAFE_ERROR_MESSAGES`, and the console shows it as written. That resolves I-1 for
+`PROVIDER_LIMIT_NOT_CHECKED`. The other OpenRouter-worded server refusals are still a D-099
+backend follow-up. No backend, API, spending-control, key or qualification change.
+
+Evidence on the final content:
+
+| Check | Result |
+| --- | --- |
+| Frontend `vitest run` | 66 files, 1,179 passed |
+| `tsc -b` / `vite build` | clean / built (existing chunk-size warning only) |
+| Assistant focused suite: `test_claude_console`, `test_claude_multi_turn` (incl. the MOCK three-turn RM conversation through the streaming route), `test_claude_runtime` (incl. FU2), `test_model_management`, `test_reasoning_configurations`, `test_phase_b_live`, `test_phase_b_quality`, `test_budget_*` (4), `test_synthetic_eligibility` | 622 passed, 0 failed |
+| `test_remote_test.py` | 67 passed |
+| `build_synthetic_boundary.py --check` | current |
+| Qualification basis | `33f602653de73f372a787a9d4403daedcd589140aae02b86a4796cd994e87513` (unchanged) |
+| MOCK browser (scripted Chromium DPR 1, every `/api/**` mocked, writes never answered) at 1440×900 and 360×740 | 38/38: the earlier 30 checks, plus the AI-unavailable wording, the Claude activation warning, no overflow on the activation dialog and focus returning to Activate after Escape, at each width |
+| `check_secrets`, `check_architecture`, `check_project_state`, `check_policy_authority`, `check_tooling_config`; root `test_check_secrets` + `test_claude_skill_pointers` | PASS; 40 passed |
+
+Not rerun: the full assistant suite, backend, OCR, Mongo and E2E suites, because the only backend
+change since the reviewed content is main's FU2 (already reviewed for #130 and covered by
+`test_claude_runtime.py` above). No paid call, activation or key change was made.

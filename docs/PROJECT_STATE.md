@@ -1286,10 +1286,10 @@ compare-and-set and fail-closed start-up ported. Delta only; nothing here is mer
 - **Open:** owner review of the replacement draft PR against main and closure of PR #128;
   owner merge; then the separately authorised Windows-local paid requalification.
 
-## AI Assistant D-099 Claude Sonnet 5.5 under Anthropic-specific safeguards (draft PR #130, not merged) - 2026-10-29
+## AI Assistant D-099 Claude Sonnet 5.5 under Anthropic-specific safeguards (PR #130, merged to main `d949edb`) - 2026-10-29
 
-Branch `feat/assistant-claude-sonnet-console` (draft PR #130). Delta only; nothing here is
-merged, activated or Live, and no paid call was made.
+Branch `feat/assistant-claude-sonnet-console` (PR #130, merged to main `d949edb`). Delta only;
+nothing here is activated or Live, and no paid call was made.
 - **Decision:** D-099 (PROPOSED) with Option B (owner-approved policy, implemented offline):
   Anthropic-specific safeguards that are **not equivalent** to OpenRouter's. Evidence:
   `.ai-pipeline/reports/D099_OPTION_B_IMPLEMENTATION.md`.
@@ -1312,10 +1312,13 @@ merged, activated or Live, and no paid call was made.
   blocks (unchanged, in order); any other prompt shape is refused before any reservation.
 - **Persistence:** a second git-ignored SQLite ledger file (its path must differ from the GPT-OSS ledger's); `budget.PROFILES` gains the
   Anthropic profile (existing OpenRouter ledgers unchanged). No Mongo or case-data change.
-- **Open:** fresh independent QG, latest-main integration and final gate; owner publication
-  approval; HR key entry and HR-editable Claude limits deferred with the D-100 UI work.
+- **Open:** HR key entry and HR-editable Claude limits stay deferred with the D-100 UI work.
+- **Status update (2026-10-29):** PR #130 was merged to main `d949edb`, including D-099-FU2
+  (the Anthropic-specific *Run Test connection first* refusal message). D-099 stays PROPOSED;
+  nothing is activated or Live. The paid GPT-OSS requalification on basis `33f602653de7…`
+  and Claude's own paid qualification each still need separate owner approval.
 
-## AI Assistant D-100 AI Model Console Phase 1 and the D-099 integration candidate (not merged) - 2026-10-29
+## AI Assistant D-100 AI Model Console Phase 1 integrated with D-099 (draft PR #131, not merged) - 2026-10-29
 
 Delta only; nothing here is merged, activated or Live, and no paid call was made.
 - **D-100 Phase 1 (draft PR #131, PROPOSED):** AI Models becomes the AI Model Console (section
@@ -1323,12 +1326,15 @@ Delta only; nothing here is merged, activated or Live, and no paid call was made
   History; `?section=` on the existing capability-checked route). Presentation only: no API,
   qualification, gating, limit, key or permission change. Evidence:
   `.ai-pipeline/reports/D100_AI_CONSOLE_PHASE1_REQG.md` (re-QG PASS).
-- **Integration candidate (local branch `integration/d099-d100-phase1-20261029`, not a PR):**
-  latest `origin/main` + D-099 (PR #130 with D-099-FU1 multi-turn) + D-100 Phase 1, with
+- **Integration with D-099 (on PR #131's branch after PR #130 merged):** main `d949edb`
+  (D-099 with D-099-FU1 and FU2) merged into D-100 Phase 1, with
   narrow D-100 compatibility fixes for Claude: the paid-qualification confirmation and the
   activation warning also cover the Anthropic deployment, with Claude's own wording (separate
   ledger, GPT-OSS limits never apply, no automatic switch); the Option B readiness codes are
   named; shared spending codes are worded per provider; the inspector shows provider,
   reasoning and thinking; Spending & Limits states that its controls are GPT-OSS only. No
-  backend, API or spending-control change. Evidence:
+  backend, API or spending-control change; FU2's Anthropic-specific refusal is shown as
+  written. The qualification basis stays `33f602653de7…`. Evidence:
   `.ai-pipeline/reports/D099_D100_INTEGRATION.md`.
+- **Open:** owner review and merge of PR #131; D-100 Phase 2, HR key entry and HR-editable
+  Claude limits are not started.
