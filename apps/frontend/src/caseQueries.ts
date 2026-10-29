@@ -48,6 +48,7 @@ export const caseQueryKeys = {
     "page",
     {
       status: filters.status ?? absent,
+      progress: filters.progress ?? absent,
       priorityFilter: filters.priority,
       prioritySort: filters.prioritySort,
       teamFilter: filters.teamFilter ?? absent,

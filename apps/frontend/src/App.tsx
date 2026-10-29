@@ -43,12 +43,10 @@ import AiAssistantPanel from "./pages/AiAssistantPanel";
 import { aiAssistantContextFor } from "./pages/aiAssistantContext";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
 import type { CaseQueuePresentationState } from "./pages/CaseQueue";
-import ClientDetail from "./pages/ClientDetail";
 import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import DeleteCaseDialog from "./pages/DeleteCaseDialog";
 import GoldTierRequestPreview from "./pages/GoldTierRequestPreview";
-import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
 import AdminTeams from "./pages/AdminTeams";
 import AdminUsers from "./pages/AdminUsers";
@@ -2286,7 +2284,6 @@ export default function App({
         )}
         canDeleteCurrentCase={actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER"}
         onDeleteCurrentCase={() => setDeleteCurrentCaseOpen(true)}
-        onViewOnboarded={(caseId) => navigate(paths.onboardedDetail(caseId))}
         onViewAudit={(caseId) => navigate(paths.auditCase(caseId))}
         registryProviderMode={simulationProfile?.registry_provider_mode}
         onRetryIntake={() => void beginJourney()}
@@ -2357,7 +2354,6 @@ export default function App({
               caseId={caseId}
               actor={actor}
               onBack={() => navigate(paths.cases)}
-              onViewOnboarded={(completedCaseId) => navigate(paths.onboardedDetail(completedCaseId))}
               onViewAudit={(auditCaseId) => navigate(paths.auditCase(auditCaseId))}
               registryProviderMode={simulationProfile?.registry_provider_mode}
               initialFocusNodeId={new URLSearchParams(location.search).get("focus") ?? undefined}
@@ -2373,8 +2369,6 @@ export default function App({
               } : undefined}
             />
           )}
-          onboarded={<OnboardedClients actor={actor} />}
-          onboardedDetail={(caseId) => <ClientDetail clientId={caseId} actor={actor} />}
           audit={(caseId) => <AuditTrail actor={actor} caseId={caseId} />}
           policy={<PolicyRules actor={actor} />}
           adminUsers={<AdminUsers />}

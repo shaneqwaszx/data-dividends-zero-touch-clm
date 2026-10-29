@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import { deleteZeroTouchCase, fetchZeroTouchCases } from "../api";
-import type { PriorityFilter, PrioritySort } from "../api";
+import type { CasePortfolioProgress, PriorityFilter, PrioritySort } from "../api";
 import {
   caseDeletedEffect,
   casePortfolioQueryOptions,
@@ -14,7 +14,7 @@ import { paths } from "../navigation";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
 import DeleteCaseDialog from "./DeleteCaseDialog";
-import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
+import PriorityControl, { PriorityFilterSelect, PrioritySortSelect } from "./PriorityControl";
 import DirectorTeamFilter from "./DirectorTeamFilter";
 import {
   BUSINESS_EXCEPTION_TYPE_LABELS,
@@ -22,6 +22,45 @@ import {
   type AuthenticatedProfile,
   type BusinessExceptionType,
 } from "../types";
+
+/** "Updated just now" / "Updated 3m 31s ago", re-rendered every 30 s; full time as tooltip. */
+function UpdatedAgo({ observedAt }: { observedAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, [observedAt]);
+  const elapsed = Math.max(0, now - Date.parse(observedAt));
+  return (
+    <span title={formatTimestamp(observedAt)}>
+      Updated {elapsed < 60_000 ? "just now" : `${formatDuration(elapsed)} ago`}
+    </span>
+  );
+}
+
+/** Copies the GoldTier party ID so it can be looked up in GoldTier. */
+function CopyGoldTierId({ value, company }: { value: string; company: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <button type="button" className="btn btn-ghost case-goldtier-id__copy" aria-label={`Copy GoldTier ID for ${company}`} onClick={() => void copy()}>
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function manualStepsLabel(humanInterventions: number): string {
+  return humanInterventions === 1 ? "1 manual step" : `${humanInterventions} manual steps`;
+}
 
 function statusTagClass(status: CaseRowView["status"]): string {
   if (status === "COMPLETED") return "tag tag-accent";
@@ -48,7 +87,11 @@ export async function loadCaseQueueRows(
   return items.map(mapZeroTouchCaseToCaseRow);
 }
 
+export type CaseQueueView = "all" | CasePortfolioProgress;
+
 export interface CaseQueuePresentationState {
+  /** Show: all cases, only cases still in progress, or only onboarded (completed) cases. */
+  view?: CaseQueueView;
   status: string;
   priority: PriorityFilter;
   prioritySort: PrioritySort;
@@ -60,6 +103,7 @@ export interface CaseQueuePresentationState {
 }
 
 export const DEFAULT_CASE_QUEUE_PRESENTATION: CaseQueuePresentationState = {
+  view: "all",
   status: "",
   priority: "all",
   prioritySort: "highest_first",
@@ -79,7 +123,11 @@ export default function CaseQueue({
   presentation: CaseQueuePresentationState;
   onPresentationChange: (value: CaseQueuePresentationState) => void;
 }) {
-  const { status, priority, prioritySort, jurisdiction, search } = presentation;
+  const { priority, prioritySort, jurisdiction, search } = presentation;
+  const view = presentation.view ?? "all";
+  // The Onboarded view fixes Status to Completed; In progress never offers Completed.
+  const status = view === "onboarded" ? "COMPLETED"
+    : view === "in_progress" && presentation.status === "COMPLETED" ? "" : presentation.status;
   const attentionType = presentation.attentionType ?? "";
   const createdFrom = presentation.createdFrom ?? "";
   const createdTo = presentation.createdTo ?? "";
@@ -102,7 +150,8 @@ export default function CaseQueue({
   const [deleteTarget, setDeleteTarget] = useState<CaseRowView | null>(null);
   const query = useQuery({
     ...casePortfolioQueryOptions(actor.user_id, {
-      status: status ? status as CaseRowView["status"] : undefined,
+      status: view !== "onboarded" && status ? status as CaseRowView["status"] : undefined,
+      progress: view === "all" ? undefined : view,
       priority,
       prioritySort,
       teamFilter,
@@ -142,12 +191,106 @@ export default function CaseQueue({
         <div>
           <h1>Cases</h1>
           <p className="text-muted">
-            All accessible workflow case history, including completed cases. Onboarded shows
-            the completed cases from this history. Multiple cases may represent one customer.
+            Every case you can access, including completed ones. One customer may have more than
+            one case.
           </p>
         </div>
       </div>
-      <div className="ds-toolbar">
+      <div className="case-view">
+        <span id="case-view-label" className="case-filter__label">Show</span>
+        <div className="seg-toggle" role="group" aria-labelledby="case-view-label">
+          {([["all", "All cases"], ["in_progress", "In progress"], ["onboarded", "Onboarded"]] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={view === value}
+              onClick={() => updatePresentation({
+                view: value,
+                status: value === "onboarded" || (value === "in_progress" && presentation.status === "COMPLETED")
+                  ? "" : presentation.status,
+              })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="case-filters" role="search" aria-label="Filter cases">
+        <div className="case-filter case-filter--search">
+          <label htmlFor="case-filter-search">Search</label>
+          <div className="case-search-field">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input
+              id="case-filter-search"
+              type="search"
+              value={search}
+              onChange={(event) => updatePresentation({ search: event.target.value })}
+              placeholder="Company, UEN or case ID"
+            />
+          </div>
+        </div>
+        <div className="case-filter">
+          <label htmlFor="case-filter-status">Status</label>
+          <select
+            id="case-filter-status"
+            className="input"
+            value={status}
+            disabled={view === "onboarded"}
+            onChange={(event) => updatePresentation({ status: event.target.value })}
+          >
+            {view !== "onboarded" && <option value="">All</option>}
+            <option value="PENDING_INPUTS">Pending inputs</option>
+            <option value="RUNNING">Running</option>
+            <option value="WAITING_FOR_REVIEW">Attention required</option>
+            <option value="RESUMING">Resuming</option>
+            <option value="RECOVERY_PENDING">Recovery pending</option>
+            <option value="TECHNICAL_FAILURE">Technical failure</option>
+            {view !== "in_progress" && <option value="COMPLETED">Completed</option>}
+          </select>
+        </div>
+        <div className="case-filter">
+          <label htmlFor="case-filter-priority">Priority</label>
+          <PriorityFilterSelect
+            id="case-filter-priority"
+            allLabel="All"
+            value={priority}
+            onChange={(value) => updatePresentation({ priority: value })}
+          />
+        </div>
+        <div className="case-filter case-filter--wide">
+          <label htmlFor="case-filter-attention">Needs attention</label>
+          <select
+            id="case-filter-attention"
+            className="input"
+            value={attentionType}
+            onChange={(event) => updatePresentation({
+              attentionType: event.target.value as BusinessExceptionType | "",
+            })}
+          >
+            <option value="">Any</option>
+            {BUSINESS_EXCEPTION_TYPES.map((type) => (
+              <option key={type} value={type}>{BUSINESS_EXCEPTION_TYPE_LABELS[type]}</option>
+            ))}
+          </select>
+        </div>
+        <div className="case-filter">
+          <label htmlFor="case-filter-jurisdiction">Jurisdiction</label>
+          <select
+            id="case-filter-jurisdiction"
+            className="input"
+            value={jurisdiction}
+            onChange={(event) => updatePresentation({ jurisdiction: event.target.value })}
+          >
+            <option value="">All</option>
+            <option value="SG">Singapore</option>
+            <option value="AU">Australia</option>
+            <option value="MY">Malaysia</option>
+            <option value="HK">Hong Kong</option>
+          </select>
+        </div>
         <DirectorTeamFilter
           actor={actor}
           value={teamFilter}
@@ -156,86 +299,41 @@ export default function CaseQueue({
             setTeamFilter(value);
           }}
         />
-        <select
-          className="input"
-          aria-label="Status filter"
-          style={{ width: 200 }}
-          value={status}
-          onChange={(event) => updatePresentation({ status: event.target.value })}
-        >
-          <option value="">Status: All</option>
-          <option value="PENDING_INPUTS">Pending inputs</option>
-          <option value="RUNNING">Running</option>
-          <option value="WAITING_FOR_REVIEW">Attention required</option>
-          <option value="RESUMING">Resuming</option>
-          <option value="RECOVERY_PENDING">Recovery pending</option>
-          <option value="TECHNICAL_FAILURE">Technical failure</option>
-          <option value="COMPLETED">Completed</option>
-        </select>
-        <PriorityListControls
-          filter={priority}
-          sort={prioritySort}
-          onFilterChange={(value) => updatePresentation({ priority: value })}
-          onSortChange={(value) => updatePresentation({ prioritySort: value })}
-        />
-        <label className="attention-filter">
-          <span>Open business exception type</span>
-          <select
-            className="input"
-            value={attentionType}
-            onChange={(event) => updatePresentation({
-              attentionType: event.target.value as BusinessExceptionType | "",
-            })}
-          >
-            <option value="">All types (no type filter)</option>
-            {BUSINESS_EXCEPTION_TYPES.map((type) => (
-              <option key={type} value={type}>{BUSINESS_EXCEPTION_TYPE_LABELS[type]}</option>
-            ))}
-          </select>
-        </label>
-        <select
-          className="input"
-          aria-label="Jurisdiction filter"
-          style={{ width: 190 }}
-          value={jurisdiction}
-          onChange={(event) => updatePresentation({ jurisdiction: event.target.value })}
-        >
-          <option value="">Jurisdiction: All</option>
-          <option value="SG">Singapore</option>
-          <option value="AU">Australia</option>
-          <option value="MY">Malaysia</option>
-          <option value="HK">Hong Kong</option>
-        </select>
-        <input
-          className="input"
-          aria-label="Search cases"
-          style={{ flex: 1, minWidth: 220 }}
-          value={search}
-          onChange={(event) => updatePresentation({ search: event.target.value })}
-          placeholder="Search case, UEN / ACN, or company…"
-        />
-        <label className="attention-filter">
-          <span>Created from</span>
-          <input
-            className="input"
-            type="date"
-            value={createdFrom}
-            max={createdTo || undefined}
-            aria-describedby="case-created-date-help"
-            onChange={(event) => updatePresentation({ createdFrom: event.target.value })}
+        <div className="case-filter case-filter--dates" role="group" aria-labelledby="case-filter-created">
+          <span id="case-filter-created" className="case-filter__label">Created between</span>
+          <div className="case-filter__pair">
+            <label>
+              <span className="sr-only">Created from</span>
+              <input
+                className="input"
+                type="date"
+                value={createdFrom}
+                max={createdTo || undefined}
+                aria-describedby="case-created-date-help"
+                onChange={(event) => updatePresentation({ createdFrom: event.target.value })}
+              />
+            </label>
+            <label>
+              <span className="sr-only">Created to</span>
+              <input
+                className="input"
+                type="date"
+                value={createdTo}
+                min={createdFrom || undefined}
+                aria-describedby="case-created-date-help"
+                onChange={(event) => updatePresentation({ createdTo: event.target.value })}
+              />
+            </label>
+          </div>
+        </div>
+        <div className="case-filter case-filter--sort">
+          <label htmlFor="case-filter-sort">Sort</label>
+          <PrioritySortSelect
+            id="case-filter-sort"
+            value={prioritySort}
+            onChange={(value) => updatePresentation({ prioritySort: value })}
           />
-        </label>
-        <label className="attention-filter">
-          <span>Created to</span>
-          <input
-            className="input"
-            type="date"
-            value={createdTo}
-            min={createdFrom || undefined}
-            aria-describedby="case-created-date-help"
-            onChange={(event) => updatePresentation({ createdTo: event.target.value })}
-          />
-        </label>
+        </div>
       </div>
       <p id="case-created-date-help" className="control-help">
         Creation dates include both selected days in Singapore (Asia/Singapore, UTC+08:00).
@@ -250,16 +348,25 @@ export default function CaseQueue({
       {!searchIsDebouncing && !createdRangeInvalid && !query.isError && !query.isPending && cases.length === 0 && (
         <p className="text-muted">No cases match these filters.</p>
       )}
-      {!searchIsDebouncing && cases.length > 0 && (
-        <p className="text-muted" aria-live="polite">
-          Showing {offset + 1}–{offset + cases.length} on page {Math.floor(offset / limit) + 1}.
-          Total results are not calculated.
-        </p>
-      )}
-      {!searchIsDebouncing && query.data?.observed_at && (
-        <p className="text-muted timing-observation">
-          Timing observed at {formatTimestamp(query.data.observed_at)}. Refresh to obtain a new observation.
-        </p>
+      {!searchIsDebouncing && (cases.length > 0 || query.data?.observed_at) && (
+        <div className="case-queue-meta">
+          {cases.length > 0 ? (
+            <p className="text-muted" aria-live="polite">Showing {offset + 1}–{offset + cases.length}</p>
+          ) : <span />}
+          {query.data?.observed_at && (
+            <div className="case-queue-meta__refresh text-muted">
+              <UpdatedAgo observedAt={query.data.observed_at} />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={query.isFetching}
+                onClick={() => void query.refetch()}
+              >
+                Refresh
+              </button>
+            </div>
+          )}
+        </div>
       )}
       {!searchIsDebouncing && cases.length > 0 && (
         <div className="table-card table-scroll" tabIndex={0} aria-label="Cases table">
@@ -277,7 +384,7 @@ export default function CaseQueue({
                 <th>Priority</th>
                 <th>Client scope</th>
                 <th>Stage</th>
-                <th>Open business exceptions</th>
+                <th>Needs attention</th>
                 <th>Created</th>
                 <th>Updated</th>
                 <th>Operational timing</th>
@@ -287,23 +394,36 @@ export default function CaseQueue({
             <tbody>
               {cases.map((item) => (
                 <tr key={item.case_id}>
-                  <td>{item.company_name ?? item.requested_uen}</td>
+                  <td>
+                    {item.company_name ?? item.requested_uen}
+                    {item.goldtier_party_id && (
+                      <span className="case-goldtier-id">
+                        <span className="cell-note">GoldTier ID: <code>{item.goldtier_party_id}</code></span>
+                        <CopyGoldTierId value={item.goldtier_party_id} company={item.company_name ?? item.requested_uen} />
+                        <span className="case-goldtier-id__tip" aria-hidden="true">{item.goldtier_party_id}</span>
+                      </span>
+                    )}
+                  </td>
                   <td>{item.requested_uen}</td>
                   <td>{item.jurisdiction ?? "—"}</td>
                   <td>
                     <span className={statusTagClass(item.status)}>
                       {item.status.replaceAll("_", " ")}
                     </span>
-                    <span className="cell-note">
-                      {item.active_exception_count} open · {item.human_interventions} human
-                    </span>
+                    {/* Zero-touch is an outcome: only a completed case can claim it. */}
+                    {item.human_interventions > 0
+                      ? <span className="cell-note">{manualStepsLabel(item.human_interventions)}</span>
+                      : item.status === "COMPLETED"
+                        ? <strong className="cell-note zero-touch-note">Zero-touch</strong>
+                        : <span className="cell-note">No manual steps yet</span>}
                   </td>
                   <td>
-                    <PriorityBadge priority={item.priority} />
                     <PriorityControl
                       caseId={item.case_id}
                       priority={item.priority}
                       onUpdated={refreshAfterPriorityUpdate}
+                      saveOnChange
+                      label={`Priority for ${item.company_name ?? item.requested_uen}`}
                     />
                   </td>
                   <td>{item.client_scope_label ?? "Legacy unassigned"}</td>
@@ -321,7 +441,7 @@ export default function CaseQueue({
                         ))}
                       </div>
                     ) : (
-                      <span className="cell-note">No open business exceptions recorded</span>
+                      <span className="text-muted">—</span>
                     )}
                   </td>
                   <td>{item.created_at ? formatDateNoSeconds(item.created_at) : "—"}</td>

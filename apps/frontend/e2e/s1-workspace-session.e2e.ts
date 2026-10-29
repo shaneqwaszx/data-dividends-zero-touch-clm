@@ -240,13 +240,14 @@ test("S1 case creation date controls describe Singapore days and reject a revers
   await from.fill("");
   await to.fill("");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.getByRole("link", { name: "Onboarded", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Onboarded", exact: true })).toBeVisible();
+  // The Onboarded tab was folded into the Cases page's Onboarded view.
+  await page.getByRole("button", { name: "Onboarded", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Onboarded", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByLabel("Created from", { exact: true }).fill("2026-09-29");
   const completed = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return response.request().method() === "GET" && url.pathname === "/api/clm/zero-touch/cases"
-      && url.searchParams.get("status") === "COMPLETED"
+    return response.request().method() === "GET" && url.pathname === "/api/clm/zero-touch/case-portfolio"
+      && url.searchParams.get("progress") === "onboarded"
       && url.searchParams.get("created_from") === "2026-09-29"
       && url.searchParams.get("created_to") === "2026-10-04";
   }, { timeout: 15_000 });
