@@ -253,7 +253,9 @@ describe("blocker-aware attention queue contract", () => {
     expect(container?.textContent).not.toContain("Assigned to");
     expect(container?.textContent).toContain("Document low confidence");
     expect(container?.textContent).toContain("Ownership cycle");
-    expect(container?.textContent).toContain("Zero-touch");
+    // Neither row has completed, so 0 human interventions is not shown as a Zero-touch outcome.
+    expect(container?.textContent).toContain("No manual steps yet");
+    expect(container?.textContent).not.toContain("Zero-touch");
     expect(container?.textContent).not.toContain("3 open · 0 human");
     const attentionCells = Array.from(container?.querySelectorAll("tbody tr") ?? [])
       .map((row) => row.querySelectorAll("td")[7]?.textContent);

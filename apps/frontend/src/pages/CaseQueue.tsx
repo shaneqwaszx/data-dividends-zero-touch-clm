@@ -410,9 +410,12 @@ export default function CaseQueue({
                     <span className={statusTagClass(item.status)}>
                       {item.status.replaceAll("_", " ")}
                     </span>
-                    {item.human_interventions === 0
-                      ? <strong className="cell-note zero-touch-note">Zero-touch</strong>
-                      : <span className="cell-note">{manualStepsLabel(item.human_interventions)}</span>}
+                    {/* Zero-touch is an outcome: only a completed case can claim it. */}
+                    {item.human_interventions > 0
+                      ? <span className="cell-note">{manualStepsLabel(item.human_interventions)}</span>
+                      : item.status === "COMPLETED"
+                        ? <strong className="cell-note zero-touch-note">Zero-touch</strong>
+                        : <span className="cell-note">No manual steps yet</span>}
                   </td>
                   <td>
                     <PriorityControl

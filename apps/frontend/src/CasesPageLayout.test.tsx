@@ -72,10 +72,10 @@ function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
 
-async function renderCases(observedAt = new Date().toISOString()) {
+async function renderCases(observedAt = new Date().toISOString(), items = ITEMS) {
   const queryClient = createSessionQueryClient();
   queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, FILTERS), {
-    items: ITEMS, offset: 0, limit: 50, has_more: false, observed_at: observedAt,
+    items, offset: 0, limit: 50, has_more: false, observed_at: observedAt,
   });
   await act(async () => root?.render(
     <MemoryRouter><QueryClientProvider client={queryClient}>
@@ -167,6 +167,18 @@ describe("Cases table", () => {
     expect(rowCells(1)[3].textContent).not.toContain("1 manual steps");
     expect(rowCells(2)[3].textContent).toContain("3 manual steps");
     expect(container!.textContent).not.toMatch(/\d+ open · \d+ human/);
+  });
+
+  it("claims Zero-touch only for a completed case; unfinished cases with no manual steps stay neutral", async () => {
+    const unfinished = (["RUNNING", "WAITING_FOR_REVIEW", "RECOVERY_PENDING", "TECHNICAL_FAILURE", "PENDING_INPUTS"] as const)
+      .map((status, index) => ({ ...item(index + 1, 0), status }));
+    await renderCases(undefined, [...unfinished, item(6, 0)]);
+    unfinished.forEach((_, index) => {
+      expect(rowCells(index)[3].textContent).toContain("No manual steps yet");
+      expect(rowCells(index)[3].textContent).not.toContain("Zero-touch");
+      expect(rowCells(index)[3].querySelector("strong")).toBeNull();
+    });
+    expect(rowCells(unfinished.length)[3].querySelector("strong")?.textContent).toBe("Zero-touch");
   });
 
   it("shows a dash when nothing needs attention", async () => {

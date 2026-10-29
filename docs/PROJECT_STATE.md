@@ -224,7 +224,8 @@ owners recompute dependent state and resume until the next authoritative blocker
 This uses retained extraction rather than retained upload bytes or a new OCR claim.
 Replacement-document semantics and target no-replay remain separate.
 
-Cases and Onboarded offer server-side Created from / Created to filters over the
+The Cases page (All cases / In progress / Onboarded views; the separate Onboarded page was
+removed) offers server-side Created from / Created to filters over the
 authoritative automation `created_at`. Both selected Singapore calendar days are
 inclusive under the explicit UTC+08:00 convention: from 00:00 inclusive through the
 day after Created to at 00:00 exclusive. Actor/team scope remains backend-owned;

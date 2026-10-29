@@ -19,6 +19,7 @@ execution, registry cache, or a persistence write.
 | Input | Contract |
 |---|---|
 | `status` | Optional exact existing `AutomationStatus`. |
+| `progress` | Optional `in_progress` (every status except `COMPLETED`) or `onboarded` (`COMPLETED` only). Intersects with `status`; any other value returns 422. Memory and Mongo apply the same single `automation.status` predicate after scope. |
 | `priority_filter` | Existing `all`, `prioritised`, `unset`, or exact P1–P10 semantics. Default `all`. |
 | `priority_sort` | Existing `highest_first` or `lowest_first`. Default `highest_first`. |
 | `team_filter` | Existing Director-only exact team/`unassigned` semantics. Ordinary team actors cannot override scope. |
@@ -86,9 +87,10 @@ returned, and no error is converted to an empty or partial page.
 ## Frontend/session behavior
 
 The Cases page uses a fixed page size of 50 and a 300 ms search debounce. Its query key
-contains authenticated user, status, priority filter, priority sort, team, attention
+contains authenticated user, status, progress view, priority filter, priority sort, team, attention
 type, jurisdiction, normalized search, both creation-date bounds, offset, and limit.
-Onboarded uses both bounds in its authenticated list key and server request. Changing any presentation
+The Show control (All cases / In progress / Onboarded) sends `progress`; the Onboarded view fixes Status to
+`COMPLETED`. There is no separate Onboarded page; old `/onboarded` links redirect to Cases. Changing any presentation
 dimension resets the offset. Previous-key rows are hidden while a new search is being
 debounced; GET cancellation retains `AbortSignal`.
 

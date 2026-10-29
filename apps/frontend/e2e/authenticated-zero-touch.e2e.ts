@@ -1657,6 +1657,10 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await mutableRow.locator("select.priority-select").selectOption("5");
   expect((await priorityResponse).status()).toBe(200);
   await expect(mutableRow.locator("select.priority-select")).toHaveValue("5");
+  // A fresh read proves the server stored it, not just the control the test just changed.
+  await page.reload();
+  await page.getByLabel("Search", { exact: true }).fill(targetUen);
+  await expect(mutableRow.locator("select.priority-select")).toHaveValue("5");
 
   const deleteResponse = page.waitForResponse((response) => (
     response.request().method() === "DELETE"
