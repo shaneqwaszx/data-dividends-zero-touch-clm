@@ -1491,6 +1491,8 @@ export default function CaseDetail({
                 if (file) void settleEvidenceMutation(() => intakeZeroTouchDocument(caseId, file, false), "Processing uploaded evidence…", "Document upload could not complete.");
               }} />
           </label>}
+          {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary))
+            && <p className="control-help">{UPLOAD_HELP_TEXT}</p>}
           {summary.status === "PENDING_INPUTS" && documents.some(isCurrentDocument)
             && !documents.some(doc => isCurrentDocument(doc) && doc.state === "FAILED")
             && !canContinueRecoveredIntake(summary, documents)

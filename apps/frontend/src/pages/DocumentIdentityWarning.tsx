@@ -3,9 +3,11 @@ import type { DocumentProcessingRecord, ReconciliationDiscrepancy, Reconciliatio
 
 /**
  * Reads the existing registry-vs-document reconciliation for one document's company name and UEN.
- * It adds no matching rules or thresholds: an OPEN CONFLICT with a VALID document value is a
- * mismatch, and any other OPEN outcome for that document means the value could not be read.
- * The warning lasts only as long as the discrepancy stays OPEN; nothing here resolves it.
+ * Reconciliation keeps one discrepancy per field with an observation from every current document,
+ * so each document is judged only by its own observation: its own non-VALID value means it could
+ * not be read, and its own VALID normalized value differing from the case's VALID value is a
+ * mismatch. It adds no matching rules or thresholds, and the warning lasts only while the
+ * discrepancy stays OPEN; nothing here resolves it.
  */
 export type IdentityField = "legal_name" | "registration_identifier";
 
@@ -27,8 +29,9 @@ const IDENTITY_FIELDS: readonly IdentityField[] = ["legal_name", "registration_i
 const FIELD_LABELS: Record<IdentityField, string> = { legal_name: "company name", registration_identifier: "UEN" };
 
 function documentObservation(discrepancy: ReconciliationDiscrepancy, documentId: string): ReconciliationObservation | null {
+  // Observations without a document id cannot be attributed to one card, so they never warn.
   return discrepancy.observations.find((item) => item.source_kind === "DOCUMENT_IDP"
-    && (!item.document_id || item.document_id === documentId)) ?? null;
+    && item.document_id === documentId) ?? null;
 }
 
 function caseObservation(discrepancy: ReconciliationDiscrepancy): ReconciliationObservation | null {
@@ -45,12 +48,17 @@ export function documentIdentityWarning(document: DocumentProcessingRecord, summ
       && item.field_name === field && documentObservation(item, document.document_id));
     if (!discrepancy) continue;
     const observation = documentObservation(discrepancy, document.document_id)!;
-    fingerprints.push(discrepancy.evidence_fingerprint);
-    if (discrepancy.outcome === "CONFLICT" && observation.validity === "VALID" && observation.normalized_value) {
-      mismatches.push({ field, documentValue: observation.normalized_value, caseValue: caseObservation(discrepancy)?.normalized_value ?? null });
-    } else {
+    const reference = caseObservation(discrepancy);
+    if (observation.validity !== "VALID" || !observation.normalized_value) {
       unreadable.push(field);
+    } else if (reference?.validity === "VALID" && reference.normalized_value
+      && observation.normalized_value !== reference.normalized_value) {
+      mismatches.push({ field, documentValue: observation.normalized_value, caseValue: reference.normalized_value });
+    } else {
+      // This document agrees with the case (or the case value itself is unusable): not its problem.
+      continue;
     }
+    fingerprints.push(discrepancy.evidence_fingerprint);
   }
   if (!mismatches.length && !unreadable.length) return null;
   const kind = mismatches.length === IDENTITY_FIELDS.length ? "DIFFERENT_COMPANY" : mismatches.length ? "FIELD_MISMATCH" : "UNREADABLE";

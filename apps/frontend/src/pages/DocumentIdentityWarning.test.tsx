@@ -41,6 +41,19 @@ function discrepancy(field: Field, documentId: string, documentValue: string | n
   };
 }
 
+/** The backend shape: one discrepancy per field, with an observation from every current document. */
+function shared(field: Field, documents: Array<[string, string | null, Validity?]>, outcome: ReconciliationDiscrepancy["outcome"] = "CONFLICT",
+  caseValue: string | null = field === "legal_name" ? CASE_NAME : CASE_UEN, caseValidity: Validity = "VALID"): ReconciliationDiscrepancy {
+  return {
+    discrepancy_id: `disc-${field}`, field_name: field, outcome,
+    observations: [
+      observation(field, "REGISTRY", caseValue, null, caseValidity),
+      ...documents.map(([id, value, validity]) => observation(field, "DOCUMENT_IDP", value, id, validity ?? "VALID")),
+    ],
+    status: "OPEN", allowed_actions: [], evidence_fingerprint: `fp-${field}-${documents.map(([id, value]) => `${id}=${value}`).join(",")}`, decision: null,
+  };
+}
+
 function summary(discrepancies: ReconciliationDiscrepancy[], overrides: Partial<ZeroTouchCaseSummary> = {}): ZeroTouchCaseSummary {
   return {
     case: { case_id: CASE_ID, policy_snapshot: { idp_review_confidence_threshold: "0.85" } },
@@ -227,5 +240,41 @@ describe("wrong-document warning on the document card", () => {
     expect(documentIdentityWarning(documentFixture("doc-h"), value)).not.toBeNull();
     const view = render([documentFixture("doc-h", { superseded_by_document_id: "doc-n" }), documentFixture("doc-n")], value, { presentation: "full" });
     expect(view.querySelector(".document-identity-warning")).toBeNull();
+  });
+
+  it("with one correct and one wrong-company document, warns only on the wrong one", () => {
+    const value = summary([
+      shared("legal_name", [["doc-good", CASE_NAME], ["doc-bad", "LION CITY EXISTING CUSTOMER PTE. LTD."]]),
+      shared("registration_identifier", [["doc-good", CASE_UEN], ["doc-bad", "202400005E"]]),
+    ]);
+    const view = render([documentFixture("doc-good"), documentFixture("doc-bad")], value);
+    expect(warning(view, "doc-good")).toBeNull();
+    expect(warning(view, "doc-bad")!.querySelector("strong")?.textContent).toBe("This document looks like it belongs to a different company");
+  });
+
+  it("does not tell a readable, matching document that another document's low-confidence value couldn't be read", () => {
+    const value = summary([shared("legal_name", [["doc-good", CASE_NAME], ["doc-blurry", "MERLION OR LION", "UNVERIFIABLE"]], "UNVERIFIABLE")]);
+    const view = render([documentFixture("doc-good"), documentFixture("doc-blurry")], value);
+    expect(warning(view, "doc-good")).toBeNull();
+    expect(warning(view, "doc-blurry")!.querySelector("strong")?.textContent).toBe("We couldn't read the company name from this document");
+  });
+
+  it("shows a one-field mismatch only on the document whose own value differs", () => {
+    const value = summary([shared("registration_identifier", [["doc-a", CASE_UEN], ["doc-b", "202400009Z"]])]);
+    expect(documentIdentityWarning(documentFixture("doc-a"), value)).toBeNull();
+    expect(documentIdentityWarning(documentFixture("doc-b"), value)).toMatchObject({
+      kind: "FIELD_MISMATCH", mismatches: [{ field: "registration_identifier", documentValue: "202400009Z", caseValue: CASE_UEN }],
+    });
+  });
+
+  it("does not blame a document when the case's own value is unusable", () => {
+    const value = summary([shared("registration_identifier", [["doc-a", "202400001A"]], "INVALID", "2024", "INVALID")]);
+    expect(documentIdentityWarning(documentFixture("doc-a"), value)).toBeNull();
+  });
+
+  it("never attributes an observation without a document id to a card", () => {
+    const legacy = discrepancy("legal_name", "doc-l", "OTHER PTE. LTD.");
+    legacy.observations = legacy.observations.map((item) => ({ ...item, document_id: null }));
+    expect(documentIdentityWarning(documentFixture("doc-l"), summary([legacy]))).toBeNull();
   });
 });

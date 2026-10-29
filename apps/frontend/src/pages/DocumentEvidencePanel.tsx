@@ -380,7 +380,7 @@ function DocumentCard({
               <input className="sr-only document-upload-input" type="file" accept={ACCEPTED_DOCUMENTS} disabled={controlsDisabled} ref={uploadInput} onChange={(event) => handleFile(event, false)} />
             </label>
           ) : null}
-          <span className="control-help">{UPLOAD_HELP_TEXT}</span>
+          {(reuploadRequired || replaceAllowed) && <span className="control-help">{UPLOAD_HELP_TEXT}</span>}
         </div>
       )}
     </article>
