@@ -114,6 +114,20 @@ any longer prompt (the RM gets the case-data answer instead).
 5. **Roll back** — returns to the previously active model if it is still valid, otherwise HR
    activates the environment baseline.
 
+**Where these are on the page (D-100 Phase 1, presentation only).** AI Models is the *AI Model
+Console*: a section menu (one folding button on narrow screens) over Models & Overview,
+Providers, Spending & Limits, Qualifications & Recovery and Audit History. The section is part
+of the address (`/admin/ai-models?section=spending`); opening a section sends no change.
+Models & Overview shows the active model with its availability, technical qualification,
+answer quality and activation side by side, summary counts, and every configuration as a tile
+(configurations of one model family together, Balanced before Fast). Selecting a tile shows its
+readiness and the existing Test connection, Run qualification and Activate actions; activation,
+rollback and paid runs are confirmed in a dialog (a bottom sheet on a phone) that Escape
+cancels. The full technical record of every configuration is folded below the tiles. Providers,
+Spending & Limits, Qualifications & Recovery and Audit History keep the existing D-095 to D-098
+controls unchanged for now. Nothing about qualification, gating, limits, keys, permissions or
+the API changed.
+
 ## 7. Restarts, changes and failures
 
 - The active model survives restarts (`AI_ASSISTANT_MODEL_ADMIN_DB_PATH`, default
