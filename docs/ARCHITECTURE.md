@@ -797,8 +797,8 @@ replacement. Existing reconciliation/zero-touch owners recompute dependent state
 advance until the next genuine blocker. Raw upload bytes remain transient; this change
 does not add OCR or change replacement-document semantics.
 
-CaseQueryService and CasePortfolioQuery own created-date conversion/validation. Both
-Cases and Onboarded use authoritative automation `created_at` and server predicates.
+CaseQueryService and CasePortfolioQuery own created-date conversion/validation. The Cases
+page, including its Onboarded view, uses authoritative automation `created_at` and server predicates.
 The explicit Singapore UTC+08:00 convention includes each selected calendar day:
 `created_from` midnight inclusive, the day after `created_to` midnight exclusive.
 Backend actor/team scope remains authoritative. Memory and Mongo apply the date

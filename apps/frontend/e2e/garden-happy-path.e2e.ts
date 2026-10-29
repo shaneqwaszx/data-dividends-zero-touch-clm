@@ -208,8 +208,9 @@ test("Garden late preconfirmation detail GET cannot replace completed case", asy
     }
     await page.getByRole("link", { name: "Cases", exact: true }).click();
     await expect(page.locator(`a[href="/cases/${caseId}"]`).first()).toBeVisible();
-    await page.getByRole("link", { name: "Onboarded", exact: true }).click();
-    await expect(page.locator(`a[href="/onboarded/${caseId}"]`).first()).toBeVisible();
+    // The Onboarded tab was folded into the Cases page's Onboarded view.
+    await page.getByRole("button", { name: "Onboarded", exact: true }).click();
+    await expect(page.locator(`a[href="/cases/${caseId}"]`).first()).toBeVisible();
   } finally {
     release();
   }
@@ -293,8 +294,9 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
     .toBe(true);
   await page.getByRole("link", { name: "Cases", exact: true }).click();
   await expect(page.locator(`a[href="/cases/${caseId}"]`).first()).toBeVisible();
-  await page.getByRole("link", { name: "Onboarded", exact: true }).click();
-  await expect(page.locator(`a[href="/onboarded/${caseId}"]`)).toBeVisible();
+  // The Onboarded tab was folded into the Cases page's Onboarded view.
+  await page.getByRole("button", { name: "Onboarded", exact: true }).click();
+  await expect(page.locator(`a[href="/cases/${caseId}"]`).first()).toBeVisible();
 });
 
 test("Garden discrepancy human intervention clears reviewed conflicts and continues onboarding", async ({ page }) => {

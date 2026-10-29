@@ -134,7 +134,6 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );
@@ -177,7 +176,6 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );
@@ -212,7 +210,6 @@ describe("Phase 13 authenticated frontend boundary", () => {
       onReplace: () => undefined,
       onRecovery: () => undefined,
       onStartNewCase: () => undefined,
-      onViewOnboarded: () => undefined,
       onViewAudit: () => undefined,
     };
 
@@ -277,7 +274,6 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );
@@ -346,7 +342,6 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );

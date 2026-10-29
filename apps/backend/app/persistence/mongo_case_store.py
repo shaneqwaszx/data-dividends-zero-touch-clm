@@ -1546,6 +1546,10 @@ def _portfolio_row_match(query: CasePortfolioQuery) -> dict[str, Any]:
     conditions: list[dict[str, Any]] = []
     if query.status is not None:
         conditions.append({"automation.status": query.status.value})
+    if query.progress == "onboarded":
+        conditions.append({"automation.status": AutomationStatus.COMPLETED.value})
+    elif query.progress == "in_progress":
+        conditions.append({"automation.status": {"$ne": AutomationStatus.COMPLETED.value}})
     created_timestamp = _normalized_activity_timestamp_expression("$automation.created_at")
     if query.created_from_at is not None:
         conditions.append(

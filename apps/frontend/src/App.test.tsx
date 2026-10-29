@@ -518,7 +518,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     const account = renderToStaticMarkup(<AccountPlaceholder />);
     expect(tabs).toContain("New onboarding");
     expect(tabs).toContain("Cases");
-    expect(tabs).toContain("Onboarded");
+    expect(tabs).not.toContain('href="/onboarded"'); // the Onboarded tab was folded into Cases
     expect(tabs).toContain(">Audit<");
     expect(tabs).not.toContain("Audit trail");
     expect(tabs).toContain("Policy");

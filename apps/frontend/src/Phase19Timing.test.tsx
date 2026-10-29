@@ -117,8 +117,12 @@ describe("Phase 19 factual timing", () => {
       </QueryClientProvider></MemoryRouter>,
     ));
 
-    expect(container?.textContent).toContain("Timing observed at");
-    expect(container?.textContent).toContain("Refresh to obtain a new observation");
+    const updated = Array.from(container?.querySelectorAll<HTMLElement>("[title]") ?? [])
+      .find((item) => item.textContent?.startsWith("Updated "));
+    expect(updated?.textContent).toMatch(/^Updated (?:just now|.+ ago)$/);
+    expect(updated?.title).not.toBe("");
+    expect(Array.from(container?.querySelectorAll("button") ?? [])
+      .some((button) => button.textContent === "Refresh")).toBe(true);
     expect(container?.textContent).toContain("Case age: 3h 14m");
     expect(container?.textContent).toContain("Case duration: 41s");
     expect(container?.textContent).toContain("Last updated: 28m ago");

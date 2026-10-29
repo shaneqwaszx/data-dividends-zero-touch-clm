@@ -3,6 +3,7 @@
 import re
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
@@ -283,6 +284,8 @@ class CasePortfolioQuery(BaseModel):
 
     scope: CasePortfolioScope
     status: AutomationStatus | None = None
+    # Cases page view: in_progress = every status except COMPLETED; onboarded = COMPLETED.
+    progress: Literal["in_progress", "onboarded"] | None = None
     priority_filter: PriorityFilter = PriorityFilter.ALL
     priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST
     attention_type: BusinessExceptionType | None = None
@@ -388,6 +391,10 @@ def case_portfolio_matches(record: CasePortfolioRecord, query: CasePortfolioQuer
     """Apply the composed non-scope portfolio predicates."""
 
     if query.status is not None and record.status != query.status:
+        return False
+    if query.progress is not None and (
+        record.status == AutomationStatus.COMPLETED
+    ) != (query.progress == "onboarded"):
         return False
     if query.created_from_at is not None and record.created_at < query.created_from_at:
         return False

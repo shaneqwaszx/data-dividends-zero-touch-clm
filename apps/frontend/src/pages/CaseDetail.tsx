@@ -188,7 +188,6 @@ export default function CaseDetail({
   caseId,
   actor,
   onBack,
-  onViewOnboarded,
   onViewAudit,
   registryProviderMode,
   initialFocusNodeId,
@@ -198,7 +197,6 @@ export default function CaseDetail({
   caseId: string;
   actor: AuthenticatedProfile;
   onBack: () => void;
-  onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
   registryProviderMode?: SimulationProfile["registry_provider_mode"];
   initialFocusNodeId?: string;
@@ -1726,7 +1724,7 @@ export default function CaseDetail({
         {summary.status === "RECOVERY_PENDING"
           && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
 
-        <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
+        <CompletedOverview summary={summary} onViewAudit={onViewAudit} />
         </>}
           moreDetails={<>
             {readinessReadNotice}

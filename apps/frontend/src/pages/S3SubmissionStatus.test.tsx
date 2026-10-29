@@ -97,7 +97,7 @@ async function mount(summary = fixture(), profile = actor, strict = false) {
   await renderCase(summary.case.case_id, profile, strict);
 }
 async function renderCase(caseId = CASE_A, profile = actor, strict = false) {
-  const view = <QueryClientProvider client={client!}><CaseDetail caseId={caseId} actor={profile} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} /></QueryClientProvider>;
+  const view = <QueryClientProvider client={client!}><CaseDetail caseId={caseId} actor={profile} onBack={() => undefined} onViewAudit={() => undefined} /></QueryClientProvider>;
   await act(async () => root!.render(strict ? <StrictMode>{view}</StrictMode> : view));
 }
 async function settle() {
