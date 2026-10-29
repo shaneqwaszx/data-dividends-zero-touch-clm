@@ -1314,3 +1314,21 @@ merged, activated or Live, and no paid call was made.
   Anthropic profile (existing OpenRouter ledgers unchanged). No Mongo or case-data change.
 - **Open:** fresh independent QG, latest-main integration and final gate; owner publication
   approval; HR key entry and HR-editable Claude limits deferred with the D-100 UI work.
+
+## AI Assistant D-100 AI Model Console Phase 1 and the D-099 integration candidate (not merged) - 2026-10-29
+
+Delta only; nothing here is merged, activated or Live, and no paid call was made.
+- **D-100 Phase 1 (draft PR #131, PROPOSED):** AI Models becomes the AI Model Console (section
+  menu over Models & Overview, Providers, Spending & Limits, Qualifications & Recovery, Audit
+  History; `?section=` on the existing capability-checked route). Presentation only: no API,
+  qualification, gating, limit, key or permission change. Evidence:
+  `.ai-pipeline/reports/D100_AI_CONSOLE_PHASE1_REQG.md` (re-QG PASS).
+- **Integration candidate (local branch `integration/d099-d100-phase1-20261029`, not a PR):**
+  latest `origin/main` + D-099 (PR #130 with D-099-FU1 multi-turn) + D-100 Phase 1, with
+  narrow D-100 compatibility fixes for Claude: the paid-qualification confirmation and the
+  activation warning also cover the Anthropic deployment, with Claude's own wording (separate
+  ledger, GPT-OSS limits never apply, no automatic switch); the Option B readiness codes are
+  named; shared spending codes are worded per provider; the inspector shows provider,
+  reasoning and thinking; Spending & Limits states that its controls are GPT-OSS only. No
+  backend, API or spending-control change. Evidence:
+  `.ai-pipeline/reports/D099_D100_INTEGRATION.md`.

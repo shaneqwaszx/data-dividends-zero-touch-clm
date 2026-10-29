@@ -754,6 +754,79 @@ describe("AiModelManagement Claude Sonnet 5.5 (D-099 proposed)", () => {
   });
 });
 
+// --- D-099 + D-100 Phase 1 integration: Claude in the AI Model Console ------------------------
+
+describe("AiModelManagement Claude in the console (D-099 with D-100)", () => {
+  const paid = { calls: 6, reservation_micro_usd: 96_000, estimate_micro_usd: 576_000, effective_remaining_micro_usd: 1_000_000, refusal: null, sufficient: true };
+  const claude = profile({
+    profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: "medium", endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    temperature: null, max_answer_tokens: 3000, status: "selectable", reason: null, active: false,
+    activation_blockers: [], paid_qualification: paid,
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" },
+  });
+  const withClaude = (overrides: Partial<ModelProfileView> = {}): ModelOverview => ({
+    ...overview, profiles: [overview.profiles[0], remoteSelectable, { ...claude, ...overrides }],
+  });
+
+  it("asks before a paid Claude run, names its own ledger and sends the confirmed calls", async () => {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    const view = mount(server(withClaude(), (url, body) => { posts.push({ url, body }); return json({ qualification_id: "c".repeat(32) }); }));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Balanced"));
+    { const target = button(view, "Run qualification…", "Claude Sonnet 5.5 — Balanced"); act(() => target.click()); }
+    const dialog = view.querySelector("[data-testid=paid-confirm]");
+    expect(dialog?.textContent).toContain("asks Claude Sonnet 5.5 the configured synthetic questions through the Anthropic API");
+    expect(dialog?.textContent).toContain("Claude's separate ledger (the GPT-OSS limits do not apply)");
+    expect(dialog?.textContent).not.toContain("OpenRouter");
+    expect(dialog?.textContent).toContain("Up to 6");
+    expect(posts).toEqual([]);  // nothing starts before the confirmation
+    await act(async () => button(view, "Start paid qualification").click());
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].url).toContain("/admin/models/anthropic_claude_sonnet_5_5_medium/qualifications");
+    expect(posts[0].body).toEqual({ confirm_paid_calls: 6 });
+  });
+
+  it("names a Claude refusal in Anthropic terms and keeps the GPT-OSS wording", async () => {
+    const view = mount(server(withClaude({ paid_qualification: { ...paid, sufficient: false, refusal: "PROVIDER_LIMIT_NOT_CHECKED" } })));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Balanced"));
+    { const target = button(view, "Run qualification…", "Claude Sonnet 5.5 — Balanced"); act(() => target.click()); }
+    expect(view.querySelector("[data-testid=paid-confirm]")?.textContent).toContain("Anthropic workspace and model check has not been run");
+    expect(button(view, "Start paid qualification").disabled).toBe(true);
+    expect(readable("PROVIDER_LIMIT_NOT_CHECKED")).toContain("OpenRouter key's limit");
+    expect(readable("PROVIDER_LIMIT_NOT_CHECKED", "openrouter")).toContain("OpenRouter key's limit");
+    expect(readable("DAILY_ALLOWANCE_EXHAUSTED", "anthropic")).toContain("Claude's own daily allowance");
+  });
+
+  it("explains Claude's own safeguards in the inspector and before activation", async () => {
+    const view = mount(server(withClaude()));
+    await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Balanced"));
+    { const target = button(view, "Activate", "Claude Sonnet 5.5 — Balanced"); act(() => target.click()); }
+    const inspector = view.querySelector("[data-testid=model-inspector]")?.textContent ?? "";
+    expect(inspector).toContain("Provider: Anthropic API");
+    expect(inspector).toContain("Thinking: adaptive");
+    expect(inspector).toContain("The GPT-OSS spending controls never apply to it.");
+    expect(view.textContent).toContain("This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, D-099 proposed).");
+    expect(view.textContent).toContain("Nothing switches to or from Claude automatically.");
+  });
+
+  it("labels the overview's spending figures as GPT-OSS when Claude is listed", async () => {
+    const view = mount(server({ ...withClaude(), budget: budget() }));
+    await waitFor(() => expect(view.textContent).toContain("Available now (GPT-OSS)"));
+  });
+
+  it("states on Spending & Limits that the controls are GPT-OSS only", async () => {
+    const view = mount(keyServer({ ...withClaude(), budget: budget() }, []), "spending");
+    await waitFor(() => expect(view.textContent).toContain("These limits apply to GPT-OSS 120B only."));
+    expect(view.textContent).toContain("Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards");
+  });
+
+  it("names the Option B readiness codes", () => {
+    for (const code of ["ANTHROPIC_ATTESTATION_MISSING", "WORKSPACE_NOT_ATTESTED", "WORKSPACE_LIMIT_NOT_ATTESTED", "LEDGER_PATH_SHARED", "LEDGER_PROFILE_MISMATCH", "LIFETIME_CEILING_EXCEEDED", "RECONCILIATION_STALE", "CREDENTIAL_ADMIN_REFUSED", "ANTHROPIC_SETTINGS_INVALID"]) {
+      expect(readable(code)).not.toBe(code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase()));
+    }
+  });
+});
+
 // --- D-098: recovery centre and paid qualification confirmation --------------------------------
 
 describe("AiModelManagement D-098 recovery", () => {

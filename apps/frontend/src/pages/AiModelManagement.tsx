@@ -78,6 +78,27 @@ const REASON_TEXT: Record<string, string> = {
   QUALIFICATION_SUPERSEDED: "A later qualification of this configuration failed on answer quality.",
   INTERRUPTED: "Interrupted: the AI assistant service stopped or restarted during the run.",
   INTERRUPTED_BILLING_UNCERTAIN: "Interrupted while a paid call may have been open: an operator must reconcile the ledger.",
+  // D-099 Option B: Claude Sonnet 5.5 through the Anthropic API (its own safeguards).
+  ANTHROPIC_ATTESTATION_MISSING: "The owner has not made the four Anthropic attestations (dedicated workspace, workspace limit set, inference-only key, key revoked at FYP end).",
+  ANTHROPIC_SETTINGS_INVALID: "The server's Claude settings are not valid (they may not exceed the Option B ceilings).",
+  WORKSPACE_NOT_ATTESTED: "No owner-attested Anthropic workspace id is set on the server.",
+  WORKSPACE_LIMIT_NOT_ATTESTED: "The Anthropic workspace's monthly limit (at most US$5.00) is not attested on the server.",
+  LEDGER_PATH_SHARED: "The Claude ledger file must be separate from the GPT-OSS ledger file.",
+  LEDGER_PROFILE_MISMATCH: "The spending ledger belongs to another provider, so no call is allowed.",
+  LIFETIME_CEILING_EXCEEDED: "The ledger cap is above the lifetime ceiling or the attested workspace limit, so no call is allowed.",
+  RECONCILIATION_STALE: "The ledger has not been reconciled with the provider's usage recently enough (an operator reconciles it).",
+  CREDENTIAL_ADMIN_REFUSED: "An administrator key was refused: only an inference key may be used.",
+};
+
+// Shared codes whose wording names OpenRouter: the Claude meaning (D-099 Option B).
+const CLAUDE_REASON_TEXT: Record<string, string> = {
+  PROVIDER_LIMIT_NOT_CHECKED: "The Anthropic workspace and model check has not been run in this server process yet. Run Test connection (a free model read).",
+  PROVIDER_CHECK_FAILED: "The last Anthropic workspace and model check failed. Run Test connection.",
+  CREDENTIAL_MISSING: "The server-side Anthropic inference key is not set.",
+  CREDENTIAL_INVALID: "The configured Anthropic key is not a valid inference key.",
+  LEDGER_UNAVAILABLE: "The separate Claude spending ledger is missing or unhealthy.",
+  DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (US$1.00 a Singapore day) has no room for another call.",
+  LIFETIME_CAP_EXHAUSTED: "The Claude ledger's lifetime cap has no room for another call.",
 };
 
 // D-098 Recovery Centre: the server classifies each outcome with closed codes; the page names
@@ -180,7 +201,7 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
   return (
     <article className="model-recovery-card" data-testid={`recovery-${item.profile_id}`}>
       <h3>{profileName(item)}</h3>
-      {!run ? <p>Not qualified yet. {item.activation_blockers.map(readable).join(" ")}</p> : (
+      {!run ? <p>Not qualified yet. {item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ")}</p> : (
         <>
           <p>
             <strong>{diagnosis ? categoryLabel(diagnosis) : readable(run.status)}</strong>
@@ -266,9 +287,13 @@ const GATES_FAILED = "GATES_FAILED:";
 // "PREFLIGHT_FAILED:key.limit_set,..." from the remote model's connection test.
 const PREFLIGHT_FAILED = "PREFLIGHT_FAILED:";
 const REMOTE_DEPLOYMENT = "openrouter";
+// D-099: Claude is also an external, paid API, under its own Anthropic safeguards.
+const ANTHROPIC_DEPLOYMENT = "anthropic";
+const isPaidRemote = (deployment: string | undefined) => deployment === REMOTE_DEPLOYMENT || deployment === ANTHROPIC_DEPLOYMENT;
 
-export function readable(code: string | null | undefined): string {
+export function readable(code: string | null | undefined, deployment?: string): string {
   if (!code) return "";
+  if (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_REASON_TEXT[code]) return CLAUDE_REASON_TEXT[code];
   if (code.startsWith(GATES_FAILED)) return `Gates failed: ${code.slice(GATES_FAILED.length).split(",").join(", ")}`;
   if (code.startsWith(PREFLIGHT_FAILED)) return `Preflight failed: ${code.slice(PREFLIGHT_FAILED.length).split(",").join(", ")}`;
   return REASON_TEXT[code] ?? code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
@@ -612,6 +637,9 @@ function activationState(item: ModelProfileView, usable: boolean): ViewState {
 }
 
 function remoteNotice(item: ModelProfileView, mode: ModelBudgetStatus["mode"] | undefined): string | null {
+  if (item.deployment === ANTHROPIC_DEPLOYMENT) {
+    return "External API (Anthropic, D-099 proposed): answers only on synthetic development cases inside the same boundary as GPT-OSS; every other case gets the case-data answer. Its own fixed safeguards apply: a separate ledger (at most US$5.00 lifetime, US$1.00 a day, 20 calls an activation), the owner-attested workspace limit and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
+  }
   if (item.deployment !== REMOTE_DEPLOYMENT) return null;
   return mode === "D-095"
     ? "External API: answers only on verified synthetic development cases; every other case gets the case-data answer. Within the daily, lifetime and OpenRouter key limits. Test connection is a free preflight; qualification makes paid calls."
@@ -653,7 +681,7 @@ function ActiveModelBand({ overview, busy, nameOf, onRollback }: {
 }) {
   const current = overview.active;
   const profile = overview.profiles.find((item) => item.active);
-  const remote = profile?.deployment === REMOTE_DEPLOYMENT;
+  const remote = isPaidRemote(profile?.deployment);
   return (
     <section className="console-band" aria-labelledby="active-model-heading">
       <div className="console-band__identity">
@@ -688,18 +716,20 @@ function OverviewSummary({ overview }: { overview: ModelOverview }) {
   const outOfDate = overview.profiles.filter((item) => item.qualification && !item.qualification.current).length;
   const available = overview.profiles.filter((item) => item.status === "selectable").length;
   const pending = overview.profiles.filter((item) => item.status === "pending_authorisation").length;
+  // D-099 with D-100: these figures are the GPT-OSS ledger's; say so when Claude is listed too.
+  const gptOnly = overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) ? " (GPT-OSS)" : "";
   return (
     <div className="console-summary">
       {budget && (
         <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
-          <span className="console-label">Available now</span>
+          <span className="console-label">Available now{gptOnly}</span>
           <span className="console-stat__value console-number">{usd(budget.effective_remaining_usd)}</span>
           <span className="console-stat__note">The strictest of today's allowance, the lifetime headroom and the key's own limit</span>
         </Link>
       )}
       {controls && (
         <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
-          <span className="console-label">Calls this activation</span>
+          <span className="console-label">Calls this activation{gptOnly}</span>
           <span className="console-stat__value console-number">{controls.calls_used ?? "—"} <small>/ {controls.max_calls}</small></span>
           <span className="console-stat__note">{controls.calls_used === null ? "GPT-OSS is not the active model" : `${controls.calls_remaining} remaining`}</span>
         </Link>
@@ -768,28 +798,30 @@ function ModelInspector({ item, overview, busy, inspectorRef, onTest, onQualify,
   const run = item.qualification;
   const paid = item.paid_qualification;
   const technical = technicalState(item);
-  const blockers = item.activation_blockers.map(readable).join(" ");
+  const blockers = item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ");
   const notice = remoteNotice(item, overview.budget?.mode);
-  const remote = item.deployment === REMOTE_DEPLOYMENT;
+  const remote = isPaidRemote(item.deployment);
   return (
     <aside ref={inspectorRef} className="console-inspector" aria-labelledby="inspector-heading" data-testid="model-inspector">
       <div>
         <p className="card-kicker">Selected configuration</p>
         <h2 id="inspector-heading" tabIndex={-1}>{profileName(item)}</h2>
         <small>{item.model_id ?? "No model"}{item.model_version ? ` · ${item.model_version}` : ""} · {readable(item.deployment)}</small>
+        {/* D-099 with D-100: provider, reasoning and thinking of a remote configuration. */}
+        {item.details && <p><RemoteDetails details={item.details} /></p>}
       </div>
       {item.active
         ? <p className="console-note console-note--active">Active for every user.</p>
         : !usable
-          ? <p className="console-note console-note--block">Not available: {item.reason ? readable(item.reason) : STATUS_LABEL[item.status]}</p>
+          ? <p className="console-note console-note--block">Not available: {item.reason ? readable(item.reason, item.deployment) : STATUS_LABEL[item.status]}</p>
           : item.activation_blockers.length > 0
             ? <p className="console-note console-note--block">Activation blocked: {blockers}</p>
             : <p className="console-note console-note--ok">Ready to activate.</p>}
       <ol className="console-steps" aria-label="Readiness">
-        <li><span className="console-label">Availability</span><strong>{STATUS_LABEL[item.status]}</strong>{item.reason && <> · {readable(item.reason)}</>}</li>
+        <li><span className="console-label">Availability</span><strong>{STATUS_LABEL[item.status]}</strong>{item.reason && <> · {readable(item.reason, item.deployment)}</>}</li>
         <li>
           <span className="console-label">Connection test</span>
-          {item.connection_test ? <><strong>{readable(item.connection_test.outcome)}</strong>{item.connection_test.code && <> · {readable(item.connection_test.code)}</>}</> : "Not tested"}
+          {item.connection_test ? <><strong>{readable(item.connection_test.outcome)}</strong>{item.connection_test.code && <> · {readable(item.connection_test.code, item.deployment)}</>}</> : "Not tested"}
         </li>
         <li className={technical.tone === "warn" || technical.tone === "block" ? "is-attention" : undefined}>
           <span className="console-label">Technical qualification</span>
@@ -807,7 +839,7 @@ function ModelInspector({ item, overview, busy, inspectorRef, onTest, onQualify,
           <div><dt>Paid calls</dt><dd className="console-number">Up to {paid.calls ?? "—"}</dd></div>
           <div><dt>Reserved at most</dt><dd className="console-number">{microUsd(paid.estimate_micro_usd)}</dd></div>
           <div><dt>Available under the strictest limit</dt><dd className="console-number">{microUsd(paid.effective_remaining_micro_usd)}</dd></div>
-          {paid.refusal && <div><dt>Refused now</dt><dd>{readable(paid.refusal)}</dd></div>}
+          {paid.refusal && <div><dt>Refused now</dt><dd>{readable(paid.refusal, item.deployment)}</dd></div>}
         </dl>
       )}
       <div className="console-actions">
@@ -847,8 +879,8 @@ function ConfigurationDetails({ overview }: { overview: ModelOverview }) {
                   <td>{readable(item.deployment)}</td>
                   <td>{item.endpoint ?? "Not shown"}</td>
                   <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>
-                  <td><span className={`tag ${item.status === "selectable" ? "tag-accent" : "tag-warn"}`}>{STATUS_LABEL[item.status]}</span>{item.reason && <><br /><small>{readable(item.reason)}</small></>}</td>
-                  <td>{item.connection_test ? <>{readable(item.connection_test.outcome)}{item.connection_test.code && <><br /><small>{readable(item.connection_test.code)}</small></>}</> : "Not tested"}</td>
+                  <td><span className={`tag ${item.status === "selectable" ? "tag-accent" : "tag-warn"}`}>{STATUS_LABEL[item.status]}</span>{item.reason && <><br /><small>{readable(item.reason, item.deployment)}</small></>}</td>
+                  <td>{item.connection_test ? <>{readable(item.connection_test.outcome)}{item.connection_test.code && <><br /><small>{readable(item.connection_test.code, item.deployment)}</small></>}</> : "Not tested"}</td>
                   <td>{qualification ? `${readable(qualification.status)}${!qualification.current ? " (out of date)" : ""}` : "Not run"}</td>
                 </tr>
               );
@@ -931,7 +963,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
   function runQualification(item: ModelProfileView): void {
     setSelected(item.profile_id);
-    if (item.deployment === REMOTE_DEPLOYMENT) {
+    if (isPaidRemote(item.deployment)) {
       setPaidConfirm(item);  // never starts a paid run without the dialog
       return;
     }
@@ -1071,7 +1103,12 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
             : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so there is no provider key to manage here.</p>)}
 
           {section === "spending" && overview && (overview.budget?.configured
-            ? <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
+            ? <>
+              {overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) && (
+                <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger (at most US$5.00 lifetime), US$1.00 a day and 20 calls an activation.</p>
+              )}
+              <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
+            </>
             : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so no paid spending limits apply here.</p>)}
 
           {section === "qualifications" && overview && (
@@ -1126,6 +1163,9 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
         <ConsoleDialog labelledBy="confirm-heading" focusFallbackIds={FOCUS_FALLBACKS} onClose={() => { setConfirming(null); setAcknowledged(false); }}>
           <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
+          {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === ANTHROPIC_DEPLOYMENT && (
+            <p className="ds-banner ds-banner-warn">This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, D-099 proposed). It is used only on synthetic development cases inside the same boundary as GPT-OSS; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within Claude's own separate ledger, daily allowance, call limit and the attested workspace limit. Nothing switches to or from Claude automatically.</p>
+          )}
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
             <p className="ds-banner ds-banner-warn">{overview.budget?.mode === "D-095"
               ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within the daily, lifetime and OpenRouter key limits in Spending & Limits (the strictest applies)."
@@ -1147,7 +1187,9 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
       {paidPending && (
         <ConsoleDialog labelledBy="paid-confirm-heading" testId="paid-confirm" focusFallbackIds={FOCUS_FALLBACKS} onClose={() => setPaidConfirm(null)}>
           <h2 id="paid-confirm-heading">Run a paid qualification of {profileName(paidPending)}?</h2>
-          <p>This asks GPT-OSS 120B the configured synthetic questions through OpenRouter. Each question is one paid call; nothing is retried automatically.</p>
+          <p>{paidPending.deployment === ANTHROPIC_DEPLOYMENT
+            ? "This asks Claude Sonnet 5.5 the configured synthetic questions through the Anthropic API. Each question is one paid call charged to Claude's separate ledger (the GPT-OSS limits do not apply); nothing is retried automatically. The ledger must have been reconciled within 24 hours."
+            : "This asks GPT-OSS 120B the configured synthetic questions through OpenRouter. Each question is one paid call; nothing is retried automatically."}</p>
           <dl className="acra-detail-list">
             <div><dt>Paid calls</dt><dd>Up to {paidPending.paid_qualification?.calls ?? "—"}</dd></div>
             <div><dt>Reserved at most</dt><dd>{microUsd(paidPending.paid_qualification?.estimate_micro_usd)} ({microUsd(paidPending.paid_qualification?.reservation_micro_usd)} a call)</dd></div>
@@ -1155,7 +1197,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           </dl>
           {paidPending.paid_qualification && !paidPending.paid_qualification.sufficient && (
             <p className="ds-banner ds-banner-warn" role="alert">
-              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal) : "the spending limits do not leave room for every paid call."} Review the spending controls or run Test connection first.
+              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal, paidPending.deployment) : "the spending limits do not leave room for every paid call."} Review the spending controls or run Test connection first.
             </p>
           )}
           <div className="console-dialog__actions">

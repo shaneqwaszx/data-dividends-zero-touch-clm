@@ -128,6 +128,15 @@ Spending & Limits, Qualifications & Recovery and Audit History keep the existing
 controls unchanged for now. Nothing about qualification, gating, limits, keys, permissions or
 the API changed.
 
+**Claude in the console (D-099 with D-100, integration candidate).** Claude Sonnet 5.5 Balanced
+and Fast appear as one model family (provider *Anthropic API*); the inspector names the
+provider, reasoning and thinking setting and Claude's own fixed safeguards. Run qualification
+on a Claude configuration opens the same paid-run confirmation (calls, worst-case reservation,
+what the strictest Claude limit leaves) worded for the Anthropic API and Claude's separate
+ledger, and activation warns that it is an external, paid API with no automatic switch.
+Spending & Limits says its controls apply to GPT-OSS only. Refusal codes are named in
+provider terms (for Claude, *Test connection* is a free model read of the attested workspace).
+
 ## 7. Restarts, changes and failures
 
 - The active model survives restarts (`AI_ASSISTANT_MODEL_ADMIN_DB_PATH`, default
