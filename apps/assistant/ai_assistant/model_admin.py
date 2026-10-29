@@ -215,6 +215,12 @@ MESSAGES = {
     "PROVIDER_LIMIT_NOT_CHECKED": (
         "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started."
     ),
+    # D-099: the same refusal for a Claude configuration, whose free check reads the attested
+    # Anthropic workspace and the model (there is no readable key limit).
+    "PROVIDER_LIMIT_NOT_CHECKED_ANTHROPIC": (
+        "Run Test connection first so the Anthropic workspace and model are checked (a free"
+        " model read). Nothing started."
+    ),
     "PROVIDER_KEY_LIMIT_EXHAUSTED": (
         "The OpenRouter key's own spending limit has no room. Only the key's owner can raise"
         " it at OpenRouter; it is not an HR setting. Nothing started."
@@ -1504,7 +1510,13 @@ def model_admin_router(
             fingerprint=entry.fingerprint,
             code=code,
         )
-        return _refusal(status, code)
+        # D-099: only the message differs for Claude; the code, status and audit are the same.
+        message = (
+            "PROVIDER_LIMIT_NOT_CHECKED_ANTHROPIC"
+            if code == "PROVIDER_LIMIT_NOT_CHECKED" and entry.deployment == "anthropic"
+            else None
+        )
+        return _refusal(status, code, message)
 
     @router.post("/{profile_id}/qualifications", status_code=202)
     def post_qualification(

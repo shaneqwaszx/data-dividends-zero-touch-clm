@@ -871,6 +871,56 @@ def test_a_failing_claude_never_switches_to_gpt_oss_or_the_baseline(
     assert journey.client.get(API).json()["active"]["profile_id"] == BALANCED.profile_id
 
 
+def _unchecked_refusal(journey: Journey, profile_id: str) -> dict[str, Any]:
+    # A paid start before the provider check passed in this process: refused, nothing runs.
+    refused = journey.start_qualification(profile_id)
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert detail["code"] == "PROVIDER_LIMIT_NOT_CHECKED"
+    assert journey.client.get(API).json()["running"] is None
+    events = journey.client.get(f"{API}/audit").json()["events"]
+    refusals = [
+        e
+        for e in events
+        if e["action"] == "QUALIFICATION_STARTED"
+        and e["outcome"] == "refused"
+        and e["profile_id"] == profile_id
+    ]
+    assert [e["code"] for e in refusals] == ["PROVIDER_LIMIT_NOT_CHECKED"]
+    return dict(detail)
+
+
+def test_an_unchecked_claude_start_is_told_to_check_the_workspace_not_an_openrouter_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Same code, status, audit and gating as GPT-OSS; only the guidance names Anthropic.
+    journey = ClaudeJourney(tmp_path, monkeypatch)
+    profile_id = BALANCED.profile_id
+    detail = _unchecked_refusal(journey, profile_id)
+    assert detail["message"] == (
+        "Run Test connection first so the Anthropic workspace and model are checked (a free"
+        " model read). Nothing started."
+    )
+    assert "OpenRouter" not in detail["message"]
+    assert journey.claude.posts == 0 and journey.openrouter.chats == []
+    # Once the free check passed, the same start is allowed.
+    assert journey.client.post(f"{API}/{profile_id}/connection-test").json()["outcome"] == "passed"
+    started = journey.start_qualification(profile_id)
+    assert started.status_code == 202, started.text
+
+
+def test_an_unchecked_gpt_oss_start_keeps_its_openrouter_message_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journey = Journey(tmp_path, monkeypatch)
+    remote_test.forget_provider()  # the key's own limit has not been read in this process
+    detail = _unchecked_refusal(journey, OPENROUTER_PROFILE_ID)
+    assert detail["message"] == (
+        "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started."
+    )
+    assert journey.openrouter.chats == []
+
+
 def test_paid_runs_and_activation_need_a_reconciliation_within_24_hours(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -725,6 +725,14 @@ describe("AiModelManagement Claude Sonnet 5.5 (D-099 proposed)", () => {
     }
   });
 
+  it("shows the service's Anthropic-specific refusal as written (it is a browser-safe fixed message)", async () => {
+    const message = "Run Test connection first so the Anthropic workspace and model are checked (a free model read). Nothing started.";
+    const view = mount(server(overview, () => json({ detail: { code: "PROVIDER_LIMIT_NOT_CHECKED", message } }, 409)));
+    await waitFor(() => expect(view.textContent).toContain("Qwen3 8B (LM Studio)"));
+    await act(async () => button(view, "Test connection", "Qwen3").click());
+    await waitFor(() => expect(view.textContent).toContain(message));
+  });
+
   it("explains why a named decision still leaves them unusable", () => {
     expect(readable("ANTHROPIC_PROVIDER_CONTROLS_MISSING")).toContain("readable key limit, per-call cost verification and usage reconciliation");
     expect(readable("ANTHROPIC_NOT_AUTHORISED")).toContain("D-099 proposed");
