@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useSearchParams } from "react-router";
 
 import {
   activateModel,
@@ -23,6 +24,7 @@ import {
 } from "../aiAssistant";
 import { formatTimestamp } from "../shared";
 import type { AuthenticatedProfile } from "../types";
+import { CONSOLE_SECTIONS, ConsoleDialog, ConsoleShell, consoleSection, sectionSearch, type ConsoleBadge, type ConsoleSection } from "./aiModels/ConsoleShell";
 
 // AI model management (D-093): HR (MODEL_CONFIG_MANAGE) chooses the application-wide model
 // from IT's local loopback profiles. The server decides everything; this page only shows it.
@@ -76,6 +78,27 @@ const REASON_TEXT: Record<string, string> = {
   QUALIFICATION_SUPERSEDED: "A later qualification of this configuration failed on answer quality.",
   INTERRUPTED: "Interrupted: the AI assistant service stopped or restarted during the run.",
   INTERRUPTED_BILLING_UNCERTAIN: "Interrupted while a paid call may have been open: an operator must reconcile the ledger.",
+  // D-099 Option B: Claude Sonnet 5.5 through the Anthropic API (its own safeguards).
+  ANTHROPIC_ATTESTATION_MISSING: "The owner has not made the four Anthropic attestations (dedicated workspace, workspace limit set, inference-only key, key revoked at FYP end).",
+  ANTHROPIC_SETTINGS_INVALID: "The server's Claude settings are not valid (they may not exceed the Option B ceilings).",
+  WORKSPACE_NOT_ATTESTED: "No owner-attested Anthropic workspace id is set on the server.",
+  WORKSPACE_LIMIT_NOT_ATTESTED: "The Anthropic workspace's monthly limit (at most US$5.00) is not attested on the server.",
+  LEDGER_PATH_SHARED: "The Claude ledger file must be separate from the GPT-OSS ledger file.",
+  LEDGER_PROFILE_MISMATCH: "The spending ledger belongs to another provider, so no call is allowed.",
+  LIFETIME_CEILING_EXCEEDED: "The ledger cap is not valid (above the lifetime ceiling or the attested workspace limit, or not above what was already spent when the ledger opened), so no call is allowed.",
+  RECONCILIATION_STALE: "The ledger has not been reconciled with the provider's usage recently enough (an operator reconciles it).",
+  CREDENTIAL_ADMIN_REFUSED: "An administrator key was refused: only an inference key may be used.",
+};
+
+// Shared codes whose wording names OpenRouter: the Claude meaning (D-099 Option B).
+const CLAUDE_REASON_TEXT: Record<string, string> = {
+  PROVIDER_LIMIT_NOT_CHECKED: "The Anthropic workspace and model check has not been run in this server process yet. Run Test connection (a free model read).",
+  PROVIDER_CHECK_FAILED: "The last Anthropic workspace and model check failed. Run Test connection.",
+  CREDENTIAL_MISSING: "The server-side Anthropic inference key is not set.",
+  CREDENTIAL_INVALID: "The configured Anthropic key is not a valid inference key.",
+  LEDGER_UNAVAILABLE: "The separate Claude spending ledger is missing or unhealthy.",
+  DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (at most US$1.00 a Singapore day) has no room for another call.",
+  LIFETIME_CAP_EXHAUSTED: "The Claude ledger's lifetime cap has no room for another call.",
 };
 
 // D-098 Recovery Centre: the server classifies each outcome with closed codes; the page names
@@ -99,8 +122,13 @@ function categoryLabel(diagnosis: ModelDiagnosis): string {
   return diagnosis.cause === OUT_OF_DATE ? "Qualification out of date" : CATEGORY_LABEL[diagnosis.category];
 }
 
-function actionText(diagnosis: ModelDiagnosis): string {
-  return diagnosis.cause === OUT_OF_DATE ? REQUALIFY_TEXT : ACTION_TEXT[diagnosis.action];
+function actionText(diagnosis: ModelDiagnosis, deployment?: string): string {
+  if (diagnosis.cause === OUT_OF_DATE) return REQUALIFY_TEXT;
+  return (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_ACTION_TEXT[diagnosis.action]) || ACTION_TEXT[diagnosis.action];
+}
+
+function causeText(diagnosis: ModelDiagnosis, deployment?: string): string {
+  return (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_CAUSE_TEXT[diagnosis.cause]) || CAUSE_TEXT[diagnosis.cause] || readable(diagnosis.cause, deployment);
 }
 const CAUSE_TEXT: Record<string, string> = {
   PASSED: "The configuration passed every gating check.",
@@ -143,6 +171,21 @@ const ACTION_TEXT: Record<ModelDiagnosis["action"], string> = {
   ESCALATE_OPERATOR: "Ask an operator to reconcile the spending ledger with OpenRouter (scripts/budget_ledger.py). Paid calls stay stopped until then.",
 };
 
+// D-099 with D-100: the Recovery texts above that name OpenRouter, in Claude's terms.
+const CLAUDE_CAUSE_TEXT: Record<string, string> = {
+  LEDGER_NOT_RECONCILED: "Claude's spending ledger is stopped or has not been reconciled with the Anthropic Console's usage.",
+  SERVER_SETTINGS: "A server setting, the attested Anthropic workspace or its limit, or an owner attestation is not in place.",
+  CALLS_NOT_VERIFIED: "Some paid calls could not be verified in-band (workspace, model, standard routing and complete usage in the reply).",
+  PROVIDER_REFUSED: "The Anthropic API refused the calls (key, workspace spend limit or routing). Paid calls are stopped until an operator checks the workspace.",
+  KEY_LIMIT_EXHAUSTED: "The Anthropic workspace's spend limit has no room for a call. HR spending controls cannot change it.",
+  CALLS_REFUSED: "Paid calls were refused before anything was sent (Claude's daily allowance, lifetime cap, call limit or the reconciliation window). The answers were not judged.",
+};
+const CLAUDE_ACTION_TEXT: Partial<Record<ModelDiagnosis["action"], string>> = {
+  REVIEW_SPENDING: "Claude's limits are fixed on the server (not on this page): wait for the Singapore-day reset or ask an operator to reconcile the Claude ledger, then retry.",
+  ESCALATE_KEY_OWNER: "Ask the Anthropic workspace's owner to check its spend limit in the Anthropic Console (never changed from this page), then run Test connection.",
+  ESCALATE_OPERATOR: "Ask an operator to reconcile the Claude ledger with the Anthropic Console's usage (scripts/budget_ledger.py --anthropic). Paid calls stay stopped until then.",
+};
+
 function microUsd(micro: number | null | undefined): string {
   return typeof micro === "number" ? `US$${(micro / 1_000_000).toFixed(6)}` : "—";
 }
@@ -158,7 +201,7 @@ export function escalationSummary(item: ModelProfileView): string {
     `Category: ${diagnosis ? categoryLabel(diagnosis) : "unknown"}; cause: ${diagnosis?.cause ?? "unknown"}`,
     `Failed gates: ${failed.length ? failed.join(", ") : "none"}`,
     `Earlier pass still valid: ${item.eligible_qualification && !item.eligible_qualification.is_latest ? item.eligible_qualification.qualification_id : "no"}`,
-    `Recommended: ${diagnosis ? actionText(diagnosis) : "review"}`,
+    `Recommended: ${diagnosis ? actionText(diagnosis, item.deployment) : "review"}`,
   ].join("\n");
 }
 
@@ -178,14 +221,14 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
   return (
     <article className="model-recovery-card" data-testid={`recovery-${item.profile_id}`}>
       <h3>{profileName(item)}</h3>
-      {!run ? <p>Not qualified yet. {item.activation_blockers.map(readable).join(" ")}</p> : (
+      {!run ? <p>Not qualified yet. {item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ")}</p> : (
         <>
           <p>
             <strong>{diagnosis ? categoryLabel(diagnosis) : readable(run.status)}</strong>
             {run.code && <> · {readable(run.code)}</>}
             {!run.current && <> · <span className="tag tag-warn">Out of date</span></>}
           </p>
-          {diagnosis && <p>{CAUSE_TEXT[diagnosis.cause] ?? readable(diagnosis.cause)}</p>}
+          {diagnosis && <p>{causeText(diagnosis, item.deployment)}</p>}
           {failedGates.length > 0 && (
             <p className="control-help">Failed gates: {failedGates.map((gate) => `${gate.gate} (${gate.rule})`).join("; ")}</p>
           )}
@@ -195,8 +238,8 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
             <div><dt>Earlier qualification still valid</dt><dd>{item.eligible_qualification
               ? (item.eligible_qualification.is_latest ? "This run is the valid qualification" : `Yes (passed ${formatTimestamp(item.eligible_qualification.finished_at ?? "")})`)
               : diagnosis?.supersedes_pass ? "No: this quality failure replaces any earlier pass" : "No"}</dd></div>
-            {paid && <div><dt>Paid calls if retried</dt><dd>Up to {paid.calls ?? "—"} (reserved up to {microUsd(paid.estimate_micro_usd)}); available under the strictest limit {microUsd(paid.effective_remaining_micro_usd)}{paid.refusal ? ` · ${readable(paid.refusal)}` : ""}</dd></div>}
-            {diagnosis && <div><dt>Recommended action</dt><dd>{actionText(diagnosis)}</dd></div>}
+            {paid && <div><dt>Paid calls if retried</dt><dd>Up to {paid.calls ?? "—"} (reserved up to {microUsd(paid.estimate_micro_usd)}); available under the strictest limit {microUsd(paid.effective_remaining_micro_usd)}{paid.refusal ? ` · ${readable(paid.refusal, item.deployment)}` : ""}</dd></div>}
+            {diagnosis && <div><dt>Recommended action</dt><dd>{actionText(diagnosis, item.deployment)}</dd></div>}
           </dl>
         </>
       )}
@@ -209,7 +252,7 @@ function RecoveryCard({ item, busy, onRetry, onTest }: {
         {(diagnosis?.action === "TEST_CONNECTION" || diagnosis?.action === "RETRY_LATER") && usable && (
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={onTest}>Test connection</button>
         )}{" "}
-        {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && <a className="btn btn-secondary" href="#spending-heading">Review spending controls</a>}{" "}
+        {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && <Link className="btn btn-secondary" to={{ search: sectionSearch("spending") }}>Review spending controls</Link>}{" "}
         {paid?.refusal === "PROVIDER_LIMIT_EXHAUSTED" && (
           <p className="ds-banner ds-banner-warn" role="note" data-testid="key-owner-action">
             {ACTION_TEXT.ESCALATE_KEY_OWNER}
@@ -264,9 +307,13 @@ const GATES_FAILED = "GATES_FAILED:";
 // "PREFLIGHT_FAILED:key.limit_set,..." from the remote model's connection test.
 const PREFLIGHT_FAILED = "PREFLIGHT_FAILED:";
 const REMOTE_DEPLOYMENT = "openrouter";
+// D-099: Claude is also an external, paid API, under its own Anthropic safeguards.
+const ANTHROPIC_DEPLOYMENT = "anthropic";
+const isPaidRemote = (deployment: string | undefined) => deployment === REMOTE_DEPLOYMENT || deployment === ANTHROPIC_DEPLOYMENT;
 
-export function readable(code: string | null | undefined): string {
+export function readable(code: string | null | undefined, deployment?: string): string {
   if (!code) return "";
+  if (deployment === ANTHROPIC_DEPLOYMENT && CLAUDE_REASON_TEXT[code]) return CLAUDE_REASON_TEXT[code];
   if (code.startsWith(GATES_FAILED)) return `Gates failed: ${code.slice(GATES_FAILED.length).split(",").join(", ")}`;
   if (code.startsWith(PREFLIGHT_FAILED)) return `Preflight failed: ${code.slice(PREFLIGHT_FAILED.length).split(",").join(", ")}`;
   return REASON_TEXT[code] ?? code.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
@@ -504,7 +551,7 @@ function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
       )}
       {remoteProfileId && (
         <button type="button" className="btn btn-secondary" disabled={pending || busy || credential.status !== "configured"}
-          onClick={() => void run(() => testModelConnection(remoteProfileId), "Connection test finished; see the model table.")}>Test Connection</button>
+          onClick={() => void run(() => testModelConnection(remoteProfileId), "Connection test finished; see Models & Overview.")}>Test Connection</button>
       )}
       {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
     </section>
@@ -562,6 +609,314 @@ function QualificationDetail({ qualification }: { qualification: ModelQualificat
   );
 }
 
+// --- D-100 Phase 1: Models & Overview ------------------------------------------------------------
+// Presentation only. Availability, technical qualification, answer quality and activation are
+// shown apart, each read from the server's own fields; the page infers no status of its own.
+
+type Tone = "ok" | "warn" | "block" | "neutral" | "info" | "active";
+type ViewState = { label: string; tone: Tone };
+
+function Chip({ state }: { state: ViewState }) {
+  return <span className={`console-chip console-chip--${state.tone}`}>{state.label}</span>;
+}
+
+const AVAILABILITY_TONE: Record<ModelProfileView["status"], Tone> = {
+  selectable: "ok", unavailable: "warn", pending_authorisation: "neutral", disabled: "neutral",
+};
+const CATEGORY_TONE: Record<ModelDiagnosis["category"], Tone> = {
+  passed: "ok", running: "info", cancelled: "neutral", technical: "warn", budget: "warn",
+  configuration: "warn", quality: "block", billing_uncertain: "block",
+};
+// Balanced first, then Fast, then any other reasoning setting.
+const REASONING_ORDER = ["medium", "low", "high"];
+const FAST_NOTICE = "Fast is the same model, endpoint and limits with less reasoning. It needs its own passing qualification; the Balanced qualification does not count for it, and its answer quality is not established.";
+
+function availabilityState(item: ModelProfileView): ViewState {
+  return { label: STATUS_LABEL[item.status], tone: AVAILABILITY_TONE[item.status] };
+}
+
+function technicalState(item: ModelProfileView): ViewState {
+  const run = item.qualification;
+  if (!run) return { label: "Not run", tone: "neutral" };
+  if (run.status === "running") return { label: `Running ${run.done_turns}/${run.total_turns}`, tone: "info" };
+  if (run.diagnosis) {
+    return { label: run.diagnosis.cause === OUT_OF_DATE ? "Out of date" : CATEGORY_LABEL[run.diagnosis.category], tone: CATEGORY_TONE[run.diagnosis.category] };
+  }
+  if (run.status === "passed") return run.current ? { label: "Qualified", tone: "ok" } : { label: "Out of date", tone: "warn" };
+  return { label: readable(run.status), tone: run.status === "cancelled" ? "neutral" : "block" };
+}
+
+function qualityState(quality: ModelQualification["quality"] | ModelOverview["quality"] | null | undefined): ViewState {
+  return quality?.status === "SCORED" ? { label: "Scored · reported only", tone: "info" } : { label: "Not scored", tone: "neutral" };
+}
+
+function activationState(item: ModelProfileView, usable: boolean): ViewState {
+  if (item.active) return { label: "Active", tone: "active" };
+  if (!usable) return { label: "Not available", tone: "neutral" };
+  return item.activation_blockers.length > 0 ? { label: "Blocked", tone: "block" } : { label: "Ready", tone: "ok" };
+}
+
+function remoteNotice(item: ModelProfileView, mode: ModelBudgetStatus["mode"] | undefined): string | null {
+  if (item.deployment === ANTHROPIC_DEPLOYMENT) {
+    return "External API (Anthropic, D-099 proposed): answers only on synthetic development cases inside the same boundary as GPT-OSS; every other case gets the case-data answer. Its own fixed safeguards apply: a separate ledger (at most US$5.00 lifetime, US$1.00 a day, 20 calls an activation), the owner-attested workspace limit and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
+  }
+  if (item.deployment !== REMOTE_DEPLOYMENT) return null;
+  return mode === "D-095"
+    ? "External API: answers only on verified synthetic development cases; every other case gets the case-data answer. Within the daily, lifetime and OpenRouter key limits. Test connection is a free preflight; qualification makes paid calls."
+    : "External API: answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls.";
+}
+
+interface ConfigurationGroup { key: string; title: string; subtitle: string; items: ModelProfileView[] }
+
+/** One group per model family the server names (its configurations side by side); every
+ * other profile goes in one group, each qualified and activated on its own. */
+function configurationGroups(profiles: ModelProfileView[]): ConfigurationGroup[] {
+  const groups: ConfigurationGroup[] = [];
+  for (const item of profiles) {
+    const family = item.details?.model;
+    const provider = item.details?.provider;
+    const key = family ? `family:${family}:${provider ?? ""}` : "other";
+    let group = groups.find((entry) => entry.key === key);
+    if (!group) {
+      group = family
+        ? { key, title: family, subtitle: (provider && PROVIDER_LABEL[provider]) || readable(item.deployment), items: [] }
+        : { key, title: "Other configurations", subtitle: "Each qualified and activated on its own", items: [] };
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
+  const rank = (item: ModelProfileView) => {
+    const index = REASONING_ORDER.indexOf(item.details?.reasoning_effort ?? "");
+    return index < 0 ? REASONING_ORDER.length : index;
+  };
+  for (const group of groups) group.items.sort((left, right) => rank(left) - rank(right));
+  return groups;
+}
+
+function ActiveModelBand({ overview, busy, nameOf, onRollback }: {
+  overview: ModelOverview;
+  busy: boolean;
+  nameOf: (profileId: string, fallback: string) => string;
+  onRollback: () => void;
+}) {
+  const current = overview.active;
+  const profile = overview.profiles.find((item) => item.active);
+  const remote = isPaidRemote(profile?.deployment);
+  return (
+    <section className="console-band" aria-labelledby="active-model-heading">
+      <div className="console-band__identity">
+        <h2 id="active-model-heading">Active model · for all users · revision {overview.revision}</h2>
+        <p className="console-band__name">{nameOf(current.profile_id, current.display_name)}</p>
+        <p className="console-band__meta">
+          Model {current.model_id ?? "None (case-data answers only)"}
+          {" · "}Changed {current.changed_at ? `${formatTimestamp(current.changed_at)} by ${current.changed_by}` : "Never (environment baseline)"}
+          {" · "}Prompt bound {current.prompt_limit ? `${current.prompt_limit.toLocaleString()} (${remote ? "enforced byte limit" : "verified capacity"})` : "Not applied (baseline)"}
+        </p>
+        {profile?.details && <p className="console-band__meta"><RemoteDetails details={profile.details} /></p>}
+      </div>
+      {overview.configured && (
+        <button type="button" className="btn btn-secondary" disabled={!overview.last_good || busy} onClick={onRollback}>
+          {overview.last_good ? `Roll back to ${nameOf(overview.last_good.profile_id, overview.last_good.display_name)}` : "No earlier model to roll back to"}
+        </button>
+      )}
+      <dl className="console-band__states">
+        <div><dt>Availability</dt><dd>{profile ? STATUS_LABEL[profile.status] : "No model answers"}</dd></div>
+        <div><dt>Technical qualification</dt><dd>{profile ? technicalState(profile).label : "—"}</dd></div>
+        <div><dt>Answer quality</dt><dd>{qualityState(profile?.qualification?.quality ?? overview.quality).label}<small>Reported, never a gate</small></dd></div>
+        <div><dt>Activation</dt><dd>{current.unavailable ? "AI unavailable" : "Active"}<small>{current.changed_at ? `Since ${formatTimestamp(current.changed_at)}` : "Environment baseline"}</small></dd></div>
+      </dl>
+    </section>
+  );
+}
+
+function OverviewSummary({ overview }: { overview: ModelOverview }) {
+  const budget = overview.budget?.configured ? overview.budget : null;
+  const controls = budget?.controls;
+  const current = overview.profiles.filter((item) => item.qualification?.status === "passed" && item.qualification.current).length;
+  const outOfDate = overview.profiles.filter((item) => item.qualification && !item.qualification.current).length;
+  const available = overview.profiles.filter((item) => item.status === "selectable").length;
+  const pending = overview.profiles.filter((item) => item.status === "pending_authorisation").length;
+  // D-099 with D-100: these figures are the GPT-OSS ledger's; say so when Claude is listed too.
+  const gptOnly = overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) ? " (GPT-OSS)" : "";
+  return (
+    <div className="console-summary">
+      {budget && (
+        <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
+          <span className="console-label">Available now{gptOnly}</span>
+          <span className="console-stat__value console-number">{usd(budget.effective_remaining_usd)}</span>
+          <span className="console-stat__note">The strictest of today's allowance, the lifetime headroom and the key's own limit</span>
+        </Link>
+      )}
+      {controls && (
+        <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
+          <span className="console-label">Calls this activation{gptOnly}</span>
+          <span className="console-stat__value console-number">{controls.calls_used ?? "—"} <small>/ {controls.max_calls}</small></span>
+          <span className="console-stat__note">{controls.calls_used === null ? "GPT-OSS is not the active model" : `${controls.calls_remaining} remaining`}</span>
+        </Link>
+      )}
+      <Link className="console-stat" to={{ search: sectionSearch("qualifications") }}>
+        <span className="console-label">Qualifications</span>
+        <span className="console-stat__value console-number">{current} <small>current</small></span>
+        <span className="console-stat__note">{outOfDate} out of date · {overview.running ? "1 running" : "none running"}</span>
+      </Link>
+      <div className="console-stat">
+        <span className="console-label">Configurations</span>
+        <span className="console-stat__value console-number">{available} <small>available</small></span>
+        <span className="console-stat__note">{pending} pending authorisation · {overview.profiles.length} in total</span>
+      </div>
+    </div>
+  );
+}
+
+function RunningStatus({ overview, pending, nameOf, onCancel }: {
+  overview: ModelOverview;
+  pending: boolean;
+  nameOf: (profileId: string, fallback: string) => string;
+  onCancel: () => void;
+}) {
+  const running = overview.running;
+  if (!running) return null;
+  return (
+    <p className="console-running" role="status">
+      <span>
+        <strong>Qualification running</strong> for {nameOf(running.profile_id, running.profile_id)}: {running.done_turns}/{running.total_turns} turns (started by {running.started_by}). You may leave this page; it keeps going, and other model actions wait until it ends.
+      </span>
+      <button type="button" className="btn btn-secondary" disabled={pending} onClick={onCancel}>Cancel qualification</button>
+    </p>
+  );
+}
+
+function ConfigurationTile({ item, configured, selected, onSelect }: {
+  item: ModelProfileView;
+  configured: boolean;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const usable = item.status === "selectable" && configured;
+  const classes = ["console-tile", item.active ? "console-tile--active" : "", item.status !== "selectable" ? "console-tile--muted" : ""].filter(Boolean).join(" ");
+  return (
+    <button type="button" className={classes} aria-pressed={selected} data-config-tile={item.profile_id} onClick={onSelect}>
+      <span className="console-tile__head"><span>{profileName(item)}</span><Chip state={activationState(item, usable)} /></span>
+      <span className="console-tile__state"><span>Availability</span><Chip state={availabilityState(item)} /></span>
+      <span className="console-tile__state"><span>Technical</span><Chip state={technicalState(item)} /></span>
+      <span className="console-tile__state"><span>Answer quality</span><Chip state={qualityState(item.qualification?.quality)} /></span>
+    </button>
+  );
+}
+
+function ModelInspector({ item, overview, busy, inspectorRef, onTest, onQualify, onActivate, onResults }: {
+  item: ModelProfileView;
+  overview: ModelOverview;
+  busy: boolean;
+  inspectorRef: RefObject<HTMLElement>;
+  onTest: () => void;
+  onQualify: () => void;
+  onActivate: () => void;
+  onResults: () => void;
+}) {
+  const usable = item.status === "selectable" && overview.configured;
+  const run = item.qualification;
+  const paid = item.paid_qualification;
+  const technical = technicalState(item);
+  const blockers = item.activation_blockers.map((code) => readable(code, item.deployment)).join(" ");
+  const notice = remoteNotice(item, overview.budget?.mode);
+  const remote = isPaidRemote(item.deployment);
+  return (
+    <aside ref={inspectorRef} className="console-inspector" aria-labelledby="inspector-heading" data-testid="model-inspector">
+      <div>
+        <p className="card-kicker">Selected configuration</p>
+        <h2 id="inspector-heading" tabIndex={-1}>{profileName(item)}</h2>
+        <small>{item.model_id ?? "No model"}{item.model_version ? ` · ${item.model_version}` : ""} · {readable(item.deployment)}</small>
+        {/* D-099 with D-100: provider, reasoning and thinking of a remote configuration. */}
+        {item.details && <p><RemoteDetails details={item.details} /></p>}
+      </div>
+      {item.active
+        ? <p className="console-note console-note--active">Active for every user.</p>
+        : !usable
+          ? <p className="console-note console-note--block">Not available: {item.reason ? readable(item.reason, item.deployment) : STATUS_LABEL[item.status]}</p>
+          : item.activation_blockers.length > 0
+            ? <p className="console-note console-note--block">Activation blocked: {blockers}</p>
+            : <p className="console-note console-note--ok">Ready to activate.</p>}
+      <ol className="console-steps" aria-label="Readiness">
+        <li><span className="console-label">Availability</span><strong>{STATUS_LABEL[item.status]}</strong>{item.reason && <> · {readable(item.reason, item.deployment)}</>}</li>
+        <li>
+          <span className="console-label">Connection test</span>
+          {item.connection_test ? <><strong>{readable(item.connection_test.outcome)}</strong>{item.connection_test.code && <> · {readable(item.connection_test.code, item.deployment)}</>}</> : "Not tested"}
+        </li>
+        <li className={technical.tone === "warn" || technical.tone === "block" ? "is-attention" : undefined}>
+          <span className="console-label">Technical qualification</span>
+          <strong>{technical.label}</strong>
+          {run && <> · {run.done_turns}/{run.total_turns} turns, started {formatTimestamp(run.started_at)}</>}
+          {run && <div><button type="button" className="btn btn-secondary" onClick={onResults}>View qualification results</button></div>}
+        </li>
+        <li><span className="console-label">Answer quality</span><strong>{qualityState(run?.quality).label}</strong> · reported, never a gate</li>
+        <li><span className="console-label">Activation</span><strong>{activationState(item, usable).label}</strong></li>
+      </ol>
+      {notice && <p className="console-help">{notice}</p>}
+      {item.details?.reasoning_effort === "low" && <p className="console-help">{FAST_NOTICE}</p>}
+      {paid && (
+        <dl className="console-facts" aria-label="If you run a paid qualification">
+          <div><dt>Paid calls</dt><dd className="console-number">Up to {paid.calls ?? "—"}</dd></div>
+          <div><dt>Reserved at most</dt><dd className="console-number">{microUsd(paid.estimate_micro_usd)}</dd></div>
+          <div><dt>Available under the strictest limit</dt><dd className="console-number">{microUsd(paid.effective_remaining_micro_usd)}</dd></div>
+          {paid.refusal && <div><dt>Refused now</dt><dd>{readable(paid.refusal, item.deployment)}</dd></div>}
+        </dl>
+      )}
+      <div className="console-actions">
+        <button type="button" className="btn btn-secondary" disabled={!usable || busy} onClick={onTest}>Test connection</button>
+        <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={onQualify}>{remote ? "Run qualification…" : "Run qualification"}</button>
+        <button type="button" className="btn btn-primary" disabled={!usable || busy || item.active || item.activation_blockers.length > 0}
+          title={blockers} onClick={onActivate}>Activate</button>
+      </div>
+      <p className="console-help">
+        {remote
+          ? "A paid run always asks you to confirm its calls and cost first. Nothing is retried automatically, and the spending limits still apply."
+          : "Activation asks you to confirm first; the server re-checks your permission, the revision and the qualification."}
+      </p>
+    </aside>
+  );
+}
+
+/** Every configuration's full technical record, folded away below the catalogue. */
+function ConfigurationDetails({ overview }: { overview: ModelOverview }) {
+  return (
+    <details className="console-details">
+      <summary>Technical details for every configuration</summary>
+      <div className="table-card table-scroll">
+        <table className="table">
+          <caption className="sr-only">Each configuration's deployment, endpoint, limits, status, connection test and qualification</caption>
+          <thead><tr><th>Configuration</th><th>Deployment</th><th>Endpoint</th><th>Limits</th><th>Status</th><th>Connection</th><th>Qualification</th></tr></thead>
+          <tbody>
+            {overview.profiles.map((item) => {
+              const qualification = item.qualification;
+              const notice = remoteNotice(item, overview.budget?.mode);
+              return (
+                <tr key={item.profile_id}>
+                  <td><strong>{profileName(item)}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
+                    {item.details && <><br /><RemoteDetails details={item.details} /></>}
+                    {notice && <><br /><small className="control-help">{notice}</small></>}
+                    {item.details?.reasoning_effort === "low" && <><br /><small className="control-help">{FAST_NOTICE}</small></>}</td>
+                  <td>{readable(item.deployment)}</td>
+                  <td>{item.endpoint ?? "Not shown"}</td>
+                  <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>
+                  <td><span className={`tag ${item.status === "selectable" ? "tag-accent" : "tag-warn"}`}>{STATUS_LABEL[item.status]}</span>{item.reason && <><br /><small>{readable(item.reason, item.deployment)}</small></>}</td>
+                  <td>{item.connection_test ? <>{readable(item.connection_test.outcome)}{item.connection_test.code && <><br /><small>{readable(item.connection_test.code, item.deployment)}</small></>}</> : "Not tested"}</td>
+                  <td>{qualification ? `${readable(qualification.status)}${!qualification.current ? " (out of date)" : ""}` : "Not run"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
+// After a confirmed action the opener is disabled while it runs: focus the inspector, else the page heading.
+const FOCUS_FALLBACKS = ["inspector-heading", "model-management-heading"] as const;
+
+const SECTION_LABEL = Object.fromEntries(CONSOLE_SECTIONS.map((item) => [item.id, item.label])) as Record<ConsoleSection, string>;
+
 export default function AiModelManagement({ actor }: { actor: AuthenticatedProfile }) {
   const queryClient = useQueryClient();
   const overviewQuery = useQuery({
@@ -588,6 +943,12 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
     followedRun.current = runningId;
   }, [runningId, queryClient, actor.user_id]);
   const [selected, setSelected] = useState<string | null>(null);
+  // D-100: the section comes from the browser location; the configuration shown in the
+  // inspector is local view state (it falls back to the active one).
+  const [searchParams] = useSearchParams();
+  const section = consoleSection(searchParams.get("section"));
+  const [inspected, setInspected] = useState<string | null>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
   const [confirming, setConfirming] = useState<{ kind: "activate" | "rollback"; profileId: string; name: string } | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   // D-098: a paid qualification starts only after HR confirms its calls and estimate here.
@@ -622,7 +983,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
   function runQualification(item: ModelProfileView): void {
     setSelected(item.profile_id);
-    if (item.deployment === REMOTE_DEPLOYMENT) {
+    if (isPaidRemote(item.deployment)) {
       setPaidConfirm(item);  // never starts a paid run without the dialog
       return;
     }
@@ -639,73 +1000,195 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
   const recoverable = overview?.profiles.filter((item) => item.profile_id !== "env_default" && (item.qualification || item.deployment === REMOTE_DEPLOYMENT)) ?? [];
   const paidPending = paidConfirm ? overview?.profiles.find((item) => item.profile_id === paidConfirm.profile_id) ?? paidConfirm : null;
+  const inspectedItem = overview?.profiles.find((item) => item.profile_id === inspected)
+    ?? overview?.profiles.find((item) => item.active)
+    ?? overview?.profiles[0];
+
+  // Narrow screens stack the inspector below the catalogue: bring it into view on selection.
+  function inspect(profileId: string): void {
+    setInspected(profileId);
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 900px)").matches) {
+      window.setTimeout(() => inspectorRef.current?.scrollIntoView?.({ block: "start" }), 0);
+    }
+  }
+
+  function showResults(profileId: string): void {
+    setSelected(profileId);
+    window.setTimeout(() => document.getElementById("qualification-heading")?.scrollIntoView?.({ block: "start" }), 0);
+  }
+
+  const attention = overview?.profiles.filter((item) => {
+    const run = item.qualification;
+    if (!run || run.status === "running") return false;
+    return run.diagnosis ? run.diagnosis.action !== "NONE" && run.diagnosis.action !== "WAIT" : run.status !== "passed" || !run.current;
+  }).length ?? 0;
+  const credential = overview?.budget?.configured ? overview.budget.credential : null;
+  const badges: Partial<Record<ConsoleSection, ConsoleBadge>> = {
+    ...(credential && credential.status !== "configured" ? { providers: credential.status === "invalid"
+      ? { text: "Key invalid", label: "the OpenRouter key is not valid", tone: "warn" as const }
+      : { text: "No key", label: "no OpenRouter key is set", tone: "warn" as const } } : {}),
+    ...(overview?.budget?.configured && (overview.budget.ledger?.breaker_open || overview.budget.refusal) ? { spending: overview.budget.ledger?.breaker_open
+      ? { text: "Stopped", label: "paid calls are stopped until an operator reconciles", tone: "warn" as const }
+      : { text: "Calls refused", label: "paid calls are refused now", tone: "warn" as const } } : {}),
+    ...(overview?.running
+      ? { qualifications: { text: "Running", label: "a qualification is running", tone: "info" as const } }
+      : attention > 0 ? { qualifications: { text: String(attention), label: `${attention} ${attention === 1 ? "needs" : "need"} attention`, tone: "warn" as const } } : {}),
+  };
+  const cancelRun = () => overview?.running && action.mutate(() => cancelModelQualification(overview.running!.qualification_id));
 
   return (
-    <section className="ds-root ds-page model-management" aria-labelledby="model-management-heading">
-      <div className="ds-page-header"><div>
-        <p className="card-kicker">HR administration · AI Assistant</p>
-        <h1 id="model-management-heading">AI model management</h1>
-        <p className="text-muted">Choose the model the AI Assistant uses for everyone, from the local models IT has configured on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.</p>
-      </div></div>
+    <section className="ds-root ds-page model-management model-console" aria-labelledby="model-management-heading">
+      <ConsoleShell section={section} badges={badges}>
+        <div className="console-stack">
+          <header className="console-header">
+            <p className="card-kicker">HR administration · AI Model Console</p>
+            <h1 id="model-management-heading" tabIndex={-1}>{SECTION_LABEL[section]}</h1>
+            {section === "overview" && (
+              <p className="text-muted">Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.</p>
+            )}
+          </header>
 
-      {overviewQuery.isPending && <p>Loading model settings…</p>}
-      {overviewQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(overviewQuery.error)}</p>}
-      {action.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(action.error)}</p>}
+          {overviewQuery.isPending && <p>Loading model settings…</p>}
+          {overviewQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(overviewQuery.error)}</p>}
+          {action.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(action.error)}</p>}
 
-      {overview && !overview.configured && (
-        <p className="ds-banner ds-banner-warn" role="status">
-          {overview.model_enabled
-            ? "Model management is not configured on this server. IT must provide a model profiles file; until then the environment baseline is used."
-            : "The AI model is switched off on this server; answers come from case data only."}
-        </p>
-      )}
-      {overview?.file_status === "invalid" && (
-        <p className="ds-banner ds-banner-warn" role="alert">The model profiles file is invalid, so no IT profile is listed. Fields to check: {overview.file_errors.join(", ")}.</p>
-      )}
-      {overview?.file_status === "missing" && <p className="ds-banner ds-banner-warn" role="alert">The model profiles file named by IT was not found.</p>}
-
-      {overview && (
-        <section className="card" aria-labelledby="active-model-heading">
-          <h2 id="active-model-heading">Active model</h2>
-          {overview.active.unavailable && (
-            <p className="ds-banner ds-banner-warn" role="alert" data-testid="ai-unavailable">
-              AI is unavailable: the GPT-OSS configuration that was active can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+          {overview && !overview.configured && (
+            <p className="ds-banner ds-banner-warn" role="status">
+              {overview.model_enabled
+                ? "Model management is not configured on this server. IT must provide a model profiles file; until then the environment baseline is used."
+                : "The AI model is switched off on this server; answers come from case data only."}
             </p>
           )}
-          {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
-          {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
-          <dl className="acra-detail-list">
-            <div><dt>Name</dt><dd>{nameOf(overview.active.profile_id, overview.active.display_name)}</dd></div>
-            <div><dt>Model</dt><dd>{overview.active.model_id ?? "None (case-data answers only)"}</dd></div>
-            <div><dt>Changed</dt><dd>{overview.active.changed_at ? `${formatTimestamp(overview.active.changed_at)} by ${overview.active.changed_by}` : "Never (environment baseline)"}</dd></div>
-            <div><dt>Prompt bound</dt><dd>{overview.active.prompt_limit ? `${overview.active.prompt_limit.toLocaleString()} (${overview.profiles.find((item) => item.active)?.deployment === REMOTE_DEPLOYMENT ? "enforced byte limit" : "verified capacity"})` : "Not applied (baseline)"}</dd></div>
-            <div><dt>Revision</dt><dd>{overview.revision}</dd></div>
-          </dl>
-          {overview.configured && (
-            <button type="button" className="btn btn-secondary" disabled={!overview.last_good || busy}
-              onClick={() => overview.last_good && setConfirming({ kind: "rollback", profileId: overview.last_good.profile_id, name: nameOf(overview.last_good.profile_id, overview.last_good.display_name) })}>
-              {overview.last_good ? `Roll back to ${nameOf(overview.last_good.profile_id, overview.last_good.display_name)}` : "No earlier model to roll back to"}
-            </button>
+          {overview?.file_status === "invalid" && (
+            <p className="ds-banner ds-banner-warn" role="alert">The model profiles file is invalid, so no IT profile is listed. Fields to check: {overview.file_errors.join(", ")}.</p>
           )}
-        </section>
-      )}
+          {overview?.active.unavailable && (
+            <p className="ds-banner ds-banner-warn" role="alert" data-testid="ai-unavailable">
+              AI is unavailable: the external model configuration that was active (GPT-OSS or Claude) can no longer be used{overview.active.reverted ? ` (${readable(overview.active.reverted)})` : ""}. No other model was put in its place. Onboarding users get clearly labelled case-data guidance until you activate a qualified configuration.
+            </p>
+          )}
+          {overview?.file_status === "missing" && <p className="ds-banner ds-banner-warn" role="alert">The model profiles file named by IT was not found.</p>}
 
-      {overview?.budget?.configured && (
-        <>
-          <OpenRouterKey budget={overview.budget} busy={busy}
-            remoteProfileId={overview.profiles.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
-            onChanged={refresh} />
-          <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
-        </>
-      )}
+          {section === "overview" && overview && (
+            <>
+              {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted)}), so the environment baseline is active.</p>}
+              {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
+
+              <ActiveModelBand overview={overview} busy={busy} nameOf={nameOf}
+                onRollback={() => overview.last_good && setConfirming({ kind: "rollback", profileId: overview.last_good.profile_id, name: nameOf(overview.last_good.profile_id, overview.last_good.display_name) })} />
+              <OverviewSummary overview={overview} />
+              <RunningStatus overview={overview} pending={action.isPending} nameOf={nameOf} onCancel={cancelRun} />
+
+              <div className="console-overview">
+                <section className="console-catalog" aria-labelledby="available-models-heading">
+                  <h2 id="available-models-heading">Model catalogue</h2>
+                  <p className="text-muted">Select a configuration to see its readiness and actions. Fast and Balanced are reasoning settings of one model, each qualified on its own.</p>
+                  {configurationGroups(overview.profiles).map((group) => (
+                    <section key={group.key} className="console-group" aria-label={group.title}>
+                      <div className="console-group__title"><h3>{group.title}</h3><span>{group.subtitle}</span></div>
+                      <div className="console-group__tiles">
+                        {group.items.map((item) => (
+                          <ConfigurationTile key={item.profile_id} item={item} configured={overview.configured}
+                            selected={item.profile_id === inspectedItem?.profile_id} onSelect={() => inspect(item.profile_id)} />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                  <ConfigurationDetails overview={overview} />
+                </section>
+                {inspectedItem && (
+                  <ModelInspector item={inspectedItem} overview={overview} busy={busy} inspectorRef={inspectorRef}
+                    onTest={() => action.mutate(() => testModelConnection(inspectedItem.profile_id))}
+                    onQualify={() => runQualification(inspectedItem)}
+                    onActivate={() => setConfirming({ kind: "activate", profileId: inspectedItem.profile_id, name: profileName(inspectedItem) })}
+                    onResults={() => showResults(inspectedItem.profile_id)} />
+                )}
+              </div>
+
+              {detail?.qualification && (
+                <section className="card" aria-labelledby="qualification-heading">
+                  <h2 id="qualification-heading">Qualification: {profileName(detail)}</h2>
+                  <QualificationDetail qualification={detail.qualification} />
+                </section>
+              )}
+            </>
+          )}
+
+          {section === "providers" && overview && (overview.budget?.configured
+            ? (
+              <OpenRouterKey budget={overview.budget} busy={busy}
+                remoteProfileId={overview.profiles.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
+                onChanged={refresh} />
+            )
+            : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so there is no provider key to manage here.</p>)}
+
+          {section === "spending" && overview && (overview.budget?.configured
+            ? <>
+              {overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) && (
+                <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger with at most US$5.00 lifetime, US$1.00 a day and 20 calls an activation.</p>
+              )}
+              <SpendingLimits budget={overview.budget} busy={busy} onChanged={refresh} />
+            </>
+            : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so no paid spending limits apply here.</p>)}
+
+          {section === "qualifications" && overview && (
+            <>
+              <RunningStatus overview={overview} pending={action.isPending} nameOf={nameOf} onCancel={cancelRun} />
+              {recoverable.length > 0 ? (
+                <section className="card" aria-labelledby="recovery-heading">
+                  <h2 id="recovery-heading">Model health and recovery</h2>
+                  <p className="text-muted">What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next. Retrying a paid qualification always asks first.</p>
+                  <div className="model-recovery-grid">
+                    {recoverable.map((item) => (
+                      <RecoveryCard key={item.profile_id} item={item} busy={busy}
+                        onRetry={() => runQualification(item)}
+                        onTest={() => action.mutate(() => testModelConnection(item.profile_id))} />
+                    ))}
+                  </div>
+                </section>
+              ) : <p className="ds-banner" role="status">No configuration has a qualification to review yet.</p>}
+            </>
+          )}
+
+          {section === "audit" && (
+            <section className="card" aria-labelledby="model-audit-heading">
+              <h2 id="model-audit-heading">Audit history</h2>
+              {auditQuery.isPending && <p>Loading audit history…</p>}
+              {auditQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(auditQuery.error)}</p>}
+              {auditQuery.data && (auditQuery.data.events.length === 0 ? <p>No model events recorded yet.</p> : (
+                <div className="table-card">
+                  <table className="table">
+                    <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Model</th><th>Outcome</th><th>Code</th></tr></thead>
+                    <tbody>
+                      {auditQuery.data.events.map((event) => (
+                        <tr key={event.seq}>
+                          <td>{formatTimestamp(event.at)}</td>
+                          <td>{event.actor}{event.role ? ` (${event.role})` : ""}</td>
+                          <td>{readable(event.action)}</td>
+                          <td>{event.profile_id ?? "—"}</td>
+                          <td>{readable(event.outcome)}</td>
+                          <td>{event.code ? readable(event.code) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </section>
+          )}
+        </div>
+      </ConsoleShell>
 
       {confirming && overview && (
-        <section className="card" role="dialog" aria-labelledby="confirm-heading">
+        <ConsoleDialog labelledBy="confirm-heading" focusFallbackIds={FOCUS_FALLBACKS} onClose={() => { setConfirming(null); setAcknowledged(false); }}>
           <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
+          {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === ANTHROPIC_DEPLOYMENT && (
+            <p className="ds-banner ds-banner-warn">This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, D-099 proposed). It is used only on synthetic development cases inside the same boundary as GPT-OSS; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within Claude's own separate ledger, daily allowance, call limit and the attested workspace limit. Nothing switches to or from Claude automatically.</p>
+          )}
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
             <p className="ds-banner ds-banner-warn">{overview.budget?.mode === "D-095"
-              ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within the daily, lifetime and OpenRouter key limits shown below (the strictest applies)."
+              ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within the daily, lifetime and OpenRouter key limits in Spending & Limits (the strictest applies)."
               : "This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing."}</p>
           )}
           {confirming.profileId !== "env_default" && unscored && (
@@ -714,18 +1197,19 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               {" "}I understand this model passed technical qualification only (connection, safety filtering, availability and context capacity). Its answer quality is NOT SCORED and the qualification is not proof of answer quality.
             </label>
           )}
-          <div>
-            <button type="button" className="btn btn-primary" disabled={confirming.profileId !== "env_default" && unscored && !acknowledged} onClick={confirm}>Confirm</button>
-            {" "}
+          <div className="console-dialog__actions">
             <button type="button" className="btn btn-secondary" onClick={() => { setConfirming(null); setAcknowledged(false); }}>Cancel</button>
+            <button type="button" className="btn btn-primary" disabled={confirming.profileId !== "env_default" && unscored && !acknowledged} onClick={confirm}>Confirm</button>
           </div>
-        </section>
+        </ConsoleDialog>
       )}
 
       {paidPending && (
-        <section className="card" role="dialog" aria-labelledby="paid-confirm-heading" data-testid="paid-confirm">
+        <ConsoleDialog labelledBy="paid-confirm-heading" testId="paid-confirm" focusFallbackIds={FOCUS_FALLBACKS} onClose={() => setPaidConfirm(null)}>
           <h2 id="paid-confirm-heading">Run a paid qualification of {profileName(paidPending)}?</h2>
-          <p>This asks GPT-OSS 120B the configured synthetic questions through OpenRouter. Each question is one paid call; nothing is retried automatically.</p>
+          <p>{paidPending.deployment === ANTHROPIC_DEPLOYMENT
+            ? "This asks Claude Sonnet 5.5 the configured synthetic questions through the Anthropic API. Each question is one paid call charged to Claude's separate ledger (the GPT-OSS limits do not apply); nothing is retried automatically. The ledger must have been reconciled within 24 hours."
+            : "This asks GPT-OSS 120B the configured synthetic questions through OpenRouter. Each question is one paid call; nothing is retried automatically."}</p>
           <dl className="acra-detail-list">
             <div><dt>Paid calls</dt><dd>Up to {paidPending.paid_qualification?.calls ?? "—"}</dd></div>
             <div><dt>Reserved at most</dt><dd>{microUsd(paidPending.paid_qualification?.estimate_micro_usd)} ({microUsd(paidPending.paid_qualification?.reservation_micro_usd)} a call)</dd></div>
@@ -733,108 +1217,15 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           </dl>
           {paidPending.paid_qualification && !paidPending.paid_qualification.sufficient && (
             <p className="ds-banner ds-banner-warn" role="alert">
-              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal) : "the spending limits do not leave room for every paid call."} Review the spending controls or run Test connection first.
+              It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal, paidPending.deployment) : "the spending limits do not leave room for every paid call."} Review the spending controls or run Test connection first.
             </p>
           )}
-          <div>
-            <button type="button" className="btn btn-primary" disabled={busy || !paidPending.paid_qualification?.sufficient} onClick={startPaid}>Start paid qualification</button>{" "}
+          <div className="console-dialog__actions">
             <button type="button" className="btn btn-secondary" onClick={() => setPaidConfirm(null)}>Cancel</button>
+            <button type="button" className="btn btn-primary" disabled={busy || !paidPending.paid_qualification?.sufficient} onClick={startPaid}>Start paid qualification</button>
           </div>
-        </section>
+        </ConsoleDialog>
       )}
-
-      {overview && recoverable.length > 0 && (
-        <section className="card" aria-labelledby="recovery-heading">
-          <h2 id="recovery-heading">Model health and recovery</h2>
-          <p className="text-muted">What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next. Retrying a paid qualification always asks first.</p>
-          <div className="model-recovery-grid">
-            {recoverable.map((item) => (
-              <RecoveryCard key={item.profile_id} item={item} busy={busy}
-                onRetry={() => runQualification(item)}
-                onTest={() => action.mutate(() => testModelConnection(item.profile_id))} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {overview && (
-        <section className="card" aria-labelledby="available-models-heading">
-          <h2 id="available-models-heading">Available models</h2>
-          {overview.running && (
-            <p role="status">
-              Qualification running for {overview.running.profile_id}: {overview.running.done_turns}/{overview.running.total_turns} turns (started by {overview.running.started_by}).{" "}
-              <button type="button" className="btn btn-secondary" disabled={action.isPending} onClick={() => action.mutate(() => cancelModelQualification(overview.running!.qualification_id))}>Cancel qualification</button>
-            </p>
-          )}
-          <div className="table-card">
-            <table className="table">
-              <thead><tr><th>Model</th><th>Deployment</th><th>Endpoint</th><th>Limits</th><th>Status</th><th>Connection</th><th>Qualification</th><th>Actions</th></tr></thead>
-              <tbody>
-                {overview.profiles.map((item) => {
-                  const usable = item.status === "selectable" && overview.configured;
-                  const qualification = item.qualification;
-                  return (
-                    <tr key={item.profile_id}>
-                      <td><strong>{profileName(item)}</strong>{item.active && <> <span className="tag tag-accent">Active</span></>}<br /><small>{item.model_id ?? "—"}{item.model_version ? ` · ${item.model_version}` : ""}</small>
-                        {item.details && <><br /><RemoteDetails details={item.details} /></>}
-                        {item.deployment === REMOTE_DEPLOYMENT && <><br /><small className="control-help">{overview.budget?.mode === "D-095"
-                          ? "External API: answers only on verified synthetic development cases; every other case gets the case-data answer. Within the daily, lifetime and OpenRouter key limits. Test connection is a free preflight; qualification makes paid calls."
-                          : "External API: answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls."}</small></>}
-                        {item.details?.reasoning_effort === "low" && <><br /><small className="control-help">Fast is the same model, endpoint and limits with less reasoning. It needs its own passing qualification; the Balanced qualification does not count for it, and its answer quality is not established.</small></>}</td>
-                      <td>{readable(item.deployment)}</td>
-                      <td>{item.endpoint ?? "Not shown"}</td>
-                      <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>
-                      <td><span className={`tag ${item.status === "selectable" ? "tag-accent" : "tag-warn"}`}>{STATUS_LABEL[item.status]}</span>{item.reason && <><br /><small>{readable(item.reason)}</small></>}</td>
-                      <td>{item.connection_test ? <>{readable(item.connection_test.outcome)}{item.connection_test.code && <><br /><small>{readable(item.connection_test.code)}</small></>}</> : "Not tested"}</td>
-                      <td>{qualification ? <button type="button" className="btn btn-secondary" onClick={() => setSelected(item.profile_id)}>{readable(qualification.status)}{!qualification.current ? " (out of date)" : ""}</button> : "Not run"}</td>
-                      <td>
-                        <button type="button" className="btn btn-secondary" disabled={!usable || busy} onClick={() => action.mutate(() => testModelConnection(item.profile_id))}>Test connection</button>{" "}
-                        <button type="button" className="btn btn-secondary" disabled={!usable || busy || !item.endpoint} onClick={() => runQualification(item)}>{item.deployment === REMOTE_DEPLOYMENT ? "Run qualification…" : "Run qualification"}</button>{" "}
-                        <button type="button" className="btn btn-primary" disabled={!usable || busy || item.active || item.activation_blockers.length > 0}
-                          title={item.activation_blockers.map(readable).join(" ")}
-                          onClick={() => setConfirming({ kind: "activate", profileId: item.profile_id, name: profileName(item) })}>Activate</button>
-                        {item.activation_blockers.length > 0 && usable && <><br /><small>{item.activation_blockers.map(readable).join(" ")}</small></>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {detail?.qualification && (
-        <section className="card" aria-labelledby="qualification-heading">
-          <h2 id="qualification-heading">Qualification: {profileName(detail)}</h2>
-          <QualificationDetail qualification={detail.qualification} />
-        </section>
-      )}
-
-      <section className="card" aria-labelledby="model-audit-heading">
-        <h2 id="model-audit-heading">Audit history</h2>
-        {auditQuery.isPending && <p>Loading audit history…</p>}
-        {auditQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(auditQuery.error)}</p>}
-        {auditQuery.data && (auditQuery.data.events.length === 0 ? <p>No model events recorded yet.</p> : (
-          <div className="table-card">
-            <table className="table">
-              <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Model</th><th>Outcome</th><th>Code</th></tr></thead>
-              <tbody>
-                {auditQuery.data.events.map((event) => (
-                  <tr key={event.seq}>
-                    <td>{formatTimestamp(event.at)}</td>
-                    <td>{event.actor}{event.role ? ` (${event.role})` : ""}</td>
-                    <td>{readable(event.action)}</td>
-                    <td>{event.profile_id ?? "—"}</td>
-                    <td>{readable(event.outcome)}</td>
-                    <td>{event.code ? readable(event.code) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </section>
     </section>
   );
 }
