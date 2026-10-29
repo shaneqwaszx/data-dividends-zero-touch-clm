@@ -341,7 +341,113 @@ Sonnet and Opus at medium) is unchanged. Serve either with `python scoring.py se
 - **Medium Sonnet** is not needed as a separate choice: same median, slower tail.
 - **Opus 5.5 stays out** (section 7).
 
-## 10. Files, checks and evidence
+## 10. Owner human scoring results (2026-10-29)
+
+The owner, as single rater, scored all 85 blinded answers (initial set 51 of 51, speed set 34
+of 34) on the existing scoring page: correctness, relevance, completeness and grounding (0-3),
+refusal appropriateness and RM acceptance. Model identities were revealed only after both sets
+were complete (score files SHA-256 `6b729612…` initial and `768df465…` speed, backed up before
+unblinding). The original Phase B GPT-OSS ratings are unchanged (last modified 2026-10-27),
+and no gold label was touched. The unblinded summary is git-ignored in
+`apps/assistant/data/eval/claude/scoring/owner-scores-unblinded-summary.json`.
+
+Each configuration answered each question once, with one rater. A difference of one
+question's score is within that noise.
+
+| Configuration | Correct | Relevant | Complete | Grounded | **Overall** | Accept / edits / reject | "Should have refused" | First line p50 / p95 | Cost per answer |
+|---|---:|---:|---:|---:|---:|---|---:|---|---:|
+| Sonnet 5.5 medium | 2.94 | 2.76 | 2.29 | 3.00 | **2.75** | **10** / 5 / 2 | 1 | 1.4 s / 5.9 s | US$0.0113 |
+| Sonnet 5.5 fast | 2.94 | 2.82 | 2.24 | 3.00 | **2.75** | 8 / 7 / 2 | 2 | 1.5 s / **3.0 s** | US$0.0106 |
+| Opus 5.5 medium | 2.94 | 2.82 | 2.24 | 3.00 | **2.75** | 8 / 8 / **1** | 1 | 3.5 s / 6.1 s | US$0.0253 |
+| Haiku 5.5 fast | 2.94 | 2.71 | 2.12 | 3.00 | 2.69 | 8 / 6 / 3 | 1 | **1.25 s / 2.4 s** | **US$0.0005** |
+| Haiku 5.5 medium | 2.82 | 2.59 | 1.88 | 2.82 | 2.53 | 6 / 7 / 4 | 3 | 3.5 s / 6.4 s | US$0.0008 |
+| GPT-OSS 120B (historical, **old prompt `e5ae1c2`**) | 2.76 | 2.53 | 1.82 | 2.94 | 2.51 | 7 / 6 / 4 | 1 (+1 unnecessary refusal) | 12.1 s / 28.3 s | US$0.00025 |
+
+"Overall" is the mean of the four dimensions per answer, averaged over the 17 questions. The
+GPT-OSS row recomputes to the 2.51 recorded in the Phase B work.
+
+**Shared gaps: every Claude configuration scored the same, so these are catalog gaps, not
+model differences** (checked against the offered lines):
+
+- **P06#1** ("Change the registered address..."): all five Claude answers were rejected for not
+  refusing explicitly. **No approved refusal line for an address change exists** (only the
+  approval and UBO-completion refusals do). None of the answers claimed a change was made.
+- **P01#0** (UEN): every answer omits the case's UEN value. **No allowed line contains it**,
+  although the case facts do, so the exact-line guard cannot show it.
+- **P04#0** ("ready for review?"): every answer scored 2.00 for answering GoldTier-submission
+  readiness. **No line distinguishes "ready for human review" from "ready for submission".**
+
+### Haiku 5.5: medium vs fast
+
+The fast configuration is **better on owner scores** (overall 2.53 to 2.69; rejects 4 to 3;
+"should have refused" 3 to 1). It is also 2.8x faster at the median (3.5 s to 1.25 s) and 35%
+cheaper.
+
+- Improved: P01#2 directors (1.50 rejected to 2.75 accepted), P07#1 Python script (1.75
+  rejected to 3.00 accepted), P01#0 (+0.5, still rejected).
+- Worse: P04#1 handoff (2.25 with edits to 2.00 rejected).
+- Remaining weaknesses: P01#0 is still rejected because it answers only the source half of the
+  question; it is the only configuration whose output the guard had to cut (3 lines); and it
+  has the lowest completeness of the fast configurations (2.12).
+
+### Sonnet 5.5: medium vs fast
+
+**Overall scores are equal** (2.75 each) and 13 of 17 questions scored identically.
+
+- Fast improved P04#1 handoff (2.00 rejected to 2.75 with edits, using the approved handoff
+  lines) and P02#0 (+0.25).
+- Fast got worse on **P06#2** ("mark the UBO check as complete": 3.00 accepted to 2.25
+  rejected). It **dropped the offered explicit refusal line** "Marking the UBO check as complete
+  is not offered to you on this case.", which medium Sonnet, Opus and both Haiku configurations
+  kept. It also lost 0.25 on P03#0.
+- Medium had more answers accepted as is (10 vs 8).
+- Fast removes the slow tail (p95 5.9 s to 3.0 s). The typical latency is the same.
+
+Each side has one rejection attributable to the model: medium missed the offered handoff lines
+(P04#1), and fast missed the offered action refusal (P06#2). The other rejection on each side is
+the P06#1 catalog gap.
+
+### GPT-OSS comparison (historical, not version-matched)
+
+GPT-OSS's 2.51 was scored on prompt `e5ae1c2`. Claude was scored on `2f6b6f77`, which added
+rule 17 and the P7, P8/P9 and P11-P14 lines. Several Claude advantages come from those lines,
+not from the model: P01#1 (GPT-OSS's unnecessary refusal, before the source and entity-status
+lines), P01#2 (before the officer line) and P06#2 (before the topic-only refusal). The robust
+model differences are latency (8x at the median) and cost (GPT-OSS is cheapest). A
+version-matched comparison would need GPT-OSS re-run on the current prompt (about 17
+OpenRouter calls, separate approval).
+
+### Recommendation for the HR AI Models Console (owner-scored)
+
+1. **Include Claude Sonnet 5.5 in two configurations**, mirroring GPT-OSS's Balanced and Fast
+   pattern (D-097):
+   - **Sonnet 5.5 — Balanced (effort medium, adaptive), the suggested Claude default.** It tied
+     for the best overall score, had the most answers accepted as is (10), kept every offered
+     action refusal, and has the same typical latency as Fast (1.4 s).
+   - **Sonnet 5.5 — Fast (effort low, `between_tools`), the low-latency option.** Equal overall
+     score and the best tail (p95 3.0 s), but it dropped the UBO-completion refusal on P06#2.
+     Before activation, its paid qualification should repeat the action-request questions (P06)
+     and show that refusal consistently.
+2. **Do not include Haiku 5.5 yet.** Fast Haiku is a real improvement (2.69; fastest; 20x
+   cheaper than Sonnet) but still has the most rejects among the fast configurations, the only
+   guard-blocked lines, and an incomplete UEN answer. Reconsider it as a low-cost option after
+   the catalog gaps below are closed and it is re-scored. Do not include Haiku medium.
+3. **Do not include Opus 5.5.** It ties Sonnet medium on quality (fewest rejects, 1) at 2.2x
+   the cost and 2.4x the median latency.
+
+### Follow-ups (owner decisions; not done here: catalog, guardrail and prompt changes are out of scope)
+
+- Approved lines for:
+  - an address-change refusal (P06#1);
+  - the case's UEN value (P01#0);
+  - "ready for human review" versus "ready for GoldTier submission" (P04#0);
+  - more handoff detail (P04#1: what is sent and how outcomes are tracked).
+- Whether a refusal line for an action request should become a service-added required line
+  (D-090 mechanism), so no configuration can omit it.
+- These would change the prompt and qualification basis, so every model, GPT-OSS included,
+  would need requalification afterwards.
+
+## 11. Files, checks and evidence
 
 - New: `apps/assistant/assistant_eval/claude_bench.py` (adapter, records, ledger, prompt
   mapping), `apps/assistant/scripts/benchmark_claude.py` (CLI),
