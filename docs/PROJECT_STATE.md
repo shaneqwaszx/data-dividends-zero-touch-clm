@@ -1345,7 +1345,7 @@ Delta only. PR #131 (Phase 1 with D-099) is merged to main `90115e4`. Phases 2 t
 commits on `feat/d100-ai-console-phases-2-4`; nothing is pushed, activated or Live, and no paid
 call was made. Presentation only: no API, schema, qualification, gate, limit, key, permission,
 routing or backend change; the qualification basis stays `33f602653de7…`.
-- **Phase 2:** Providers shows one card per provider (OpenRouter, Anthropic API, local models)
+- **Phase 2:** Providers shows one card per provider (OpenRouter, Anthropic API, server-configured models)
   with each configuration's availability and last connection test and who manages what (HR on
   the page, an operator on the server, the key or workspace owner at the provider). Claude
   Balanced and Fast are two configurations of one Anthropic provider. Spending & Limits keeps

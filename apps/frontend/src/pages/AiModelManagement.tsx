@@ -241,8 +241,8 @@ const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: str
   local: {
     title: "Troubleshooting a local model",
     steps: [
-      "Check that the local model server named in the profile is running and has the model loaded, then run Test connection.",
-      "IT changes the profile (endpoint, model, context) in the model profiles file; any change needs a new qualification.",
+      "Check that the model server this configuration uses is running and has the model loaded, then run Test connection.",
+      "IT changes the configuration (the model profiles file, or the server environment for the baseline); any change needs a new qualification.",
     ],
   },
 };
@@ -719,7 +719,7 @@ const ANTHROPIC_DUTIES: Duty[] = [
 
 const LOCAL_DUTIES: Duty[] = [
   { who: "hr", text: "Run Test connection, qualify and activate, from Models & Overview." },
-  { who: "operator", text: "Add or change local profiles in the model profiles file and keep the local model server running." },
+  { who: "operator", text: "Set the environment baseline on the server, add or change profiles in the model profiles file, and keep the model servers running." },
 ];
 
 // Codes that say the Anthropic key itself is the problem (all from the server).
@@ -838,9 +838,9 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
       )}
 
       {local.length > 0 && (
-        <ProviderCard kind="local" title="Local models" subtitle="Loopback model servers set up by IT · no key, no paid calls">
+        <ProviderCard kind="local" title="Server-configured models" subtitle="The environment baseline and IT's model profiles · no spending ledger, no paid-run confirmation">
           <ProviderConfigurations items={local} />
-          <p className="console-help">Local models run on this server's loopback address, so they need no key and have no spending limits. Their availability depends on the local model server IT runs.</p>
+          <p className="console-help">IT sets the environment baseline in the server environment. Profiles from the model profiles file must use a local loopback endpoint; any other is listed as not available. Neither has a key managed on this page or a spending ledger, and their availability depends on the model servers IT runs.</p>
           <Responsibilities label="Who manages local models" duties={LOCAL_DUTIES} />
         </ProviderCard>
       )}
@@ -1330,7 +1330,7 @@ function AuditHistory({ query, profiles }: { query: UseQueryResult<{ events: Mod
             {filtering && <button type="button" className="btn btn-secondary" onClick={clear}>Clear filters</button>}
           </div>
           <p className="console-help" data-testid="audit-scope">
-            The server sent the {plural(events.length)} most recently recorded{events.length >= MODEL_AUDIT_LIMIT ? ` (the most it sends at once; older events are not loaded)` : ""}. Search and filters look only at these loaded events.
+            The server sent the {plural(events.length)} most recently recorded{events.length >= MODEL_AUDIT_LIMIT ? ` (the most this page asks for; older events are not loaded)` : ""}. Search and filters look only at these loaded events.
           </p>
           <p className="console-audit__count" role="status" aria-live="polite">
             {filtering ? `${shown.length} of ${plural(events.length)} loaded match.` : `Showing all ${plural(events.length)} loaded.`}
@@ -1376,7 +1376,7 @@ const SECTION_LABEL = Object.fromEntries(CONSOLE_SECTIONS.map((item) => [item.id
 const SECTION_INTRO: Record<ConsoleSection, string> = {
   overview: "Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.",
   providers: "Which provider each configuration uses, its key and checks, and who manages what. Keys are never shown on this page.",
-  spending: "Each paid provider's ledger and limits. HR changes the GPT-OSS limits here; Claude's limits are fixed on the server. Neither provider's limits apply to the other, nothing switches between them automatically, and local models make no paid calls.",
+  spending: "Each paid provider's ledger and limits. HR changes the GPT-OSS limits here; Claude's limits are fixed on the server. Neither provider's limits apply to the other, nothing switches between them automatically, and server-configured models have no spending ledger here.",
   qualifications: "What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next.",
   audit: "Model events recorded by the AI Assistant service: activations, qualifications, connection tests, key and limit changes, and refused requests.",
 };

@@ -1235,7 +1235,8 @@ describe("AiModelManagement D-100 providers and spending", () => {
     await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
     expect(card(view, "openrouter")?.textContent).toContain("GPT-OSS 120B");
     expect(card(view, "local")?.textContent).toContain("Qwen3 8B (LM Studio)");
-    expect(card(view, "local")?.textContent).toContain("no key, no paid calls");
+    expect(card(view, "local")?.textContent).toContain("no spending ledger, no paid-run confirmation");
+    expect(card(view, "local")?.textContent).toContain("IT sets the environment baseline in the server environment.");
     const anthropic = card(view, "anthropic")!.textContent ?? "";
     expect(anthropic).toContain("One provider for Claude Sonnet 5.5 Balanced and Fast");
     expect(anthropic).toContain("Claude Sonnet 5.5 — Balanced");
@@ -1513,7 +1514,7 @@ describe("AiModelManagement D-100 audit history", () => {
     const many = Array.from({ length: MODEL_AUDIT_LIMIT }, (_, index) => event(MODEL_AUDIT_LIMIT - index));
     const view = mount(auditServer(many), "audit");
     await waitFor(() => expect(rows(view)).toHaveLength(MODEL_AUDIT_LIMIT));
-    expect(view.querySelector("[data-testid=audit-scope]")?.textContent).toContain(`The server sent the ${MODEL_AUDIT_LIMIT} events most recently recorded (the most it sends at once; older events are not loaded).`);
+    expect(view.querySelector("[data-testid=audit-scope]")?.textContent).toContain(`The server sent the ${MODEL_AUDIT_LIMIT} events most recently recorded (the most this page asks for; older events are not loaded).`);
   });
 
   it("explains an empty history and offers a retry when it cannot be read", async () => {
