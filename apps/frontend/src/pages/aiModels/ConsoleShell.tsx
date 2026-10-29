@@ -99,6 +99,27 @@ export function ConsoleShell({ section, badges, children }: {
 
 const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
+/** D-100 (D3): everything outside the open dialog is made inert and the page stops scrolling,
+ * so neither a screen reader nor a pointer reaches the background. Returns the undo; only the
+ * elements this call made inert are released. */
+function isolate(element: HTMLElement): () => void {
+  const made: HTMLElement[] = [];
+  for (let node: HTMLElement | null = element; node && node !== document.body; node = node.parentElement) {
+    for (const sibling of node.parentElement?.children ?? []) {
+      if (sibling !== node && sibling instanceof HTMLElement && !sibling.hasAttribute("inert")) {
+        sibling.setAttribute("inert", "");
+        made.push(sibling);
+      }
+    }
+  }
+  const overflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  return () => {
+    for (const sibling of made) sibling.removeAttribute("inert");
+    document.body.style.overflow = overflow;
+  };
+}
+
 /** Where focus goes when a dialog closes: the control that opened it, or, when that control
  * is gone or now disabled (an action started), the first fallback element that exists. */
 function restoreFocus(previous: HTMLElement | null, fallbackIds: readonly string[]): void {
@@ -131,11 +152,17 @@ export function ConsoleDialog({ labelledBy, testId, onClose, focusFallbackIds = 
     if (opener.current === undefined) {
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     }
-    dialog.current?.focus();
+    const node = dialog.current;
+    const release = node?.parentElement ? isolate(node.parentElement) : () => undefined;
+    node?.focus();
     // Restore after the re-render that closing caused (a confirmed action disables its opener).
     return () => {
+      release();
       restoreTimer.current = window.setTimeout(() => {
         restoreTimer.current = null;
+        // D-100 (D5): only when focus was left behind by this dialog, never out of a newer one.
+        const active = document.activeElement;
+        if (active && active !== document.body && active.isConnected && !node?.contains(active)) return;
         restoreFocus(opener.current ?? null, fallbacks.current);
       }, 0);
     };

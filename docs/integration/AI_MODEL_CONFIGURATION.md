@@ -139,6 +139,20 @@ provider terms (for Claude, *Test connection* is a free model read of the attest
 and the service's Anthropic-specific *Run Test connection first* refusal (D-099-FU2) is shown
 as written. HR key entry and HR-editable Claude limits are not part of Phase 1.
 
+**The other four sections (D-100 Phases 2 to 4, presentation only).** *Providers* has one card
+per provider (OpenRouter, Anthropic API, server-configured models) listing its configurations with their
+availability and last connection test, and who manages what: HR on this page, an operator on
+the server, the key or workspace owner at the provider. The OpenRouter key form stays where
+the server allows HR entry; Claude's inference key is set on the server only, and the page
+says that the server does not send its status. *Spending & Limits* keeps the HR-editable
+GPT-OSS limits and shows Claude's fixed limits read-only, with only the server's
+paid-qualification figures (Claude's usage, headroom and reconciliation time are not sent).
+*Qualifications & Recovery* shows technical qualification, answer quality and availability
+apart for every external configuration, including those not yet qualified, with the server's
+raw codes, the latest run's gates and provider-specific troubleshooting; a first or repeated
+paid run still opens the confirmation. *Audit History* searches and filters only the events
+the page loaded (the server's most recent 100) and says so; nothing is searched on the server.
+
 ## 7. Restarts, changes and failures
 
 - The active model survives restarts (`AI_ASSISTANT_MODEL_ADMIN_DB_PATH`, default
