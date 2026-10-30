@@ -27,9 +27,11 @@ reset-breaker  only after a reconcile that is newer than the breaker, and naming
 --anthropic    (D-099 Option B) the separate Anthropic ledger for Claude Sonnet 5.5
                (AI_ASSISTANT_ANTHROPIC_LEDGER_PATH). Its provider usage is the dedicated
                workspace's cumulative cost as the Claude Console shows it. Its cap may never
-               exceed US$5.00 (lifetime, never reset), and raising it needs a reconcile within
-               the last 24 hours; these rules follow the ledger's own profile, whichever path
-               names it.
+               exceed US$30.00 (lifetime, never reset; D-102; a cap above the attested
+               workspace limit is refused at every call), and raising it needs a reconcile
+               within the last 24 hours; these rules follow
+               the ledger's own profile, whichever path names it. HR may also change the cap
+               on AI Models within the same rules (D-102).
 
     ../../.venv/bin/python scripts/budget_ledger.py --anthropic init --cap 5.00 \\
         --opening-provider-usage 0.00 --key-alias key-01

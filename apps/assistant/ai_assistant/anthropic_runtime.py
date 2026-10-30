@@ -13,9 +13,10 @@
 #                  decision and the D-091 and D-092 decisions the remote profile needs
 #     environment  a development machine (as remote_test: loopback backend, local origins)
 #     owner        AI_ASSISTANT_ANTHROPIC_OWNER_ATTESTS holds exactly OWNER_ATTESTATIONS
-#     workspace    the dedicated workspace's id and its monthly limit (at most US$5.00)
-#     limits       at most US$1.00 a day, 20 calls and 32 KiB prompts (policy ceilings,
-#                  re-checked here because ``model_construct`` skips pydantic's bounds)
+#     workspace    the dedicated workspace's id and its monthly limit (at most US$30.00, D-102)
+#     limits       at most US$5.00 a day, 20 calls and 32 KiB prompts (policy ceilings,
+#                  re-checked here because ``model_construct`` skips pydantic's bounds); an HR
+#                  administrator may set the daily allowance and calls within them (D-102)
 #
 # Every call then also needs (``ClaudeTestModel``):
 #
@@ -23,11 +24,11 @@
 #                  the adapter decides again for the very messages it sends (QG F2)
 #     key          AI_ASSISTANT_ANTHROPIC_API_KEY from the process environment, else the
 #                  git-ignored .env: an inference key; an Admin key or any other shape refuses.
-#                  No HR entry (deferred with the HR spending controls, D-100 isolation).
+#                  No HR key entry (D-100 isolation).
 #     ledger       the separate Anthropic ledger: its own profile, breaker closed, no open call,
-#                  every earlier call verified, a cap of at most the lower of US$5.00 (lifetime,
-#                  never reset) and the workspace limit, and room for one worst-case reservation
-#                  in it and in today's allowance (Asia/Singapore day)
+#                  every earlier call verified, a cap of at most the lower of US$30.00
+#                  (lifetime, never reset; D-102) and the workspace limit, and room for one
+#                  worst-case reservation in it and in today's allowance (Asia/Singapore day)
 #     reconciled   the operator anchored it on the Console's workspace usage within 7 days
 #                  (chat) or 24 hours (paid qualification, activation, a cap raise)
 #     preflight    a free ``GET /v1/models/claude-sonnet-5-5`` whose reply names the attested
@@ -103,8 +104,9 @@ OWNER_ATTESTATIONS = frozenset(
     {"dedicated_workspace", "workspace_limit_set", "inference_key_only", "key_revoked_at_fyp_end"}
 )
 CREDENTIAL_VARIABLE = "AI_ASSISTANT_ANTHROPIC_API_KEY"
-LIFETIME_CEILING_MICRO_USD = 5_000_000
-DAILY_CEILING_MICRO_USD = 1_000_000
+# D-102 (proposed): raised from US$5.00 and US$1.00 by the owner; HR sets values within them.
+LIFETIME_CEILING_MICRO_USD = 30_000_000
+DAILY_CEILING_MICRO_USD = 5_000_000
 MAX_CALLS_CEILING = 20
 MAX_PROMPT_BYTES = 32_768
 CHAT_RECONCILE_SECONDS = 7 * 86_400
@@ -297,8 +299,8 @@ def check_cap_change(
     raising: bool,
     clock: Callable[[], float] = time.time,
 ) -> None:
-    # The operator's cap changes on the Anthropic ledger: never above the US$5.00 lifetime
-    # ceiling, and a raise only within 24 hours of a reconciliation.
+    # Every cap change on the Anthropic ledger (the operator's script or HR, D-102): never above
+    # the US$30.00 lifetime ceiling, and a raise only within 24 hours of a reconciliation.
     if ledger.status().profile_id != LEDGER_PROFILE_ID:
         raise LedgerError("INVALID_INPUT", "not the Anthropic ledger")
     if cap_micro_usd > LIFETIME_CEILING_MICRO_USD:

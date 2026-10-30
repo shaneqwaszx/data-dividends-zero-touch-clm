@@ -1364,3 +1364,49 @@ routing or backend change; the qualification basis stays `33f602653de7…`.
   unit-tested (D6); console text meets 4.5:1.
 - **Open:** independent Quality Gate, owner review and publication authorisation. HR key entry
   and HR-editable Claude limits stay deferred (they need new backend authority).
+
+## AI Assistant D-102 Claude ceiling US$30.00 and HR-editable Claude limits (local branch, uncommitted) - 2026-10-29
+
+Delta only. Branch `feat/claude-hr-spending-d102` from main `d90ab6a`; nothing committed, pushed,
+activated or Live, and no paid or network call was made.
+- **Decision:** D-102 (PROPOSED): Claude's ceilings US$30.00 lifetime / US$5.00 a day (20 calls
+  unchanged); HR sets Claude's daily allowance, calls and Anthropic ledger cap on Spending &
+  Limits via Claude-only routes; raises (daily, calls or lifetime) need confirmation and a
+  24-hour reconciliation; a strictly lower lifetime cap is always allowed.
+- **Independent QG:** CONDITIONAL PASS on `f1d32387…` (Low findings only); L1 to L3 remediated
+  at the owner's direction, L4 recorded in D-102 without change; re-review of the amended
+  candidate pending.
+- **Changed:** API (two PUT routes; `claude` block in the budget view), persistence (new
+  `claude_spending_controls` table in the model admin SQLite, additive), configuration bounds,
+  business rule (spending ceilings), frontend (editable Claude panel). No auth/RBAC, connector,
+  mapping or architecture change; GPT-OSS behaviour unchanged.
+- **Qualification:** basis `33f602653de7…` → `4c54e4dd9dbd…`.
+- **Open:** independent Quality Gate, owner acceptance of D-102, commit/publication
+  authorisation; then the separately approved paid qualifications.
+
+## AI Assistant D-102 owner acceptance and latest-main integration (branch `feat/claude-hr-spending-d102-int`, not published) - 2026-10-30
+
+Delta only. D-102 is ACCEPTED by the owner for synthetic-only FYP development (including the
+tightened Claude call-limit raise). The reviewed commit `93d154d` (content `e4f58e36…`, re-QG
+PASS) is cherry-picked onto main `2911b54` (PR #133): application code and tests are
+byte-identical; `docs/PROJECT_STATE.md` merged without conflict, keeping both histories.
+Nothing is pushed, activated or Live; no paid or network call was made.
+- **Evidence:** `.ai-pipeline/reports/D102_QUALITY_GATE.md`, `D102_REQG.md` and
+  `D102_INTEGRATION.md`. The full assistant suite is not a clean PASS on this machine (14
+  Windows `Errno 24` failures, identical on main, passing alone).
+- **Blocker found on main (not D-102):** main `2911b54` fails
+  `test_the_boundary_file_is_current`: PR #133 added the backend string `onboarded`, so the
+  synthetic boundary needs regenerating (one new code word; the qualification basis moves).
+  Not changed here; it needs an owner decision.
+- **Open:** that boundary decision, independent integration QG, `pre_pr_check.py`, owner
+  publication authorisation, then the separately approved paid requalifications.
+
+## AI Assistant D-102 re-integrated after PR #134 (branch `feat/claude-hr-spending-d102-int2`, not published) - 2026-10-30
+
+Delta only. PR #134 (synthetic boundary `onboarded`) is merged to main `25ed072`, resolving the
+boundary blocker recorded above. D-102's two integration commits are replayed onto it with
+byte-identical content; the synthetic boundary is current and the qualification basis is
+`65f22e46c509…`. Evidence `.ai-pipeline/reports/D102_INTEGRATION_R2.md`; the full assistant
+suite still has the 14 Windows `Errno 24` failures (not a clean PASS).
+- **Open:** independent integration QG, owner publication authorisation, then the separately
+  approved paid requalifications.

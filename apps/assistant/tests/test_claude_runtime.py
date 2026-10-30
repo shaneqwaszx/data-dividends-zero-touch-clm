@@ -258,8 +258,9 @@ def test_every_condition_is_required(tmp_path: Path, changes: dict[str, Any], co
 )
 def test_the_policy_ceilings_cannot_be_raised(tmp_path: Path, name: str) -> None:
     above = {
-        "anthropic_workspace_limit_micro_usd": 5_000_001,
-        "anthropic_daily_cap_micro_usd": 1_000_001,
+        # D-102: US$30.00 and US$5.00 (raised from US$5.00 and US$1.00).
+        "anthropic_workspace_limit_micro_usd": 30_000_001,
+        "anthropic_daily_cap_micro_usd": 5_000_001,
         "anthropic_max_calls": 21,
     }[name]
     with pytest.raises(ValidationError):
@@ -575,7 +576,8 @@ def test_reconciliation_must_be_within_7_days_for_chat_and_24_hours_for_paid_run
 
 
 @pytest.mark.parametrize(
-    ("cap", "limit"), [(6_000_000, 5_000_000), (3_000_000, 2_000_000), (0, 5_000_000)]
+    ("cap", "limit"),
+    [(6_000_000, 5_000_000), (3_000_000, 2_000_000), (0, 5_000_000), (30_000_001, 30_000_000)],
 )
 def test_the_ledger_cap_stays_within_the_lifetime_ceiling_and_the_workspace_limit(
     tmp_path: Path, cap: int, limit: int
@@ -988,7 +990,7 @@ def test_the_anthropic_ledger_commands_keep_the_ceiling_and_the_24_hour_rule(
     path = str(tmp_path / "anthropic.sqlite3")
     base = ["--ledger", path, "--anthropic"]
     init = ["init", "--opening-provider-usage", "0", "--key-alias", "key-01"]
-    assert budget_ledger.main([*base, *init, "--cap", "5.01"]) == 2
+    assert budget_ledger.main([*base, *init, "--cap", "30.01"]) == 2  # D-102
     assert budget_ledger.main([*base, *init, "--cap", "2.00"]) == 0
     ledger = BudgetLedger.open(Path(path))
     assert ledger.status().profile_id == LEDGER_PROFILE_ID
@@ -996,7 +998,7 @@ def test_the_anthropic_ledger_commands_keep_the_ceiling_and_the_24_hour_rule(
     assert budget_ledger.main(["--ledger", path, *raise_to]) == 2  # never reconciled
     assert budget_ledger.main([*base, "reconcile", "--provider-usage", "0"]) == 0
     assert budget_ledger.main(["--ledger", path, *raise_to]) == 0
-    above = ["set-cap", "--usd", "5.50", "--raise", "--confirm-new-cap", "5.50"]
+    above = ["set-cap", "--usd", "30.50", "--raise", "--confirm-new-cap", "30.50"]
     assert budget_ledger.main(["--ledger", path, *above]) == 2
     assert ledger.status().cap == 3_000_000
     assert budget_ledger.main(["--ledger", path, "set-cap", "--usd", "1.00"]) == 0  # lowering

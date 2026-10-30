@@ -1531,3 +1531,54 @@ codes per provider (closing the integration gate's M-1, M-2 and I-1); Audit Hist
 only the loaded events and says so; dialogs make the background inert (D3) and keep focus in a
 newer dialog (D5). No API, gate, limit, key, permission, routing or basis change. HR key entry
 and HR-editable Claude limits remain deferred: they need new backend authority.
+
+## D-102 - AI Assistant Claude spending ceiling US$30.00 and HR-editable Claude limits (ACCEPTED, synthetic-only FYP development)
+
+Status: ACCEPTED by the repository owner on 2026-10-30 for synthetic-only FYP development,
+including the revised spending limits, the HR controls, the tightened call-limit raise (E3)
+and the documented residual risks (update below). Not sponsor policy.
+
+Proposal record (2026-10-29): PROPOSED by the project team on 2026-10-29 at the owner's direction during D-099
+runtime set-up: the owner set the dedicated Anthropic workspace's monthly limit to US$30.00
+and asked for Claude's limits to be changeable from the HR AI Model Console. Implemented
+offline on branch `feat/claude-hr-spending-d102` (not committed or published). Not accepted
+until the owner says so; not sponsor policy. Amends D-099 C6 (the US$5.00 ceilings) and the
+deferral of HR-editable Claude limits in D-099 and D-100; every other D-099 safeguard and every
+OpenRouter/GPT-OSS protection is unchanged.
+
+| # | Proposed decision |
+| --- | --- |
+| E1 | **Ceilings.** Claude's code ceilings become US$30.00 lifetime (ledger cap and attested workspace limit; was US$5.00) and US$5.00 per Singapore day (was US$1.00). 20 calls per activation and 32 KiB prompts are unchanged. The ledger cap stays at most the lower of the lifetime ceiling and the owner-attested workspace limit, re-checked on every call. |
+| E2 | **HR controls.** An HR administrator (MODEL_CONFIG_MANAGE) may set Claude's daily allowance (US$0.000001 to US$5.00), calls per activation (1 to 20) and the Anthropic ledger's lifetime cap (above its opening usage, at most the lower of US$30.00 and the workspace limit) on Spending & Limits, on Claude's own routes (`PUT /assistant/admin/models/budget/claude/controls`, `.../budget/claude/lifetime-cap`). Claude's controls are a separate row, table and revision from GPT-OSS's; neither ever applies to the other. Until HR sets them, the environment defaults apply (US$1.00 a day, 20 calls). |
+| E3 | **Raises.** Raising the daily allowance, the calls per activation (owner-approved after QG L1) or the lifetime cap needs the new value confirmed, Claude fully configured (D-099 readiness) and the Anthropic ledger reconciled with the Console within 24 hours, with the breaker closed and no open call; the lifetime cap also needs the cap the page showed (compare-and-set, re-checked in the ledger's write transaction). Lowering never needs a confirmation or reconciliation; a strictly lower lifetime cap (still above the opening usage) is allowed even when no workspace limit is attested (QG L2), and never enables Claude. Spend, calls and ledger history are never reset. |
+| E4 | **Unchanged.** The workspace id, its monthly limit and the four owner attestations remain operator/owner settings (not HR-editable). The same Origin requirement, per-administrator rate limit, audit (content-free closed codes), fail-closed unreadable controls (no Claude call), in-band verification, no automatic switching and synthetic-cases-only scope apply. HR controls reach an active Claude configuration in place and the paid qualification's daily allowance. |
+| E5 | **Qualification.** `anthropic_runtime.py` is in the qualification basis, so the basis moves `33f602653de7…` → `4c54e4dd9dbd…`: every earlier qualification is out of date once this merges, and GPT-OSS and both Claude configurations each need a new, separately approved paid qualification. |
+
+Independent Quality Gate (2026-10-29, candidate `f1d32387…`): CONDITIONAL PASS, Low findings
+only. L1 (call-limit raises ungated) and L2 (a reduction refused without an attested workspace
+limit) were remediated as above at the owner's direction; L3 (the GPT-OSS view counted an active
+Claude configuration's calls) was fixed so each provider's view counts only its own calls. L4
+(recorded, not changed): the raise checks (reconciliation, breaker, open calls) are read just
+before the change rather than inside the ledger's write transaction, and readiness does not
+require the key to be present. The impact is negligible because the ledger admits every call
+under its own transaction and the cap change is compare-and-set; changing it needs a separate
+finding or approval.
+
+Residual risk (owner-accepted by the direction above, to be confirmed on review): up to US$30.00
+lifetime and US$5.00 a day may be spent on Claude instead of US$5.00 and US$1.00; the workspace
+limit is still attested, not read, and Anthropic's own workspace limit remains the outer bound.
+
+Update 2026-10-30 (owner acceptance, integration and evidence): the owner accepted D-102 as
+recorded in the status line, after the independent re-QG PASS on the remediated candidate
+`e4f58e36e17c…` (committed unchanged as `93d154d`, cherry-picked onto main `2911b54` with
+byte-identical application code and tests). Accepted limitations, unchanged: L4 (the raise
+checks are read just before the change, outside the ledger's write transaction; readiness does
+not require the key), N1 (the lifetime help text's "lowering it is always allowed" omits that a
+lower cap must stay above the opening usage and match the shown cap; the inline validation is
+exact) and I1 (with unreadable Claude controls, a direct API call that passes every gate ends in
+an unaudited HTTP 500 with nothing written, as on the GPT-OSS route). Evidence:
+`.ai-pipeline/reports/D102_QUALITY_GATE.md` (CONDITIONAL PASS, `f1d32387…`),
+`.ai-pipeline/reports/D102_REQG.md` (PASS, `e4f58e36…`) and
+`.ai-pipeline/reports/D102_INTEGRATION.md`. The full assistant suite on this Windows machine is
+not a clean PASS: 14 tests fail with `OSError: [Errno 24] Too many open files` in a full run
+(identically on unmodified main) and pass when run alone; that is an environmental limitation.

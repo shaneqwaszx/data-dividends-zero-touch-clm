@@ -77,6 +77,8 @@ from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .llm import ChatModel, OpenAICompatibleChatModel
 from .model_admin_store import (
+    CLAUDE_DAILY_CAP_RANGE,
+    CLAUDE_MAX_CALLS_RANGE,
     DAILY_CAP_MAX_MICRO_USD,
     MAX_CALLS_RANGE,
     Activation,
@@ -85,7 +87,9 @@ from .model_admin_store import (
     QualificationBusy,
     RevisionConflict,
     SpendingControls,
+    apply_claude_controls,
     apply_controls,
+    valid_claude_controls,
     valid_controls,
 )
 from .model_catalog import (
@@ -232,6 +236,31 @@ MESSAGES = {
     "QUALIFICATION_SUPERSEDED": (
         "A later qualification of this configuration failed on answer quality."
     ),
+    # D-102: Claude's own spending changes (the same codes, worded for the Anthropic ledger).
+    "CONTROLS_INVALID_ANTHROPIC": (
+        "Claude's daily limit must be more than US$0.00 and at most US$5.00, and its call limit"
+        " 1 to 20. Nothing changed."
+    ),
+    "CAP_OUT_OF_RANGE_ANTHROPIC": (
+        "Claude's lifetime limit must be above the workspace's opening usage and at most the"
+        " lower of US$30.00 and the attested workspace limit. Nothing changed."
+    ),
+    "RECONCILIATION_REQUIRED_ANTHROPIC": (
+        "Claude's ledger must be reconciled with the Anthropic Console's usage within the last"
+        " day (no open call, no stop) before a Claude limit can be raised. Nothing changed."
+    ),
+    "CALLS_CONFIRMATION_REQUIRED": ("Confirm the new call limit to raise it. Nothing changed."),
+    "CLAUDE_NOT_READY": (
+        "Claude is not fully configured on this server, so its limits can only be lowered."
+        " Nothing changed."
+    ),
+}
+
+# D-102: which message a Claude spending refusal shows (its code is returned unchanged).
+CLAUDE_MESSAGE_CODES = {
+    "CONTROLS_INVALID": "CONTROLS_INVALID_ANTHROPIC",
+    "CAP_OUT_OF_RANGE": "CAP_OUT_OF_RANGE_ANTHROPIC",
+    "RECONCILIATION_REQUIRED": "RECONCILIATION_REQUIRED_ANTHROPIC",
 }
 
 
@@ -245,6 +274,10 @@ def _refusal(status: int, code: str, message_code: str | None = None) -> HTTPExc
             "message": MESSAGES.get(message_code or code, MESSAGES["BUILD_FAILED"]),
         },
     )
+
+
+def _claude_refusal(status: int, code: str) -> HTTPException:
+    return _refusal(status, code, CLAUDE_MESSAGE_CODES.get(code))
 
 
 @dataclass(frozen=True)
@@ -292,6 +325,7 @@ class ModelSelector:
         # Which HR spending controls (model object, revision) the active model runs with.
         self._controls_lock = threading.Lock()
         self._controls_applied: tuple[int, int] | None = None
+        self._claude_controls_applied: tuple[int, int] | None = None
         self._active = self._baseline(0)
         # D-098: how many qualification runs had finished when the active model was last
         # checked (None: never), so a newly finished run is noticed by every process.
@@ -419,6 +453,23 @@ class ModelSelector:
 
         return apply_controls(self.settings, self.spending_controls())
 
+    def claude_spending_controls(self) -> SpendingControls | None:
+        """D-102: Claude's stored controls (revision 0 when never set), None when unreadable."""
+
+        if self.store is None:
+            return SpendingControls(0, None, None, None, None)
+        try:
+            return self.store.claude_spending_controls()
+        except Exception:
+            log.error("Claude spending controls unavailable; no Claude call until they are")
+            return None
+
+    def claude_controlled(self) -> AiAssistantSettings:
+        """D-102: the settings a Claude configuration runs with (HR values in place of the
+        environment defaults; unreadable controls fail closed). Never GPT-OSS's controls."""
+
+        return apply_claude_controls(self.settings, self.claude_spending_controls())
+
     def sync_controls(self, active: Active | None = None) -> None:
         """Put the current HR controls into the active remote model in place, so a change
         applies without a restart or a new activation and its call count is kept.
@@ -430,6 +481,9 @@ class ModelSelector:
 
         current = active or self._active
         model = current.model
+        if isinstance(model, anthropic_runtime.ClaudeTestModel):
+            self._sync_claude(model)
+            return
         if not isinstance(model, RemoteTestModel):
             return
         # Read inside the lock that applies them, so a late reader can never put an older
@@ -449,14 +503,38 @@ class ModelSelector:
                     inner._daily_cap = settings.budget_daily_cap_micro_usd  # noqa: SLF001
             self._controls_applied = key
 
+    def _sync_claude(self, model: anthropic_runtime.ClaudeTestModel) -> None:
+        # D-102: as above for an active Claude configuration and its own controls. The daily
+        # cap is still enforced by the Anthropic ledger inside its admission transaction.
+        with self._controls_lock:
+            controls = self.claude_spending_controls()
+            key = (id(model), controls.revision if controls is not None else -1)
+            if self._claude_controls_applied == key and controls is not None:
+                return
+            settings = apply_claude_controls(self.settings, controls)
+            with model._lock:  # noqa: SLF001 - see sync_controls
+                model._settings = settings  # noqa: SLF001
+                inner = model._inner  # noqa: SLF001
+                if isinstance(inner, BudgetedChatModel):
+                    inner._daily_cap = settings.anthropic_daily_cap_micro_usd  # noqa: SLF001
+            self._claude_controls_applied = key
+
+    def claude_calls_used(self) -> int | None:
+        """D-102: calls an active Claude configuration made (as its call limit counts them);
+        None when no Claude configuration is active. Read-only."""
+
+        model = self._active.model
+        if isinstance(model, anthropic_runtime.ClaudeTestModel):
+            return model.calls_used()
+        return None
+
     def calls_used(self) -> int | None:
         """Calls the active remote model made since its activation or this service's start
         (open calls included), as its own call limit counts them; None when it is not active.
         Read-only: the ledger is checked, never recovered or changed."""
 
         model = self._active.model
-        if isinstance(model, anthropic_runtime.ClaudeTestModel):
-            return model.calls_used()
+        # QG L3: a Claude configuration's calls are Claude's (claude_calls_used), never GPT-OSS's.
         if not isinstance(model, RemoteTestModel):
             return None
         ledger = BudgetLedger(model._ledger_file)  # noqa: SLF001 - see sync_controls
@@ -641,7 +719,7 @@ class ModelSelector:
 
         if entry.deployment == "anthropic":
             return anthropic_runtime.connection_check(
-                self.settings, within_seconds=within_seconds, **self.claude_options()
+                self.claude_controlled(), within_seconds=within_seconds, **self.claude_options()
             )
         return connection_check(entry.settings_for(self.controlled()), **self.remote_options())
 
@@ -675,11 +753,11 @@ class ModelSelector:
         if entry.source == "code":
             # D-094: the remote model, gated per call and per case (remote_test.py). D-099: a
             # Claude configuration under its own Anthropic safeguards (anthropic_runtime.py);
-            # the HR spending controls are GPT-OSS's and never apply to it.
+            # GPT-OSS's HR spending controls never apply to it, only Claude's own (D-102).
             try:
                 remote: ChatModel = (
                     anthropic_runtime.ClaudeTestModel(
-                        self.settings, entry.profile_id, **self.claude_options()
+                        self.claude_controlled(), entry.profile_id, **self.claude_options()
                     )
                     if entry.deployment == "anthropic"
                     else RemoteTestModel(
@@ -1112,6 +1190,13 @@ class SpendingControlsRequest(BaseModel):
     confirm_daily_cap_micro_usd: StrictInt | None = None
 
 
+class ClaudeSpendingControlsRequest(SpendingControlsRequest):
+    """D-102: Claude's controls. A raise of the call limit also needs the same number again
+    (QG L1); GPT-OSS's request model is unchanged."""
+
+    confirm_max_calls: StrictInt | None = None
+
+
 class LifetimeCapRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1471,7 +1556,9 @@ def model_admin_router(
         try:
             # D-099: a Claude run against the Anthropic ledger, reconciled within 24 hours.
             view = (
-                anthropic_runtime.budget_status(settings, environ=selector.environ)
+                anthropic_runtime.budget_status(
+                    selector.claude_controlled(), environ=selector.environ
+                )
                 if entry.deployment == "anthropic"
                 else budget_status(
                     entry.settings_for(selector.controlled()), environ=selector.environ
@@ -1934,7 +2021,65 @@ def model_admin_router(
             "changed_by": controls.changed_by if controls is not None else None,
             "lifetime": lifetime,
         }
+        view["claude"] = claude_budget_view()
         return view
+
+    def claude_budget_view() -> dict[str, Any]:
+        """D-102: Claude's spending view (anthropic_runtime.budget_status, read-only) with the
+        HR controls that apply, the calls an active Claude configuration has left, and the
+        range its lifetime cap may be set within. Nothing is sent, recovered or changed."""
+
+        controls = selector.claude_spending_controls()
+        effective = apply_claude_controls(settings, controls)
+        view = anthropic_runtime.budget_status(effective, environ=selector.environ)
+        try:
+            used = selector.claude_calls_used()
+        except LedgerError:
+            used = None
+        limit = effective.anthropic_max_calls
+        lifetime = None
+        try:
+            ledger = BudgetLedger(anthropic_runtime.ledger_file(settings))
+            ledger.verify()
+            status = ledger.status()
+            if status.profile_id == anthropic_profiles.LEDGER_PROFILE_ID:
+                lifetime = {
+                    "opening_usage_micro_usd": status.opening_usage,
+                    "cap_micro_usd": status.cap,
+                    "max_cap_micro_usd": claude_cap_ceiling(),
+                    "committed_micro_usd": status.committed,
+                }
+        except LedgerError:
+            pass
+        view["controls"] = {
+            "revision": controls.revision if controls is not None else None,
+            "readable": controls is not None,
+            "daily_cap_micro_usd": effective.anthropic_daily_cap_micro_usd,
+            "daily_cap_range": list(CLAUDE_DAILY_CAP_RANGE),
+            "daily_cap_default_micro_usd": settings.anthropic_daily_cap_micro_usd,
+            "raise_requires": ["confirmation", "reconciled_within_one_day"],
+            "daily_cap_source": "hr"
+            if controls is not None and controls.daily_cap_micro_usd is not None
+            else "environment",
+            "max_calls": limit,
+            "max_calls_range": list(CLAUDE_MAX_CALLS_RANGE),
+            "max_calls_source": "hr"
+            if controls is not None and controls.max_calls is not None
+            else "environment",
+            "calls_used": used,
+            "calls_remaining": None if used is None else max(limit - used, 0),
+            "changed_at": controls.changed_at if controls is not None else None,
+            "changed_by": controls.changed_by if controls is not None else None,
+            "lifetime": lifetime,
+        }
+        return view
+
+    def claude_cap_ceiling() -> int:
+        # The lower of the D-102 lifetime ceiling and the owner-attested workspace limit.
+        return min(
+            anthropic_runtime.LIFETIME_CEILING_MICRO_USD,
+            settings.anthropic_workspace_limit_micro_usd,
+        )
 
     budget_attempts: dict[str, list[float]] = {}
 
@@ -2104,6 +2249,153 @@ def model_admin_router(
                         raise _refusal(409, "CONTROLS_CONFLICT") from None
                     audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
                     raise _refusal(409, "LEDGER_UNAVAILABLE") from None
+                audit(
+                    profile,
+                    action,
+                    "applied",
+                    code=f"{'RAISED' if raising else 'LOWERED'}_TO_{cap}_MICRO_USD",
+                )
+        return budget_view()
+
+    # --- D-102: Claude's HR spending controls and its lifetime ledger cap ---------------------
+
+    def require_claude_raise(profile: dict[str, Any], action: str) -> None:
+        """More Claude spending authority only when Claude is fully configured (D-099
+        readiness) and its own ledger was reconciled with the Anthropic Console within the
+        last day, with the breaker closed and no call open (read-only: never recovered here)."""
+
+        code = anthropic_runtime.readiness(settings)
+        if code is not None:
+            audit(profile, action, "refused", code=code)
+            raise _refusal(409, code, "CLAUDE_NOT_READY")
+        try:
+            ledger = BudgetLedger(anthropic_runtime.ledger_file(settings))
+            ledger.verify()
+            status = ledger.status()
+            if status.profile_id != anthropic_profiles.LEDGER_PROFILE_ID:
+                raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the Anthropic ledger")
+            fresh = anthropic_runtime.reconciled_within(
+                ledger, anthropic_runtime.PAID_RECONCILE_SECONDS, clock=time.time
+            )
+        except LedgerError:
+            audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
+            raise _claude_refusal(409, "LEDGER_UNAVAILABLE") from None
+        if not fresh or status.breaker_open or status.open_calls:
+            audit(profile, action, "refused", code="RECONCILIATION_REQUIRED")
+            raise _claude_refusal(409, "RECONCILIATION_REQUIRED")
+
+    @router.put("/budget/claude/controls")
+    def put_claude_spending_controls(
+        body: ClaudeSpendingControlsRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Claude's daily allowance per Singapore day (up to US$5.00) and calls per activation
+        (1 to 20). A raise of either needs the new value confirmed and a recent
+        reconciliation. Spend and the call count are never reset; GPT-OSS is never touched."""
+
+        action = "CLAUDE_SPENDING_CONTROLS_CHANGED"
+        guard_budget(request, profile, action)
+        store = managed()
+        if not valid_claude_controls(body.daily_cap_micro_usd, body.max_calls):
+            audit(profile, action, "refused", code="CONTROLS_INVALID")
+            raise _claude_refusal(400, "CONTROLS_INVALID")
+        with selector.change_lock:
+            recheck(request, profile, action)
+            stored = selector.claude_spending_controls()
+            if stored is not None and stored.revision != body.expected_revision:
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _claude_refusal(409, "CONTROLS_CONFLICT")
+            # Unreadable controls read as no allowance and no calls: any value is then a raise.
+            current = apply_claude_controls(settings, stored)
+            current_calls = current.anthropic_max_calls if stored is not None else 0
+            daily_raise = body.daily_cap_micro_usd > current.anthropic_daily_cap_micro_usd
+            calls_raise = body.max_calls > current_calls
+            if daily_raise and body.confirm_daily_cap_micro_usd != body.daily_cap_micro_usd:
+                audit(profile, action, "refused", code="DAILY_CONFIRMATION_REQUIRED")
+                raise _claude_refusal(400, "DAILY_CONFIRMATION_REQUIRED")
+            # QG L1: more calls per activation is more spending authority too.
+            if calls_raise and body.confirm_max_calls != body.max_calls:
+                audit(profile, action, "refused", code="CALLS_CONFIRMATION_REQUIRED")
+                raise _claude_refusal(400, "CALLS_CONFIRMATION_REQUIRED")
+            if daily_raise or calls_raise:
+                require_claude_raise(profile, action)
+            try:
+                revision = store.set_claude_spending_controls(
+                    body.expected_revision,
+                    body.daily_cap_micro_usd,
+                    body.max_calls,
+                    str(profile.get("user_id")),
+                )
+            except RevisionConflict:
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _claude_refusal(409, "CONTROLS_CONFLICT") from None
+            audit(
+                profile,
+                action,
+                "applied",
+                code=f"DAILY_{body.daily_cap_micro_usd}_MICRO_USD_CALLS_{body.max_calls}",
+                revision=revision,
+            )
+        selector.sync_controls()
+        return budget_view()
+
+    @router.put("/budget/claude/lifetime-cap")
+    def put_claude_lifetime_cap(
+        body: LifetimeCapRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Set the Anthropic ledger's lifetime cap above its opening usage and at most the
+        lower of US$30.00 and the attested workspace limit. A raise needs the amount
+        confirmed, the cap the page showed, and a reconciliation within the last day; the ledger
+        keeps every call and charge. The GPT-OSS ledger is never opened here."""
+
+        action = "CLAUDE_LIFETIME_CAP_CHANGED"
+        guard_budget(request, profile, action)
+        managed()  # a change is made only where it can be audited
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                ledger = anthropic_runtime.open_own(anthropic_runtime.ledger_file(settings))
+                status = ledger.status()
+            except LedgerError:
+                audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
+                raise _claude_refusal(409, "LEDGER_UNAVAILABLE") from None
+            cap = body.cap_micro_usd
+            raising = cap > status.cap
+            # QG L2: a strictly lower cap only reduces authority, so it needs no attested
+            # workspace limit (it never enables Claude: every call still needs readiness and
+            # a cap within that limit). Any other value is checked against the ceiling too.
+            lowering = status.opening_usage < cap < status.cap
+            if not lowering and not status.opening_usage < cap <= claude_cap_ceiling():
+                audit(profile, action, "refused", code="CAP_OUT_OF_RANGE")
+                raise _claude_refusal(409, "CAP_OUT_OF_RANGE")
+            if (raising or body.expected_cap_micro_usd is not None) and (
+                body.expected_cap_micro_usd != status.cap
+            ):
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _claude_refusal(409, "CONTROLS_CONFLICT")
+            if raising:
+                if body.confirm_cap_micro_usd != cap:
+                    audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
+                    raise _claude_refusal(400, "CAP_CONFIRMATION_REQUIRED")
+                require_claude_raise(profile, action)
+            if cap != status.cap:
+                try:
+                    # The operator's rule as well (the ceiling; a raise only after a
+                    # reconciliation), then the cap this decision was made on, checked again
+                    # inside the ledger's own write transaction.
+                    anthropic_runtime.check_cap_change(ledger, cap, raising=raising)
+                    ledger.set_cap(
+                        cap,
+                        allow_raise=raising,
+                        confirm=cap if raising else None,
+                        expected=status.cap,
+                    )
+                except LedgerError as error:
+                    code = {
+                        "CAP_CHANGED": "CONTROLS_CONFLICT",
+                        "CAP_RAISE_REFUSED": "RECONCILIATION_REQUIRED",
+                    }.get(error.code, "LEDGER_UNAVAILABLE")
+                    audit(profile, action, "refused", code=code)
+                    raise _claude_refusal(409, code) from None
                 audit(
                     profile,
                     action,

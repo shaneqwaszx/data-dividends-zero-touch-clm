@@ -443,16 +443,16 @@ development cases only, the same cases GPT-OSS may answer. Never real data.
 | `AI_ASSISTANT_ANTHROPIC_DECISION=D-099` | plus the D-094 interlock GPT-OSS needs (`AI_ASSISTANT_LOCAL_API_TEST_DECISION`, D-091, D-092) |
 | `AI_ASSISTANT_ANTHROPIC_OWNER_ATTESTS` | exactly `dedicated_workspace,workspace_limit_set,inference_key_only,key_revoked_at_fyp_end` |
 | `AI_ASSISTANT_ANTHROPIC_WORKSPACE_ID` | the dedicated, non-default workspace's id (`wrkspc_…`); every reply must name it |
-| `AI_ASSISTANT_ANTHROPIC_WORKSPACE_LIMIT_MICRO_USD` | the monthly limit set on that workspace in the Console, 1 to 5,000,000 (US$5.00) |
-| `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` | default and ceiling 1,000,000 (US$1.00 per Singapore day) |
-| `AI_ASSISTANT_ANTHROPIC_MAX_CALLS` | default and ceiling 20 per activation or restart |
+| `AI_ASSISTANT_ANTHROPIC_WORKSPACE_LIMIT_MICRO_USD` | the monthly limit set on that workspace in the Console, 1 to 30,000,000 (US$30.00, D-102) |
+| `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` | default 1,000,000 (US$1.00 per Singapore day), ceiling 5,000,000 (US$5.00, D-102); HR may set it on AI Models |
+| `AI_ASSISTANT_ANTHROPIC_MAX_CALLS` | default and ceiling 20 per activation or restart; HR may set it lower on AI Models |
 | `AI_ASSISTANT_ANTHROPIC_LEDGER_PATH` | default `data/budget/anthropic_ledger.sqlite3` (git-ignored); must be a different file from the GPT-OSS ledger (`LEDGER_PATH_SHARED` otherwise) |
 | `AI_ASSISTANT_ANTHROPIC_API_KEY` | a workspace inference key (`sk-ant-api…` or `sk-ant-usr-…`); an Admin key, OAuth or session token is refused |
 
 Operator steps (offline; the script never contacts Anthropic):
 
 1. Create the ledger with the workspace's cumulative Console cost as its opening usage and a cap
-   no higher than US$5.00 or the workspace limit:
+   no higher than US$30.00 (D-102) or the workspace limit:
    `scripts/budget_ledger.py --anthropic init --cap 5.00 --opening-provider-usage 0.00 --key-alias key-01`.
 2. Reconcile against the Console's workspace cost (cumulative, in USD) before use: within 24
    hours before a paid qualification, an activation or a cap raise; at least every 7 days for
@@ -470,8 +470,13 @@ knowledge, topic and case page terms messages after the history become top-level
 blocks after its leading ones, unchanged and in order, and any other prompt shape is refused
 before anything is reserved. The paid
 qualification's G-8 gate verifies Claude calls in-band. The GPT-OSS HR spending controls and
-HR key entry never apply to Claude (HR controls for Claude are deferred). Nothing switches to or
-from Claude automatically.
+HR key entry never apply to Claude. D-102 (proposed): Claude has its own HR controls on
+Spending & Limits (daily allowance up to US$5.00, calls 1 to 20, and the Anthropic ledger's
+lifetime cap up to the lower of US$30.00 and the workspace limit); raising any of the three
+needs the new value confirmed and a reconciliation within 24 hours, lowering never does (a
+strictly lower lifetime cap is allowed even without an attested workspace limit). The workspace id, its
+limit and the attestations stay server settings. Nothing switches to or from Claude
+automatically.
 
 **Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
 plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary

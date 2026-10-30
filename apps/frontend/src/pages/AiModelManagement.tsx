@@ -12,6 +12,8 @@ import {
   MODEL_AUDIT_LIMIT,
   refreshProviderLimits,
   rollbackModel,
+  saveClaudeLifetimeCap,
+  saveClaudeSpendingControls,
   saveLifetimeCap,
   saveModelCredential,
   saveSpendingControls,
@@ -19,6 +21,7 @@ import {
   testModelConnection,
   type ModelAuditEvent,
   type ModelBudgetStatus,
+  type ModelClaudeBudget,
   type ModelDiagnosis,
   type ModelOverview,
   type ModelProfileView,
@@ -84,7 +87,7 @@ const REASON_TEXT: Record<string, string> = {
   ANTHROPIC_ATTESTATION_MISSING: "The owner has not made the four Anthropic attestations (dedicated workspace, workspace limit set, inference-only key, key revoked at FYP end).",
   ANTHROPIC_SETTINGS_INVALID: "The server's Claude settings are not valid (they may not exceed the Option B ceilings).",
   WORKSPACE_NOT_ATTESTED: "No owner-attested Anthropic workspace id is set on the server.",
-  WORKSPACE_LIMIT_NOT_ATTESTED: "The Anthropic workspace's monthly limit (at most US$5.00) is not attested on the server.",
+  WORKSPACE_LIMIT_NOT_ATTESTED: "The Anthropic workspace's monthly limit (at most US$30.00) is not attested on the server.",
   LEDGER_PATH_SHARED: "The Claude ledger file must be separate from the GPT-OSS ledger file.",
   LEDGER_PROFILE_MISMATCH: "The spending ledger belongs to another provider, so no call is allowed.",
   LIFETIME_CEILING_EXCEEDED: "The ledger cap is not valid (above the lifetime ceiling or the attested workspace limit, or not above what was already spent when the ledger opened), so no call is allowed.",
@@ -99,7 +102,7 @@ const CLAUDE_REASON_TEXT: Record<string, string> = {
   CREDENTIAL_MISSING: "The server-side Anthropic inference key is not set.",
   CREDENTIAL_INVALID: "The configured Anthropic key is not a valid inference key.",
   LEDGER_UNAVAILABLE: "The separate Claude spending ledger is missing or unhealthy.",
-  DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (at most US$1.00 a Singapore day) has no room for another call.",
+  DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (set in Spending & Limits, at most US$5.00 a Singapore day) has no room for another call.",
   LIFETIME_CAP_EXHAUSTED: "The Claude ledger's lifetime cap has no room for another call.",
 };
 
@@ -193,7 +196,7 @@ const CLAUDE_CAUSE_TEXT: Record<string, string> = {
   CALLS_REFUSED: "Paid calls were refused before anything was sent (Claude's daily allowance, lifetime cap, call limit or the reconciliation window). The answers were not judged.",
 };
 const CLAUDE_ACTION_TEXT: Partial<Record<ModelDiagnosis["action"], string>> = {
-  REVIEW_SPENDING: "Claude's limits are fixed on the server (not on this page): wait for the Singapore-day reset or ask an operator to reconcile the Claude ledger, then retry.",
+  REVIEW_SPENDING: "Review Claude's own limits in Spending & Limits (separate from GPT-OSS's), wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger, then retry.",
   ESCALATE_KEY_OWNER: "Ask the Anthropic workspace's owner to check its spend limit in the Anthropic Console (never changed from this page), then run Test connection.",
   ESCALATE_OPERATOR: "Ask an operator to reconcile the Claude ledger with the Anthropic Console's usage (scripts/budget_ledger.py --anthropic). Paid calls stay stopped until then.",
 };
@@ -234,7 +237,7 @@ const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: str
     steps: [
       "Run Test connection: it reads the attested Anthropic workspace and the model (free; no case data).",
       "The inference key, the workspace id and the four owner attestations are set on the server by an operator; HR cannot enter them.",
-      "Claude's limits are fixed on the server: wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic). A paid qualification needs a reconciliation within 24 hours.",
+      "HR sets Claude's daily allowance, calls per activation and lifetime limit in Spending & Limits (at most US$5.00 a day, 20 calls, and the lower of US$30.00 and the workspace limit). Raising one, or a paid qualification, needs the Claude ledger reconciled with the Anthropic Console within 24 hours (an operator runs scripts/budget_ledger.py --anthropic).",
       "The workspace's monthly spend limit is changed only by its owner in the Anthropic Console, never from this page.",
     ],
   },
@@ -329,9 +332,9 @@ function RecoveryCard({ item, configured, busy, onRetry, onTest }: {
         {(diagnosis?.action === "TEST_CONNECTION" || diagnosis?.action === "RETRY_LATER") && usable && (
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={onTest}>Test connection</button>
         )}
-        {/* Claude's limits are not HR settings: the link only shows them, read-only. */}
+        {/* D-102: Claude's limits are HR settings of their own, on the same Spending section. */}
         {diagnosis?.action === "REVIEW_SPENDING" && paid?.refusal !== "PROVIDER_LIMIT_EXHAUSTED" && (
-          <Link className="btn btn-secondary" to={{ search: sectionSearch("spending") }}>{claude ? "View Claude's limits (read-only)" : "Review spending controls"}</Link>
+          <Link className="btn btn-secondary" to={{ search: sectionSearch("spending") }}>{claude ? "Review Claude's limits" : "Review spending controls"}</Link>
         )}
         {escalate && (
           <button type="button" className="btn btn-secondary" onClick={() => {
@@ -713,8 +716,9 @@ const OPENROUTER_DUTIES = (hrKey: boolean): Duty[] => [
 const ANTHROPIC_DUTIES: Duty[] = [
   { who: "hr", text: "Run Test connection (a free workspace and model read), confirm a paid qualification and activate, from Models & Overview." },
   { who: "operator", text: "Set the Anthropic inference key on the server (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env). There is no HR key entry." },
-  { who: "operator", text: "Keep Claude's fixed limits within the Option B ceilings and reconcile its ledger (scripts/budget_ledger.py --anthropic)." },
-  { who: "owner", text: "Keep the dedicated Anthropic workspace's monthly spend limit (attested at most US$5.00) in the Anthropic Console." },
+  { who: "hr", text: "Change Claude's own daily, call and lifetime limits in Spending & Limits." },
+  { who: "operator", text: "Reconcile Claude's ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic) before any raise or paid run." },
+  { who: "owner", text: "Keep the dedicated Anthropic workspace's monthly spend limit (attested at most US$30.00) in the Anthropic Console." },
 ];
 
 const LOCAL_DUTIES: Duty[] = [
@@ -826,10 +830,10 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
               ? readable(keyIssue, ANTHROPIC_DEPLOYMENT)
               : "Its status is not sent to this page. An operator sets it on the server; any key problem appears among the server's codes below."}</dd></div>
             <div><dt>Workspace check</dt><dd>Test connection reads the attested workspace and the model (free; no case data). Each configuration's last result is listed above.</dd></div>
-            <div><dt>Spending</dt><dd>Claude's own ledger with fixed limits (at most US$5.00 lifetime, US$1.00 a Singapore day and 20 calls an activation, within the attested workspace limit). Not changeable on this page; the GPT-OSS controls never apply to it. <Link to={{ search: sectionSearch("spending") }}>View Claude's limits</Link>.</dd></div>
+            <div><dt>Spending</dt><dd>Claude's own ledger and its own HR limits (at most US$30.00 lifetime within the attested workspace limit, US$5.00 a Singapore day and 20 calls an activation). The GPT-OSS controls never apply to it. <Link to={{ search: sectionSearch("spending") }}>Review Claude's limits</Link>.</dd></div>
             <div><dt>Reconciliation</dt><dd>{stale
               ? readable("RECONCILIATION_STALE", ANTHROPIC_DEPLOYMENT)
-              : "An operator reconciles Claude's ledger with the Anthropic Console. The time of the last reconciliation is not sent to this page; a paid call is refused when it is out of date."}</dd></div>
+              : "An operator reconciles Claude's ledger with the Anthropic Console; Spending & Limits shows when it was last done. A raise or a paid call is refused when it is out of date."}</dd></div>
           </dl>
           <h3 className="console-subheading">Codes reported by the server</h3>
           <ReportedCodes codes={anthropicCodes} deployment={ANTHROPIC_DEPLOYMENT} />
@@ -848,16 +852,169 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
   );
 }
 
-/** Claude's spending, read-only: only what the server sends for a paid qualification. */
-function ClaudeSpending({ items }: { items: ModelProfileView[] }) {
+/** D-102: Claude's own HR limits on its separate Anthropic ledger (never GPT-OSS's). */
+function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; busy: boolean; onChanged: () => void }) {
+  const controls = claude.controls;
+  const lifetime = controls.lifetime;
+  const daily = claude.daily;
+  const dailySeed = () => amountText(controls.daily_cap_micro_usd);
+  const callsSeed = () => String(controls.max_calls);
+  const capSeed = () => (lifetime ? amountText(lifetime.cap_micro_usd) : "");
+  const [dailyText, setDailyText] = useState(dailySeed);
+  const [callsText, setCallsText] = useState(callsSeed);
+  const [capText, setCapText] = useState(capSeed);
+  // As for GPT-OSS: when the stored values change (another administrator, another tab), the
+  // inputs are refilled, so a save never sends values read under an older revision.
+  const [formRevision, setFormRevision] = useState(controls.revision);
+  const [formCap, setFormCap] = useState(lifetime?.cap_micro_usd ?? null);
+  const [dailyConfirmed, setDailyConfirmed] = useState(false);
+  const [callsConfirmed, setCallsConfirmed] = useState(false);
+  const [capConfirmed, setCapConfirmed] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  if (controls.revision !== formRevision) {
+    setFormRevision(controls.revision);
+    setDailyText(dailySeed());
+    setCallsText(callsSeed());
+    setDailyConfirmed(false);
+    setCallsConfirmed(false);
+  }
+  if ((lifetime?.cap_micro_usd ?? null) !== formCap) {
+    setFormCap(lifetime?.cap_micro_usd ?? null);
+    setCapText(capSeed());
+    setCapConfirmed(false);
+  }
+
+  const [lowDaily, highDaily] = controls.daily_cap_range;
+  const [lowCalls, highCalls] = controls.max_calls_range;
+  const dailyMicro = toMicroUsd(dailyText);
+  const calls = /^\d{1,2}$/.test(callsText.trim()) ? Number(callsText.trim()) : null;
+  const controlsValid = dailyMicro !== null && dailyMicro >= lowDaily && dailyMicro <= highDaily
+    && calls !== null && calls >= lowCalls && calls <= highCalls;
+  const dailyRaising = controlsValid && dailyMicro! > controls.daily_cap_micro_usd;
+  // QG L1: more calls per activation needs the same confirmation and reconciliation.
+  const callsRaising = controlsValid && calls! > controls.max_calls;
+  const unconfirmed = (dailyRaising && !dailyConfirmed) || (callsRaising && !callsConfirmed);
+  const capMicro = toMicroUsd(capText);
+  // QG L2: a strictly lower cap is always allowed (above the opening usage), even when no
+  // workspace limit is attested; anything else stays within the attested ceiling.
+  const capValid = lifetime !== null && capMicro !== null && capMicro > lifetime.opening_usage_micro_usd
+    && (capMicro < lifetime.cap_micro_usd || capMicro <= lifetime.max_cap_micro_usd);
+  const capRaising = capValid && capMicro! > lifetime!.cap_micro_usd;
+  const disabled = pending || busy;
+
+  async function run(action: () => Promise<unknown>, done: string): Promise<void> {
+    setPending(true);
+    setMessage(null);
+    try {
+      await action();
+      setMessage({ kind: "ok", text: done });
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setDailyConfirmed(false);
+      setCallsConfirmed(false);
+      setCapConfirmed(false);
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  return (
+    <>
+      <dl className="acra-detail-list" aria-label="Claude spending">
+        <div><dt>Settled today</dt><dd>{daily ? usd(exactDollars(daily.settled_today_micro_usd)) : LEDGER_UNREAD}</dd></div>
+        <div><dt>Remaining today</dt><dd>{daily ? usd(daily.remaining_usd) : LEDGER_UNREAD}</dd></div>
+        <div><dt>Lifetime headroom</dt><dd>{claude.ledger ? usd(claude.ledger.headroom_usd) : LEDGER_UNREAD}</dd></div>
+        <div><dt>Anthropic workspace limit</dt><dd>{claude.workspace_limit_micro_usd > 0 ? `${usd(dollars(claude.workspace_limit_micro_usd))} a month (owner-attested; changed only in the Anthropic Console)` : "Not attested on the server"}</dd></div>
+        <div><dt>Last reconciled</dt><dd>{claude.ledger?.reconciled_at ? formatTimestamp(claude.ledger.reconciled_at) : "Never (an operator reconciles the Claude ledger)"}</dd></div>
+        <div><dt>Available now</dt><dd><strong>{usd(claude.effective_remaining_usd)}</strong> (the stricter of today's allowance and the lifetime headroom)</dd></div>
+        <div><dt>Calls this activation</dt><dd>{controls.calls_used === null ? `No Claude configuration is active (limit ${controls.max_calls} per activation)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls}`}</dd></div>
+        <div><dt>Next daily reset</dt><dd>{formatTimestamp(claude.next_reset_at)} (midnight, Singapore)</dd></div>
+        <div><dt>Status</dt><dd>{claude.ledger?.breaker_open ? `Stopped: ${readable(claude.ledger.breaker_code, ANTHROPIC_DEPLOYMENT)} (an operator must reconcile)` : claude.refusal ? readable(claude.refusal, ANTHROPIC_DEPLOYMENT) : "Calls allowed"}</dd></div>
+      </dl>
+
+      <form aria-label="Claude daily and call limits" onSubmit={(event) => {
+        event.preventDefault();
+        if (!controlsValid || formRevision === null || unconfirmed) return;
+        const revision = formRevision;
+        const confirm = dailyRaising ? dailyMicro! : null;
+        const confirmCalls = callsRaising ? calls! : null;
+        void run(() => saveClaudeSpendingControls(revision, dailyMicro!, calls!, confirm, confirmCalls), "Claude's limits saved. They apply to an active Claude configuration now.");
+      }}>
+        <h3>Claude daily and call limits</h3>
+        <p className="control-help">
+          {controls.daily_cap_source === "hr" || controls.max_calls_source === "hr"
+            ? `Set by ${controls.changed_by ?? "HR"}${controls.changed_at ? ` ${formatTimestamp(controls.changed_at)}` : ""}.`
+            : "Not set here yet: the server's defaults apply."}
+          {" "}Lowering a limit never resets today's spending or the activation's call count.
+        </p>
+        <label className="control-help" htmlFor="claude-daily-limit-input">Daily limit (US$; at most US${dollars(highDaily)})</label>{" "}
+        <input id="claude-daily-limit-input" inputMode="decimal" value={dailyText} onChange={(event) => { setDailyText(event.target.value); setDailyConfirmed(false); }} disabled={disabled} />{" "}
+        <label className="control-help" htmlFor="claude-call-limit-input">Calls per activation ({lowCalls} to {highCalls})</label>{" "}
+        <input id="claude-call-limit-input" inputMode="numeric" value={callsText} onChange={(event) => { setCallsText(event.target.value); setCallsConfirmed(false); }} disabled={disabled} />{" "}
+        {dailyRaising && (
+          <label className="control-help">
+            <input type="checkbox" checked={dailyConfirmed} onChange={(event) => setDailyConfirmed(event.target.checked)} disabled={disabled} data-testid="claude-daily-raise-confirm" />
+            {" "}I confirm raising Claude's daily limit to {usd(exactDollars(dailyMicro!))}. The server first checks that the Claude ledger was reconciled with the Anthropic Console within 24 hours.
+          </label>
+        )}{" "}
+        {callsRaising && (
+          <label className="control-help">
+            <input type="checkbox" checked={callsConfirmed} onChange={(event) => setCallsConfirmed(event.target.checked)} disabled={disabled} data-testid="claude-calls-raise-confirm" />
+            {" "}I confirm raising Claude's call limit to {calls} per activation. The server first checks that the Claude ledger was reconciled with the Anthropic Console within 24 hours.
+          </label>
+        )}{" "}
+        <button type="submit" className="btn btn-primary" disabled={disabled || !controlsValid || !controls.readable || unconfirmed}>Save Claude Limits</button>
+        {!controlsValid && <p className="control-help" role="status">Enter a daily limit above US$0.00 and at most US${dollars(highDaily)}, and {lowCalls} to {highCalls} calls.</p>}
+      </form>
+
+      {lifetime ? (
+        <form aria-label="Claude lifetime limit" onSubmit={(event) => {
+          event.preventDefault();
+          if (!capValid || (capRaising && !capConfirmed)) return;
+          const cap = capMicro!;
+          const shown = lifetime.cap_micro_usd;
+          void run(() => saveClaudeLifetimeCap(cap, capRaising ? cap : null, shown), "Claude's lifetime limit updated.");
+        }}>
+          <h3>Claude lifetime limit (Anthropic ledger)</h3>
+          <p className="control-help">
+            The workspace's usage when the ledger was created: {usd(exactDollars(lifetime.opening_usage_micro_usd))}. Current limit {usd(exactDollars(lifetime.cap_micro_usd))}; committed {usd(exactDollars(lifetime.committed_micro_usd))}. It may be set above the opening usage and at most {usd(dollars(lifetime.max_cap_micro_usd))} (the lower of US$30.00 and the attested workspace limit); lowering it is always allowed. Raising it needs your confirmation and a reconciliation within 24 hours; the ledger keeps every charge and is never replaced.
+          </p>
+          <label className="control-help" htmlFor="claude-lifetime-limit-input">New Claude lifetime limit (US$)</label>{" "}
+          <input id="claude-lifetime-limit-input" inputMode="decimal" value={capText} onChange={(event) => { setCapText(event.target.value); setCapConfirmed(false); }} disabled={disabled} />{" "}
+          {capRaising && (
+            <label className="control-help">
+              <input type="checkbox" checked={capConfirmed} onChange={(event) => setCapConfirmed(event.target.checked)} disabled={disabled} data-testid="claude-cap-raise-confirm" />
+              {" "}I confirm raising Claude's lifetime limit to {usd(exactDollars(capMicro!))}.
+            </label>
+          )}{" "}
+          <button type="submit" className="btn btn-primary" disabled={disabled || !capValid || capMicro === lifetime.cap_micro_usd || (capRaising && !capConfirmed)}>Update Claude Lifetime Limit</button>
+          {!capValid && <p className="control-help" role="status">Enter an amount above {usd(exactDollars(lifetime.opening_usage_micro_usd))} and either below the current limit or at most {usd(dollars(lifetime.max_cap_micro_usd))}.</p>}
+        </form>
+      ) : <p className="control-help" role="status">The Claude ledger is not set up yet, so its lifetime limit cannot be shown or changed here (an operator creates it with scripts/budget_ledger.py --anthropic init).</p>}
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
+    </>
+  );
+}
+
+/** Claude's spending: its own HR limits (D-102) and what a paid qualification may spend. */
+function ClaudeSpending({ items, claude, busy, onChanged }: {
+  items: ModelProfileView[];
+  claude: ModelClaudeBudget | undefined;
+  busy: boolean;
+  onChanged: () => void;
+}) {
   return (
     <section className="card" aria-labelledby="claude-spending-heading" data-testid="claude-spending">
       <p className="card-kicker">Claude Sonnet 5.5 · Anthropic ledger</p>
-      <h2 id="claude-spending-heading">Claude's limits (fixed on the server, read-only)</h2>
+      <h2 id="claude-spending-heading">Claude daily spending limit, lifetime limit and calls</h2>
       <p className="ds-banner" role="note">
-        Claude has its own separate ledger and fixed limits: at most US$5.00 lifetime, US$1.00 a Singapore day and 20 calls an activation, within the owner-attested Anthropic workspace limit. Nothing on this page changes them, and the GPT-OSS limits never apply to Claude.
+        Claude has its own separate ledger and limits: at most US$5.00 a Singapore day and 20 calls an activation, and a lifetime limit of at most the lower of US$30.00 and the owner-attested Anthropic workspace limit. The GPT-OSS limits never apply to Claude, and Claude's never apply to GPT-OSS.
       </p>
-      <p className="console-help">The server does not send Claude's spending today, lifetime usage or ledger headroom to this page. It sends only what a paid qualification of each available configuration may spend, against the strictest Claude limit.</p>
+      {claude ? <ClaudeLimits claude={claude} busy={busy} onChanged={onChanged} /> : (
+        <p className="console-help">This server does not send Claude's spending or limits, so they cannot be changed here.</p>
+      )}
       {items.map((item) => {
         const paid = item.paid_qualification;
         return (
@@ -877,8 +1034,9 @@ function ClaudeSpending({ items }: { items: ModelProfileView[] }) {
         );
       })}
       <Responsibilities label="Who can change Claude's limits" duties={[
-        { who: "operator", text: "Change Claude's settings within the Option B ceilings, and reconcile its ledger (scripts/budget_ledger.py --anthropic)." },
-        { who: "owner", text: "Keep the Anthropic workspace's monthly spend limit in the Anthropic Console." },
+        { who: "hr", text: "Change Claude's daily, call and lifetime limits above, within the D-102 ceilings." },
+        { who: "operator", text: "Reconcile Claude's ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic) before any raise or paid run." },
+        { who: "owner", text: "Keep the Anthropic workspace's monthly spend limit in the Anthropic Console (attested at most US$30.00)." },
       ]} />
     </section>
   );
@@ -895,12 +1053,12 @@ function SpendingSection({ overview, busy, onChanged }: { overview: ModelOvervie
       {budget ? (
         <>
           {anthropic.length > 0 && (
-            <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 proposed) has its own fixed safeguards that nothing on this page changes: a separate ledger with at most US$5.00 lifetime, US$1.00 a day and 20 calls an activation.</p>
+            <p className="ds-banner" role="note">These limits apply to GPT-OSS 120B only. Claude Sonnet 5.5 (D-099 and D-102 proposed) has its own separate ledger and limits, set further down this page.</p>
           )}
           <SpendingLimits budget={budget} busy={busy} onChanged={onChanged} />
         </>
       ) : <p className="ds-banner" role="status">The OpenRouter test mode is not configured on this server, so no GPT-OSS spending limits apply here.</p>}
-      {anthropic.length > 0 && <ClaudeSpending items={anthropic} />}
+      {anthropic.length > 0 && <ClaudeSpending items={anthropic} claude={overview.budget?.claude} busy={busy} onChanged={onChanged} />}
     </>
   );
 }
@@ -1005,7 +1163,7 @@ function activationState(item: ModelProfileView, usable: boolean): ViewState {
 
 function remoteNotice(item: ModelProfileView, mode: ModelBudgetStatus["mode"] | undefined): string | null {
   if (item.deployment === ANTHROPIC_DEPLOYMENT) {
-    return "External API (Anthropic, D-099 proposed): answers only on synthetic development cases inside the same boundary as GPT-OSS; every other case gets the case-data answer. Its own fixed safeguards apply: a separate ledger (at most US$5.00 lifetime, US$1.00 a day, 20 calls an activation), the owner-attested workspace limit and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
+    return "External API (Anthropic, D-099 proposed): answers only on synthetic development cases inside the same boundary as GPT-OSS; every other case gets the case-data answer. Its own safeguards apply: a separate ledger with its own HR limits on Spending & Limits (at most US$30.00 lifetime within the owner-attested workspace limit, US$5.00 a day, 20 calls an activation; D-102 proposed) and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
   }
   if (item.deployment !== REMOTE_DEPLOYMENT) return null;
   return mode === "D-095"
@@ -1376,7 +1534,7 @@ const SECTION_LABEL = Object.fromEntries(CONSOLE_SECTIONS.map((item) => [item.id
 const SECTION_INTRO: Record<ConsoleSection, string> = {
   overview: "Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.",
   providers: "Which provider each configuration uses, its key and checks, and who manages what. Keys are never shown on this page.",
-  spending: "Each paid provider's ledger and limits. HR changes the GPT-OSS limits here; Claude's limits are fixed on the server. Neither provider's limits apply to the other, nothing switches between them automatically, and server-configured models have no spending ledger here.",
+  spending: "Each paid provider's ledger and limits. HR changes the GPT-OSS limits and, separately, Claude's limits here. Neither provider's limits apply to the other, nothing switches between them automatically, and server-configured models have no spending ledger here.",
   qualifications: "What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next.",
   audit: "Model events recorded by the AI Assistant service: activations, qualifications, connection tests, key and limit changes, and refused requests.",
 };
@@ -1651,7 +1809,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
             <p className="ds-banner ds-banner-warn" role="alert">
               It cannot start now: {paidPending.paid_qualification.refusal ? readable(paidPending.paid_qualification.refusal, paidPending.deployment) : "the spending limits do not leave room for every paid call."}{" "}
               {paidPending.deployment === ANTHROPIC_DEPLOYMENT
-                ? "Claude's limits are fixed on the server and are not changed on this page: run Test connection, wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger."
+                ? "Review Claude's own limits in Spending & Limits, run Test connection, wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger."
                 : "Review the GPT-OSS spending controls or run Test connection first."}
             </p>
           )}
