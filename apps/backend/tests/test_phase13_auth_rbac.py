@@ -1164,7 +1164,7 @@ def test_every_current_application_route_is_deliberately_classified(
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
-        RouteAccess.CASE_SCOPED: 46,
+        RouteAccess.CASE_SCOPED: 47,
     }
     assert next(
         policy.access for policy in ROUTE_POLICIES
