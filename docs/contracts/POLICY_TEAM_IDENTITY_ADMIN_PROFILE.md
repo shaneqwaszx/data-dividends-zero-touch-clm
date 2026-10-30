@@ -39,13 +39,13 @@ creator/updater IDs, and bounded append-only allowlisted audit events.
 
 ## Profile and authentication administration
 
-Bootstrap inserts the five established case identities plus `hr-admin` only when
-missing. Mongo-persisted hashes are authoritative after insertion and are never
+Bootstrap inserts the five established case identities plus `hr-admin` and
+`support-user` (D-103) only when missing. Mongo-persisted hashes are authoritative after insertion and are never
 overwritten from changed environment settings. Missing or malformed required seed
 state fails closed.
 
 User IDs are immutable and match `^[a-z][a-z0-9-]{2,31}$`. Client Onboarders and RMs
-require an existing team; Directors and HR require a null team. Initial passwords are
+require an existing team; Directors, HR and Support require a null team. Initial passwords are
 12–128 characters, are hashed with the established scrypt format, and only the encoded
 hash is persisted. Passwords and hashes are excluded from API, error, log, repr, and
 audit projections.

@@ -44,6 +44,7 @@ SEEDED_USERS = (
     BACKEND / "app" / "domain" / "access.py",
     BACKEND / "app" / "services" / "admin_repository.py",
 )
+NON_CASE_VIEWERS = frozenset({"Support User"})
 MEDIA_TYPES = {
     ".pdf": "application/pdf",
     ".png": "image/png",
@@ -114,7 +115,13 @@ def viewers() -> list[str]:
                 r'user_id="[^"]+",\s*display_name="([^"]+)"', path.read_text(encoding="utf-8")
             )
         )
-    return sorted(names)
+    # D-103: Support has no case pages; it only looks at the case details logged with a
+    # feedback ticket (on the review page, or by asking the AI Assistant about that case).
+    # Leaving it out of this D-095 manifest means, in D-095 mode, those ticket chats are
+    # never sent to an external model. Outside D-095 mode the synthetic boundary decides,
+    # and it lists every seeded user (Support included), so only the synthetic test case
+    # can reach an external model there.
+    return sorted(names - NON_CASE_VIEWERS)
 
 
 def build() -> str:

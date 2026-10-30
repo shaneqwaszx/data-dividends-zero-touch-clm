@@ -86,7 +86,7 @@ retraining the model. There are two kinds of entry:
 - **Official guidance**: the rulebook, written from recorded decisions (`knowledge/guidance/*.md`,
   each citing its source). HR (`POLICY_MUTATE`) can propose new guidance through
   `POST /api/assistant/knowledge/guidance`; there is no in-app UI for it.
-- **Approved past resolutions**: worked examples a manager (Director, `POLICY_APPROVE`) writes
+- **Approved past resolutions**: worked examples a Support reviewer (`KNOWLEDGE_REVIEW`, D-103) writes
   as the fix for an RM's enhancement request ("Not helpful" with a note) and that is then
   approved (D-083, proposed; see single-reviewer mode below). The demo seed
   (`seed/synthetic_resolutions.json`) is made up and labelled illustrative.
@@ -97,14 +97,14 @@ RM asks ─► case context (blocker codes, fields, stage)
         ─► prompt (rules → facts → history → KNOWLEDGE → question) ─► guardrails ─► answer + source chips
 RM clicks "Yes, helpful" ─► rating stored with the case context (confidence by topic in the stats)
 RM clicks "Not helpful" + note ─► redacted enhancement request
-        ─► Director writes the fix (past case or guidance change) ─► final text shown, confirmed,
+        ─► Support writes the fix (past case or guidance change) ─► final text shown, confirmed,
             approved ─► request resolved, searchable for the next RM (rejected: request open again)
-        ─► or Director closes it with a reason
+        ─► or Support closes it with a reason
 ```
 
 **Single-reviewer mode** (`AI_ASSISTANT_KNOWLEDGE_SINGLE_REVIEWER`, default `true` for this POC;
 D-083, proposed, needs the owner's acceptance before merge). The synthetic users have one
-Director, so with two-person review nothing a Director writes could be published. In this
+Support reviewer, so with two-person review nothing they write could be published. In this
 mode a reviewer may approve or reject an entry they wrote or edited; approving needs
 `"confirm_single_reviewer": true` (the Review window asks after showing the final text) and is
 recorded as single-reviewer in the review history (as is a rejection of your own entry); the
@@ -163,23 +163,31 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the Director then sees only the note |
+| POST | `/assistant/conversations/{id}/end` | The user who asked | End conversation (D-105): `resolved`, `satisfaction` (Yes: `very_satisfied`, `satisfied`, `neutral`; No: `neutral`, `unsatisfied`, `very_unsatisfied`) and `comment` (required when not resolved), redacted; once per conversation. Neutral or worse becomes an enhancement request with a priority (low, medium, high) |
+| GET | `/assistant/conversations?page=` | anyone signed in | Their own conversations, newest first, 10 a page (history) |
+| GET | `/assistant/conversations/{id}` | The user who asked | One of their conversations: questions and answers as shown, redacted (views logged) |
+| GET | `/assistant/knowledge/conversations?page=&resolved=&satisfaction=&status=` | Support | Rated conversations, 10 a page, high, medium, low, then no priority |
+| GET | `/assistant/knowledge/conversations/{id}` | Support | Rating, comment, the whole chat (views logged), its request and the saved draft |
+| PUT / DELETE | `/assistant/knowledge/conversations/{id}/draft` | Support | Save (redacted) or discard the draft fix of an open request |
+| POST | `/assistant/knowledge/conversations/{id}/try` | Support | Preview: the user's question answered with an unsaved rule change offered as if approved (local model only; nothing saved, published or recorded) |
+| POST | `/assistant/support/chat` | Support | A question about the approved rules and the active policy, no case (local model only) |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | (Kept for compatibility; the panel no longer sends it, D-105.) "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the reviewer then sees only the note |
 | GET | `/assistant/answers/{answer_id}` | the RM who asked | Their own answer record (view logged); HR gets 403, anyone else 404 |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
-| GET | `/assistant/knowledge/reviews` | Director | Drafts waiting for review and open enhancement requests (`gaps`, each with its `answer_id` and question; listing them is not a logged record view, opening the record is) |
-| GET | `/assistant/knowledge/entries?kind=` | Director, HR | Approved entries |
-| GET | `/assistant/knowledge/entries/{id}` | Director (every team), HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
-| POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Director | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
-| POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Director, not the author (or the author after confirming, in single-reviewer mode) | Approve or reject; `confirm_single_reviewer` confirms publishing your own entry |
-| POST | `/assistant/knowledge/entries/{id}/retire` | Two Directors | Stop using an entry: the first asks, a different one confirms |
-| POST | `/assistant/knowledge/feedback/{id}/draft` | Director | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request. Text that still contains a redaction placeholder (`[ADDRESS]`, `[COMPANY]` or any `[UPPERCASE]` token) is a 422 `PLACEHOLDER_NOT_REWRITTEN` ("Rewrite [ADDRESS], [COMPANY] in general terms before saving."); `started_from_answer` marks a fix started from the record |
-| POST | `/assistant/knowledge/feedback/{id}/close` | Director | Close an open enhancement request; `reason` is required |
-| GET | `/assistant/knowledge/feedback/{id}/answer` | Director | "What happened": the answer record linked to the request (view logged) |
-| GET | `/assistant/knowledge/feedback/{id}/fix-start` | Director | Where the fix can start: a title from the blocker type and the AI's left-out lines (and any shown model line that is not an allowed line), one sentence per line, redacted against the request's case; no notices or fixed disclaimers, no model call, nothing saved. A logged view of the record; 404 without one (the form starts empty) |
-| GET | `/assistant/knowledge/feedback/{id}/answers/{answer_id}` | Director | One of the (at most 2, most recent) earlier answers that record names (view logged); any other id is 404 |
+| GET | `/assistant/knowledge/reviews` | Support | Drafts waiting for review and open enhancement requests (`gaps`, each with its `answer_id` and question; listing them is not a logged record view, opening the record is) |
+| GET | `/assistant/knowledge/entries?kind=` | Support, HR | Approved entries |
+| GET | `/assistant/knowledge/entries/{id}` | Support (every team), HR (their team); the author | All versions and reviews of one entry; the author sees only the versions they wrote (not one a reviewer edited in place in an older store), without review notes |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/edit` | Support | Edit a pending draft (recorded); `"replaces": null` clears what it replaces, leaving it out keeps it |
+| POST | `/assistant/knowledge/entries/{id}/versions/{v}/decision` | Support, not the author (or the author after confirming, in single-reviewer mode) | Approve or reject; `confirm_single_reviewer` confirms publishing your own entry |
+| POST | `/assistant/knowledge/entries/{id}/retire` | Two Support reviewers | Stop using an entry: the first asks, a different one confirms |
+| POST | `/assistant/knowledge/feedback/{id}/draft` | Support | Write the fix for an open enhancement request: `kind` `resolution` (title, body, follow-ups) or `guidance` (title, body, `source_ref`, optional `entry_id` of guidance to change); redacted against the request's case and pending review; approving it resolves the request. Text that still contains a redaction placeholder (`[ADDRESS]`, `[COMPANY]` or any `[UPPERCASE]` token) is a 422 `PLACEHOLDER_NOT_REWRITTEN` ("Rewrite [ADDRESS], [COMPANY] in general terms before saving."); `started_from_answer` marks a fix started from the record |
+| POST | `/assistant/knowledge/feedback/{id}/close` | Support | Close an open enhancement request; `reason` is required |
+| GET | `/assistant/knowledge/feedback/{id}/answer` | Support | "What happened": the answer record linked to the request (view logged) |
+| GET | `/assistant/knowledge/feedback/{id}/fix-start` | Support | Where the fix can start: a title from the blocker type and the AI's left-out lines (and any shown model line that is not an allowed line), one sentence per line, redacted against the request's case; no notices or fixed disclaimers, no model call, nothing saved. A logged view of the record; 404 without one (the form starts empty) |
+| GET | `/assistant/knowledge/feedback/{id}/answers/{answer_id}` | Support | One of the (at most 2, most recent) earlier answers that record names (view logged); any other id is 404 |
 | POST | `/assistant/knowledge/guidance` | HR | Propose new or changed guidance |
-| POST | `/assistant/knowledge/reindex` | Director | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
-| GET | `/assistant/knowledge/stats` | Director | Entry counts, how helpful answers were, and confidence by topic (helpful / not helpful per blocker code) |
+| POST | `/assistant/knowledge/reindex` | Support | Rebuild the vector index: re-embed every current approved entry (e.g. after changing `AI_ASSISTANT_EMBED_MODEL`) |
+| GET | `/assistant/knowledge/stats` | Support | Entry counts, how helpful answers were, and confidence by topic (helpful / not helpful per blocker code) |
 
 ### Answer records
 
@@ -197,10 +205,10 @@ redacted with the case Redactor except the fixed policy lines, D-090), the lines
 `nothing_allowed` or `cut_short`, model, time). Browser history text is never stored, and a
 record never goes into a prompt or into knowledge. Each record can be rated once; "Not
 helpful" links it to the new enhancement request. If a record could not be saved, the answer
-has no `answer_id`; "Not helpful" is still offered, the RM is told the Director will only
+has no `answer_id`; "Not helpful" is still offered, the RM is told the reviewer will only
 see the note, and the request page says there is no answer record (a small-talk reply,
 marked `small_talk`, never has one, so the panel says nothing about it). The Knowledge
-review window lists each request as one row (question, note, blocker types, age); the row
+Review tab lists each request as one row (question, note, blocker types, age); the row
 opens the request as a full-width page: **What the RM saw** (question, answer and notices,
 then "Earlier in this chat (N)", up to 2 earlier exchanges, folded and fetched only when
 opened, and the RM's note), **Why the AI answered this way** (a rule-based hint, not a
@@ -222,22 +230,29 @@ record.
 ### In the app
 
 The panel is built on `@assistant-ui/react`. Each answer shows the guidance and past cases it
-cited as chips (G1, P1 …) and has **Yes, helpful** (one click, no note) and **Not helpful**
-(asks "What was missing?"; Send stays disabled until a note is typed) buttons. Users who can review
-see a **Review** button that opens the Knowledge review window.
+cited as chips (G1, P1 …). Feedback is given once per conversation (D-105): **End conversation**
+asks "Was this issue resolved?", then how satisfied the user is (Yes: very satisfied, satisfied
+or neutral, with optional comments; No: neutral, unsatisfied or very unsatisfied, with a required
+"How should it be improved?"), and the chat starts again. **History** lists the user's past
+chats; one opens back in the chat to continue it (a rated chat continues as a new conversation;
+client details in past answers show as placeholders). Knowledge review is not
+in the panel: Support users (`KNOWLEDGE_REVIEW`) review on the **Knowledge Review** tab (D-103);
+Directors no longer review knowledge. With no case open, Support gets a chat about the approved
+rules and the active policy (`POST /assistant/support/chat`, local model only, exact-line rule).
 
 ### Demo script
 
 1. Sign in as an RM, open a case blocked by a document/ACRA address conflict, open the AI Assistant.
 2. Ask "Can I use the document address?" The answer cites guidance [G1] and an illustrative past
    case [P1], shown as chips.
-3. Click **Not helpful** and say what was missing, naming the client.
-4. Sign in as the Director (olivia-koh), open **Review**: under **Enhancement requests** the
-   request's row shows the note with the client's name replaced with `[COMPANY]`. Open the
-   row; under **Write the fix**, write what resolves it as a past case and **Save the fix for
-   review**.
-5. Under **Waiting for review**, click **Approve**, check the final text and **Confirm and
-   publish** (single-reviewer mode; it is listed under **Published by a single reviewer**).
+3. Click **End conversation**: **No**, **Very unsatisfied**, and say how it should be improved,
+   naming the client.
+4. Sign in as Support (support-user), open the **Knowledge Review** tab: the conversation is at the
+   top with **High** priority and the comment's client name replaced with `[COMPANY]`. Click
+   **Review**; under **Write the fix**, write what resolves it as a past case. **Save as draft**
+   keeps it for later (the row then shows **Edit draft**).
+5. **Save and publish**, check the final text and **Confirm and publish** (Support is the single
+   reviewer). The row now shows **Fixed**.
 6. Back as an RM on a similar case, ask again: the new resolution is now cited.
 
 ## Output policy

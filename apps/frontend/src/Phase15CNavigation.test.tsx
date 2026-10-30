@@ -96,6 +96,19 @@ const hrActor: AuthenticatedProfile = {
   capabilities: ["IDENTITY_ADMIN", "PROVIDER_SANDBOX_TEST"],
 };
 
+const supportActor: AuthenticatedProfile = {
+  ...actor,
+  user_id: "support-user",
+  display_name: "Support User",
+  role: "SUPPORT",
+  team_id: null,
+  team_display_name: null,
+  team_type: null,
+  team_description: "Knowledge support only; no client-case access",
+  client_scope_label: "Knowledge support",
+  capabilities: ["KNOWLEDGE_CASE_READ", "KNOWLEDGE_REVIEW", "POLICY_VIEW"],
+};
+
 const relationshipActor: AuthenticatedProfile = {
   ...actor,
   user_id: "rachel-tan",
@@ -358,6 +371,7 @@ function RouteFixture({ profile = allCapabilitiesActor }: { profile?: Authentica
         goldtierSandbox={<Screen>goldtier-sandbox</Screen>}
         acraDiagnostics={<Screen>acra-diagnostics</Screen>}
         aiModels={<Screen>ai-models</Screen>}
+        knowledgeReview={<Screen>knowledge-review</Screen>}
       />
       <LocationProbe />
     </>
@@ -554,6 +568,33 @@ describe("Phase 15C canonical route ownership", () => {
     ));
     expect(container?.querySelector("[data-testid='screen']")?.textContent).toBe("goldtier-sandbox");
     expect(requiredCapabilityForPath(paths.goldtierSandbox)).toBe("PROVIDER_SANDBOX_TEST");
+  });
+
+  it("D-103 gives Support only the Knowledge Review and read-only Policy tabs", async () => {
+    expect(defaultPathForProfile(supportActor)).toBe(paths.knowledgeReview);
+    expect(requiredCapabilityForPath(paths.knowledgeReview)).toBe("KNOWLEDGE_REVIEW");
+
+    await act(async () => root?.render(
+      <MemoryRouter initialEntries={[paths.root]}><RouteFixture profile={supportActor} /></MemoryRouter>,
+    ));
+    await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
+      .toBe(paths.knowledgeReview));
+    expect(container?.querySelector("[data-testid='screen']")?.textContent).toBe("knowledge-review");
+    expect([...container!.querySelectorAll(".nav-tab")].map((tab) => tab.textContent))
+      .toEqual(["Knowledge Review", "Policy"]);
+
+    await act(async () => root?.render(
+      <MemoryRouter key={paths.cases} initialEntries={[paths.cases]}><RouteFixture profile={supportActor} /></MemoryRouter>,
+    ));
+    expect(container?.textContent).toContain("Page unavailable");
+
+    // A Director (or anyone without KNOWLEDGE_REVIEW) gets no tab and an unavailable route.
+    await act(async () => root?.render(
+      <MemoryRouter key={paths.knowledgeReview} initialEntries={[paths.knowledgeReview]}><RouteFixture /></MemoryRouter>,
+    ));
+    expect(container?.textContent).toContain("Page unavailable");
+    expect([...container!.querySelectorAll(".nav-tab")].map((tab) => tab.textContent))
+      .not.toContain("Knowledge Review");
   });
 
   it("P15C-NAV-03 restores exact case URLs through Back and Forward", async () => {
@@ -1862,6 +1903,32 @@ describe("Phase 15C intake and mutation safety", () => {
     expect(calls.some((call) => call.url.includes("/resume"))).toBe(false);
     expect(calls.some((call) => call.url.includes("/resolve"))).toBe(false);
     expect(calls.some((call) => call.url.includes("/intake/"))).toBe(false);
+  });
+
+  it("shows the AI Assistant to case users and Support, never to HR", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => unavailable());
+    for (const [profile, path, shown] of [
+      [hrActor, paths.adminUsers, false],
+      [relationshipActor, paths.dashboard, true],
+      [supportActor, paths.knowledgeReview, true],
+    ] as const) {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const routeRoot = createRoot(host);
+      await act(async () => {
+        routeRoot.render(
+          <MemoryRouter initialEntries={[path]}>
+            <QueryClientProvider client={testClient()}>
+              <App actor={profile} onLogout={() => undefined} />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+      expect(Boolean(host.querySelector(".ai-assistant-launcher")), profile.role).toBe(shown);
+      await act(async () => routeRoot.unmount());
+      host.remove();
+    }
   });
 
   it("P15C-NAV-14 makes the audit URL the only case-filter identity and Clear changes the URL", async () => {

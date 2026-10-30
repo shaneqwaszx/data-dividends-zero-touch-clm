@@ -1640,3 +1640,50 @@ state were not touched. D-101 and D-103 are used by other work. Not sponsor poli
 
 Not decided here: real or sponsor data on any external provider; approving a model on another
 machine for real data (a deployment decision); paid requalification.
+
+## D-103 - Support role: knowledge review moves from Directors to a Support tab, with read-only policy (OWNER-DIRECTED, local POC scope)
+
+Status: owner-directed on 2026-10-29. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+Not sponsor policy: who reviews knowledge stays an open sponsor question (Q-014), and D-073's
+reviewer-role reuse, D-083 (single reviewer) and D-084 remain PROPOSED. Amends only the
+reviewer identity in D-073/D-074 and ADR-012; their exact-line, content-hash, maker-checker and
+redaction rules are unchanged.
+
+| # | Decision |
+| --- | --- |
+| S1 | **Role.** New backend role `SUPPORT`: team-less (like Director and HR), capabilities `POLICY_VIEW`, `KNOWLEDGE_REVIEW` and `KNOWLEDGE_CASE_READ` only. No `CASE_ACCESS`, `POLICY_MUTATE`, `POLICY_APPROVE`, identity, team, sandbox or model administration. HR may create further `SUPPORT` accounts on the Users page (12–128 character passwords, unchanged). |
+| S2 | **Seeded account.** `support-user` ("Support User") is bootstrapped like the other seeded profiles from `PHASE13_SUPPORT_USER_PASSWORD_HASH` (scrypt, generated with `scripts/generate_admin_bootstrap_password_hashes.py --user support-user`). As for every seed, a missing or malformed hash stops startup; an existing persisted profile is never overwritten. The password lives only in the operator's `.env` as a hash and is never tracked. |
+| S3 | **Knowledge review.** Every AI Assistant review endpoint (queue, edit, decision, retire, fix-start, draft, close, records, reindex, stats) and `/assistant/knowledge/me` `can_review` require `KNOWLEDGE_REVIEW` instead of `POLICY_APPROVE`; the cross-team reviewer is a team-less `SUPPORT` caller instead of a team-less Director. Directors keep `POLICY_APPROVE` for policy proposals only and no longer review knowledge. Single-reviewer mode (D-083) still lets the one Support user publish their own entry with confirmation; retirement still needs a second, different reviewer, so it is unavailable with one Support account. HR guidance proposals (`POLICY_MUTATE`) are unchanged. |
+| S4 | **Redaction read.** Writing a fix redacts it against the request's case, loaded with the reviewer's own session. `KNOWLEDGE_CASE_READ` admits a team-less holder to exactly two GET routes, `/api/clm/zero-touch/cases/{case_id}` and `/api/onboarding/cases/{case_id}/documents` (route access `CASE_READ`), for any case. It grants no portfolio listing, no other case route (those answer as absent, 404), no mutation and no evidence-decision authority; the frontend shows Support no case pages. Support's purpose is limited to the case details logged with a feedback ticket: it reviews those on the review page or asks the AI Assistant about that case, and never needs the whole case page. The backend does not itself limit these two reads to ticket cases (tickets live in the AI Assistant service); that is owner-accepted for the POC and pending sponsor confirmation. |
+| S5 | **Frontend.** Knowledge review is the **Knowledge Review** tab (`/knowledge-review`, gated on `KNOWLEDGE_REVIEW`, Support's landing page) rendered as a page; the AI Assistant panel no longer opens it. Support's **Policy** tab is the existing read-only rendering for `POLICY_VIEW` holders (no propose, reset or decide controls). |
+
+Not decided here: sponsor reviewer policy (Q-014); a second Support reviewer for retirement;
+any change to knowledge content rules, redaction or the exact-line guard.
+
+## D-105 - Conversation feedback, chat history, Support's review list and Support's chat without a case (OWNER-DIRECTED, local POC scope)
+
+Status: owner-directed on 2026-10-30. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+Not sponsor policy (Q-013 retention/privacy and Q-014 reviewer policy stay open). Supersedes the
+per-answer "Yes, helpful" / "Not helpful" panel controls of D-083 and D-097 Y4's "What this
+answer used" summary; the exact-line rule (D-074, ADR-012 section C), redaction, the content-hash
+decision and maker-checker are unchanged. Support is the single reviewer (D-083 single-reviewer
+mode, still PROPOSED).
+
+| # | Decision |
+| --- | --- |
+| C1 | **Conversations.** Each answer record joins a server-side conversation (`conversations`, store schema v6; `answer_records.conversation_id`). A question joins the conversation the browser names only when it is that user's open conversation on that case; otherwise a new one starts. |
+| C2 | **End conversation.** The panel's End conversation form asks "Was this issue resolved?" first. Yes offers very satisfied, satisfied or neutral and an optional "Additional comments"; No offers neutral, unsatisfied or very unsatisfied and a required "How should it be improved?". The service enforces the same rules (422 otherwise), redacts the comment against the case and rates a conversation once. |
+| C3 | **Priority and review.** Neutral is low, unsatisfied medium, very unsatisfied high priority; satisfied or better has none. Ending adds one feedback row in the same write: an open enhancement request when there is a priority, otherwise a request closed as needing no review. Every record of the conversation is linked to it, so the D-084 retention applies (30 days after the request is resolved or closed; an unrated conversation's records go after 7 days, and the conversation with them). |
+| C4 | **Support's list.** Knowledge Review lists rated conversations, 10 a page, filtered by resolved, satisfaction and review status (not reviewed, saved as draft, fix awaiting publish, fixed, closed, no review needed), ordered high, medium, low, then no priority. A conversation with a priority shows Review (Edit draft once a draft is saved); others show View. "Waiting for review" and "Enhancement requests" are removed; other pending knowledge (HR's guidance proposals) is listed in a collapsed section only when there is any. |
+| C5 | **Drafts and publishing.** Support may save the fix as a draft (redacted, kept on the conversation until the fix is saved or the request closed) or save and publish it after confirming the final text, as the single reviewer. Fixes change only the knowledge the assistant may cite, never a case or backend logic. |
+| C6 | **History.** A user lists their own conversations (newest first, 10 a page) and opens one read-only: questions and the answers as shown, redacted (client details appear as placeholders). Views are logged. |
+| C7 | **Support's chat without a case.** `POST /assistant/support/chat` (KNOWLEDGE_REVIEW) answers from the approved knowledge and the active policy catalogue read with Support's session, under the exact-line rule: allowed lines are checked knowledge sentences, one line per policy rule and a fixed "couldn't find" line. No case data is read. The local model only: the D-094/D-095 remote model is never called for it (its gates admit verified synthetic case prompts only) and the answer is then built from the allowed lines; the messages use the same chat format, so another approved model needs no format change. |
+| C8 | **Removed.** The per-answer helpful buttons and "What this answer used" summary are no longer shown. The `POST /assistant/cases/{id}/feedback` endpoint is kept for compatibility but no longer used by the panel. Existing ratings and enhancement requests are kept, not deleted, and are not listed. |
+| C9 | **History continues the chat.** Opening a past chat from History loads it into the same chat window. An open conversation continues as itself; a rated one cannot take more answers, so new questions start a new conversation with the past exchange as context. A chat about another case opens that case's page. |
+| C10 | **Review page (point 5).** "Why the AI answered this way" becomes **Information / rules used**, every part folded until opened (how it was answered, lines shown, lines the guard left out, knowledge found, all rules offered, the case at the time). **Ask the AI Assistant about this case** opens the usual AI Assistant panel on the conversation's case, with the user's question offered first (no chat card on the page); it returns to the rules chat when Support leaves the page: it reads the case with Support's read-only access, and the service keeps no answer record or conversation for callers without `CASE_ACCESS`. |
+| C11 | **Edit how the AI should respond.** Support either edits an existing rule (chosen from the approved guidance, its current text loaded to edit) or adds a new rule, with optional "When it applies" blocker codes, fields and stages; fixes from a review are always guidance (no worked examples, no follow-up questions). **Try with this change** (`POST /assistant/knowledge/conversations/{id}/try`) answers the user's question with the unsaved change offered as if approved, first and in place of the version it would replace, under the same sentence checks and exact-line rule; it saves, publishes and records nothing and uses the local model only. Support changes only the knowledge the assistant may cite: no case, case data, CLM backend or answer logic. |
+| C12 | **Who sees the AI Assistant.** The panel is shown only to users with `CASE_ACCESS` (case users) or `KNOWLEDGE_REVIEW` (Support). HR has neither and gets no AI Assistant; the service already answers HR with nothing (no case to load, no rules chat). |
+
+Model qualification: `main.py` and `answer_records.py` are qualification basis files, so any
+existing GPT-OSS 120B qualification is no longer current and that model cannot be activated
+until it is qualified again (paid). The local model is unaffected.

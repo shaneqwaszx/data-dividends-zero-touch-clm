@@ -990,7 +990,7 @@ def test_every_case_route_family_has_identical_cross_team_and_absent_behavior(
     csrf_b = _login(team_b, "sophia-ng", password)
     opaque = "00000000-0000-4000-8000-000000000099"
     for policy in ROUTE_POLICIES:
-        if policy.access != RouteAccess.CASE_SCOPED:
+        if policy.access not in {RouteAccess.CASE_SCOPED, RouteAccess.CASE_READ}:
             continue
         values = {
             "case_id": case_id,
@@ -1015,6 +1015,56 @@ def test_every_case_route_family_has_identical_cross_team_and_absent_behavior(
         )
         assert inaccessible.status_code == absent.status_code == 404, policy
         assert inaccessible.json() == absent.json(), policy
+
+
+def test_support_reads_only_the_knowledge_redaction_case_routes(
+    runtime_credentials: tuple[str, dict[str, str]],
+) -> None:
+    """D-103: SUPPORT loads a case summary and document list for knowledge redaction only;
+    every other case route answers as absent and the portfolio stays forbidden."""
+
+    password, hashes = runtime_credentials
+    team_a, _ = _raw_client(hashes)
+    csrf_a = _login(team_a, "maya-lim", password)
+    case_id = team_a.post(
+        "/api/clm/zero-touch/cases",
+        json={"uen": "202400001A"},
+        headers={"X-CSRF-Token": csrf_a},
+    ).json()["case"]["case_id"]
+
+    support = RawTestClient(team_a.app)
+    csrf_support = _login(support, "support-user", password)
+    me = support.get("/api/auth/me").json()["profile"]
+    assert me["role"] == "SUPPORT" and me["team_id"] is None
+    assert me["capabilities"] == ["KNOWLEDGE_CASE_READ", "KNOWLEDGE_REVIEW", "POLICY_VIEW"]
+    assert support.get(f"/api/clm/zero-touch/cases/{case_id}").status_code == 200
+    assert support.get(f"/api/onboarding/cases/{case_id}/documents").status_code == 200
+    assert support.get("/api/clm/zero-touch/cases").status_code == 403
+    assert support.get("/api/policies").status_code == 200
+
+    opaque = "00000000-0000-4000-8000-000000000099"
+    for policy in ROUTE_POLICIES:
+        if policy.access != RouteAccess.CASE_SCOPED:
+            continue
+        values = {
+            "case_id": case_id,
+            "document_id": opaque,
+            "failed_document_id": opaque,
+            "exception_id": opaque,
+            "discrepancy_id": opaque,
+        }
+        absent_values = {**values, "case_id": "00000000-0000-4000-8000-000000000000"}
+        headers = {"X-CSRF-Token": csrf_support} if policy.method != "GET" else {}
+        refused = support.request(
+            policy.method, policy.path.format(**values), headers=headers, json={}
+        )
+        absent = support.request(
+            policy.method, policy.path.format(**absent_values), headers=headers, json={}
+        )
+        assert refused.status_code == absent.status_code == 404, policy
+        assert refused.json() == absent.json(), policy
+    summary = team_a.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+    assert summary["case"]["case_id"] == case_id
 
 
 @pytest.mark.parametrize(("mode", "expected_status"), [("revoked", 401), ("cross_team", 404)])
@@ -1164,7 +1214,9 @@ def test_every_current_application_route_is_deliberately_classified(
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
-        RouteAccess.CASE_SCOPED: 46,
+        RouteAccess.CASE_SCOPED: 44,
+        # D-103: the summary and document list GETs also admit the Support redaction read.
+        RouteAccess.CASE_READ: 2,
     }
     assert next(
         policy.access for policy in ROUTE_POLICIES
@@ -1240,6 +1292,7 @@ def test_authentication_composition_uses_new_synthetic_profile_settings() -> Non
         phase13_ryan_lee_password_hash=encoded,
         phase13_olivia_koh_password_hash=encoded,
         phase14_5_hr_admin_password_hash=encoded,
+        phase13_support_user_password_hash=encoded,
     )
     teams = InMemoryTeamRepository()
     profiles = InMemoryProfileRepository()
@@ -1249,6 +1302,7 @@ def test_authentication_composition_uses_new_synthetic_profile_settings() -> Non
         {
             **{profile.user_id: encoded for profile in SYNTHETIC_USER_PROFILES},
             "hr-admin": encoded,
+            "support-user": encoded,
         },
     )
     service = build_authentication_service(settings, profiles, teams)

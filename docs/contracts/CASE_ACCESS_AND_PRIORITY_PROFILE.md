@@ -5,7 +5,8 @@
 This is **PROJECT-DEFINED POC BEHAVIOR PENDING SPONSOR CONFIRMATION**. The
 backend team and profile repositories are the runtime authority. The five Phase 13
 identities retain their user IDs, roles, and persisted assignments; `hr-admin` is added
-as an administration-only identity.
+as an administration-only identity and `support-user` (D-103) as a knowledge-review-only
+identity.
 
 | User ID | Role | Team |
 |---|---|---|
@@ -15,6 +16,13 @@ as an administration-only identity.
 | `ryan-lee` | `RELATIONSHIP_MANAGER` | `TEAM_B` |
 | `olivia-koh` | `DIRECTOR` | none/global |
 | `hr-admin` | `HR` | none/administration-only |
+| `support-user` | `SUPPORT` | none/knowledge support only |
+
+`SUPPORT` has no `CASE_ACCESS`: no portfolio, case pages or case mutation. Its
+`KNOWLEDGE_CASE_READ` capability admits only `GET /api/clm/zero-touch/cases/{case_id}` and
+`GET /api/onboarding/cases/{case_id}/documents` (route access `CASE_READ`), so the AI
+Assistant can redact a knowledge fix against the request's case; every other case route
+answers as absent (D-103).
 
 `TEAM_A` is displayed as Alpha and `TEAM_B` as Beta. Their persisted IDs are not
 migrated. New server-generated IDs match `TEAM_<24 uppercase hex>` and inherit no

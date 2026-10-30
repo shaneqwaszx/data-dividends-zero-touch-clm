@@ -47,13 +47,25 @@ export interface AiAssistantAnswer {
   knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
   /** The server's record of this answer; feedback sends it back (none for small talk). */
   answer_id?: string | null;
+  /** The conversation the answer joined (D-105); End conversation rates it. */
+  conversation_id?: string | null;
   /** A fixed small-talk reply, which never has a record. */
   small_talk?: boolean;
 }
 
-/** The question body, with the ids of earlier answers in this chat (the server checks them). */
-const chatBody = (message: string, history: AiAssistantTurn[], earlierAnswerIds: string[]) =>
-  earlierAnswerIds.length ? { message, history, earlier_answer_ids: earlierAnswerIds } : { message, history };
+/** The question body, with the ids of earlier answers in this chat and the conversation it
+ * continues (the server checks both). */
+const chatBody = (
+  message: string,
+  history: AiAssistantTurn[],
+  earlierAnswerIds: string[],
+  conversationId: string | null = null,
+) => ({
+  message,
+  history,
+  ...(earlierAnswerIds.length ? { earlier_answer_ids: earlierAnswerIds } : {}),
+  ...(conversationId ? { conversation_id: conversationId } : {}),
+});
 
 export class AiAssistantError extends Error {
   constructor(message: string, readonly status: number | null = null) {
@@ -132,6 +144,8 @@ const SAFE_ERROR_MESSAGES = new Set([
   "No such enhancement request.",
   "This request was already handled. Refresh and try again.",
   "Confirm that you are publishing this entry as its only reviewer.",
+  // D-105: conversations.
+  "No such conversation.",
   // Fixed model-management messages (apps/assistant/ai_assistant/model_admin.py).
   "Model management is not configured on this server.",
   "No such model profile.",
@@ -278,10 +292,11 @@ export async function askAiAssistantStreaming(
   signal?: AbortSignal,
   earlierAnswerIds: string[] = [],
   onConnected?: () => void,
+  conversationId: string | null = null,
 ): Promise<AiAssistantAnswer> {
   const response = await send(
     `/cases/${encodeURIComponent(caseId)}/chat/stream`,
-    chatBody(message, history, earlierAnswerIds),
+    chatBody(message, history, earlierAnswerIds, conversationId),
     signal,
   );
   const isStream = (response.headers.get("Content-Type") ?? "").includes("ndjson");
@@ -371,6 +386,162 @@ export async function askAiAssistantStreaming(
   }
 }
 
+/** Support's question without a case (D-105): answered from the approved rules and policy. */
+export function askSupportAssistant(
+  message: string,
+  history: AiAssistantTurn[],
+  signal?: AbortSignal,
+): Promise<AiAssistantAnswer> {
+  return request<AiAssistantAnswer>("/support/chat", { message, history }, signal);
+}
+
+// --- Conversations (D-105): End conversation, history and Support's review list ------------
+
+export type Satisfaction = "very_satisfied" | "satisfied" | "neutral" | "unsatisfied" | "very_unsatisfied";
+export type ConversationPriority = "high" | "medium" | "low";
+export type ReviewStatus =
+  | "open"
+  | "no_review"
+  | "draft"
+  | "not_reviewed"
+  | "awaiting_publish"
+  | "fixed"
+  | "closed";
+
+export const SATISFACTION_LABELS: Record<Satisfaction, string> = {
+  very_satisfied: "Very satisfied",
+  satisfied: "Satisfied",
+  neutral: "Neutral",
+  unsatisfied: "Unsatisfied",
+  very_unsatisfied: "Very unsatisfied",
+};
+/** What the form offers after "Was this issue resolved?" (the service checks it too). */
+export const SATISFACTION_IF_RESOLVED: Satisfaction[] = ["very_satisfied", "satisfied", "neutral"];
+export const SATISFACTION_IF_NOT_RESOLVED: Satisfaction[] = ["neutral", "unsatisfied", "very_unsatisfied"];
+
+export interface ConversationSummary {
+  conversation_id: string;
+  case_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+  resolved: boolean | null;
+  satisfaction: Satisfaction | null;
+  priority: ConversationPriority | null;
+  review_status: ReviewStatus;
+  answers: number;
+  team: string | null;
+  user_id: string;
+}
+
+export interface ConversationTurn {
+  answer_id: string;
+  created_at: string;
+  question: string;
+  /** The answer as shown, with client details replaced by placeholders. */
+  answer: string;
+  notices: string[];
+  answered_by: "model" | "case_data" | null;
+}
+
+export interface ConversationPage {
+  items: ConversationSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  comment: string | null;
+  turns: ConversationTurn[];
+}
+
+/** Support's unsaved fix, kept on the conversation until it is saved or the request closed. */
+export interface ConversationDraft {
+  kind: "resolution" | "guidance";
+  title: string;
+  body: string;
+  follow_ups: string[];
+  entry_id: string | null;
+  source_ref: string;
+  /** When a guidance change applies (blank: the request's case topics). */
+  blocker_codes?: string[];
+  fields?: string[];
+  stages?: string[];
+}
+
+/** Support's preview of an unsaved rule change on the conversation's question (D-105). */
+export interface RuleTrial {
+  question: string;
+  answer: string;
+  answered_by: "model" | "case_data";
+  notice: string | null;
+  tag: string | null;
+  /** The change's sentences the AI may use on this case (they passed the checks). */
+  offered_lines: string[];
+  used: boolean;
+}
+
+export interface ReviewConversation extends ConversationDetail {
+  close_reason: string | null;
+  /** The enhancement request behind a conversation with a priority. */
+  request: KnowledgeGap | null;
+  draft: ConversationDraft | null;
+  draft_by: string | null;
+  draft_at: string | null;
+}
+
+export interface ReviewFilters {
+  page: number;
+  resolved?: boolean;
+  satisfaction?: Satisfaction;
+  status?: ReviewStatus;
+}
+
+const conversationPath = (conversationId: string) => `/conversations/${encodeURIComponent(conversationId)}`;
+
+export const endConversation = (
+  conversationId: string,
+  rating: { resolved: boolean; satisfaction: Satisfaction; comment: string },
+) => request<{ conversation_id: string; message: string }>(`${conversationPath(conversationId)}/end`, rating);
+export const fetchMyConversations = (page: number, signal?: AbortSignal) =>
+  request<ConversationPage>(`/conversations?page=${page}`, undefined, signal);
+export const fetchMyConversation = (conversationId: string, signal?: AbortSignal) =>
+  request<ConversationDetail>(conversationPath(conversationId), undefined, signal);
+
+export function fetchReviewConversations(filters: ReviewFilters, signal?: AbortSignal): Promise<ConversationPage> {
+  const query = new URLSearchParams({ page: String(filters.page) });
+  if (filters.resolved !== undefined) query.set("resolved", String(filters.resolved));
+  if (filters.satisfaction) query.set("satisfaction", filters.satisfaction);
+  if (filters.status) query.set("status", filters.status);
+  return request<ConversationPage>(`/knowledge/conversations?${query.toString()}`, undefined, signal);
+}
+export const fetchReviewConversation = (conversationId: string, signal?: AbortSignal) =>
+  request<ReviewConversation>(`/knowledge${conversationPath(conversationId)}`, undefined, signal);
+export const saveConversationDraft = (conversationId: string, draft: ConversationDraft) =>
+  request<{ status: string; draft: ConversationDraft }>(
+    `/knowledge${conversationPath(conversationId)}/draft`,
+    draft,
+    undefined,
+    "PUT",
+  );
+export const tryRuleChange = (
+  conversationId: string,
+  change: {
+    kind: "guidance" | "resolution";
+    title: string;
+    body: string;
+    entry_id?: string | null;
+    blocker_codes?: string[];
+    fields?: string[];
+    stages?: string[];
+    question?: string;
+  },
+) => request<RuleTrial>(`/knowledge${conversationPath(conversationId)}/try`, change);
+export const discardConversationDraft = (conversationId: string) =>
+  request<{ status: string }>(`/knowledge${conversationPath(conversationId)}/draft`, undefined, undefined, "DELETE");
+
 // --- Knowledge loop: RM feedback and Director review --------------------------------------
 // Permissions are decided by the backend on every call; these only carry the request.
 
@@ -442,6 +613,8 @@ export interface KnowledgeGap {
    * answer records), and the question asked. */
   answer_id?: string | null;
   question?: string | null;
+  /** The fix saved for this request, while it waits to be published. */
+  entry_id?: string | null;
 }
 
 /** Where an allowed line comes from: a fixed catalog line, one filled from the case, or knowledge. */
@@ -548,7 +721,16 @@ export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, no
 /** A Director's fix for an enhancement request: a past case or a guidance change. */
 export type KnowledgeFix = (
   | { kind: "resolution"; title: string; body: string; follow_ups: string[] }
-  | { kind: "guidance"; title: string; body: string; source_ref: string; entry_id?: string }
+  | {
+      kind: "guidance";
+      title: string;
+      body: string;
+      source_ref: string;
+      entry_id?: string;
+      blocker_codes?: string[];
+      fields?: string[];
+      stages?: string[];
+    }
 ) & { started_from_answer?: boolean };
 
 /** Where a fix can start: a title from the blocker type and the AI's left-out lines, redacted. */

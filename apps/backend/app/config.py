@@ -116,6 +116,7 @@ class Settings(BaseSettings):
     phase13_ryan_lee_password_hash: SecretStr | None = None
     phase13_olivia_koh_password_hash: SecretStr | None = None
     phase14_5_hr_admin_password_hash: SecretStr | None = None
+    phase13_support_user_password_hash: SecretStr | None = None
     phase14_5_max_active_sessions: int = Field(default=256, ge=1, le=1000)
     phase13_cookie_secure: bool | None = None
     phase13_browser_origin: str | None = None

@@ -110,7 +110,7 @@ class UserAccountRecord(BaseModel):
 
     @model_validator(mode="after")
     def validate_account(self) -> UserAccountRecord:
-        if self.role in {Role.DIRECTOR, Role.HR} and self.team_id is not None:
+        if self.role in {Role.DIRECTOR, Role.HR, Role.SUPPORT} and self.team_id is not None:
             raise ValueError("global administration roles must not have a team")
         if self.role in {Role.CLIENT_ONBOARDER, Role.RELATIONSHIP_MANAGER} and self.team_id is None:
             raise ValueError("case roles require a team")
