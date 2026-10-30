@@ -174,8 +174,8 @@ const SAFE_ERROR_MESSAGES = new Set([
   "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
   "A later qualification of this configuration failed on answer quality.",
   // D-095: the OpenRouter key (never echoed back).
-  "That is not an OpenRouter API key. Nothing was saved.",
-  "The OpenRouter key is set on the server (environment or .env) and cannot be changed here.",
+  "That is not an API key for this provider (an inference key only). Nothing was saved.",
+  "The session key cannot be used now: the HR session that entered it cannot be checked. Nothing started.",
   "There is no key entered here to clear.",
   "Too many key changes. Wait a few minutes and try again.",
   "This change must come from the AI Models page.",
@@ -901,15 +901,25 @@ export interface ModelDataAccess {
   verification: "D-095" | "D-094";
 }
 
-/** D-095 addendum: where the OpenRouter key comes from. Never the key, nor any part of it. */
+/** Where a provider's key comes from (D-095 addendum, D-106). Never the key, nor any part of it. */
 export interface ModelCredentialStatus {
-  source: "environment" | "env_file" | "hr_memory" | "none";
-  status: "configured" | "missing" | "invalid";
+  /** D-106 order: an HR session key, then the process environment, then apps/assistant/.env. */
+  source: "hr_session" | "environment" | "env_file" | "none";
+  /** unverified: an HR key whose session the server cannot check now (it is not used). */
+  status: "configured" | "missing" | "invalid" | "unverified";
   hr_editable: boolean;
   persistence: "memory_only" | "server";
   set_at: number | null;
   set_by: string | null;
+  /** D-106: an HR key ends with its session, and no later than this (seconds since the epoch). */
+  expires_at?: number | null;
+  verified_at?: number | null;
+  /** The server key used once the HR key is cleared or its session ends. */
+  fallback?: "environment" | "env_file" | "none";
 }
+
+/** D-106: the two providers whose keys HR may enter. */
+export type CredentialProvider = "openrouter" | "anthropic";
 
 /** D-095: read-only spending view. Amounts are micro-USD integers with USD strings beside. */
 export interface ModelBudgetStatus {
@@ -999,6 +1009,8 @@ export interface ModelClaudeBudget {
   reservation_micro_usd?: number | null;
   refusal: string | null;
   controls: ModelClaudeSpendingControls;
+  /** D-106: the Anthropic key's source and status (absent from older servers). */
+  credential?: ModelCredentialStatus;
 }
 
 /** D-102: Claude's HR controls. "environment" means HR has not set the value yet. */
@@ -1098,12 +1110,14 @@ export const rollbackModel = (expectedRevision: number, acknowledgeQualityUnscor
     acknowledge_quality_unscored: acknowledgeQualityUnscored,
   });
 // The key goes to the server once and is never returned; the page keeps no copy.
-export const fetchModelCredential = (signal?: AbortSignal) =>
-  request<ModelCredentialStatus>("/admin/models/credential", undefined, signal);
-export const saveModelCredential = (apiKey: string) =>
-  request<ModelCredentialStatus>("/admin/models/credential", { api_key: apiKey }, undefined, "PUT");
-export const clearModelCredential = () =>
-  request<ModelCredentialStatus>("/admin/models/credential", undefined, undefined, "DELETE");
+const credentialPath = (provider: CredentialProvider) =>
+  provider === "anthropic" ? "/admin/models/credential/anthropic" : "/admin/models/credential";
+export const fetchModelCredential = (signal?: AbortSignal, provider: CredentialProvider = "openrouter") =>
+  request<ModelCredentialStatus>(credentialPath(provider), undefined, signal);
+export const saveModelCredential = (apiKey: string, provider: CredentialProvider = "openrouter") =>
+  request<ModelCredentialStatus>(credentialPath(provider), { api_key: apiKey }, undefined, "PUT");
+export const clearModelCredential = (provider: CredentialProvider = "openrouter") =>
+  request<ModelCredentialStatus>(credentialPath(provider), undefined, undefined, "DELETE");
 // D-096: HR spending controls. Amounts are whole micro-USD; the server checks every bound.
 // D-098: raising the daily limit sends the same amount again as the HR confirmation.
 export const saveSpendingControls = (

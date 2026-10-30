@@ -14,6 +14,7 @@ qualification, activation, rollback and an audit history.
                                GET  /assistant/admin/models/credential      (D-095 addendum)
                                PUT  /assistant/admin/models/credential
                                DELETE /assistant/admin/models/credential
+                               GET|PUT|DELETE .../credential/anthropic      (D-106)
                                PUT  /assistant/admin/models/budget/controls     (D-096)
                                PUT  /assistant/admin/models/budget/lifetime-cap
                                POST /assistant/admin/models/budget/provider-refresh
@@ -22,9 +23,10 @@ Who is asking, and whether they hold ``MODEL_CONFIG_MANAGE``, always comes from 
 backend with the caller's own session; activation and rollback ask again inside the lock
 that applies them. Refusals of a signed-in caller are audited. Nothing here reads a case or
 an answer record, and the browser can only name a profile id, except that an HR
-administrator may hand the server an OpenRouter key when no environment or .env key exists
-(key_sources.py): it is kept in server memory only and never sent back, logged or audited;
-changing it needs the Origin header of an allowed page and is rate limited.
+administrator may hand the server an OpenRouter or an Anthropic key (D-106, key_sources.py):
+it is kept in server memory only, bound to that administrator's own session (used before an
+environment or .env key, dropped when the session ends) and never sent back, logged or
+audited; changing it needs the Origin header of an allowed page and is rate limited.
 
 D-096: an HR administrator also sets the remote model's spending controls here: the daily
 allowance per Singapore day and the calls per activation (1 to 200), stored in the model state
@@ -50,7 +52,6 @@ answer and an administrator decides.
 
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
@@ -177,11 +178,14 @@ MESSAGES = {
     "REMOTE_MANIFEST_MISSING": (
         "The paid qualification's question list and count are not configured on the server."
     ),
-    "CREDENTIAL_INVALID": "That is not an OpenRouter API key. Nothing was saved.",
-    "CREDENTIAL_ENVIRONMENT_MANAGED": (
-        "The OpenRouter key is set on the server (environment or .env) and cannot be changed here."
+    "CREDENTIAL_INVALID": (
+        "That is not an API key for this provider (an inference key only). Nothing was saved."
     ),
     "CREDENTIAL_NOT_HR_MANAGED": "There is no key entered here to clear.",
+    "CREDENTIAL_SESSION_UNVERIFIED": (
+        "The session key cannot be used now: the HR session that entered it cannot be checked."
+        " Nothing started."
+    ),
     "CREDENTIAL_RATE_LIMITED": "Too many key changes. Wait a few minutes and try again.",
     "ORIGIN_REQUIRED": "This change must come from the AI Models page.",
     # D-096: HR spending controls.
@@ -341,6 +345,11 @@ class ModelSelector:
         self.fetch: Callable[[str], Any] | None = None
         # Starts the qualification process for a recorded run (tests run it in-process).
         self.launch: Callable[[str], Any] = self._launch_process
+        # D-106: per run started here, the provider whose HR key it may be handed (set before
+        # launch), and the key it was handed (provider: generation), so its supervisor ends it
+        # once that key is cleared or replaced or its HR session ends.
+        self.handoff_providers: dict[str, str] = {}
+        self.handoffs: dict[str, dict[str, int]] = {}
         self._baseline_model = baseline_model
         self.baseline = baseline_entry(settings)
         self._lock = threading.Lock()
@@ -375,7 +384,10 @@ class ModelSelector:
         path = profiles_path(self.settings)
         if not QUALIFY_SCRIPT.is_file() or path is None:
             raise ProfileConfigError("QUALIFICATION_UNAVAILABLE", "the harness is not installed")
-        return subprocess.Popen(
+        payload, generations = qualification_handoff(
+            self.handoff_providers.pop(qualification_id, None)
+        )
+        handle = subprocess.Popen(
             [
                 sys.executable,
                 str(QUALIFY_SCRIPT),
@@ -387,11 +399,25 @@ class ModelSelector:
                 str(path),
             ],
             cwd=ASSISTANT_DIR,
-            env=qualification_environment(),
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        # D-106: HR keys only through this pipe (never the command line or the environment).
+        pipe = handle.stdin
+        try:
+            if pipe is None:
+                raise OSError("no standard input")
+            pipe.write(payload)
+            pipe.close()
+        except OSError:
+            handle.kill()
+            handle.wait()
+            raise
+        finally:
+            del payload
+        self.handoffs[qualification_id] = generations
+        return handle
 
     def baseline_choice(self) -> Choice:
         return Choice(BASELINE_ID, self.baseline.fingerprint)
@@ -894,15 +920,50 @@ class ModelSelector:
             raise ProfileConfigError(problem or "BUILD_FAILED", "activation undone")
 
 
-def qualification_environment() -> dict[str, str] | None:
-    """The qualification process's environment: this one's, plus an HR-entered key (which only
-    this process's memory holds) as OPENROUTER_API_KEY. Never on its command line; None (the
-    inherited environment) when the key comes from the environment or .env, or there is none."""
+HANDOFF_STORES = {"openrouter": "HR_STORE", "anthropic": "ANTHROPIC_STORE"}
 
-    key, status = key_sources.resolve()
-    if key is None or status.source != "hr_memory":
-        return None
-    return {**os.environ, key_sources.CREDENTIAL_VARIABLE: key.get_secret_value()}
+
+def hr_store(provider: str) -> key_sources.HrCredential:
+    store: key_sources.HrCredential = getattr(key_sources, HANDOFF_STORES[provider])
+    return store
+
+
+def handoff_provider(entry: CatalogueEntry) -> str | None:
+    """Whose HR key a qualification of this configuration may use (None: a local model)."""
+
+    if entry.deployment == "anthropic":
+        return "anthropic"
+    return "openrouter" if entry.source == "code" else None
+
+
+def qualification_handoff(provider: str | None) -> tuple[bytes, dict[str, int]]:
+    """D-106: the qualified provider's HR key (only this process's memory holds it), as one
+    JSON object for the qualification process's standard input, and its generation, checked
+    against the HR session first. A key whose session cannot be checked now refuses the start
+    (``CREDENTIAL_SESSION_UNVERIFIED``): the run never falls back to a server key in its place.
+    The process inherits this one's environment unchanged, so a server key reaches it as
+    before when no HR key exists."""
+
+    if provider is None:
+        return b"{}", {}
+    entry = hr_store(provider).current(max_age=0)
+    if entry.held:
+        raise ProfileConfigError("CREDENTIAL_SESSION_UNVERIFIED", "the HR session is unchecked")
+    if entry.key is None:
+        return b"{}", {}
+    payload = json.dumps({provider: entry.key.get_secret_value()}).encode("utf-8")
+    return payload, {provider: entry.generation}
+
+
+def handoff_revoked(generations: dict[str, int]) -> bool:
+    """Whether a key handed to a running qualification was cleared, replaced or dropped with
+    its HR session (or its session cannot be checked now)."""
+
+    for provider, generation in generations.items():
+        entry = hr_store(provider).current()
+        if entry.key is None or entry.generation != generation:
+            return True
+    return False
 
 
 def _last_good(stored: Activation) -> Choice | None:
@@ -1030,6 +1091,10 @@ def diagnose(item: dict[str, Any], *, current: bool = True) -> Diagnosis:
         return Diagnosis("billing_uncertain", code, "ESCALATE_OPERATOR")
     if code in _TECHNICAL_ERRORS:
         return Diagnosis("technical", code, "RUN_AGAIN", retryable=True)
+    if code == "CREDENTIAL_REVOKED":
+        # D-106: the HR session key it was given ended (sign-out, expiry, clearing): a key is
+        # needed again and Test connection must pass before a retry. Nothing about the model.
+        return Diagnosis("configuration", code, "TEST_CONNECTION")
     if code == "CONFIG_MISMATCH":
         # The settings or the answer code changed while it ran: qualify the current ones.
         return Diagnosis("configuration", code, "RUN_AGAIN", retryable=True)
@@ -1313,6 +1378,23 @@ def model_admin_router(
 
     Admin = Annotated[dict[str, Any], Depends(admin)]
 
+    def hr_session_live(session: SecretStr, user_id: str) -> bool | None:
+        # D-106: the session that entered an HR key, asked about with its own cookie (an RM's
+        # session is never used for this): live only while the same user is signed in and may
+        # still manage AI models. Ended, expired or revoked: False. Unreachable: None.
+        try:
+            actor = backend.load_actor(session.get_secret_value())
+        except ClmBackendError as exc:
+            return False if exc.status_code in (401, 403, 404) else None
+        except Exception:  # noqa: BLE001 - an unexpected reply holds the key back
+            return None
+        current = actor["profile"]
+        return current.get("user_id") == user_id and CAPABILITY in (
+            current.get("capabilities") or []
+        )
+
+    key_sources.install_session_check(hr_session_live)
+
     def recheck(request: Request, profile: dict[str, Any], action: str) -> None:
         """Ask the backend again inside the change lock: same user, still allowed."""
 
@@ -1582,9 +1664,13 @@ def model_admin_router(
         limit = time.monotonic() + settings.model_qualification_max_seconds + DEADLINE_GRACE_SECONDS
         cancelled_at: float | None = None
         ended = None
+        handed = selector.handoffs.pop(qualification_id, {})
         try:
             while handle.poll() is None:
                 now = time.monotonic()
+                if handed and handoff_revoked(handed):
+                    ended = "CREDENTIAL_REVOKED"
+                    break
                 try:
                     store.touch(qualification_id)
                     item = store.qualification(qualification_id)
@@ -1690,6 +1776,10 @@ def model_admin_router(
     ) -> dict[str, Any]:
         store = managed()
         entry = entry_for(load_catalogue(settings), profile_id, profile, "QUALIFICATION_STARTED")
+        # D-106: a held-back HR key refuses the start (never a server key in its place).
+        provider = handoff_provider(entry)
+        if provider is not None and hr_store(provider).current(max_age=0).held:
+            raise refuse_start(entry, profile, "CREDENTIAL_SESSION_UNVERIFIED")
         # The same checks the qualification process applies, before anything starts.
         if entry.source == "code":
             # D-094: a paid run, so only the configured, counted question manifest.
@@ -1741,19 +1831,28 @@ def model_admin_router(
                 code="QUALIFICATION_BUSY",
             )
             raise _refusal(409, "QUALIFICATION_BUSY") from None
+        if provider is not None:
+            selector.handoff_providers[qualification_id] = provider
         try:
             handle = selector.launch(qualification_id)
-        except (OSError, ProfileConfigError):
-            store.finish_qualification(qualification_id, "error", "QUALIFICATION_UNAVAILABLE", None)
+        except (OSError, ProfileConfigError) as error:
+            selector.handoff_providers.pop(qualification_id, None)
+            code = (
+                error.code
+                if isinstance(error, ProfileConfigError)
+                and error.code == "CREDENTIAL_SESSION_UNVERIFIED"
+                else "QUALIFICATION_UNAVAILABLE"
+            )
+            store.finish_qualification(qualification_id, "error", code, None)
             audit(
                 profile,
                 "QUALIFICATION_STARTED",
                 "refused",
                 profile_id=entry.profile_id,
                 fingerprint=entry.fingerprint,
-                code="QUALIFICATION_UNAVAILABLE",
+                code=code,
             )
-            raise _refusal(409, "QUALIFICATION_UNAVAILABLE") from None
+            raise _refusal(409, code) from None
         audit(
             profile,
             "QUALIFICATION_STARTED",
@@ -1973,12 +2072,10 @@ def model_admin_router(
     def get_budget(profile: Admin) -> dict[str, Any]:
         return budget_view()
 
-    def credential_view() -> dict[str, Any]:
+    def credential_view(provider: str = "openrouter") -> dict[str, Any]:
+        if provider == "anthropic":
+            return anthropic_runtime.resolve_key(selector.environ)[1].view()
         return key_sources.resolve(selector.environ)[1].view()
-
-    @router.get("/credential")
-    def get_credential(profile: Admin) -> dict[str, Any]:
-        return credential_view()
 
     attempts: dict[str, list[float]] = {}
     attempts_lock = threading.Lock()
@@ -2002,13 +2099,25 @@ def model_admin_router(
             audit(profile, action, "refused", code="CREDENTIAL_RATE_LIMITED")
             raise _refusal(429, "CREDENTIAL_RATE_LIMITED")
 
-    def environment_managed() -> bool:
-        return key_sources.resolve(selector.environ)[1].source in ("environment", "env_file")
+    # D-106: one HR key per provider (OpenRouter for GPT-OSS, Anthropic for both Claude
+    # configurations), bound to the HR session that entered it and used before an environment
+    # or .env key. /credential stays the OpenRouter key's address.
+    # The key shape HR may enter, and what a key change makes stale.
+    providers: dict[str, tuple[re.Pattern[str], Callable[[], None]]] = {
+        "openrouter": (key_sources.HR_KEY, forget_provider),
+        "anthropic": (anthropic_runtime.HR_KEY, lambda: None),
+    }
 
-    @router.put("/credential")
-    async def put_credential(request: Request, profile: Admin) -> dict[str, Any]:
+    def provider_store(provider: str) -> key_sources.HrCredential:
+        # Looked up per request, so a replaced store (tests) is the one used.
+        return key_sources.ANTHROPIC_STORE if provider == "anthropic" else key_sources.HR_STORE
+
+    async def set_credential(
+        request: Request, profile: dict[str, Any], provider: str
+    ) -> dict[str, Any]:
         action = "CREDENTIAL_SET"
         guard_change(request, profile, action)
+        shape, forget = providers[provider]
         # Parsed here, not by a request model, so a refusal can never echo the value back.
         raw = await request.body()
         key: object = None
@@ -2021,34 +2130,59 @@ def model_admin_router(
                 body = None
             if isinstance(body, dict) and set(body) == {"api_key"}:
                 key = body["api_key"]
-        if not isinstance(key, str) or not key_sources.HR_KEY.fullmatch(key):
-            audit(profile, action, "refused", code="CREDENTIAL_INVALID")
+        if not isinstance(key, str) or not shape.fullmatch(key):
+            audit(profile, action, "refused", profile_id=provider, code="CREDENTIAL_INVALID")
             raise _refusal(400, "CREDENTIAL_INVALID")
         secret = SecretStr(key)
         del key, raw
         await anyio.to_thread.run_sync(recheck, request, profile, action)
-        if environment_managed():
-            audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
-            raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
-        key_sources.HR_STORE.set(secret, str(profile.get("user_id")))
-        forget_provider()  # the spending view's key limit was read for the previous key
-        audit(profile, action, "applied")
-        return credential_view()
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        if not session:
+            raise _refusal(401, "AUTHENTICATION_REQUIRED")
+        provider_store(provider).set(
+            secret, str(profile.get("user_id")), session=SecretStr(session)
+        )
+        forget()  # the spending view's key limit was read for the previous key
+        audit(profile, action, "applied", profile_id=provider)
+        view: dict[str, Any] = await anyio.to_thread.run_sync(credential_view, provider)
+        return view
 
-    @router.delete("/credential")
-    def delete_credential(request: Request, profile: Admin) -> dict[str, Any]:
+    def clear_credential(
+        request: Request, profile: dict[str, Any], provider: str
+    ) -> dict[str, Any]:
         action = "CREDENTIAL_CLEARED"
         guard_change(request, profile, action)
         recheck(request, profile, action)
-        if environment_managed():
-            audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
-            raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
-        if not key_sources.HR_STORE.clear():
-            audit(profile, action, "refused", code="CREDENTIAL_NOT_HR_MANAGED")
+        if not provider_store(provider).clear():
+            audit(profile, action, "refused", profile_id=provider, code="CREDENTIAL_NOT_HR_MANAGED")
             raise _refusal(409, "CREDENTIAL_NOT_HR_MANAGED")
-        forget_provider()
-        audit(profile, action, "applied")
+        providers[provider][1]()
+        audit(profile, action, "applied", profile_id=provider)
+        return credential_view(provider)
+
+    @router.get("/credential")
+    def get_credential(profile: Admin) -> dict[str, Any]:
         return credential_view()
+
+    @router.put("/credential")
+    async def put_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return await set_credential(request, profile, "openrouter")
+
+    @router.delete("/credential")
+    def delete_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return clear_credential(request, profile, "openrouter")
+
+    @router.get("/credential/anthropic")
+    def get_anthropic_credential(profile: Admin) -> dict[str, Any]:
+        return credential_view("anthropic")
+
+    @router.put("/credential/anthropic")
+    async def put_anthropic_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return await set_credential(request, profile, "anthropic")
+
+    @router.delete("/credential/anthropic")
+    def delete_anthropic_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return clear_credential(request, profile, "anthropic")
 
     # --- D-096: HR spending controls, the lifetime ledger cap and provider limits -----------
 

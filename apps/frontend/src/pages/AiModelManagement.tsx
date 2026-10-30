@@ -22,7 +22,9 @@ import {
   testModelConnection,
   type ModelAuditEvent,
   type ModelBudgetStatus,
+  type CredentialProvider,
   type ModelClaudeBudget,
+  type ModelCredentialStatus,
   type ModelDataAccess,
   type ModelDiagnosis,
   type ModelOverview,
@@ -60,7 +62,8 @@ const REASON_TEXT: Record<string, string> = {
   PROFILE_MISSING: "It is no longer in the profiles file.",
   PROFILE_UNAVAILABLE: "It is no longer available.",
   QUALIFICATION_OUT_OF_DATE: "The assistant's answer code changed since it was qualified.",
-  CREDENTIAL_MISSING: "Its server-side key is not set.",
+  CREDENTIAL_MISSING: "No key is set: no session key was entered and the server has none.",
+  CREDENTIAL_SESSION_UNVERIFIED: "The session key is held back: the HR session that entered it cannot be checked now.",
   PROXY_CONFIGURED: "A proxy is configured on the server.",
   // D-094 local synthetic test mode (GPT-OSS 120B via OpenRouter).
   DECISION_INTERLOCK: "The D-091 and D-092 settings the remote model needs are not set on the server.",
@@ -101,7 +104,8 @@ const REASON_TEXT: Record<string, string> = {
 const CLAUDE_REASON_TEXT: Record<string, string> = {
   PROVIDER_LIMIT_NOT_CHECKED: "The Anthropic workspace and model check has not been run in this server process yet. Run Test connection (a free model read).",
   PROVIDER_CHECK_FAILED: "The last Anthropic workspace and model check failed. Run Test connection.",
-  CREDENTIAL_MISSING: "The server-side Anthropic inference key is not set.",
+  CREDENTIAL_MISSING: "No Anthropic inference key is set: no session key was entered and the server has none.",
+  CREDENTIAL_SESSION_UNVERIFIED: "The Anthropic session key is held back: the HR session that entered it cannot be checked now.",
   CREDENTIAL_INVALID: "The configured Anthropic key is not a valid inference key.",
   LEDGER_UNAVAILABLE: "The separate Claude spending ledger is missing or unhealthy.",
   DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (set in Spending & Limits, at most US$5.00 a Singapore day) has no room for another call.",
@@ -174,6 +178,7 @@ const CAUSE_TEXT: Record<string, string> = {
   CAPACITY_NOT_VERIFIED: "The model's context capacity could not be verified for the qualification prompts.",
   UNKNOWN: "The run failed for a reason this page cannot name.",
   KEY_LIMIT_EXHAUSTED: "The OpenRouter key's own spending limit has no room for a call. HR spending controls cannot change it.",
+  CREDENTIAL_REVOKED: "The session key the run was given ended (its HR session signed out or expired, or the key was cleared or replaced), so the run was stopped. It says nothing about the model.",
 };
 const ACTION_TEXT: Record<ModelDiagnosis["action"], string> = {
   NONE: "Nothing to do.",
@@ -228,7 +233,7 @@ const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: str
   openrouter: {
     title: "Troubleshooting GPT-OSS 120B (OpenRouter)",
     steps: [
-      "Providers: check that the OpenRouter key is configured and that Test connection passes (it reads the key's own limit; no model call).",
+      "Providers: check that an OpenRouter key is configured (a session key or the server key) and that Test connection passes (it reads the key's own limit; no model call).",
       "Spending & Limits: check that today's allowance, the lifetime headroom and the key's own limit leave room for every paid call.",
       "If paid calls are stopped, an operator reconciles the ledger with OpenRouter (scripts/budget_ledger.py) before any retry.",
       "A key limit with no room is raised only by the key's owner at OpenRouter, never from this page.",
@@ -238,7 +243,7 @@ const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: str
     title: "Troubleshooting Claude Sonnet 5.5 (Anthropic API)",
     steps: [
       "Run Test connection: it reads the attested Anthropic workspace and the model (free; no case data).",
-      "The inference key, the workspace id and the four owner attestations are set on the server by an operator; HR cannot enter them.",
+      "Providers: enter a session inference key, or rely on the server key; either must belong to the attested workspace. The workspace id and the four owner attestations are set on the server by an operator.",
       "HR sets Claude's daily allowance, calls per activation and lifetime limit in Spending & Limits (at most US$5.00 a day, 20 calls, and the lower of US$30.00 and the workspace limit). Raising one, or a paid qualification, needs the Claude ledger reconciled with the Anthropic Console within 24 hours (an operator runs scripts/budget_ledger.py --anthropic).",
       "The workspace's monthly spend limit is changed only by its owner in the Anthropic Console, never from this page.",
     ],
@@ -433,12 +438,6 @@ function value(item: unknown): string {
 
 const usd = (amount: string | null | undefined) => (amount ? `US$${amount}` : "—");
 
-const CREDENTIAL_SOURCE: Record<string, string> = {
-  environment: "Set on the server in the process environment (OPENROUTER_API_KEY). Managed outside this page.",
-  env_file: "Set on the server in apps/assistant/.env. Managed outside this page.",
-  hr_memory: "Entered on this page. Kept in the AI Assistant's memory only: enter it again after the service restarts.",
-  none: "No key is set on the server.",
-};
 
 // Whole micro-USD from a US$ amount typed by HR ("0.25" -> 250000); null when not a plain amount.
 export function toMicroUsd(text: string): number | null {
@@ -599,9 +598,46 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
   );
 }
 
-function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
-  budget: ModelBudgetStatus;
-  remoteProfileId: string | null;
+const KEY_VARIABLE: Record<CredentialProvider, string> = {
+  openrouter: "OPENROUTER_API_KEY",
+  anthropic: "AI_ASSISTANT_ANTHROPIC_API_KEY",
+};
+
+function credentialSource(credential: ModelCredentialStatus, provider: CredentialProvider): string {
+  switch (credential.source) {
+    case "hr_session":
+      return "Session key entered on this page. Kept in the AI Assistant's memory only and used first; it ends when the HR session that entered it signs out or expires, when it is cleared, or when the service restarts.";
+    case "environment":
+      return `Server key from the process environment (${KEY_VARIABLE[provider]}). A session key entered here is used instead while it lasts.`;
+    case "env_file":
+      return "Server key from apps/assistant/.env. A session key entered here is used instead while it lasts.";
+    default:
+      return "No key is set on the server and none was entered for this session.";
+  }
+}
+
+const FALLBACK_TEXT: Record<string, string> = {
+  environment: "the server key from the process environment",
+  env_file: "the server key from apps/assistant/.env",
+  none: "no key (the provider's models become unavailable)",
+};
+
+function credentialLabel(credential: ModelCredentialStatus): string {
+  if (credential.status === "configured") return "Configured";
+  if (credential.status === "invalid") return "Invalid";
+  if (credential.status === "unverified") return "Session Not Verified";
+  return "Not Configured";
+}
+
+const secondsText = (seconds: number | null | undefined) =>
+  typeof seconds === "number" ? formatTimestamp(new Date(seconds * 1000).toISOString()) : "—";
+
+/** D-106: one provider's API key: the server key's source, and a key HR enters for this session. */
+export function ProviderKey({ provider, title, credential, testProfileId, busy, onChanged }: {
+  provider: CredentialProvider;
+  title: string;
+  credential: ModelCredentialStatus | null;
+  testProfileId: string | null;
   busy: boolean;
   onChanged: () => void;
 }) {
@@ -609,8 +645,9 @@ function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
   const [key, setKey] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const credential = budget.credential;
-  const label = credential.status === "configured" ? "Configured" : credential.status === "invalid" ? "Invalid" : "Not Configured";
+  const label = credential ? credentialLabel(credential) : "Status Unavailable";
+  const inputId = `${provider}-key-input`;
+  const headingId = `${provider}-key-heading`;
 
   async function run(action: () => Promise<unknown>, done: string): Promise<void> {
     setPending(true);
@@ -628,29 +665,38 @@ function OpenRouterKey({ budget, remoteProfileId, busy, onChanged }: {
   }
 
   return (
-    <section className="console-subcard" aria-labelledby="openrouter-key-heading">
-      <h3 id="openrouter-key-heading">OpenRouter API Key — {label}</h3>
-      <p>
-        <span className={`tag ${credential.status === "configured" ? "tag-accent" : "tag-warn"}`} role="status">{label}</span>{" "}
-        {CREDENTIAL_SOURCE[credential.source]}
-        {credential.source === "hr_memory" && credential.set_by && <> Entered by {credential.set_by}.</>}
-      </p>
-      {credential.hr_editable && (
-        <form onSubmit={(event) => { event.preventDefault(); const value = key; void run(() => saveModelCredential(value), "Key saved on the server."); }}>
-          <label className="control-help" htmlFor="openrouter-key-input">API key</label>{" "}
-          <input id="openrouter-key-input" type="password" autoComplete="off" spellCheck={false} value={key}
-            onChange={(event) => setKey(event.target.value)} disabled={pending || busy} />{" "}
-          <button type="submit" className="btn btn-primary" disabled={pending || busy || !key}>Save Key</button>{" "}
-          {credential.source === "hr_memory" && (
-            <button type="button" className="btn btn-secondary" disabled={pending || busy}
-              onClick={() => void run(clearModelCredential, "Key cleared.")}>Clear Key</button>
+    <section className="console-subcard" aria-labelledby={headingId} data-testid={`${provider}-key`}>
+      <h3 id={headingId}>{title} — {label}</h3>
+      {credential ? (
+        <dl className="acra-detail-list">
+          <div><dt>Status</dt><dd><span className={`tag ${credential.status === "configured" ? "tag-accent" : "tag-warn"}`} role="status">{label}</span></dd></div>
+          <div><dt>Source</dt><dd>{credentialSource(credential, provider)}{credential.source === "hr_session" && credential.set_by && <> Entered by {credential.set_by} at {secondsText(credential.set_at)}.</>}</dd></div>
+          {credential.source === "hr_session" && (
+            <>
+              <div><dt>Expiry</dt><dd>Ends with the HR session that entered it, and no later than {secondsText(credential.expires_at)}.{credential.verified_at ? <> Session last checked {secondsText(credential.verified_at)}.</> : null}</dd></div>
+              <div><dt>After it ends</dt><dd>The AI Assistant uses {FALLBACK_TEXT[credential.fallback ?? "none"]}, only after a fresh preflight confirms the same provider account or workspace. Models never switch automatically.</dd></div>
+            </>
           )}
-        </form>
-      )}
-      {remoteProfileId && (
-        <button type="button" className="btn btn-secondary" disabled={pending || busy || credential.status !== "configured"}
-          onClick={() => void run(() => testModelConnection(remoteProfileId), "Connection test finished; see Models & Overview.")}>Test Connection</button>
-      )}
+          {credential.status === "unverified" && (
+            <div><dt>Why not used</dt><dd>The AI Assistant cannot check the HR session that entered this key right now, so the key is held back and no server key is used in its place.</dd></div>
+          )}
+        </dl>
+      ) : <p className="console-help">The server did not send this key's status.</p>}
+      <form onSubmit={(event) => { event.preventDefault(); const value = key; void run(() => saveModelCredential(value, provider), "Key saved for this session on the server."); }}>
+        <label className="control-help" htmlFor={inputId}>API key for this session</label>{" "}
+        <input id={inputId} type="password" autoComplete="off" spellCheck={false} value={key}
+          onChange={(event) => setKey(event.target.value)} disabled={pending || busy} />{" "}
+        <button type="submit" className="btn btn-primary" disabled={pending || busy || !key}>Save for Session</button>{" "}
+        {credential?.source === "hr_session" && (
+          <button type="button" className="btn btn-secondary" disabled={pending || busy}
+            onClick={() => void run(() => clearModelCredential(provider), "Session key cleared.")}>Clear Session Key</button>
+        )}{" "}
+        {testProfileId && (
+          <button type="button" className="btn btn-secondary" disabled={pending || busy || credential?.status !== "configured"}
+            onClick={() => void run(() => testModelConnection(testProfileId), "Connection test finished; see the configuration's result above.")}>Test Connection</button>
+        )}
+      </form>
+      <p className="console-help">Never stored in the browser. Test Connection is a free preflight (no model call, no case data).</p>
       {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
     </section>
   );
@@ -705,10 +751,9 @@ const GPT_OSS_SPENDING_DUTIES: Duty[] = [
   { who: "owner", text: "Set the key's own lifetime limit at OpenRouter. It is never shown or changed here." },
 ];
 
-const OPENROUTER_DUTIES = (hrKey: boolean): Duty[] => [
-  hrKey
-    ? { who: "hr", text: "Enter or clear the OpenRouter key (kept in the AI Assistant's memory only)." }
-    : { who: "operator", text: "Set the OpenRouter key on the server (process environment or apps/assistant/.env)." },
+const OPENROUTER_DUTIES: Duty[] = [
+  { who: "hr", text: "Enter or clear a session key (memory only, used first, ends with your session)." },
+  { who: "operator", text: "Optionally set a server key (process environment or apps/assistant/.env), used when no session key is live." },
   { who: "hr", text: "Run Test connection (a free preflight that reads the key's limit; no model call, no case data)." },
   { who: "hr", text: "Change the GPT-OSS limits in Spending & Limits." },
   { who: "operator", text: "Authorise the remote test mode and reconcile the ledger." },
@@ -717,7 +762,8 @@ const OPENROUTER_DUTIES = (hrKey: boolean): Duty[] => [
 
 const ANTHROPIC_DUTIES: Duty[] = [
   { who: "hr", text: "Run Test connection (a free workspace and model read), confirm a paid qualification and activate, from Models & Overview." },
-  { who: "operator", text: "Set the Anthropic inference key on the server (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env). There is no HR key entry." },
+  { who: "hr", text: "Enter or clear a session inference key for Balanced and Fast (memory only, used first, ends with your session; it must belong to the attested workspace)." },
+  { who: "operator", text: "Optionally set a server inference key (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env), used when no session key is live." },
   { who: "hr", text: "Change Claude's own daily, call and lifetime limits in Spending & Limits." },
   { who: "operator", text: "Reconcile Claude's ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic) before any raise or paid run." },
   { who: "owner", text: "Keep the dedicated Anthropic workspace's monthly spend limit (attested at most US$30.00) in the Anthropic Console." },
@@ -729,7 +775,7 @@ const LOCAL_DUTIES: Duty[] = [
 ];
 
 // Codes that say the Anthropic key itself is the problem (all from the server).
-const ANTHROPIC_KEY_CODES = ["CREDENTIAL_MISSING", "CREDENTIAL_INVALID", "CREDENTIAL_ADMIN_REFUSED"];
+const ANTHROPIC_KEY_CODES = ["CREDENTIAL_MISSING", "CREDENTIAL_INVALID", "CREDENTIAL_ADMIN_REFUSED", "CREDENTIAL_SESSION_UNVERIFIED"];
 
 /** Every closed code the server reported for these configurations, once each, in order. */
 function reportedCodes(items: ModelProfileView[]): string[] {
@@ -802,6 +848,10 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
   const keyIssue = anthropicCodes.find((code) => ANTHROPIC_KEY_CODES.includes(code));
   const stale = anthropicCodes.includes("RECONCILIATION_STALE");
   const claudeUsable = anthropic.filter((item) => item.status === "selectable").length;
+  // D-106: the shared Anthropic key, and the configuration its free connection test reads.
+  const claudeCredential = overview.budget?.claude?.credential ?? null;
+  const claudeSelectable = anthropic.filter((item) => item.status === "selectable");
+  const claudeTestId = (claudeSelectable.find((item) => item.profile_id.endsWith("_medium")) ?? claudeSelectable[0])?.profile_id ?? null;
   return (
     <>
       {(openrouter.length > 0 || budget) && (
@@ -813,12 +863,12 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
                 <div><dt>Key limit check</dt><dd>{budget.provider ? `${budget.provider.passed ? "Checks passed" : "Checks failed"}, read ${formatTimestamp(budget.provider.checked_at)}` : "Not checked yet in this server process. Run Test connection."}</dd></div>
                 <div><dt>Spending</dt><dd>Its own ledger and HR-managed limits: see <Link to={{ search: sectionSearch("spending") }}>Spending &amp; Limits</Link>.</dd></div>
               </dl>
-              <OpenRouterKey budget={budget} busy={busy}
-                remoteProfileId={openrouter.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
+              <ProviderKey provider="openrouter" title="OpenRouter API Key" credential={budget.credential} busy={busy}
+                testProfileId={openrouter.find((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable")?.profile_id ?? null}
                 onChanged={onChanged} />
             </>
           ) : <p className="ds-banner" role="status">The remote test mode is not configured on this server, so there is no provider key to manage here.</p>}
-          <Responsibilities label="Who manages OpenRouter" duties={OPENROUTER_DUTIES(budget?.credential.hr_editable ?? false)} />
+          <Responsibilities label="Who manages OpenRouter" duties={OPENROUTER_DUTIES} />
         </ProviderCard>
       )}
 
@@ -830,13 +880,16 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
             <div><dt>Availability</dt><dd>{claudeUsable} of {anthropic.length} configuration{anthropic.length === 1 ? "" : "s"} available</dd></div>
             <div><dt>Inference key</dt><dd>{keyIssue
               ? readable(keyIssue, ANTHROPIC_DEPLOYMENT)
-              : "Its status is not sent to this page. An operator sets it on the server; any key problem appears among the server's codes below."}</dd></div>
+              : "Shared by Balanced and Fast; its source and status are below."}</dd></div>
             <div><dt>Workspace check</dt><dd>Test connection reads the attested workspace and the model (free; no case data). Each configuration's last result is listed above.</dd></div>
             <div><dt>Spending</dt><dd>Claude's own ledger and its own HR limits (at most US$30.00 lifetime within the attested workspace limit, US$5.00 a Singapore day and 20 calls an activation). The GPT-OSS controls never apply to it. <Link to={{ search: sectionSearch("spending") }}>Review Claude's limits</Link>.</dd></div>
             <div><dt>Reconciliation</dt><dd>{stale
               ? readable("RECONCILIATION_STALE", ANTHROPIC_DEPLOYMENT)
               : "An operator reconciles Claude's ledger with the Anthropic Console; Spending & Limits shows when it was last done. A raise or a paid call is refused when it is out of date."}</dd></div>
           </dl>
+          <ProviderKey provider="anthropic" title="Anthropic API Key" credential={claudeCredential} busy={busy}
+            testProfileId={claudeTestId}
+            onChanged={onChanged} />
           <h3 className="console-subheading">Codes reported by the server</h3>
           <ReportedCodes codes={anthropicCodes} deployment={ANTHROPIC_DEPLOYMENT} />
           <Responsibilities label="Who manages the Anthropic API" duties={ANTHROPIC_DUTIES} />
@@ -1394,7 +1447,19 @@ function OverviewSummary({ overview }: { overview: ModelOverview }) {
   );
 }
 
-function RunningStatus({ overview, pending, nameOf, onCancel }: {
+const PROVIDER_OF: Record<ProviderKind, string> = { openrouter: "OpenRouter", anthropic: "Anthropic API", local: "Server-configured (local)" };
+
+// D-106 (progress): how a finished run ended, from the server's own status and code only.
+export function runOutcome(run: Pick<ModelQualification, "status" | "code">): ViewState {
+  if (run.status === "passed") return { label: "Passed", tone: "ok" };
+  if (run.status === "failed") return { label: "Failed", tone: "block" };
+  if (run.status === "cancelled") return { label: "Cancelled", tone: "neutral" };
+  if (run.status === "running") return { label: "Running", tone: "info" };
+  return { label: run.code?.startsWith("INTERRUPTED") ? "Interrupted" : "Stopped (error)", tone: "warn" };
+}
+
+/** D-106: a running qualification's progress, as the server reports it (polled every 3 s). */
+export function QualificationProgress({ overview, pending, nameOf, onCancel }: {
   overview: ModelOverview;
   pending: boolean;
   nameOf: (profileId: string, fallback: string) => string;
@@ -1402,13 +1467,54 @@ function RunningStatus({ overview, pending, nameOf, onCancel }: {
 }) {
   const running = overview.running;
   if (!running) return null;
+  const item = overview.profiles.find((profile) => profile.profile_id === running.profile_id);
+  const run = item?.qualification?.qualification_id === running.qualification_id ? item.qualification : null;
+  const total = running.total_turns;
+  const done = Math.min(running.done_turns, total);
+  // Only the server's own counts: with no total yet the bar is indeterminate (no estimate).
+  const measurable = total > 0;
+  const percent = measurable ? Math.round((done / total) * 100) : null;
+  const active = overview.profiles.find((profile) => profile.active);
   return (
-    <p className="console-running" role="status">
-      <span>
-        <strong>Qualification running</strong> for {nameOf(running.profile_id, running.profile_id)}: {running.done_turns}/{running.total_turns} turns (started by {running.started_by}). You may leave this page; it keeps going, and other model actions wait until it ends.
-      </span>
-      <button type="button" className="btn btn-secondary" disabled={pending} onClick={onCancel}>Cancel qualification</button>
-    </p>
+    <section className="console-running console-progress" role="status" aria-live="polite" aria-labelledby="qualification-progress-heading" data-testid="qualification-progress">
+      <div className="console-progress__head">
+        <span className="console-spinner" aria-hidden="true" />
+        <h2 id="qualification-progress-heading">Qualification running: {nameOf(running.profile_id, running.profile_id)}</h2>
+      </div>
+      {measurable ? (
+        <progress className="console-progress__bar" max={total} value={done} aria-label={`${done} of ${total} qualification turns completed`} />
+      ) : (
+        <progress className="console-progress__bar" aria-label="Qualification progress not reported yet" />
+      )}
+      <dl className="acra-detail-list">
+        <div><dt>Progress</dt><dd>{measurable ? `${done} of ${total} turns completed (${percent}%)` : "The server has not reported the number of turns yet."}</dd></div>
+        <div><dt>Provider</dt><dd>{item ? PROVIDER_OF[providerKind(item)] : "—"}</dd></div>
+        <div><dt>Server stage</dt><dd>{run?.cancel_requested ? "Cancel requested; stopping" : "Running"}{run?.diagnosis ? ` (${causeText(run.diagnosis, item?.deployment)})` : ""}</dd></div>
+        <div><dt>Started</dt><dd>{run ? `${formatTimestamp(run.started_at)} by ${running.started_by}` : `by ${running.started_by}`}</dd></div>
+        <div><dt>Active model now</dt><dd>{active ? `${profileName(active)} (${PROVIDER_OF[providerKind(active)]})` : overview.active.unavailable ? "None: AI unavailable" : "—"}. It does not change until you activate a configuration.</dd></div>
+      </dl>
+      <p className="console-help">Refreshed from the server every {RUNNING_REFRESH_MS / 1000} seconds. You may leave this page; the run keeps going, and other model actions wait until it ends. No time estimate is shown because the server does not report one.</p>
+      <button type="button" className="btn btn-secondary" disabled={pending || Boolean(run?.cancel_requested)} onClick={onCancel}>Cancel qualification</button>
+    </section>
+  );
+}
+
+/** D-106: how the run this page was following ended, with the recovery to take. */
+function FinishedRun({ item, onResults }: { item: ModelProfileView; onResults: () => void }) {
+  const run = item.qualification;
+  if (!run || run.status === "running") return null;
+  const outcome = runOutcome(run);
+  const diagnosis = run.diagnosis;
+  return (
+    <section className="card console-progress" role="status" aria-labelledby="qualification-finished-heading" data-testid="qualification-finished">
+      <h2 id="qualification-finished-heading">Qualification finished: {profileName(item)} <Chip state={outcome} /></h2>
+      <p>
+        {run.done_turns} of {run.total_turns} turns completed{run.code ? <> · {readable(run.code, item.deployment)}</> : null}
+        {run.finished_at ? <> · ended {formatTimestamp(run.finished_at)}</> : null}
+      </p>
+      {diagnosis && <p>{causeText(diagnosis, item.deployment)} <strong>Next:</strong> {actionText(diagnosis, item.deployment)}</p>}
+      <button type="button" className="btn btn-secondary" onClick={onResults}>Show technical results</button>
+    </section>
   );
 }
 
@@ -1679,13 +1785,20 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
   // A qualification finishes in the background: re-read the audit history when the run the
   // page was following ends, so its outcome appears without another page action.
   const runningId = overviewQuery.data?.running?.qualification_id ?? null;
+  const runningProfile = overviewQuery.data?.running?.profile_id ?? null;
   const followedRun = useRef<string | null>(null);
+  // The configuration whose run this page saw end (its final result is shown until another starts).
+  const [finishedProfile, setFinishedProfile] = useState<string | null>(null);
+  const followedProfile = useRef<string | null>(null);
   useEffect(() => {
     if (followedRun.current !== null && followedRun.current !== runningId) {
       void queryClient.invalidateQueries({ queryKey: modelManagementQueryKeys.audit(actor.user_id), exact: true });
+      if (runningId === null) setFinishedProfile(followedProfile.current);
     }
+    if (runningId !== null) setFinishedProfile(null);
     followedRun.current = runningId;
-  }, [runningId, queryClient, actor.user_id]);
+    followedProfile.current = runningProfile;
+  }, [runningId, runningProfile, queryClient, actor.user_id]);
   const [selected, setSelected] = useState<string | null>(null);
   // D-100: the section comes from the browser location; the configuration shown in the
   // inspector is local view state (it falls back to the active one).
@@ -1708,6 +1821,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
   const unscored = overview?.quality.status !== "SCORED";
   const busy = action.isPending || Boolean(overview?.running);
   const detail = overview?.profiles.find((item) => item.profile_id === selected);
+  const finishedItem = overview?.running ? undefined : overview?.profiles.find((item) => item.profile_id === finishedProfile);
   // A profile's page name (remote configurations by model and reasoning setting).
   const nameOf = (profileId: string, fallback: string) => {
     const found = overview?.profiles.find((item) => item.profile_id === profileId);
@@ -1826,7 +1940,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               <ActiveModelBand overview={overview} busy={busy} nameOf={nameOf}
                 onRollback={() => overview.last_good && setConfirming({ kind: "rollback", profileId: overview.last_good.profile_id, name: nameOf(overview.last_good.profile_id, overview.last_good.display_name) })} />
               <OverviewSummary overview={overview} />
-              <RunningStatus overview={overview} pending={action.isPending} nameOf={nameOf} onCancel={cancelRun} />
+              <QualificationProgress overview={overview} pending={action.isPending} nameOf={nameOf} onCancel={cancelRun} />
 
               <div className="console-overview">
                 <section className="console-catalog" aria-labelledby="available-models-heading">
@@ -1871,7 +1985,14 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
           {section === "qualifications" && overview && (
             <>
-              <RunningStatus overview={overview} pending={action.isPending} nameOf={nameOf} onCancel={cancelRun} />
+              <QualificationProgress overview={overview} pending={action.isPending} nameOf={nameOf} onCancel={cancelRun} />
+              {finishedItem && <FinishedRun item={finishedItem} onResults={() => showResults(finishedItem.profile_id)} />}
+              {finishedItem?.qualification && selected === finishedItem.profile_id && (
+                <section className="card" aria-labelledby="qualification-heading">
+                  <h2 id="qualification-heading">Qualification: {profileName(finishedItem)}</h2>
+                  <QualificationDetail qualification={finishedItem.qualification} deployment={finishedItem.deployment} />
+                </section>
+              )}
               {recoverable.length > 0 ? (
                 <section className="card" aria-labelledby="recovery-heading">
                   <h2 id="recovery-heading">Model health and recovery</h2>

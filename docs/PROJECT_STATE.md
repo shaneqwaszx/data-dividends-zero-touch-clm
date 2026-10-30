@@ -1426,3 +1426,22 @@ Delta only. Owner-authorised direction:
 - Evidence class: offline mock and local only.
 - **Open:** independent QG of the final candidate, the owner's commit and publication
   authorisation, `pre_pr_check.py` on the commit, then separately approved paid requalification.
+
+## AI Assistant D-106 HR session keys and qualification progress (branch `feat/assistant-session-credentials-int` on main `1c6ec4f`, uncommitted) - 2026-10-30
+
+Delta only. Owner-approved (D-106):
+- AI Models → Providers has a key section for OpenRouter and one for Anthropic (shared by
+  Claude Balanced and Fast). Each has a masked input, Save for Session, Clear Session Key and
+  Test Connection, and shows the key's source, status, expiry and fallback.
+- Key order: HR session key, then the process environment, then `.env`. The HR key lives in
+  memory only and is checked against that HR session's own `/api/auth/me` before each use.
+  Sign-out, expiry, revocation, Clear or a restart drops it. A server key is used after it only
+  once the provider's existing preflight identity checks pass. A qualification process gets
+  the key on standard input only.
+- Qualifications & Recovery shows a spinner, server turn counts as a progress bar
+  (indeterminate without a total), the provider, the stage, the active model and the final result.
+- The qualification basis moves `2c9d72cf0ae4…` → `7e386b8a69e1…`, so Claude Balanced needs
+  one new authorised technical qualification on the merged code.
+- Evidence class: offline mock and local only.
+- **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge,
+  then the authorised Claude Balanced qualification, activation and one Garden RM verification.
