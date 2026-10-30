@@ -16,7 +16,11 @@ from scripts.generate_phase08_synthetic_pdfs import text_pdf
 from scripts.seed_zero_touch_happy_path_companies import manage_fixtures
 from scripts.synthetic_company_pack import SYNTHETIC_COMPANIES
 from scripts.synthetic_company_pack_test_transport import NoMarketplaceRequests
-from scripts.zero_touch_happy_path_fixtures import ALL_COMPANIES, COMPANIES, NEW_COMPANIES
+from scripts.zero_touch_happy_path_fixtures import (
+    ALL_COMPANIES,
+    NEW_COMPANIES,
+    SHARE_COMPANIES,
+)
 from test_slice_b_registry_demo import confirm
 from test_zero_touch_database_happy_path import assert_prepared as assert_existing_prepared
 from test_zero_touch_database_happy_path import prepare
@@ -226,7 +230,8 @@ def test_actual_marketplace_normal_composition_seeded_happy_path_zero_requests(c
         assert transport.calls == [] and target.calls == before
 
 
-@pytest.mark.parametrize("company", COMPANIES, ids=lambda c: c.code)
+# D-101: Gamma has no registry shares; its agreement journey is in test_zero_touch_entity_types.
+@pytest.mark.parametrize("company", SHARE_COMPANIES, ids=lambda c: c.code)
 def test_existing_four_use_actual_marketplace_composition_without_requests(company):
     configured = settings()
     bundle = build_persistence_bundle(configured)
@@ -268,12 +273,15 @@ def test_matching_native_pdf_has_exact_identity_and_explicit_classification(comp
 
 def test_same_seed_owner_all_eight_idempotence_expiry_and_namespace():
     repo = InMemoryRegistrySnapshotRepository()
-    assert manage_fixtures(repo, now=NOW, seed=True)["created"] == 8
+    # D-101: nine seeds, including the PARTIAL Government identity.
+    assert manage_fixtures(repo, now=NOW, seed=True)["created"] == 9
     originals = [repo.get(c.snapshot(NOW).key) for c in ALL_COMPANIES]
-    assert manage_fixtures(repo, now=NOW + timedelta(hours=1), seed=True)["fresh"] == 8
+    # D-101: nine seeds, including the PARTIAL Government identity.
+    assert manage_fixtures(repo, now=NOW + timedelta(hours=1), seed=True)["fresh"] == 9
     assert [repo.get(e.key) for e in originals] == originals
     assert all(e.key.provider_identity == local_synthetic_registry_identity() for e in originals)
-    assert manage_fixtures(repo, now=NOW + timedelta(days=90), seed=True)["refreshed"] == 8
+    # D-101: nine seeds, including the PARTIAL Government identity.
+    assert manage_fixtures(repo, now=NOW + timedelta(days=90), seed=True)["refreshed"] == 9
     assert all(repo.get(e.key).revision == 1 for e in originals)
 
 

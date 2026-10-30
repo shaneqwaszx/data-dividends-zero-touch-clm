@@ -357,6 +357,7 @@ function blockerExplanation(blockerCode: string): string {
     "DOCUMENT_REQUIRED_FIELD_MISSING": "A required field is missing from the document extraction. Please provide additional documentation.",
     "OWNERSHIP_CYCLE": "Circular ownership relationships detected in the ownership graph. This prevents UBO calculation. Please verify the ownership structure.",
     "OWNERSHIP_INCOMPLETE": "Incomplete ownership chain: some legal entities have no disclosed owners. Cannot complete UBO analysis without this information.",
+    "GOVERNMENT_STATUS_REQUIRED": "A Singapore Government entity needs a reviewed status document and an explicit RM confirmation instead of an ownership and UBO analysis.",
     "EXISTING_PARTY_REVIEW_REQUIRED": "A party with similar details already exists in the target system. Please review the match before proceeding.",
     "REGISTRY_REVIEW_REQUIRED": "Registry data validation requires human review. Please check the entity details.",
     "JURISDICTION_UNRESOLVED": "No authoritative jurisdiction observation is available. Registry retrieval has not started.",

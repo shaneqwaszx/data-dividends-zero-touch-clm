@@ -526,7 +526,8 @@ test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership
   expect(ownership.manual_review_receipt).toBeNull();
   expect(ownership.candidates.find((item: any) => item.party.display_name === "ABCD123").aggregated_ownership_percent).toMatch(/^51\.136363750*$/);
   await openStage(page, "GoldTier Details & Status");
-  await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
+  // D-101: Garden is a business partnership, so a Company KYC type is refused.
+  await page.getByLabel("KYC customer type", { exact: true }).selectOption("Partnership - Unregulated");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   await page.getByRole("button", { name: "Save target classification", exact: true }).click();
   await openStage(page, "Final review & send");

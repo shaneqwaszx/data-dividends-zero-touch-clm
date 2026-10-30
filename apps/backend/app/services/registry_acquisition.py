@@ -35,6 +35,8 @@ from app.domain.models import (
     SourceEnvironment,
 )
 from app.domain.policy import RegistryPolicySnapshot
+from app.domain.registry_dataset import LOCAL_SYNTHETIC_REGISTRY_DATASET
+from app.domain.registry_legal_form import RegistryLegalForm, classify_registry_legal_form
 from app.services.registry_cache_repository import (
     RegistrySnapshotRepository,
     RegistrySnapshotRepositoryConflictError,
@@ -46,6 +48,23 @@ from app.services.registry_cache_repository import (
 def registry_cache_window_is_fresh(expires_at: datetime, evaluation_now: datetime) -> bool:
     """Shared exclusive expiry predicate; caller retains normalized-input ownership."""
     return evaluation_now < expires_at
+
+
+def _usable_partial_local_seed(acquisition: RegistryAcquisitionBundle) -> bool:
+    """A PARTIAL local seed with a complete identity for a form without a share graph."""
+    entity = acquisition.entity_profile
+    address = entity.registered_address
+    return (
+        acquisition.status == RegistryAcquisitionStatus.PARTIAL
+        and acquisition.operation_results[0].status == RegistryOperationStatus.COMPLETE
+        and bool((entity.legal_name or "").strip())
+        and bool(entity.registration_number.strip())
+        and address is not None
+        and bool(address.address_line_1.strip())
+        and bool(address.postal_code.strip())
+        and classify_registry_legal_form(entity.party_type)
+        in {RegistryLegalForm.BUSINESS_PARTNERSHIP, RegistryLegalForm.GOVERNMENT}
+    )
 
 
 def registry_negative_cache_is_fresh(
@@ -255,6 +274,22 @@ class RegistryAcquisitionCoordinator:
                     return self._bound_result(
                         seed, disposition=RegistryEvidenceDisposition.CACHE_HIT,
                         bound_at=now, policy=policy,
+                    )
+                # D-101: a partnership or Government seed has no registry ownership graph.
+                # It is returned like a PARTIAL provider fetch: never bound, never a hit.
+                if (
+                    seed.acquisition is not None
+                    and seed_key.provider_identity.dataset_namespace
+                    == LOCAL_SYNTHETIC_REGISTRY_DATASET
+                    and _usable_partial_local_seed(seed.acquisition)
+                    and registry_cache_window_is_fresh(
+                        policy.expires_at(seed.freshness_anchor), now
+                    )
+                ):
+                    if cancelled is not None and cancelled():
+                        raise RegistryAcquisitionBusyError
+                    return RegistryAcquisitionResult(
+                        acquisition=seed.acquisition.model_copy(deep=True), binding=None
                     )
         with self._key_lock(key.digest, cancelled=cancelled) as flight:
             if flight.failure is not None:

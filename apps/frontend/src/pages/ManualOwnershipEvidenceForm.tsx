@@ -71,6 +71,8 @@ function currentOwners(record: OwnershipAnalysisRecord | null | undefined): Owne
 }
 
 const normalizedName = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+/** D-101: a share row read from a partnership agreement by the local document reader. */
+export const isPartnerShareRow = (observation: DocumentOwnershipObservation) => observation.source_reference?.includes("_PARTNER_SHARE_ROW_") === true;
 export function ownersFromDocumentObservations(observations: DocumentOwnershipObservation[], parties: OwnershipParty[]): OwnerDraft[] {
   const nodes: Array<Omit<OwnershipParty, "party_type"> & { party_type: OwnershipParty["party_type"] | null }> = [...parties];
   function match(name: string | null, registration: string | null) {
@@ -111,9 +113,12 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
     .map((document) => ({ document_id: document.document_id, event_count: document.events.length }))
     .sort((a, b) => a.document_id.localeCompare(b.document_id));
   const initialRoot = ownership?.parties.find((party) => party.party_id === ownership.root_party_id);
-  const [documentId, setDocumentId] = useState(reviewedDocuments[0]?.document_id ?? "");
+  // D-101: a reviewed partnership agreement is the expected evidence; preselect it and its
+  // proposals source. The RM still selects the rows and submits; nothing is accepted here.
+  const agreementDocument = reviewedDocuments.find((document) => document.ownership_observations?.some(isPartnerShareRow));
+  const [documentId, setDocumentId] = useState(agreementDocument?.document_id ?? reviewedDocuments[0]?.document_id ?? "");
   const selectedDocument = reviewedDocuments.find((document) => document.document_id === documentId) ?? reviewedDocuments[0];
-  const [sourceSelection, setSourceSelection] = useState<SourceSelection>("USER_SUPPLIED_DECLARATION");
+  const [sourceSelection, setSourceSelection] = useState<SourceSelection>(agreementDocument ? "DOCUMENT_OBSERVATIONS" : "USER_SUPPLIED_DECLARATION");
   const [selectedObservationIds, setSelectedObservationIds] = useState<string[]>([]);
   const [asOfDates, setAsOfDates] = useState<Record<SourceSelection, string>>(() => ({
     USER_SUPPLIED_DECLARATION: ownership?.manual_review_receipt?.as_of_date ?? singaporeCalendarDate(),
@@ -127,7 +132,7 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
   const [rationale, setRationale] = useState("");
   const [rootPartyId, setRootPartyId] = useState(ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`);
   const [rootDisplayName, setRootDisplayName] = useState(initialRoot?.display_name ?? initialRootLegalName);
-  const [owners, setOwners] = useState<OwnerDraft[]>(() => currentOwners(ownership).length ? currentOwners(ownership) : [emptyOwner(0, ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`), emptyOwner(1, ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`)]);
+  const [owners, setOwners] = useState<OwnerDraft[]>(() => agreementDocument ? [] : currentOwners(ownership).length ? currentOwners(ownership) : [emptyOwner(0, ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`), emptyOwner(1, ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`)]);
   const [validationError, setValidationError] = useState<string | null>(null);
   const graphDisabled = disabled || sourceSelection !== "USER_SUPPLIED_DECLARATION";
   const parentOptions = [{ party_id: rootPartyId, display_name: rootDisplayName }, ...owners.filter((owner) => owner.party_type === "LEGAL_ENTITY")]

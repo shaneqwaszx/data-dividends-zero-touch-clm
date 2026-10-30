@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 from phase24c_policy_workflow import approve_business_change
 from pydantic import ValidationError
+from s2_legacy_schema_fixtures import without_d101_fields
 
 from app.connectors.garden_business import GARDEN_BUSINESS_UEN
 from app.connectors.mock_acra import MockAcraConnector
@@ -491,8 +492,8 @@ def test_current_envelope_round_trips_frozen_policy_and_discovery_audit() -> Non
     snapshot = _garden_envelope()
     codec = object.__new__(MongoCaseStore)
     decoded = codec._decode(codec._encode(snapshot))  # noqa: SLF001
-    assert CASE_SNAPSHOT_SCHEMA_VERSION == 16
-    assert decoded.schema_version == 16
+    assert CASE_SNAPSHOT_SCHEMA_VERSION == 17
+    assert decoded.schema_version == 17
     assert decoded.ownership == snapshot.ownership
     assert decoded.onboarding.policy_snapshot == snapshot.onboarding.policy_snapshot
 
@@ -504,8 +505,8 @@ def test_schema_ten_envelope_cannot_carry_discovery_fields_but_reads_without_the
     with pytest.raises(PersistenceDataInvalidError):
         codec._decode({**encoded, "schema_version": 10})  # noqa: SLF001
 
-    legacy = {**encoded, "schema_version": 10}
-    legacy["onboarding"] = dict(encoded["onboarding"])
+    legacy = {**without_d101_fields(encoded), "schema_version": 10}
+    legacy["onboarding"] = dict(legacy["onboarding"])
     legacy["onboarding"]["policy_snapshot"] = {
         key: value
         for key, value in encoded["onboarding"]["policy_snapshot"].items()
@@ -517,6 +518,6 @@ def test_schema_ten_envelope_cannot_carry_discovery_fields_but_reads_without_the
         key: value for key, value in encoded["ownership"].items() if key != "discovery"
     }
     decoded = codec._decode(legacy)  # noqa: SLF001
-    assert decoded.schema_version == 16
+    assert decoded.schema_version == 17
     assert decoded.onboarding.policy_snapshot.ownership_discovery is None
     assert decoded.ownership is not None and decoded.ownership.discovery is None

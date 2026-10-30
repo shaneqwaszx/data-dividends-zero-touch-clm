@@ -8,6 +8,8 @@ class RegistryLegalForm(StrEnum):
     BUSINESS_PARTNERSHIP = "BUSINESS_PARTNERSHIP"
     LLP = "LLP"
     LP = "LP"
+    # D-101: the exact source value only; no other value is mapped here.
+    GOVERNMENT = "GOVERNMENT"
     OTHER = "OTHER"
 
 
@@ -29,4 +31,6 @@ def classify_registry_legal_form(source_value: str | None) -> RegistryLegalForm:
         return RegistryLegalForm.LLP
     if value in {"LP", "LIMITED PARTNERSHIP"}:
         return RegistryLegalForm.LP
+    if value == "GOVERNMENT":
+        return RegistryLegalForm.GOVERNMENT
     return RegistryLegalForm.OTHER

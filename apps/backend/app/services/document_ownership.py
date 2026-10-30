@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Sequence
+from typing import Literal
 
 from app.domain.documents import DocumentOwnershipObservation, DocumentProcessingRecord
 from app.domain.ownership import (
@@ -42,8 +43,16 @@ def current_document_inputs(
     return observations, bindings
 
 
+_PARTNER_SHARE_ROW = "_PARTNER_SHARE_ROW_"
+
+
 def _name(value: str) -> str:
     return re.sub(r"[^A-Z0-9]+", " ", value.upper()).strip()
+
+
+def normalized_party_name(value: str) -> str:
+    """The existing document/registry name comparison, shared with D-101 checks."""
+    return _name(value)
 
 
 def compare_document_ownership(
@@ -84,8 +93,22 @@ def compare_document_ownership(
             and edge.parent_party_id == parents[0].party_id
         ]
         agreement = "NOT_COMPARABLE"
-        reason = "OWNERSHIP_DOCUMENT_INCOMPLETE"
+        reason: Literal[
+            "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED",
+            "OWNERSHIP_DOCUMENT_CONFLICT",
+            "OWNERSHIP_DOCUMENT_INCOMPLETE",
+            "OWNERSHIP_DOCUMENT_AMBIGUOUS",
+            "PARTNERSHIP_AGREEMENT_SHARE",
+        ] = "OWNERSHIP_DOCUMENT_INCOMPLETE"
         if (
+            # D-101: a partnership registry lists partners without shares, so an agreement
+            # share has no registry value to disagree with. It still needs RM confirmation.
+            not relationships
+            and _PARTNER_SHARE_ROW in item.source_reference
+            and item.extraction_quality != "AMBIGUOUS"
+        ):
+            agreement, reason = "NOT_COMPARABLE", "PARTNERSHIP_AGREEMENT_SHARE"
+        elif (
             item.extraction_quality == "AMBIGUOUS"
             or len(owners) > 1
             or len(parents) > 1

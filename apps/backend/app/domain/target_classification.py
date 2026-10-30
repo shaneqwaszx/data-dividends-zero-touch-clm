@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.registry_legal_form import RegistryLegalForm, classify_registry_legal_form
+
 AUTO_KYC_TYPES = ("Company - Private", "Partnership - Unregulated", "Government")
 VOCABULARY_VERSION: Literal["GOLDTIER_OPENAPI_V1_0_0"] = "GOLDTIER_OPENAPI_V1_0_0"
 
@@ -119,9 +121,52 @@ class TargetClassificationAssessment(BaseModel):
         return True
 
 
-def bounded_classification_compatible(party_type: str | None, kyc_customer_type: str) -> bool:
-    """The existing sole bounded private-company/Government incompatibility rule."""
-    return not (
-        (party_type or "").upper().replace("_", " ") == "PRIVATE COMPANY LIMITED BY SHARES"
-        and kyc_customer_type == "Government"
+# D-101: KYC family -> registry legal forms it may describe. Types outside these
+# families keep the earlier behaviour (no legal-form rule).
+_PARTNERSHIP_FORMS = frozenset(
+    {RegistryLegalForm.BUSINESS_PARTNERSHIP, RegistryLegalForm.LLP, RegistryLegalForm.LP}
+)
+
+
+def _compatible_forms(kyc_customer_type: str) -> frozenset[RegistryLegalForm] | None:
+    if kyc_customer_type.startswith("Company - "):
+        return frozenset({RegistryLegalForm.COMPANY})
+    if kyc_customer_type.startswith("Partnership - "):
+        return _PARTNERSHIP_FORMS
+    if kyc_customer_type == "Sole Trader":
+        return frozenset({RegistryLegalForm.BUSINESS_PARTNERSHIP})
+    if kyc_customer_type == "Government":
+        return frozenset({RegistryLegalForm.GOVERNMENT})
+    return None
+
+
+def bounded_classification_compatible(
+    party_type: str | None, kyc_customer_type: str, *, automatic: bool
+) -> bool:
+    """Bounded KYC family / registry legal-form table; a mismatch is never auto-corrected.
+
+    An unknown or missing legal form fails closed for an automatic candidate, while a
+    manual pick is refused only on a known mismatch.
+    """
+    forms = _compatible_forms(kyc_customer_type)
+    if forms is None:
+        return True
+    legal_form = classify_registry_legal_form(party_type)
+    if legal_form == RegistryLegalForm.OTHER:
+        return not automatic
+    return legal_form in forms
+
+
+def classification_incompatibility_message(party_type: str | None, kyc_customer_type: str) -> str:
+    if (
+        kyc_customer_type == "Government"
+        and classify_registry_legal_form(party_type) == RegistryLegalForm.COMPANY
+    ):
+        return (
+            "Government is incompatible with the verified private-company legal form; "
+            "review the evidence"
+        )
+    return (
+        "The KYC customer type is incompatible with the verified registry legal form; "
+        "review the evidence"
     )

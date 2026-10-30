@@ -18,7 +18,7 @@ from scripts.seed_zero_touch_happy_path_companies import (
     manage_fixtures,
     require_safe_target,
 )
-from scripts.zero_touch_happy_path_fixtures import COMPANIES
+from scripts.zero_touch_happy_path_fixtures import COMPANIES, SHARE_COMPANIES
 from test_slice_b_registry_demo import confirm
 
 from app.composition import build_onboarding_service
@@ -155,7 +155,8 @@ def assert_prepared(client, current, company):
     return document, ownership
 
 
-@pytest.mark.parametrize("company", COMPANIES, ids=lambda item: item.code)
+# D-101: Gamma has no registry shares; its agreement journey is in test_zero_touch_entity_types.
+@pytest.mark.parametrize("company", SHARE_COMPANIES, ids=lambda item: item.code)
 def test_four_database_happy_paths_complete_without_acra_manual_ownership_or_replay(company):
     settings = sandbox_settings()
     bundle = build_persistence_bundle(settings)
@@ -196,7 +197,8 @@ def test_four_database_happy_paths_complete_without_acra_manual_ownership_or_rep
 
 
 @pytest.mark.skipif(not TESSERACT.is_file(), reason="Local Tesseract unavailable")
-@pytest.mark.parametrize("company", COMPANIES, ids=lambda item: item.code)
+# D-101: Gamma has no registry shares; its agreement journey is in test_zero_touch_entity_types.
+@pytest.mark.parametrize("company", SHARE_COMPANIES, ids=lambda item: item.code)
 def test_each_actual_image_only_pdf_auto_confirms_through_local_tesseract(company):
     assert PdfReader(DOCUMENT_DIRECTORY / company.document_name).pages[0].extract_text() == ""
     settings = sandbox_settings(local_ocr_executable=str(TESSERACT))
@@ -289,9 +291,12 @@ def test_search_query_omits_empty_criteria_and_encodes_exact_documented_aliases(
 
 def test_seed_all_complete_idempotent_and_deep_copy():
     repository = InMemoryRegistrySnapshotRepository()
-    assert manage_fixtures(repository, now=NOW, seed=True)["created"] == 8
-    assert manage_fixtures(repository, now=NOW + timedelta(hours=1), seed=True)["fresh"] == 8
-    for company in COMPANIES:
+    # D-101: nine seeds, including the PARTIAL Government identity.
+    assert manage_fixtures(repository, now=NOW, seed=True)["created"] == 9
+    # D-101: nine seeds, including the PARTIAL Government identity.
+    assert manage_fixtures(repository, now=NOW + timedelta(hours=1), seed=True)["fresh"] == 9
+    # D-101: Gamma and Government are PARTIAL seeds (no registry share graph).
+    for company in SHARE_COMPANIES:
         entry = repository.get(company.snapshot(NOW).key)
         assert entry.revision == 0 and entry.acquisition.status == "COMPLETE"
         totals = {}
@@ -308,7 +313,8 @@ def test_seed_all_complete_idempotent_and_deep_copy():
         assert all(p.name.startswith("DEMO ") for p in entry.acquisition.ownership_parties)
         entry.acquisition.entity_profile.legal_name = "changed local copy"
         assert repository.get(entry.key).acquisition.entity_profile.legal_name == company.name
-    assert manage_fixtures(repository, now=NOW + timedelta(days=90), seed=True)["refreshed"] == 8
+    # D-101: nine seeds, including the PARTIAL Government identity.
+    assert manage_fixtures(repository, now=NOW + timedelta(days=90), seed=True)["refreshed"] == 9
 
 
 def test_seed_conflict_does_not_overwrite_any_known_key():

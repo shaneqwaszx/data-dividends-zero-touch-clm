@@ -470,6 +470,28 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         explanation="Failed ownership analysis cannot be waived or recalculated by this policy.",
     ),
     _RuleSpec(
+        codes=frozenset({"GOVERNMENT_STATUS_REQUIRED"}),
+        exception_types=frozenset({BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED}),
+        classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
+        rule_version="BPD-GOVERNMENT-STATUS-1",
+        owner=BlockerDecisionOwner.OWNERSHIP_REVIEW_OWNER,
+        minimum_inputs=(
+            BlockerMinimumInput.CURRENT_DOCUMENT_REVIEW,
+            BlockerMinimumInput.CURRENT_CASE_VERSION,
+        ),
+        permitted_actions=(
+            BlockerDecisionAction.CONFIRM_GOVERNMENT_STATUS,
+            BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT,
+        ),
+        resume_stage=AutomationStage.OWNERSHIP,
+        resume_transition=ResumeTransition.APPLY_AUTHORIZED_DECISION_AND_RECHECK,
+        invalidated_dependencies=_OWNERSHIP_INVALIDATIONS,
+        explanation=(
+            "D-101: a Singapore Government entity needs a reviewed document confirming its "
+            "status and an explicit RM confirmation; no ownership or UBO analysis applies."
+        ),
+    ),
+    _RuleSpec(
         codes=frozenset({"GT_SEARCH_IDENTITY_REVIEW_REQUIRED", "GOLDTIER_SEARCH_REVIEW_REQUIRED"}),
         exception_types=frozenset({BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED}),
         classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
@@ -1091,6 +1113,19 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         "No generic skip/retry; absent current reviewed evidence, stale analysis, frozen "
         "target state or unsupported declaration stays blocking.",
     ),
+    BlockerDecisionAction.CONFIRM_GOVERNMENT_STATUS: _local_action(
+        BlockerDecisionAction.CONFIRM_GOVERNMENT_STATUS,
+        "Government status > GovernmentStatusPanel > confirm Government status",
+        "ZeroTouchOrchestrator.confirm_government_status > "
+        "OnboardingService.confirm_government_status",
+        "D-101: only the server-bound case creator; WAITING_FOR_REVIEW with an open "
+        "GOVERNMENT_STATUS_REQUIRED hold before target intent/submission; KYC type Government "
+        "on the exact GOVERNMENT legal form; one current reviewed document with the founding "
+        "instrument, KYC/segment labels and matching identity; exact document version and "
+        "automation/case revisions. Never set automatically or from a label alone.",
+        "No confirmation without current reviewed status evidence; a changed document, "
+        "a stale revision or frozen target state stays blocking.",
+    ),
     BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION: _local_action(
         BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION,
         "Classification & readiness > TargetClassificationPanel > save classification",
@@ -1201,6 +1236,7 @@ _RULE_SCENARIOS: Final[Mapping[str, str]] = MappingProxyType({
     "BPD-OWNERSHIP-REQUIRED-1": "ownership",
     "BPD-OWNERSHIP-REVIEW-1": "ownership",
     "BPD-OWNERSHIP-FAILURE-1": "ownership_failure",
+    "BPD-GOVERNMENT-STATUS-1": "government_status",
     "BPD-SEARCH-AMBIGUITY-2": "search_review",
     "BPD-SEARCH-FAILURE-1": "search_failure",
     "BPD-ENTITY-REVIEW-1": "advisory_review",
@@ -1242,6 +1278,7 @@ _SCENARIO_TESTS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType({
         "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
         "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
     ),
+    "government_status": ("apps/backend/tests/test_zero_touch_entity_types.py",),
     "search_review": (_ORCHESTRATION_TEST, "apps/frontend/e2e/authenticated-zero-touch.e2e.ts"),
     "search_failure": (_ORCHESTRATION_TEST, "apps/frontend/e2e/slice-c-recovery.e2e.ts"),
     "classification": (_ORCHESTRATION_TEST, "apps/frontend/e2e/slice-c-recovery.e2e.ts"),

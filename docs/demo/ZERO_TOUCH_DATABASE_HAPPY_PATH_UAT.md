@@ -1,9 +1,28 @@
-# Four database-backed zero-touch happy paths
+# Database-backed zero-touch happy paths: Company, Partnership and Government
+
+One clean case per entity type (D-101): **Company** Alpha `209990101A` (also Beta and Delta),
+**Partnership** Gamma `209990103C`, and **Government** DEMO PARKS FYP TEST AUTHORITY `T99FY0105G`.
 
 All names, addresses, officers, ownership and UENs below are fictional FYP test data.
 Future-looking identifiers were generated to meet the repository's syntax validator;
 they are not issued/verified ACRA registrations. No company is preseeded in GoldTier.
 Actual Sandbox absence is unknown until owner-authorized Search.
+
+## Worktree runs: import this checkout's code
+
+A shared virtual environment can hold an editable install that maps `app` to another
+checkout (usually the primary one). Run from a task worktree and the seed script and backend
+then silently import that other checkout's code: the seed writes the other branch's fixtures
+and cases fail registry verification. Do not change the shared environment. In every
+terminal that seeds or starts the backend, from the worktree root, first run:
+
+```zsh
+export PYTHONPATH=$PWD/apps/backend:$PWD
+```
+
+Check it with
+`python -c "import app, scripts.zero_touch_happy_path_fixtures as f; print(app.__file__, f.__file__)"`;
+both paths must be inside the worktree.
 
 ## Seed and safe check
 
@@ -45,8 +64,9 @@ backend handling. Implementation/testing made zero external provider calls.
 Documents are in apps/backend/tests/fixtures/uat/zero-touch-database. They are image-only
 PDFs with matching Legal Name, UEN, Registered Address and Country plus explicitly labelled
 KYC Customer Type and Client Segment. Fixed DSD/ACRA/Singapore/ANZBGL profile values
-are visible but remain system-owned. A fifth Government scan is classification-only. The generator
-uses an installed local Arial/DejaVu font; every page visibly labels fictional FYP data.
+are visible but remain system-owned. Gamma also has `demo-gamma-partnership-agreement.pdf` and the
+Government case uses `demo-parks-government-status.pdf` (see the D-101 sections below). The generator
+uses an installed local Arial/DejaVu font (Verdana-style glyphs for the two D-101 letters); every page visibly labels fictional FYP data.
 SSIC/business activity is unsupported by the current canonical domain and is omitted.
 Alpha, Beta and Delta are private companies; Gamma is a synthetic Partnership. All are SG, fictional LIVE status,
 incorporation2026-01-05; one active DEMO Director and DEMO Secretary appointed that day.
@@ -57,14 +77,15 @@ have separate generated synthetic identifiers.
 |---|---|---|---|---|---|
 | DEMO ALPHA CIRCULAR FYP TEST PTE. LTD. | 209990101A | demo-alpha-scanned.pdf | 11 DEMO ALPHA WAY, 000101, SG | 60 / 40 | ALPHA P1 60%, P2 40% |
 | DEMO BETA HOLDINGS FYP TEST PTE. LTD. | 209990102B | demo-beta-scanned.pdf | 22 DEMO BETA WAY, 000102, SG | 30 / 25 / 17 / 14 / 8.5 / 5.5 | BETA P1 30%, P2 25%; P3..P6 below threshold |
-| DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP | 209990103C | demo-gamma-scanned.pdf | 33 DEMO GAMMA WAY, 000103, SG | 30 / 25 / 20 / 10 / 10 / 5 | GAMMA P1 30%, P2 25%; P3..P6 below threshold |
+| DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP | 209990103C | demo-gamma-scanned.pdf + demo-gamma-partnership-agreement.pdf | 33 DEMO GAMMA WAY, 000103, SG | 30 / 25 / 20 / 10 / 10 / 5 (agreement, RM-confirmed) | GAMMA P1 30%, P2 25%; P3..P6 below threshold |
 | DEMO DELTA SUSTAINABILITY FYP TEST PTE. LTD. | 209990104D | demo-delta-scanned.pdf | 44 DEMO DELTA WAY, 000104, SG | 30 / 10 / 40 / 20 | DELTA P1 30%, P3 40%; P2/P4 below threshold |
 
 Party names are DEMO <CODE> PERSON Pn; officers DEMO <CODE> OFFICER 1/2. All direct
 parent totals are exactly100%. ALPHA root -> P1/P2 60/40. BETA root -> H1/H2/P1 50/30/20;
 H1 -> P1..P6 20/50/10/10/5/5; H2 -> P3..P6 40/30/20/10.
-GAMMA root -> six synthetic partner economic interests30/25/20/10/10/5.
-Gamma percentages are explicit local synthetic DB interests, not official ACRA facts. DELTA root -> H1/P4 80/20;
+GAMMA: the registry seed lists partners P1..P6 by name and role only, with no ownership links or
+percentages (a partnership register never carries shares). The 30/25/20/10/10/5 split comes only from the
+partnership agreement and counts only after the RM confirms it. DELTA root -> H1/P4 80/20;
 H1 -> H2/P3 50/50; H2 -> P1/P2 75/25. The existing Decimal engine owns all calculations.
 No hierarchy/related-party creation is dispatched to GoldTier.
 
@@ -83,6 +104,7 @@ No hierarchy/related-party creation is dispatched to GoldTier.
 5. Expect LOCAL_TESSERACT_OCR, exact identity
    matches and eligible fields AUTO_CONFIRMED at frozen score>=threshold (default0.85);
    no Accept clicks or manual ownership declaration. Investigate any OCR mismatch truthfully.
+   Gamma and Government differ here; follow the D-101 sections below, then continue from step 6.
 6. Inspect the graph and provisional candidates. Submission readiness = Complete;
    GoldTier submission package = Prepared/Complete. The remaining blocker
    should be final Review & Send confirmation only.
@@ -95,7 +117,7 @@ No hierarchy/related-party creation is dispatched to GoldTier.
    resend to verify. Completed or uncertain mutations cannot replay.
 
 Marketplace sample UENs are operation-specific and are not coherent whole-company
-fixtures by assumption. These four local synthetic fixtures are the controlled happy
+fixtures by assumption. These local synthetic fixtures (four companies/partnership plus the Government case) are the controlled happy
 paths; Garden remains its separately bounded partial/LOCAL supplement example.
 Review & Send is final local approval; GoldTier KYC/four-eye approval, legal UBO,
 Production/Live integration, and original-document transfer remain outside this demo.
@@ -112,14 +134,50 @@ Normal app initialization must bootstrap the existing administration/profile/pol
 repositories with separately provisioned synthetic login hashes. Do not copy credentials,
 hashes or connection strings into this guide, fixtures, shell transcripts or Git.
 
-## Government classification boundary
+## D-101 Partnership journey (Gamma)
 
-`demo-government-scanned.pdf`: DEMO GOVERNMENT FYP TEST AUTHORITY,209990105E,
-55 DEMO GOVERNMENT WAY,000105,SG; explicit Government / DI - Government.
-It is separate from the four complete seeded paths. The current engine accepts numeric
-share ownership only; government control and complete legal UBO policy remain unimplemented.
-There is no Government shareholder graph, no automatic complete Government ownership,
-and no claim of end-to-end Government submission. This fixture tests document classification.
+1. Start the Gamma case with its exact name/UEN/SG. The registry evidence is the local synthetic seed
+   (PARTIAL: complete entity profile, partners by name and role, no shareholding), never a cache hit.
+2. Upload `demo-gamma-scanned.pdf` and `demo-gamma-partnership-agreement.pdf`, then finish intake.
+   Classification auto-binds Partnership - Unregulated / Corporate from the scan.
+3. Ownership & UBO shows the banner "Partner shares from partnership agreement, awaiting RM confirmation".
+   The agreement rows are suggestions only; nothing is accepted automatically.
+4. Open the manual ownership evidence form. It defaults to "Choose proposed document observations"
+   and the agreement, and lists P1..P6 (30/25/20/10/10/5, natural persons) **unticked**. Tick each row
+   you have checked, enter the **As-of date** (the agreement date, 2026-01-05), then
+   **Submit manual ownership evidence**.
+5. The banner becomes "Partner shares from partnership agreement, RM-confirmed". The Decimal engine shows
+   P1 30% and P2 25% at or above the policy threshold (default 25%); P3..P6 below it.
+6. Fail-closed cross-checks keep the case blocked and send it to review when: no current reviewed
+   agreement, low confidence, a different entity, a registry partner missing from the agreement, an
+   extra partner, a duplicate partner, a zero/negative share, a total other than exactly 100, or a
+   confirmed declaration that differs from the agreement.
+
+## D-101 Government journey (Demo Parks)
+
+`demo-parks-government-status.pdf`: DEMO PARKS FYP TEST AUTHORITY, T99FY0105G (fictional T-format; the
+letters are not an official code), `Founding Instrument:`, `KYC Customer Type: Government`,
+`Client Segment: DI - Government`, two display-only authorised signatories. It replaces the retired
+classification-only `demo-government-scanned.pdf` (DEMO GOVERNMENT FYP TEST AUTHORITY, 209990105E).
+
+1. Start the case as DEMO PARKS FYP TEST AUTHORITY / T99FY0105G / SG. Government bodies are not
+   ACRA-registered: identity comes from the local synthetic seed, labelled
+   "Local synthetic identity: not ACRA-registered; government status from reviewed document".
+   No ACRA verification is claimed.
+2. Upload the status letter and finish intake. Classification auto-binds Government / DI - Government;
+   a Government label on a company or partnership legal form is UNSAFE and goes to manual review.
+3. The Ownership & UBO stage holds the **Government status** step instead of an ownership analysis
+   (MAS Notice 626 para 6.12: confirm it is a Singapore Government entity). It shows the reviewed
+   status document and its founding instrument; signatories stay on the document only (not extracted,
+   no ownership graph, not sent to GoldTier).
+4. **Confirm Government status** (authenticated RM, version-checked). Without a current reviewed
+   status document, or without this confirmation, the case stays blocked
+   (`GOVERNMENT_STATUS_REQUIRED`). It is never set automatically or from the label alone.
+5. Readiness then completes with ownership evidence "Government status confirmed" and 0 UBO
+   candidates; continue with Review & Send as in step 7. A foreign government body is out of scope
+   and keeps normal checks.
+
+Not legal UBO policy (Q-004), not ACRA capability (Q-012), not Live.
 
 ## Evidence and recovery
 
@@ -157,4 +215,5 @@ later relevant trusted document makes the review stale again. The existing pre-s
 intake can accept that document before a frozen target intent; all freeze rules remain.
 A stale browser review is refused and current evidence reloaded. Unsafe low-score
 evidence remains separate from trusted contradiction. No classification action calls
-external providers or target writes. Government control/share policy remains unsupported.
+external providers or target writes. Government cases use the D-101 Government status step, not a
+control/share analysis.

@@ -78,8 +78,17 @@ from app.services.errors import (
     OnboardingInfrastructureError,
     TargetProviderContextMismatchError,
 )
+from app.services.government_status import (
+    government_profile_applies,
+    government_status_confirmed,
+)
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
+from app.services.partnership_agreement import (
+    agreement_rows,
+    partnership_agreement_issues,
+    registry_partner_names,
+)
 from app.services.target_response_validation import InvalidTargetResponseError
 
 REAL_INTEGRATION_WARNINGS = [
@@ -869,16 +878,25 @@ class ClmOrchestrationService:
             and (item.state == DocumentProcessingState.REVIEWED or reconciliation_cleared)
         )
         ownership = self._ownership.get(case_id=record.case_id)
+        current_documents = [
+            item
+            for item in self._documents.list_documents(case_id=record.case_id)
+            if item.is_current_evidence
+        ]
         return bool(
             documents == snapshot.document_references
             and ownership is not None
-            and EvidenceReference(
-                reference_id=ownership.analysis_id,
-                version=ownership.version,
-                status=ownership.state.value,
-                updated_at=ownership.updated_at,
+            and _ownership_evidence_reference(case, ownership) == snapshot.ownership_reference
+            and (
+                not government_profile_applies(case)
+                or government_status_confirmed(
+                    case,
+                    current_documents,
+                    confidence_threshold=float(
+                        case.policy_snapshot.idp_review_confidence_threshold
+                    ),
+                )
             )
-            == snapshot.ownership_reference
         )
 
     def _start_submission(self, record: ClmOrchestrationRecord) -> ClmOrchestrationRecord:
@@ -1425,16 +1443,27 @@ class ClmOrchestrationService:
         submission_plan: GoldTierSubmissionPlan,
     ) -> tuple[ClmSubmissionSnapshot, RelatedPartySubmissionPreparation]:
         entity = case.entity
-        if entity is None or ownership is None or validate_entity(entity):
+        ownership_reference = _ownership_evidence_reference(case, ownership)
+        if (
+            entity is None
+            or ownership is None
+            or ownership_reference is None
+            or validate_entity(entity)
+        ):
             raise ClmRequestError(
                 code="CLM_SNAPSHOT_NOT_AVAILABLE",
                 message="Submission evidence is incomplete.",
             )
-        candidate_ids = sorted(
-            candidate.party.party_id
-            for candidate in ownership.candidates
-            if candidate.classification
-            == OwnershipCandidateClassification.PROVISIONAL_UBO_CANDIDATE
+        # D-101: a Government entity has no ownership step, so no provisional UBO.
+        candidate_ids = (
+            []
+            if government_profile_applies(case)
+            else sorted(
+                candidate.party.party_id
+                for candidate in ownership.candidates
+                if candidate.classification
+                == OwnershipCandidateClassification.PROVISIONAL_UBO_CANDIDATE
+            )
         )
         target_input = self._cases.build_submission_input(
             case,
@@ -1464,12 +1493,7 @@ class ClmOrchestrationService:
                     and self._reconciliation.is_currently_cleared(case_id=case.case_id)
                 )
             ),
-            ownership_reference=EvidenceReference(
-                reference_id=ownership.analysis_id,
-                version=ownership.version,
-                status=ownership.state.value,
-                updated_at=ownership.updated_at,
-            ),
+            ownership_reference=ownership_reference,
             provisional_ubo=ProvisionalUboSummary(
                 candidate_count=len(candidate_ids),
                 internal_party_ids=tuple(candidate_ids),
@@ -1479,7 +1503,7 @@ class ClmOrchestrationService:
         preparation = RelatedPartySubmissionPreparation(
             provisional_candidate_count=len(candidate_ids),
             internal_party_ids=tuple(candidate_ids),
-            analysis_reference=ownership.analysis_id,
+            analysis_reference=ownership_reference.reference_id,
         )
         return snapshot, preparation
 
@@ -1537,6 +1561,68 @@ class ClmOrchestrationService:
 
     def _lock_for(self, case_id: UUID) -> RLock:
         return self._cases.case_lock(case_id)
+
+
+def _ownership_evidence_reference(
+    case: OnboardingCase, ownership: OwnershipAnalysisRecord | None
+) -> EvidenceReference | None:
+    """The frozen ownership-step evidence: the analysis, or the D-101 Government
+    confirmation that replaces it (no ownership graph, no provisional UBO)."""
+    if government_profile_applies(case):
+        confirmation = case.government_status_confirmation
+        if confirmation is None:
+            return None
+        return EvidenceReference(
+            reference_id=confirmation.confirmation_id,
+            version=confirmation.document_event_count,
+            status="GOVERNMENT_STATUS_CONFIRMED",
+            updated_at=confirmation.confirmed_at,
+        )
+    if ownership is None:
+        return None
+    return EvidenceReference(
+        reference_id=ownership.analysis_id,
+        version=ownership.version,
+        status=ownership.state.value,
+        updated_at=ownership.updated_at,
+    )
+
+
+def _partnership_agreement_issues(
+    case: OnboardingCase,
+    documents: list[DocumentProcessingRecord],
+    ownership: OwnershipAnalysisRecord,
+    partners: tuple[str, ...],
+    confidence_threshold: float,
+) -> tuple[str, ...]:
+    receipt = ownership.manual_review_receipt
+    document = (
+        next(
+            (
+                item
+                for item in documents
+                if item.document_id == receipt.evidence_document_id
+                and item.state == DocumentProcessingState.REVIEWED
+                and len(item.events) == receipt.evidence_document_version
+            ),
+            None,
+        )
+        if receipt is not None
+        else None
+    )
+    if document is None or case.entity is None:
+        return ("PARTNERSHIP_AGREEMENT_NOT_CONFIRMED",)
+    names = {party.party_id: party.display_name for party in ownership.parties}
+    return partnership_agreement_issues(
+        registry_partners=partners,
+        rows=agreement_rows(document),
+        root_uen=case.entity.registration_number,
+        confidence_threshold=confidence_threshold,
+        declared=tuple(
+            (names[edge.child_party_id], edge.ownership_percent)
+            for edge in ownership.relationships
+        ),
+    )
 
 
 def _evaluate_readiness(
@@ -1622,9 +1708,33 @@ def _evaluate_readiness(
         else:
             document_stage = StageReadiness(status=ReadinessStageStatus.REVIEW_REQUIRED)
 
-    if ownership is None:
+    partners = registry_partner_names(case.registry_acquisition)
+    if government_profile_applies(case):
+        # D-101: Government status replaces the ownership/UBO requirement entirely.
+        confirmation = case.government_status_confirmation
+        if confirmation is not None and government_status_confirmed(
+            case, documents, confidence_threshold=document_confidence_threshold
+        ):
+            ownership_stage = StageReadiness(
+                status=ReadinessStageStatus.READY,
+                reference_id=str(confirmation.confirmation_id),
+            )
+        else:
+            ownership_stage = StageReadiness(status=ReadinessStageStatus.REVIEW_REQUIRED)
+            block(ClmBlockerCode.GOVERNMENT_STATUS_REQUIRED)
+    elif ownership is None:
         ownership_stage = StageReadiness(status=ReadinessStageStatus.MISSING)
         block(ClmBlockerCode.OWNERSHIP_REQUIRED)
+    elif (
+        # D-101: a partnership's shares hold only while they equal its reviewed agreement.
+        partners
+        and ownership.state == OwnershipAnalysisState.ANALYZED
+        and _partnership_agreement_issues(
+            case, documents, ownership, partners, document_confidence_threshold
+        )
+    ):
+        ownership_stage = StageReadiness(status=ReadinessStageStatus.REVIEW_REQUIRED)
+        block(ClmBlockerCode.OWNERSHIP_REVIEW_REQUIRED)
     elif ownership.state == OwnershipAnalysisState.ANALYZED or (
         # D-082: the ownership owner's current opt-in POC acceptance; review is retained.
         ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED

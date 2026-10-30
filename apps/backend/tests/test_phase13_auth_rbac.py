@@ -1207,14 +1207,14 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 86
+    assert len(expected) == len(ROUTE_POLICIES) == 87
     assert counts == {
         RouteAccess.PUBLIC: 2,
         RouteAccess.ACTOR_ONLY: 29,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
-        RouteAccess.CASE_SCOPED: 44,
+        RouteAccess.CASE_SCOPED: 45,
         # D-103: the summary and document list GETs also admit the Support redaction read.
         RouteAccess.CASE_READ: 2,
     }

@@ -48,14 +48,16 @@ def test_physical_warm_preserves_four_exact_bundles_and_original_microseconds(da
     store = MongoRegistryCacheStore(client, database=database, collection="clm_registry_snapshots")
     try:
         store.initialize()
-        assert manage_fixtures(store, now=now, seed=True)["created"] == 8
+        # D-101: nine seeds, including the PARTIAL Government identity.
+        assert manage_fixtures(store, now=now, seed=True)["created"] == 9
         originals = [
             store.get(
                 RegistryCacheKey(provider_identity=provider_identity(), normalized_identifier=c.uen)
             )
             for c in ALL_COMPANIES
         ]
-        assert client[database]["clm_registry_snapshots"].count_documents({}) == 8
+        # D-101: nine seeds, including the PARTIAL Government identity.
+        assert client[database]["clm_registry_snapshots"].count_documents({}) == 9
     finally:
         client.close()
     second = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
@@ -64,11 +66,16 @@ def test_physical_warm_preserves_four_exact_bundles_and_original_microseconds(da
     )
     try:
         restored.initialize()
-        assert manage_fixtures(restored, now=now, seed=True)["fresh"] == 8
+        # D-101: nine seeds, including the PARTIAL Government identity.
+        assert manage_fixtures(restored, now=now, seed=True)["fresh"] == 9
         for entry in originals:
             assert restored.get(entry.key) == entry
             assert entry.acquisition.retrieved_at == now
-            assert entry.acquisition.status == "COMPLETE"
+            # D-101: Gamma (partners only) and Government (identity only) are PARTIAL seeds.
+            assert entry.acquisition.status == (
+                "PARTIAL" if entry.key.normalized_identifier in {"209990103C", "T99FY0105G"}
+                else "COMPLETE"
+            )
             assert entry.key.provider_identity.dataset_namespace == "LOCAL_SYNTHETIC_UAT_V1"
             official = provider_identity().model_copy(
                 update={
