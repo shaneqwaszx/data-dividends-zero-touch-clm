@@ -540,7 +540,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(onboarding).not.toContain("Start an onboarding request");
     expect(onboarding).toContain("multiple=\"\"");
     expect(onboarding).toContain("webkitdirectory=\"\"");
-    expect(onboarding).toContain("PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF");
+    expect(onboarding).toContain("PDF, Word (.docx), text, PNG, JPEG or TIFF · up to 5 MB per file, 25 MB per case · up to 20 files");
   });
 
   it("validates a bounded multi-format document selection", () => {
