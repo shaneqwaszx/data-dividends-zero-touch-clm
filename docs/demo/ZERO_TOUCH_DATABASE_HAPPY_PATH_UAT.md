@@ -142,8 +142,10 @@ hashes or connection strings into this guide, fixtures, shell transcripts or Git
    Classification auto-binds Partnership - Unregulated / Corporate from the scan.
 3. Ownership & UBO shows the banner "Partner shares from partnership agreement, awaiting RM confirmation".
    The agreement rows are suggestions only; nothing is accepted automatically.
-4. Open the manual ownership evidence form: it defaults to the agreement's partner rows (P1..P6,
-   30/25/20/10/10/5, natural persons). Check them and **Submit manual ownership evidence**.
+4. Open the manual ownership evidence form. It defaults to "Choose proposed document observations"
+   and the agreement, and lists P1..P6 (30/25/20/10/10/5, natural persons) **unticked**. Tick each row
+   you have checked, enter the **As-of date** (the agreement date, 2026-01-05), then
+   **Submit manual ownership evidence**.
 5. The banner becomes "Partner shares from partnership agreement, RM-confirmed". The Decimal engine shows
    P1 30% and P2 25% at or above the policy threshold (default 25%); P3..P6 below it.
 6. Fail-closed cross-checks keep the case blocked and send it to review when: no current reviewed
