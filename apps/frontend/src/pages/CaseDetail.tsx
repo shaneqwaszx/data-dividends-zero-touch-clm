@@ -1298,7 +1298,8 @@ export default function CaseDetail({
   const finalHeaderContext = headerReadSummary("final review", [detailQuery, documentQuery, ownershipQuery])
     + targetHeaderStatus + " " + (frozenReview || summary.status === "COMPLETED" ? "Reviewed package frozen. " : "");
   // D-082 N2: never claim acceptance while the workflow still holds the ownership stage.
-  // D-101: a Government entity replaces Ownership & UBO with the Government status step.
+  // D-101: for a Government entity the Ownership & UBO stage holds the Government status step
+  // instead of an ownership analysis; the stage keeps its title so AI Assistant section links match.
   const governmentBasis = summary.entity_type_basis?.entity_type === "GOVERNMENT" ? summary.entity_type_basis : null;
   const partnershipPendingLabel = summary.entity_type_basis?.partnership_state === "AWAITING_RM_CONFIRMATION" ? summary.entity_type_basis.label : null;
   const ownershipHeaderStatus = ownership?.poc_basis_accepted && !stageNeedsAttention(["OWNERSHIP"])
@@ -1574,7 +1575,7 @@ export default function CaseDetail({
             <ConfirmDetailsPanel presentation="technical" summary={summary} />
           </>}
         />
-        <StageDisclosure title={governmentBasis ? "Government status" : "Ownership & UBO"} status={stageStatusFor(summary, ["OWNERSHIP_UBO"])} summary={governmentBasis ? governmentBasis.label : `${ownershipHeaderFreshness}${ownershipHeaderStatus}`} scopeKey={disclosureIdentity} main={governmentBasis ? <>
+        <StageDisclosure title="Ownership & UBO" status={stageStatusFor(summary, ["OWNERSHIP_UBO"])} summary={governmentBasis ? governmentBasis.label : `${ownershipHeaderFreshness}${ownershipHeaderStatus}`} scopeKey={disclosureIdentity} main={governmentBasis ? <>
           {renderInterventions(["OWNERSHIP"])}
           <div key={`${evidenceIdentity}:government`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target" tabIndex={-1}>
             <GovernmentStatusPanel
