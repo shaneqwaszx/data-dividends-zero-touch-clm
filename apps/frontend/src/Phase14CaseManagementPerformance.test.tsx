@@ -20,7 +20,6 @@ import CaseQueue, {
   type CaseQueuePresentationState,
 } from "./pages/CaseQueue";
 import DeleteCaseDialog from "./pages/DeleteCaseDialog";
-import OnboardedClients from "./pages/OnboardedClients";
 import { clearSessionQueries, createSessionQueryClient, SESSION_STALE_TIME_MS } from "./queryClient";
 import type {
   AuthenticatedProfile,
@@ -318,30 +317,6 @@ describe("Phase 14 queue and delete UX", () => {
 
     expect(request).toHaveBeenCalledTimes(1);
     expect(String(request.mock.calls[0][0])).toContain("/api/clm/zero-touch/case-portfolio");
-    expect(request.mock.calls.some(([url]) => String(url).endsWith(`/${listItem.case_id}`))).toBe(false);
-  });
-
-  it("loads Onboarded with one completed-list request and no detail fan-out", async () => {
-    const completed = { ...listItem, status: "COMPLETED" as const };
-    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify([completed]), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    const queryClient = createSessionQueryClient();
-    await queryClient.fetchQuery(
-      caseListQueryOptions(actor.user_id, "COMPLETED", "all", "highest_first"),
-    );
-    await act(async () => root?.render(
-      <MemoryRouter><QueryClientProvider client={queryClient}>
-        <OnboardedClients actor={actor} />
-      </QueryClientProvider></MemoryRouter>,
-    ));
-
-    expect(container?.textContent).toContain("MERLION PTE. LTD.");
-    expect(request).toHaveBeenCalledTimes(1);
-    expect(String(request.mock.calls[0][0])).toContain("status=COMPLETED");
     expect(request.mock.calls.some(([url]) => String(url).endsWith(`/${listItem.case_id}`))).toBe(false);
   });
 

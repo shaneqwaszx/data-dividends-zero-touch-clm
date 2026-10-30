@@ -30,6 +30,7 @@ _SYSTEM_ENV_KEYS = (
     "SYSTEMDRIVE",
     "SYSTEMROOT",
     "TEMP",
+    "TMPDIR",
     "TMP",
     "USERPROFILE",
     "WINDIR",

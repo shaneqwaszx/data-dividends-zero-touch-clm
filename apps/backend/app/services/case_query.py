@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -116,6 +117,7 @@ class CaseQueryService:
         actor: AuthenticatedActor,
         *,
         status: AutomationStatus | None = None,
+        progress: Literal["in_progress", "onboarded"] | None = None,
         priority_filter: PriorityFilter = PriorityFilter.ALL,
         priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST,
         team_filter: str | None = None,
@@ -133,6 +135,7 @@ class CaseQueryService:
             query = CasePortfolioQuery(
                 scope=scope,
                 status=status,
+                progress=progress,
                 priority_filter=priority_filter,
                 priority_sort=priority_sort,
                 attention_type=attention_type,

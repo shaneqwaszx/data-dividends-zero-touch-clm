@@ -249,19 +249,26 @@ describe("blocker-aware attention queue contract", () => {
       </MemoryRouter>,
     ));
 
-    expect(container?.textContent).toContain("Open business exceptions");
+    expect(container?.textContent).toContain("Needs attention");
     expect(container?.textContent).not.toContain("Assigned to");
     expect(container?.textContent).toContain("Document low confidence");
     expect(container?.textContent).toContain("Ownership cycle");
-    expect(container?.textContent).toContain("3 open · 0 human");
-    expect(container?.textContent).toContain("No open business exceptions recorded");
+    // Neither row has completed, so 0 human interventions is not shown as a Zero-touch outcome.
+    expect(container?.textContent).toContain("No manual steps yet");
+    expect(container?.textContent).not.toContain("Zero-touch");
+    expect(container?.textContent).not.toContain("3 open · 0 human");
+    const attentionCells = Array.from(container?.querySelectorAll("tbody tr") ?? [])
+      .map((row) => row.querySelectorAll("td")[7]?.textContent);
+    expect(attentionCells).toContain("—");
     expect(mapZeroTouchCaseToCaseRow(blocked)).not.toHaveProperty("assigned_to");
     expect(container?.querySelector<HTMLAnchorElement>("a")?.getAttribute("href"))
       .toBe(`/cases/${blocked.case_id}`);
 
-    const attentionSelect = Array.from(container?.querySelectorAll("label") ?? [])
-      .find((label) => label.textContent?.includes("Open business exception type"))
-      ?.querySelector("select");
+    const attentionLabel = Array.from(container?.querySelectorAll("label") ?? [])
+      .find((label) => label.textContent === "Needs attention");
+    const attentionSelect = attentionLabel
+      ? container?.querySelector<HTMLSelectElement>(`#${attentionLabel.htmlFor}`)
+      : null;
     expect(attentionSelect?.querySelectorAll("option")).toHaveLength(
       BUSINESS_EXCEPTION_TYPES.length + 1,
     );

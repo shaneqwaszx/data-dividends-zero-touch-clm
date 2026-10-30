@@ -2,8 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import type { OwnershipAnalysisRecord, ZeroTouchCaseSummary } from "../types";
-import { mapZeroTouchCaseToClientDetail } from "../viewModels";
+import type { OwnershipAnalysisRecord } from "../types";
 import { fiveLayerAssumedBasisFixture, gardenAssumedBasisFixture } from "./ownershipAssumedBasisFixture";
 import OwnershipPathExplorer from "./OwnershipPathExplorer";
 import { ownershipStructureFixture } from "./ownershipStructureFixture";
@@ -114,16 +113,4 @@ describe("D-081 assumed-basis threshold matches stay apart from formal UBO class
     expect(assumedSection()!.textContent).not.toContain("ALEX TAN");
   });
 
-  it("never adds assumed-basis matches to the client-detail owners", () => {
-    const summary = {
-      status: "WAITING_FOR_REVIEW", updated_at: "now", timeline: [], completed_stages: [], target_operations: [],
-      metrics: { human_interventions: 0, total_duration_ms: 0 }, reconciliation: null,
-      case: { case_id: "case-hybrid", requested_uen: "11111999A", entity: null, registry_acquisition: null, goldtier_result: null },
-      clm: { readiness: { blockers: ["OWNERSHIP_REVIEW_REQUIRED"], registry: { status: "READY" }, document: { status: "READY" }, ownership: { status: "REVIEW_REQUIRED" }, goldtier: { status: "BLOCKED" } } },
-    } as unknown as ZeroTouchCaseSummary;
-    expect(mapZeroTouchCaseToClientDetail(summary, [], gardenAssumedBasisFixture()).beneficial_owners).toEqual([]);
-    expect(mapZeroTouchCaseToClientDetail(summary, [], fiveLayerAssumedBasisFixture()).beneficial_owners).toEqual([]);
-    expect(mapZeroTouchCaseToClientDetail(summary, [], ownershipStructureFixture()).beneficial_owners.map(item => item.owner))
-      .toEqual(["Synthetic qualifying person"]);
-  });
 });

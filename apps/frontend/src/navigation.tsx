@@ -50,8 +50,6 @@ export const paths = {
   retainedIntake: (caseId: string) => buildCasePath(routePatterns.newOnboarding, caseId),
   cases: routePatterns.cases,
   caseDetail: (caseId: string) => buildCasePath(routePatterns.cases, caseId),
-  onboarded: routePatterns.onboarded,
-  onboardedDetail: (caseId: string) => buildCasePath(routePatterns.onboarded, caseId),
   audit: routePatterns.audit,
   auditCase: (caseId: string) => buildCasePath(routePatterns.audit, caseId),
   policy: routePatterns.policy,
@@ -67,7 +65,6 @@ export type AppTab =
   | "dashboard"
   | "home"
   | "queue"
-  | "onboarded"
   | "audit"
   | "policy"
   | "users"
@@ -89,7 +86,6 @@ const navigationItems: NavigationItem[] = [
   { tab: "dashboard", label: "Dashboard", path: paths.dashboard, capability: "CASE_ACCESS", end: true },
   { tab: "home", label: "New onboarding", path: paths.newOnboarding, capability: "CASE_ACCESS", end: false },
   { tab: "queue", label: "Cases", path: paths.cases, capability: "CASE_ACCESS", end: false },
-  { tab: "onboarded", label: "Onboarded", path: paths.onboarded, capability: "CASE_ACCESS", end: false },
   { tab: "audit", label: "Audit", path: paths.audit, capability: "CASE_ACCESS", end: false },
   { tab: "knowledge-review", label: "Knowledge Review", path: paths.knowledgeReview, capability: "KNOWLEDGE_REVIEW", end: true },
   { tab: "policy", label: "Policy", path: paths.policy, capability: "POLICY_VIEW", end: true },
@@ -193,6 +189,14 @@ function NewOnboardingLanding({ retainedCaseId, render }: {
     : render();
 }
 
+/** The brand returns to the profile's own landing page; plain text when there is none. */
+function BrandHome({ actor }: { actor: AuthenticatedProfile }) {
+  const destination = defaultPathForProfile(actor);
+  return destination
+    ? <Link className="nav-brand" to={destination} aria-label="Autoboard home">Autoboard</Link>
+    : <span className="nav-brand">Autoboard</span>;
+}
+
 export function WorkspaceTabs({
   actor,
   retainedIntakeCaseId,
@@ -204,7 +208,7 @@ export function WorkspaceTabs({
 }) {
   return (
     <nav className="ds-root nav" aria-label="Main workspace">
-      <span className="nav-brand">Autoboard</span>
+      <BrandHome actor={actor} />
       <span className="nav-sep" />
       <div className="nav-tabs">
         {navigationItems
@@ -234,8 +238,6 @@ export interface WorkspaceRoutesProps {
   newOnboarding: (caseId: string | null) => ReactNode;
   cases: ReactNode;
   caseDetail: (caseId: string) => ReactNode;
-  onboarded: ReactNode;
-  onboardedDetail: (caseId: string) => ReactNode;
   audit: (caseId: string | null) => ReactNode;
   policy: ReactNode;
   adminUsers: ReactNode;
@@ -253,8 +255,6 @@ export function WorkspaceRoutes({
   newOnboarding,
   cases,
   caseDetail,
-  onboarded,
-  onboardedDetail,
   audit,
   policy,
   adminUsers,
@@ -289,10 +289,11 @@ export function WorkspaceRoutes({
         path={routePatterns.caseDetail}
         element={caseAccess(<CaseParamRoute actor={actor} render={caseDetail} />)}
       />
-      <Route path={routePatterns.onboarded} element={caseAccess(onboarded)} />
+      {/* The Onboarded pages were folded into Cases (its "Onboarded" view); old links redirect. */}
+      <Route path={routePatterns.onboarded} element={caseAccess(<Navigate to={paths.cases} replace />)} />
       <Route
         path={routePatterns.onboardedDetail}
-        element={caseAccess(<CaseParamRoute actor={actor} render={onboardedDetail} />)}
+        element={caseAccess(<CaseParamRoute actor={actor} render={(caseId) => <Navigate to={paths.caseDetail(caseId)} replace />} />)}
       />
       <Route path={routePatterns.audit} element={caseAccess(audit(null))} />
       <Route

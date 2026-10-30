@@ -85,6 +85,7 @@ class RunE2ETests(unittest.TestCase):
             {
                 "PATH": "safe-path",
                 "TEMP": "safe-temp",
+                "TMPDIR": "safe-tmpdir",
                 "MONGO_URI": "mongodb://secret",
                 "GITHUB_TOKEN": "secret",
                 "PHASE13_MAYA_LIM_PASSWORD_HASH": "hash",
@@ -92,6 +93,7 @@ class RunE2ETests(unittest.TestCase):
         )
         self.assertEqual(result["PATH"], "safe-path")
         self.assertEqual(result["TEMP"], "safe-temp")
+        self.assertEqual(result["TMPDIR"], "safe-tmpdir")
         self.assertNotIn("MONGO_URI", result)
         self.assertNotIn("GITHUB_TOKEN", result)
         self.assertNotIn("PHASE13_MAYA_LIM_PASSWORD_HASH", result)
@@ -1637,6 +1639,17 @@ class E2EBackendKeepAliveTests(unittest.TestCase):
         self.assertEqual(len(runs), 1)
         keep_alive = {keyword.arg: ast.unparse(keyword.value) for keyword in runs[0].keywords}
         self.assertEqual(keep_alive.get("timeout_keep_alive"), "UPSTREAM_KEEP_ALIVE_SECONDS")
+
+    def test_backend_keeps_the_os_temp_directory_for_local_ocr(self) -> None:
+        # macOS: without TMPDIR, Python uses /tmp, which Homebrew Leptonica remaps, so
+        # Tesseract cannot open the rendered page image (OCR_PROCESSING_FAILED).
+        path = ROOT / "scripts" / "e2e_backend_server.py"
+        spec = importlib.util.spec_from_file_location("e2e_backend_server_tmpdir", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertIn("TMPDIR", module._SYSTEM_ENV_KEYS)
+        self.assertIn("TMPDIR", RUN_E2E._SYSTEM_ENV_KEYS)
 
 
 if __name__ == "__main__":

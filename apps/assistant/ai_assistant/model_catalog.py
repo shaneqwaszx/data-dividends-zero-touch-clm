@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from . import remote_test, synthetic_eligibility
+from . import anthropic_profiles, remote_test, synthetic_eligibility
 from .config import AiAssistantSettings
 from .llm import (
     ModelAnswer,
@@ -121,7 +121,7 @@ class ProfilesFile(BaseModel):
         ids = [item.profile_id for item in value]
         if len(set(ids)) != len(ids):
             raise ValueError("profile ids must be unique")
-        if {BASELINE_ID, *APPROVED_PROFILES} & set(ids):
+        if {BASELINE_ID, *APPROVED_PROFILES, *anthropic_profiles.PROFILE_IDS} & set(ids):
             raise ValueError("a profile id is reserved")
         return value
 
@@ -348,6 +348,53 @@ def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
     return tuple(entries)
 
 
+def _claude_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]:
+    # D-099 Option B (proposed): Claude Sonnet 5.5 Balanced and Fast, selectable only when
+    # every Anthropic safeguard the runtime checks without a key or network holds
+    # (anthropic_runtime.readiness); otherwise every action on them is refused before any call.
+    # Its scope is the GPT-OSS one: the same synthetic boundary decides which cases it answers.
+    # Comments, not docstrings: every string constant here feeds the synthetic boundary's
+    # code vocabulary (scripts/build_synthetic_boundary.py).
+
+    status, reason = anthropic_profiles.availability(settings)
+    if status == "pending_authorisation":
+        scope = "NOT_AUTHORISED"
+    elif status != "selectable":
+        scope = "PROVIDER_CONTROLS_MISSING"
+    elif synthetic_eligibility.mode(settings):
+        scope = "VERIFIED_SYNTHETIC_CASES"
+    else:
+        scope = "APPROVED_SYNTHETIC_CASE"
+    return tuple(
+        CatalogueEntry(
+            profile_id=config.profile_id,
+            display_name=f"{anthropic_profiles.MODEL_NAME} (effort {config.effort})",
+            source="code",
+            deployment="anthropic",
+            model_id=anthropic_profiles.MODEL_ID,
+            model_version=config.effort,
+            endpoint=f"api.anthropic.com · {anthropic_profiles.MODEL_ID}",
+            context_window_tokens=None,
+            max_answer_tokens=anthropic_profiles.MAX_TOKENS,
+            temperature=None,
+            timeout_seconds=anthropic_profiles.TIMEOUT_SECONDS,
+            streaming=True,
+            fingerprint=fingerprint(config.identity()),
+            status=status,
+            reason=reason,
+            details=(
+                ("model", anthropic_profiles.MODEL_NAME),
+                ("provider", anthropic_profiles.PROVIDER),
+                ("scope", scope),
+                ("reasoning_effort", config.effort),
+                ("thinking", config.thinking),
+                ("decision", anthropic_profiles.DECISION_ID),
+            ),
+        )
+        for config in anthropic_profiles.CONFIGURATIONS.values()
+    )
+
+
 def _file_entry(profile: LocalProfile) -> CatalogueEntry:
     status: Status = "selectable"
     reason = None
@@ -395,7 +442,7 @@ def _error_fields(error: ValidationError) -> tuple[str, ...]:
 def load_catalogue(settings: AiAssistantSettings) -> Catalogue:
     """Every model the page lists. A broken file lists no file profile (never part of one)."""
 
-    fixed = (baseline_entry(settings), *_remote_entries(settings))
+    fixed = (baseline_entry(settings), *_remote_entries(settings), *_claude_entries(settings))
     path = profiles_path(settings)
     if path is None:
         return Catalogue(False, "not_configured", (), fixed)

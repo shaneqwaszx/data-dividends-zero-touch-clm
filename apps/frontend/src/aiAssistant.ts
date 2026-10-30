@@ -163,6 +163,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
   "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
   "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
+  "Run Test connection first so the Anthropic workspace and model are checked (a free model read). Nothing started.",
   "The OpenRouter key's own spending limit has no room. Only the key's owner can raise it at OpenRouter; it is not an HR setting. Nothing started.",
   "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
   "A later qualification of this configuration failed on answer quality.",
@@ -183,6 +184,12 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Confirm the new lifetime limit to raise it. Nothing changed.",
   "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed.",
   "The OpenRouter key could not be checked. Nothing changed.",
+  // D-102: Claude spending refusals.
+  "Claude's daily limit must be more than US$0.00 and at most US$5.00, and its call limit 1 to 20. Nothing changed.",
+  "Claude's lifetime limit must be above the workspace's opening usage and at most the lower of US$30.00 and the attested workspace limit. Nothing changed.",
+  "Claude's ledger must be reconciled with the Anthropic Console's usage within the last day (no open call, no stop) before a Claude limit can be raised. Nothing changed.",
+  "Claude is not fully configured on this server, so its limits can only be lowered. Nothing changed.",
+  "Confirm the new call limit to raise it. Nothing changed.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -933,6 +940,69 @@ export interface ModelBudgetStatus {
   refusal: string | null;
   /** D-096: the HR spending controls that apply (absent from older servers). */
   controls?: ModelSpendingControls;
+  /** D-102: Claude's own spending view and HR controls (absent from older servers). */
+  claude?: ModelClaudeBudget;
+}
+
+/** D-102: Claude's spending (its separate Anthropic ledger), with its own HR controls. */
+export interface ModelClaudeBudget {
+  configured: boolean;
+  timezone: string;
+  daily_cap_micro_usd: number;
+  /** The owner-attested Anthropic workspace monthly limit (0: not attested). */
+  workspace_limit_micro_usd: number;
+  lifetime_ceiling_micro_usd: number;
+  next_reset_at: string;
+  preflight: { checked_at: string; passed: boolean } | null;
+  ledger: {
+    profile_ok: boolean;
+    cap_micro_usd: number;
+    committed_micro_usd: number;
+    headroom_micro_usd: number;
+    headroom_usd: string;
+    open_calls: number;
+    breaker_open: boolean;
+    breaker_code: string | null;
+    reconciled_at: string | null;
+  } | null;
+  daily: {
+    cap_micro_usd: number;
+    settled_today_micro_usd: number;
+    in_flight_micro_usd: number;
+    remaining_micro_usd: number;
+    remaining_usd: string;
+  } | null;
+  effective_remaining_micro_usd: number;
+  effective_remaining_usd: string;
+  reservation_micro_usd?: number | null;
+  refusal: string | null;
+  controls: ModelClaudeSpendingControls;
+}
+
+/** D-102: Claude's HR controls. "environment" means HR has not set the value yet. */
+export interface ModelClaudeSpendingControls {
+  revision: number | null;
+  readable: boolean;
+  daily_cap_micro_usd: number;
+  daily_cap_range: [number, number];
+  daily_cap_default_micro_usd: number;
+  raise_requires: string[];
+  daily_cap_source: "hr" | "environment";
+  max_calls: number;
+  max_calls_range: [number, number];
+  max_calls_source: "hr" | "environment";
+  /** Calls the active Claude configuration made since its activation or the service's start. */
+  calls_used: number | null;
+  calls_remaining: number | null;
+  changed_at: string | null;
+  changed_by: string | null;
+  lifetime: {
+    opening_usage_micro_usd: number;
+    cap_micro_usd: number;
+    /** The lower of US$30.00 and the attested workspace limit. */
+    max_cap_micro_usd: number;
+    committed_micro_usd: number;
+  } | null;
 }
 
 /** D-096: HR spending controls. "environment" means HR has not set the value yet. */
@@ -979,8 +1049,10 @@ const modelPath = (profileId: string) => `/admin/models/${encodeURIComponent(pro
 
 export const fetchModelOverview = (signal?: AbortSignal) =>
   request<ModelOverview>("/admin/models", undefined, signal);
+/** How many of the most recent audit events the page asks for (newest first). */
+export const MODEL_AUDIT_LIMIT = 100;
 export const fetchModelAudit = (signal?: AbortSignal) =>
-  request<{ events: ModelAuditEvent[] }>("/admin/models/audit?limit=100", undefined, signal);
+  request<{ events: ModelAuditEvent[] }>(`/admin/models/audit?limit=${MODEL_AUDIT_LIMIT}`, undefined, signal);
 export const testModelConnection = (profileId: string) =>
   request<ModelConnectionTest>(`${modelPath(profileId)}/connection-test`, {});
 // D-098: a paid (remote) run is sent with the number of paid calls HR confirmed.
@@ -1028,6 +1100,29 @@ export const saveSpendingControls = (
 // D-098 (F1): the cap the page showed is sent too, so a change made in between is refused.
 export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
   request<ModelBudgetStatus>("/admin/models/budget/lifetime-cap", {
+    cap_micro_usd: capMicroUsd,
+    confirm_cap_micro_usd: confirmCapMicroUsd,
+    expected_cap_micro_usd: expectedCapMicroUsd,
+  }, undefined, "PUT");
+// D-102: Claude's own limits, on its own routes (never the GPT-OSS ones). A raise sends the
+// same value again as HR's confirmation (the daily limit, and the call limit too, QG L1); the
+// lifetime cap sends the cap the page showed.
+export const saveClaudeSpendingControls = (
+  expectedRevision: number,
+  dailyCapMicroUsd: number,
+  maxCalls: number,
+  confirmDailyCapMicroUsd: number | null = null,
+  confirmMaxCalls: number | null = null,
+) =>
+  request<ModelBudgetStatus>("/admin/models/budget/claude/controls", {
+    expected_revision: expectedRevision,
+    daily_cap_micro_usd: dailyCapMicroUsd,
+    max_calls: maxCalls,
+    ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
+    ...(confirmMaxCalls === null ? {} : { confirm_max_calls: confirmMaxCalls }),
+  }, undefined, "PUT");
+export const saveClaudeLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
+  request<ModelBudgetStatus>("/admin/models/budget/claude/lifetime-cap", {
     cap_micro_usd: capMicroUsd,
     confirm_cap_micro_usd: confirmCapMicroUsd,
     expected_cap_micro_usd: expectedCapMicroUsd,

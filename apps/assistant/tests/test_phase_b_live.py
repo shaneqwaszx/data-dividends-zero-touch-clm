@@ -952,4 +952,10 @@ def test_live_network_marker_is_used_only_by_the_adapter_and_the_factory() -> No
         for path in (ASSISTANT_DIR / folder).rglob("*.py")
         if "LIVE_NETWORK" in path.read_text(encoding="utf-8")
     )
-    assert users == ["ai_assistant/model_factory.py", "ai_assistant/openrouter.py"]
+    # D-099 Option B: the Claude adapter's own marker and the gated runtime that alone passes it.
+    assert users == [
+        "ai_assistant/anthropic_chat.py",
+        "ai_assistant/anthropic_runtime.py",
+        "ai_assistant/model_factory.py",
+        "ai_assistant/openrouter.py",
+    ]

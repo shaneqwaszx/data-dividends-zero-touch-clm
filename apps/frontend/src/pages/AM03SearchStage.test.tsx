@@ -125,7 +125,7 @@ function seed(value: ZeroTouchCaseSummary, actor = actorA) {
 }
 function render(caseId = CASE_A, actor = actorA) {
   act(() => root.render(<QueryClientProvider client={client}><CaseDetail caseId={caseId} actor={actor}
-    onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} /></QueryClientProvider>));
+    onBack={() => undefined} onViewAudit={() => undefined} /></QueryClientProvider>));
 }
 function stage(title: string): HTMLElement {
   const heading = [...container.querySelectorAll("h2")].find(item => item.textContent?.replace(/[−+]$/, "") === title);

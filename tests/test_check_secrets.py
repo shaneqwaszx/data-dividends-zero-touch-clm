@@ -145,6 +145,33 @@ class SecretScannerTests(unittest.TestCase):
         self.assertEqual(findings, [("openrouter-key", 1)])
         self.assertNotIn(key_shaped, repr(findings))
 
+    def test_detects_anthropic_keys_and_their_variable_names(self) -> None:
+        key_shaped = "sk-" + "ant-" + "api03-" + "0" * 64
+        user_key_shaped = "sk-" + "ant-" + "usr-" + "0" * 64
+        fake_value = "fixture_not_a_real_value_" + "334455"
+        names = ("AI_ASSISTANT_" + "ANTHROPIC_API_KEY", "ANTHROPIC_" + "API_KEY")
+        lines = [
+            f"pasted by mistake: {key_shaped}",
+            *(f"{name}={fake_value}" for name in names),
+            f"and a Console user key: {user_key_shaped}",
+        ]
+        path = self._temporary_file("notes.md", "\n".join(lines) + "\n")
+
+        findings = CHECK_SECRETS.scan_file(path)
+
+        self.assertEqual(
+            sorted(findings),
+            [
+                ("anthropic-key", 1),
+                ("anthropic-key", 4),
+                ("assistant-credential-assignment", 2),
+                ("assistant-credential-assignment", 3),
+            ],
+        )
+        self.assertNotIn(key_shaped, repr(findings))
+        self.assertNotIn(user_key_shaped, repr(findings))
+        self.assertNotIn(fake_value, repr(findings))
+
     def test_allows_documented_credential_placeholders_and_references(self) -> None:
         lines = [
             f"{self.REMOTE}=",

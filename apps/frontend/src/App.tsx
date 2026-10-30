@@ -29,6 +29,15 @@ import {
   deleteZeroTouchCase,
   fetchTeamOptions,
 } from "./api";
+import {
+  MAX_CASE_UPLOAD_BYTES,
+  MAX_UPLOAD_FILE_BYTES,
+  UPLOAD_ACCEPT,
+  UPLOAD_DOCUMENT_TYPES,
+  UPLOAD_ERRORS,
+  UPLOAD_ERROR_BY_CODE,
+  UPLOAD_HELP_TEXT,
+} from "./uploadLimits";
 import { startAutomationPolling } from "./automationPolling";
 import {
   caseCreatedEffect,
@@ -43,12 +52,10 @@ import AiAssistantPanel from "./pages/AiAssistantPanel";
 import { aiAssistantContextFor } from "./pages/aiAssistantContext";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
 import type { CaseQueuePresentationState } from "./pages/CaseQueue";
-import ClientDetail from "./pages/ClientDetail";
 import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import DeleteCaseDialog from "./pages/DeleteCaseDialog";
 import GoldTierRequestPreview from "./pages/GoldTierRequestPreview";
-import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
 import KnowledgeReview from "./pages/KnowledgeReview";
 import AdminTeams from "./pages/AdminTeams";
@@ -90,8 +97,9 @@ import type {
 } from "./types";
 
 export const MAX_INTAKE_FILE_COUNT = 20;
-export const MAX_INTAKE_FILE_BYTES = 5 * 1024 * 1024;
-export const MAX_INTAKE_TOTAL_BYTES = 25 * 1024 * 1024;
+// The limits live in uploadLimits.ts (kept in sync with the backend); these names remain for callers.
+export const MAX_INTAKE_FILE_BYTES = MAX_UPLOAD_FILE_BYTES;
+export const MAX_INTAKE_TOTAL_BYTES = MAX_CASE_UPLOAD_BYTES;
 
 export function intakeFileKey(file: File): string {
   return `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
@@ -105,12 +113,13 @@ export function validateIntakeFiles(files: File[]): string | null {
     const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
     const expectedType = DOCUMENT_TYPES[extension];
     if (!SAFE_DOCUMENT_NAME.test(file.name) || !expectedType || file.type !== expectedType) {
-      return `${file.name}: only matching PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF files are supported.`;
+      return `${file.name}: ${UPLOAD_ERRORS.unsupportedType}`;
     }
-    if (file.size <= 0 || file.size > MAX_INTAKE_FILE_BYTES) return `${file.name}: each file must be non-empty and 5 MiB or smaller.`;
+    if (file.size <= 0) return `${file.name}: this file is empty.`;
+    if (file.size > MAX_INTAKE_FILE_BYTES) return `${file.name}: ${UPLOAD_ERRORS.fileTooLarge}`;
     total += file.size;
   }
-  if (total > MAX_INTAKE_TOTAL_BYTES) return "The selected files exceed the 25 MiB total limit.";
+  if (total > MAX_INTAKE_TOTAL_BYTES) return UPLOAD_ERRORS.caseTotalTooLarge;
   return null;
 }
 
@@ -208,16 +217,7 @@ export function targetedIntakeFailurePresentation(caseId: string, failures: stri
   };
 }
 
-const DOCUMENT_TYPES: Record<string, string> = {
-  ".pdf": "application/pdf",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".txt": "text/plain",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".tif": "image/tiff",
-  ".tiff": "image/tiff",
-};
+const DOCUMENT_TYPES = UPLOAD_DOCUMENT_TYPES;
 const SAFE_DOCUMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.(pdf|docx|txt|png|jpe?g|tiff?)$/i;
 
 export function validateSelectedDocuments(files: File[]): { accepted: File[]; errors: string[] } {
@@ -232,11 +232,15 @@ export function validateSelectedDocuments(files: File[]): { accepted: File[]; er
     const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
     const expectedType = DOCUMENT_TYPES[extension];
     if (!SAFE_DOCUMENT_NAME.test(file.name) || !expectedType || file.type !== expectedType) {
-      errors.push(`${file.name}: only matching PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF files are supported.`);
+      errors.push(`${file.name}: ${UPLOAD_ERRORS.unsupportedType}`);
       continue;
     }
-    if (file.size <= 0 || file.size > MAX_INTAKE_FILE_BYTES) {
-      errors.push(`${file.name}: file must be non-empty and no larger than 5 MiB.`);
+    if (file.size <= 0) {
+      errors.push(`${file.name}: this file is empty.`);
+      continue;
+    }
+    if (file.size > MAX_INTAKE_FILE_BYTES) {
+      errors.push(`${file.name}: ${UPLOAD_ERRORS.fileTooLarge}`);
       continue;
     }
     if (accepted.length >= MAX_INTAKE_FILE_COUNT) {
@@ -244,7 +248,7 @@ export function validateSelectedDocuments(files: File[]): { accepted: File[]; er
       continue;
     }
     if (totalBytes + file.size > MAX_INTAKE_TOTAL_BYTES) {
-      errors.push(`${file.name}: the 25 MiB total intake limit would be exceeded.`);
+      errors.push(`${file.name}: ${UPLOAD_ERRORS.caseTotalTooLarge}`);
       continue;
     }
     accepted.push(file);
@@ -331,8 +335,7 @@ function fieldLabel(value: string): string {
 // Enhanced error message mapper
 function friendlyErrorMessage(code: string | null, defaultMessage: string): string {
   const messages: Record<string, string> = {
-    "DOCUMENT_TOO_LARGE": "PDF file is too large. Maximum size is 5 MiB.",
-    "DOCUMENT_MEDIA_TYPE_UNSUPPORTED": "File type not supported. Upload a supported PDF, DOCX, TXT, PNG, JPEG, or TIFF.",
+    ...UPLOAD_ERROR_BY_CODE,
     "OWNERSHIP_CYCLE": "Ownership graph contains circular relationships. Please review the ownership structure.",
     "OWNERSHIP_INCOMPLETE": "Incomplete ownership data detected. Some legal entities have no disclosed owners.",
     "DOCUMENT_LOW_CONFIDENCE": "Document extraction evidence score below threshold. Please review or upload a clearer document.",
@@ -1644,12 +1647,13 @@ export function HumanReviewPanel({
       {replacementAvailable && (
         <div className="replacement-section">
           <h3>Upload corrected document</h3>
-          <p>Upload replacement PDF, DOCX, TXT, PNG, JPEG, or TIFF evidence to supersede the current document.</p>
+          <p>Upload a replacement to supersede the current document.</p>
+          <p className="control-help">{UPLOAD_HELP_TEXT}</p>
           <label htmlFor={`replacement-${exception.exception_id}`}>Select replacement file</label>
           <input
             id={`replacement-${exception.exception_id}`}
             type="file"
-            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt,image/png,.png,image/jpeg,.jpg,.jpeg,image/tiff,.tif,.tiff"
+            accept={UPLOAD_ACCEPT}
             onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
           />
           {replacementFile && <p className="file-selected">✓ {replacementFile.name}</p>}
@@ -2292,7 +2296,6 @@ export default function App({
         )}
         canDeleteCurrentCase={actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER"}
         onDeleteCurrentCase={() => setDeleteCurrentCaseOpen(true)}
-        onViewOnboarded={(caseId) => navigate(paths.onboardedDetail(caseId))}
         onViewAudit={(caseId) => navigate(paths.auditCase(caseId))}
         registryProviderMode={simulationProfile?.registry_provider_mode}
         onRetryIntake={() => void beginJourney()}
@@ -2363,7 +2366,6 @@ export default function App({
               caseId={caseId}
               actor={actor}
               onBack={() => navigate(paths.cases)}
-              onViewOnboarded={(completedCaseId) => navigate(paths.onboardedDetail(completedCaseId))}
               onViewAudit={(auditCaseId) => navigate(paths.auditCase(auditCaseId))}
               registryProviderMode={simulationProfile?.registry_provider_mode}
               initialFocusNodeId={new URLSearchParams(location.search).get("focus") ?? undefined}
@@ -2379,8 +2381,6 @@ export default function App({
               } : undefined}
             />
           )}
-          onboarded={<OnboardedClients actor={actor} />}
-          onboardedDetail={(caseId) => <ClientDetail clientId={caseId} actor={actor} />}
           audit={(caseId) => <AuditTrail actor={actor} caseId={caseId} />}
           policy={<PolicyRules actor={actor} />}
           adminUsers={<AdminUsers />}

@@ -41,7 +41,6 @@ import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
 import LoginPage from "./pages/LoginPage";
-import OnboardedClients from "./pages/OnboardedClients";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { clearSessionQueries, createSessionQueryClient } from "./queryClient";
 import type {
@@ -365,8 +364,6 @@ function RouteFixture({ profile = allCapabilitiesActor }: { profile?: Authentica
         newOnboarding={(caseId) => <Screen>{caseId ? `intake:${caseId}` : "new-onboarding"}</Screen>}
         cases={<Screen>cases</Screen>}
         caseDetail={(caseId) => <Screen>{`case:${caseId}`}</Screen>}
-        onboarded={<Screen>onboarded</Screen>}
-        onboardedDetail={(caseId) => <Screen>{`client:${caseId}`}</Screen>}
         audit={(caseId) => <><Screen>{caseId ? `audit:${caseId}` : "audit"}</Screen>{caseId && <Link to={paths.audit}>Clear case filter</Link>}</>}
         policy={<Screen>policy</Screen>}
         adminUsers={<Screen>users</Screen>}
@@ -389,7 +386,6 @@ function RoutedCaseDetail({ onBack }: { onBack: () => void }) {
       caseId={caseId}
       actor={relationshipActor}
       onBack={() => { onBack(); navigate(paths.cases); }}
-      onViewOnboarded={(id) => navigate(paths.onboardedDetail(id))}
       onViewAudit={(id) => navigate(paths.auditCase(id))}
     />
   );
@@ -523,8 +519,6 @@ describe("Phase 15C canonical route ownership", () => {
       [paths.retainedIntake(CASE_A), `intake:${CASE_A}`, paths.newOnboarding],
       [paths.cases, "cases", paths.cases],
       [paths.caseDetail(CASE_A), `case:${CASE_A}`, paths.cases],
-      [paths.onboarded, "onboarded", paths.onboarded],
-      [paths.onboardedDetail(CASE_A), `client:${CASE_A}`, paths.onboarded],
       [paths.audit, "audit", paths.audit],
       [paths.auditCase(CASE_A), `audit:${CASE_A}`, paths.audit],
       [paths.policy, "policy", paths.policy],
@@ -540,6 +534,20 @@ describe("Phase 15C canonical route ownership", () => {
       expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(path);
       expect(container?.querySelector<HTMLAnchorElement>("a[aria-current='page']")?.getAttribute("href"))
         .toBe(activeHref);
+    }
+  });
+
+  it("redirects the retired Onboarded routes into Cases", async () => {
+    for (const [path, screen, location] of [
+      ["/onboarded", "cases", paths.cases],
+      [`/onboarded/${CASE_A}`, `case:${CASE_A}`, paths.caseDetail(CASE_A)],
+    ] as const) {
+      await act(async () => root?.render(
+        <MemoryRouter key={path} initialEntries={[path]}><RouteFixture /></MemoryRouter>,
+      ));
+      expect(container?.querySelector("[data-testid='screen']")?.textContent).toBe(screen);
+      expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(location);
+      expect(container?.querySelector("a[href='/onboarded']")).toBeNull();
     }
   });
 
@@ -637,73 +645,6 @@ describe("Phase 15C canonical route ownership", () => {
     expect(open?.getAttribute("href")).toBe(paths.caseDetail(CASE_A));
     expect(open?.closest("tr")?.hasAttribute("tabindex")).toBe(false);
     expect(open?.closest("tr")?.getAttribute("role")).toBeNull();
-  });
-
-  it("shows every accessible completed case by default and applies active Onboarded filters", async () => {
-    const completedA = {
-      ...listItem,
-      status: "COMPLETED" as const,
-      current_stage: "COMPLETE" as const,
-      completed_at: NOW,
-      final_outcome: "MOCK_GOLDTIER_SUBMITTED",
-      mock_goldtier_party_id: "GT-CUSTOMER-A",
-    };
-    const completedB = {
-      ...completedA,
-      case_id: CASE_B,
-      requested_uen: "202400002B",
-      legal_name: "SYNTHETIC AUSTRALIA PTY LTD",
-      resolved_jurisdiction: "AU",
-      mock_goldtier_party_id: "GT-CUSTOMER-B",
-    };
-    const queryClient = testClient();
-    queryClient.setQueryData(
-      caseQueryKeys.caseList(
-        actor.user_id,
-        "COMPLETED",
-        "all",
-        "highest_first",
-        "all",
-        undefined,
-      ),
-      [completedA, completedB],
-    );
-
-    await act(async () => root?.render(
-      <MemoryRouter>
-        <QueryClientProvider client={queryClient}>
-          <OnboardedClients actor={actor} />
-        </QueryClientProvider>
-      </MemoryRouter>,
-    ));
-
-    expect(container?.textContent).toContain(CASE_A);
-    expect(container?.textContent).toContain(CASE_B);
-    const jurisdiction = Array.from(container?.querySelectorAll<HTMLSelectElement>("select") ?? [])
-      .find((select) => select.options[0]?.textContent === "Jurisdiction: All")!;
-    await act(async () => {
-      jurisdiction.value = "AU";
-      jurisdiction.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(container?.textContent).not.toContain(CASE_A);
-    expect(container?.textContent).toContain(CASE_B);
-
-    const search = container?.querySelector<HTMLInputElement>(
-      'input[placeholder="Search client, UEN / ACN, or company…"]',
-    )!;
-    await act(async () => {
-      jurisdiction.value = "";
-      jurisdiction.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
-        search,
-        "202400001A",
-      );
-      search.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(container?.textContent).toContain(CASE_A);
-    expect(container?.textContent).not.toContain(CASE_B);
   });
 
   it("P15C-NAV-05 keeps unknown, malformed, and capability-unavailable routes generic and inert", async () => {
@@ -810,7 +751,6 @@ describe("Phase 15C case-bound action lifetime", () => {
           caseId={CASE_A}
           actor={relationshipActor}
           onBack={() => undefined}
-          onViewOnboarded={() => undefined}
           onViewAudit={() => undefined}
         />
       </QueryClientProvider>,
@@ -911,7 +851,6 @@ describe("Phase 15C case-bound action lifetime", () => {
           caseId={CASE_A}
           actor={relationshipActor}
           onBack={() => undefined}
-          onViewOnboarded={() => undefined}
           onViewAudit={() => undefined}
         />
       </QueryClientProvider>,
@@ -1106,7 +1045,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     seedCaseDetail(queryClient, CASE_A, "CASE A");
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
-        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewAudit={() => undefined} />
       </QueryClientProvider>,
     ));
 
@@ -1160,7 +1099,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     seedCaseDetail(queryClient, CASE_A, "CASE A");
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
-        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewAudit={() => undefined} />
       </QueryClientProvider>,
     ));
 
@@ -1195,7 +1134,7 @@ describe("Phase 15C case-bound action lifetime", () => {
 
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
-        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewAudit={() => undefined} />
       </QueryClientProvider>,
     ));
     const accept = await acceptDraftControl();
@@ -1204,7 +1143,7 @@ describe("Phase 15C case-bound action lifetime", () => {
 
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
-        <CaseDetail caseId={CASE_A} actor={replacementActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+        <CaseDetail caseId={CASE_A} actor={replacementActor} onBack={() => undefined} onViewAudit={() => undefined} />
       </QueryClientProvider>,
     ));
     await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE A REPLACEMENT ACTOR"));
@@ -1310,7 +1249,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
     queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
     await act(async () => root?.render(<QueryClientProvider client={queryClient}>
-      <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+      <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewAudit={() => undefined} />
     </QueryClientProvider>));
     const count = container?.querySelector<HTMLInputElement>('input[name="expectedDocumentCount"]');
     expect(count).toBeTruthy();
@@ -1371,7 +1310,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
-        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewAudit={() => undefined} />
       </QueryClientProvider>,
     ));
 
@@ -1938,7 +1877,7 @@ describe("Phase 15C intake and mutation safety", () => {
     });
     const entries = [
       paths.root, paths.dashboard, paths.newOnboarding, paths.retainedIntake(CASE_A),
-      paths.cases, paths.caseDetail(CASE_A), paths.onboarded, paths.onboardedDetail(CASE_A),
+      paths.cases, paths.caseDetail(CASE_A), "/onboarded", `/onboarded/${CASE_A}`,
       paths.audit, paths.auditCase(CASE_A), paths.policy, paths.adminUsers, paths.adminTeams,
       paths.goldtierSandbox,
       "/unknown",
