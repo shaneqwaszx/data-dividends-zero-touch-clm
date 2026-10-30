@@ -1,4 +1,4 @@
-"""Support's chat without a case (D-104): questions about the approved rules and the policy.
+"""Support's chat without a case (D-105): questions about the approved rules and the policy.
 
 Support has no case pages, so this chat is grounded only in what Support may read: the
 approved knowledge (official guidance and past resolutions, as retrieval finds them for the

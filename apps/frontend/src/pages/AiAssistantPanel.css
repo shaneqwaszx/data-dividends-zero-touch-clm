@@ -454,7 +454,7 @@
   margin: 4px 0 0;
 }
 
-/* --- End conversation and chat history (D-104) ------------------------------------------ */
+/* --- End conversation and chat history (D-105) ------------------------------------------ */
 .ai-assistant-end-form,
 .ai-assistant-history {
   display: flex;
@@ -1006,7 +1006,7 @@
   font-size: 0.85rem;
 }
 
-/* --- Knowledge review: rated conversations (D-104) --------------------------------------- */
+/* --- Knowledge review: rated conversations (D-105) --------------------------------------- */
 .knowledge-review-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1094,7 +1094,7 @@
   }
 }
 
-/* --- Knowledge review: investigate and edit how the AI responds (D-104) ---------------- */
+/* --- Knowledge review: investigate and edit how the AI responds (D-105) ---------------- */
 .request-page-part {
   margin: 8px 0;
 }

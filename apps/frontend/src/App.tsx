@@ -1809,7 +1809,7 @@ export default function App({
   const [teamOptions, setTeamOptions] = useState<AuthenticatedTeam[]>([]);
   const [casePriority, setCasePriority] = useState<number | "">("");
   const [deleteCurrentCaseOpen, setDeleteCurrentCaseOpen] = useState(false);
-  // D-104: the case Support asked the AI Assistant about from a Knowledge Review page.
+  // D-105: the case Support asked the AI Assistant about from a Knowledge Review page.
   const [askedAbout, setAskedAbout] = useState<{ caseId: string; question: string; nonce: number } | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -2254,7 +2254,7 @@ export default function App({
 
   const retainedIntakeCaseId = retainedCreatedSummary?.case.case_id ?? null;
   const aiAssistantContext = aiAssistantContextFor(location.pathname, retainedIntakeCaseId);
-  // D-104: on a Knowledge Review page, Support opens the AI Assistant on the conversation's case;
+  // D-105: on a Knowledge Review page, Support opens the AI Assistant on the conversation's case;
   // it goes back to the rules chat once Support leaves that page.
   const assistantFocus = location.pathname === paths.knowledgeReview ? askedAbout : null;
   const liveOnboarding = (
@@ -2398,7 +2398,7 @@ export default function App({
           }
         />
       </div>
-      {/* Only for users who can use it: case users, and Support (D-104). HR has neither. */}
+      {/* Only for users who can use it: case users, and Support (D-105). HR has neither. */}
       {(actor.capabilities.includes("CASE_ACCESS") || actor.capabilities.includes("KNOWLEDGE_REVIEW")) && (
         <AiAssistantPanel
           key={actor.user_id}

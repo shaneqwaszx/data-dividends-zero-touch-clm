@@ -14,6 +14,7 @@ import {
   rollbackModel,
   saveClaudeLifetimeCap,
   saveClaudeSpendingControls,
+  saveDataAccessPolicy,
   saveLifetimeCap,
   saveModelCredential,
   saveSpendingControls,
@@ -22,6 +23,7 @@ import {
   type ModelAuditEvent,
   type ModelBudgetStatus,
   type ModelClaudeBudget,
+  type ModelDataAccess,
   type ModelDiagnosis,
   type ModelOverview,
   type ModelProfileView,
@@ -1234,6 +1236,107 @@ function ActiveModelBand({ overview, busy, nameOf, onRollback }: {
   );
 }
 
+// --- Data Access & Privacy: "Restrict AI to verified synthetic cases" ----------------------------
+
+const CLASS_LABEL: Record<ModelDataAccess["classes"][number]["provider_class"], string> = {
+  openrouter: "GPT-OSS 120B through OpenRouter (external)",
+  anthropic: "Claude Sonnet 5.5 through Anthropic (external)",
+  it_configured: "Model IT configured on a non-loopback address",
+  local_internal: "Local model on a literal loopback address",
+};
+
+const VERIFICATION_TEXT: Record<ModelDataAccess["verification"], string> = {
+  "D-095": "D-095 verified synthetic cases: an approved synthetic company with Mock ACRA evidence, every document byte-identical (SHA-256) to a tracked synthetic fixture, grounded values, a seeded synthetic user, approved knowledge, an identifier screen on what is typed, and a single-use admission ticket for the exact messages.",
+  "D-094": "D-094 fixed synthetic fixture only (D-095 mode is off on this server): every word and value must come from the saved Garden fixtures, so a case created in the app is normally refused.",
+};
+
+const POLICY_STATUS_TEXT: Record<ModelDataAccess["status"], string> = {
+  default: "Not set here yet: local models answer every case the user is authorised to see (the existing behaviour).",
+  stored: "Set by HR.",
+  unavailable: "The stored policy could not be read, so local models are restricted until IT repairs it.",
+  not_managed: "Model management is not configured on this server, so the policy cannot be changed here.",
+};
+
+function DataAccessSection({ policy, busy, onChanged }: { policy: ModelDataAccess | undefined; busy: boolean; onChanged: () => void }) {
+  const local = policy?.classes.find((item) => item.provider_class === "local_internal");
+  const [draft, setDraft] = useState<boolean | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [formRevision, setFormRevision] = useState(policy?.revision ?? null);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  // Refilled when the stored policy changes (another administrator, another tab), so a save is
+  // never sent with a choice made under an older revision.
+  if ((policy?.revision ?? null) !== formRevision) {
+    setFormRevision(policy?.revision ?? null);
+    setDraft(null);
+    setConfirmed(false);
+  }
+  if (!policy || !local) {
+    return <section className="card"><p className="control-help">This server does not report a data access policy.</p></section>;
+  }
+  const stored = local.restricted;
+  const chosen = draft ?? stored;
+  const widening = stored && !chosen;
+  const editable = !local.locked && policy.status !== "unavailable" && policy.revision !== null;
+  const disabled = pending || busy || !editable;
+
+  async function save(): Promise<void> {
+    if (formRevision === null) return;
+    setPending(true);
+    setMessage(null);
+    try {
+      await saveDataAccessPolicy(formRevision, chosen, widening && confirmed);
+      setMessage({ kind: "ok", text: "Data access policy saved. It applies to the next question." });
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setDraft(null);
+      setConfirmed(false);
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  const activeLabel = policy.active_class ? CLASS_LABEL[policy.active_class] : "No model (case-data guidance only)";
+  return (
+    <section className="card" aria-labelledby="data-access-heading" data-testid="data-access">
+      <p className="card-kicker">Data access policy · enforced by the AI Assistant server</p>
+      <h2 id="data-access-heading">Restrict AI to verified synthetic cases</h2>
+      <p className="control-help">{POLICY_STATUS_TEXT[policy.status]}{policy.changed_at ? ` Last changed ${formatTimestamp(policy.changed_at)}.` : ""}</p>
+      <ul className="console-list" aria-label="Policy by provider">
+        {policy.classes.map((item) => (
+          <li key={item.provider_class}>
+            <label className="control-help">
+              <input type="checkbox" data-testid={`restrict-${item.provider_class}`}
+                checked={item.provider_class === "local_internal" ? chosen : item.restricted}
+                disabled={item.provider_class !== "local_internal" || disabled}
+                onChange={(event) => { setDraft(event.target.checked); setConfirmed(false); }} />
+              {" "}<strong>{CLASS_LABEL[item.provider_class]}</strong>: {item.restricted ? "verified synthetic cases only" : "every case the user is authorised to see"}
+              {item.locked && item.provider_class !== "local_internal" && " (locked)"}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <p className="ds-banner ds-banner-warn" role="note">
+        External models are locked to verified synthetic cases on this deployment. Sending real customer data to OpenRouter or Anthropic needs a separately approved external-data policy and deployment controls; it cannot be enabled on this page. A model IT configured on any address other than a literal loopback address (127.0.0.1 or ::1) is treated the same way. Unchecking applies only to a local model on a literal loopback address, and only within the user's existing case access.
+      </p>
+      <dl className="acra-detail-list">
+        <div><dt>Active model now</dt><dd>{activeLabel}: {policy.active_restricted ? "verified synthetic cases only" : policy.active_class ? "every case the user is authorised to see" : "no model answers"}</dd></div>
+        <div><dt>Verification in force</dt><dd>{VERIFICATION_TEXT[policy.verification]}</dd></div>
+        <div><dt>Refusals</dt><dd>A case or question that fails the check gets the case-data answer, and nothing is sent to the model.</dd></div>
+      </dl>
+      {widening && (
+        <label className="control-help">
+          <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={pending || busy} data-testid="data-access-widen-confirm" />
+          {" "}I confirm that the local model on a literal loopback address may answer every case a user is authorised to see, not only verified synthetic cases.
+        </label>
+      )}
+      <button type="button" className="btn btn-primary" disabled={disabled || chosen === stored || (widening && !confirmed)} onClick={() => void save()}>Save Data Access Policy</button>
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
+    </section>
+  );
+}
+
 function OverviewSummary({ overview }: { overview: ModelOverview }) {
   const budget = overview.budget?.configured ? overview.budget : null;
   const controls = budget?.controls;
@@ -1243,16 +1346,34 @@ function OverviewSummary({ overview }: { overview: ModelOverview }) {
   const pending = overview.profiles.filter((item) => item.status === "pending_authorisation").length;
   // D-099 with D-100: these figures are the GPT-OSS ledger's; say so when Claude is listed too.
   const gptOnly = overview.profiles.some((item) => item.deployment === ANTHROPIC_DEPLOYMENT) ? " (GPT-OSS)" : "";
+  // With Claude active, its own ledger's figures (already on the page's spending view).
+  const claudeActive = overview.profiles.find((item) => item.profile_id === overview.active.profile_id)?.deployment === ANTHROPIC_DEPLOYMENT;
+  // QG L2: Claude's figures do not depend on GPT-OSS's spending view being configured.
+  const claude = claudeActive && overview.budget?.claude?.configured ? overview.budget.claude : null;
   return (
     <div className="console-summary">
-      {budget && (
+      {claude && (
+        <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
+          <span className="console-label">Available now (Claude)</span>
+          <span className="console-stat__value console-number">{usd(claude.effective_remaining_usd)}</span>
+          <span className="console-stat__note">The strictest of today's allowance and the Anthropic ledger's headroom</span>
+        </Link>
+      )}
+      {claude && (
+        <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
+          <span className="console-label">Calls this activation (Claude)</span>
+          <span className="console-stat__value console-number">{claude.controls.calls_used ?? "—"} <small>/ {claude.controls.max_calls}</small></span>
+          <span className="console-stat__note">{claude.controls.calls_used === null ? "Claude is not the active model" : `${claude.controls.calls_remaining} remaining`}</span>
+        </Link>
+      )}
+      {budget && !claude && (
         <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
           <span className="console-label">Available now{gptOnly}</span>
           <span className="console-stat__value console-number">{usd(budget.effective_remaining_usd)}</span>
           <span className="console-stat__note">The strictest of today's allowance, the lifetime headroom and the key's own limit</span>
         </Link>
       )}
-      {controls && (
+      {controls && !claude && (
         <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
           <span className="console-label">Calls this activation{gptOnly}</span>
           <span className="console-stat__value console-number">{controls.calls_used ?? "—"} <small>/ {controls.max_calls}</small></span>
@@ -1534,6 +1655,7 @@ const SECTION_LABEL = Object.fromEntries(CONSOLE_SECTIONS.map((item) => [item.id
 const SECTION_INTRO: Record<ConsoleSection, string> = {
   overview: "Choose the model the AI Assistant uses for everyone, from the configurations IT has set up on the server. Prompts, approved lines, guardrails and knowledge permissions do not change with the model.",
   providers: "Which provider each configuration uses, its key and checks, and who manages what. Keys are never shown on this page.",
+  privacy: "Which cases each kind of model may answer, as the AI Assistant server enforces it. Role and case access are unchanged; this only narrows what a model may receive.",
   spending: "Each paid provider's ledger and limits. HR changes the GPT-OSS limits and, separately, Claude's limits here. Neither provider's limits apply to the other, nothing switches between them automatically, and server-configured models have no spending ledger here.",
   qualifications: "What the latest qualification of each configuration means, whether an earlier pass still counts, and what to do next.",
   audit: "Model events recorded by the AI Assistant service: activations, qualifications, connection tests, key and limit changes, and refused requests.",
@@ -1744,6 +1866,8 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           {section === "providers" && overview && <ProvidersSection overview={overview} busy={busy} onChanged={refresh} />}
 
           {section === "spending" && overview && <SpendingSection overview={overview} busy={busy} onChanged={refresh} />}
+
+          {section === "privacy" && overview && <DataAccessSection policy={overview.data_access} busy={busy} onChanged={refresh} />}
 
           {section === "qualifications" && overview && (
             <>

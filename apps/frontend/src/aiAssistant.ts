@@ -47,7 +47,7 @@ export interface AiAssistantAnswer {
   knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
   /** The server's record of this answer; feedback sends it back (none for small talk). */
   answer_id?: string | null;
-  /** The conversation the answer joined (D-104); End conversation rates it. */
+  /** The conversation the answer joined (D-105); End conversation rates it. */
   conversation_id?: string | null;
   /** A fixed small-talk reply, which never has a record. */
   small_talk?: boolean;
@@ -131,6 +131,12 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The onboarding app returned an unexpected reply.",
   // Fixed knowledge-review messages (apps/assistant/ai_assistant/knowledge_api.py).
   "You are not allowed to do this.",
+  // Data access policy.
+  "External models (OpenRouter and Anthropic) are restricted to verified synthetic cases on this deployment; this setting cannot change that. Nothing changed.",
+  "The data access policy could not be read, so local models are restricted to verified synthetic cases until IT repairs it. Nothing changed.",
+  "The data access policy changed since this view. Refresh and try again.",
+  "Too many data access policy changes. Wait a few minutes and try again.",
+  "Confirm that the local model may answer every case you are authorised to see. Nothing changed.",
   "No such entry.",
   "You cannot approve or reject an entry you wrote or edited.",
   "This entry has changed or was already decided. Refresh and try again.",
@@ -138,7 +144,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   "No such enhancement request.",
   "This request was already handled. Refresh and try again.",
   "Confirm that you are publishing this entry as its only reviewer.",
-  // D-104: conversations.
+  // D-105: conversations.
   "No such conversation.",
   // Fixed model-management messages (apps/assistant/ai_assistant/model_admin.py).
   "Model management is not configured on this server.",
@@ -380,7 +386,7 @@ export async function askAiAssistantStreaming(
   }
 }
 
-/** Support's question without a case (D-104): answered from the approved rules and policy. */
+/** Support's question without a case (D-105): answered from the approved rules and policy. */
 export function askSupportAssistant(
   message: string,
   history: AiAssistantTurn[],
@@ -389,7 +395,7 @@ export function askSupportAssistant(
   return request<AiAssistantAnswer>("/support/chat", { message, history }, signal);
 }
 
-// --- Conversations (D-104): End conversation, history and Support's review list ------------
+// --- Conversations (D-105): End conversation, history and Support's review list ------------
 
 export type Satisfaction = "very_satisfied" | "satisfied" | "neutral" | "unsatisfied" | "very_unsatisfied";
 export type ConversationPriority = "high" | "medium" | "low";
@@ -465,7 +471,7 @@ export interface ConversationDraft {
   stages?: string[];
 }
 
-/** Support's preview of an unsaved rule change on the conversation's question (D-104). */
+/** Support's preview of an unsaved rule change on the conversation's question (D-105). */
 export interface RuleTrial {
   question: string;
   answer: string;
@@ -877,6 +883,22 @@ export interface ModelOverview {
   profiles: ModelProfileView[];
   /** D-095: the remote profile's spending view (null unless the remote test mode is configured). */
   budget?: ModelBudgetStatus | null;
+  /** The data access policy in force on the server (absent from older servers). */
+  data_access?: ModelDataAccess;
+}
+
+/** "Restrict AI to verified synthetic cases", per provider class, as the server enforces it. */
+export interface ModelDataAccess {
+  /** default: never set (local models answer every authorised case); unavailable: unreadable (local restricted). */
+  status: "default" | "stored" | "unavailable" | "not_managed";
+  revision: number | null;
+  changed_at: string | null;
+  /** it_configured: an endpoint IT configured that is not on this machine (locked, restricted). */
+  classes: Array<{ provider_class: "openrouter" | "anthropic" | "it_configured" | "local_internal"; restricted: boolean; locked: boolean }>;
+  active_class: "openrouter" | "anthropic" | "it_configured" | "local_internal" | null;
+  active_restricted: boolean;
+  /** The shared synthetic check in force: D-095 provenance, or the D-094 fixed fixture. */
+  verification: "D-095" | "D-094";
 }
 
 /** D-095 addendum: where the OpenRouter key comes from. Never the key, nor any part of it. */
@@ -1120,6 +1142,14 @@ export const saveClaudeSpendingControls = (
     max_calls: maxCalls,
     ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
     ...(confirmMaxCalls === null ? {} : { confirm_max_calls: confirmMaxCalls }),
+  }, undefined, "PUT");
+/** External providers stay restricted: the server refuses anything else. */
+export const saveDataAccessPolicy = (expectedRevision: number, restrictLocal: boolean, confirmWiden: boolean) =>
+  request<ModelDataAccess>("/admin/models/data-access", {
+    expected_revision: expectedRevision,
+    restrict_external: true,
+    restrict_local: restrictLocal,
+    confirm_widen: confirmWiden,
   }, undefined, "PUT");
 export const saveClaudeLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
   request<ModelBudgetStatus>("/admin/models/budget/claude/lifetime-cap", {

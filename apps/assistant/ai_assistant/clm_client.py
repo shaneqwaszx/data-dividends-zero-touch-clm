@@ -93,7 +93,7 @@ class ClmBackendClient:
         return actor
 
     def load_policies(self, session_token: str | None) -> dict[str, Any] | None:
-        """D-104: the active policy catalogue as the backend shows it to this user (GET only),
+        """D-105: the active policy catalogue as the backend shows it to this user (GET only),
         or None when it cannot be read."""
 
         try:

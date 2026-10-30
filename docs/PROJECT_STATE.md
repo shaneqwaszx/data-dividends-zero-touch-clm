@@ -1410,3 +1410,19 @@ byte-identical content; the synthetic boundary is current and the qualification 
 suite still has the 14 Windows `Errno 24` failures (not a clean PASS).
 - **Open:** independent integration QG, owner publication authorisation, then the separately
   approved paid requalifications.
+
+## AI Assistant D-104 data access policy and provider-neutral D-095 (branch `feat/assistant-data-access-policy`, uncommitted) - 2026-10-30
+
+Delta only. Owner-authorised direction:
+- AI Models gains *Data Access & Privacy* ("Restrict AI to verified synthetic cases").
+  OpenRouter, Anthropic and any model on a non-loopback endpoint (with or without model
+  management) are locked to verified synthetic cases. A loopback local model answers every authorised case by default (D-093
+  unchanged) and is restricted when HR says so or when the policy is unreadable.
+- D-104 A1: Claude's D-095 mode no longer depends on OpenRouter's endpoint, reasoning settings
+  or attestations. GPT-OSS's mode is unchanged.
+- Each policy change and its audit row are written atomically.
+- The qualification basis moves `65f22e46c509…` → `598cfe14753d…`, so every current
+  qualification, including Claude Balanced's, goes out of date once this runs.
+- Evidence class: offline mock and local only.
+- **Open:** independent QG of the final candidate, the owner's commit and publication
+  authorisation, `pre_pr_check.py` on the commit, then separately approved paid requalification.

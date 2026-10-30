@@ -91,7 +91,7 @@ class FeedbackRequest(BaseModel):
         return self
 
 
-# --- conversation feedback (D-104) ------------------------------------------------------
+# --- conversation feedback (D-105) ------------------------------------------------------
 
 Satisfaction = Literal["very_satisfied", "satisfied", "neutral", "unsatisfied", "very_unsatisfied"]
 # What the form offers after "Was this issue resolved?": Yes or No.
@@ -531,7 +531,7 @@ def knowledge_router(
             ),
         )
 
-    # --- conversations (D-104) ---------------------------------------------------------
+    # --- conversations (D-105) ---------------------------------------------------------
 
     def find_conversation(conversation_id: str) -> dict[str, Any] | None:
         if not re.fullmatch(ANSWER_ID, conversation_id):

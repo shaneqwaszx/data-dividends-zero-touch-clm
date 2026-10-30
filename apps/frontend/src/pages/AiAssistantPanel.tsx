@@ -49,7 +49,7 @@ interface Thread {
   messages: ChatMessage[];
   suggestions: string[];
   badge: number;
-  /** The service's conversation for this chat (D-104); End conversation rates it. */
+  /** The service's conversation for this chat (D-105); End conversation rates it. */
   conversationId: string | null;
   /** Shown above a chat reopened from History. */
   resumedNote?: string | null;
@@ -62,11 +62,11 @@ interface AiAssistantPanelProps {
   onboardingWithoutCase?: boolean;
   /** Opens the Cases list, offered when no case has been opened yet. */
   onOpenCases: () => void;
-  /** Support (D-104): with no case open, chat about the approved rules and the policy. */
+  /** Support (D-105): with no case open, chat about the approved rules and the policy. */
   canChatWithoutCase?: boolean;
   /** Opens a case page, to continue a past chat about another case from History. */
   onOpenCase?: (caseId: string) => void;
-  /** D-104: Support asked about this case from a Knowledge Review page: open on it, with the
+  /** D-105: Support asked about this case from a Knowledge Review page: open on it, with the
    * user's question offered first. A new ``nonce`` opens it again. */
   askAbout?: { caseId: string; question: string; nonce: number } | null;
 }
@@ -227,7 +227,7 @@ export default function AiAssistantPanel({
   askAbout = null,
 }: AiAssistantPanelProps) {
   const activeCaseId = caseId;
-  // Support's chat without a case (D-104), when no case is open.
+  // Support's chat without a case (D-105), when no case is open.
   const supportChat = !activeCaseId && canChatWithoutCase;
   const threadKey = activeCaseId ?? (supportChat ? SUPPORT_THREAD : null);
   const [open, setOpen] = useState(false);

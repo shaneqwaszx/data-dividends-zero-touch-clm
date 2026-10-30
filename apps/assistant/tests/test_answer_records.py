@@ -732,7 +732,7 @@ def test_a_branch_only_v5_store_without_shown_answer_records_again(
                 " NULL, 0, 'n', '[]', '[]', '[]', NULL, 'open', '2026-10-25T05:30:00+00:00');"
                 "UPDATE answer_records SET kept_for_request_id = last_insert_rowid();"
             )
-        # As that branch stamped it (before D-104's version 6).
+        # As that branch stamped it (before D-105's version 6).
         db.execute("UPDATE meta SET value = '5' WHERE key = 'schema_version'")
     knowledge = _kb(tmp_path)  # opening the store repairs it
     store = knowledge.store

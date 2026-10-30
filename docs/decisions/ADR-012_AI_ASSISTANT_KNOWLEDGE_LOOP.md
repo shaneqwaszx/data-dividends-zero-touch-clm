@@ -768,7 +768,7 @@ grants no case pages, portfolio, mutation or evidence decisions. The review UI i
 C, the content-hash decision, maker-checker, single-reviewer mode (D-083), two-person
 retirement and redaction are unchanged.
 
-## Amendment 6 - conversation feedback and Support's review list (OWNER-DIRECTED, D-104)
+## Amendment 6 - conversation feedback and Support's review list (OWNER-DIRECTED, D-105)
 
 Status: owner-directed for the local POC; not sponsor policy. Feedback moves from each answer to
 the conversation: End conversation records resolved, satisfaction and a comment, and a rating of
