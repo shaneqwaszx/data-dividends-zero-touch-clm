@@ -7,7 +7,14 @@
 # answer: main.py applies the D-094/D-095 boundary to this model unchanged), never real data.
 # Nothing here changes the GPT-OSS gate (remote_test.py), its ledger or its HR controls.
 #
-# Off unless every condition holds (``readiness``; no key or network needed):
+# D-107: an HR administrator enables Claude in AI Models (model_admin_store's
+# anthropic_enablement row): the Anthropic workspace the key itself reported, its monthly limit
+# as the owner confirmed it and the four owner confirmations, kept with an audit row. While
+# that row exists it replaces the decision and attestation settings below, and the D-091,
+# D-092 and D-094 decision names are not needed: the runtime checks they stood for still apply
+# (the model switched on, a literal loopback CLM backend and local browser origins). Without
+# the row the environment configuration below applies unchanged. Either way, off unless:
+#
 #
 #     decision     AI_ASSISTANT_ANTHROPIC_DECISION names D-099, on top of the D-094 local test
 #                  decision and the D-091 and D-092 decisions the remote profile needs
@@ -54,6 +61,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
@@ -94,6 +102,7 @@ from .llm import (
     Piece,
     is_local_model_url,
 )
+from .model_admin_store import AnthropicEnablement, read_anthropic_enablement
 from .model_factory import ASSISTANT_DIR, ledger_path
 from .model_profiles import LIVE_DECISION_ID, REMOTE_DECISION_ID, ProfileConfigError
 from .openrouter import require_offline_transport
@@ -159,8 +168,103 @@ def _bounded(value: object, low: int, high: int) -> bool:
     return type(value) is int and low <= value <= high
 
 
+def enablement(settings: AiAssistantSettings) -> AnthropicEnablement | None:
+    # D-107: the HR record in the service's model state database (read-only; never created
+    # here). None: no record, so the environment configuration applies. Raises when it cannot
+    # be read (callers fail closed).
+    path = Path(settings.model_admin_db_path)
+    return read_anthropic_enablement(path if path.is_absolute() else ASSISTANT_DIR / path)
+
+
+def _enablement(settings: AiAssistantSettings) -> tuple[AnthropicEnablement | None, bool]:
+    # (record, readable).
+    try:
+        return enablement(settings), True
+    except (ValueError, sqlite3.Error, OSError):
+        return None, False
+
+
+def valid_workspace(value: str) -> bool:
+    return bool(_WORKSPACE.fullmatch(value or ""))
+
+
+def local_deployment(settings: AiAssistantSettings) -> bool:
+    # The approved local development deployment: the model switched on, a literal loopback
+    # CLM backend and only local browser origins (as remote_test checks for GPT-OSS).
+    return (
+        settings.llm_enabled
+        and is_local_model_url(settings.clm_backend_url)
+        and bool(settings.allowed_origins)
+        and all(map(remote_test._local_origin, settings.allowed_origins))
+    )
+
+
+def hr_enabled(settings: AiAssistantSettings) -> bool:
+    # D-107: an HR administrator enabled Claude (a readable record that is switched on).
+    record, _ = _enablement(settings)
+    return record is not None and record.enabled
+
+
+def configured(settings: AiAssistantSettings) -> bool:
+    # Claude is set up for this service: by HR (D-107) or by the environment (D-099).
+    record, readable = _enablement(settings)
+    if record is not None or not readable:
+        return record is not None and record.enabled
+    return settings.anthropic_decision == anthropic_profiles.DECISION_ID
+
+
+def workspace_id(settings: AiAssistantSettings) -> str:
+    # The workspace every reply must name: HR's confirmed one (D-107), else the environment's.
+    record, readable = _enablement(settings)
+    if record is not None or not readable:
+        return record.workspace_id if record is not None and record.enabled else ""
+    return settings.anthropic_workspace_id
+
+
+def workspace_limit(settings: AiAssistantSettings) -> int:
+    # The workspace's monthly limit as the owner confirmed it (never read from Anthropic).
+    record, readable = _enablement(settings)
+    if record is not None or not readable:
+        return record.workspace_limit_micro_usd if record is not None and record.enabled else 0
+    return settings.anthropic_workspace_limit_micro_usd
+
+
+def synthetic_mode(settings: AiAssistantSettings) -> bool:
+    # Claude's D-095 mode (verified synthetic cases with provenance): under HR enablement the
+    # approved local deployment itself; under the environment configuration the shared D-095
+    # interlocks (D-104 A1, unchanged). The eligibility check and its ticket are the same.
+    record, readable = _enablement(settings)
+    if record is not None or not readable:
+        return record is not None and record.enabled and local_deployment(settings)
+    return synthetic_eligibility.shared_mode(settings)
+
+
 def readiness(settings: AiAssistantSettings) -> str | None:
     # None when the configurations may be offered; otherwise the first closed reason.
+    record, readable = _enablement(settings)
+    if not readable:
+        return "ANTHROPIC_ENABLEMENT_UNREADABLE"
+    if record is not None:
+        # D-107: HR's record, then the runtime checks the decision names stood for.
+        if not record.enabled:
+            return "ANTHROPIC_NOT_ENABLED"
+        if not settings.llm_enabled:
+            return "MODEL_DISABLED_BY_ENVIRONMENT"
+        if not local_deployment(settings):
+            return "NOT_DEVELOPMENT_ENVIRONMENT"
+        if record.confirmations != OWNER_ATTESTATIONS:
+            return "ANTHROPIC_ATTESTATION_MISSING"
+        if not _WORKSPACE.fullmatch(record.workspace_id):
+            return "WORKSPACE_NOT_ATTESTED"
+        # A workspace also set on the server must be the same one (never a silent choice).
+        if (
+            settings.anthropic_workspace_id
+            and settings.anthropic_workspace_id != record.workspace_id
+        ):
+            return "WORKSPACE_MISMATCH"
+        if not _bounded(record.workspace_limit_micro_usd, 1, LIFETIME_CEILING_MICRO_USD):
+            return "WORKSPACE_LIMIT_NOT_ATTESTED"
+        return _limits_problem(settings)
     if settings.anthropic_decision != anthropic_profiles.DECISION_ID:
         return "ANTHROPIC_NOT_AUTHORISED"
     if not settings.llm_enabled:
@@ -181,6 +285,10 @@ def readiness(settings: AiAssistantSettings) -> str | None:
         return "WORKSPACE_NOT_ATTESTED"
     if not _bounded(settings.anthropic_workspace_limit_micro_usd, 1, LIFETIME_CEILING_MICRO_USD):
         return "WORKSPACE_LIMIT_NOT_ATTESTED"
+    return _limits_problem(settings)
+
+
+def _limits_problem(settings: AiAssistantSettings) -> str | None:
     if not (
         _bounded(settings.anthropic_daily_cap_micro_usd, 1, DAILY_CEILING_MICRO_USD)
         and _bounded(settings.anthropic_max_calls, 1, MAX_CALLS_CEILING)
@@ -351,7 +459,7 @@ def check_ledger(
         not status.breaker_open and status.open_calls == 0,
         f"breaker {status.breaker_code or 'closed'}, open calls {status.open_calls}",
     )
-    ceiling = min(LIFETIME_CEILING_MICRO_USD, settings.anthropic_workspace_limit_micro_usd)
+    ceiling = min(LIFETIME_CEILING_MICRO_USD, workspace_limit(settings))
     report.add(
         "ledger.cap_within_ceiling",
         status.opening_usage < status.cap <= ceiling,
@@ -403,7 +511,7 @@ def check_workspace(
         return
     report.add(
         "anthropic.workspace_matches",
-        reply.headers.get(WORKSPACE_HEADER) == settings.anthropic_workspace_id,
+        reply.headers.get(WORKSPACE_HEADER) == workspace_id(settings),
         "the reply names the attested workspace",
     )
     try:
@@ -463,6 +571,62 @@ def preflight(
     return report
 
 
+def read_workspace(
+    settings: AiAssistantSettings,
+    *,
+    environ: Mapping[str, str] | None = None,
+    env_file: Path | None = None,
+    transport: object = None,
+) -> dict[str, Any]:
+    # D-107 setup: the free GET /v1/models/{model} with the key in force (D-106 order, the HR
+    # session checked now), before Claude is enabled, so HR can confirm the workspace the key
+    # itself reports. Only on the approved local deployment. No inference, no case data, no
+    # ledger; the reply's workspace id is shown to HR (not secret) and nothing is stored here.
+    if not local_deployment(settings):
+        return {"outcome": "refused", "code": "NOT_DEVELOPMENT_ENVIRONMENT", "workspace_id": None}
+    key, _, code = resolve_key(environ, env_file=env_file, max_age=0)
+    if key is None:
+        return {"outcome": "refused", "code": code, "workspace_id": None}
+    mock = None if transport is None else require_offline_transport(transport)
+    headers = {
+        "x-api-key": key.get_secret_value(),
+        "anthropic-version": anthropic_profiles.API_VERSION,
+        "accept-encoding": "identity",
+    }
+    try:
+        with httpx.Client(
+            timeout=httpx.Timeout(PREFLIGHT_TIMEOUT_SECONDS),
+            transport=mock,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
+            reply = client.get(MODEL_URL, headers=headers)
+            body = reply.content[: _MAX_PREFLIGHT_BODY_BYTES + 1]
+    except httpx.HTTPError as error:
+        return {
+            "outcome": "failed",
+            "code": f"UNREACHABLE:{type(error).__name__}",
+            "workspace_id": None,
+        }
+    if reply.status_code != 200:
+        return {"outcome": "failed", "code": f"HTTP_{reply.status_code}", "workspace_id": None}
+    named = reply.headers.get(WORKSPACE_HEADER) or ""
+    try:
+        model = json.loads(body).get("id") if len(body) <= _MAX_PREFLIGHT_BODY_BYTES else None
+    except (ValueError, AttributeError, RecursionError, UnicodeError):
+        model = None
+    workspace = named if _WORKSPACE.fullmatch(named) else None
+    ok = workspace is not None and model == MODEL_ID
+    return {
+        "outcome": "passed" if ok else "failed",
+        "code": None
+        if ok
+        else ("WORKSPACE_NOT_NAMED" if workspace is None else "MODEL_UNAVAILABLE"),
+        "workspace_id": workspace,
+        "key": key_sources.identity(key),
+    }
+
+
 def connection_check(
     settings: AiAssistantSettings, *, within_seconds: int = CHAT_RECONCILE_SECONDS, **kwargs: Any
 ) -> dict[str, Any]:
@@ -491,11 +655,11 @@ def budget_status(
     # The Anthropic spending view (read-only: the ledger is checked, never recovered or
     # changed; nothing is sent). Amounts are micro-USD integers with a USD string beside each.
     view: dict[str, Any] = {
-        "configured": settings.anthropic_decision == anthropic_profiles.DECISION_ID,
+        "configured": configured(settings),
         "provider": anthropic_profiles.PROVIDER,
         "timezone": "Asia/Singapore",
         "daily_cap_micro_usd": settings.anthropic_daily_cap_micro_usd,
-        "workspace_limit_micro_usd": settings.anthropic_workspace_limit_micro_usd,
+        "workspace_limit_micro_usd": workspace_limit(settings),
         "lifetime_ceiling_micro_usd": LIFETIME_CEILING_MICRO_USD,
     }
     key, credential, key_code = resolve_key(environ, env_file=env_file)
@@ -547,7 +711,7 @@ def budget_status(
     view["effective_remaining_micro_usd"] = effective
     view["effective_remaining_usd"] = _usd(effective)
     view["reservation_micro_usd"] = reservation
-    ceiling = min(LIFETIME_CEILING_MICRO_USD, settings.anthropic_workspace_limit_micro_usd)
+    ceiling = min(LIFETIME_CEILING_MICRO_USD, workspace_limit(settings))
     checks = (
         (key_code, key_code),
         (status.profile_id != LEDGER_PROFILE_ID, "LEDGER_PROFILE_MISMATCH"),
@@ -586,11 +750,12 @@ class ClaudeTestModel:
     notices = NOTICES
 
     def development_mode(self) -> bool:
-        # D-104 A1: D-095 mode on the shared interlocks only (synthetic_eligibility.shared_mode),
-        # never on OpenRouter's endpoint, reasoning settings or attestations. Claude's own
-        # readiness (decision, four attestations, workspace, limits, ledger) is checked again in
-        # _ready before every call, and the eligibility check and its ticket are GPT-OSS's.
-        return synthetic_eligibility.shared_mode(self._settings)
+        # D-104 A1: D-095 mode never depends on OpenRouter's endpoint, reasoning settings or
+        # attestations; D-107: under HR enablement it is the approved local deployment
+        # (synthetic_mode). Claude's own readiness (enablement or decision, four confirmations,
+        # workspace, limits, ledger) is checked again in _ready before every call, and the
+        # eligibility check and its ticket are GPT-OSS's.
+        return synthetic_mode(self._settings)
 
     def __init__(
         self,
@@ -667,7 +832,7 @@ class ClaudeTestModel:
             max_prompt_bytes=self._settings.remote_max_prompt_bytes,
             transport=LIVE_NETWORK if self._transport is None else self._transport,
             admit=self._admit_in_adapter,
-            expected_workspace=self._settings.anthropic_workspace_id,
+            expected_workspace=workspace_id(self._settings),
         )
         return BudgetedChatModel(
             adapter,

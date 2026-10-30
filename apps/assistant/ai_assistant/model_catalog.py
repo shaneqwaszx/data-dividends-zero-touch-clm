@@ -356,13 +356,16 @@ def _claude_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
     # Comments, not docstrings: every string constant here feeds the synthetic boundary's
     # code vocabulary (scripts/build_synthetic_boundary.py).
 
+    from .anthropic_runtime import synthetic_mode  # the runtime imports this module's peers
+
     status, reason = anthropic_profiles.availability(settings)
     if status == "pending_authorisation":
         scope = "NOT_AUTHORISED"
     elif status != "selectable":
         scope = "PROVIDER_CONTROLS_MISSING"
-    elif synthetic_eligibility.shared_mode(settings):
-        # D-104 A1: Claude's D-095 mode is on the shared interlocks (re-QG L1).
+    elif synthetic_mode(settings):
+        # D-104 A1: Claude's D-095 mode never depends on OpenRouter (re-QG L1); D-107: under
+        # HR enablement it is the approved local deployment.
         scope = "VERIFIED_SYNTHETIC_CASES"
     else:
         scope = "APPROVED_SYNTHETIC_CASE"

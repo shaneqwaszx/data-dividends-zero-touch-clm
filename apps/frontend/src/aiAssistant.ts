@@ -176,6 +176,13 @@ const SAFE_ERROR_MESSAGES = new Set([
   // D-095: the OpenRouter key (never echoed back).
   "That is not an API key for this provider (an inference key only). Nothing was saved.",
   "The session key cannot be used now: the HR session that entered it cannot be checked. Nothing started.",
+  "Claude is already set up for another Anthropic workspace. A different workspace needs an operator and its own ledger. Nothing changed.",
+  "Claude is not enabled, so there is nothing to disable.",
+  "Claude's setup changed since this view. Refresh and try again.",
+  "Claude's setup could not be read. Nothing changed.",
+  "Confirm all four statements and give the workspace's monthly limit (US$0.000001 to US$30.00). Nothing changed.",
+  "Read the workspace with the key now in use first, then confirm it. Nothing changed.",
+  "The workspace set on the server differs from the one the key reports. Nothing changed.",
   "There is no key entered here to clear.",
   "Too many key changes. Wait a few minutes and try again.",
   "This change must come from the AI Models page.",
@@ -885,6 +892,35 @@ export interface ModelOverview {
   budget?: ModelBudgetStatus | null;
   /** The data access policy in force on the server (absent from older servers). */
   data_access?: ModelDataAccess;
+  /** D-107: Claude's provider setup by HR (absent from older servers). */
+  anthropic_setup?: AnthropicSetup;
+}
+
+/** D-107: Claude's provider setup by HR. Never a key; the workspace limit is owner-confirmed. */
+export interface AnthropicSetup {
+  managed: boolean;
+  readable: boolean;
+  /** What decides now: HR's record, the earlier server configuration (D-099), or nothing. */
+  source: "hr" | "environment" | "none";
+  enabled: boolean;
+  /** The server's closed readiness code (null: ready). */
+  readiness: string | null;
+  /** The approved local development deployment (loopback CLM backend, local origins). */
+  local_deployment: boolean;
+  record: {
+    revision: number;
+    enabled: boolean;
+    workspace_id: string;
+    workspace_limit_micro_usd: number;
+    workspace_limit_basis: "owner_confirmed";
+    confirmations: string[];
+    changed_at: string;
+    changed_by: string;
+  } | null;
+  /** The last free workspace read with the key now in use (within the hour), if any. */
+  workspace_read: { workspace_id: string; at: string } | null;
+  confirmations_required: string[];
+  workspace_limit_max_micro_usd: number;
 }
 
 /** "Restrict AI to verified synthetic cases", per provider class, as the server enforces it. */
@@ -1158,6 +1194,17 @@ export const saveClaudeSpendingControls = (
     ...(confirmMaxCalls === null ? {} : { confirm_max_calls: confirmMaxCalls }),
   }, undefined, "PUT");
 /** External providers stay restricted: the server refuses anything else. */
+// D-107: Claude's provider setup (HR only; never a key).
+export const readAnthropicWorkspace = () =>
+  request<{ outcome: "passed" | "failed" | "refused"; code: string | null; workspace_id: string | null; setup: AnthropicSetup }>(
+    "/admin/models/provider/anthropic/workspace-read", {});
+export const saveAnthropicEnablement = (body: {
+  expected_revision: number;
+  enabled: boolean;
+  workspace_id?: string;
+  workspace_limit_micro_usd?: number;
+  confirmations?: string[];
+}) => request<AnthropicSetup>("/admin/models/provider/anthropic", body, undefined, "PUT");
 export const saveDataAccessPolicy = (expectedRevision: number, restrictLocal: boolean, confirmWiden: boolean) =>
   request<ModelDataAccess>("/admin/models/data-access", {
     expected_revision: expectedRevision,
