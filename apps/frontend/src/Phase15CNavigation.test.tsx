@@ -570,7 +570,7 @@ describe("Phase 15C canonical route ownership", () => {
     expect(requiredCapabilityForPath(paths.goldtierSandbox)).toBe("PROVIDER_SANDBOX_TEST");
   });
 
-  it("D-099 gives Support only the Knowledge Review and read-only Policy tabs", async () => {
+  it("D-103 gives Support only the Knowledge Review and read-only Policy tabs", async () => {
     expect(defaultPathForProfile(supportActor)).toBe(paths.knowledgeReview);
     expect(requiredCapabilityForPath(paths.knowledgeReview)).toBe("KNOWLEDGE_REVIEW");
 

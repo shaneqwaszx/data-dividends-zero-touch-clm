@@ -26,7 +26,7 @@ Rules enforced here, in one transaction per change:
   expires, and "Not helpful" links it to the new request. Expired records are deleted:
   unlinked ones some days after the answer, linked ones some days after their request was
   resolved or closed. Every view of a record is logged.
-- a conversation (schema v6, D-100) groups one user's answer records on one case. Ending it
+- a conversation (schema v6, D-104) groups one user's answer records on one case. Ending it
   records the user's rating once (resolved, satisfaction, comment) and, in the same write,
   adds its feedback row: an open enhancement request when the rating has a priority (neutral
   or worse), otherwise a request closed as needing no review. Every record of the
@@ -281,7 +281,7 @@ def _answer_row(row: sqlite3.Row) -> dict[str, Any]:
     return item
 
 
-# A conversation's review status (D-100), from its rating and its feedback row.
+# A conversation's review status (D-104), from its rating and its feedback row.
 _REVIEW_STATUS_SQL = (
     "CASE WHEN c.ended_at IS NULL THEN 'open' "
     "WHEN c.priority IS NULL THEN 'no_review' "
@@ -1133,7 +1133,7 @@ class KnowledgeStore:
 
     @staticmethod
     def _drop_draft(db: sqlite3.Connection, feedback_id: int) -> None:
-        """A saved fix or a closed request ends the conversation's draft (D-100)."""
+        """A saved fix or a closed request ends the conversation's draft (D-104)."""
 
         db.execute(
             "UPDATE conversations SET draft = NULL, draft_by = NULL, draft_at = NULL "
@@ -1229,7 +1229,7 @@ class KnowledgeStore:
         ).fetchone()
         return str(row["id"]) if row is not None else None
 
-    # --- conversations (D-100) ----------------------------------------------------------
+    # --- conversations (D-104) ----------------------------------------------------------
 
     def end_conversation(
         self,
@@ -1501,7 +1501,7 @@ class KnowledgeStore:
             f"AND NOT EXISTS ({keeps} AND k.request_id NOT IN {done})",
             {"cutoff": _days_before(now, closed_days)},
         ).rowcount
-        # A conversation goes with its last record (D-100).
+        # A conversation goes with its last record (D-104).
         db.execute(
             "DELETE FROM conversations WHERE NOT EXISTS "
             "(SELECT 1 FROM answer_records a WHERE a.conversation_id = conversations.id)"
@@ -1558,7 +1558,7 @@ class KnowledgeStore:
 
     @staticmethod
     def _add_conversation_link(db: sqlite3.Connection) -> None:
-        """Version 6 groups answer records into conversations (D-100): every earlier store
+        """Version 6 groups answer records into conversations (D-104): every earlier store
         gains ``answer_records.conversation_id`` (NULL for existing records)."""
 
         columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}

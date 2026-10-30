@@ -25,7 +25,7 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `PHASE13_RYAN_LEE_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Ryan Lee |
 | `PHASE13_OLIVIA_KOH_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic Director Olivia Koh |
 | `PHASE14_5_HR_ADMIN_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic HR administrator |
-| `PHASE13_SUPPORT_USER_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the synthetic Support reviewer `support-user` (D-099) |
+| `PHASE13_SUPPORT_USER_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the synthetic Support reviewer `support-user` (D-103) |
 | `PHASE14_5_MAX_ACTIVE_SESSIONS` | security | `256` | Process-local global session capacity, 1–1000 |
 | `PHASE13_COOKIE_SECURE` | security | environment-derived | Defaults `true` in production and `false` in local development/test; explicit production `false` fails startup |
 | `PHASE13_BROWSER_ORIGIN` | security | `http://127.0.0.1:8000` locally | Canonical browser origin. Production requires an explicit exact HTTPS origin and fails before persistence initialization when absent or malformed. |

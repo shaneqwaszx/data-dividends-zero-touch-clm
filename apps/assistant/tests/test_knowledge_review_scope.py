@@ -41,7 +41,7 @@ SUPPORT_CAPABILITIES = [
     "KNOWLEDGE_CASE_READ",
 ]
 BACKEND_USERS = {
-    # The backend's seeded Support reviewer: role SUPPORT, team_id None (D-099).
+    # The backend's seeded Support reviewer: role SUPPORT, team_id None (D-103).
     "director-global-session": _backend_profile(
         "support-user", "SUPPORT", None, SUPPORT_CAPABILITIES
     ),
@@ -299,7 +299,7 @@ def test_with_two_person_review_the_only_director_cannot_publish_her_own_fix(
 def test_a_director_with_policy_approval_cannot_review_knowledge(
     kb: KnowledgeBase,  # noqa: F811
 ) -> None:
-    """D-099: knowledge review is KNOWLEDGE_REVIEW (Support), not POLICY_APPROVE."""
+    """D-103: knowledge review is KNOWLEDGE_REVIEW (Support), not POLICY_APPROVE."""
 
     entry_id = drafted(kb)
     director = client(kb, "director-policy-session")

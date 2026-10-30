@@ -38,7 +38,7 @@ def test_model_management_leaves_every_other_capability_unchanged() -> None:
 
 
 def test_support_reviews_knowledge_and_views_policy_without_case_access() -> None:
-    """D-099: SUPPORT alone reviews knowledge; Director keeps policy approval only."""
+    """D-103: SUPPORT alone reviews knowledge; Director keeps policy approval only."""
 
     assert ROLE_CAPABILITIES[Role.SUPPORT] == frozenset(
         {

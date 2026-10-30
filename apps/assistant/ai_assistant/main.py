@@ -127,13 +127,13 @@ class ChatRequest(BaseModel):
     earlier_answer_ids: list[Annotated[str, Field(pattern=ANSWER_ID)]] = Field(
         default_factory=list, max_length=40
     )
-    # The conversation this question continues (D-100). Kept only when it is this user's open
+    # The conversation this question continues (D-104). Kept only when it is this user's open
     # conversation on this case; otherwise the answer starts a new one.
     conversation_id: str | None = Field(default=None, pattern=ANSWER_ID)
 
 
 class SupportChatRequest(BaseModel):
-    """Support's question without a case (D-100): only the question and the chat so far."""
+    """Support's question without a case (D-104): only the question and the chat so far."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -142,7 +142,7 @@ class SupportChatRequest(BaseModel):
 
 
 class TryChangeRequest(BaseModel):
-    """An unsaved rule change to preview on a rated conversation's question (D-100)."""
+    """An unsaved rule change to preview on a rated conversation's question (D-104)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -159,7 +159,7 @@ class TryChangeRequest(BaseModel):
     question: str | None = Field(default=None, max_length=600)
 
 
-# Support's chat without a case reads the approved rules and the policy (D-100).
+# Support's chat without a case reads the approved rules and the policy (D-104).
 SUPPORT_CHAT_CAPABILITY = "KNOWLEDGE_REVIEW"
 
 
@@ -221,7 +221,7 @@ class ChatResponse(BaseModel):
     # The server's record of this answer (none for small talk, or with the knowledge store
     # off); "Not helpful" sends it back.
     answer_id: str | None = None
-    # The conversation the answer record joined (D-100); "End conversation" rates it.
+    # The conversation the answer record joined (D-104); "End conversation" rates it.
     conversation_id: str | None = None
     # A fixed small-talk reply: it never has a record, so a missing answer_id is expected.
     small_talk: bool = False
@@ -551,7 +551,7 @@ def create_app(
         user = profile.get("user_id")
         if not user:
             return response
-        # D-100: Support's investigation chat on a review page (no CASE_ACCESS, only the
+        # D-104: Support's investigation chat on a review page (no CASE_ACCESS, only the
         # read-only redaction access) is not a user conversation: nothing is recorded.
         if "CASE_ACCESS" not in (profile.get("capabilities") or []):
             return response
@@ -649,7 +649,7 @@ def create_app(
                 log.exception("knowledge retrieval failed")
             retrieval_ms = round((time.monotonic() - began) * 1000)
         if trial is not None:
-            # D-100 "Try with this change": Support's unsaved rule, offered as if approved,
+            # D-104 "Try with this change": Support's unsaved rule, offered as if approved,
             # first, in place of the version it would replace; for this preview only.
             tagged = [item for item in tagged if item.hit.entry.entry_id != trial.entry_id]
             letter = "G" if trial.kind == EntryKind.GUIDANCE else "P"
@@ -956,7 +956,7 @@ def create_app(
     def try_change(
         conversation_id: str, body: TryChangeRequest, request: Request
     ) -> dict[str, Any]:
-        """D-100: Support previews how the user's question would be answered with an unsaved
+        """D-104: Support previews how the user's question would be answered with an unsaved
         rule change. Nothing is saved or published, no record is kept, and only the local
         model is used (the remote test model's gates admit only approved repository text)."""
 
@@ -1020,7 +1020,7 @@ def create_app(
 
     @app.post("/assistant/support/chat", response_model=ChatResponse)
     def support_chat(body: SupportChatRequest, request: Request) -> ChatResponse:
-        """D-100: Support asks about the approved rules and the active policy, no case."""
+        """D-104: Support asks about the approved rules and the active policy, no case."""
 
         check_origin(request)
         session = request.cookies.get(SESSION_COOKIE_NAME)

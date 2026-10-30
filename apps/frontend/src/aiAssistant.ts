@@ -47,7 +47,7 @@ export interface AiAssistantAnswer {
   knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
   /** The server's record of this answer; feedback sends it back (none for small talk). */
   answer_id?: string | null;
-  /** The conversation the answer joined (D-100); End conversation rates it. */
+  /** The conversation the answer joined (D-104); End conversation rates it. */
   conversation_id?: string | null;
   /** A fixed small-talk reply, which never has a record. */
   small_talk?: boolean;
@@ -138,7 +138,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   "No such enhancement request.",
   "This request was already handled. Refresh and try again.",
   "Confirm that you are publishing this entry as its only reviewer.",
-  // D-100: conversations.
+  // D-104: conversations.
   "No such conversation.",
   // Fixed model-management messages (apps/assistant/ai_assistant/model_admin.py).
   "Model management is not configured on this server.",
@@ -380,7 +380,7 @@ export async function askAiAssistantStreaming(
   }
 }
 
-/** Support's question without a case (D-100): answered from the approved rules and policy. */
+/** Support's question without a case (D-104): answered from the approved rules and policy. */
 export function askSupportAssistant(
   message: string,
   history: AiAssistantTurn[],
@@ -389,7 +389,7 @@ export function askSupportAssistant(
   return request<AiAssistantAnswer>("/support/chat", { message, history }, signal);
 }
 
-// --- Conversations (D-100): End conversation, history and Support's review list ------------
+// --- Conversations (D-104): End conversation, history and Support's review list ------------
 
 export type Satisfaction = "very_satisfied" | "satisfied" | "neutral" | "unsatisfied" | "very_unsatisfied";
 export type ConversationPriority = "high" | "medium" | "low";
@@ -465,7 +465,7 @@ export interface ConversationDraft {
   stages?: string[];
 }
 
-/** Support's preview of an unsaved rule change on the conversation's question (D-100). */
+/** Support's preview of an unsaved rule change on the conversation's question (D-104). */
 export interface RuleTrial {
   question: string;
   answer: string;

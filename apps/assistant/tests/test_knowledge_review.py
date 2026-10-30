@@ -34,7 +34,7 @@ def _profile(
     return me
 
 
-# The knowledge reviewer's capabilities (D-099: role SUPPORT).
+# The knowledge reviewer's capabilities (D-103: role SUPPORT).
 REVIEWER = ["KNOWLEDGE_REVIEW", "KNOWLEDGE_CASE_READ"]
 
 USERS = {

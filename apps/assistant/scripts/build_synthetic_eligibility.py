@@ -115,7 +115,7 @@ def viewers() -> list[str]:
                 r'user_id="[^"]+",\s*display_name="([^"]+)"', path.read_text(encoding="utf-8")
             )
         )
-    # D-099: the Support reviewer has no case access, so it never views a case in chat.
+    # D-103: the Support reviewer has no case access, so it never views a case in chat.
     return sorted(names - NON_CASE_VIEWERS)
 
 

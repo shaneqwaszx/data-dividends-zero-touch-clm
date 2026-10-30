@@ -754,7 +754,7 @@ baseline is the fallback for every failure. Rollback of the feature: remove
 `AI_ASSISTANT_MODEL_PROFILES_FILE`; the service then behaves exactly as before (no state file
 is created).
 
-## Amendment 5 - knowledge review moves from Directors to a Support role (OWNER-DIRECTED, D-099)
+## Amendment 5 - knowledge review moves from Directors to a Support role (OWNER-DIRECTED, D-103)
 
 Status: owner-directed for the local POC; not sponsor policy (Q-014 stays open). Only the
 reviewer's identity changes. Review endpoints require the new backend capability
@@ -768,7 +768,7 @@ grants no case pages, portfolio, mutation or evidence decisions. The review UI i
 C, the content-hash decision, maker-checker, single-reviewer mode (D-083), two-person
 retirement and redaction are unchanged.
 
-## Amendment 6 - conversation feedback and Support's review list (OWNER-DIRECTED, D-100)
+## Amendment 6 - conversation feedback and Support's review list (OWNER-DIRECTED, D-104)
 
 Status: owner-directed for the local POC; not sponsor policy. Feedback moves from each answer to
 the conversation: End conversation records resolved, satisfaction and a comment, and a rating of

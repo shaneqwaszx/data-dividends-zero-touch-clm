@@ -7,7 +7,7 @@ import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.co
 
 // Real Chromium rendering the actual panel and the Knowledge Review tab against a synthetic
 // assistant API. The fixture is synthetic; it grants no backend authority or Live-model claim.
-// The fake service keeps the conversation contract (D-100): End conversation must name the
+// The fake service keeps the conversation contract (D-104): End conversation must name the
 // conversation the stream returned, and only the record linked to its request is served.
 test("answer records: RM ends the conversation unsatisfied, and Support reviews it", async ({ page }) => {
   test.setTimeout(45000);

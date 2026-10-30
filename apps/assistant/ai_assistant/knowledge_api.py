@@ -23,7 +23,7 @@ approving it resolves the request, rejecting it opens the request again) or clos
 reason.
 
 Team scope: approved past resolutions are visible only to the team they came from. A Support
-reviewer, whom the CLM backend gives no team (D-099), sees, edits and decides every
+reviewer, whom the CLM backend gives no team (D-103), sees, edits and decides every
 team's drafts and enhancement requests (called gaps here), and their stats count every team.
 Any other caller keeps the team rule: anything outside their team is answered as "not found",
 and stats count only their team's entries and feedback. Guidance proposed by HR keeps the
@@ -91,7 +91,7 @@ class FeedbackRequest(BaseModel):
         return self
 
 
-# --- conversation feedback (D-100) ------------------------------------------------------
+# --- conversation feedback (D-104) ------------------------------------------------------
 
 Satisfaction = Literal["very_satisfied", "satisfied", "neutral", "unsatisfied", "very_unsatisfied"]
 # What the form offers after "Was this issue resolved?": Yes or No.
@@ -388,7 +388,7 @@ def knowledge_router(
         return str(value) if value else None
 
     def global_reviewer(profile: dict[str, Any]) -> bool:
-        """A Support reviewer, whom the CLM backend gives no team (D-099), reviews every
+        """A Support reviewer, whom the CLM backend gives no team (D-103), reviews every
         team's entries and gaps; anyone else keeps the team rule."""
 
         return profile.get("role") == "SUPPORT" and team(profile) is None
@@ -531,7 +531,7 @@ def knowledge_router(
             ),
         )
 
-    # --- conversations (D-100) ---------------------------------------------------------
+    # --- conversations (D-104) ---------------------------------------------------------
 
     def find_conversation(conversation_id: str) -> dict[str, Any] | None:
         if not re.fullmatch(ANSWER_ID, conversation_id):

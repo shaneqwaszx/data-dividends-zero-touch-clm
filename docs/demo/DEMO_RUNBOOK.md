@@ -187,7 +187,7 @@ repository, shell history, launcher scripts, screenshots, or UAT evidence. The b
 sign-in user IDs are `maya-lim`, `ethan-tan`, `sophia-ng`, `ryan-lee`, and `olivia-koh`.
 These are synthetic POC identities. If a local `.env` contains hashes generated before
 the identity remediation, regenerate all seven hashes: the old setting names are
-intentionally not reused. To add only the D-099 Support account to an existing `.env`, run
+intentionally not reused. To add only the D-103 Support account to an existing `.env`, run
 `python scripts/generate_admin_bootstrap_password_hashes.py --user support-user` and add
 the one emitted `PHASE13_SUPPORT_USER_PASSWORD_HASH=...` line; startup fails until it is
 present.
@@ -206,7 +206,7 @@ teams, but it cannot view cases, Dashboard, Onboarded, Audit, or mutate policy. 
 values are read from the backend catalogue; only Relationship Manager and Director can
 edit the two runtime thresholds. Such an edit affects newly created cases only.
 
-The seventh bootstrap identity is `support-user` (D-099). It lands on **Knowledge Review**,
+The seventh bootstrap identity is `support-user` (D-103). It lands on **Knowledge Review**,
 where it reviews AI Assistant knowledge and enhancement requests, and also sees a read-only
 **Policy** tab. It has no case pages; the backend lets it read a case summary and document
 list only so that a knowledge fix can be redacted. Directors no longer review knowledge.

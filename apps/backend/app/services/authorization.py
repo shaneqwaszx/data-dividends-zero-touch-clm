@@ -20,7 +20,7 @@ class RouteAccess(StrEnum):
     PUBLIC = "PUBLIC"
     ACTOR_ONLY = "ACTOR_ONLY"
     CASE_SCOPED = "CASE_SCOPED"
-    # Read-only case GET that a KNOWLEDGE_CASE_READ actor may also load (D-099).
+    # Read-only case GET that a KNOWLEDGE_CASE_READ actor may also load (D-103).
     CASE_READ = "CASE_READ"
     CASE_CREATION = "CASE_CREATION"
     CASE_PORTFOLIO = "CASE_PORTFOLIO"
@@ -286,7 +286,7 @@ class CaseAccessPolicy:
         return case
 
     def can_read(self, actor: AuthenticatedActor, case: OnboardingCase) -> bool:
-        """Case access, or the team-less knowledge redaction read (D-099)."""
+        """Case access, or the team-less knowledge redaction read (D-103)."""
 
         if self.can_access(actor, case):
             return True

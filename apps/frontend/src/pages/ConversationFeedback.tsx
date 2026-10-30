@@ -22,7 +22,7 @@ function when(iso: string): string {
 }
 
 /**
- * End conversation (D-100): "Was this issue resolved?" first, then how satisfied the user is
+ * End conversation (D-104): "Was this issue resolved?" first, then how satisfied the user is
  * (Yes offers very satisfied to neutral, No offers neutral to very unsatisfied), then a comment:
  * optional "Additional comments" after Yes, required "How should it be improved?" after No.
  * The service checks the same rules.
@@ -128,7 +128,7 @@ function ratingLabel(item: { ended_at: string | null; satisfaction: Satisfaction
   return item.satisfaction ? SATISFACTION_LABELS[item.satisfaction] : "Rated";
 }
 
-/** The user's past chats (D-100): newest first, 10 a page; one opens in the chat to continue. */
+/** The user's past chats (D-104): newest first, 10 a page; one opens in the chat to continue. */
 export function ConversationHistory({
   onClose,
   onOpen,

@@ -1020,7 +1020,7 @@ def test_every_case_route_family_has_identical_cross_team_and_absent_behavior(
 def test_support_reads_only_the_knowledge_redaction_case_routes(
     runtime_credentials: tuple[str, dict[str, str]],
 ) -> None:
-    """D-099: SUPPORT loads a case summary and document list for knowledge redaction only;
+    """D-103: SUPPORT loads a case summary and document list for knowledge redaction only;
     every other case route answers as absent and the portfolio stays forbidden."""
 
     password, hashes = runtime_credentials
@@ -1215,7 +1215,7 @@ def test_every_current_application_route_is_deliberately_classified(
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
         RouteAccess.CASE_SCOPED: 44,
-        # D-099: the summary and document list GETs also admit the Support redaction read.
+        # D-103: the summary and document list GETs also admit the Support redaction read.
         RouteAccess.CASE_READ: 2,
     }
     assert next(

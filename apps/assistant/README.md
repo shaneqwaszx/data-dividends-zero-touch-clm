@@ -86,7 +86,7 @@ retraining the model. There are two kinds of entry:
 - **Official guidance**: the rulebook, written from recorded decisions (`knowledge/guidance/*.md`,
   each citing its source). HR (`POLICY_MUTATE`) can propose new guidance through
   `POST /api/assistant/knowledge/guidance`; there is no in-app UI for it.
-- **Approved past resolutions**: worked examples a Support reviewer (`KNOWLEDGE_REVIEW`, D-099) writes
+- **Approved past resolutions**: worked examples a Support reviewer (`KNOWLEDGE_REVIEW`, D-103) writes
   as the fix for an RM's enhancement request ("Not helpful" with a note) and that is then
   approved (D-083, proposed; see single-reviewer mode below). The demo seed
   (`seed/synthetic_resolutions.json`) is made up and labelled illustrative.
@@ -163,7 +163,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/conversations/{id}/end` | The user who asked | End conversation (D-100): `resolved`, `satisfaction` (Yes: `very_satisfied`, `satisfied`, `neutral`; No: `neutral`, `unsatisfied`, `very_unsatisfied`) and `comment` (required when not resolved), redacted; once per conversation. Neutral or worse becomes an enhancement request with a priority (low, medium, high) |
+| POST | `/assistant/conversations/{id}/end` | The user who asked | End conversation (D-104): `resolved`, `satisfaction` (Yes: `very_satisfied`, `satisfied`, `neutral`; No: `neutral`, `unsatisfied`, `very_unsatisfied`) and `comment` (required when not resolved), redacted; once per conversation. Neutral or worse becomes an enhancement request with a priority (low, medium, high) |
 | GET | `/assistant/conversations?page=` | anyone signed in | Their own conversations, newest first, 10 a page (history) |
 | GET | `/assistant/conversations/{id}` | The user who asked | One of their conversations: questions and answers as shown, redacted (views logged) |
 | GET | `/assistant/knowledge/conversations?page=&resolved=&satisfaction=&status=` | Support | Rated conversations, 10 a page, high, medium, low, then no priority |
@@ -171,7 +171,7 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | PUT / DELETE | `/assistant/knowledge/conversations/{id}/draft` | Support | Save (redacted) or discard the draft fix of an open request |
 | POST | `/assistant/knowledge/conversations/{id}/try` | Support | Preview: the user's question answered with an unsaved rule change offered as if approved (local model only; nothing saved, published or recorded) |
 | POST | `/assistant/support/chat` | Support | A question about the approved rules and the active policy, no case (local model only) |
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | (Kept for compatibility; the panel no longer sends it, D-100.) "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the reviewer then sees only the note |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | (Kept for compatibility; the panel no longer sends it, D-104.) "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the reviewer then sees only the note |
 | GET | `/assistant/answers/{answer_id}` | the RM who asked | Their own answer record (view logged); HR gets 403, anyone else 404 |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
 | GET | `/assistant/knowledge/reviews` | Support | Drafts waiting for review and open enhancement requests (`gaps`, each with its `answer_id` and question; listing them is not a logged record view, opening the record is) |
@@ -230,13 +230,13 @@ record.
 ### In the app
 
 The panel is built on `@assistant-ui/react`. Each answer shows the guidance and past cases it
-cited as chips (G1, P1 …). Feedback is given once per conversation (D-100): **End conversation**
+cited as chips (G1, P1 …). Feedback is given once per conversation (D-104): **End conversation**
 asks "Was this issue resolved?", then how satisfied the user is (Yes: very satisfied, satisfied
 or neutral, with optional comments; No: neutral, unsatisfied or very unsatisfied, with a required
 "How should it be improved?"), and the chat starts again. **History** lists the user's past
 chats; one opens back in the chat to continue it (a rated chat continues as a new conversation;
 client details in past answers show as placeholders). Knowledge review is not
-in the panel: Support users (`KNOWLEDGE_REVIEW`) review on the **Knowledge Review** tab (D-099);
+in the panel: Support users (`KNOWLEDGE_REVIEW`) review on the **Knowledge Review** tab (D-103);
 Directors no longer review knowledge. With no case open, Support gets a chat about the approved
 rules and the active policy (`POST /assistant/support/chat`, local model only, exact-line rule).
 

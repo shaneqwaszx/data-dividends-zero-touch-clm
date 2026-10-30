@@ -454,7 +454,7 @@
   margin: 4px 0 0;
 }
 
-/* --- End conversation and chat history (D-100) ------------------------------------------ */
+/* --- End conversation and chat history (D-104) ------------------------------------------ */
 .ai-assistant-end-form,
 .ai-assistant-history {
   display: flex;
@@ -579,7 +579,7 @@
   color: var(--color-accent-700, #6b4a12);
 }
 
-/* --- Knowledge review (Support tab, D-099) ---------------------------------------------- */
+/* --- Knowledge review (Support tab, D-103) ---------------------------------------------- */
 .knowledge-review {
   box-sizing: border-box;
   width: min(960px, 100%);
@@ -1006,7 +1006,7 @@
   font-size: 0.85rem;
 }
 
-/* --- Knowledge review: rated conversations (D-100) --------------------------------------- */
+/* --- Knowledge review: rated conversations (D-104) --------------------------------------- */
 .knowledge-review-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1094,7 +1094,7 @@
   }
 }
 
-/* --- Knowledge review: investigate and edit how the AI responds (D-100) ---------------- */
+/* --- Knowledge review: investigate and edit how the AI responds (D-104) ---------------- */
 .request-page-part {
   margin: 8px 0;
 }

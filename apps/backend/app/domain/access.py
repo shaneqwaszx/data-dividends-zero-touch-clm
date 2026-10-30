@@ -38,7 +38,7 @@ class Role(StrEnum):
     RELATIONSHIP_MANAGER = "RELATIONSHIP_MANAGER"
     DIRECTOR = "DIRECTOR"
     HR = "HR"
-    # Knowledge support (D-099, owner-directed): reviews AI Assistant knowledge and views
+    # Knowledge support (D-103, owner-directed): reviews AI Assistant knowledge and views
     # policy read-only; never grants case access.
     SUPPORT = "SUPPORT"
 
@@ -56,10 +56,10 @@ class Capability(StrEnum):
     # AI Assistant model management (D-093, local loopback models only). HR only for the
     # POC; independent of policy and knowledge publishing; never grants case access.
     MODEL_CONFIG_MANAGE = "MODEL_CONFIG_MANAGE"
-    # AI Assistant knowledge review (D-099). SUPPORT only; independent of policy approval.
+    # AI Assistant knowledge review (D-103). SUPPORT only; independent of policy approval.
     KNOWLEDGE_REVIEW = "KNOWLEDGE_REVIEW"
     # Read-only case load so the AI Assistant can redact a knowledge fix against the
-    # request's case (D-099). Only the case summary and document list GET routes; never
+    # request's case (D-103). Only the case summary and document list GET routes; never
     # case mutation, portfolio listing, or evidence-decision authority.
     KNOWLEDGE_CASE_READ = "KNOWLEDGE_CASE_READ"
 

@@ -63,7 +63,7 @@ const GUIDANCE = {
   title: "Registered address differs from ACRA",
 };
 
-// D-100: every request is behind a rated conversation; the list and the conversation page
+// D-104: every request is behind a rated conversation; the list and the conversation page
 // come from the service like this.
 const CONVERSATION_ID = "C".repeat(22);
 type Overrides = Record<string, unknown>;
@@ -188,7 +188,7 @@ describe("KnowledgeReview", () => {
     vi.stubGlobal("fetch", backend(calls));
     const view = render();
     await flush();
-    // D-100: no Waiting for review or Enhancement requests sections; other pending knowledge
+    // D-104: no Waiting for review or Enhancement requests sections; other pending knowledge
     // (such as HR's guidance proposals) is listed only when there is any.
     expect(view.textContent).not.toContain("Waiting for review");
     expect(view.textContent).not.toContain("Enhancement requests");
@@ -433,7 +433,7 @@ describe("KnowledgeReview", () => {
   });
 });
 
-// D-099: Knowledge review is the Support tab's page, not a modal dialog.
+// D-103: Knowledge review is the Support tab's page, not a modal dialog.
 describe("KnowledgeReview page", () => {
   it("renders as a page with a heading and no dialog, backdrop or close button", async () => {
     vi.stubGlobal("fetch", backend([]));
@@ -885,7 +885,7 @@ describe("A fix started from the AI's answer", () => {
   });
 });
 
-// D-100: the conversation list, filters, pages, drafts and the View page.
+// D-104: the conversation list, filters, pages, drafts and the View page.
 describe("Rated conversations", () => {
   it("names the action from the priority and review status", () => {
     expect(actionFor({ priority: "high", review_status: "not_reviewed" })).toBe("Review");
@@ -1017,7 +1017,7 @@ describe("Rated conversations", () => {
   });
 });
 
-// D-100 point 5: investigate the case, edit how the AI responds, try it, or flag a developer.
+// D-104 point 5: investigate the case, edit how the AI responds, try it, or flag a developer.
 describe("Editing how the AI should respond", () => {
   function point5Backend(calls: { url: string; body: unknown }[]) {
     const rest = backend(calls);

@@ -157,7 +157,7 @@ describe("AiAssistantPanel", () => {
     expect(view.textContent).toContain("Then upload ownership evidence.");
     expect(view.querySelectorAll(".ai-assistant-assistant")).toHaveLength(2);
     expect(view.textContent).toContain("Where are we now?");
-    // Answer ready: the progress stages are gone, and there is no "What this answer used" (D-100).
+    // Answer ready: the progress stages are gone, and there is no "What this answer used" (D-104).
     expect(view.querySelector(".ai-assistant-activity")).toBeNull();
     expect(view.querySelector(".ai-assistant-used")).toBeNull();
     expect(view.textContent).not.toContain("What this answer used");
@@ -375,7 +375,7 @@ describe("AiAssistantPanel", () => {
     expect(view.querySelector("[role=alert]")).toBeNull();
   });
 
-  it("shows cited sources and no per-answer helpful buttons (D-100)", async () => {
+  it("shows cited sources and no per-answer helpful buttons (D-104)", async () => {
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
@@ -569,7 +569,7 @@ describe("AiAssistantPanel", () => {
     expect(opened).toEqual(["case-2"]);
   });
 
-  it("opens on the case Support asked about, with the user's question first (D-100)", async () => {
+  it("opens on the case Support asked about, with the user's question first (D-104)", async () => {
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/cases/case-9/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
@@ -595,7 +595,7 @@ describe("AiAssistantPanel", () => {
     expect(buttonNamed(container, "End conversation")).toBeUndefined();
   });
 
-  it("lets Support chat about the rules and policy without a case (D-100)", async () => {
+  it("lets Support chat about the rules and policy without a case (D-104)", async () => {
     const sent: unknown[] = [];
     stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -646,7 +646,7 @@ describe("AiAssistantPanel", () => {
     }
   });
 
-  it("no longer opens Knowledge review, even for someone the backend allows to review (D-099)", async () => {
+  it("no longer opens Knowledge review, even for someone the backend allows to review (D-103)", async () => {
     const fetched: string[] = [];
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);

@@ -124,7 +124,7 @@ function fixReady(draft: FixDraft): boolean {
   return ready && draft.sourceRef.trim().length >= 3 && (!draft.editing || draft.changes !== "");
 }
 
-/** What the fix does: edit an existing rule or add a new one (D-100: every fix is a rule). */
+/** What the fix does: edit an existing rule or add a new one (D-104: every fix is a rule). */
 type FixMode = "edit" | "new";
 
 function modeOf(draft: FixDraft): FixMode {
@@ -163,7 +163,7 @@ function message(error: unknown): string {
   return error instanceof AiAssistantError ? error.message : "Something went wrong. Please try again.";
 }
 
-/** The fix form's state as a draft the service keeps (D-100), and back. */
+/** The fix form's state as a draft the service keeps (D-104), and back. */
 function draftToSave(fix: FixDraft): ConversationDraft {
   return {
     kind: fix.kind,
@@ -260,7 +260,7 @@ function RatingSummary({ conversation }: { conversation: ReviewConversation }) {
 }
 
 /**
- * Support's Knowledge Review tab (D-099, D-100): every rated conversation, 10 a page, filtered by
+ * Support's Knowledge Review tab (D-103, D-104): every rated conversation, 10 a page, filtered by
  * resolved, satisfaction and review status, ordered high, medium, low, then no priority.
  * Neutral is low, unsatisfied medium and very unsatisfied high priority; satisfied or better has
  * none. A conversation with a priority is reviewed: its request page shows what happened, and
@@ -273,7 +273,7 @@ export default function KnowledgeReview({
   onAskAboutCase,
   onLeaveCase,
 }: {
-  /** Opens the AI Assistant on the conversation's case, with the user's question (D-100). */
+  /** Opens the AI Assistant on the conversation's case, with the user's question (D-104). */
   onAskAboutCase?: (caseId: string, question: string) => void;
   /** The conversation page closed: the AI Assistant goes back to the rules chat. */
   onLeaveCase?: () => void;

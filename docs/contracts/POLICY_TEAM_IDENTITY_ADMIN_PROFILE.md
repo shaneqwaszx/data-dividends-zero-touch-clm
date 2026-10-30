@@ -40,7 +40,7 @@ creator/updater IDs, and bounded append-only allowlisted audit events.
 ## Profile and authentication administration
 
 Bootstrap inserts the five established case identities plus `hr-admin` and
-`support-user` (D-099) only when missing. Mongo-persisted hashes are authoritative after insertion and are never
+`support-user` (D-103) only when missing. Mongo-persisted hashes are authoritative after insertion and are never
 overwritten from changed environment settings. Missing or malformed required seed
 state fails closed.
 

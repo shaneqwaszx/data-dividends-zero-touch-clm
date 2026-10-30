@@ -149,7 +149,7 @@ function WhyItAnsweredThisWay({ record }: { record: AnswerRecord }) {
   const thresholds = knowledge.thresholds;
   return (
     <section className="request-page-column" aria-labelledby="request-page-why">
-      {/* D-100: what the AI had to work with, each part folded until opened. */}
+      {/* D-104: what the AI had to work with, each part folded until opened. */}
       <h3 id="request-page-why">Information / rules used</h3>
       <div className="request-page-cause" role="note" aria-label="Suggested cause">
         <p className="request-page-cause-label">Rule-based hint, not a verdict</p>
@@ -276,7 +276,7 @@ export default function RequestPage({
   gap: KnowledgeGap;
   onBack: () => void;
   children?: ReactNode;
-  /** Inside a conversation page (D-100), which has its own heading and Back button. */
+  /** Inside a conversation page (D-104), which has its own heading and Back button. */
   embedded?: boolean;
 }) {
   const [record, setRecord] = useState<AnswerRecord | null>(null);

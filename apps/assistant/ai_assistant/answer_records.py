@@ -207,7 +207,7 @@ class AnswerRecorder:
             return True
 
     def save(self, record: dict[str, Any]) -> tuple[str, str] | None:
-        """Store the record; its id and its conversation's id (D-100), or None when it could
+        """Store the record; its id and its conversation's id (D-104), or None when it could
         not be stored (the answer is still given, it just cannot be rated)."""
 
         days = (self.unrated_days, self.closed_days) if self._purge_due() else None
