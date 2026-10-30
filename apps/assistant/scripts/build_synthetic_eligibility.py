@@ -115,7 +115,9 @@ def viewers() -> list[str]:
                 r'user_id="[^"]+",\s*display_name="([^"]+)"', path.read_text(encoding="utf-8")
             )
         )
-    # D-103: the Support reviewer has no case access, so it never views a case in chat.
+    # D-103: Support has no case pages; it only looks at the case details logged with a
+    # feedback ticket (on the review page, or by asking the AI Assistant about that case).
+    # Leaving it out keeps those ticket chats off the external models (local model only).
     return sorted(names - NON_CASE_VIEWERS)
 
 
