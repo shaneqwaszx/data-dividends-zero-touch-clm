@@ -413,7 +413,7 @@ function keyServer(data: ModelOverview, calls: Array<{ method: string; url: stri
     const method = init?.method ?? "GET";
     calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
     if (url.endsWith("/admin/models/credential") && method === "PUT") {
-      return json({ source: "hr_memory", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin" });
+      return json({ source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin" });
     }
     if (url.endsWith("/admin/models/credential") && method === "DELETE") {
       return json({ source: "none", status: "missing", hr_editable: true, persistence: "memory_only", set_at: null, set_by: null });
@@ -442,11 +442,11 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
     const input = view.querySelector<HTMLInputElement>("#openrouter-key-input");
     expect(input?.type).toBe("password");
     expect(input?.autocomplete).toBe("off");
-    expect(button(view, "Save Key").disabled).toBe(true);
+    expect(button(view, "Save for Session").disabled).toBe(true);
     expect(button(view, "Test Connection").disabled).toBe(true);
     typeInto(input!, FAKE_KEY);
-    await act(async () => button(view, "Save Key").click());
-    await waitFor(() => expect(view.textContent).toContain("Key saved on the server."));
+    await act(async () => button(view, "Save for Session").click());
+    await waitFor(() => expect(view.textContent).toContain("Key saved for this session on the server."));
     const put = calls.find((call) => call.method === "PUT");
     expect(put?.url).toContain("/api/assistant/admin/models/credential");
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ api_key: FAKE_KEY });
@@ -457,32 +457,45 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
     expect(document.cookie).not.toContain(FAKE_KEY);
   });
 
-  it("offers Clear Key and Test Connection for an HR-entered key, and says it is memory-only", async () => {
+  it("offers Clear Session Key and Test Connection for an HR session key, with its expiry and fallback", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = {
       ...overview, profiles: [profile({}), remoteSelectable],
-      budget: budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
+      budget: budget({ source: "hr_session", status: "configured", set_by: "hr-admin", set_at: 1, expires_at: 28_801, fallback: "env_file" }),
     };
     const view = mount(keyServer(data, calls), "providers");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
-    expect(view.textContent).toContain("enter it again after the service restarts");
+    expect(view.textContent).toContain("ends when the HR session that entered it signs out or expires");
+    expect(view.textContent).toContain("Ends with the HR session that entered it, and no later than");
+    expect(view.textContent).toContain("the server key from apps/assistant/.env");
     await act(async () => button(view, "Test Connection").click());
     await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.url.endsWith("/openrouter_gpt_oss_120b/connection-test"))).toBe(true));
-    await act(async () => button(view, "Clear Key").click());
-    await waitFor(() => expect(calls.some((call) => call.method === "DELETE")).toBe(true));
+    await act(async () => button(view, "Clear Session Key").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.url.endsWith("/admin/models/credential"))).toBe(true));
   });
 
-  it("does not offer to change an environment-managed key", async () => {
+  it("D-106: offers a session key even when the server has a .env key, but nothing to clear", async () => {
     const data = {
       ...overview, profiles: [profile({}), remoteSelectable],
-      budget: budget({ source: "env_file", status: "configured", hr_editable: false, persistence: "server" }),
+      budget: budget({ source: "env_file", status: "configured", hr_editable: true, persistence: "server" }),
     };
     const view = mount(keyServer(data, []), "providers");
     await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Configured"));
-    expect(view.textContent).toContain("apps/assistant/.env");
-    expect(view.querySelector("#openrouter-key-input")).toBeNull();
-    expect(() => button(view, "Save Key")).toThrow();
-    expect(() => button(view, "Clear Key")).toThrow();
+    expect(view.textContent).toContain("Server key from apps/assistant/.env. A session key entered here is used instead");
+    expect(view.querySelector<HTMLInputElement>("#openrouter-key-input")?.type).toBe("password");
+    expect(button(view, "Save for Session")).toBeTruthy();
+    expect(() => button(view, "Clear Session Key")).toThrow();
+  });
+
+  it("D-106: says a key whose HR session cannot be checked is held back", async () => {
+    const data = {
+      ...overview, profiles: [profile({}), remoteSelectable],
+      budget: budget({ source: "hr_session", status: "unverified", set_by: "hr-admin", set_at: 1, expires_at: 28_801, fallback: "none" }),
+    };
+    const view = mount(keyServer(data, []), "providers");
+    await waitFor(() => expect(view.textContent).toContain("OpenRouter API Key — Session Not Verified"));
+    expect(view.textContent).toContain("the key is held back and no server key is used in its place");
+    expect(button(view, "Test Connection").disabled).toBe(true);
   });
 
   it("shows the US$1.00 Singapore-day limit, today's spending and why calls are refused", async () => {
@@ -509,7 +522,7 @@ describe("AiModelManagement OpenRouter key and daily limit (D-095)", () => {
 
 function controlled(overrides: Partial<NonNullable<ModelBudgetStatus["controls"]>> = {}): ModelBudgetStatus {
   return {
-    ...budget({ source: "hr_memory", status: "configured", set_by: "hr-admin", set_at: 1 }),
+    ...budget({ source: "hr_session", status: "configured", set_by: "hr-admin", set_at: 1 }),
     controls: {
       revision: 3, readable: true,
       daily_cap_micro_usd: 1_000_000, daily_cap_max_micro_usd: 1_000_000_000_000, daily_cap_source: "hr",
@@ -1245,13 +1258,15 @@ describe("AiModelManagement D-100 providers and spending", () => {
     expect(anthropic).not.toContain("OpenRouter");
   });
 
-  it("never offers Anthropic key entry or Claude limit inputs on Providers, and says what the server does not send", async () => {
+  it("D-106: offers one Anthropic session key for Balanced and Fast, but no Claude limit inputs on Providers", async () => {
     const view = mount(controlsServer(withProviders(), []), "providers");
     await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
     const anthropic = card(view, "anthropic")!;
-    expect(anthropic.querySelectorAll("input, form")).toHaveLength(0);
-    expect(anthropic.textContent).toContain("Its status is not sent to this page");
-    expect(anthropic.textContent).toContain("There is no HR key entry.");
+    // Only the key form: one masked input, no limit inputs.
+    expect(anthropic.querySelectorAll("input")).toHaveLength(1);
+    expect(anthropic.querySelector<HTMLInputElement>("#anthropic-key-input")?.type).toBe("password");
+    expect(anthropic.textContent).toContain("Shared by Balanced and Fast");
+    expect(anthropic.textContent).toContain("The server did not send this key's status.");
     // D-102: Claude's limits are HR settings, but on Spending & Limits only (linked from here).
     expect(anthropic.textContent).toContain("Spending & Limits shows when it was last done");
     expect(anthropic.textContent).toContain("The GPT-OSS controls never apply to it.");
@@ -1266,25 +1281,45 @@ describe("AiModelManagement D-100 providers and spending", () => {
     const view = mount(controlsServer(data, []), "providers");
     await waitFor(() => expect(card(view, "anthropic")).not.toBeNull());
     const anthropic = card(view, "anthropic")!.textContent ?? "";
-    expect(anthropic).toContain("The server-side Anthropic inference key is not set.");
+    expect(anthropic).toContain("No Anthropic inference key is set: no session key was entered and the server has none.");
     expect(anthropic).toContain("RECONCILIATION_STALE");
     expect(anthropic).toContain("has not been reconciled with the provider's usage recently enough");
     expect(anthropic).toContain("0 of 2 configurations available");
   });
 
-  it("says who manages the OpenRouter key: HR when the server allows it, else an operator", async () => {
-    let view = mount(controlsServer(withProviders(), []), "providers");
+  it("D-106: says HR manages session keys and an operator the optional server key", async () => {
+    const envKey = { ...controlled(), credential: { ...controlled().credential, source: "environment" as const, persistence: "server" as const } };
+    const view = mount(controlsServer(withProviders(envKey), []), "providers");
     await waitFor(() => expect(card(view, "openrouter")).not.toBeNull());
-    expect(card(view, "openrouter")?.textContent).toContain("Enter or clear the OpenRouter key");
-    act(() => root?.unmount());
-    root = null;
-    container?.remove();
+    const text = card(view, "openrouter")?.textContent ?? "";
+    expect(text).toContain("Enter or clear a session key (memory only, used first, ends with your session).");
+    expect(text).toContain("Optionally set a server key");
+    expect(text).toContain("Server key from the process environment (OPENROUTER_API_KEY)");
+  });
 
-    const envKey = { ...controlled(), credential: { ...controlled().credential, source: "environment" as const, hr_editable: false, persistence: "server" as const } };
-    view = mount(controlsServer(withProviders(envKey), []), "providers");
-    await waitFor(() => expect(card(view, "openrouter")).not.toBeNull());
-    expect(card(view, "openrouter")?.textContent).not.toContain("Enter or clear the OpenRouter key");
-    expect(card(view, "openrouter")?.textContent).toContain("Set the OpenRouter key on the server");
+  it("D-106: shows the Anthropic key's source and saves, clears and tests it on its own address", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const claudeKey = ["sk", "ant", "api03", "FakeBrowserTestKey000000000000"].join("-");
+    const base = controlled();
+    const data = withProviders({
+      ...base,
+      claude: { ...(base.claude ?? {}), credential: { source: "hr_session", status: "configured", hr_editable: true, persistence: "memory_only", set_at: 1, set_by: "hr-admin", expires_at: 28_801, verified_at: 2, fallback: "env_file" } } as ModelClaudeBudget,
+    });
+    const fetchMock = controlsServer(data, calls);
+    const view = mount(fetchMock, "providers");
+    await waitFor(() => expect(view.textContent).toContain("Anthropic API Key — Configured"));
+    const anthropic = card(view, "anthropic")!;
+    expect(anthropic.textContent).toContain("Session key entered on this page");
+    expect(anthropic.textContent).toContain("the server key from apps/assistant/.env");
+    typeInto(anthropic.querySelector<HTMLInputElement>("#anthropic-key-input")!, claudeKey);
+    await act(async () => button(anthropic as HTMLElement, "Save for Session").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.url.endsWith("/admin/models/credential/anthropic"))).toBe(true));
+    expect(JSON.parse(calls.find((call) => call.method === "PUT")?.body ?? "{}")).toEqual({ api_key: claudeKey });
+    expect(view.innerHTML).not.toContain(claudeKey);
+    await act(async () => button(anthropic as HTMLElement, "Test Connection").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.url.endsWith("/anthropic_claude_sonnet_5_5_medium/connection-test"))).toBe(true));
+    await act(async () => button(anthropic as HTMLElement, "Clear Session Key").click());
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.url.endsWith("/admin/models/credential/anthropic"))).toBe(true));
   });
 
   it("reads providers and spending from the overview only, with no extra request", async () => {
@@ -1855,5 +1890,105 @@ describe("AiModelManagement data access policy", () => {
     expect(view.textContent).toContain("could not be read, so local models are restricted");
     expect(view.textContent).toContain("D-094 fixed synthetic fixture only");
     expect(box(view, "local_internal").checked && box(view, "local_internal").disabled).toBe(true);
+  });
+});
+
+// --- D-106: qualification progress -------------------------------------------------------------
+
+describe("AiModelManagement qualification progress (D-106)", () => {
+  const claudeBalanced = (run: ModelQualification | null) => profile({
+    profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: "medium", endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    status: "selectable", active: false, qualification: run, activation_blockers: ["NOT_QUALIFIED"],
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "VERIFIED_SYNTHETIC_CASES", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" },
+  });
+  const runningRun = (done: number, total: number): ModelQualification => ({
+    ...qualification, qualification_id: "c".repeat(32), status: "running", finished_at: null,
+    done_turns: done, total_turns: total, gates: null, metrics: null, lines: null, capacity: null,
+    started_at: "2026-10-30T09:00:00+00:00",
+    diagnosis: { category: "running", cause: "RUNNING", action: "WAIT", retryable: false, supersedes_pass: false },
+  });
+  const withRun = (done: number, total: number): ModelOverview => ({
+    ...overview,
+    running: { qualification_id: "c".repeat(32), profile_id: "anthropic_claude_sonnet_5_5_medium", done_turns: done, total_turns: total, started_by: "hr-admin" },
+    profiles: [...overview.profiles, claudeBalanced(runningRun(done, total))],
+  });
+
+  it("shows a spinner, a bar from the server's turn counts, the provider and the active model", async () => {
+    const view = mount(server(withRun(1, 2)), "qualifications");
+    await waitFor(() => expect(view.querySelector("[data-testid=qualification-progress]")).not.toBeNull());
+    const panel = view.querySelector<HTMLElement>("[data-testid=qualification-progress]")!;
+    expect(panel.querySelector(".console-spinner")).not.toBeNull();
+    const bar = panel.querySelector<HTMLProgressElement>("progress")!;
+    expect(bar.getAttribute("max")).toBe("2");
+    expect(bar.getAttribute("value")).toBe("1");
+    expect(panel.textContent).toContain("1 of 2 turns completed (50%)");
+    expect(panel.textContent).toContain("Anthropic API");
+    expect(panel.textContent).toContain("Claude Sonnet 5.5 — Balanced");
+    expect(panel.textContent).toContain("Environment baseline");
+    expect(panel.textContent).toContain("every 3 seconds");
+    expect(panel.textContent).toContain("No time estimate is shown");
+    expect(panel.textContent).not.toMatch(/remaining|ETA/);
+    expect(button(view, "Cancel qualification").disabled).toBe(false);
+  });
+
+  it("shows an indeterminate bar when the server has not reported a total", async () => {
+    const view = mount(server(withRun(0, 0)), "qualifications");
+    await waitFor(() => expect(view.querySelector("[data-testid=qualification-progress]")).not.toBeNull());
+    const bar = view.querySelector<HTMLProgressElement>("[data-testid=qualification-progress] progress")!;
+    expect(bar.hasAttribute("value")).toBe(false);
+    expect(view.textContent).toContain("The server has not reported the number of turns yet.");
+  });
+
+  it("says when a cancel was requested and stops offering it", async () => {
+    const data = withRun(1, 2);
+    data.profiles[data.profiles.length - 1].qualification = { ...runningRun(1, 2), cancel_requested: true };
+    const view = mount(server(data), "qualifications");
+    await waitFor(() => expect(view.textContent).toContain("Cancel requested; stopping"));
+    expect(button(view, "Cancel qualification").disabled).toBe(true);
+  });
+
+  it.each([
+    [{ status: "passed", code: null }, "Passed"],
+    [{ status: "failed", code: "GATES_FAILED:G-3" }, "Failed"],
+    [{ status: "cancelled", code: "CANCELLED" }, "Cancelled"],
+    [{ status: "error", code: "INTERRUPTED" }, "Interrupted"],
+    [{ status: "error", code: "CREDENTIAL_REVOKED" }, "Stopped (error)"],
+  ] as const)("shows how the followed run ended (%o) with its recovery", async (end, label) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let calls = 0;
+      const finished: ModelQualification = {
+        ...runningRun(2, 2), status: end.status, code: end.code, finished_at: "2026-10-30T09:01:00+00:00",
+        diagnosis: end.status === "passed"
+          ? { category: "passed", cause: "PASSED", action: "NONE", retryable: false, supersedes_pass: false }
+          : end.code === "CREDENTIAL_REVOKED"
+            ? { category: "configuration", cause: "CREDENTIAL_REVOKED", action: "TEST_CONNECTION", retryable: false, supersedes_pass: false }
+            : { category: "technical", cause: end.code ?? "UNKNOWN", action: "RUN_AGAIN", retryable: true, supersedes_pass: false },
+      };
+      const done: ModelOverview = { ...overview, profiles: [...overview.profiles, claudeBalanced(finished)] };
+      const view = mount(vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/assistant/admin/models")) {
+          calls += 1;
+          return json(calls === 1 ? withRun(1, 2) : done);
+        }
+        if (url.includes("/admin/models/audit")) return json({ events: [] });
+        return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+      }), "qualifications");
+      await waitFor(() => expect(view.querySelector("[data-testid=qualification-progress]")).not.toBeNull());
+      await act(async () => { await vi.advanceTimersByTimeAsync(RUNNING_REFRESH_MS + 100); });
+      await waitFor(() => expect(view.querySelector("[data-testid=qualification-finished]")).not.toBeNull());
+      const panel = view.querySelector<HTMLElement>("[data-testid=qualification-finished]")!;
+      expect(panel.querySelector("h2")?.textContent).toBe(`Qualification finished: Claude Sonnet 5.5 — Balanced ${label}`);
+      expect(panel.textContent).toContain("2 of 2 turns completed");
+      expect(panel.textContent).toContain("Next:");
+      if (end.code === "CREDENTIAL_REVOKED") expect(panel.textContent).toContain("The session key the run was given ended");
+      expect(view.querySelector("[data-testid=qualification-progress]")).toBeNull();
+      await act(async () => button(view, "Show technical results").click());
+      await waitFor(() => expect(view.querySelector("#qualification-heading")).not.toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

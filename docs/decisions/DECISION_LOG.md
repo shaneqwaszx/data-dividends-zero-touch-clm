@@ -1687,3 +1687,28 @@ mode, still PROPOSED).
 Model qualification: `main.py` and `answer_records.py` are qualification basis files, so any
 existing GPT-OSS 120B qualification is no longer current and that model cannot be activated
 until it is qualified again (paid). The local model is unaffected.
+
+## D-106 - AI Assistant HR session keys for Anthropic and OpenRouter, and qualification progress (OWNER-APPROVED, synthetic-only FYP development)
+
+Status: the owner approved this credential-policy amendment on 2026-10-30 ("Owner Approval -
+Credential Policy and Claude Activation"). It amends the key-source order of the D-095 addendum
+and the "no HR key entry" rule of D-099/D-100 for the future only; the entries for those
+decisions are not rewritten. Built on branch `feat/assistant-session-credentials`, integrated onto
+main `1c6ec4f` as `feat/assistant-session-credentials-int`. D-103 and D-105 are PR #138's. Not sponsor policy. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+
+| # | Decision |
+| --- | --- |
+| K1 | **Order.** For each provider (OpenRouter for GPT-OSS; Anthropic for Claude Balanced and Fast, sharing one key) the key is: (1) a key an HR administrator entered for their own signed-in session, (2) the process environment, (3) the git-ignored `apps/assistant/.env`. The first source holding a value decides; a malformed value never falls through (unchanged). |
+| K2 | **Session binding.** An HR key is held in the AI Assistant's memory only, with the cookie of the HR session that entered it. Before each model call and each qualification launch, the service asks the CLM backend `/api/auth/me` with that HR session's own cookie (never an RM's). The key stays usable only while the same user is signed in and holds `MODEL_CONFIG_MANAGE`. Read-only views, the free connection test and the paid-start estimate reuse a check for at most 10 seconds. A 401, a changed user or a lost capability drops the key. It is also dropped by Clear, by a restart and, at the latest, 8 hours after entry (the backend's fixed `SESSION_TTL`; `/api/auth/me` never extends a session). If the backend cannot answer, the key is held back (`unverified`) and nothing falls through to a server key. |
+| K3 | **Identity on every change.** A key change rebuilds the model and re-runs its full preflight before the next call (existing behaviour). An HR key, and any server key used after an HR key ends, must therefore pass the provider's existing identity checks before any message is sent: Anthropic, the attested workspace in the reply header and the Claude ledger's profile and reconciliation; OpenRouter, the usage reconciliation against its ledger and the key's own limit. Otherwise the call is refused. The ledgers, caps, daily allowances, call limits and HR spending controls apply unchanged whatever the source. Nothing switches model automatically. |
+| K4 | **Protection.** The key is never returned, logged, audited, written to SQLite or browser storage, or put in a telemetry or audit payload. Audit rows name only the action and provider (`CREDENTIAL_SET` / `CREDENTIAL_CLEARED`, `profile_id` `openrouter` or `anthropic`). Entry is HR only, Origin-checked, strict JSON and rate limited (unchanged). Anthropic accepts inference keys only (`sk-ant-api…` / `sk-ant-usr-…`); an Admin key is refused. |
+| K5 | **Qualification process.** The service sends only the qualified provider's HR key (none for a local model) to `scripts/qualify_model.py` as one JSON object on its standard input. Keys are never put on the command line or in the child's environment (the earlier `qualification_environment` is removed). A held-back key refuses the start (`CREDENTIAL_SESSION_UNVERIFIED`), so a run never falls back to a server key in its place. The supervisor ends the run, recorded as `error` / `CREDENTIAL_REVOKED`, once the key it handed over is cleared or replaced, dropped with its session, or its session cannot be checked. Recovery is to enter a key or rely on the server key, then Test connection. |
+| P1 | **Qualification progress.** Qualifications & Recovery (and the overview) show the running run with a spinner, a progress bar from the server's `done_turns`/`total_turns` (indeterminate when no total is reported), the provider, the server-reported stage (running, or cancel requested), the start time and the active model. When the followed run ends, the page shows passed, failed, cancelled, interrupted or stopped, with the turn counts, the server's recovery text and the technical results. Polling stays the existing 3 seconds; no ETA is shown. Cancellation, reservations and qualification state are unchanged. |
+| Q1 | **Qualification basis.** `key_sources.py`, `anthropic_runtime.py`, `remote_test.py` and the generated `synthetic_boundary.json` changed: the basis moves from main's `2c9d72cf0ae4…` (after PR #138) to `7e386b8a69e1…`. Every earlier qualification becomes out of date. Claude Balanced needs one new technical qualification on the merged code (2 billed calls, at most US$0.192 reserved, authorised by the owner on 2026-10-30) before it can be activated. The boundary's code vocabulary gains `amended`, `clears`, `inherits`, `releases`, `revocation` and `unchecked`, and loses `command` and `inherited` (docstring wording; system messages only). |
+
+Residual risks (owner-accepted with the approval): an OpenRouter key's account is inferred from
+usage reconciliation, not read; a revoked session is detected at the next use or view, not
+pushed; a run ended for revocation is killed as a cancelled run is (then recorded as
+`CREDENTIAL_REVOKED`), so an open paid call stays in the ledger until it settles or an operator
+reconciles it.

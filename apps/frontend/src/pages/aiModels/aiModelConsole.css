@@ -116,6 +116,19 @@ a.console-stat:hover { border-color: var(--color-accent); }
   border-radius: 8px; border: 1px solid #b9cde0; background: #f4f8fb; margin: 0;
 }
 .console-running > span { flex: 1 1 320px; }
+/* D-106: progress of a running qualification (server counts only; indeterminate without them). */
+.console-progress { flex-direction: column; align-items: stretch; }
+.console-progress__head { display: flex; align-items: center; gap: 12px; }
+.console-progress__head h2 { margin: 0; font-size: 20px; }
+.console-progress__bar { width: 100%; height: 12px; accent-color: #2f6f9f; }
+.console-progress .acra-detail-list { margin: 0; }
+.console-progress .btn { align-self: flex-start; }
+.console-spinner {
+  width: 18px; height: 18px; flex: 0 0 auto; border-radius: 50%;
+  border: 3px solid #b9cde0; border-top-color: #2f6f9f; animation: console-spin 0.9s linear infinite;
+}
+@keyframes console-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .console-spinner { animation: none; border-top-color: #b9cde0; border-right-color: #2f6f9f; } }
 
 /* -- configuration catalogue and inspector -- */
 .console-overview { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
