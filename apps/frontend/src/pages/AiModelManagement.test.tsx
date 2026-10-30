@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MODEL_AUDIT_LIMIT, type ModelAuditEvent, type ModelBudgetStatus, type ModelClaudeBudget, type ModelClaudeSpendingControls, type ModelDataAccess, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
+import { MODEL_AUDIT_LIMIT, type AnthropicSetup, type ModelAuditEvent, type ModelBudgetStatus, type ModelClaudeBudget, type ModelClaudeSpendingControls, type ModelDataAccess, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
@@ -748,7 +748,7 @@ describe("AiModelManagement Claude Sonnet 5.5 (D-099 proposed)", () => {
     await waitFor(() => expect(view.textContent).toContain("Claude Sonnet 5.5 — Fast"));
     expect(view.textContent).toContain("Provider: Anthropic API · Framework: Case-grounded Assistant · Reasoning: Medium · Thinking: adaptive");
     expect(view.textContent).toContain("Reasoning: Low · Thinking: between tool calls only");
-    expect(view.textContent).toContain("not authorised for CLM use (D-099 proposed)");
+    expect(view.textContent).toContain("Claude is not set up yet. HR enables it in Providers → Anthropic");
     for (const row of ["Claude Sonnet 5.5 — Balanced", "Claude Sonnet 5.5 — Fast"]) {
       expect(button(view, "Activate", row).disabled).toBe(true);
     }
@@ -764,7 +764,7 @@ describe("AiModelManagement Claude Sonnet 5.5 (D-099 proposed)", () => {
 
   it("explains why a named decision still leaves them unusable", () => {
     expect(readable("ANTHROPIC_PROVIDER_CONTROLS_MISSING")).toContain("readable key limit, per-call cost verification and usage reconciliation");
-    expect(readable("ANTHROPIC_NOT_AUTHORISED")).toContain("D-099 proposed");
+    expect(readable("ANTHROPIC_NOT_AUTHORISED")).toContain("HR enables it in Providers → Anthropic (D-107)");
   });
 });
 
@@ -819,7 +819,7 @@ describe("AiModelManagement Claude in the console (D-099 with D-100)", () => {
     expect(inspector).toContain("Provider: Anthropic API");
     expect(inspector).toContain("Thinking: adaptive");
     expect(inspector).toContain("The GPT-OSS spending controls never apply to it.");
-    expect(view.textContent).toContain("This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, D-099 proposed).");
+    expect(view.textContent).toContain("This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, set up by HR under D-107).");
     expect(view.textContent).toContain("Nothing switches to or from Claude automatically.");
   });
 
@@ -1409,7 +1409,7 @@ describe("AiModelManagement D-100 qualifications and recovery", () => {
     const view = mount(server(withClaude({ status: "pending_authorisation", reason: "ANTHROPIC_NOT_AUTHORISED", activation_blockers: ["ANTHROPIC_NOT_AUTHORISED"], paid_qualification: null })), "qualifications");
     await waitFor(() => expect(recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")).not.toBeNull());
     const card = recoveryCard(view, "anthropic_claude_sonnet_5_5_medium")!;
-    expect(card.textContent).toContain("Not available now: Claude through the Anthropic API is not authorised for CLM use");
+    expect(card.textContent).toContain("Not available now: Claude is not set up yet.");
     expect(card.querySelectorAll("button")).toHaveLength(0);
   });
 
@@ -1680,7 +1680,7 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     const view = mount(controlsServer(withClaudeBudget(), calls), "spending");
     await waitFor(() => expect(view.querySelector("#claude-daily-limit-input")).not.toBeNull());
     const text = panel(view).textContent ?? "";
-    expect(text).toContain("US$30.00 a month (owner-attested");
+    expect(text).toContain("US$30.00 a month (owner-confirmed, not read from Anthropic");
     expect(text).toContain("US$4.170000");
     expect(text).toContain("the lower of US$30.00 and the owner-attested Anthropic workspace limit");
     expect(text).not.toContain("OpenRouter");
@@ -1847,9 +1847,15 @@ describe("AiModelManagement data access policy", () => {
     go(view, "Data Access & Privacy");
     await waitFor(() => expect(view.querySelector("[data-testid=data-access]")).not.toBeNull());
     expect(view.querySelector("h1")?.textContent).toBe("Data Access & Privacy");
-    expect(box(view, "openrouter").checked && box(view, "openrouter").disabled).toBe(true);
-    expect(box(view, "anthropic").checked && box(view, "anthropic").disabled).toBe(true);
-    expect(box(view, "it_configured").checked && box(view, "it_configured").disabled).toBe(true);
+    // D-107: external providers show what they may receive as text, never a disabled checkbox.
+    for (const name of ["openrouter", "anthropic", "it_configured"]) {
+      expect(view.querySelector(`[data-testid=restrict-${name}]`)).toBeNull();
+      const row = view.querySelector(`[data-testid=access-${name}]`)!;
+      expect(row.textContent).toContain("Verified synthetic cases only");
+      expect(row.textContent).toContain("This does not stop the provider from being used.");
+      expect(row.querySelector("input")).toBeNull();
+    }
+    expect(view.querySelector("[data-testid=access-anthropic]")!.textContent).toContain("Provider");
     expect(box(view, "local_internal").checked).toBe(false);
     expect(box(view, "local_internal").disabled).toBe(false);
     expect(view.textContent).toContain("Restrict AI to verified synthetic cases");
@@ -1990,5 +1996,137 @@ describe("AiModelManagement qualification progress (D-106)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// --- D-107: Claude set up by HR on Providers ---------------------------------------------------
+
+describe("AiModelManagement Claude setup by HR (D-107)", () => {
+  const claudeProfile = (overrides: Partial<ModelProfileView> = {}) => profile({
+    profile_id: "anthropic_claude_sonnet_5_5_medium", display_name: "Claude Sonnet 5.5", source: "code", deployment: "anthropic",
+    model_id: "claude-sonnet-5-5", model_version: "medium", endpoint: "api.anthropic.com · claude-sonnet-5-5",
+    status: "pending_authorisation", reason: "ANTHROPIC_NOT_AUTHORISED", active: false, activation_blockers: ["ANTHROPIC_NOT_AUTHORISED"],
+    details: { model: "Claude Sonnet 5.5", provider: "ANTHROPIC", scope: "NOT_AUTHORISED", reasoning_effort: "medium", thinking: "adaptive", decision: "D-099" },
+    ...overrides,
+  });
+  const CODES = ["dedicated_workspace", "inference_key_only", "key_revoked_at_fyp_end", "workspace_limit_set"];
+  const setup = (overrides: Partial<AnthropicSetup> = {}): AnthropicSetup => ({
+    managed: true, readable: true, source: "none", enabled: false, readiness: "ANTHROPIC_NOT_AUTHORISED", local_deployment: true,
+    record: null, workspace_read: null, confirmations_required: CODES, workspace_limit_max_micro_usd: 30_000_000, ...overrides,
+  });
+  const data = (anthropicSetup: AnthropicSetup): ModelOverview => ({
+    ...overview, profiles: [overview.profiles[0], claudeProfile()], anthropic_setup: anthropicSetup,
+  });
+  function setupServer(first: AnthropicSetup, calls: Array<{ method: string; url: string; body: string | null }>, after?: AnthropicSetup) {
+    let current = first;
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
+      if (url.endsWith("/provider/anthropic/workspace-read")) {
+        current = { ...current, workspace_read: { workspace_id: "wrkspc_01TestWorkspace", at: "2026-10-30T10:00:00+00:00" } };
+        return json({ outcome: "passed", code: null, workspace_id: "wrkspc_01TestWorkspace", setup: current });
+      }
+      if (url.endsWith("/provider/anthropic") && method === "PUT") {
+        current = after ?? current;
+        return json(current);
+      }
+      if (url.endsWith("/api/assistant/admin/models")) return json(data(current));
+      if (url.includes("/admin/models/audit")) return json({ events: [] });
+      return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+    });
+  }
+  const panel = (view: HTMLElement) => view.querySelector<HTMLElement>("[data-testid=claude-setup]")!;
+
+  it("reads the workspace, needs every confirmation and a limit, then enables Claude", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(setupServer(setup(), calls), "providers");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-setup]")).not.toBeNull());
+    expect(panel(view).textContent).toContain("Claude setup — Not enabled");
+    const enable = () => button(panel(view), "Enable Claude for Verified Synthetic Cases");
+    expect(enable().disabled).toBe(true);
+    await act(async () => button(panel(view), "Read Workspace").click());
+    await waitFor(() => expect(panel(view).textContent).toContain("wrkspc_01TestWorkspace"));
+    expect(enable().disabled).toBe(true);
+    for (const code of CODES) act(() => panel(view).querySelector<HTMLInputElement>(`[data-testid=confirm-${code}]`)!.click());
+    expect(enable().disabled).toBe(true);  // no limit yet
+    typeInto(panel(view).querySelector<HTMLInputElement>("#claude-workspace-limit")!, "31");
+    expect(enable().disabled).toBe(true);  // above US$30.00
+    typeInto(panel(view).querySelector<HTMLInputElement>("#claude-workspace-limit")!, "30");
+    expect(enable().disabled).toBe(false);
+    await act(async () => enable().click());
+    const put = calls.find((call) => call.method === "PUT");
+    expect(put?.url).toContain("/api/assistant/admin/models/provider/anthropic");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      expected_revision: 0, enabled: true, workspace_id: "wrkspc_01TestWorkspace",
+      workspace_limit_micro_usd: 30_000_000, confirmations: CODES,
+    });
+  });
+
+  it("shows an enabled setup with its owner-confirmed limit and offers to disable it", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const enabled = setup({
+      source: "hr", enabled: true, readiness: null,
+      record: { revision: 2, enabled: true, workspace_id: "wrkspc_01TestWorkspace", workspace_limit_micro_usd: 30_000_000,
+        workspace_limit_basis: "owner_confirmed", confirmations: CODES, changed_at: "2026-10-30T10:00:00+00:00", changed_by: "hr-admin" },
+    });
+    const view = mount(setupServer(enabled, calls), "providers");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-setup]")).not.toBeNull());
+    const text = panel(view).textContent ?? "";
+    expect(text).toContain("Claude setup — Enabled for verified synthetic cases");
+    expect(text).toContain("US$30.00, owner-confirmed. It is not read from Anthropic, and the app cannot verify it.");
+    expect(text).toContain("wrkspc_01TestWorkspace");
+    expect(() => button(panel(view), "Enable Claude for Verified Synthetic Cases")).toThrow();
+    await act(async () => button(panel(view), "Disable Claude").click());
+    expect(JSON.parse(calls.find((call) => call.method === "PUT")?.body ?? "{}")).toEqual({ expected_revision: 2, enabled: false });
+  });
+
+  it("lets HR take over or disable a Claude configured on the server (QG L1, L2)", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(setupServer(setup({ source: "environment", enabled: true, readiness: null }), calls), "providers");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-setup]")).not.toBeNull());
+    expect(panel(view).textContent).toContain("Setting it up here replaces that configuration");
+    expect(button(panel(view), "Read Workspace")).toBeTruthy();
+    await act(async () => button(panel(view), "Disable Claude").click());
+    expect(JSON.parse(calls.find((call) => call.method === "PUT")?.body ?? "{}")).toEqual({ expected_revision: 0, enabled: false });
+  });
+
+  it("says who enabled Claude on Data Access & Privacy (QG L2)", async () => {
+    const policy: ModelDataAccess = {
+      status: "default", revision: 0, changed_at: null,
+      classes: [{ provider_class: "anthropic", restricted: true, locked: true }, { provider_class: "local_internal", restricted: false, locked: false }],
+      active_class: null, active_restricted: false, verification: "D-095",
+    };
+    const view = mount(server({ ...data(setup({ source: "environment", enabled: true, readiness: null })), data_access: policy }), "privacy");
+    await waitFor(() => expect(view.querySelector("[data-testid=access-anthropic]")).not.toBeNull());
+    const row = view.querySelector("[data-testid=access-anthropic]")!.textContent ?? "";
+    expect(row).toContain("Enabled by the server configuration (D-099)");
+    expect(row).not.toContain("Enabled by HR");
+  });
+
+  it("offers no setup outside the approved local deployment", async () => {
+    const view = mount(setupServer(setup({ local_deployment: false }), []), "providers");
+    await waitFor(() => expect(view.querySelector("[data-testid=claude-setup]")).not.toBeNull());
+    expect(panel(view).textContent).toContain("not the approved local development set-up");
+    expect(button(panel(view), "Read Workspace").disabled).toBe(true);
+  });
+
+  it("names a provider as enabled apart from what it may receive", async () => {
+    const policy: ModelDataAccess = {
+      status: "default", revision: 0, changed_at: null,
+      classes: [
+        { provider_class: "openrouter", restricted: true, locked: true },
+        { provider_class: "anthropic", restricted: true, locked: true },
+        { provider_class: "it_configured", restricted: true, locked: true },
+        { provider_class: "local_internal", restricted: false, locked: false },
+      ],
+      active_class: "local_internal", active_restricted: false, verification: "D-095",
+    };
+    const enabled = setup({ source: "hr", enabled: true, readiness: null });
+    const view = mount(server({ ...data(enabled), data_access: policy }), "privacy");
+    await waitFor(() => expect(view.querySelector("[data-testid=access-anthropic]")).not.toBeNull());
+    const row = view.querySelector("[data-testid=access-anthropic]")!.textContent ?? "";
+    expect(row).toContain("Enabled by HR (Providers → Anthropic)");
+    expect(row).toContain("Verified synthetic cases only");
   });
 });

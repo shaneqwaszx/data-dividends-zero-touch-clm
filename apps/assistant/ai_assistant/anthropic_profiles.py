@@ -142,6 +142,7 @@ def availability(settings: Any) -> tuple[Status, str | None]:
     from . import anthropic_runtime  # the runtime imports this module
 
     reason = anthropic_runtime.readiness(settings)
-    if reason == "ANTHROPIC_NOT_AUTHORISED":
+    # D-107: not yet enabled by HR (or by the environment) is the same "not authorised" state.
+    if reason in ("ANTHROPIC_NOT_AUTHORISED", "ANTHROPIC_NOT_ENABLED"):
         return "pending_authorisation", reason
     return ("selectable", None) if reason is None else ("unavailable", reason)

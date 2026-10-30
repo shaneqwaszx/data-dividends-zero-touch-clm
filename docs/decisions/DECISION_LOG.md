@@ -1712,3 +1712,30 @@ usage reconciliation, not read; a revoked session is detected at the next use or
 pushed; a run ended for revocation is killed as a cancelled run is (then recorded as
 `CREDENTIAL_REVOKED`), so an open paid call stays in the ledger until it settles or an operator
 reconciles it.
+
+## D-107 - AI Assistant Claude set up by HR in AI Models, without decision or attestation settings (OWNER-APPROVED, local development deployment only)
+
+Status: the owner approved this on 2026-10-30 ("Simplify Claude Integration - Remove
+Environment Authorization Friction"). It amends, for Claude only and for the future, how
+D-099 Option B is switched on (the `AI_ASSISTANT_ANTHROPIC_DECISION` and
+`AI_ASSISTANT_ANTHROPIC_OWNER_ATTESTS` settings and the D-091, D-092, D-094 and D-095 decision
+names it required). The entries for those decisions are not rewritten, and GPT-OSS is
+unchanged. Built on branch `feat/assistant-claude-hr-enablement` from main `7e5653d`. Not
+sponsor policy. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+
+| # | Decision |
+| --- | --- |
+| E1 | **HR enablement record.** AI Models stores one `anthropic_enablement` row in the model state database. It holds enabled or disabled, the Anthropic workspace id, the workspace's monthly limit (at most US$30.00) and the four owner confirmations (`dedicated_workspace`, `workspace_limit_set`, `inference_key_only`, `key_revoked_at_fyp_end`). Nothing in it is secret. Changes are HR only (`MODEL_CONFIG_MANAGE`, re-checked inside the change lock), need the page Origin and are rate limited. They are compare-and-set on the row's revision (`ENABLEMENT_CONFLICT`) and written with their audit row in one transaction (`ANTHROPIC_ENABLED` / `ANTHROPIC_DISABLED`). The table's CHECKs repeat the bounds. Disabling a Claude configured on the server (D-099) stores the record switched off, with the server's workspace and limit, so it decides from then on. |
+| E2 | **Setup flow.** On Providers → Anthropic, HR first chooses the key (a D-106 session key, else a server key). HR then reads the workspace that key reports: a free `GET /v1/models/claude-sonnet-5-5`, with no inference and no case data, made only on the approved local deployment (`ANTHROPIC_WORKSPACE_READ` is audited). Next HR confirms the four statements and the owner's monthly limit, and enables Claude for verified synthetic cases. Enabling accepts only the workspace read with the key now in use, within the hour (`WORKSPACE_NOT_READ`). After that come Test connection, the Balanced technical qualification and activation, unchanged. Claude Fast is listed and configurable; it needs its own qualification before activation. |
+| E3 | **What decides readiness.** While the row exists it replaces the decision and attestation settings: disabled means `ANTHROPIC_NOT_ENABLED` whatever the environment says, and an unreadable row or database means `ANTHROPIC_ENABLEMENT_UNREADABLE` (fail closed). The D-091, D-092 and D-094 decision names are replaced by the runtime checks they stood for: the model switched on, a literal loopback CLM backend and only local browser origins (`NOT_DEVELOPMENT_ENVIRONMENT` elsewhere, including for the workspace read). No new environment setting is added. With no row, the earlier environment configuration (D-099) applies unchanged. |
+| E4 | **Workspace and billing identity.** Every preflight and every reply must name the enabled workspace (unchanged check, now on HR's workspace). Once set up, the workspace cannot be changed from the page (`WORKSPACE_CHANGE_REFUSED`: a different workspace needs an operator and its own ledger). It must also equal a workspace set on the server, if any: at enabling, and at every readiness check afterwards (`WORKSPACE_MISMATCH`, so Claude is off until they agree). Unchanged: the separate Anthropic ledger, the daily, lifetime and call limits (D-102), the ledger cap at most the lower of US$30.00 and the confirmed workspace limit, in-band reply verification, the breaker, reconciliation (24 hours for paid runs, 7 days for chat) and the no-switch rule. |
+| E5 | **Owner-confirmed, not verified.** The workspace's monthly limit and the four statements cannot be read through an inference key. They are owner confirmations recorded by HR, and the page says the limit "is not read from Anthropic, and the app cannot verify it". The workspace id is the one the key itself reported. |
+| E6 | **Data access.** Claude's D-095 mode under HR enablement is the approved local deployment itself, so it no longer needs the D-095 decision name. Every D-095 check still applies: provenance, document SHA-256 digests, approved case access, identifier screening and the single-use admission ticket, re-checked in the adapter. Data Access & Privacy shows two things for each external provider: whether the provider is enabled, and what it may receive ("Verified synthetic cases only", fixed). It no longer shows a disabled checkbox. Real customer data on an external provider still needs a separately approved data-governance decision. |
+| E7 | **Views.** Claude's key and spending views no longer need the D-094 decision name in the overview. The overview carries `anthropic_setup` (source, readiness, record, the last workspace read, the confirmations required). |
+| Q1 | **Qualification basis.** `anthropic_runtime.py`, `data_access.py` and the generated `synthetic_boundary.json` changed. The basis moves from main's `7e386b8a69e1…` to `80448c6d7d61…`, so Claude Balanced needs one new technical qualification on the merged code, within the owner's existing authorisation (2 billed calls, at most US$0.192 reserved). The boundary's code vocabulary gains `disable`, `monthly`, `ro` and `setup` (system messages only). |
+
+Residual risks (owner-accepted with the approval): the monthly limit and the dedicated-workspace
+statement remain owner confirmations, as they were as environment attestations; the paid
+qualification's question list (`AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS` and
+`..._COUNT`) is still a server setting; ledger initialisation and reconciliation remain operator
+steps (`scripts/budget_ledger.py --anthropic`).

@@ -1445,3 +1445,21 @@ Delta only. Owner-approved (D-106):
 - Evidence class: offline mock and local only.
 - **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge,
   then the authorised Claude Balanced qualification, activation and one Garden RM verification.
+
+## AI Assistant D-107 Claude set up by HR (branch `feat/assistant-claude-hr-enablement`, uncommitted) - 2026-10-30
+
+Delta only. Owner-approved (D-107):
+- HR sets Claude up on Providers → Anthropic. HR reads the workspace the key reports (free),
+  confirms the owner's four statements and monthly limit, and enables Claude for verified
+  synthetic cases. The record lives in the model state database with an audit row; no decision
+  or attestation setting is needed. Without a record the D-099 environment configuration still
+  applies.
+- The D-091/D-092/D-094/D-095 decision names are replaced for Claude by the runtime checks they
+  stood for (model on, loopback CLM backend, local origins). The workspace pin, Claude's ledger
+  and limits, reconciliation, the D-095 checks and the no-switch rule are unchanged.
+- Data Access & Privacy separates "provider enabled" from "verified synthetic cases only".
+- The qualification basis moves `7e386b8a69e1…` → `80448c6d7d61…`.
+- Evidence class: offline mock and local only.
+- **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge,
+  then HR setup, one authorised Claude Balanced qualification, activation and one Garden RM
+  verification.

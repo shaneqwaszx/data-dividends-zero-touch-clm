@@ -15,6 +15,8 @@ qualification, activation, rollback and an audit history.
                                PUT  /assistant/admin/models/credential
                                DELETE /assistant/admin/models/credential
                                GET|PUT|DELETE .../credential/anthropic      (D-106)
+                               POST .../provider/anthropic/workspace-read   (D-107)
+                               PUT  .../provider/anthropic                  (D-107)
                                PUT  /assistant/admin/models/budget/controls     (D-096)
                                PUT  /assistant/admin/models/budget/lifetime-cap
                                POST /assistant/admin/models/budget/provider-refresh
@@ -59,6 +61,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -146,6 +149,8 @@ CANCEL_GRACE_SECONDS = 15.0
 DEADLINE_GRACE_SECONDS = 60.0
 # Key changes (D-095 addendum): at most this many attempts per administrator in the window.
 CREDENTIAL_ATTEMPTS = 5
+# D-107: how long a free workspace read vouches for enabling Claude with the same key.
+WORKSPACE_READ_SECONDS = 3600.0
 CREDENTIAL_WINDOW_SECONDS = 600.0
 MAX_CREDENTIAL_BODY = 1024
 # HR spending changes and provider-limit refreshes (D-096), per administrator in the window.
@@ -182,6 +187,24 @@ MESSAGES = {
         "That is not an API key for this provider (an inference key only). Nothing was saved."
     ),
     "CREDENTIAL_NOT_HR_MANAGED": "There is no key entered here to clear.",
+    # D-107: Claude's provider setup.
+    "ENABLEMENT_INVALID": (
+        "Confirm all four statements and give the workspace's monthly limit (US$0.000001 to"
+        " US$30.00). Nothing changed."
+    ),
+    "WORKSPACE_NOT_READ": (
+        "Read the workspace with the key now in use first, then confirm it. Nothing changed."
+    ),
+    "WORKSPACE_CHANGE_REFUSED": (
+        "Claude is already set up for another Anthropic workspace. A different workspace needs"
+        " an operator and its own ledger. Nothing changed."
+    ),
+    "WORKSPACE_MISMATCH": (
+        "The workspace set on the server differs from the one the key reports. Nothing changed."
+    ),
+    "ENABLEMENT_CONFLICT": "Claude's setup changed since this view. Refresh and try again.",
+    "ENABLEMENT_UNAVAILABLE": "Claude's setup could not be read. Nothing changed.",
+    "NOT_ENABLED": "Claude is not enabled, so there is nothing to disable.",
     "CREDENTIAL_SESSION_UNVERIFIED": (
         "The session key cannot be used now: the HR session that entered it cannot be checked."
         " Nothing started."
@@ -1284,6 +1307,17 @@ def store_file(settings: AiAssistantSettings) -> Path:
     return path if path.is_absolute() else ASSISTANT_DIR / path
 
 
+class AnthropicEnablementRequest(BaseModel):
+    # D-107: Claude's provider setup (no key; the workspace id is not secret).
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: StrictInt = Field(ge=0)
+    enabled: StrictBool
+    workspace_id: str = Field(default="", max_length=80)
+    workspace_limit_micro_usd: StrictInt | None = None
+    confirmations: list[str] = Field(default_factory=list, max_length=8)
+
+
 class ChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1612,8 +1646,12 @@ def model_admin_router(
             },
             "profiles": profiles,
             # D-095: the remote profile's spending view and key status (never the key).
-            "budget": budget_view() if settings.local_api_test_decision else None,
+            # D-107: Claude's own view no longer needs the D-094 decision name.
+            "budget": budget_view()
+            if settings.local_api_test_decision
+            else {"configured": False, "claude": claude_budget_view()},
             "data_access": data_access_view(active),
+            "anthropic_setup": anthropic_setup_view(),
         }
 
     @router.get("")
@@ -2288,10 +2326,11 @@ def model_admin_router(
         return view
 
     def claude_cap_ceiling() -> int:
-        # The lower of the D-102 lifetime ceiling and the owner-attested workspace limit.
+        # The lower of the D-102 lifetime ceiling and the owner-confirmed workspace limit
+        # (D-107: HR's record when there is one, else the environment's attestation).
         return min(
             anthropic_runtime.LIFETIME_CEILING_MICRO_USD,
-            settings.anthropic_workspace_limit_micro_usd,
+            anthropic_runtime.workspace_limit(settings),
         )
 
     budget_attempts: dict[str, list[float]] = {}
@@ -2641,6 +2680,161 @@ def model_admin_router(
             code=None if report.passed else "PREFLIGHT_FAILED:" + ",".join(failed),
         )
         return budget_view()
+
+    # --- D-107: Claude's provider setup by HR (no decision or attestation settings) --------
+
+    # The last free workspace read in this process, for the key it was made with (process-local
+    # key marker, never shown). Enabling needs a read with the key now in use, within the hour.
+    workspace_reads: dict[str, Any] = {}
+    workspace_lock = threading.Lock()
+    enable_attempts: dict[str, list[float]] = {}
+
+    def current_read() -> dict[str, Any] | None:
+        with workspace_lock:
+            read = dict(workspace_reads)
+        if not read or time.time() - float(read["at"]) > WORKSPACE_READ_SECONDS:
+            return None
+        key, _, _ = anthropic_runtime.resolve_key(selector.environ)
+        if read["key"] != key_sources.identity(key):
+            return None  # read with another key
+        return read
+
+    def anthropic_setup_view() -> dict[str, Any]:
+        # What HR needs for Claude's setup (no key, no key marker). ``record`` is HR's stored
+        # setup; ``source`` says what decides now; the limit is owner-confirmed, never read.
+        try:
+            record = selector.store.anthropic_enablement() if selector.store else None
+            readable = True
+        except Exception:
+            record, readable = None, False
+        read = current_read()
+        legacy = settings.anthropic_decision == anthropic_profiles.DECISION_ID
+        return {
+            "managed": selector.store is not None,
+            "readable": readable,
+            "source": "hr" if record is not None else ("environment" if legacy else "none"),
+            "enabled": anthropic_runtime.configured(settings),
+            "readiness": anthropic_runtime.readiness(settings),
+            "local_deployment": anthropic_runtime.local_deployment(settings),
+            "record": None
+            if record is None
+            else {
+                "revision": record.revision,
+                "enabled": record.enabled,
+                "workspace_id": record.workspace_id,
+                "workspace_limit_micro_usd": record.workspace_limit_micro_usd,
+                "workspace_limit_basis": "owner_confirmed",
+                "confirmations": sorted(record.confirmations),
+                "changed_at": record.changed_at,
+                "changed_by": record.changed_by,
+            },
+            "workspace_read": None
+            if read is None
+            else {
+                "workspace_id": read["workspace_id"],
+                "at": datetime.fromtimestamp(float(read["at"]), UTC).isoformat(timespec="seconds"),
+            },
+            "confirmations_required": sorted(anthropic_runtime.OWNER_ATTESTATIONS),
+            "workspace_limit_max_micro_usd": anthropic_runtime.LIFETIME_CEILING_MICRO_USD,
+        }
+
+    @router.post("/provider/anthropic/workspace-read")
+    def read_anthropic_workspace(profile: Admin, request: Request) -> dict[str, Any]:
+        # The free models read with the key in force (D-106 order): which workspace it reports.
+        # No inference, no case data, no ledger. Rate limited like a key change.
+        action = "ANTHROPIC_WORKSPACE_READ"
+        guard_change(request, profile, action)
+        result = anthropic_runtime.read_workspace(settings, **selector.claude_options())
+        if result["outcome"] == "passed":
+            with workspace_lock:
+                workspace_reads.clear()
+                workspace_reads.update(
+                    key=result["key"], workspace_id=result["workspace_id"], at=time.time()
+                )
+        audit(profile, action, result["outcome"], profile_id="anthropic", code=result["code"])
+        return {
+            "outcome": result["outcome"],
+            "code": result["code"],
+            "workspace_id": result["workspace_id"],
+            "setup": anthropic_setup_view(),
+        }
+
+    @router.put("/provider/anthropic")
+    def put_anthropic_enablement(
+        body: AnthropicEnablementRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        # Enable Claude for verified synthetic cases (the workspace the key reported, the
+        # owner-confirmed monthly limit, the four confirmations) or disable it. HR only,
+        # compare-and-set, re-checked inside the change, stored with its audit row.
+        action = "ANTHROPIC_ENABLED" if body.enabled else "ANTHROPIC_DISABLED"
+        guard_budget(
+            request, profile, action, attempts=enable_attempts, limited_code="BUDGET_RATE_LIMITED"
+        )
+        store = managed()
+
+        def refuse(code: str, status: int = 409) -> HTTPException:
+            audit(profile, action, "refused", profile_id="anthropic", code=code)
+            return _refusal(status, code)
+
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                record = store.anthropic_enablement()
+            except Exception:
+                raise refuse("ENABLEMENT_UNAVAILABLE") from None
+            current = record.revision if record is not None else 0
+            if current != body.expected_revision:
+                raise refuse("ENABLEMENT_CONFLICT")
+            if body.enabled:
+                if not anthropic_runtime.local_deployment(settings):
+                    raise refuse("NOT_DEVELOPMENT_ENVIRONMENT")
+                limit = body.workspace_limit_micro_usd
+                if (
+                    frozenset(body.confirmations) != anthropic_runtime.OWNER_ATTESTATIONS
+                    or len(body.confirmations) != len(anthropic_runtime.OWNER_ATTESTATIONS)
+                    or type(limit) is not int
+                    or not 1 <= limit <= anthropic_runtime.LIFETIME_CEILING_MICRO_USD
+                ):
+                    raise refuse("ENABLEMENT_INVALID", 400)
+                read = current_read()
+                if read is None or read["workspace_id"] != body.workspace_id:
+                    raise refuse("WORKSPACE_NOT_READ")
+                if record is not None and record.workspace_id != body.workspace_id:
+                    raise refuse("WORKSPACE_CHANGE_REFUSED")
+                environment = settings.anthropic_workspace_id
+                if environment and environment != body.workspace_id:
+                    raise refuse("WORKSPACE_MISMATCH")
+                workspace, confirmations = body.workspace_id, anthropic_runtime.OWNER_ATTESTATIONS
+            elif record is not None:
+                if not record.enabled:
+                    raise refuse("NOT_ENABLED")
+                workspace, limit = record.workspace_id, record.workspace_limit_micro_usd
+                confirmations = record.confirmations
+            else:
+                # Claude configured on the server (D-099): disabling stores HR's record, switched
+                # off, with the server's workspace and limit, so it decides from now on.
+                workspace = settings.anthropic_workspace_id
+                limit = settings.anthropic_workspace_limit_micro_usd
+                if (
+                    settings.anthropic_decision != anthropic_profiles.DECISION_ID
+                    or not anthropic_runtime.valid_workspace(workspace)
+                    or not 1 <= limit <= anthropic_runtime.LIFETIME_CEILING_MICRO_USD
+                ):
+                    raise refuse("NOT_ENABLED")
+                confirmations = anthropic_runtime.attestations(settings)
+            try:
+                store.set_anthropic_enablement(
+                    body.expected_revision,
+                    enabled=body.enabled,
+                    workspace_id=workspace,
+                    workspace_limit_micro_usd=limit,
+                    confirmations=confirmations,
+                    by=str(profile.get("user_id")),
+                    role=str(profile.get("role")) if profile.get("role") else None,
+                )
+            except RevisionConflict:
+                raise refuse("ENABLEMENT_CONFLICT") from None
+        return anthropic_setup_view()
 
     @router.get("/data-access")
     def get_data_access(profile: Admin) -> dict[str, Any]:

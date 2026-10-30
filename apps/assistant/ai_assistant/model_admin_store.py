@@ -36,6 +36,13 @@ restricted to verified synthetic cases. One row, compare-and-set on its own revi
 exists such a model answers every authorised case (D-093, unchanged). External models
 (OpenRouter, Anthropic) are restricted by their own code whatever this row says, so it holds
 no setting for them.
+
+Claude's provider enablement (D-107): whether an HR administrator enabled Claude Sonnet 5.5
+for verified synthetic cases, the Anthropic workspace the key itself reported and HR
+confirmed, the workspace's monthly spend limit as the owner confirmed it (never read from
+Anthropic) and the four owner confirmations. One row, compare-and-set on its own revision,
+written with its audit row in one transaction. Nothing secret is stored. Until it exists the
+earlier environment configuration (D-099) applies.
 """
 
 import json
@@ -143,6 +150,21 @@ CREATE TABLE IF NOT EXISTS data_access_policy (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     revision INTEGER NOT NULL CHECK (revision >= 1),
     local_restricted INTEGER NOT NULL CHECK (local_restricted IN (0, 1)),
+    changed_at TEXT NOT NULL,
+    changed_by TEXT NOT NULL
+);
+"""
+# D-107: Claude's provider enablement (anthropic_runtime.OWNER_ATTESTATIONS, its workspace
+# shape and the US$30.00 lifetime ceiling; the CHECKs repeat the bounds).
+_ANTHROPIC_ENABLEMENT = """
+CREATE TABLE IF NOT EXISTS anthropic_enablement (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    workspace_id TEXT NOT NULL,
+    workspace_limit_micro_usd INTEGER NOT NULL
+        CHECK (workspace_limit_micro_usd BETWEEN 1 AND 30000000),
+    confirmations TEXT NOT NULL,
     changed_at TEXT NOT NULL,
     changed_by TEXT NOT NULL
 );
@@ -264,6 +286,63 @@ class DataAccessPolicy:
 
 
 @dataclass(frozen=True)
+class AnthropicEnablement:
+    # D-107: Claude's provider enablement as stored (never a key). Comments, not docstrings:
+    # this module's strings feed no boundary, but the record mirrors anthropic_runtime's.
+
+    revision: int
+    enabled: bool
+    workspace_id: str
+    workspace_limit_micro_usd: int
+    confirmations: frozenset[str]
+    changed_at: str
+    changed_by: str
+
+
+def _enablement_from(row: sqlite3.Row) -> AnthropicEnablement:
+    # A row that is not exactly as the table allows raises, so the caller fails closed.
+    revision, enabled, limit = row["revision"], row["enabled"], row["workspace_limit_micro_usd"]
+    if (
+        type(revision) is not int
+        or revision < 1
+        or enabled not in (0, 1)
+        or type(limit) is not int
+        or not isinstance(row["workspace_id"], str)
+        or not isinstance(row["confirmations"], str)
+    ):
+        raise ValueError("anthropic enablement is not readable")
+    return AnthropicEnablement(
+        revision=revision,
+        enabled=enabled == 1,
+        workspace_id=row["workspace_id"],
+        workspace_limit_micro_usd=limit,
+        confirmations=frozenset(part for part in row["confirmations"].split(",") if part),
+        changed_at=str(row["changed_at"]),
+        changed_by=str(row["changed_by"]),
+    )
+
+
+def read_anthropic_enablement(path: Path) -> AnthropicEnablement | None:
+    # D-107: read-only (the database is never created or upgraded here). None when there is no
+    # database, no table or no row (the environment configuration then applies); a malformed
+    # row raises ValueError and an unreadable database sqlite3.Error, so callers fail closed.
+    if not path.is_file():
+        return None
+    db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
+    db.row_factory = sqlite3.Row
+    try:
+        table = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'anthropic_enablement'"
+        ).fetchone()
+        if table is None:
+            return None
+        row = db.execute("SELECT * FROM anthropic_enablement WHERE id = 1").fetchone()
+    finally:
+        db.close()
+    return None if row is None else _enablement_from(row)
+
+
+@dataclass(frozen=True)
 class Choice:
     """A profile as activated: what it was, which qualification allowed it, its prompt bound."""
 
@@ -283,6 +362,7 @@ class ModelAdminStore:
                 + _SPENDING_CONTROLS.format(name="spending_controls")
                 + _CLAUDE_SPENDING_CONTROLS
                 + _DATA_ACCESS_POLICY
+                + _ANTHROPIC_ENABLEMENT
             )
         self._upgrade()
 
@@ -527,6 +607,65 @@ class ModelAdminStore:
                 action=action,
                 outcome="applied",
                 code=f"{old}_TO_{new}",
+                revision=expected_revision + 1,
+            )
+        return expected_revision + 1
+
+    # --- D-107: Claude's provider enablement ----------------------------------------------
+
+    def anthropic_enablement(self) -> AnthropicEnablement | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM anthropic_enablement WHERE id = 1").fetchone()
+        return None if row is None else _enablement_from(row)
+
+    def set_anthropic_enablement(
+        self,
+        expected_revision: int,
+        *,
+        enabled: bool,
+        workspace_id: str,
+        workspace_limit_micro_usd: int,
+        confirmations: frozenset[str],
+        by: str,
+        role: str | None = None,
+    ) -> int:
+        # Store the record only if its revision is still expected_revision (0 when never set),
+        # with its audit row in the same transaction. Returns the new revision. The caller has
+        # validated the values; the CHECKs repeat the bounds.
+        with self._write() as db:
+            row = db.execute("SELECT revision FROM anthropic_enablement WHERE id = 1").fetchone()
+            current = int(row["revision"]) if row else 0
+            if current != expected_revision:
+                raise RevisionConflict
+            values = (
+                1 if enabled else 0,
+                workspace_id,
+                workspace_limit_micro_usd,
+                ",".join(sorted(confirmations)),
+                now(),
+                by,
+            )
+            if row is None:
+                db.execute(
+                    "INSERT INTO anthropic_enablement (id, revision, enabled, workspace_id,"
+                    " workspace_limit_micro_usd, confirmations, changed_at, changed_by)"
+                    " VALUES (1, 1, ?, ?, ?, ?, ?, ?)",
+                    values,
+                )
+            else:
+                db.execute(
+                    "UPDATE anthropic_enablement SET revision = revision + 1, enabled = ?,"
+                    " workspace_id = ?, workspace_limit_micro_usd = ?, confirmations = ?,"
+                    " changed_at = ?, changed_by = ? WHERE id = 1 AND revision = ?",
+                    (*values, expected_revision),
+                )
+            self._insert_event(
+                db,
+                actor=by,
+                role=role,
+                action="ANTHROPIC_ENABLED" if enabled else "ANTHROPIC_DISABLED",
+                outcome="applied",
+                profile_id="anthropic",
                 revision=expected_revision + 1,
             )
         return expected_revision + 1

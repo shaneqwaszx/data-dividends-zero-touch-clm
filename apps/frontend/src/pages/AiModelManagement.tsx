@@ -9,11 +9,13 @@ import {
   clearModelCredential,
   fetchModelAudit,
   fetchModelOverview,
+  readAnthropicWorkspace,
   MODEL_AUDIT_LIMIT,
   refreshProviderLimits,
   rollbackModel,
   saveClaudeLifetimeCap,
   saveClaudeSpendingControls,
+  saveAnthropicEnablement,
   saveDataAccessPolicy,
   saveLifetimeCap,
   saveModelCredential,
@@ -22,6 +24,7 @@ import {
   testModelConnection,
   type ModelAuditEvent,
   type ModelBudgetStatus,
+  type AnthropicSetup,
   type CredentialProvider,
   type ModelClaudeBudget,
   type ModelCredentialStatus,
@@ -71,7 +74,9 @@ const REASON_TEXT: Record<string, string> = {
   OWNER_ATTESTATION_MISSING: "The owner has not attested that auto top-up and prompt logging are off.",
   ENDPOINT_NOT_APPROVED: "The configured OpenRouter endpoint is not the approved one.",
   // D-099 (proposed): Claude Sonnet 5.5 Balanced and Fast are listed but not usable.
-  ANTHROPIC_NOT_AUTHORISED: "Claude through the Anthropic API is not authorised for CLM use (D-099 proposed).",
+  ANTHROPIC_NOT_AUTHORISED: "Claude is not set up yet. HR enables it in Providers → Anthropic (D-107).",
+  ANTHROPIC_NOT_ENABLED: "Claude is disabled. HR enables it in Providers → Anthropic.",
+  ANTHROPIC_ENABLEMENT_UNREADABLE: "Claude's setup could not be read, so Claude is off until it can be.",
   ANTHROPIC_PROVIDER_CONTROLS_MISSING: "Not usable: Anthropic does not provide the readable key limit, per-call cost verification and usage reconciliation that remote models require (D-099 proposed).",
   REMOTE_SETTINGS_INVALID: "The remote model's reasoning settings are not valid on the server.",
   REMOTE_MANIFEST_MISSING: "The paid qualification's question list and count are not configured on the server.",
@@ -89,10 +94,11 @@ const REASON_TEXT: Record<string, string> = {
   INTERRUPTED: "Interrupted: the AI assistant service stopped or restarted during the run.",
   INTERRUPTED_BILLING_UNCERTAIN: "Interrupted while a paid call may have been open: an operator must reconcile the ledger.",
   // D-099 Option B: Claude Sonnet 5.5 through the Anthropic API (its own safeguards).
-  ANTHROPIC_ATTESTATION_MISSING: "The owner has not made the four Anthropic attestations (dedicated workspace, workspace limit set, inference-only key, key revoked at FYP end).",
+  ANTHROPIC_ATTESTATION_MISSING: "The owner has not made the four Anthropic confirmations (dedicated workspace, workspace limit set, inference-only key, key revoked at FYP end).",
   ANTHROPIC_SETTINGS_INVALID: "The server's Claude settings are not valid (they may not exceed the Option B ceilings).",
-  WORKSPACE_NOT_ATTESTED: "No owner-attested Anthropic workspace id is set on the server.",
-  WORKSPACE_LIMIT_NOT_ATTESTED: "The Anthropic workspace's monthly limit (at most US$30.00) is not attested on the server.",
+  WORKSPACE_NOT_ATTESTED: "No confirmed Anthropic workspace is set up.",
+  WORKSPACE_MISMATCH: "The workspace set on the server differs from the one Claude was set up for, so Claude is off until they agree.",
+  WORKSPACE_LIMIT_NOT_ATTESTED: "The Anthropic workspace's monthly limit (at most US$30.00) has not been confirmed.",
   LEDGER_PATH_SHARED: "The Claude ledger file must be separate from the GPT-OSS ledger file.",
   LEDGER_PROFILE_MISMATCH: "The spending ledger belongs to another provider, so no call is allowed.",
   LIFETIME_CEILING_EXCEEDED: "The ledger cap is not valid (above the lifetime ceiling or the attested workspace limit, or not above what was already spent when the ledger opened), so no call is allowed.",
@@ -243,7 +249,7 @@ const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: str
     title: "Troubleshooting Claude Sonnet 5.5 (Anthropic API)",
     steps: [
       "Run Test connection: it reads the attested Anthropic workspace and the model (free; no case data).",
-      "Providers: enter a session inference key, or rely on the server key; either must belong to the attested workspace. The workspace id and the four owner attestations are set on the server by an operator.",
+      "Providers: enter a session inference key, or rely on the server key; either must belong to the workspace Claude was set up for. HR sets Claude up there (workspace read, the owner's four confirmations and monthly limit); no server decision settings are needed.",
       "HR sets Claude's daily allowance, calls per activation and lifetime limit in Spending & Limits (at most US$5.00 a day, 20 calls, and the lower of US$30.00 and the workspace limit). Raising one, or a paid qualification, needs the Claude ledger reconciled with the Anthropic Console within 24 hours (an operator runs scripts/budget_ledger.py --anthropic).",
       "The workspace's monthly spend limit is changed only by its owner in the Anthropic Console, never from this page.",
     ],
@@ -702,6 +708,117 @@ export function ProviderKey({ provider, title, credential, testProfileId, busy, 
   );
 }
 
+// D-107: the owner's four confirmations, in words (the server checks the codes).
+export const CONFIRMATION_TEXT: Record<string, string> = {
+  dedicated_workspace: "This key belongs to an Anthropic workspace used only for this FYP project.",
+  workspace_limit_set: "That workspace has a monthly spend limit set in the Anthropic Console, no higher than the amount below.",
+  inference_key_only: "It is an inference API key, not an Admin key.",
+  key_revoked_at_fyp_end: "The key will be revoked when the FYP ends.",
+};
+
+/** D-107: HR sets Claude up here (no decision or attestation settings on the server). */
+export function ClaudeSetup({ setup, busy, onChanged }: { setup: AnthropicSetup; busy: boolean; onChanged: () => void }) {
+  const record = setup.record;
+  const [limit, setLimit] = useState("");
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [read, setRead] = useState<{ outcome: string; code: string | null; workspace_id: string | null } | null>(null);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const workspace = setup.workspace_read?.workspace_id ?? null;
+  const limitMicro = toMicroUsd(limit);
+  const allConfirmed = setup.confirmations_required.every((code) => checked[code]);
+  const limitValid = limitMicro !== null && limitMicro >= 1 && limitMicro <= setup.workspace_limit_max_micro_usd;
+  const revision = record?.revision ?? 0;
+
+  async function run(action: () => Promise<unknown>, done: string): Promise<void> {
+    setPending(true);
+    setMessage(null);
+    try {
+      await action();
+      setMessage({ kind: "ok", text: done });
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  async function readWorkspace(): Promise<void> {
+    setPending(true);
+    setMessage(null);
+    try {
+      setRead(await readAnthropicWorkspace());
+    } catch (error) {
+      setMessage({ kind: "error", text: safeError(error) });
+    } finally {
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  const disabled = pending || busy || !setup.managed || !setup.readable;
+  return (
+    <section className="console-subcard" aria-labelledby="claude-setup-heading" data-testid="claude-setup">
+      <h3 id="claude-setup-heading">Claude setup — {setup.enabled ? "Enabled for verified synthetic cases" : "Not enabled"}</h3>
+      {!setup.managed && <p className="console-help">Model management is not configured on this server, so Claude cannot be set up here.</p>}
+      {!setup.readable && <p className="ds-banner ds-banner-warn" role="alert">Claude's setup could not be read, so Claude is off until it can be.</p>}
+      {!setup.local_deployment && <p className="ds-banner ds-banner-warn" role="note">This server is not the approved local development set-up (loopback CLM backend and local browser origins), so Claude cannot be enabled here.</p>}
+      {setup.source === "environment" && <p className="console-help">Claude is currently configured on the server (D-099 settings). Setting it up here replaces that configuration.</p>}
+      {record && (
+        <dl className="acra-detail-list">
+          <div><dt>Status</dt><dd>{record.enabled ? "Enabled" : "Disabled"} by {record.changed_by}, {formatTimestamp(record.changed_at)}</dd></div>
+          <div><dt>Workspace</dt><dd><code className="console-code">{record.workspace_id}</code> (as the key reported it; every reply must name it)</dd></div>
+          <div><dt>Monthly limit</dt><dd>US${dollars(record.workspace_limit_micro_usd)}, owner-confirmed. It is not read from Anthropic, and the app cannot verify it.</dd></div>
+          <div><dt>Readiness</dt><dd>{setup.readiness ? readable(setup.readiness, ANTHROPIC_DEPLOYMENT) : "Ready: run Test connection, qualify Balanced on Models & Overview, then activate."}</dd></div>
+        </dl>
+      )}
+      {!record?.enabled && (
+        <ol className="console-troubleshooting">
+          <li>
+            Enter the Anthropic key above for this session (or rely on the server key), then read the workspace it reports. This is a free model read, with no model call and no case data.{" "}
+            <button type="button" className="btn btn-secondary" disabled={disabled || !setup.local_deployment} onClick={() => void readWorkspace()}>Read Workspace</button>
+            {read && read.outcome !== "passed" && <span className="control-help"> {read.code ? readable(read.code, ANTHROPIC_DEPLOYMENT) : "The read did not pass."}</span>}
+          </li>
+          <li>
+            Workspace the key reports: {workspace ? <code className="console-code">{workspace}</code> : "not read yet with the key now in use"}
+            {record && workspace && record.workspace_id !== workspace && <span className="ds-banner ds-banner-warn" role="note"> This differs from the workspace Claude was set up for; it cannot be changed here.</span>}
+          </li>
+          <li>
+            <fieldset className="console-fieldset">
+              <legend>The owner confirms</legend>
+              {setup.confirmations_required.map((code) => (
+                <label key={code} className="control-help console-check">
+                  <input type="checkbox" data-testid={`confirm-${code}`} checked={Boolean(checked[code])} disabled={disabled}
+                    onChange={(event) => setChecked({ ...checked, [code]: event.target.checked })} />{" "}
+                  {CONFIRMATION_TEXT[code] ?? code}
+                </label>
+              ))}
+              <label className="control-help" htmlFor="claude-workspace-limit">Workspace monthly limit (US$, at most {dollars(setup.workspace_limit_max_micro_usd)})</label>{" "}
+              <input id="claude-workspace-limit" inputMode="decimal" value={limit} disabled={disabled}
+                onChange={(event) => setLimit(event.target.value)} />
+            </fieldset>
+          </li>
+          <li>
+            <button type="button" className="btn btn-primary"
+              disabled={disabled || !setup.local_deployment || !workspace || !allConfirmed || !limitValid}
+              onClick={() => void run(() => saveAnthropicEnablement({
+                expected_revision: revision, enabled: true, workspace_id: workspace ?? "",
+                workspace_limit_micro_usd: limitMicro ?? 0, confirmations: setup.confirmations_required,
+              }), "Claude enabled for verified synthetic cases.")}>Enable Claude for Verified Synthetic Cases</button>
+          </li>
+        </ol>
+      )}
+      {setup.enabled && (
+        <button type="button" className="btn btn-secondary" disabled={disabled}
+          onClick={() => void run(() => saveAnthropicEnablement({ expected_revision: revision, enabled: false }), "Claude disabled. Claude calls stop at the next question; no other model is switched in.")}>Disable Claude</button>
+      )}
+      <p className="console-help">Claude only ever receives verified synthetic cases (see Data Access &amp; Privacy). The workspace check, Claude's own ledger, its daily, lifetime and call limits, and reconciliation still apply.</p>
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
+    </section>
+  );
+}
+
 // --- D-100 Phase 2: Providers and Spending & Limits ---------------------------------------------
 // Presentation only, from the overview the page already reads (no new request). The server sends
 // GPT-OSS's key and spending view in `budget`. For Claude it sends only each configuration's
@@ -763,7 +880,8 @@ const OPENROUTER_DUTIES: Duty[] = [
 const ANTHROPIC_DUTIES: Duty[] = [
   { who: "hr", text: "Run Test connection (a free workspace and model read), confirm a paid qualification and activate, from Models & Overview." },
   { who: "hr", text: "Enter or clear a session inference key for Balanced and Fast (memory only, used first, ends with your session; it must belong to the attested workspace)." },
-  { who: "operator", text: "Optionally set a server inference key (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env), used when no session key is live." },
+  { who: "hr", text: "Set Claude up here: read the workspace the key reports (free), confirm it with the owner's four confirmations and monthly limit, and enable Claude for verified synthetic cases. Disable it at any time." },
+  { who: "operator", text: "Optionally set a server inference key (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env), used when no session key is live. No decision or attestation settings are needed." },
   { who: "hr", text: "Change Claude's own daily, call and lifetime limits in Spending & Limits." },
   { who: "operator", text: "Reconcile Claude's ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic) before any raise or paid run." },
   { who: "owner", text: "Keep the dedicated Anthropic workspace's monthly spend limit (attested at most US$30.00) in the Anthropic Console." },
@@ -873,7 +991,7 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
       )}
 
       {anthropic.length > 0 && (
-        <ProviderCard kind="anthropic" title="Anthropic API" subtitle="One provider for Claude Sonnet 5.5 Balanced and Fast · external, paid · D-099 proposed">
+        <ProviderCard kind="anthropic" title="Anthropic API" subtitle="One provider for Claude Sonnet 5.5 Balanced and Fast · external, paid · set up by HR (D-107)">
           <p className="console-help">Balanced and Fast are two configurations (reasoning settings) of one model on one Anthropic provider: they share the key, the workspace and Claude's single ledger, and each needs its own passing qualification.</p>
           <ProviderConfigurations items={anthropic} />
           <dl className="acra-detail-list">
@@ -890,6 +1008,7 @@ function ProvidersSection({ overview, busy, onChanged }: { overview: ModelOvervi
           <ProviderKey provider="anthropic" title="Anthropic API Key" credential={claudeCredential} busy={busy}
             testProfileId={claudeTestId}
             onChanged={onChanged} />
+          {overview.anthropic_setup && <ClaudeSetup setup={overview.anthropic_setup} busy={busy} onChanged={onChanged} />}
           <h3 className="console-subheading">Codes reported by the server</h3>
           <ReportedCodes codes={anthropicCodes} deployment={ANTHROPIC_DEPLOYMENT} />
           <Responsibilities label="Who manages the Anthropic API" duties={ANTHROPIC_DUTIES} />
@@ -981,7 +1100,7 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
         <div><dt>Settled today</dt><dd>{daily ? usd(exactDollars(daily.settled_today_micro_usd)) : LEDGER_UNREAD}</dd></div>
         <div><dt>Remaining today</dt><dd>{daily ? usd(daily.remaining_usd) : LEDGER_UNREAD}</dd></div>
         <div><dt>Lifetime headroom</dt><dd>{claude.ledger ? usd(claude.ledger.headroom_usd) : LEDGER_UNREAD}</dd></div>
-        <div><dt>Anthropic workspace limit</dt><dd>{claude.workspace_limit_micro_usd > 0 ? `${usd(dollars(claude.workspace_limit_micro_usd))} a month (owner-attested; changed only in the Anthropic Console)` : "Not attested on the server"}</dd></div>
+        <div><dt>Anthropic workspace limit</dt><dd>{claude.workspace_limit_micro_usd > 0 ? `${usd(dollars(claude.workspace_limit_micro_usd))} a month (owner-confirmed, not read from Anthropic; changed only in the Anthropic Console)` : "Not confirmed yet (set up Claude in Providers → Anthropic)"}</dd></div>
         <div><dt>Last reconciled</dt><dd>{claude.ledger?.reconciled_at ? formatTimestamp(claude.ledger.reconciled_at) : "Never (an operator reconciles the Claude ledger)"}</dd></div>
         <div><dt>Available now</dt><dd><strong>{usd(claude.effective_remaining_usd)}</strong> (the stricter of today's allowance and the lifetime headroom)</dd></div>
         <div><dt>Calls this activation</dt><dd>{controls.calls_used === null ? `No Claude configuration is active (limit ${controls.max_calls} per activation)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls}`}</dd></div>
@@ -1218,7 +1337,7 @@ function activationState(item: ModelProfileView, usable: boolean): ViewState {
 
 function remoteNotice(item: ModelProfileView, mode: ModelBudgetStatus["mode"] | undefined): string | null {
   if (item.deployment === ANTHROPIC_DEPLOYMENT) {
-    return "External API (Anthropic, D-099 proposed): answers only on synthetic development cases inside the same boundary as GPT-OSS; every other case gets the case-data answer. Its own safeguards apply: a separate ledger with its own HR limits on Spending & Limits (at most US$30.00 lifetime within the owner-attested workspace limit, US$5.00 a day, 20 calls an activation; D-102 proposed) and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
+    return "External API (Anthropic, set up by HR, D-107): answers only on synthetic development cases inside the same boundary as GPT-OSS; every other case gets the case-data answer. Its own safeguards apply: a separate ledger with its own HR limits on Spending & Limits (at most US$30.00 lifetime within the owner-attested workspace limit, US$5.00 a day, 20 calls an activation; D-102 proposed) and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
   }
   if (item.deployment !== REMOTE_DEPLOYMENT) return null;
   return mode === "D-095"
@@ -1310,7 +1429,22 @@ const POLICY_STATUS_TEXT: Record<ModelDataAccess["status"], string> = {
   not_managed: "Model management is not configured on this server, so the policy cannot be changed here.",
 };
 
-function DataAccessSection({ policy, busy, onChanged }: { policy: ModelDataAccess | undefined; busy: boolean; onChanged: () => void }) {
+// D-107: whether each external provider is set up, shown apart from what it may receive.
+function providerState(overview: ModelOverview | undefined, providerClass: ModelDataAccess["classes"][number]["provider_class"]): string {
+  if (providerClass === "anthropic") {
+    const setup = overview?.anthropic_setup;
+    if (!setup) return "Not reported by this server";
+    if (!setup.enabled) return "Not enabled (set it up in Providers → Anthropic)";
+    return setup.source === "hr" ? "Enabled by HR (Providers → Anthropic)" : "Enabled by the server configuration (D-099); HR can take it over in Providers → Anthropic";
+  }
+  if (providerClass === "openrouter") {
+    const usable = overview?.profiles.some((item) => item.deployment === REMOTE_DEPLOYMENT && item.status === "selectable");
+    return usable ? "Configured on the server" : "Not configured on this server";
+  }
+  return "Configured by IT in the model profiles file, if any";
+}
+
+function DataAccessSection({ policy, overview, busy, onChanged }: { policy: ModelDataAccess | undefined; overview?: ModelOverview; busy: boolean; onChanged: () => void }) {
   const local = policy?.classes.find((item) => item.provider_class === "local_internal");
   const [draft, setDraft] = useState<boolean | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -1357,15 +1491,23 @@ function DataAccessSection({ policy, busy, onChanged }: { policy: ModelDataAcces
       <h2 id="data-access-heading">Restrict AI to verified synthetic cases</h2>
       <p className="control-help">{POLICY_STATUS_TEXT[policy.status]}{policy.changed_at ? ` Last changed ${formatTimestamp(policy.changed_at)}.` : ""}</p>
       <ul className="console-list" aria-label="Policy by provider">
-        {policy.classes.map((item) => (
+        {policy.classes.filter((item) => item.provider_class !== "local_internal").map((item) => (
+          <li key={item.provider_class} data-testid={`access-${item.provider_class}`}>
+            <strong>{CLASS_LABEL[item.provider_class]}</strong>
+            <dl className="acra-detail-list">
+              <div><dt>Provider</dt><dd>{providerState(overview, item.provider_class)}</dd></div>
+              <div><dt>Data access</dt><dd><span className="tag tag-accent">{item.restricted ? "Verified synthetic cases only" : "Every authorised case"}</span>{" "}
+                {item.locked ? "Fixed for external providers: only cases that pass the D-095 provenance and document SHA-256 checks, approved case access and identifier screening, each with a one-use admission ticket. This does not stop the provider from being used." : ""}</dd></div>
+            </dl>
+          </li>
+        ))}
+        {policy.classes.filter((item) => item.provider_class === "local_internal").map((item) => (
           <li key={item.provider_class}>
             <label className="control-help">
               <input type="checkbox" data-testid={`restrict-${item.provider_class}`}
-                checked={item.provider_class === "local_internal" ? chosen : item.restricted}
-                disabled={item.provider_class !== "local_internal" || disabled}
+                checked={chosen} disabled={disabled}
                 onChange={(event) => { setDraft(event.target.checked); setConfirmed(false); }} />
               {" "}<strong>{CLASS_LABEL[item.provider_class]}</strong>: {item.restricted ? "verified synthetic cases only" : "every case the user is authorised to see"}
-              {item.locked && item.provider_class !== "local_internal" && " (locked)"}
             </label>
           </li>
         ))}
@@ -1981,7 +2123,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
           {section === "spending" && overview && <SpendingSection overview={overview} busy={busy} onChanged={refresh} />}
 
-          {section === "privacy" && overview && <DataAccessSection policy={overview.data_access} busy={busy} onChanged={refresh} />}
+          {section === "privacy" && overview && <DataAccessSection policy={overview.data_access} overview={overview} busy={busy} onChanged={refresh} />}
 
           {section === "qualifications" && overview && (
             <>
@@ -2019,7 +2161,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === ANTHROPIC_DEPLOYMENT && (
-            <p className="ds-banner ds-banner-warn">This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, D-099 proposed). It is used only on synthetic development cases inside the same boundary as GPT-OSS; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within Claude's own separate ledger, daily allowance, call limit and the attested workspace limit. Nothing switches to or from Claude automatically.</p>
+            <p className="ds-banner ds-banner-warn">This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, set up by HR under D-107). It is used only on synthetic development cases inside the same boundary as GPT-OSS; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within Claude's own separate ledger, daily allowance, call limit and the attested workspace limit. Nothing switches to or from Claude automatically.</p>
           )}
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
             <p className="ds-banner ds-banner-warn">{overview.budget?.mode === "D-095"

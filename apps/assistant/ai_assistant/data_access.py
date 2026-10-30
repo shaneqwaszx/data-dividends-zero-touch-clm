@@ -104,6 +104,11 @@ def verification_mode(settings: AiAssistantSettings, provider_class: str | None)
     # D-094 fixed fixture when D-095 mode is off. GPT-OSS keeps its OpenRouter-ready mode.
     if provider_class == "openrouter":
         development = synthetic_eligibility.mode(settings)
+    elif provider_class == "anthropic":
+        # D-107: Claude's own mode (HR enablement or the D-095 interlocks).
+        from .anthropic_runtime import synthetic_mode
+
+        development = synthetic_mode(settings)
     else:
         development = synthetic_eligibility.shared_mode(settings)
     return "D-095" if development else "D-094"
