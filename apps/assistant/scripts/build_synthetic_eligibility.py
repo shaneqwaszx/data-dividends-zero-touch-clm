@@ -117,7 +117,10 @@ def viewers() -> list[str]:
         )
     # D-103: Support has no case pages; it only looks at the case details logged with a
     # feedback ticket (on the review page, or by asking the AI Assistant about that case).
-    # Leaving it out keeps those ticket chats off the external models (local model only).
+    # Leaving it out of this D-095 manifest means, in D-095 mode, those ticket chats are
+    # never sent to an external model. Outside D-095 mode the synthetic boundary decides,
+    # and it lists every seeded user (Support included), so only the synthetic test case
+    # can reach an external model there.
     return sorted(names - NON_CASE_VIEWERS)
 
 
