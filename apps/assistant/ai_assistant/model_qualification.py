@@ -82,6 +82,8 @@ BASIS_FILES = (
     "anthropic_chat.py",
     "anthropic_profiles.py",
     "anthropic_runtime.py",
+    # D-104: the data access policy's gate for local and IT-configured models.
+    "data_access.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = (

@@ -361,7 +361,8 @@ def _claude_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
         scope = "NOT_AUTHORISED"
     elif status != "selectable":
         scope = "PROVIDER_CONTROLS_MISSING"
-    elif synthetic_eligibility.mode(settings):
+    elif synthetic_eligibility.shared_mode(settings):
+        # D-104 A1: Claude's D-095 mode is on the shared interlocks (re-QG L1).
         scope = "VERIFIED_SYNTHETIC_CASES"
     else:
         scope = "APPROVED_SYNTHETIC_CASE"

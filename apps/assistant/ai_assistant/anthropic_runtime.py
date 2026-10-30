@@ -583,6 +583,13 @@ class ClaudeTestModel:
     requires_synthetic_boundary = True
     notices = NOTICES
 
+    def development_mode(self) -> bool:
+        # D-104 A1: D-095 mode on the shared interlocks only (synthetic_eligibility.shared_mode),
+        # never on OpenRouter's endpoint, reasoning settings or attestations. Claude's own
+        # readiness (decision, four attestations, workspace, limits, ledger) is checked again in
+        # _ready before every call, and the eligibility check and its ticket are GPT-OSS's.
+        return synthetic_eligibility.shared_mode(self._settings)
+
     def __init__(
         self,
         settings: AiAssistantSettings,
@@ -646,7 +653,7 @@ class ClaudeTestModel:
         if (
             cleared is not None
             and self._clock() - cleared <= synthetic_eligibility.TICKET_SECONDS
-            and synthetic_eligibility.mode(self._settings)
+            and self.development_mode()
         ):
             return True
         return check_messages(messages) is None
@@ -676,7 +683,7 @@ class ClaudeTestModel:
         # Blocking (ledger, preflight request): never on the event loop. Returns the guarded
         # adapter to call (rebuilt when the key changed).
         ticket = synthetic_eligibility.admitted(messages)
-        development = ticket and synthetic_eligibility.mode(self._settings)
+        development = ticket and self.development_mode()
         if not development and check_messages(messages) is not None:
             raise self._refuse("text outside the synthetic boundary")
         # A prompt the Messages API cannot take (not the service's known shape; D-099-FU1) is

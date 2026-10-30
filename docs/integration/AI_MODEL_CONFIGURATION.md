@@ -486,3 +486,41 @@ conversion) to `33f602653de7…`. Every earlier GPT-OSS qualification is out of 
 once this merges: an active GPT-OSS configuration becomes *AI unavailable* at start-up until HR
 runs a new (paid, separately approved) qualification and activates it. Historical runs are
 kept.
+
+## 14. Data Access & Privacy and provider-neutral D-095 (D-104)
+
+AI Models → **Data Access & Privacy** shows which cases each kind of model may answer, as the
+AI Assistant server enforces it:
+
+| Provider class | Setting | Behaviour |
+| --- | --- | --- |
+| GPT-OSS 120B through OpenRouter | Checked, locked | Verified synthetic cases only (D-094/D-095), always. |
+| Claude Sonnet 5.5 through Anthropic | Checked, locked | The same cases as GPT-OSS, always. |
+| Model IT configured on any address other than literal loopback (`127.0.0.1`, `::1`; `localhost` counts as other) | Checked, locked | Treated like the external models, with or without model management. |
+| Local model on a literal loopback address | HR choice; not set = unchecked | Unchecked: every case the user may already open (D-093, unchanged). Checked: verified synthetic cases only, through the same check as the external models. |
+
+- The locked rows are not settings. Their restriction is in the code and does not read this
+  policy, and the server refuses any request to lift it. Real customer data on an external
+  provider needs a separately approved external-data decision and deployment controls.
+- Letting a restricted local model answer every case again needs a confirmation. Changes need
+  `MODEL_CONFIG_MANAGE` and must come from the AI Models page (Origin required). They have their
+  own per-administrator rate limit and are compare-and-set on the policy's revision. Each change
+  is stored together with its audit record (the old and new setting).
+- The policy is one row in the model state database (`data_access_policy`) and is kept across
+  restarts. If it cannot be read, local models are restricted and changes are refused until IT
+  repairs the database. Without model management (no profiles file), the local setting cannot be
+  changed and a loopback model behaves as before; a non-loopback model is still restricted.
+- **D-095 mode for each provider.** D-095 mode needs `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095`,
+  the D-094, D-091 and D-092 decisions, the model switched on, a loopback CLM backend and local
+  browser origins, plus the provider's own readiness:
+  - GPT-OSS keeps every OpenRouter condition: endpoint, reasoning settings and both OpenRouter
+    attestations.
+  - Claude needs its D-099 settings and attestations, with no OpenRouter setting.
+
+  Otherwise the D-094 fixed Garden fixture applies. Live cases are normally refused there; for
+  example, the timeline's "policy catalogue v1." is outside the D-094 vocabulary.
+- A refusal gives the RM the case-data answer, with a notice naming the reason, and nothing is
+  sent to any model.
+- **Requalification.** This release changes the qualification basis (`598cfe14753d…`). After the
+  upgrade, a stored GPT-OSS or Claude activation becomes *AI unavailable* until HR runs a new,
+  separately approved paid qualification and activates again.
