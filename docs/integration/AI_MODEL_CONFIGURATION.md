@@ -443,16 +443,16 @@ development cases only, the same cases GPT-OSS may answer. Never real data.
 | `AI_ASSISTANT_ANTHROPIC_DECISION=D-099` | plus the D-094 interlock GPT-OSS needs (`AI_ASSISTANT_LOCAL_API_TEST_DECISION`, D-091, D-092) |
 | `AI_ASSISTANT_ANTHROPIC_OWNER_ATTESTS` | exactly `dedicated_workspace,workspace_limit_set,inference_key_only,key_revoked_at_fyp_end` |
 | `AI_ASSISTANT_ANTHROPIC_WORKSPACE_ID` | the dedicated, non-default workspace's id (`wrkspc_…`); every reply must name it |
-| `AI_ASSISTANT_ANTHROPIC_WORKSPACE_LIMIT_MICRO_USD` | the monthly limit set on that workspace in the Console, 1 to 5,000,000 (US$5.00) |
-| `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` | default and ceiling 1,000,000 (US$1.00 per Singapore day) |
-| `AI_ASSISTANT_ANTHROPIC_MAX_CALLS` | default and ceiling 20 per activation or restart |
+| `AI_ASSISTANT_ANTHROPIC_WORKSPACE_LIMIT_MICRO_USD` | the monthly limit set on that workspace in the Console, 1 to 30,000,000 (US$30.00, D-102) |
+| `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` | default 1,000,000 (US$1.00 per Singapore day), ceiling 5,000,000 (US$5.00, D-102); HR may set it on AI Models |
+| `AI_ASSISTANT_ANTHROPIC_MAX_CALLS` | default and ceiling 20 per activation or restart; HR may set it lower on AI Models |
 | `AI_ASSISTANT_ANTHROPIC_LEDGER_PATH` | default `data/budget/anthropic_ledger.sqlite3` (git-ignored); must be a different file from the GPT-OSS ledger (`LEDGER_PATH_SHARED` otherwise) |
 | `AI_ASSISTANT_ANTHROPIC_API_KEY` | a workspace inference key (`sk-ant-api…` or `sk-ant-usr-…`); an Admin key, OAuth or session token is refused |
 
 Operator steps (offline; the script never contacts Anthropic):
 
 1. Create the ledger with the workspace's cumulative Console cost as its opening usage and a cap
-   no higher than US$5.00 or the workspace limit:
+   no higher than US$30.00 (D-102) or the workspace limit:
    `scripts/budget_ledger.py --anthropic init --cap 5.00 --opening-provider-usage 0.00 --key-alias key-01`.
 2. Reconcile against the Console's workspace cost (cumulative, in USD) before use: within 24
    hours before a paid qualification, an activation or a cap raise; at least every 7 days for
@@ -470,8 +470,13 @@ knowledge, topic and case page terms messages after the history become top-level
 blocks after its leading ones, unchanged and in order, and any other prompt shape is refused
 before anything is reserved. The paid
 qualification's G-8 gate verifies Claude calls in-band. The GPT-OSS HR spending controls and
-HR key entry never apply to Claude (HR controls for Claude are deferred). Nothing switches to or
-from Claude automatically.
+HR key entry never apply to Claude. D-102 (proposed): Claude has its own HR controls on
+Spending & Limits (daily allowance up to US$5.00, calls 1 to 20, and the Anthropic ledger's
+lifetime cap up to the lower of US$30.00 and the workspace limit); raising any of the three
+needs the new value confirmed and a reconciliation within 24 hours, lowering never does (a
+strictly lower lifetime cap is allowed even without an attested workspace limit). The workspace id, its
+limit and the attestations stay server settings. Nothing switches to or from Claude
+automatically.
 
 **Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
 plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary
@@ -481,3 +486,41 @@ conversion) to `33f602653de7…`. Every earlier GPT-OSS qualification is out of 
 once this merges: an active GPT-OSS configuration becomes *AI unavailable* at start-up until HR
 runs a new (paid, separately approved) qualification and activates it. Historical runs are
 kept.
+
+## 14. Data Access & Privacy and provider-neutral D-095 (D-104)
+
+AI Models → **Data Access & Privacy** shows which cases each kind of model may answer, as the
+AI Assistant server enforces it:
+
+| Provider class | Setting | Behaviour |
+| --- | --- | --- |
+| GPT-OSS 120B through OpenRouter | Checked, locked | Verified synthetic cases only (D-094/D-095), always. |
+| Claude Sonnet 5.5 through Anthropic | Checked, locked | The same cases as GPT-OSS, always. |
+| Model IT configured on any address other than literal loopback (`127.0.0.1`, `::1`; `localhost` counts as other) | Checked, locked | Treated like the external models, with or without model management. |
+| Local model on a literal loopback address | HR choice; not set = unchecked | Unchecked: every case the user may already open (D-093, unchanged). Checked: verified synthetic cases only, through the same check as the external models. |
+
+- The locked rows are not settings. Their restriction is in the code and does not read this
+  policy, and the server refuses any request to lift it. Real customer data on an external
+  provider needs a separately approved external-data decision and deployment controls.
+- Letting a restricted local model answer every case again needs a confirmation. Changes need
+  `MODEL_CONFIG_MANAGE` and must come from the AI Models page (Origin required). They have their
+  own per-administrator rate limit and are compare-and-set on the policy's revision. Each change
+  is stored together with its audit record (the old and new setting).
+- The policy is one row in the model state database (`data_access_policy`) and is kept across
+  restarts. If it cannot be read, local models are restricted and changes are refused until IT
+  repairs the database. Without model management (no profiles file), the local setting cannot be
+  changed and a loopback model behaves as before; a non-loopback model is still restricted.
+- **D-095 mode for each provider.** D-095 mode needs `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095`,
+  the D-094, D-091 and D-092 decisions, the model switched on, a loopback CLM backend and local
+  browser origins, plus the provider's own readiness:
+  - GPT-OSS keeps every OpenRouter condition: endpoint, reasoning settings and both OpenRouter
+    attestations.
+  - Claude needs its D-099 settings and attestations, with no OpenRouter setting.
+
+  Otherwise the D-094 fixed Garden fixture applies. Live cases are normally refused there; for
+  example, the timeline's "policy catalogue v1." is outside the D-094 vocabulary.
+- A refusal gives the RM the case-data answer, with a notice naming the reason, and nothing is
+  sent to any model.
+- **Requalification.** This release changes the qualification basis (`598cfe14753d…`). After the
+  upgrade, a stored GPT-OSS or Claude activation becomes *AI unavailable* until HR runs a new,
+  separately approved paid qualification and activates again.

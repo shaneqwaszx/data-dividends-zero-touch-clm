@@ -13,21 +13,25 @@
 #                  decision and the D-091 and D-092 decisions the remote profile needs
 #     environment  a development machine (as remote_test: loopback backend, local origins)
 #     owner        AI_ASSISTANT_ANTHROPIC_OWNER_ATTESTS holds exactly OWNER_ATTESTATIONS
-#     workspace    the dedicated workspace's id and its monthly limit (at most US$5.00)
-#     limits       at most US$1.00 a day, 20 calls and 32 KiB prompts (policy ceilings,
-#                  re-checked here because ``model_construct`` skips pydantic's bounds)
+#     workspace    the dedicated workspace's id and its monthly limit (at most US$30.00, D-102)
+#     limits       at most US$5.00 a day, 20 calls and 32 KiB prompts (policy ceilings,
+#                  re-checked here because ``model_construct`` skips pydantic's bounds); an HR
+#                  administrator may set the daily allowance and calls within them (D-102)
 #
 # Every call then also needs (``ClaudeTestModel``):
 #
 #     admission    the D-095 eligibility ticket (development mode) or the D-094 text check, and
 #                  the adapter decides again for the very messages it sends (QG F2)
-#     key          AI_ASSISTANT_ANTHROPIC_API_KEY from the process environment, else the
-#                  git-ignored .env: an inference key; an Admin key or any other shape refuses.
-#                  No HR entry (deferred with the HR spending controls, D-100 isolation).
+#     key          D-106: an inference key an HR administrator entered for their own signed-in
+#                  session (memory only, checked against that session for every call), else
+#                  AI_ASSISTANT_ANTHROPIC_API_KEY from the process environment, else the
+#                  git-ignored .env; an Admin key or any other shape refuses. A key change
+#                  rebuilds the adapter and re-runs the network preflight, so any key must
+#                  name the attested workspace before it is used.
 #     ledger       the separate Anthropic ledger: its own profile, breaker closed, no open call,
-#                  every earlier call verified, a cap of at most the lower of US$5.00 (lifetime,
-#                  never reset) and the workspace limit, and room for one worst-case reservation
-#                  in it and in today's allowance (Asia/Singapore day)
+#                  every earlier call verified, a cap of at most the lower of US$30.00
+#                  (lifetime, never reset; D-102) and the workspace limit, and room for one
+#                  worst-case reservation in it and in today's allowance (Asia/Singapore day)
 #     reconciled   the operator anchored it on the Console's workspace usage within 7 days
 #                  (chat) or 24 hours (paid qualification, activation, a cap raise)
 #     preflight    a free ``GET /v1/models/claude-sonnet-5-5`` whose reply names the attested
@@ -60,7 +64,6 @@ from typing import Any, NamedTuple
 
 import anyio
 import httpx
-from dotenv import dotenv_values
 from pydantic import SecretStr
 
 from . import anthropic_profiles, key_sources, remote_test, synthetic_eligibility
@@ -103,8 +106,9 @@ OWNER_ATTESTATIONS = frozenset(
     {"dedicated_workspace", "workspace_limit_set", "inference_key_only", "key_revoked_at_fyp_end"}
 )
 CREDENTIAL_VARIABLE = "AI_ASSISTANT_ANTHROPIC_API_KEY"
-LIFETIME_CEILING_MICRO_USD = 5_000_000
-DAILY_CEILING_MICRO_USD = 1_000_000
+# D-102 (proposed): raised from US$5.00 and US$1.00 by the owner; HR sets values within them.
+LIFETIME_CEILING_MICRO_USD = 30_000_000
+DAILY_CEILING_MICRO_USD = 5_000_000
 MAX_CALLS_CEILING = 20
 MAX_PROMPT_BYTES = 32_768
 CHAT_RECONCILE_SECONDS = 7 * 86_400
@@ -115,6 +119,8 @@ _MAX_PREFLIGHT_BODY_BYTES = 65_536
 _WORKSPACE = re.compile(r"wrkspc_[A-Za-z0-9]{8,64}")
 # Inference keys only (the console's API keys and user keys); never an Admin key.
 _KEY = re.compile(r"sk-ant-(?:api\d{2}|usr)-[A-Za-z0-9_-]{20,300}")
+# D-106: what an HR administrator may enter (the same inference-key shape).
+HR_KEY = _KEY
 _ROUTING_BITS = sum(ANOMALY_BITS[code] for code in ROUTING_ANOMALIES)
 
 
@@ -191,42 +197,40 @@ def readiness(settings: AiAssistantSettings) -> str | None:
 # --- the key ---------------------------------------------------------------------------------
 
 
-def _env_file_value(path: Path) -> str | None:
-    if not path.is_file():
-        return None
-    try:
-        value = dotenv_values(path, interpolate=False).get(CREDENTIAL_VARIABLE)
-    except (OSError, UnicodeDecodeError, ValueError):
-        return "\x00unreadable"  # present but unusable: reported as invalid, never shown
-    return value if value else None
-
-
 def resolve_key(
-    environ: Mapping[str, str] | None = None, *, env_file: Path | None = None
+    environ: Mapping[str, str] | None = None,
+    *,
+    env_file: Path | None = None,
+    store: key_sources.HrCredential | None = None,
+    max_age: float = key_sources.REVALIDATE_SECONDS,
 ) -> tuple[SecretStr | None, key_sources.CredentialStatus, str | None]:
     # The key, its status for the page (never the key) and the closed refusal code. Given an
-    # ``environ`` (tests), that mapping only unless ``env_file`` is also given. The first
-    # source holding a value decides, even a malformed one (nothing falls through).
+    # ``environ`` (tests), that mapping only unless ``env_file`` or ``store`` is also given.
+    # D-106: the HR session's key first (key_sources.ANTHROPIC_STORE), then the process
+    # environment, then the .env. The first source holding a value decides, even a malformed
+    # one (nothing falls through); an HR key whose session cannot be checked now holds.
     if environ is None:
         environ = os.environ
         env_file = key_sources.ENV_FILE if env_file is None else env_file
-    candidates: list[tuple[key_sources.Source, str | None]] = [
-        ("environment", environ.get(CREDENTIAL_VARIABLE) or None),
-        ("env_file", _env_file_value(env_file) if env_file is not None else None),
-    ]
-    for source, value in candidates:
-        if value is None:
-            continue
-        valid = bool(_KEY.fullmatch(value))
-        status = key_sources.CredentialStatus(
-            source, "configured" if valid else "invalid", False, None, None, 0
-        )
-        if valid:
-            return SecretStr(value), status, None
-        code = "CREDENTIAL_ADMIN_REFUSED" if value.startswith("sk-ant-admin") else None
-        return None, status, code or "CREDENTIAL_INVALID"
-    missing = key_sources.CredentialStatus("none", "missing", False, None, None, 0)
-    return None, missing, "CREDENTIAL_MISSING"
+        store = key_sources.ANTHROPIC_STORE if store is None else store
+    key, status = key_sources.resolve_from(
+        CREDENTIAL_VARIABLE, _KEY, environ, env_file, store, max_age
+    )
+    if key is not None:
+        return key, status, None
+    if status.status == "missing":
+        return None, status, "CREDENTIAL_MISSING"
+    if status.status == "unverified":
+        return None, status, "CREDENTIAL_SESSION_UNVERIFIED"
+    value = (
+        environ.get(CREDENTIAL_VARIABLE)
+        if status.source == "environment"
+        else key_sources.env_file_value(env_file, CREDENTIAL_VARIABLE)
+        if env_file is not None
+        else None
+    ) or ""
+    code = "CREDENTIAL_ADMIN_REFUSED" if value.startswith("sk-ant-admin") else None
+    return None, status, code or "CREDENTIAL_INVALID"
 
 
 # --- the ledger ------------------------------------------------------------------------------
@@ -297,8 +301,8 @@ def check_cap_change(
     raising: bool,
     clock: Callable[[], float] = time.time,
 ) -> None:
-    # The operator's cap changes on the Anthropic ledger: never above the US$5.00 lifetime
-    # ceiling, and a raise only within 24 hours of a reconciliation.
+    # Every cap change on the Anthropic ledger (the operator's script or HR, D-102): never above
+    # the US$30.00 lifetime ceiling, and a raise only within 24 hours of a reconciliation.
     if ledger.status().profile_id != LEDGER_PROFILE_ID:
         raise LedgerError("INVALID_INPUT", "not the Anthropic ledger")
     if cap_micro_usd > LIFETIME_CEILING_MICRO_USD:
@@ -581,6 +585,13 @@ class ClaudeTestModel:
     requires_synthetic_boundary = True
     notices = NOTICES
 
+    def development_mode(self) -> bool:
+        # D-104 A1: D-095 mode on the shared interlocks only (synthetic_eligibility.shared_mode),
+        # never on OpenRouter's endpoint, reasoning settings or attestations. Claude's own
+        # readiness (decision, four attestations, workspace, limits, ledger) is checked again in
+        # _ready before every call, and the eligibility check and its ticket are GPT-OSS's.
+        return synthetic_eligibility.shared_mode(self._settings)
+
     def __init__(
         self,
         settings: AiAssistantSettings,
@@ -644,7 +655,7 @@ class ClaudeTestModel:
         if (
             cleared is not None
             and self._clock() - cleared <= synthetic_eligibility.TICKET_SECONDS
-            and synthetic_eligibility.mode(self._settings)
+            and self.development_mode()
         ):
             return True
         return check_messages(messages) is None
@@ -674,7 +685,7 @@ class ClaudeTestModel:
         # Blocking (ledger, preflight request): never on the event loop. Returns the guarded
         # adapter to call (rebuilt when the key changed).
         ticket = synthetic_eligibility.admitted(messages)
-        development = ticket and synthetic_eligibility.mode(self._settings)
+        development = ticket and self.development_mode()
         if not development and check_messages(messages) is not None:
             raise self._refuse("text outside the synthetic boundary")
         # A prompt the Messages API cannot take (not the service's known shape; D-099-FU1) is
@@ -694,7 +705,8 @@ class ClaudeTestModel:
         with self._lock:
             if readiness(self._settings) is not None:
                 raise self._refuse("not ready")
-            key, _, _ = resolve_key(self._environ, env_file=self._env_file)
+            # D-106: the HR session is checked again for every call (never a cached answer).
+            key, _, _ = resolve_key(self._environ, env_file=self._env_file, max_age=0)
             if key is None:
                 raise self._refuse("no usable key")
             marker = key_sources.identity(key)

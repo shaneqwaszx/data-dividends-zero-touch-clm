@@ -47,13 +47,25 @@ export interface AiAssistantAnswer {
   knowledge?: { confidence: "high" | "low" | "none"; degraded: boolean } | null;
   /** The server's record of this answer; feedback sends it back (none for small talk). */
   answer_id?: string | null;
+  /** The conversation the answer joined (D-105); End conversation rates it. */
+  conversation_id?: string | null;
   /** A fixed small-talk reply, which never has a record. */
   small_talk?: boolean;
 }
 
-/** The question body, with the ids of earlier answers in this chat (the server checks them). */
-const chatBody = (message: string, history: AiAssistantTurn[], earlierAnswerIds: string[]) =>
-  earlierAnswerIds.length ? { message, history, earlier_answer_ids: earlierAnswerIds } : { message, history };
+/** The question body, with the ids of earlier answers in this chat and the conversation it
+ * continues (the server checks both). */
+const chatBody = (
+  message: string,
+  history: AiAssistantTurn[],
+  earlierAnswerIds: string[],
+  conversationId: string | null = null,
+) => ({
+  message,
+  history,
+  ...(earlierAnswerIds.length ? { earlier_answer_ids: earlierAnswerIds } : {}),
+  ...(conversationId ? { conversation_id: conversationId } : {}),
+});
 
 export class AiAssistantError extends Error {
   constructor(message: string, readonly status: number | null = null) {
@@ -119,6 +131,12 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The onboarding app returned an unexpected reply.",
   // Fixed knowledge-review messages (apps/assistant/ai_assistant/knowledge_api.py).
   "You are not allowed to do this.",
+  // Data access policy.
+  "External models (OpenRouter and Anthropic) are restricted to verified synthetic cases on this deployment; this setting cannot change that. Nothing changed.",
+  "The data access policy could not be read, so local models are restricted to verified synthetic cases until IT repairs it. Nothing changed.",
+  "The data access policy changed since this view. Refresh and try again.",
+  "Too many data access policy changes. Wait a few minutes and try again.",
+  "Confirm that the local model may answer every case you are authorised to see. Nothing changed.",
   "No such entry.",
   "You cannot approve or reject an entry you wrote or edited.",
   "This entry has changed or was already decided. Refresh and try again.",
@@ -126,6 +144,8 @@ const SAFE_ERROR_MESSAGES = new Set([
   "No such enhancement request.",
   "This request was already handled. Refresh and try again.",
   "Confirm that you are publishing this entry as its only reviewer.",
+  // D-105: conversations.
+  "No such conversation.",
   // Fixed model-management messages (apps/assistant/ai_assistant/model_admin.py).
   "Model management is not configured on this server.",
   "No such model profile.",
@@ -154,8 +174,8 @@ const SAFE_ERROR_MESSAGES = new Set([
   "This configuration failed on answer quality. A developer or IT must change it before it is qualified again. Nothing started.",
   "A later qualification of this configuration failed on answer quality.",
   // D-095: the OpenRouter key (never echoed back).
-  "That is not an OpenRouter API key. Nothing was saved.",
-  "The OpenRouter key is set on the server (environment or .env) and cannot be changed here.",
+  "That is not an API key for this provider (an inference key only). Nothing was saved.",
+  "The session key cannot be used now: the HR session that entered it cannot be checked. Nothing started.",
   "There is no key entered here to clear.",
   "Too many key changes. Wait a few minutes and try again.",
   "This change must come from the AI Models page.",
@@ -170,6 +190,12 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Confirm the new lifetime limit to raise it. Nothing changed.",
   "The ledger must be reconciled with OpenRouter (no open call, no stop, usage accounted for) before the lifetime limit can be raised. Nothing changed.",
   "The OpenRouter key could not be checked. Nothing changed.",
+  // D-102: Claude spending refusals.
+  "Claude's daily limit must be more than US$0.00 and at most US$5.00, and its call limit 1 to 20. Nothing changed.",
+  "Claude's lifetime limit must be above the workspace's opening usage and at most the lower of US$30.00 and the attested workspace limit. Nothing changed.",
+  "Claude's ledger must be reconciled with the Anthropic Console's usage within the last day (no open call, no stop) before a Claude limit can be raised. Nothing changed.",
+  "Claude is not fully configured on this server, so its limits can only be lowered. Nothing changed.",
+  "Confirm the new call limit to raise it. Nothing changed.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -266,10 +292,11 @@ export async function askAiAssistantStreaming(
   signal?: AbortSignal,
   earlierAnswerIds: string[] = [],
   onConnected?: () => void,
+  conversationId: string | null = null,
 ): Promise<AiAssistantAnswer> {
   const response = await send(
     `/cases/${encodeURIComponent(caseId)}/chat/stream`,
-    chatBody(message, history, earlierAnswerIds),
+    chatBody(message, history, earlierAnswerIds, conversationId),
     signal,
   );
   const isStream = (response.headers.get("Content-Type") ?? "").includes("ndjson");
@@ -359,6 +386,162 @@ export async function askAiAssistantStreaming(
   }
 }
 
+/** Support's question without a case (D-105): answered from the approved rules and policy. */
+export function askSupportAssistant(
+  message: string,
+  history: AiAssistantTurn[],
+  signal?: AbortSignal,
+): Promise<AiAssistantAnswer> {
+  return request<AiAssistantAnswer>("/support/chat", { message, history }, signal);
+}
+
+// --- Conversations (D-105): End conversation, history and Support's review list ------------
+
+export type Satisfaction = "very_satisfied" | "satisfied" | "neutral" | "unsatisfied" | "very_unsatisfied";
+export type ConversationPriority = "high" | "medium" | "low";
+export type ReviewStatus =
+  | "open"
+  | "no_review"
+  | "draft"
+  | "not_reviewed"
+  | "awaiting_publish"
+  | "fixed"
+  | "closed";
+
+export const SATISFACTION_LABELS: Record<Satisfaction, string> = {
+  very_satisfied: "Very satisfied",
+  satisfied: "Satisfied",
+  neutral: "Neutral",
+  unsatisfied: "Unsatisfied",
+  very_unsatisfied: "Very unsatisfied",
+};
+/** What the form offers after "Was this issue resolved?" (the service checks it too). */
+export const SATISFACTION_IF_RESOLVED: Satisfaction[] = ["very_satisfied", "satisfied", "neutral"];
+export const SATISFACTION_IF_NOT_RESOLVED: Satisfaction[] = ["neutral", "unsatisfied", "very_unsatisfied"];
+
+export interface ConversationSummary {
+  conversation_id: string;
+  case_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+  resolved: boolean | null;
+  satisfaction: Satisfaction | null;
+  priority: ConversationPriority | null;
+  review_status: ReviewStatus;
+  answers: number;
+  team: string | null;
+  user_id: string;
+}
+
+export interface ConversationTurn {
+  answer_id: string;
+  created_at: string;
+  question: string;
+  /** The answer as shown, with client details replaced by placeholders. */
+  answer: string;
+  notices: string[];
+  answered_by: "model" | "case_data" | null;
+}
+
+export interface ConversationPage {
+  items: ConversationSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  comment: string | null;
+  turns: ConversationTurn[];
+}
+
+/** Support's unsaved fix, kept on the conversation until it is saved or the request closed. */
+export interface ConversationDraft {
+  kind: "resolution" | "guidance";
+  title: string;
+  body: string;
+  follow_ups: string[];
+  entry_id: string | null;
+  source_ref: string;
+  /** When a guidance change applies (blank: the request's case topics). */
+  blocker_codes?: string[];
+  fields?: string[];
+  stages?: string[];
+}
+
+/** Support's preview of an unsaved rule change on the conversation's question (D-105). */
+export interface RuleTrial {
+  question: string;
+  answer: string;
+  answered_by: "model" | "case_data";
+  notice: string | null;
+  tag: string | null;
+  /** The change's sentences the AI may use on this case (they passed the checks). */
+  offered_lines: string[];
+  used: boolean;
+}
+
+export interface ReviewConversation extends ConversationDetail {
+  close_reason: string | null;
+  /** The enhancement request behind a conversation with a priority. */
+  request: KnowledgeGap | null;
+  draft: ConversationDraft | null;
+  draft_by: string | null;
+  draft_at: string | null;
+}
+
+export interface ReviewFilters {
+  page: number;
+  resolved?: boolean;
+  satisfaction?: Satisfaction;
+  status?: ReviewStatus;
+}
+
+const conversationPath = (conversationId: string) => `/conversations/${encodeURIComponent(conversationId)}`;
+
+export const endConversation = (
+  conversationId: string,
+  rating: { resolved: boolean; satisfaction: Satisfaction; comment: string },
+) => request<{ conversation_id: string; message: string }>(`${conversationPath(conversationId)}/end`, rating);
+export const fetchMyConversations = (page: number, signal?: AbortSignal) =>
+  request<ConversationPage>(`/conversations?page=${page}`, undefined, signal);
+export const fetchMyConversation = (conversationId: string, signal?: AbortSignal) =>
+  request<ConversationDetail>(conversationPath(conversationId), undefined, signal);
+
+export function fetchReviewConversations(filters: ReviewFilters, signal?: AbortSignal): Promise<ConversationPage> {
+  const query = new URLSearchParams({ page: String(filters.page) });
+  if (filters.resolved !== undefined) query.set("resolved", String(filters.resolved));
+  if (filters.satisfaction) query.set("satisfaction", filters.satisfaction);
+  if (filters.status) query.set("status", filters.status);
+  return request<ConversationPage>(`/knowledge/conversations?${query.toString()}`, undefined, signal);
+}
+export const fetchReviewConversation = (conversationId: string, signal?: AbortSignal) =>
+  request<ReviewConversation>(`/knowledge${conversationPath(conversationId)}`, undefined, signal);
+export const saveConversationDraft = (conversationId: string, draft: ConversationDraft) =>
+  request<{ status: string; draft: ConversationDraft }>(
+    `/knowledge${conversationPath(conversationId)}/draft`,
+    draft,
+    undefined,
+    "PUT",
+  );
+export const tryRuleChange = (
+  conversationId: string,
+  change: {
+    kind: "guidance" | "resolution";
+    title: string;
+    body: string;
+    entry_id?: string | null;
+    blocker_codes?: string[];
+    fields?: string[];
+    stages?: string[];
+    question?: string;
+  },
+) => request<RuleTrial>(`/knowledge${conversationPath(conversationId)}/try`, change);
+export const discardConversationDraft = (conversationId: string) =>
+  request<{ status: string }>(`/knowledge${conversationPath(conversationId)}/draft`, undefined, undefined, "DELETE");
+
 // --- Knowledge loop: RM feedback and Director review --------------------------------------
 // Permissions are decided by the backend on every call; these only carry the request.
 
@@ -430,6 +613,8 @@ export interface KnowledgeGap {
    * answer records), and the question asked. */
   answer_id?: string | null;
   question?: string | null;
+  /** The fix saved for this request, while it waits to be published. */
+  entry_id?: string | null;
 }
 
 /** Where an allowed line comes from: a fixed catalog line, one filled from the case, or knowledge. */
@@ -536,7 +721,16 @@ export const decideKnowledgeEntry = (entry: KnowledgeEntry, approve: boolean, no
 /** A Director's fix for an enhancement request: a past case or a guidance change. */
 export type KnowledgeFix = (
   | { kind: "resolution"; title: string; body: string; follow_ups: string[] }
-  | { kind: "guidance"; title: string; body: string; source_ref: string; entry_id?: string }
+  | {
+      kind: "guidance";
+      title: string;
+      body: string;
+      source_ref: string;
+      entry_id?: string;
+      blocker_codes?: string[];
+      fields?: string[];
+      stages?: string[];
+    }
 ) & { started_from_answer?: boolean };
 
 /** Where a fix can start: a title from the blocker type and the AI's left-out lines, redacted. */
@@ -689,17 +883,43 @@ export interface ModelOverview {
   profiles: ModelProfileView[];
   /** D-095: the remote profile's spending view (null unless the remote test mode is configured). */
   budget?: ModelBudgetStatus | null;
+  /** The data access policy in force on the server (absent from older servers). */
+  data_access?: ModelDataAccess;
 }
 
-/** D-095 addendum: where the OpenRouter key comes from. Never the key, nor any part of it. */
+/** "Restrict AI to verified synthetic cases", per provider class, as the server enforces it. */
+export interface ModelDataAccess {
+  /** default: never set (local models answer every authorised case); unavailable: unreadable (local restricted). */
+  status: "default" | "stored" | "unavailable" | "not_managed";
+  revision: number | null;
+  changed_at: string | null;
+  /** it_configured: an endpoint IT configured that is not on this machine (locked, restricted). */
+  classes: Array<{ provider_class: "openrouter" | "anthropic" | "it_configured" | "local_internal"; restricted: boolean; locked: boolean }>;
+  active_class: "openrouter" | "anthropic" | "it_configured" | "local_internal" | null;
+  active_restricted: boolean;
+  /** The shared synthetic check in force: D-095 provenance, or the D-094 fixed fixture. */
+  verification: "D-095" | "D-094";
+}
+
+/** Where a provider's key comes from (D-095 addendum, D-106). Never the key, nor any part of it. */
 export interface ModelCredentialStatus {
-  source: "environment" | "env_file" | "hr_memory" | "none";
-  status: "configured" | "missing" | "invalid";
+  /** D-106 order: an HR session key, then the process environment, then apps/assistant/.env. */
+  source: "hr_session" | "environment" | "env_file" | "none";
+  /** unverified: an HR key whose session the server cannot check now (it is not used). */
+  status: "configured" | "missing" | "invalid" | "unverified";
   hr_editable: boolean;
   persistence: "memory_only" | "server";
   set_at: number | null;
   set_by: string | null;
+  /** D-106: an HR key ends with its session, and no later than this (seconds since the epoch). */
+  expires_at?: number | null;
+  verified_at?: number | null;
+  /** The server key used once the HR key is cleared or its session ends. */
+  fallback?: "environment" | "env_file" | "none";
 }
+
+/** D-106: the two providers whose keys HR may enter. */
+export type CredentialProvider = "openrouter" | "anthropic";
 
 /** D-095: read-only spending view. Amounts are micro-USD integers with USD strings beside. */
 export interface ModelBudgetStatus {
@@ -752,6 +972,71 @@ export interface ModelBudgetStatus {
   refusal: string | null;
   /** D-096: the HR spending controls that apply (absent from older servers). */
   controls?: ModelSpendingControls;
+  /** D-102: Claude's own spending view and HR controls (absent from older servers). */
+  claude?: ModelClaudeBudget;
+}
+
+/** D-102: Claude's spending (its separate Anthropic ledger), with its own HR controls. */
+export interface ModelClaudeBudget {
+  configured: boolean;
+  timezone: string;
+  daily_cap_micro_usd: number;
+  /** The owner-attested Anthropic workspace monthly limit (0: not attested). */
+  workspace_limit_micro_usd: number;
+  lifetime_ceiling_micro_usd: number;
+  next_reset_at: string;
+  preflight: { checked_at: string; passed: boolean } | null;
+  ledger: {
+    profile_ok: boolean;
+    cap_micro_usd: number;
+    committed_micro_usd: number;
+    headroom_micro_usd: number;
+    headroom_usd: string;
+    open_calls: number;
+    breaker_open: boolean;
+    breaker_code: string | null;
+    reconciled_at: string | null;
+  } | null;
+  daily: {
+    cap_micro_usd: number;
+    settled_today_micro_usd: number;
+    in_flight_micro_usd: number;
+    remaining_micro_usd: number;
+    remaining_usd: string;
+  } | null;
+  effective_remaining_micro_usd: number;
+  effective_remaining_usd: string;
+  reservation_micro_usd?: number | null;
+  refusal: string | null;
+  controls: ModelClaudeSpendingControls;
+  /** D-106: the Anthropic key's source and status (absent from older servers). */
+  credential?: ModelCredentialStatus;
+}
+
+/** D-102: Claude's HR controls. "environment" means HR has not set the value yet. */
+export interface ModelClaudeSpendingControls {
+  revision: number | null;
+  readable: boolean;
+  daily_cap_micro_usd: number;
+  daily_cap_range: [number, number];
+  daily_cap_default_micro_usd: number;
+  raise_requires: string[];
+  daily_cap_source: "hr" | "environment";
+  max_calls: number;
+  max_calls_range: [number, number];
+  max_calls_source: "hr" | "environment";
+  /** Calls the active Claude configuration made since its activation or the service's start. */
+  calls_used: number | null;
+  calls_remaining: number | null;
+  changed_at: string | null;
+  changed_by: string | null;
+  lifetime: {
+    opening_usage_micro_usd: number;
+    cap_micro_usd: number;
+    /** The lower of US$30.00 and the attested workspace limit. */
+    max_cap_micro_usd: number;
+    committed_micro_usd: number;
+  } | null;
 }
 
 /** D-096: HR spending controls. "environment" means HR has not set the value yet. */
@@ -825,12 +1110,14 @@ export const rollbackModel = (expectedRevision: number, acknowledgeQualityUnscor
     acknowledge_quality_unscored: acknowledgeQualityUnscored,
   });
 // The key goes to the server once and is never returned; the page keeps no copy.
-export const fetchModelCredential = (signal?: AbortSignal) =>
-  request<ModelCredentialStatus>("/admin/models/credential", undefined, signal);
-export const saveModelCredential = (apiKey: string) =>
-  request<ModelCredentialStatus>("/admin/models/credential", { api_key: apiKey }, undefined, "PUT");
-export const clearModelCredential = () =>
-  request<ModelCredentialStatus>("/admin/models/credential", undefined, undefined, "DELETE");
+const credentialPath = (provider: CredentialProvider) =>
+  provider === "anthropic" ? "/admin/models/credential/anthropic" : "/admin/models/credential";
+export const fetchModelCredential = (signal?: AbortSignal, provider: CredentialProvider = "openrouter") =>
+  request<ModelCredentialStatus>(credentialPath(provider), undefined, signal);
+export const saveModelCredential = (apiKey: string, provider: CredentialProvider = "openrouter") =>
+  request<ModelCredentialStatus>(credentialPath(provider), { api_key: apiKey }, undefined, "PUT");
+export const clearModelCredential = (provider: CredentialProvider = "openrouter") =>
+  request<ModelCredentialStatus>(credentialPath(provider), undefined, undefined, "DELETE");
 // D-096: HR spending controls. Amounts are whole micro-USD; the server checks every bound.
 // D-098: raising the daily limit sends the same amount again as the HR confirmation.
 export const saveSpendingControls = (
@@ -849,6 +1136,37 @@ export const saveSpendingControls = (
 // D-098 (F1): the cap the page showed is sent too, so a change made in between is refused.
 export const saveLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
   request<ModelBudgetStatus>("/admin/models/budget/lifetime-cap", {
+    cap_micro_usd: capMicroUsd,
+    confirm_cap_micro_usd: confirmCapMicroUsd,
+    expected_cap_micro_usd: expectedCapMicroUsd,
+  }, undefined, "PUT");
+// D-102: Claude's own limits, on its own routes (never the GPT-OSS ones). A raise sends the
+// same value again as HR's confirmation (the daily limit, and the call limit too, QG L1); the
+// lifetime cap sends the cap the page showed.
+export const saveClaudeSpendingControls = (
+  expectedRevision: number,
+  dailyCapMicroUsd: number,
+  maxCalls: number,
+  confirmDailyCapMicroUsd: number | null = null,
+  confirmMaxCalls: number | null = null,
+) =>
+  request<ModelBudgetStatus>("/admin/models/budget/claude/controls", {
+    expected_revision: expectedRevision,
+    daily_cap_micro_usd: dailyCapMicroUsd,
+    max_calls: maxCalls,
+    ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
+    ...(confirmMaxCalls === null ? {} : { confirm_max_calls: confirmMaxCalls }),
+  }, undefined, "PUT");
+/** External providers stay restricted: the server refuses anything else. */
+export const saveDataAccessPolicy = (expectedRevision: number, restrictLocal: boolean, confirmWiden: boolean) =>
+  request<ModelDataAccess>("/admin/models/data-access", {
+    expected_revision: expectedRevision,
+    restrict_external: true,
+    restrict_local: restrictLocal,
+    confirm_widen: confirmWiden,
+  }, undefined, "PUT");
+export const saveClaudeLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
+  request<ModelBudgetStatus>("/admin/models/budget/claude/lifetime-cap", {
     cap_micro_usd: capMicroUsd,
     confirm_cap_micro_usd: confirmCapMicroUsd,
     expected_cap_micro_usd: expectedCapMicroUsd,

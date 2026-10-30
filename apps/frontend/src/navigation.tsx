@@ -28,6 +28,7 @@ export const routePatterns = {
   goldtierSandbox: "/admin/goldtier-sandbox",
   acraDiagnostics: "/admin/acra",
   aiModels: "/admin/ai-models",
+  knowledgeReview: "/knowledge-review",
 } as const;
 
 const CASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,6 +58,7 @@ export const paths = {
   goldtierSandbox: routePatterns.goldtierSandbox,
   acraDiagnostics: routePatterns.acraDiagnostics,
   aiModels: routePatterns.aiModels,
+  knowledgeReview: routePatterns.knowledgeReview,
 } as const;
 
 export type AppTab =
@@ -69,7 +71,8 @@ export type AppTab =
   | "teams"
   | "goldtier-sandbox"
   | "acra-diagnostics"
-  | "ai-models";
+  | "ai-models"
+  | "knowledge-review";
 
 interface NavigationItem {
   tab: AppTab;
@@ -84,6 +87,7 @@ const navigationItems: NavigationItem[] = [
   { tab: "home", label: "New onboarding", path: paths.newOnboarding, capability: "CASE_ACCESS", end: false },
   { tab: "queue", label: "Cases", path: paths.cases, capability: "CASE_ACCESS", end: false },
   { tab: "audit", label: "Audit", path: paths.audit, capability: "CASE_ACCESS", end: false },
+  { tab: "knowledge-review", label: "Knowledge Review", path: paths.knowledgeReview, capability: "KNOWLEDGE_REVIEW", end: true },
   { tab: "policy", label: "Policy", path: paths.policy, capability: "POLICY_VIEW", end: true },
   { tab: "users", label: "Users", path: paths.adminUsers, capability: "IDENTITY_ADMIN", end: true },
   { tab: "teams", label: "Teams", path: paths.adminTeams, capability: "TEAM_ADMIN", end: true },
@@ -108,6 +112,7 @@ const routeCapabilities: Array<{ pattern: string; capability: Capability; casePa
   { pattern: routePatterns.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST" },
   { pattern: routePatterns.acraDiagnostics, capability: "PROVIDER_SANDBOX_TEST" },
   { pattern: routePatterns.aiModels, capability: "MODEL_CONFIG_MANAGE" },
+  { pattern: routePatterns.knowledgeReview, capability: "KNOWLEDGE_REVIEW" },
 ];
 
 export function requiredCapabilityForPath(pathname: string): Capability | null {
@@ -125,6 +130,7 @@ export function defaultPathForProfile(actor: AuthenticatedProfile): string | nul
   if (actor.capabilities.includes("IDENTITY_ADMIN")) return paths.adminUsers;
   if (actor.capabilities.includes("TEAM_ADMIN")) return paths.adminTeams;
   if (actor.capabilities.includes("PROVIDER_SANDBOX_TEST")) return paths.goldtierSandbox;
+  if (actor.capabilities.includes("KNOWLEDGE_REVIEW")) return paths.knowledgeReview;
   if (actor.capabilities.includes("POLICY_VIEW")) return paths.policy;
   return null;
 }
@@ -239,6 +245,7 @@ export interface WorkspaceRoutesProps {
   goldtierSandbox: ReactNode;
   acraDiagnostics: ReactNode;
   aiModels: ReactNode;
+  knowledgeReview: ReactNode;
 }
 
 export function WorkspaceRoutes({
@@ -255,6 +262,7 @@ export function WorkspaceRoutes({
   goldtierSandbox,
   acraDiagnostics,
   aiModels,
+  knowledgeReview,
 }: WorkspaceRoutesProps) {
   const caseAccess = (content: ReactNode) => (
     <CapabilityRoute actor={actor} capability="CASE_ACCESS">{content}</CapabilityRoute>
@@ -315,6 +323,10 @@ export function WorkspaceRoutes({
       <Route
         path={routePatterns.aiModels}
         element={<CapabilityRoute actor={actor} capability="MODEL_CONFIG_MANAGE">{aiModels}</CapabilityRoute>}
+      />
+      <Route
+        path={routePatterns.knowledgeReview}
+        element={<CapabilityRoute actor={actor} capability="KNOWLEDGE_REVIEW">{knowledgeReview}</CapabilityRoute>}
       />
       <Route path="*" element={<UnavailableRoute actor={actor} />} />
     </Routes>

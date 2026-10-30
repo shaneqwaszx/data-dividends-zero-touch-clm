@@ -13,7 +13,7 @@ from ai_assistant.config import AiAssistantSettings
 from ai_assistant.knowledge.ingest import ingest_guidance
 from ai_assistant.knowledge.models import Entry, EntryKind, EntryStatus, Visibility
 from ai_assistant.knowledge.service import KnowledgeBase
-from ai_assistant.knowledge.store import KnowledgeStore
+from ai_assistant.knowledge.store import SCHEMA_VERSION, KnowledgeStore
 from ai_assistant.knowledge_api import GUIDANCE_ID
 from ai_assistant.main import create_app
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, ORIGIN, SUMMARY, FakeModel, _session
@@ -34,17 +34,20 @@ def _profile(
     return me
 
 
+# The knowledge reviewer's capabilities (D-103: role SUPPORT).
+REVIEWER = ["KNOWLEDGE_REVIEW", "KNOWLEDGE_CASE_READ"]
+
 USERS = {
     "rm-session": ME,  # maya-lim, CLIENT_ONBOARDER, CASE_ACCESS + POLICY_VIEW, TEAM_A
-    "director-session": _profile("director-dan", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"]),
-    # A second TEAM_A Director, so a reviewer's edit can be checked by someone else.
-    "director-2-session": _profile("director-dee", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"]),
-    # The TEAM_A Director who drafts knowledge from enhancement requests in these tests, so
+    "director-session": _profile("director-dan", "SUPPORT", REVIEWER),
+    # A second TEAM_A reviewer, so a reviewer's edit can be checked by someone else.
+    "director-2-session": _profile("director-dee", "SUPPORT", REVIEWER),
+    # The TEAM_A reviewer who drafts knowledge from enhancement requests in these tests, so
     # the two above can edit and decide those drafts.
-    "drafter-session": _profile("director-drew", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"]),
-    # A Director from another team must not see or decide TEAM_A's drafts.
+    "drafter-session": _profile("director-drew", "SUPPORT", REVIEWER),
+    # A reviewer from another team must not see or decide TEAM_A's drafts.
     "director-b-session": _profile(
-        "director-bea", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"], team="TEAM_B"
+        "director-bea", "SUPPORT", REVIEWER, team="TEAM_B"
     ),
     "hr-session": _profile("hr-hana", "HR", ["POLICY_VIEW", "POLICY_MUTATE"]),
 }
@@ -474,7 +477,7 @@ def test_an_rm_can_never_approve_and_the_author_never_decides(kb: KnowledgeBase)
     assert reply.status_code == 403 and "you wrote" in reply.json()["detail"]["message"]
     # Nor can an RM who wrote a draft before D-083, once a Director.
     legacy = legacy_rm_draft(kb)
-    USERS["self-approver"] = _profile("maya-lim", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"])
+    USERS["self-approver"] = _profile("maya-lim", "SUPPORT", REVIEWER)
     try:
         reply = decide(kb, "self-approver", legacy, 1)
         assert reply.status_code == 403 and reply.json()["detail"]["code"] == "MAKER_CHECKER"
@@ -796,7 +799,8 @@ def test_a_store_from_before_this_change_is_migrated(tmp_path: Path) -> None:
         db.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+        version = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+        assert version == str(SCHEMA_VERSION)
     assert store.entries() == []
 
 
@@ -886,7 +890,8 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
         before = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+        version = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+        assert version == str(SCHEMA_VERSION)
         after = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
         assert (
             db.execute("SELECT name FROM sqlite_master WHERE name = 'feedback_v3'").fetchone()
@@ -1121,7 +1126,7 @@ def test_a_guidance_fix_takes_scope_and_visibility_from_the_current_approved_ver
     assert statuses(kb) == {request_id: "open"}
     # A reviewer who sees the current version inherits its visibility, not the pending one's.
     USERS["director-ab-session"] = _profile(
-        "director-abe", "DIRECTOR", ["CASE_ACCESS", "POLICY_APPROVE"], team=None
+        "director-abe", "SUPPORT", REVIEWER, team=None
     )  # type: ignore[arg-type]
     try:
         written = client(kb, "director-ab-session").post(

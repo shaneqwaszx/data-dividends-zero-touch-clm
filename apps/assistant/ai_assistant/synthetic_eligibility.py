@@ -363,9 +363,35 @@ def admitted(messages: list[dict[str, str]]) -> bool:
     return at is not None and time.monotonic() - at <= TICKET_SECONDS
 
 
+def shared_mode(settings: Any) -> bool:
+    # D-104 A1: D-095 mode for any provider. D-095 is named on top of the shared remote
+    # interlocks (the D-094, D-091 and D-092 decisions, the model switched on) on a development
+    # machine (literal loopback CLM backend, local http browser origins). Nothing here is a
+    # provider's own control: each runtime still checks its own readiness, attestations, key,
+    # ledger and preflight before every call (remote_test.readiness for GPT-OSS,
+    # anthropic_runtime.readiness for Claude), and the eligibility check and its ticket are the
+    # same for every provider. Comments, not docstrings: every string constant in this package
+    # feeds the synthetic boundary's code vocabulary.
+    from .llm import is_local_model_url
+    from .model_profiles import LIVE_DECISION_ID, REMOTE_DECISION_ID
+    from .remote_test import TEST_DECISION_ID, _local_origin
+
+    return (
+        settings.synthetic_dev_decision == DECISION_ID
+        and settings.llm_enabled
+        and settings.local_api_test_decision == TEST_DECISION_ID
+        and settings.remote_inference_decision == REMOTE_DECISION_ID
+        and settings.remote_live_decision == LIVE_DECISION_ID
+        and is_local_model_url(settings.clm_backend_url)
+        and bool(settings.allowed_origins)
+        and all(map(_local_origin, settings.allowed_origins))
+    )
+
+
 def mode(settings: Any) -> bool:
     """D-095 is named, on top of a ready D-094 local test mode (remote_test.readiness)."""
 
     from .remote_test import readiness
 
-    return settings.synthetic_dev_decision == DECISION_ID and readiness(settings) is None
+    # GPT-OSS, unchanged: readiness holds every shared_mode condition and OpenRouter's own.
+    return shared_mode(settings) and readiness(settings) is None

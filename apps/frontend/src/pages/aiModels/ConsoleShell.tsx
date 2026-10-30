@@ -7,12 +7,13 @@ import "./aiModelConsole.css";
 // (`?section=`) on the existing capability-checked AI Models route; it carries no data, and
 // changing section never sends a request or starts an action.
 
-export type ConsoleSection = "overview" | "providers" | "spending" | "qualifications" | "audit";
+export type ConsoleSection = "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
 
 export const CONSOLE_SECTIONS: ReadonlyArray<{ id: ConsoleSection; label: string }> = [
   { id: "overview", label: "Models & Overview" },
   { id: "providers", label: "Providers" },
   { id: "spending", label: "Spending & Limits" },
+  { id: "privacy", label: "Data Access & Privacy" },
   { id: "qualifications", label: "Qualifications & Recovery" },
   { id: "audit", label: "Audit History" },
 ];
@@ -30,6 +31,7 @@ const ICON_PATHS: Record<ConsoleSection, ReactNode> = {
   overview: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
   providers: <><rect x="4" y="4" width="16" height="6" rx="1.5" /><rect x="4" y="14" width="16" height="6" rx="1.5" /><path d="M8 7h.01M8 17h.01" /></>,
   spending: <><path d="M4 16a8 8 0 0 1 16 0" /><path d="M12 16l4-5" /></>,
+  privacy: <><rect x="5" y="11" width="14" height="9" rx="1.5" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>,
   qualifications: <><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" /><path d="M9 12l2 2 4-4" /></>,
   audit: <><path d="M4 6h10M4 12h7M4 18h6" /><circle cx="17" cy="15" r="4" /><path d="M17 13.5V15l1 1" /></>,
 };

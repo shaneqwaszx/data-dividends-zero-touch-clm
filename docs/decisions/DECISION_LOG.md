@@ -1396,6 +1396,17 @@ proposal for repeated US$1.00 days. No paid inference is authorised.
 | B5 | A ledger belongs to one key. A replacement key is first tried against the existing ledger (the preflight's usage check, then `reconcile`); if its usage cannot reconcile, the old key is revoked in the dashboard and a new ledger is initialised at the new key's current usage, keeping the old ledger file for history. So that this never restarts a day's allowance, the service would refuse a new ledger until the next Singapore day after the old ledger's last call (to be implemented and tested before use). |
 | B6 | AI Models keeps showing today's spend, lifetime headroom and the key limit; a weekly read of `budget_ledger.py status` and the dashboard is the operator's reconciliation routine. |
 
+**Amendment by D-104 A1 (owner-authorised 2026-10-30).** V1 now reads: D-095 mode is on for a
+provider when `AI_ASSISTANT_SYNTHETIC_DEV_DECISION=D-095` and the **shared** interlocks hold (the
+D-094, D-091 and D-092 decisions, the model switched on, a literal-loopback CLM backend and local
+`http` browser origins: `synthetic_eligibility.shared_mode`), **and** that provider's own readiness
+holds. GPT-OSS's own readiness is unchanged (D-094 T1: the approved endpoint, reasoning settings
+and the OpenRouter attestations), so its D-095 mode is exactly as before
+(`synthetic_eligibility.mode`). Claude's is D-099's (its decision, four attestations, workspace,
+limits and ledger), with no OpenRouter condition. V2 to V11 are unchanged: one eligibility check
+and one single-use ticket for every provider, and each model re-checks admission for the exact
+messages it sends.
+
 ## D-096 - AI Assistant HR spending controls on AI Models (OWNER-AUTHORISED, local development scope only)
 
 Status: owner-authorised on 2026-10-28 ("PR #126 — HR Budget Controls and Main Integration").
@@ -1502,6 +1513,15 @@ and offline only; no Live, Sandbox or provider-status claim.
 | C9 | **Residual billing risks (owner-accepted).** The workspace limit and the workspace's dedication are attested, not read; a reply's usage is Anthropic's own claim with no separate per-call record; Console usage lags and is reconciled by hand, so drift can persist up to the reconciliation window, bounded by the daily cap, the ledger ceiling and the workspace limit Anthropic itself enforces; follow-up questions whose prompt places knowledge or topic lines after history cannot be sent unchanged to the Messages API and get the case-data answer (refused before any reservation). |
 | C10 | **D-099-FU1 multi-turn compatibility (PROPOSED, 2026-10-29).** Supersedes the last clause of C9. The Anthropic adapter alone converts the service's known prompt shape: its leading system messages, a strictly alternating user/assistant history (starting with the user, ending with an answer), then at most the service's own per-question system messages identified by their fixed starts and in the service's order (knowledge, question topic, case page terms), then the question. Every system message becomes a top-level system text block, unchanged and in prompt order; user and assistant turns keep their order; nothing is relabelled, merged, added or dropped. Any other shape (a system message inside the history, an unknown or reordered or repeated per-question block, another role, extra keys, non-text content, a non-alternating history) is refused before any reservation or request. The canonical messages, GPT-OSS requests, D-094 admission, D-095 single-use tickets (still bound to the exact canonical messages), reservations, G-8, ledgers and the no-switch rule are unchanged; the boundary vocabulary is unchanged. Evidence `.ai-pipeline/reports/D099_FU1_MULTI_TURN.md`; the basis moves `adec795f61bd…` → `33f602653de7…`. |
 
+**Amendment by D-104 A1 (owner-authorised 2026-10-30).** C7's "behind the same D-094/D-091/D-092
+interlock as GPT-OSS" now means the shared interlocks only (the D-094, D-091 and D-092 decisions and
+the development-machine checks); Claude's D-095 mode no longer depends on OpenRouter's endpoint,
+reasoning settings or attestations (`ClaudeTestModel.development_mode`, used by the chat and by the
+adapter's per-call re-check). Every Anthropic safeguard is unchanged: `AI_ASSISTANT_ANTHROPIC_DECISION`,
+the four owner attestations, the workspace id and limit, the D-102 limits, the separate ledger, the
+reconciliation windows, the preflight and in-band verification. Claude still answers only the cases
+GPT-OSS may answer, under the same eligibility check.
+
 ## D-100 - AI Assistant AI Model Console Phase 1 (PROPOSED)
 
 Status: PROPOSED by the project team on 2026-10-29 under the owner's AI Model Console
@@ -1595,3 +1615,164 @@ Out of scope: LLP- or LP-specific rules, `Partnership - Regulated`, foreign gove
 GoldTier hierarchy or related-party writes, and the Garden and Marketplace Mock lanes (apart from
 the compatibility table: Garden tests now use "Partnership - Unregulated", and four classification
 tests use "Company - Public").
+
+## D-102 - AI Assistant Claude spending ceiling US$30.00 and HR-editable Claude limits (ACCEPTED, synthetic-only FYP development)
+
+Status: ACCEPTED by the repository owner on 2026-10-30 for synthetic-only FYP development,
+including the revised spending limits, the HR controls, the tightened call-limit raise (E3)
+and the documented residual risks (update below). Not sponsor policy.
+
+Proposal record (2026-10-29): PROPOSED by the project team on 2026-10-29 at the owner's direction during D-099
+runtime set-up: the owner set the dedicated Anthropic workspace's monthly limit to US$30.00
+and asked for Claude's limits to be changeable from the HR AI Model Console. Implemented
+offline on branch `feat/claude-hr-spending-d102` (not committed or published). Not accepted
+until the owner says so; not sponsor policy. Amends D-099 C6 (the US$5.00 ceilings) and the
+deferral of HR-editable Claude limits in D-099 and D-100; every other D-099 safeguard and every
+OpenRouter/GPT-OSS protection is unchanged.
+
+| # | Proposed decision |
+| --- | --- |
+| E1 | **Ceilings.** Claude's code ceilings become US$30.00 lifetime (ledger cap and attested workspace limit; was US$5.00) and US$5.00 per Singapore day (was US$1.00). 20 calls per activation and 32 KiB prompts are unchanged. The ledger cap stays at most the lower of the lifetime ceiling and the owner-attested workspace limit, re-checked on every call. |
+| E2 | **HR controls.** An HR administrator (MODEL_CONFIG_MANAGE) may set Claude's daily allowance (US$0.000001 to US$5.00), calls per activation (1 to 20) and the Anthropic ledger's lifetime cap (above its opening usage, at most the lower of US$30.00 and the workspace limit) on Spending & Limits, on Claude's own routes (`PUT /assistant/admin/models/budget/claude/controls`, `.../budget/claude/lifetime-cap`). Claude's controls are a separate row, table and revision from GPT-OSS's; neither ever applies to the other. Until HR sets them, the environment defaults apply (US$1.00 a day, 20 calls). |
+| E3 | **Raises.** Raising the daily allowance, the calls per activation (owner-approved after QG L1) or the lifetime cap needs the new value confirmed, Claude fully configured (D-099 readiness) and the Anthropic ledger reconciled with the Console within 24 hours, with the breaker closed and no open call; the lifetime cap also needs the cap the page showed (compare-and-set, re-checked in the ledger's write transaction). Lowering never needs a confirmation or reconciliation; a strictly lower lifetime cap (still above the opening usage) is allowed even when no workspace limit is attested (QG L2), and never enables Claude. Spend, calls and ledger history are never reset. |
+| E4 | **Unchanged.** The workspace id, its monthly limit and the four owner attestations remain operator/owner settings (not HR-editable). The same Origin requirement, per-administrator rate limit, audit (content-free closed codes), fail-closed unreadable controls (no Claude call), in-band verification, no automatic switching and synthetic-cases-only scope apply. HR controls reach an active Claude configuration in place and the paid qualification's daily allowance. |
+| E5 | **Qualification.** `anthropic_runtime.py` is in the qualification basis, so the basis moves `33f602653de7…` → `4c54e4dd9dbd…`: every earlier qualification is out of date once this merges, and GPT-OSS and both Claude configurations each need a new, separately approved paid qualification. |
+
+Independent Quality Gate (2026-10-29, candidate `f1d32387…`): CONDITIONAL PASS, Low findings
+only. L1 (call-limit raises ungated) and L2 (a reduction refused without an attested workspace
+limit) were remediated as above at the owner's direction; L3 (the GPT-OSS view counted an active
+Claude configuration's calls) was fixed so each provider's view counts only its own calls. L4
+(recorded, not changed): the raise checks (reconciliation, breaker, open calls) are read just
+before the change rather than inside the ledger's write transaction, and readiness does not
+require the key to be present. The impact is negligible because the ledger admits every call
+under its own transaction and the cap change is compare-and-set; changing it needs a separate
+finding or approval.
+
+Residual risk (owner-accepted by the direction above, to be confirmed on review): up to US$30.00
+lifetime and US$5.00 a day may be spent on Claude instead of US$5.00 and US$1.00; the workspace
+limit is still attested, not read, and Anthropic's own workspace limit remains the outer bound.
+
+Update 2026-10-30 (owner acceptance, integration and evidence): the owner accepted D-102 as
+recorded in the status line, after the independent re-QG PASS on the remediated candidate
+`e4f58e36e17c…` (committed unchanged as `93d154d`, cherry-picked onto main `2911b54` with
+byte-identical application code and tests). Accepted limitations, unchanged: L4 (the raise
+checks are read just before the change, outside the ledger's write transaction; readiness does
+not require the key), N1 (the lifetime help text's "lowering it is always allowed" omits that a
+lower cap must stay above the opening usage and match the shown cap; the inline validation is
+exact) and I1 (with unreadable Claude controls, a direct API call that passes every gate ends in
+an unaudited HTTP 500 with nothing written, as on the GPT-OSS route). Evidence:
+`.ai-pipeline/reports/D102_QUALITY_GATE.md` (CONDITIONAL PASS, `f1d32387…`),
+`.ai-pipeline/reports/D102_REQG.md` (PASS, `e4f58e36…`) and
+`.ai-pipeline/reports/D102_INTEGRATION.md`. The full assistant suite on this Windows machine is
+not a clean PASS: 14 tests fail with `OSError: [Errno 24] Too many open files` in a full run
+(identically on unmodified main) and pass when run alone; that is an environmental limitation.
+
+## D-104 - AI Assistant data access policy on AI Models and provider-neutral synthetic eligibility (OWNER-AUTHORISED direction; A1 implemented offline)
+
+Status: the project team proposed this on 2026-10-30 ("Provider-Independent Data Access &
+Synthetic Mode"). The owner then accepted the HR Data Access & Privacy design direction and
+authorised the bounded A1 implementation the same day ("D-104 - Owner Direction: Complete
+Provider-Neutral Synthetic Eligibility"). Built offline on branch
+`feat/assistant-data-access-policy`, which is not committed or published. No paid call,
+qualification, activation, UAT request or live inference was made, and the running service and its
+state were not touched. D-101 and D-103 are used by other work. Not sponsor policy. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence:
+`.ai-pipeline/reports/D104_DATA_ACCESS_POLICY.md`.
+
+**Root causes (before A1).**
+
+- *Provider coupling.* D-095 mode was `synthetic_eligibility.mode`, which requires the D-094
+  OpenRouter readiness: the endpoint, the reasoning settings and the OpenRouter attestations. The
+  Claude runtime used the same function. So a fully ready Claude without the OpenRouter
+  attestations ran in D-094 mode only.
+- *The `v1` refusal.* A live onboarding adds this timeline event: "Advisory onboarding intelligence
+  was evaluated under policy catalogue v1." The case facts put it in the system prompt, and D-094's
+  word screen refuses `v1` (`SYNTHETIC_TEXT_NOT_APPROVED`, nothing sent). This is an admission
+  refusal, not a model reasoning failure. The D-094 fixtures predate the event. D-094 is unchanged
+  and still refuses it, so it stays the fixed-fixture regression mode.
+
+| # | Decision |
+| --- | --- |
+| A1 | **Provider-neutral D-095 mode (implemented).** `synthetic_eligibility.shared_mode` holds the shared conditions. GPT-OSS keeps `mode` (shared conditions plus its unchanged D-094 T1 readiness). Claude (`ClaudeTestModel.development_mode`) and a policy-restricted model use the shared conditions, each under its own readiness. The chat asks the active model for its mode; a model without one keeps GPT-OSS's. The eligibility check, the single-use ticket and the adapter's per-call re-check are the same for every provider. D-095 V1 and D-099 C7 are amended as recorded under them. |
+| Z1 | **Control.** AI Models has a *Data Access & Privacy* section, "Restrict AI to verified synthetic cases", showing the server's effective policy (`GET /assistant/admin/models/data-access`, also in the overview) and the verification in force for the active model. |
+| Z2 | **Locked classes.** GPT-OSS through OpenRouter and Claude through Anthropic are restricted in their own code, whatever the stored policy says. So is a model IT configured on an endpoint that is not a literal loopback address (`it_configured`), with or without model management. It is never treated as local; `localhost` and the machine's own LAN address count as non-loopback too, which fails closed. Only a model passed in by tests or the evaluation harness is exempt (re-QG M1). `PUT` refuses `restrict_external: false` (`EXTERNAL_DATA_POLICY_LOCKED`, audited). Real customer data on an external provider needs a separately approved external-data decision and deployment controls. |
+| Z3 | **Local models (literal loopback).** Every authorised case by default (D-093 unchanged). HR may restrict them; letting a restricted local model answer every case again needs `confirm_widen` (`WIDEN_CONFIRMATION_REQUIRED`). A restricted model, or one under an unreadable policy (fail closed), is wrapped by the selector (`data_access.SyntheticOnlyModel`). It gets the same gate as the external models, re-checks every call and never warms up. A refusal shows its own notice (QG L1). |
+| Z4 | **Change rules.** HR only (`MODEL_CONFIG_MANAGE`, re-checked inside the change lock). Origin is required. Data access changes have their own per-administrator limit (`DATA_ACCESS_RATE_LIMITED`, QG L3). The request is strict JSON. Changes are compare-and-set on the policy's revision (`DATA_ACCESS_POLICY_CONFLICT`); an unreadable policy refuses changes (`DATA_ACCESS_POLICY_UNAVAILABLE`). The policy row and its audit row are written in one transaction, so a change never exists without its record (QG L4). The audit row holds the actor, the time and the old and new setting as a closed code, for example `LOCAL_DEFAULT_ALL_CASES_TO_LOCAL_SYNTHETIC_ONLY`. One row (`data_access_policy`), kept across restarts. Without model management (no profiles file), the local setting cannot be changed and a loopback model behaves as before. |
+| Z5 | **Unchanged.** The D-094 boundary and its vocabulary file, the D-095 checks and manifest, the guardrails, the knowledge rules, role separation, redaction and retention, limits, budgets, ledgers, spending controls, the activation rules and the no-switch rule. New strings use only words the D-094 boundary already holds, so `synthetic_boundary.json` is unchanged. |
+| Z6 | **Display.** With Claude active, the Overview shows Claude's own figures, even without the GPT-OSS spending view (QG L2). Explained but not changed: the chat counts raw pipeline steps while the case page groups them; typed and suggested questions use the same request. |
+| Q1 | **Qualification basis.** `main.py`, `anthropic_runtime.py` and `synthetic_eligibility.py` changed, and `data_access.py` joins `BASIS_FILES`, so the basis moves `65f22e46c509…` → `598cfe14753d…`. Once this runs, every earlier qualification is out of date, including Claude Balanced's. A stored activation then becomes *AI unavailable* at start-up (D-098 R6, D-099 P-6) until a new, separately approved paid qualification. History is kept, and nothing is marked qualified automatically. |
+
+Not decided here: real or sponsor data on any external provider; approving a model on another
+machine for real data (a deployment decision); paid requalification.
+
+## D-103 - Support role: knowledge review moves from Directors to a Support tab, with read-only policy (OWNER-DIRECTED, local POC scope)
+
+Status: owner-directed on 2026-10-29. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+Not sponsor policy: who reviews knowledge stays an open sponsor question (Q-014), and D-073's
+reviewer-role reuse, D-083 (single reviewer) and D-084 remain PROPOSED. Amends only the
+reviewer identity in D-073/D-074 and ADR-012; their exact-line, content-hash, maker-checker and
+redaction rules are unchanged.
+
+| # | Decision |
+| --- | --- |
+| S1 | **Role.** New backend role `SUPPORT`: team-less (like Director and HR), capabilities `POLICY_VIEW`, `KNOWLEDGE_REVIEW` and `KNOWLEDGE_CASE_READ` only. No `CASE_ACCESS`, `POLICY_MUTATE`, `POLICY_APPROVE`, identity, team, sandbox or model administration. HR may create further `SUPPORT` accounts on the Users page (12–128 character passwords, unchanged). |
+| S2 | **Seeded account.** `support-user` ("Support User") is bootstrapped like the other seeded profiles from `PHASE13_SUPPORT_USER_PASSWORD_HASH` (scrypt, generated with `scripts/generate_admin_bootstrap_password_hashes.py --user support-user`). As for every seed, a missing or malformed hash stops startup; an existing persisted profile is never overwritten. The password lives only in the operator's `.env` as a hash and is never tracked. |
+| S3 | **Knowledge review.** Every AI Assistant review endpoint (queue, edit, decision, retire, fix-start, draft, close, records, reindex, stats) and `/assistant/knowledge/me` `can_review` require `KNOWLEDGE_REVIEW` instead of `POLICY_APPROVE`; the cross-team reviewer is a team-less `SUPPORT` caller instead of a team-less Director. Directors keep `POLICY_APPROVE` for policy proposals only and no longer review knowledge. Single-reviewer mode (D-083) still lets the one Support user publish their own entry with confirmation; retirement still needs a second, different reviewer, so it is unavailable with one Support account. HR guidance proposals (`POLICY_MUTATE`) are unchanged. |
+| S4 | **Redaction read.** Writing a fix redacts it against the request's case, loaded with the reviewer's own session. `KNOWLEDGE_CASE_READ` admits a team-less holder to exactly two GET routes, `/api/clm/zero-touch/cases/{case_id}` and `/api/onboarding/cases/{case_id}/documents` (route access `CASE_READ`), for any case. It grants no portfolio listing, no other case route (those answer as absent, 404), no mutation and no evidence-decision authority; the frontend shows Support no case pages. Support's purpose is limited to the case details logged with a feedback ticket: it reviews those on the review page or asks the AI Assistant about that case, and never needs the whole case page. The backend does not itself limit these two reads to ticket cases (tickets live in the AI Assistant service); that is owner-accepted for the POC and pending sponsor confirmation. |
+| S5 | **Frontend.** Knowledge review is the **Knowledge Review** tab (`/knowledge-review`, gated on `KNOWLEDGE_REVIEW`, Support's landing page) rendered as a page; the AI Assistant panel no longer opens it. Support's **Policy** tab is the existing read-only rendering for `POLICY_VIEW` holders (no propose, reset or decide controls). |
+
+Not decided here: sponsor reviewer policy (Q-014); a second Support reviewer for retirement;
+any change to knowledge content rules, redaction or the exact-line guard.
+
+## D-105 - Conversation feedback, chat history, Support's review list and Support's chat without a case (OWNER-DIRECTED, local POC scope)
+
+Status: owner-directed on 2026-10-30. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+Not sponsor policy (Q-013 retention/privacy and Q-014 reviewer policy stay open). Supersedes the
+per-answer "Yes, helpful" / "Not helpful" panel controls of D-083 and D-097 Y4's "What this
+answer used" summary; the exact-line rule (D-074, ADR-012 section C), redaction, the content-hash
+decision and maker-checker are unchanged. Support is the single reviewer (D-083 single-reviewer
+mode, still PROPOSED).
+
+| # | Decision |
+| --- | --- |
+| C1 | **Conversations.** Each answer record joins a server-side conversation (`conversations`, store schema v6; `answer_records.conversation_id`). A question joins the conversation the browser names only when it is that user's open conversation on that case; otherwise a new one starts. |
+| C2 | **End conversation.** The panel's End conversation form asks "Was this issue resolved?" first. Yes offers very satisfied, satisfied or neutral and an optional "Additional comments"; No offers neutral, unsatisfied or very unsatisfied and a required "How should it be improved?". The service enforces the same rules (422 otherwise), redacts the comment against the case and rates a conversation once. |
+| C3 | **Priority and review.** Neutral is low, unsatisfied medium, very unsatisfied high priority; satisfied or better has none. Ending adds one feedback row in the same write: an open enhancement request when there is a priority, otherwise a request closed as needing no review. Every record of the conversation is linked to it, so the D-084 retention applies (30 days after the request is resolved or closed; an unrated conversation's records go after 7 days, and the conversation with them). |
+| C4 | **Support's list.** Knowledge Review lists rated conversations, 10 a page, filtered by resolved, satisfaction and review status (not reviewed, saved as draft, fix awaiting publish, fixed, closed, no review needed), ordered high, medium, low, then no priority. A conversation with a priority shows Review (Edit draft once a draft is saved); others show View. "Waiting for review" and "Enhancement requests" are removed; other pending knowledge (HR's guidance proposals) is listed in a collapsed section only when there is any. |
+| C5 | **Drafts and publishing.** Support may save the fix as a draft (redacted, kept on the conversation until the fix is saved or the request closed) or save and publish it after confirming the final text, as the single reviewer. Fixes change only the knowledge the assistant may cite, never a case or backend logic. |
+| C6 | **History.** A user lists their own conversations (newest first, 10 a page) and opens one read-only: questions and the answers as shown, redacted (client details appear as placeholders). Views are logged. |
+| C7 | **Support's chat without a case.** `POST /assistant/support/chat` (KNOWLEDGE_REVIEW) answers from the approved knowledge and the active policy catalogue read with Support's session, under the exact-line rule: allowed lines are checked knowledge sentences, one line per policy rule and a fixed "couldn't find" line. No case data is read. The local model only: the D-094/D-095 remote model is never called for it (its gates admit verified synthetic case prompts only) and the answer is then built from the allowed lines; the messages use the same chat format, so another approved model needs no format change. |
+| C8 | **Removed.** The per-answer helpful buttons and "What this answer used" summary are no longer shown. The `POST /assistant/cases/{id}/feedback` endpoint is kept for compatibility but no longer used by the panel. Existing ratings and enhancement requests are kept, not deleted, and are not listed. |
+| C9 | **History continues the chat.** Opening a past chat from History loads it into the same chat window. An open conversation continues as itself; a rated one cannot take more answers, so new questions start a new conversation with the past exchange as context. A chat about another case opens that case's page. |
+| C10 | **Review page (point 5).** "Why the AI answered this way" becomes **Information / rules used**, every part folded until opened (how it was answered, lines shown, lines the guard left out, knowledge found, all rules offered, the case at the time). **Ask the AI Assistant about this case** opens the usual AI Assistant panel on the conversation's case, with the user's question offered first (no chat card on the page); it returns to the rules chat when Support leaves the page: it reads the case with Support's read-only access, and the service keeps no answer record or conversation for callers without `CASE_ACCESS`. |
+| C11 | **Edit how the AI should respond.** Support either edits an existing rule (chosen from the approved guidance, its current text loaded to edit) or adds a new rule, with optional "When it applies" blocker codes, fields and stages; fixes from a review are always guidance (no worked examples, no follow-up questions). **Try with this change** (`POST /assistant/knowledge/conversations/{id}/try`) answers the user's question with the unsaved change offered as if approved, first and in place of the version it would replace, under the same sentence checks and exact-line rule; it saves, publishes and records nothing and uses the local model only. Support changes only the knowledge the assistant may cite: no case, case data, CLM backend or answer logic. |
+| C12 | **Who sees the AI Assistant.** The panel is shown only to users with `CASE_ACCESS` (case users) or `KNOWLEDGE_REVIEW` (Support). HR has neither and gets no AI Assistant; the service already answers HR with nothing (no case to load, no rules chat). |
+
+Model qualification: `main.py` and `answer_records.py` are qualification basis files, so any
+existing GPT-OSS 120B qualification is no longer current and that model cannot be activated
+until it is qualified again (paid). The local model is unaffected.
+
+## D-106 - AI Assistant HR session keys for Anthropic and OpenRouter, and qualification progress (OWNER-APPROVED, synthetic-only FYP development)
+
+Status: the owner approved this credential-policy amendment on 2026-10-30 ("Owner Approval -
+Credential Policy and Claude Activation"). It amends the key-source order of the D-095 addendum
+and the "no HR key entry" rule of D-099/D-100 for the future only; the entries for those
+decisions are not rewritten. Built on branch `feat/assistant-session-credentials`, integrated onto
+main `1c6ec4f` as `feat/assistant-session-credentials-int`. D-103 and D-105 are PR #138's. Not sponsor policy. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+
+| # | Decision |
+| --- | --- |
+| K1 | **Order.** For each provider (OpenRouter for GPT-OSS; Anthropic for Claude Balanced and Fast, sharing one key) the key is: (1) a key an HR administrator entered for their own signed-in session, (2) the process environment, (3) the git-ignored `apps/assistant/.env`. The first source holding a value decides; a malformed value never falls through (unchanged). |
+| K2 | **Session binding.** An HR key is held in the AI Assistant's memory only, with the cookie of the HR session that entered it. Before each model call and each qualification launch, the service asks the CLM backend `/api/auth/me` with that HR session's own cookie (never an RM's). The key stays usable only while the same user is signed in and holds `MODEL_CONFIG_MANAGE`. Read-only views, the free connection test and the paid-start estimate reuse a check for at most 10 seconds. A 401, a changed user or a lost capability drops the key. It is also dropped by Clear, by a restart and, at the latest, 8 hours after entry (the backend's fixed `SESSION_TTL`; `/api/auth/me` never extends a session). If the backend cannot answer, the key is held back (`unverified`) and nothing falls through to a server key. |
+| K3 | **Identity on every change.** A key change rebuilds the model and re-runs its full preflight before the next call (existing behaviour). An HR key, and any server key used after an HR key ends, must therefore pass the provider's existing identity checks before any message is sent: Anthropic, the attested workspace in the reply header and the Claude ledger's profile and reconciliation; OpenRouter, the usage reconciliation against its ledger and the key's own limit. Otherwise the call is refused. The ledgers, caps, daily allowances, call limits and HR spending controls apply unchanged whatever the source. Nothing switches model automatically. |
+| K4 | **Protection.** The key is never returned, logged, audited, written to SQLite or browser storage, or put in a telemetry or audit payload. Audit rows name only the action and provider (`CREDENTIAL_SET` / `CREDENTIAL_CLEARED`, `profile_id` `openrouter` or `anthropic`). Entry is HR only, Origin-checked, strict JSON and rate limited (unchanged). Anthropic accepts inference keys only (`sk-ant-api…` / `sk-ant-usr-…`); an Admin key is refused. |
+| K5 | **Qualification process.** The service sends only the qualified provider's HR key (none for a local model) to `scripts/qualify_model.py` as one JSON object on its standard input. Keys are never put on the command line or in the child's environment (the earlier `qualification_environment` is removed). A held-back key refuses the start (`CREDENTIAL_SESSION_UNVERIFIED`), so a run never falls back to a server key in its place. The supervisor ends the run, recorded as `error` / `CREDENTIAL_REVOKED`, once the key it handed over is cleared or replaced, dropped with its session, or its session cannot be checked. Recovery is to enter a key or rely on the server key, then Test connection. |
+| P1 | **Qualification progress.** Qualifications & Recovery (and the overview) show the running run with a spinner, a progress bar from the server's `done_turns`/`total_turns` (indeterminate when no total is reported), the provider, the server-reported stage (running, or cancel requested), the start time and the active model. When the followed run ends, the page shows passed, failed, cancelled, interrupted or stopped, with the turn counts, the server's recovery text and the technical results. Polling stays the existing 3 seconds; no ETA is shown. Cancellation, reservations and qualification state are unchanged. |
+| Q1 | **Qualification basis.** `key_sources.py`, `anthropic_runtime.py`, `remote_test.py` and the generated `synthetic_boundary.json` changed: the basis moves from main's `2c9d72cf0ae4…` (after PR #138) to `7e386b8a69e1…`. Every earlier qualification becomes out of date. Claude Balanced needs one new technical qualification on the merged code (2 billed calls, at most US$0.192 reserved, authorised by the owner on 2026-10-30) before it can be activated. The boundary's code vocabulary gains `amended`, `clears`, `inherits`, `releases`, `revocation` and `unchecked`, and loses `command` and `inherited` (docstring wording; system messages only). |
+
+Residual risks (owner-accepted with the approval): an OpenRouter key's account is inferred from
+usage reconciliation, not read; a revoked session is detected at the next use or view, not
+pushed; a run ended for revocation is killed as a cancelled run is (then recorded as
+`CREDENTIAL_REVOKED`), so an open paid call stays in the ledger until it settles or an operator
+reconciles it.

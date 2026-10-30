@@ -753,3 +753,28 @@ a new local persistence owner and a subprocess launched by the service. The envi
 baseline is the fallback for every failure. Rollback of the feature: remove
 `AI_ASSISTANT_MODEL_PROFILES_FILE`; the service then behaves exactly as before (no state file
 is created).
+
+## Amendment 5 - knowledge review moves from Directors to a Support role (OWNER-DIRECTED, D-103)
+
+Status: owner-directed for the local POC; not sponsor policy (Q-014 stays open). Only the
+reviewer's identity changes. Review endpoints require the new backend capability
+`KNOWLEDGE_REVIEW` (role `SUPPORT`, seeded as `support-user`) instead of `POLICY_APPROVE`, and
+the cross-team reviewer is a team-less `SUPPORT` caller instead of a team-less Director.
+Directors keep `POLICY_APPROVE` for policy proposals only. Because writing a fix redacts it
+against the request's case loaded with the reviewer's own session, `SUPPORT` also holds
+`KNOWLEDGE_CASE_READ`, which admits only the case summary and document list GET routes and
+grants no case pages, portfolio, mutation or evidence decisions. The review UI is the
+**Knowledge Review** tab instead of a window opened from the AI Assistant panel. Sections A and
+C, the content-hash decision, maker-checker, single-reviewer mode (D-083), two-person
+retirement and redaction are unchanged.
+
+## Amendment 6 - conversation feedback and Support's review list (OWNER-DIRECTED, D-105)
+
+Status: owner-directed for the local POC; not sponsor policy. Feedback moves from each answer to
+the conversation: End conversation records resolved, satisfaction and a comment, and a rating of
+neutral or worse becomes an enhancement request with a priority (low, medium, high). Support
+reviews rated conversations in a filtered, paged list and fixes them through the existing request
+machinery (fix-start, redaction, placeholder refusal, single-reviewer publishing), with drafts
+kept on the conversation. Users can open their past conversations read-only. Support can also ask
+about the approved knowledge and the policy without a case, under the same exact-line rule. Sections
+A and C are unchanged.

@@ -26,10 +26,12 @@ key_sources.ENV_FILE = key_sources.ENV_FILE.with_name(".env.test-suite-never-rea
 
 @pytest.fixture(autouse=True)
 def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
-    """Every test starts with no .env key and an empty HR key store."""
+    """Every test starts with no .env key, empty HR key stores and no HR session check."""
 
     monkeypatch.setattr(key_sources, "ENV_FILE", tmp_path / "no-such.env")
     monkeypatch.setattr(key_sources, "HR_STORE", key_sources.HrCredential())
+    monkeypatch.setattr(key_sources, "ANTHROPIC_STORE", key_sources.HrCredential())
+    monkeypatch.setattr(key_sources, "_SESSION_CHECK", None)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     synthetic_eligibility._tickets.clear()  # D-095 tickets never carry over between tests
 

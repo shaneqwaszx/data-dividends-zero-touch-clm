@@ -57,10 +57,11 @@ def test_the_process_environment_key_is_used(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
     key, status = key_sources.resolve()
     assert key is not None and key.get_secret_value() == ENV_KEY
+    # D-106: HR may still enter a session key, which is then used first.
     assert (status.source, status.status, status.hr_editable) == (
         "environment",
         "configured",
-        False,
+        True,
     )
 
 
@@ -74,7 +75,7 @@ def test_the_dotenv_key_is_used_without_touching_the_environment(
     )
     key, status = key_sources.resolve()
     assert key is not None and key.get_secret_value() == FILE_KEY
-    assert status.source == "env_file" and not status.hr_editable
+    assert status.source == "env_file" and status.hr_editable
     assert "OPENROUTER_API_KEY" not in os.environ
     assert resolve_remote_credential().get_secret_value() == FILE_KEY
 
@@ -87,21 +88,27 @@ def test_quoted_and_exported_dotenv_lines_are_read(
     assert key is not None and key.get_secret_value() == FILE_KEY
 
 
-def test_the_hr_key_is_the_last_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+def test_the_hr_key_comes_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-106: HR session key, then the process environment, then the .env file."""
+
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
     key, status = key_sources.resolve()
     assert key is not None and key.get_secret_value() == HR_KEY
-    assert status.view()["source"] == "hr_memory" and status.view()["persistence"] == "memory_only"
+    assert status.view()["source"] == "hr_session" and status.view()["persistence"] == "memory_only"
+    assert status.view()["fallback"] == "none"
     _dotenv(tmp_path, monkeypatch, f"{NAME}={FILE_KEY}\n")
-    assert key_sources.resolve()[0].get_secret_value() == FILE_KEY  # type: ignore[union-attr]
     monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
+    key, status = key_sources.resolve()
+    assert key.get_secret_value() == HR_KEY and status.fallback == "environment"  # type: ignore[union-attr]
+    key_sources.HR_STORE.clear()
     assert key_sources.resolve()[0].get_secret_value() == ENV_KEY  # type: ignore[union-attr]
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    assert key_sources.resolve()[0].get_secret_value() == FILE_KEY  # type: ignore[union-attr]
 
 
 def test_an_invalid_key_does_not_fall_through(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
     monkeypatch.setenv("OPENROUTER_API_KEY", "bad key with spaces")
     key, status = key_sources.resolve()
     assert key is None and (status.source, status.status) == ("environment", "invalid")
@@ -116,21 +123,21 @@ def test_explicit_mappings_ignore_dotenv_and_hr(
 ) -> None:
     """Tests and seams that pass their own mapping get exactly that mapping."""
 
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
     _dotenv(tmp_path, monkeypatch, f"{NAME}={FILE_KEY}\n")
     assert key_sources.resolve({})[0] is None
     assert key_sources.resolve({NAME: ENV_KEY})[0].get_secret_value() == ENV_KEY  # type: ignore[union-attr]
 
 
 def test_a_restart_forgets_the_hr_key() -> None:
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
     restarted = key_sources.HrCredential()
     key, status = key_sources.resolve(os.environ, store=restarted)
     assert key is None and status.view()["status"] == "missing"
 
 
 def test_the_status_and_the_secret_never_show_the_key() -> None:
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
     key, status = key_sources.resolve()
     assert HR_KEY not in repr(key) and HR_KEY not in str(key)
     assert HR_KEY not in repr(status) and HR_KEY not in str(status.view())
@@ -162,7 +169,7 @@ def test_hr_sees_not_configured_then_saves_tests_and_clears_a_key(
 
     saved = _put(journey)
     assert saved.status_code == 200, saved.text
-    assert saved.json()["source"] == "hr_memory" and saved.json()["status"] == "configured"
+    assert saved.json()["source"] == "hr_session" and saved.json()["status"] == "configured"
     assert saved.json()["set_by"] == "hr-admin"
     test = journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test").json()
     assert test["outcome"] == "passed", test
@@ -190,23 +197,25 @@ def test_hr_sees_not_configured_then_saves_tests_and_clears_a_key(
     assert "CREDENTIAL_SET" in actions and "CREDENTIAL_CLEARED" in actions
 
 
-def test_an_environment_or_dotenv_key_cannot_be_replaced_or_cleared(
+def test_an_hr_key_is_used_before_a_server_key_and_clearing_returns_to_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D-106: HR may enter a session key while an environment or .env key exists."""
+
     journey = _journey(tmp_path, monkeypatch)
     _dotenv(tmp_path, monkeypatch, f"{NAME}={FILE_KEY}\n")
     status = journey.client.get(CREDENTIAL).json()
-    assert status["source"] == "env_file" and not status["hr_editable"]
-    for reply in (_put(journey), journey.client.delete(CREDENTIAL)):
-        assert reply.status_code == 409
-        assert reply.json()["detail"]["code"] == "CREDENTIAL_ENVIRONMENT_MANAGED"
+    assert status["source"] == "env_file" and status["hr_editable"]
+    saved = _put(journey)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["source"] == "hr_session" and saved.json()["fallback"] == "env_file"
+    assert saved.json()["expires_at"] == saved.json()["set_at"] + key_sources.SESSION_LIMIT_SECONDS
+    cleared = journey.client.delete(CREDENTIAL)
+    assert cleared.status_code == 200 and cleared.json()["source"] == "env_file"
     monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
     assert journey.client.get(CREDENTIAL).json()["source"] == "environment"
-    assert _put(journey).status_code == 409
     assert key_sources.HR_STORE.snapshot()[0] is None
-    assert (
-        ENV_KEY not in journey.client.get(API).text and FILE_KEY not in journey.client.get(API).text
-    )
+    assert all(key not in journey.client.get(API).text for key in KEYS)
 
 
 @pytest.mark.parametrize("session", ["rm-session", "co-session", "director-session"])
@@ -275,31 +284,44 @@ def test_key_changes_are_rate_limited(tmp_path: Path, monkeypatch: pytest.Monkey
     assert key_sources.HR_STORE.snapshot()[0] is None
 
 
-def test_the_qualification_process_gets_an_hr_key_only_in_its_environment(
+def test_the_qualification_process_gets_an_hr_key_only_on_its_standard_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert model_admin.qualification_environment() is None  # no key: inherit as before
-    monkeypatch.setenv("OPENROUTER_API_KEY", ENV_KEY)
-    assert model_admin.qualification_environment() is None  # inherited from the environment
-    monkeypatch.delenv("OPENROUTER_API_KEY")
-    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin")
-    env = model_admin.qualification_environment()
-    assert env is not None and env[NAME] == HR_KEY
+    """D-106: never on the command line or in the environment."""
+
+    assert model_admin.qualification_handoff("openrouter") == (b"{}", {})  # no HR key
+    key_sources.HR_STORE.set(SecretStr(HR_KEY), "hr-admin", session=None)
+    assert model_admin.qualification_handoff(None) == (b"{}", {})  # a local model: no key
+    payload, generations = model_admin.qualification_handoff("openrouter")
+    assert set(generations) == {"openrouter"}
 
     seen: dict[str, Any] = {}
 
+    class Pipe:
+        def write(self, data: bytes) -> None:
+            seen["stdin"] = data
+
+        def close(self) -> None:
+            seen["closed"] = True
+
     class Popen:
         def __init__(self, args: list[str], **kwargs: Any) -> None:
-            seen["args"], seen["env"] = args, kwargs.get("env")
+            seen["args"], seen["kwargs"] = args, kwargs
+            self.stdin = Pipe()
 
     monkeypatch.setattr(subprocess, "Popen", Popen)
     selector = object.__new__(model_admin.ModelSelector)
     selector.settings = type("S", (), {})()  # only what _launch_process reads
+    selector.handoffs = {}
+    selector.handoff_providers = {"a" * 32: "openrouter"}
     monkeypatch.setattr(model_admin, "profiles_path", lambda settings: Path("profiles.json"))
     monkeypatch.setattr(model_admin, "store_file", lambda settings: Path("state.sqlite3"))
     model_admin.ModelSelector._launch_process(selector, "a" * 32)
     assert all(HR_KEY not in str(arg) for arg in seen["args"])
-    assert seen["env"][NAME] == HR_KEY
+    assert "env" not in seen["kwargs"] and seen["kwargs"]["stdin"] == subprocess.PIPE
+    assert seen["stdin"] == payload and HR_KEY in payload.decode() and seen["closed"]
+    assert selector.handoffs == {"a" * 32: generations} and selector.handoff_providers == {}
+    assert NAME not in os.environ
 
 
 def test_hr_key_qualifies_activates_and_a_new_key_cannot_evade_the_daily_cap(
@@ -328,7 +350,7 @@ def test_hr_key_qualifies_activates_and_a_new_key_cannot_evade_the_daily_cap(
     assert ledger.daily_status().settled_today == before + 720
     budget = journey.client.get(f"{API}/budget").json()
     assert budget["daily"]["settled_today_micro_usd"] == before + 720
-    assert budget["credential"]["source"] == "hr_memory"
+    assert budget["credential"]["source"] == "hr_session"
     assert all(key not in journey.client.get(API).text for key in KEYS)
 
 
@@ -373,5 +395,5 @@ def test_one_call_pins_the_key_it_checked(tmp_path: Path, monkeypatch: pytest.Mo
     marker, environ = model._pinned()  # type: ignore[union-attr]
     assert marker == key_sources.identity(SecretStr(HR_KEY))
     assert environ is not None and environ[NAME] == HR_KEY
-    key_sources.HR_STORE.set(SecretStr(HR_KEY_2), "hr-admin")  # a later change
+    key_sources.HR_STORE.set(SecretStr(HR_KEY_2), "hr-admin", session=None)  # a later change
     assert environ[NAME] == HR_KEY  # this call keeps the key it checked

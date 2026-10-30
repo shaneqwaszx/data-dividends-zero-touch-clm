@@ -5,11 +5,11 @@ import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
-// Real Chromium rendering the actual panel and Knowledge review window against a synthetic
+// Real Chromium rendering the actual panel and the Knowledge Review tab against a synthetic
 // assistant API. The fixture is synthetic; it grants no backend authority or Live-model claim.
-// The fake service keeps the answer record contract: feedback must name the answer_id the
-// stream returned, and only the record linked to a request is served on its request page.
-test("answer records: RM asks, marks it Not helpful, and a Director opens the request page", async ({ page }) => {
+// The fake service keeps the conversation contract (D-105): End conversation must name the
+// conversation the stream returned, and only the record linked to its request is served.
+test("answer records: RM ends the conversation unsatisfied, and Support reviews it", async ({ page }) => {
   test.setTimeout(45000);
   page.setDefaultTimeout(8000);
   const pageErrors: string[] = [];
@@ -22,10 +22,10 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
       import Panel from "./src/pages/AiAssistantPanel";
       import KnowledgeReview from "./src/pages/KnowledgeReview";
       function App() {
-        const [director, setDirector] = useState(false);
-        return director
-          ? <KnowledgeReview onClose={()=>{}} />
-          : <><button onClick={()=>setDirector(true)}>Sign in as the Director</button>
+        const [support, setSupport] = useState(false);
+        return support
+          ? <KnowledgeReview />
+          : <><button onClick={()=>setSupport(true)}>Sign in as Support</button>
               <Panel caseId="case-one" onOpenCases={()=>{}} /></>;
       }
       createRoot(document.getElementById("root")).render(<App/>);
@@ -38,6 +38,7 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
 
   const question = "Explain the registered address difference";
   const answerId = "Ab3_dE5-gH7iJ9kL1mN2oP";
+  const conversationId = "Cv3_dE5-gH7iJ9kL1mN2oP";
   const allowed = [
     { text: "Registry and document differences require the current case decision; neither source automatically overrides the other.", source: "policy" },
     { text: 'The current case offers "Keep registry value".', source: "case" },
@@ -56,6 +57,7 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
   };
   const feedbackBodies: unknown[] = [];
   const gaps: Record<string, unknown>[] = [];
+  const rated: Record<string, unknown>[] = [];
   const recordViews: string[] = [];
 
   const json = (response: import("node:http").ServerResponse, body: unknown, status = 200) => {
@@ -80,19 +82,31 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
       if (url.endsWith("/cases/case-one/chat/stream")) {
         response.setHeader("Content-Type", "application/x-ndjson");
         response.end(JSON.stringify({ type: "done", answer: shownAnswer,
-          answered_by: "case_data", model: null, notice, suggested_questions: [], answer_id: answerId }) + "\n"); return;
+          answered_by: "case_data", model: null, notice, suggested_questions: [], answer_id: answerId,
+          conversation_id: conversationId }) + "\n"); return;
       }
-      if (url.endsWith("/cases/case-one/feedback")) {
-        const sent = JSON.parse(body) as { helpful: boolean; note: string; answer_id?: string };
+      if (url.endsWith(`/conversations/${conversationId}/end`)) {
+        const sent = JSON.parse(body) as { resolved: boolean; satisfaction: string; comment: string };
         feedbackBodies.push(sent);
-        // Like the service: "Not helpful" must name an answer it recorded for this user and case.
-        if (sent.answer_id !== answerId) { json(response, { detail: { code: "NOT_FOUND", message: "No such answer." } }, 404); return; }
-        gaps.push({ id: 1, note: sent.note, blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], fields: [], stages: [],
+        gaps.push({ id: 1, note: sent.comment, blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"], fields: [], stages: [],
           created_at: new Date().toISOString(), answer_id: answerId, question });
-        json(response, { feedback_id: 1, message: "Thanks. This has been flagged so the answer can be improved." }); return;
+        rated.push({ conversation_id: conversationId, case_id: "case-one", title: question,
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ended_at: new Date().toISOString(),
+          resolved: sent.resolved, satisfaction: sent.satisfaction, priority: "high", review_status: "not_reviewed",
+          answers: 1, team: "TEAM_A", user_id: "maya-lim" });
+        json(response, { conversation_id: conversationId, message: "Thanks. Your feedback has been sent so the answers can be improved." }); return;
+      }
+      if (url.includes("/knowledge/conversations?")) {
+        json(response, { items: rated, total: rated.length, page: 1, page_size: 10 }); return;
+      }
+      if (url.endsWith(`/knowledge/conversations/${conversationId}`)) {
+        json(response, { ...rated[0], comment: gaps[0]?.note ?? null, close_reason: null, request: gaps[0] ?? null,
+          draft: null, draft_by: null, draft_at: null,
+          turns: [{ answer_id: answerId, created_at: record.created_at, question, answer: shownAnswer, notices: [notice], answered_by: "case_data" }] });
+        return;
       }
       if (url.endsWith("/knowledge/me")) {
-        json(response, { user_id: "olivia-koh", can_review: true, can_edit_guidance: false, single_reviewer: true }); return;
+        json(response, { user_id: "support-user", can_review: true, can_edit_guidance: false, single_reviewer: true }); return;
       }
       if (url.endsWith("/knowledge/reviews")) { json(response, { pending: [], gaps }); return; }
       if (url.endsWith("/knowledge/stats")) {
@@ -124,40 +138,44 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
   await page.route("**/*", (route) => handleBrowserRoute(route, policy, violations));
   try {
     await page.goto(origin);
-    // The RM asks and marks the answer Not helpful, with the required note.
+    // The RM asks, then ends the conversation: not resolved, very unsatisfied, with how to improve.
     await page.getByRole("button", { name: "Ask AI Assistant", exact: true }).click();
     await expect(page.getByText("Case One · read-only", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: question, exact: true }).click();
     await expect(page.getByText(shownAnswer, { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Not helpful", exact: true }).click();
-    const form = page.locator(".ai-assistant-feedback-form");
-    await form.getByRole("textbox", { name: "What was missing?" }).fill("It did not show the two addresses.");
-    await form.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(page.getByText("Thanks. This has been flagged so the answer can be improved.", { exact: true })).toBeVisible();
-    expect(feedbackBodies).toEqual([{ helpful: false, note: "It did not show the two addresses.", answer_id: answerId }]);
+    await expect(page.getByRole("button", { name: "Not helpful", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "End conversation", exact: true }).click();
+    const form = page.getByRole("form", { name: "End conversation" });
+    await form.getByRole("radio", { name: "No", exact: true }).check();
+    await expect(form.getByRole("radio")).toHaveCount(5); // Yes, No and three ratings
+    await form.getByRole("radio", { name: "Very unsatisfied", exact: true }).check();
+    await form.getByRole("textbox", { name: "How should it be improved?" }).fill("It did not show the two addresses.");
+    await form.getByRole("button", { name: "Submit and end", exact: true }).click();
+    await expect(page.getByText("Thanks. Your feedback has been sent so the answers can be improved.", { exact: true })).toBeVisible();
+    expect(feedbackBodies).toEqual([{ resolved: false, satisfaction: "very_unsatisfied", comment: "It did not show the two addresses." }]);
 
-    // The Director opens the request page; the record is loaded (and the view logged) only then.
-    await page.getByRole("button", { name: "Sign in as the Director", exact: true }).click();
-    // One compact row per request: the question, the note, the blocker types and the age.
-    const requestRow = page.getByRole("button", { name: "Open enhancement request 1", exact: true });
-    await expect(requestRow).toContainText(question);
-    await expect(requestRow).toContainText("It did not show the two addresses.");
-    await expect(requestRow).toContainText("DOCUMENT_SOURCE_CONFLICT · today");
+    // Support opens the conversation; the record is loaded (and the view logged) only then.
+    await page.getByRole("button", { name: "Sign in as Support", exact: true }).click();
+    const row = page.locator(".knowledge-review-table tbody tr");
+    await expect(row).toContainText(question);
+    await expect(row).toContainText("Very unsatisfied");
+    await expect(row).toContainText("High");
+    const review = row.getByRole("button", { name: "Review", exact: true });
     await expect(page.getByRole("group", { name: "Write the fix" })).toHaveCount(0);
     expect(recordViews).toEqual([]);
-    await requestRow.click();
-    await expect(page.getByRole("heading", { name: "Enhancement request 1" })).toBeFocused();
+    await review.click();
+    await expect(page.getByRole("heading", { name: "Review conversation" })).toBeVisible();
     const saw = page.getByRole("region", { name: "What the RM saw" });
     await expect(saw.getByText(question, { exact: true })).toBeVisible();
     await expect(saw.getByText(shownAnswer, { exact: true })).toBeVisible();
     await expect(saw.getByText(notice, { exact: true })).toBeVisible();
     await expect(saw.getByText("It did not show the two addresses.", { exact: true })).toBeVisible();
-    const why = page.getByRole("region", { name: "Why the AI answered this way" });
+    const why = page.getByRole("region", { name: "Information / rules used" });
     const cause = why.getByRole("note", { name: "Suggested cause" });
     await expect(cause).toContainText("Rule-based hint, not a verdict");
     await expect(cause).toContainText("Catalog gap: no allowed line matched");
     await expect(why.locator("del")).toHaveText("The document says [ADDRESS] but ACRA says [ADDRESS].");
-    await why.getByText("All allowed lines (2)", { exact: true }).click();
+    await why.getByText("All rules offered (2)", { exact: true }).click();
     const allowedList = why.locator(".request-page-allowed li");
     await expect(allowedList).toHaveText(allowed.map((line) => `${line.source === "policy" ? "Policy" : "Case"} ${line.text}`));
     // Side by side on a wide screen.
@@ -165,22 +183,24 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
     expect(left && right && right.x > left.x + left.width - 1).toBe(true);
     expect(recordViews).toHaveLength(1);
     // The fix is written on the request page, below what happened.
-    const fix = page.getByRole("region", { name: "Fix this request" });
+    const fix = page.getByRole("region", { name: "Edit how the AI should respond" });
     await expect(fix.getByRole("group", { name: "Write the fix" })).toBeVisible();
     // Started from the AI's answer, with the placeholders to rewrite marked; nothing saved yet.
     await expect(fix.getByRole("note")).toContainText("Started from the AI's answer.");
     await expect(fix.getByRole("textbox", { name: "Title" })).toHaveValue("Document source conflict");
-    await expect(fix.getByRole("textbox", { name: /What resolves it/ })).toHaveValue(record.dropped_lines[0]);
+    await expect(fix.getByRole("textbox", { name: /Guidance text/ })).toHaveValue(record.dropped_lines[0]);
     await expect(fix.locator(".knowledge-review-placeholders mark")).toHaveText(["[ADDRESS]"]);
     // Save waits until the placeholders are rewritten in general terms.
     await expect(fix.locator(".knowledge-review-placeholders")).toHaveText("Rewrite [ADDRESS] in general terms before saving.");
-    await expect(fix.getByRole("button", { name: "Save the fix for review", exact: true })).toBeDisabled();
-    await fix.getByRole("textbox", { name: /What resolves it/ }).fill("Ask the client for proof of the new address before choosing a value.");
-    await expect(fix.getByRole("button", { name: "Save the fix for review", exact: true })).toBeEnabled();
+    await expect(fix.getByRole("button", { name: "Save and publish", exact: true })).toBeDisabled();
+    await expect(fix.getByRole("button", { name: "Save as draft", exact: true })).toBeEnabled();
+    await fix.getByRole("textbox", { name: /Guidance text/ }).fill("Ask the client for proof of the new address before choosing a value.");
+    await fix.getByRole("textbox", { name: "Source reference" }).fill("docs/decisions/DECISION_LOG.md#D-030");
+    await expect(fix.getByRole("button", { name: "Save and publish", exact: true })).toBeEnabled();
     const [columns, fixBox] = [await why.boundingBox(), await fix.boundingBox()];
     expect(columns && fixBox && fixBox.y >= columns.y + columns.height - 1).toBe(true);
-    await page.getByRole("button", { name: "← Back to Knowledge review" }).click();
-    await expect(requestRow).toBeFocused();
+    await page.getByRole("button", { name: "← Back to all conversations" }).click();
+    await expect(review).toBeFocused();
     expect(violations).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {

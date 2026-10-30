@@ -42,6 +42,7 @@ def _repositories():
             "ryan-lee",
             "olivia-koh",
             "hr-admin",
+            "support-user",
         )
     }
     bootstrap_administration(teams, profiles, hashes)
@@ -75,6 +76,7 @@ def test_seed_teams_and_profiles_preserve_ids_with_alpha_beta() -> None:
         "olivia-koh",
         "ryan-lee",
         "sophia-ng",
+        "support-user",
     ]
 
 
@@ -264,7 +266,7 @@ def test_hr_admin_api_creates_dynamic_team_and_safe_profile() -> None:
         ("TEAM_B", "Beta"),
     ]
     assert profiles.status_code == 200
-    assert len(profiles.json()) == 6
+    assert len(profiles.json()) == 7
     assert "credential_hash" not in profiles.text
 
     created_team = client.post(

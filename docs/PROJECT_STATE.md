@@ -1385,3 +1385,84 @@ routing or backend change; the qualification basis stays `33f602653de7…`.
 - **Done:** database-classification Partnership and Government journeys rewritten (E2E); integrated
   acceptance run locally.
 - **Open:** independent Quality Gate to PASS, pre-PR and publication authorisation.
+
+## AI Assistant D-102 Claude ceiling US$30.00 and HR-editable Claude limits (local branch, uncommitted) - 2026-10-29
+
+Delta only. Branch `feat/claude-hr-spending-d102` from main `d90ab6a`; nothing committed, pushed,
+activated or Live, and no paid or network call was made.
+- **Decision:** D-102 (PROPOSED): Claude's ceilings US$30.00 lifetime / US$5.00 a day (20 calls
+  unchanged); HR sets Claude's daily allowance, calls and Anthropic ledger cap on Spending &
+  Limits via Claude-only routes; raises (daily, calls or lifetime) need confirmation and a
+  24-hour reconciliation; a strictly lower lifetime cap is always allowed.
+- **Independent QG:** CONDITIONAL PASS on `f1d32387…` (Low findings only); L1 to L3 remediated
+  at the owner's direction, L4 recorded in D-102 without change; re-review of the amended
+  candidate pending.
+- **Changed:** API (two PUT routes; `claude` block in the budget view), persistence (new
+  `claude_spending_controls` table in the model admin SQLite, additive), configuration bounds,
+  business rule (spending ceilings), frontend (editable Claude panel). No auth/RBAC, connector,
+  mapping or architecture change; GPT-OSS behaviour unchanged.
+- **Qualification:** basis `33f602653de7…` → `4c54e4dd9dbd…`.
+- **Open:** independent Quality Gate, owner acceptance of D-102, commit/publication
+  authorisation; then the separately approved paid qualifications.
+
+## AI Assistant D-102 owner acceptance and latest-main integration (branch `feat/claude-hr-spending-d102-int`, not published) - 2026-10-30
+
+Delta only. D-102 is ACCEPTED by the owner for synthetic-only FYP development (including the
+tightened Claude call-limit raise). The reviewed commit `93d154d` (content `e4f58e36…`, re-QG
+PASS) is cherry-picked onto main `2911b54` (PR #133): application code and tests are
+byte-identical; `docs/PROJECT_STATE.md` merged without conflict, keeping both histories.
+Nothing is pushed, activated or Live; no paid or network call was made.
+- **Evidence:** `.ai-pipeline/reports/D102_QUALITY_GATE.md`, `D102_REQG.md` and
+  `D102_INTEGRATION.md`. The full assistant suite is not a clean PASS on this machine (14
+  Windows `Errno 24` failures, identical on main, passing alone).
+- **Blocker found on main (not D-102):** main `2911b54` fails
+  `test_the_boundary_file_is_current`: PR #133 added the backend string `onboarded`, so the
+  synthetic boundary needs regenerating (one new code word; the qualification basis moves).
+  Not changed here; it needs an owner decision.
+- **Open:** that boundary decision, independent integration QG, `pre_pr_check.py`, owner
+  publication authorisation, then the separately approved paid requalifications.
+
+## AI Assistant D-102 re-integrated after PR #134 (branch `feat/claude-hr-spending-d102-int2`, not published) - 2026-10-30
+
+Delta only. PR #134 (synthetic boundary `onboarded`) is merged to main `25ed072`, resolving the
+boundary blocker recorded above. D-102's two integration commits are replayed onto it with
+byte-identical content; the synthetic boundary is current and the qualification basis is
+`65f22e46c509…`. Evidence `.ai-pipeline/reports/D102_INTEGRATION_R2.md`; the full assistant
+suite still has the 14 Windows `Errno 24` failures (not a clean PASS).
+- **Open:** independent integration QG, owner publication authorisation, then the separately
+  approved paid requalifications.
+
+## AI Assistant D-104 data access policy and provider-neutral D-095 (branch `feat/assistant-data-access-policy`, uncommitted) - 2026-10-30
+
+Delta only. Owner-authorised direction:
+- AI Models gains *Data Access & Privacy* ("Restrict AI to verified synthetic cases").
+  OpenRouter, Anthropic and any model on a non-loopback endpoint (with or without model
+  management) are locked to verified synthetic cases. A loopback local model answers every authorised case by default (D-093
+  unchanged) and is restricted when HR says so or when the policy is unreadable.
+- D-104 A1: Claude's D-095 mode no longer depends on OpenRouter's endpoint, reasoning settings
+  or attestations. GPT-OSS's mode is unchanged.
+- Each policy change and its audit row are written atomically.
+- The qualification basis moves `65f22e46c509…` → `598cfe14753d…`, so every current
+  qualification, including Claude Balanced's, goes out of date once this runs.
+- Evidence class: offline mock and local only.
+- **Open:** independent QG of the final candidate, the owner's commit and publication
+  authorisation, `pre_pr_check.py` on the commit, then separately approved paid requalification.
+
+## AI Assistant D-106 HR session keys and qualification progress (branch `feat/assistant-session-credentials-int` on main `1c6ec4f`, uncommitted) - 2026-10-30
+
+Delta only. Owner-approved (D-106):
+- AI Models → Providers has a key section for OpenRouter and one for Anthropic (shared by
+  Claude Balanced and Fast). Each has a masked input, Save for Session, Clear Session Key and
+  Test Connection, and shows the key's source, status, expiry and fallback.
+- Key order: HR session key, then the process environment, then `.env`. The HR key lives in
+  memory only and is checked against that HR session's own `/api/auth/me` before each use.
+  Sign-out, expiry, revocation, Clear or a restart drops it. A server key is used after it only
+  once the provider's existing preflight identity checks pass. A qualification process gets
+  the key on standard input only.
+- Qualifications & Recovery shows a spinner, server turn counts as a progress bar
+  (indeterminate without a total), the provider, the stage, the active model and the final result.
+- The qualification basis moves `2c9d72cf0ae4…` → `7e386b8a69e1…`, so Claude Balanced needs
+  one new authorised technical qualification on the merged code.
+- Evidence class: offline mock and local only.
+- **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge,
+  then the authorised Claude Balanced qualification, activation and one Garden RM verification.

@@ -229,7 +229,8 @@ def preflight(
         owner_attests_prompt_logging_off="prompt_logging_off" in attestations(settings),
         fetch=fetch,
     )
-    _remember_provider(result[0])
+    # D-106: the reading holds for this key only (a session key may end and release another).
+    _remember_provider(result[0], key_sources.identity(key_sources.resolve(environ)[0]))
     return result
 
 
@@ -245,11 +246,12 @@ def forget_provider() -> None:
         _provider.clear()
 
 
-def _remember_provider(report: Preflight) -> None:
+def _remember_provider(report: Preflight, key: str | None = None) -> None:
     checks = [c for c in report.checks if c.name.startswith(("key.", "gate.account"))]
     with _provider_lock:
         _provider.clear()
         _provider.update(
+            key=key,
             checked_at=time.time(),
             passed=bool(checks) and all(c.ok for c in checks),
             remaining_micro_usd=report.key_remaining_micro_usd,
@@ -324,7 +326,8 @@ class RemoteTestModel:
         """The key marker and the key source for one call: the key is read once, so the
         preflight checks the very key the call then uses (a test mapping is kept as is)."""
 
-        key = key_sources.resolve(self._environ)[0]
+        # D-106: an HR session's key is checked against that session for every call.
+        key = key_sources.resolve(self._environ, max_age=0)[0]
         if self._environ is not None or key is None:
             return key_sources.identity(key), self._environ
         return key_sources.identity(key), {key_sources.CREDENTIAL_VARIABLE: key.get_secret_value()}
@@ -504,12 +507,14 @@ def budget_status(
         "daily_cap_default_micro_usd": DEFAULT_DAILY_CAP_MICRO_USD,
         "daily_cap_micro_usd": settings.budget_daily_cap_micro_usd,
     }
-    _, credential = key_sources.resolve(environ)
+    key, credential = key_sources.resolve(environ)
     view["credential"] = credential.view()
     now = time.time()
     view["next_reset_at"] = _iso(next_singapore_reset_ms(int(now * 1000)) / 1000)
     with _provider_lock:
         provider = dict(_provider)
+    if provider and provider.get("key") != key_sources.identity(key):
+        provider = {}  # D-106: another key's reading
     view["provider"] = (
         {
             "checked_at": _iso(provider["checked_at"]),

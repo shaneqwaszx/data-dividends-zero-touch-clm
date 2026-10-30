@@ -16,6 +16,7 @@ With the knowledge store on, every answer except small talk is saved as an answe
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -46,6 +47,7 @@ from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
+from .data_access import REFUSAL_NOTICES as POLICY_REFUSALS
 from .guardrails import (
     LEFT_OUT_REASON,
     StreamingGuard,
@@ -54,8 +56,9 @@ from .guardrails import (
     validate_answer,
     with_required_lines,
 )
+from .knowledge.models import Entry, EntryKind, EntryStatus
 from .knowledge.redaction import Redactor, case_parties
-from .knowledge.retrieval import Retriever, case_context, settings_from
+from .knowledge.retrieval import Hit, Retriever, case_context, settings_from
 from .knowledge.service import KnowledgeBase
 from .knowledge_answers import (
     ShownKnowledge,
@@ -84,6 +87,7 @@ from .model_factory import build_chat_model
 from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
 from .remote_test import is_remote_test_model
 from .small_talk import small_talk_reply
+from .support_chat import answer_support_question
 from .synthetic_boundary import approved_entry
 from .synthetic_boundary import check as synthetic_boundary_check
 from .synthetic_eligibility import check as synthetic_eligibility_check
@@ -124,6 +128,40 @@ class ChatRequest(BaseModel):
     earlier_answer_ids: list[Annotated[str, Field(pattern=ANSWER_ID)]] = Field(
         default_factory=list, max_length=40
     )
+    # The conversation this question continues (D-105). Kept only when it is this user's open
+    # conversation on this case; otherwise the answer starts a new one.
+    conversation_id: str | None = Field(default=None, pattern=ANSWER_ID)
+
+
+class SupportChatRequest(BaseModel):
+    """Support's question without a case (D-105): only the question and the chat so far."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=4000)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=40)
+
+
+class TryChangeRequest(BaseModel):
+    """An unsaved rule change to preview on a rated conversation's question (D-105)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["guidance", "resolution"] = "guidance"
+    title: str = Field(default="", max_length=200)
+    body: str = Field(min_length=1, max_length=4000)
+    entry_id: str | None = Field(default=None, max_length=90)
+    blocker_codes: list[Annotated[str, Field(max_length=80)]] | None = Field(
+        default=None, max_length=20
+    )
+    fields: list[Annotated[str, Field(max_length=80)]] | None = Field(default=None, max_length=20)
+    stages: list[Annotated[str, Field(max_length=80)]] | None = Field(default=None, max_length=20)
+    # Another question to try; the conversation's first question when left out.
+    question: str | None = Field(default=None, max_length=600)
+
+
+# Support's chat without a case reads the approved rules and the policy (D-105).
+SUPPORT_CHAT_CAPABILITY = "KNOWLEDGE_REVIEW"
 
 
 class BriefResponse(BaseModel):
@@ -184,6 +222,8 @@ class ChatResponse(BaseModel):
     # The server's record of this answer (none for small talk, or with the knowledge store
     # off); "Not helpful" sends it back.
     answer_id: str | None = None
+    # The conversation the answer record joined (D-105); "End conversation" rates it.
+    conversation_id: str | None = None
     # A fixed small-talk reply: it never has a record, so a missing answer_id is expected.
     small_talk: bool = False
 
@@ -223,6 +263,8 @@ _REMOTE_REFUSALS = (
     REMOTE_ELIGIBILITY_NOTICE,
     CLAUDE_NOTICES.boundary,
     CLAUDE_NOTICES.eligibility,
+    # D-104: a local or IT-configured model under the data access policy says so (QG L1).
+    *POLICY_REFUSALS,
 )
 
 
@@ -512,6 +554,10 @@ def create_app(
         user = profile.get("user_id")
         if not user:
             return response
+        # D-105: Support's investigation chat on a review page (no CASE_ACCESS, only the
+        # read-only redaction access) is not a user conversation: nothing is recorded.
+        if "CASE_ACCESS" not in (profile.get("capabilities") or []):
+            return response
         validation = outcome.validation
         try:
             limit = config.max_history_messages
@@ -521,12 +567,14 @@ def create_app(
                 case_id=str(case_id),
             )
             redact = Redactor(prep.facts, parties=case_parties(snapshot.summary)).redact
-            answer_id = answers.save(
+            saved = answers.save(
                 {
                     "id": new_answer_id(),
                     "case_id": str(case_id),
                     "user_id": str(user),
                     "team": profile.get("team_id"),
+                    "role": profile.get("role"),
+                    "conversation_id": body.conversation_id,
                     "question": prep.question,
                     "earlier_answer_ids": earlier,
                     "case_snapshot": case_snapshot(prep.facts),
@@ -567,10 +615,20 @@ def create_app(
         except Exception:  # a record must never break the answer
             log.exception("answer record failed")
             return response
-        return response.model_copy(update={"answer_id": answer_id})
+        if saved is None:
+            return response
+        answer_id, conversation_id = saved
+        return response.model_copy(
+            update={"answer_id": answer_id, "conversation_id": conversation_id}
+        )
 
     def prepare(
-        body: ChatRequest, snapshot: CaseSnapshot, question: str, *, remote: bool = False
+        body: ChatRequest,
+        snapshot: CaseSnapshot,
+        question: str,
+        *,
+        remote: bool = False,
+        trial: Entry | None = None,
     ) -> Prepared:
         """``remote``: the active model is the D-094 remote test model, so only repository
         guidance and the synthetic seed, unchanged, may be used (synthetic_boundary.py)."""
@@ -593,6 +651,17 @@ def create_app(
             except Exception:  # knowledge is optional: never let it break an answer
                 log.exception("knowledge retrieval failed")
             retrieval_ms = round((time.monotonic() - began) * 1000)
+        if trial is not None:
+            # D-105 "Try with this change": Support's unsaved rule, offered as if approved,
+            # first, in place of the version it would replace; for this preview only.
+            tagged = [item for item in tagged if item.hit.entry.entry_id != trial.entry_id]
+            letter = "G" if trial.kind == EntryKind.GUIDANCE else "P"
+            taken = {item.tag for item in tagged}
+            number = 1
+            while f"{letter}{number}" in taken:
+                number += 1
+            hit = Hit(entry=trial, score=1.0, parts={})
+            tagged = [TaggedHit(f"{letter}{number}", hit), *tagged]
         shown = shown_knowledge(tagged, facts)
         fallback = fallback_answer(question, facts)
         summary = guidance_summary(tagged, shown)
@@ -703,7 +772,10 @@ def create_app(
             return active.model, None
         notices: Notices = getattr(active.model, "notices", REMOTE_NOTICES)
         entries = [item.hit.entry for item in prep.tagged]
-        if synthetic_dev_mode(config):
+        # D-104 A1: a model that decides D-095 mode itself (Claude, a policy-restricted model)
+        # does so on the shared interlocks; GPT-OSS keeps the OpenRouter-ready mode.
+        development = getattr(active.model, "development_mode", None)
+        if development() if development is not None else synthetic_dev_mode(config):
             # D-095: any verified synthetic development case, by provenance. The document
             # digests are read only here, with the RM's own session.
             digests = backend.load_document_digests(case_id, session) if snapshot.documents else []
@@ -885,6 +957,116 @@ def create_app(
         finally:
             outcome.cancelled = not delivered
             emit("stream", started, outcome, prep)
+
+    @app.post("/assistant/knowledge/conversations/{conversation_id}/try")
+    def try_change(
+        conversation_id: str, body: TryChangeRequest, request: Request
+    ) -> dict[str, Any]:
+        """D-105: Support previews how the user's question would be answered with an unsaved
+        rule change. Nothing is saved or published, no record is kept, and only the local
+        model is used (the remote test model's gates admit only approved repository text)."""
+
+        check_origin(request)
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        try:
+            profile = backend.load_actor(session)["profile"]
+        except ClmBackendError as exc:
+            raise backend_error(exc) from None
+        if SUPPORT_CHAT_CAPABILITY not in (profile.get("capabilities") or []):
+            raise HTTPException(
+                403, detail={"code": "FORBIDDEN", "message": "You are not allowed to do this."}
+            )
+        row = (
+            knowledge.store.conversation(conversation_id)
+            if knowledge is not None and re.fullmatch(ANSWER_ID, conversation_id)
+            else None
+        )
+        everywhere = profile.get("role") == "SUPPORT" and not profile.get("team_id")
+        if (
+            row is None
+            or row["ended_at"] is None
+            or not (everywhere or row["team"] == profile.get("team_id"))
+        ):
+            raise HTTPException(
+                404, detail={"code": "NOT_FOUND", "message": "No such conversation."}
+            )
+        snapshot = load_case(UUID(row["case_id"]), request)
+        facts = build_case_facts(snapshot)
+        ctx = case_context(facts)
+        redact = Redactor(facts, parties=case_parties(snapshot.summary)).redact
+        trial = Entry(
+            entry_id=body.entry_id or "trial.unsaved-change",
+            kind=EntryKind(body.kind),
+            title=redact(" ".join(body.title.split())) or "Unsaved change",
+            body=redact(body.body.strip()),
+            status=EntryStatus.APPROVED,
+            blocker_codes=tuple(body.blocker_codes or ctx.blocker_codes),
+            fields=tuple(body.fields or ctx.fields),
+            stages=tuple(body.stages or ctx.stages),
+            author=str(profile.get("user_id") or ""),
+        )
+        question = (body.question or row["title"]).strip()[: config.max_question_chars]
+        prep = prepare(ChatRequest(message=question), snapshot, question, trial=trial)
+        active = selector.current()
+        model = None if is_remote_test_model(active.model) else active.model
+        reply = answer_with_model(prep, _Outcome(model=model))
+        tag = prep.tagged[0].tag if prep.tagged else None
+        offered = [line for line in prep.shown.lines if tag and line.endswith(f" [{tag}]")]
+        return {
+            "question": question,
+            "answer": reply.answer,
+            "answered_by": reply.answered_by,
+            "notice": reply.notice,
+            "tag": tag,
+            # Sentences of the change the AI may use on this case (they passed the checks),
+            # and whether the answer used any of them.
+            "offered_lines": offered,
+            "used": bool(tag) and f"[{tag}]" in reply.answer,
+        }
+
+    @app.post("/assistant/support/chat", response_model=ChatResponse)
+    def support_chat(body: SupportChatRequest, request: Request) -> ChatResponse:
+        """D-105: Support asks about the approved rules and the active policy, no case."""
+
+        check_origin(request)
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        try:
+            profile = backend.load_actor(session)["profile"]
+            if SUPPORT_CHAT_CAPABILITY not in (profile.get("capabilities") or []):
+                raise HTTPException(
+                    403,
+                    detail={"code": "FORBIDDEN", "message": "You are not allowed to do this."},
+                )
+            catalogue = backend.load_policies(session)
+        except ClmBackendError as exc:
+            raise backend_error(exc) from None
+        question = body.message.strip()[: config.max_question_chars]
+        history = [
+            {"role": turn.role, "content": turn.content}
+            for turn in body.history[-config.max_history_messages :]
+        ] if config.max_history_messages else []
+        reply = answer_support_question(
+            question,
+            history,
+            role=profile.get("role"),
+            team=profile.get("team_id"),
+            retriever=retriever,
+            catalogue=catalogue,
+            model=selector.current().model,
+        )
+        return ChatResponse(
+            answer=reply.answer,
+            answered_by="model" if reply.answered_by == "model" else "case_data",
+            model=reply.model,
+            notice=reply.notice,
+            suggested_questions=[],
+            checks=AnswerChecks(
+                removed=[LEFT_OUT_REASON] if reply.left_out else [], disclosures=[]
+            )
+            if reply.answered_by == "model"
+            else None,
+            sources=[KnowledgeSource(**source) for source in reply.sources],
+        )
 
     if knowledge is not None and config.knowledge_enabled:
         from .knowledge_api import knowledge_router

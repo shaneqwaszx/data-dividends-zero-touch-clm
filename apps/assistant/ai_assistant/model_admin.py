@@ -14,6 +14,7 @@ qualification, activation, rollback and an audit history.
                                GET  /assistant/admin/models/credential      (D-095 addendum)
                                PUT  /assistant/admin/models/credential
                                DELETE /assistant/admin/models/credential
+                               GET|PUT|DELETE .../credential/anthropic      (D-106)
                                PUT  /assistant/admin/models/budget/controls     (D-096)
                                PUT  /assistant/admin/models/budget/lifetime-cap
                                POST /assistant/admin/models/budget/provider-refresh
@@ -22,9 +23,10 @@ Who is asking, and whether they hold ``MODEL_CONFIG_MANAGE``, always comes from 
 backend with the caller's own session; activation and rollback ask again inside the lock
 that applies them. Refusals of a signed-in caller are audited. Nothing here reads a case or
 an answer record, and the browser can only name a profile id, except that an HR
-administrator may hand the server an OpenRouter key when no environment or .env key exists
-(key_sources.py): it is kept in server memory only and never sent back, logged or audited;
-changing it needs the Origin header of an allowed page and is rate limited.
+administrator may hand the server an OpenRouter or an Anthropic key (D-106, key_sources.py):
+it is kept in server memory only, bound to that administrator's own session (used before an
+environment or .env key, dropped when the session ends) and never sent back, logged or
+audited; changing it needs the Origin header of an allowed page and is rate limited.
 
 D-096: an HR administrator also sets the remote model's spending controls here: the daily
 allowance per Singapore day and the calls per activation (1 to 200), stored in the model state
@@ -50,7 +52,6 @@ answer and an administrator decides.
 
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
@@ -63,9 +64,9 @@ from typing import Annotated, Any
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
-from . import anthropic_profiles, anthropic_runtime, key_sources
+from . import anthropic_profiles, anthropic_runtime, data_access, key_sources
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
     MAX_MICRO_USD,
@@ -77,15 +78,20 @@ from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .llm import ChatModel, OpenAICompatibleChatModel
 from .model_admin_store import (
+    CLAUDE_DAILY_CAP_RANGE,
+    CLAUDE_MAX_CALLS_RANGE,
     DAILY_CAP_MAX_MICRO_USD,
     MAX_CALLS_RANGE,
     Activation,
     Choice,
+    DataAccessPolicy,
     ModelAdminStore,
     QualificationBusy,
     RevisionConflict,
     SpendingControls,
+    apply_claude_controls,
     apply_controls,
+    valid_claude_controls,
     valid_controls,
 )
 from .model_catalog import (
@@ -172,11 +178,14 @@ MESSAGES = {
     "REMOTE_MANIFEST_MISSING": (
         "The paid qualification's question list and count are not configured on the server."
     ),
-    "CREDENTIAL_INVALID": "That is not an OpenRouter API key. Nothing was saved.",
-    "CREDENTIAL_ENVIRONMENT_MANAGED": (
-        "The OpenRouter key is set on the server (environment or .env) and cannot be changed here."
+    "CREDENTIAL_INVALID": (
+        "That is not an API key for this provider (an inference key only). Nothing was saved."
     ),
     "CREDENTIAL_NOT_HR_MANAGED": "There is no key entered here to clear.",
+    "CREDENTIAL_SESSION_UNVERIFIED": (
+        "The session key cannot be used now: the HR session that entered it cannot be checked."
+        " Nothing started."
+    ),
     "CREDENTIAL_RATE_LIMITED": "Too many key changes. Wait a few minutes and try again.",
     "ORIGIN_REQUIRED": "This change must come from the AI Models page.",
     # D-096: HR spending controls.
@@ -232,6 +241,50 @@ MESSAGES = {
     "QUALIFICATION_SUPERSEDED": (
         "A later qualification of this configuration failed on answer quality."
     ),
+    # D-102: Claude's own spending changes (the same codes, worded for the Anthropic ledger).
+    "CONTROLS_INVALID_ANTHROPIC": (
+        "Claude's daily limit must be more than US$0.00 and at most US$5.00, and its call limit"
+        " 1 to 20. Nothing changed."
+    ),
+    "CAP_OUT_OF_RANGE_ANTHROPIC": (
+        "Claude's lifetime limit must be above the workspace's opening usage and at most the"
+        " lower of US$30.00 and the attested workspace limit. Nothing changed."
+    ),
+    "RECONCILIATION_REQUIRED_ANTHROPIC": (
+        "Claude's ledger must be reconciled with the Anthropic Console's usage within the last"
+        " day (no open call, no stop) before a Claude limit can be raised. Nothing changed."
+    ),
+    "CALLS_CONFIRMATION_REQUIRED": ("Confirm the new call limit to raise it. Nothing changed."),
+    "CLAUDE_NOT_READY": (
+        "Claude is not fully configured on this server, so its limits can only be lowered."
+        " Nothing changed."
+    ),
+    # Data access policy (data_access.py).
+    "EXTERNAL_DATA_POLICY_LOCKED": (
+        "External models (OpenRouter and Anthropic) are restricted to verified synthetic cases"
+        " on this deployment; this setting cannot change that. Nothing changed."
+    ),
+    "DATA_ACCESS_POLICY_UNAVAILABLE": (
+        "The data access policy could not be read, so local models are restricted to verified"
+        " synthetic cases until IT repairs it. Nothing changed."
+    ),
+    "DATA_ACCESS_POLICY_CONFLICT": (
+        "The data access policy changed since this view. Refresh and try again."
+    ),
+    "DATA_ACCESS_RATE_LIMITED": (
+        "Too many data access policy changes. Wait a few minutes and try again."
+    ),
+    "WIDEN_CONFIRMATION_REQUIRED": (
+        "Confirm that the local model may answer every case you are authorised to see."
+        " Nothing changed."
+    ),
+}
+
+# D-102: which message a Claude spending refusal shows (its code is returned unchanged).
+CLAUDE_MESSAGE_CODES = {
+    "CONTROLS_INVALID": "CONTROLS_INVALID_ANTHROPIC",
+    "CAP_OUT_OF_RANGE": "CAP_OUT_OF_RANGE_ANTHROPIC",
+    "RECONCILIATION_REQUIRED": "RECONCILIATION_REQUIRED_ANTHROPIC",
 }
 
 
@@ -245,6 +298,10 @@ def _refusal(status: int, code: str, message_code: str | None = None) -> HTTPExc
             "message": MESSAGES.get(message_code or code, MESSAGES["BUILD_FAILED"]),
         },
     )
+
+
+def _claude_refusal(status: int, code: str) -> HTTPException:
+    return _refusal(status, code, CLAUDE_MESSAGE_CODES.get(code))
 
 
 @dataclass(frozen=True)
@@ -275,15 +332,24 @@ class ModelSelector:
         *,
         environ: dict[str, str] | None = None,
         transport: object = None,
+        restrict_remote: bool = False,
     ) -> None:
         self.settings = settings
         self.store = store
+        # D-104 (re-QG M1): a model on a non-loopback endpoint is restricted with or without a
+        # state database. Only a model passed in by tests or the evaluation harness is exempt.
+        self.restrict_remote = restrict_remote or store is not None
         self.environ = environ
         self.transport = transport
         # The public listing reader for the D-094 preflight (tests replace it).
         self.fetch: Callable[[str], Any] | None = None
         # Starts the qualification process for a recorded run (tests run it in-process).
         self.launch: Callable[[str], Any] = self._launch_process
+        # D-106: per run started here, the provider whose HR key it may be handed (set before
+        # launch), and the key it was handed (provider: generation), so its supervisor ends it
+        # once that key is cleared or replaced or its HR session ends.
+        self.handoff_providers: dict[str, str] = {}
+        self.handoffs: dict[str, dict[str, int]] = {}
         self._baseline_model = baseline_model
         self.baseline = baseline_entry(settings)
         self._lock = threading.Lock()
@@ -292,6 +358,7 @@ class ModelSelector:
         # Which HR spending controls (model object, revision) the active model runs with.
         self._controls_lock = threading.Lock()
         self._controls_applied: tuple[int, int] | None = None
+        self._claude_controls_applied: tuple[int, int] | None = None
         self._active = self._baseline(0)
         # D-098: how many qualification runs had finished when the active model was last
         # checked (None: never), so a newly finished run is noticed by every process.
@@ -317,7 +384,10 @@ class ModelSelector:
         path = profiles_path(self.settings)
         if not QUALIFY_SCRIPT.is_file() or path is None:
             raise ProfileConfigError("QUALIFICATION_UNAVAILABLE", "the harness is not installed")
-        return subprocess.Popen(
+        payload, generations = qualification_handoff(
+            self.handoff_providers.pop(qualification_id, None)
+        )
+        handle = subprocess.Popen(
             [
                 sys.executable,
                 str(QUALIFY_SCRIPT),
@@ -329,11 +399,25 @@ class ModelSelector:
                 str(path),
             ],
             cwd=ASSISTANT_DIR,
-            env=qualification_environment(),
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        # D-106: HR keys only through this pipe (never the command line or the environment).
+        pipe = handle.stdin
+        try:
+            if pipe is None:
+                raise OSError("no standard input")
+            pipe.write(payload)
+            pipe.close()
+        except OSError:
+            handle.kill()
+            handle.wait()
+            raise
+        finally:
+            del payload
+        self.handoffs[qualification_id] = generations
+        return handle
 
     def baseline_choice(self) -> Choice:
         return Choice(BASELINE_ID, self.baseline.fingerprint)
@@ -354,7 +438,39 @@ class ModelSelector:
 
         active = self._current()
         self.sync_controls(active)
-        return active
+        return self._with_data_access(active)
+
+    # --- data access policy ---------------------------------------------------------------
+
+    def data_access_policy(self) -> DataAccessPolicy | None:
+        # The stored policy (revision 0 when never set), or None when unreadable. Comments,
+        # not docstrings, in the D-104 additions (data_access.py says why).
+        if self.store is None:
+            return DataAccessPolicy(0, False, None, None)
+        try:
+            return self.store.data_access_policy()
+        except Exception:
+            log.error("data access policy unavailable; local models restricted until it is")
+            return None
+
+    def _with_data_access(self, active: Active) -> Active:
+        # A local or IT-configured model under the policy's restriction (or an unreadable
+        # policy) answers only cases that pass the shared synthetic gate (data_access.py).
+        # External models are restricted by their own code; without a store nothing changes.
+        # A model on an endpoint that is not literal loopback is restricted whatever the policy,
+        # with or without a state database (restrict_remote).
+        if active.model is None:
+            return active
+        kind = data_access.model_class(active.model, active.base_url)
+        if kind == data_access.LOCAL_CLASS:
+            if self.store is None or not data_access.local_restricted(self.data_access_policy()):
+                return active
+        elif kind != data_access.IT_CLASS or not self.restrict_remote:
+            return active
+        model = data_access.SyntheticOnlyModel(
+            active.model, self.settings, local=kind == data_access.LOCAL_CLASS
+        )
+        return replace(active, model=model)
 
     def _current(self) -> Active:
         if self.store is None:
@@ -419,6 +535,23 @@ class ModelSelector:
 
         return apply_controls(self.settings, self.spending_controls())
 
+    def claude_spending_controls(self) -> SpendingControls | None:
+        """D-102: Claude's stored controls (revision 0 when never set), None when unreadable."""
+
+        if self.store is None:
+            return SpendingControls(0, None, None, None, None)
+        try:
+            return self.store.claude_spending_controls()
+        except Exception:
+            log.error("Claude spending controls unavailable; no Claude call until they are")
+            return None
+
+    def claude_controlled(self) -> AiAssistantSettings:
+        """D-102: the settings a Claude configuration runs with (HR values in place of the
+        environment defaults; unreadable controls fail closed). Never GPT-OSS's controls."""
+
+        return apply_claude_controls(self.settings, self.claude_spending_controls())
+
     def sync_controls(self, active: Active | None = None) -> None:
         """Put the current HR controls into the active remote model in place, so a change
         applies without a restart or a new activation and its call count is kept.
@@ -430,6 +563,9 @@ class ModelSelector:
 
         current = active or self._active
         model = current.model
+        if isinstance(model, anthropic_runtime.ClaudeTestModel):
+            self._sync_claude(model)
+            return
         if not isinstance(model, RemoteTestModel):
             return
         # Read inside the lock that applies them, so a late reader can never put an older
@@ -449,14 +585,38 @@ class ModelSelector:
                     inner._daily_cap = settings.budget_daily_cap_micro_usd  # noqa: SLF001
             self._controls_applied = key
 
+    def _sync_claude(self, model: anthropic_runtime.ClaudeTestModel) -> None:
+        # D-102: as above for an active Claude configuration and its own controls. The daily
+        # cap is still enforced by the Anthropic ledger inside its admission transaction.
+        with self._controls_lock:
+            controls = self.claude_spending_controls()
+            key = (id(model), controls.revision if controls is not None else -1)
+            if self._claude_controls_applied == key and controls is not None:
+                return
+            settings = apply_claude_controls(self.settings, controls)
+            with model._lock:  # noqa: SLF001 - see sync_controls
+                model._settings = settings  # noqa: SLF001
+                inner = model._inner  # noqa: SLF001
+                if isinstance(inner, BudgetedChatModel):
+                    inner._daily_cap = settings.anthropic_daily_cap_micro_usd  # noqa: SLF001
+            self._claude_controls_applied = key
+
+    def claude_calls_used(self) -> int | None:
+        """D-102: calls an active Claude configuration made (as its call limit counts them);
+        None when no Claude configuration is active. Read-only."""
+
+        model = self._active.model
+        if isinstance(model, anthropic_runtime.ClaudeTestModel):
+            return model.calls_used()
+        return None
+
     def calls_used(self) -> int | None:
         """Calls the active remote model made since its activation or this service's start
         (open calls included), as its own call limit counts them; None when it is not active.
         Read-only: the ledger is checked, never recovered or changed."""
 
         model = self._active.model
-        if isinstance(model, anthropic_runtime.ClaudeTestModel):
-            return model.calls_used()
+        # QG L3: a Claude configuration's calls are Claude's (claude_calls_used), never GPT-OSS's.
         if not isinstance(model, RemoteTestModel):
             return None
         ledger = BudgetLedger(model._ledger_file)  # noqa: SLF001 - see sync_controls
@@ -641,7 +801,7 @@ class ModelSelector:
 
         if entry.deployment == "anthropic":
             return anthropic_runtime.connection_check(
-                self.settings, within_seconds=within_seconds, **self.claude_options()
+                self.claude_controlled(), within_seconds=within_seconds, **self.claude_options()
             )
         return connection_check(entry.settings_for(self.controlled()), **self.remote_options())
 
@@ -675,11 +835,11 @@ class ModelSelector:
         if entry.source == "code":
             # D-094: the remote model, gated per call and per case (remote_test.py). D-099: a
             # Claude configuration under its own Anthropic safeguards (anthropic_runtime.py);
-            # the HR spending controls are GPT-OSS's and never apply to it.
+            # GPT-OSS's HR spending controls never apply to it, only Claude's own (D-102).
             try:
                 remote: ChatModel = (
                     anthropic_runtime.ClaudeTestModel(
-                        self.settings, entry.profile_id, **self.claude_options()
+                        self.claude_controlled(), entry.profile_id, **self.claude_options()
                     )
                     if entry.deployment == "anthropic"
                     else RemoteTestModel(
@@ -760,15 +920,50 @@ class ModelSelector:
             raise ProfileConfigError(problem or "BUILD_FAILED", "activation undone")
 
 
-def qualification_environment() -> dict[str, str] | None:
-    """The qualification process's environment: this one's, plus an HR-entered key (which only
-    this process's memory holds) as OPENROUTER_API_KEY. Never on its command line; None (the
-    inherited environment) when the key comes from the environment or .env, or there is none."""
+HANDOFF_STORES = {"openrouter": "HR_STORE", "anthropic": "ANTHROPIC_STORE"}
 
-    key, status = key_sources.resolve()
-    if key is None or status.source != "hr_memory":
-        return None
-    return {**os.environ, key_sources.CREDENTIAL_VARIABLE: key.get_secret_value()}
+
+def hr_store(provider: str) -> key_sources.HrCredential:
+    store: key_sources.HrCredential = getattr(key_sources, HANDOFF_STORES[provider])
+    return store
+
+
+def handoff_provider(entry: CatalogueEntry) -> str | None:
+    """Whose HR key a qualification of this configuration may use (None: a local model)."""
+
+    if entry.deployment == "anthropic":
+        return "anthropic"
+    return "openrouter" if entry.source == "code" else None
+
+
+def qualification_handoff(provider: str | None) -> tuple[bytes, dict[str, int]]:
+    """D-106: the qualified provider's HR key (only this process's memory holds it), as one
+    JSON object for the qualification process's standard input, and its generation, checked
+    against the HR session first. A key whose session cannot be checked now refuses the start
+    (``CREDENTIAL_SESSION_UNVERIFIED``): the run never falls back to a server key in its place.
+    The process inherits this one's environment unchanged, so a server key reaches it as
+    before when no HR key exists."""
+
+    if provider is None:
+        return b"{}", {}
+    entry = hr_store(provider).current(max_age=0)
+    if entry.held:
+        raise ProfileConfigError("CREDENTIAL_SESSION_UNVERIFIED", "the HR session is unchecked")
+    if entry.key is None:
+        return b"{}", {}
+    payload = json.dumps({provider: entry.key.get_secret_value()}).encode("utf-8")
+    return payload, {provider: entry.generation}
+
+
+def handoff_revoked(generations: dict[str, int]) -> bool:
+    """Whether a key handed to a running qualification was cleared, replaced or dropped with
+    its HR session (or its session cannot be checked now)."""
+
+    for provider, generation in generations.items():
+        entry = hr_store(provider).current()
+        if entry.key is None or entry.generation != generation:
+            return True
+    return False
 
 
 def _last_good(stored: Activation) -> Choice | None:
@@ -896,6 +1091,10 @@ def diagnose(item: dict[str, Any], *, current: bool = True) -> Diagnosis:
         return Diagnosis("billing_uncertain", code, "ESCALATE_OPERATOR")
     if code in _TECHNICAL_ERRORS:
         return Diagnosis("technical", code, "RUN_AGAIN", retryable=True)
+    if code == "CREDENTIAL_REVOKED":
+        # D-106: the HR session key it was given ended (sign-out, expiry, clearing): a key is
+        # needed again and Test connection must pass before a retry. Nothing about the model.
+        return Diagnosis("configuration", code, "TEST_CONNECTION")
     if code == "CONFIG_MISMATCH":
         # The settings or the answer code changed while it ran: qualify the current ones.
         return Diagnosis("configuration", code, "RUN_AGAIN", retryable=True)
@@ -1076,7 +1275,7 @@ def open_selector(
     passed in (tests and the evaluation harness keep a fixed model)."""
 
     if injected or not settings.llm_enabled or not settings.model_profiles_file:
-        return ModelSelector(settings, baseline_model)
+        return ModelSelector(settings, baseline_model, restrict_remote=not injected)
     return ModelSelector(settings, baseline_model, ModelAdminStore(store_file(settings)))
 
 
@@ -1110,6 +1309,24 @@ class SpendingControlsRequest(BaseModel):
     max_calls: StrictInt
     # D-098: a raise of the daily limit needs the same amount again (the HR confirmation).
     confirm_daily_cap_micro_usd: StrictInt | None = None
+
+
+class ClaudeSpendingControlsRequest(SpendingControlsRequest):
+    """D-102: Claude's controls. A raise of the call limit also needs the same number again
+    (QG L1); GPT-OSS's request model is unchanged."""
+
+    confirm_max_calls: StrictInt | None = None
+
+
+class DataAccessRequest(BaseModel):
+    # Restrict AI to verified synthetic cases, per provider class. restrict_external must stay
+    # true (locked); letting a restricted local model answer every case needs confirm_widen.
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: StrictInt = Field(ge=0)
+    restrict_external: StrictBool = True
+    restrict_local: StrictBool
+    confirm_widen: StrictBool = False
 
 
 class LifetimeCapRequest(BaseModel):
@@ -1160,6 +1377,23 @@ def model_admin_router(
         return profile
 
     Admin = Annotated[dict[str, Any], Depends(admin)]
+
+    def hr_session_live(session: SecretStr, user_id: str) -> bool | None:
+        # D-106: the session that entered an HR key, asked about with its own cookie (an RM's
+        # session is never used for this): live only while the same user is signed in and may
+        # still manage AI models. Ended, expired or revoked: False. Unreachable: None.
+        try:
+            actor = backend.load_actor(session.get_secret_value())
+        except ClmBackendError as exc:
+            return False if exc.status_code in (401, 403, 404) else None
+        except Exception:  # noqa: BLE001 - an unexpected reply holds the key back
+            return None
+        current = actor["profile"]
+        return current.get("user_id") == user_id and CAPABILITY in (
+            current.get("capabilities") or []
+        )
+
+    key_sources.install_session_check(hr_session_live)
 
     def recheck(request: Request, profile: dict[str, Any], action: str) -> None:
         """Ask the backend again inside the change lock: same user, still allowed."""
@@ -1275,6 +1509,17 @@ def model_admin_router(
             return [entry.reason or "PROFILE_NOT_SELECTABLE"]
         return [blocker] if blocker else []
 
+    def data_access_view(active: Active | None = None) -> dict[str, Any]:
+        current = active or selector.current()
+        return data_access.view(
+            selector.data_access_policy(),
+            managed=selector.managed,
+            remote_restricted=selector.restrict_remote,
+            settings=settings,
+            model=current.model,
+            base_url=current.base_url,
+        )
+
     def overview() -> dict[str, Any]:
         selector.close_interrupted()
         catalogue = load_catalogue(settings)
@@ -1368,6 +1613,7 @@ def model_admin_router(
             "profiles": profiles,
             # D-095: the remote profile's spending view and key status (never the key).
             "budget": budget_view() if settings.local_api_test_decision else None,
+            "data_access": data_access_view(active),
         }
 
     @router.get("")
@@ -1418,9 +1664,13 @@ def model_admin_router(
         limit = time.monotonic() + settings.model_qualification_max_seconds + DEADLINE_GRACE_SECONDS
         cancelled_at: float | None = None
         ended = None
+        handed = selector.handoffs.pop(qualification_id, {})
         try:
             while handle.poll() is None:
                 now = time.monotonic()
+                if handed and handoff_revoked(handed):
+                    ended = "CREDENTIAL_REVOKED"
+                    break
                 try:
                     store.touch(qualification_id)
                     item = store.qualification(qualification_id)
@@ -1471,7 +1721,9 @@ def model_admin_router(
         try:
             # D-099: a Claude run against the Anthropic ledger, reconciled within 24 hours.
             view = (
-                anthropic_runtime.budget_status(settings, environ=selector.environ)
+                anthropic_runtime.budget_status(
+                    selector.claude_controlled(), environ=selector.environ
+                )
                 if entry.deployment == "anthropic"
                 else budget_status(
                     entry.settings_for(selector.controlled()), environ=selector.environ
@@ -1524,6 +1776,10 @@ def model_admin_router(
     ) -> dict[str, Any]:
         store = managed()
         entry = entry_for(load_catalogue(settings), profile_id, profile, "QUALIFICATION_STARTED")
+        # D-106: a held-back HR key refuses the start (never a server key in its place).
+        provider = handoff_provider(entry)
+        if provider is not None and hr_store(provider).current(max_age=0).held:
+            raise refuse_start(entry, profile, "CREDENTIAL_SESSION_UNVERIFIED")
         # The same checks the qualification process applies, before anything starts.
         if entry.source == "code":
             # D-094: a paid run, so only the configured, counted question manifest.
@@ -1575,19 +1831,28 @@ def model_admin_router(
                 code="QUALIFICATION_BUSY",
             )
             raise _refusal(409, "QUALIFICATION_BUSY") from None
+        if provider is not None:
+            selector.handoff_providers[qualification_id] = provider
         try:
             handle = selector.launch(qualification_id)
-        except (OSError, ProfileConfigError):
-            store.finish_qualification(qualification_id, "error", "QUALIFICATION_UNAVAILABLE", None)
+        except (OSError, ProfileConfigError) as error:
+            selector.handoff_providers.pop(qualification_id, None)
+            code = (
+                error.code
+                if isinstance(error, ProfileConfigError)
+                and error.code == "CREDENTIAL_SESSION_UNVERIFIED"
+                else "QUALIFICATION_UNAVAILABLE"
+            )
+            store.finish_qualification(qualification_id, "error", code, None)
             audit(
                 profile,
                 "QUALIFICATION_STARTED",
                 "refused",
                 profile_id=entry.profile_id,
                 fingerprint=entry.fingerprint,
-                code="QUALIFICATION_UNAVAILABLE",
+                code=code,
             )
-            raise _refusal(409, "QUALIFICATION_UNAVAILABLE") from None
+            raise _refusal(409, code) from None
         audit(
             profile,
             "QUALIFICATION_STARTED",
@@ -1807,12 +2072,10 @@ def model_admin_router(
     def get_budget(profile: Admin) -> dict[str, Any]:
         return budget_view()
 
-    def credential_view() -> dict[str, Any]:
+    def credential_view(provider: str = "openrouter") -> dict[str, Any]:
+        if provider == "anthropic":
+            return anthropic_runtime.resolve_key(selector.environ)[1].view()
         return key_sources.resolve(selector.environ)[1].view()
-
-    @router.get("/credential")
-    def get_credential(profile: Admin) -> dict[str, Any]:
-        return credential_view()
 
     attempts: dict[str, list[float]] = {}
     attempts_lock = threading.Lock()
@@ -1836,13 +2099,25 @@ def model_admin_router(
             audit(profile, action, "refused", code="CREDENTIAL_RATE_LIMITED")
             raise _refusal(429, "CREDENTIAL_RATE_LIMITED")
 
-    def environment_managed() -> bool:
-        return key_sources.resolve(selector.environ)[1].source in ("environment", "env_file")
+    # D-106: one HR key per provider (OpenRouter for GPT-OSS, Anthropic for both Claude
+    # configurations), bound to the HR session that entered it and used before an environment
+    # or .env key. /credential stays the OpenRouter key's address.
+    # The key shape HR may enter, and what a key change makes stale.
+    providers: dict[str, tuple[re.Pattern[str], Callable[[], None]]] = {
+        "openrouter": (key_sources.HR_KEY, forget_provider),
+        "anthropic": (anthropic_runtime.HR_KEY, lambda: None),
+    }
 
-    @router.put("/credential")
-    async def put_credential(request: Request, profile: Admin) -> dict[str, Any]:
+    def provider_store(provider: str) -> key_sources.HrCredential:
+        # Looked up per request, so a replaced store (tests) is the one used.
+        return key_sources.ANTHROPIC_STORE if provider == "anthropic" else key_sources.HR_STORE
+
+    async def set_credential(
+        request: Request, profile: dict[str, Any], provider: str
+    ) -> dict[str, Any]:
         action = "CREDENTIAL_SET"
         guard_change(request, profile, action)
+        shape, forget = providers[provider]
         # Parsed here, not by a request model, so a refusal can never echo the value back.
         raw = await request.body()
         key: object = None
@@ -1855,34 +2130,59 @@ def model_admin_router(
                 body = None
             if isinstance(body, dict) and set(body) == {"api_key"}:
                 key = body["api_key"]
-        if not isinstance(key, str) or not key_sources.HR_KEY.fullmatch(key):
-            audit(profile, action, "refused", code="CREDENTIAL_INVALID")
+        if not isinstance(key, str) or not shape.fullmatch(key):
+            audit(profile, action, "refused", profile_id=provider, code="CREDENTIAL_INVALID")
             raise _refusal(400, "CREDENTIAL_INVALID")
         secret = SecretStr(key)
         del key, raw
         await anyio.to_thread.run_sync(recheck, request, profile, action)
-        if environment_managed():
-            audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
-            raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
-        key_sources.HR_STORE.set(secret, str(profile.get("user_id")))
-        forget_provider()  # the spending view's key limit was read for the previous key
-        audit(profile, action, "applied")
-        return credential_view()
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        if not session:
+            raise _refusal(401, "AUTHENTICATION_REQUIRED")
+        provider_store(provider).set(
+            secret, str(profile.get("user_id")), session=SecretStr(session)
+        )
+        forget()  # the spending view's key limit was read for the previous key
+        audit(profile, action, "applied", profile_id=provider)
+        view: dict[str, Any] = await anyio.to_thread.run_sync(credential_view, provider)
+        return view
 
-    @router.delete("/credential")
-    def delete_credential(request: Request, profile: Admin) -> dict[str, Any]:
+    def clear_credential(
+        request: Request, profile: dict[str, Any], provider: str
+    ) -> dict[str, Any]:
         action = "CREDENTIAL_CLEARED"
         guard_change(request, profile, action)
         recheck(request, profile, action)
-        if environment_managed():
-            audit(profile, action, "refused", code="CREDENTIAL_ENVIRONMENT_MANAGED")
-            raise _refusal(409, "CREDENTIAL_ENVIRONMENT_MANAGED")
-        if not key_sources.HR_STORE.clear():
-            audit(profile, action, "refused", code="CREDENTIAL_NOT_HR_MANAGED")
+        if not provider_store(provider).clear():
+            audit(profile, action, "refused", profile_id=provider, code="CREDENTIAL_NOT_HR_MANAGED")
             raise _refusal(409, "CREDENTIAL_NOT_HR_MANAGED")
-        forget_provider()
-        audit(profile, action, "applied")
+        providers[provider][1]()
+        audit(profile, action, "applied", profile_id=provider)
+        return credential_view(provider)
+
+    @router.get("/credential")
+    def get_credential(profile: Admin) -> dict[str, Any]:
         return credential_view()
+
+    @router.put("/credential")
+    async def put_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return await set_credential(request, profile, "openrouter")
+
+    @router.delete("/credential")
+    def delete_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return clear_credential(request, profile, "openrouter")
+
+    @router.get("/credential/anthropic")
+    def get_anthropic_credential(profile: Admin) -> dict[str, Any]:
+        return credential_view("anthropic")
+
+    @router.put("/credential/anthropic")
+    async def put_anthropic_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return await set_credential(request, profile, "anthropic")
+
+    @router.delete("/credential/anthropic")
+    def delete_anthropic_credential(request: Request, profile: Admin) -> dict[str, Any]:
+        return clear_credential(request, profile, "anthropic")
 
     # --- D-096: HR spending controls, the lifetime ledger cap and provider limits -----------
 
@@ -1934,11 +2234,78 @@ def model_admin_router(
             "changed_by": controls.changed_by if controls is not None else None,
             "lifetime": lifetime,
         }
+        view["claude"] = claude_budget_view()
         return view
 
-    budget_attempts: dict[str, list[float]] = {}
+    def claude_budget_view() -> dict[str, Any]:
+        """D-102: Claude's spending view (anthropic_runtime.budget_status, read-only) with the
+        HR controls that apply, the calls an active Claude configuration has left, and the
+        range its lifetime cap may be set within. Nothing is sent, recovered or changed."""
 
-    def guard_budget(request: Request, profile: dict[str, Any], action: str) -> None:
+        controls = selector.claude_spending_controls()
+        effective = apply_claude_controls(settings, controls)
+        view = anthropic_runtime.budget_status(effective, environ=selector.environ)
+        try:
+            used = selector.claude_calls_used()
+        except LedgerError:
+            used = None
+        limit = effective.anthropic_max_calls
+        lifetime = None
+        try:
+            ledger = BudgetLedger(anthropic_runtime.ledger_file(settings))
+            ledger.verify()
+            status = ledger.status()
+            if status.profile_id == anthropic_profiles.LEDGER_PROFILE_ID:
+                lifetime = {
+                    "opening_usage_micro_usd": status.opening_usage,
+                    "cap_micro_usd": status.cap,
+                    "max_cap_micro_usd": claude_cap_ceiling(),
+                    "committed_micro_usd": status.committed,
+                }
+        except LedgerError:
+            pass
+        view["controls"] = {
+            "revision": controls.revision if controls is not None else None,
+            "readable": controls is not None,
+            "daily_cap_micro_usd": effective.anthropic_daily_cap_micro_usd,
+            "daily_cap_range": list(CLAUDE_DAILY_CAP_RANGE),
+            "daily_cap_default_micro_usd": settings.anthropic_daily_cap_micro_usd,
+            "raise_requires": ["confirmation", "reconciled_within_one_day"],
+            "daily_cap_source": "hr"
+            if controls is not None and controls.daily_cap_micro_usd is not None
+            else "environment",
+            "max_calls": limit,
+            "max_calls_range": list(CLAUDE_MAX_CALLS_RANGE),
+            "max_calls_source": "hr"
+            if controls is not None and controls.max_calls is not None
+            else "environment",
+            "calls_used": used,
+            "calls_remaining": None if used is None else max(limit - used, 0),
+            "changed_at": controls.changed_at if controls is not None else None,
+            "changed_by": controls.changed_by if controls is not None else None,
+            "lifetime": lifetime,
+        }
+        return view
+
+    def claude_cap_ceiling() -> int:
+        # The lower of the D-102 lifetime ceiling and the owner-attested workspace limit.
+        return min(
+            anthropic_runtime.LIFETIME_CEILING_MICRO_USD,
+            settings.anthropic_workspace_limit_micro_usd,
+        )
+
+    budget_attempts: dict[str, list[float]] = {}
+    # D-104 (QG L3): data access changes have their own count and their own message.
+    policy_attempts: dict[str, list[float]] = {}
+
+    def guard_budget(
+        request: Request,
+        profile: dict[str, Any],
+        action: str,
+        *,
+        attempts: dict[str, list[float]] = budget_attempts,
+        limited_code: str = "BUDGET_RATE_LIMITED",
+    ) -> None:
         """Like a key change: the Origin header of an allowed page is required, and each
         administrator has a bounded number of spending changes and refreshes per window."""
 
@@ -1948,16 +2315,14 @@ def model_admin_router(
         now = time.monotonic()
         user = str(profile.get("user_id"))
         with attempts_lock:
-            recent = [
-                at for at in budget_attempts.get(user, []) if now - at < CREDENTIAL_WINDOW_SECONDS
-            ]
+            recent = [at for at in attempts.get(user, []) if now - at < CREDENTIAL_WINDOW_SECONDS]
             limited = len(recent) >= BUDGET_ATTEMPTS
             if not limited:
                 recent.append(now)
-            budget_attempts[user] = recent
+            attempts[user] = recent
         if limited:
-            audit(profile, action, "refused", code="BUDGET_RATE_LIMITED")
-            raise _refusal(429, "BUDGET_RATE_LIMITED")
+            audit(profile, action, "refused", code=limited_code)
+            raise _refusal(429, limited_code)
 
     @router.put("/budget/controls")
     def put_spending_controls(
@@ -2112,6 +2477,153 @@ def model_admin_router(
                 )
         return budget_view()
 
+    # --- D-102: Claude's HR spending controls and its lifetime ledger cap ---------------------
+
+    def require_claude_raise(profile: dict[str, Any], action: str) -> None:
+        """More Claude spending authority only when Claude is fully configured (D-099
+        readiness) and its own ledger was reconciled with the Anthropic Console within the
+        last day, with the breaker closed and no call open (read-only: never recovered here)."""
+
+        code = anthropic_runtime.readiness(settings)
+        if code is not None:
+            audit(profile, action, "refused", code=code)
+            raise _refusal(409, code, "CLAUDE_NOT_READY")
+        try:
+            ledger = BudgetLedger(anthropic_runtime.ledger_file(settings))
+            ledger.verify()
+            status = ledger.status()
+            if status.profile_id != anthropic_profiles.LEDGER_PROFILE_ID:
+                raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the Anthropic ledger")
+            fresh = anthropic_runtime.reconciled_within(
+                ledger, anthropic_runtime.PAID_RECONCILE_SECONDS, clock=time.time
+            )
+        except LedgerError:
+            audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
+            raise _claude_refusal(409, "LEDGER_UNAVAILABLE") from None
+        if not fresh or status.breaker_open or status.open_calls:
+            audit(profile, action, "refused", code="RECONCILIATION_REQUIRED")
+            raise _claude_refusal(409, "RECONCILIATION_REQUIRED")
+
+    @router.put("/budget/claude/controls")
+    def put_claude_spending_controls(
+        body: ClaudeSpendingControlsRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Claude's daily allowance per Singapore day (up to US$5.00) and calls per activation
+        (1 to 20). A raise of either needs the new value confirmed and a recent
+        reconciliation. Spend and the call count are never reset; GPT-OSS is never touched."""
+
+        action = "CLAUDE_SPENDING_CONTROLS_CHANGED"
+        guard_budget(request, profile, action)
+        store = managed()
+        if not valid_claude_controls(body.daily_cap_micro_usd, body.max_calls):
+            audit(profile, action, "refused", code="CONTROLS_INVALID")
+            raise _claude_refusal(400, "CONTROLS_INVALID")
+        with selector.change_lock:
+            recheck(request, profile, action)
+            stored = selector.claude_spending_controls()
+            if stored is not None and stored.revision != body.expected_revision:
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _claude_refusal(409, "CONTROLS_CONFLICT")
+            # Unreadable controls read as no allowance and no calls: any value is then a raise.
+            current = apply_claude_controls(settings, stored)
+            current_calls = current.anthropic_max_calls if stored is not None else 0
+            daily_raise = body.daily_cap_micro_usd > current.anthropic_daily_cap_micro_usd
+            calls_raise = body.max_calls > current_calls
+            if daily_raise and body.confirm_daily_cap_micro_usd != body.daily_cap_micro_usd:
+                audit(profile, action, "refused", code="DAILY_CONFIRMATION_REQUIRED")
+                raise _claude_refusal(400, "DAILY_CONFIRMATION_REQUIRED")
+            # QG L1: more calls per activation is more spending authority too.
+            if calls_raise and body.confirm_max_calls != body.max_calls:
+                audit(profile, action, "refused", code="CALLS_CONFIRMATION_REQUIRED")
+                raise _claude_refusal(400, "CALLS_CONFIRMATION_REQUIRED")
+            if daily_raise or calls_raise:
+                require_claude_raise(profile, action)
+            try:
+                revision = store.set_claude_spending_controls(
+                    body.expected_revision,
+                    body.daily_cap_micro_usd,
+                    body.max_calls,
+                    str(profile.get("user_id")),
+                )
+            except RevisionConflict:
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _claude_refusal(409, "CONTROLS_CONFLICT") from None
+            audit(
+                profile,
+                action,
+                "applied",
+                code=f"DAILY_{body.daily_cap_micro_usd}_MICRO_USD_CALLS_{body.max_calls}",
+                revision=revision,
+            )
+        selector.sync_controls()
+        return budget_view()
+
+    @router.put("/budget/claude/lifetime-cap")
+    def put_claude_lifetime_cap(
+        body: LifetimeCapRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Set the Anthropic ledger's lifetime cap above its opening usage and at most the
+        lower of US$30.00 and the attested workspace limit. A raise needs the amount
+        confirmed, the cap the page showed, and a reconciliation within the last day; the ledger
+        keeps every call and charge. The GPT-OSS ledger is never opened here."""
+
+        action = "CLAUDE_LIFETIME_CAP_CHANGED"
+        guard_budget(request, profile, action)
+        managed()  # a change is made only where it can be audited
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                ledger = anthropic_runtime.open_own(anthropic_runtime.ledger_file(settings))
+                status = ledger.status()
+            except LedgerError:
+                audit(profile, action, "refused", code="LEDGER_UNAVAILABLE")
+                raise _claude_refusal(409, "LEDGER_UNAVAILABLE") from None
+            cap = body.cap_micro_usd
+            raising = cap > status.cap
+            # QG L2: a strictly lower cap only reduces authority, so it needs no attested
+            # workspace limit (it never enables Claude: every call still needs readiness and
+            # a cap within that limit). Any other value is checked against the ceiling too.
+            lowering = status.opening_usage < cap < status.cap
+            if not lowering and not status.opening_usage < cap <= claude_cap_ceiling():
+                audit(profile, action, "refused", code="CAP_OUT_OF_RANGE")
+                raise _claude_refusal(409, "CAP_OUT_OF_RANGE")
+            if (raising or body.expected_cap_micro_usd is not None) and (
+                body.expected_cap_micro_usd != status.cap
+            ):
+                audit(profile, action, "refused", code="CONTROLS_CONFLICT")
+                raise _claude_refusal(409, "CONTROLS_CONFLICT")
+            if raising:
+                if body.confirm_cap_micro_usd != cap:
+                    audit(profile, action, "refused", code="CAP_CONFIRMATION_REQUIRED")
+                    raise _claude_refusal(400, "CAP_CONFIRMATION_REQUIRED")
+                require_claude_raise(profile, action)
+            if cap != status.cap:
+                try:
+                    # The operator's rule as well (the ceiling; a raise only after a
+                    # reconciliation), then the cap this decision was made on, checked again
+                    # inside the ledger's own write transaction.
+                    anthropic_runtime.check_cap_change(ledger, cap, raising=raising)
+                    ledger.set_cap(
+                        cap,
+                        allow_raise=raising,
+                        confirm=cap if raising else None,
+                        expected=status.cap,
+                    )
+                except LedgerError as error:
+                    code = {
+                        "CAP_CHANGED": "CONTROLS_CONFLICT",
+                        "CAP_RAISE_REFUSED": "RECONCILIATION_REQUIRED",
+                    }.get(error.code, "LEDGER_UNAVAILABLE")
+                    audit(profile, action, "refused", code=code)
+                    raise _claude_refusal(409, code) from None
+                audit(
+                    profile,
+                    action,
+                    "applied",
+                    code=f"{'RAISED' if raising else 'LOWERED'}_TO_{cap}_MICRO_USD",
+                )
+        return budget_view()
+
     @router.post("/budget/provider-refresh")
     def post_provider_refresh(profile: Admin, request: Request) -> dict[str, Any]:
         """Read the OpenRouter key's limit again (the free preflight: no inference, no case
@@ -2129,5 +2641,56 @@ def model_admin_router(
             code=None if report.passed else "PREFLIGHT_FAILED:" + ",".join(failed),
         )
         return budget_view()
+
+    @router.get("/data-access")
+    def get_data_access(profile: Admin) -> dict[str, Any]:
+        return data_access_view()
+
+    @router.put("/data-access")
+    def put_data_access(
+        body: DataAccessRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        # Restrict AI to verified synthetic cases. External models stay restricted (locked);
+        # a local or IT-configured model may answer every authorised case only with the change
+        # confirmed. Compare-and-set on the policy's revision, the capability re-checked inside
+        # the change, every change and refusal audited with the old and new setting as a code.
+        action = "DATA_ACCESS_POLICY_CHANGED"
+        guard_budget(
+            request,
+            profile,
+            action,
+            attempts=policy_attempts,
+            limited_code="DATA_ACCESS_RATE_LIMITED",
+        )
+        store = managed()
+        if not body.restrict_external:
+            audit(profile, action, "refused", code="EXTERNAL_DATA_POLICY_LOCKED")
+            raise _refusal(409, "EXTERNAL_DATA_POLICY_LOCKED")
+        with selector.change_lock:
+            recheck(request, profile, action)
+            stored = selector.data_access_policy()
+            if stored is None:
+                audit(profile, action, "refused", code="DATA_ACCESS_POLICY_UNAVAILABLE")
+                raise _refusal(409, "DATA_ACCESS_POLICY_UNAVAILABLE")
+            if stored.revision != body.expected_revision:
+                audit(profile, action, "refused", code="DATA_ACCESS_POLICY_CONFLICT")
+                raise _refusal(409, "DATA_ACCESS_POLICY_CONFLICT")
+            widening = stored.local_restricted and not body.restrict_local
+            if widening and not body.confirm_widen:
+                audit(profile, action, "refused", code="WIDEN_CONFIRMATION_REQUIRED")
+                raise _refusal(400, "WIDEN_CONFIRMATION_REQUIRED")
+            # QG L4: the policy and its audit row are written in one transaction.
+            try:
+                store.set_data_access_policy(
+                    body.expected_revision,
+                    body.restrict_local,
+                    str(profile.get("user_id")),
+                    role=str(profile.get("role")) if profile.get("role") else None,
+                    action=action,
+                )
+            except RevisionConflict:
+                audit(profile, action, "refused", code="DATA_ACCESS_POLICY_CONFLICT")
+                raise _refusal(409, "DATA_ACCESS_POLICY_CONFLICT") from None
+        return data_access_view()
 
     return router

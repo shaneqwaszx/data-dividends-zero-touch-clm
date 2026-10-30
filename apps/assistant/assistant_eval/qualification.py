@@ -25,7 +25,11 @@ import anyio
 from ai_assistant import anthropic_runtime
 from ai_assistant.config import AiAssistantSettings
 from ai_assistant.llm import ChatModel, OpenAICompatibleChatModel
-from ai_assistant.model_admin_store import ModelAdminStore, apply_controls
+from ai_assistant.model_admin_store import (
+    ModelAdminStore,
+    apply_claude_controls,
+    apply_controls,
+)
 from ai_assistant.model_catalog import (
     BASELINE_ID,
     build_baseline_adapter,
@@ -495,12 +499,13 @@ def run_job(
         store.finish_qualification(qualification_id, "error", "CONFIG_MISMATCH", None)
         return
     if entry.deployment == "anthropic":
-        # D-099: the Anthropic settings as configured (the HR spending controls are GPT-OSS's).
+        # D-099: the Anthropic settings as configured; D-102: Claude's own HR daily allowance
+        # applies too (its call count stays the environment's, as for GPT-OSS below).
         _run_remote(
             store,
             qualification_id,
             item,
-            settings,
+            apply_claude_controls(settings, store.claude_spending_controls(), calls=False),
             environ,
             transport,
             basis,

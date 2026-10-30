@@ -44,10 +44,10 @@ export default function AdminUsers() {
     const nextName = globalThis.prompt("User display name", profile.display_name)?.trim();
     if (!nextName) return;
     const nextRole = globalThis.prompt(
-      "Role: CLIENT_ONBOARDER, RELATIONSHIP_MANAGER, DIRECTOR, or HR",
+      "Role: CLIENT_ONBOARDER, RELATIONSHIP_MANAGER, DIRECTOR, HR, or SUPPORT",
       profile.role,
     )?.trim() as Role | undefined;
-    if (!nextRole || !["CLIENT_ONBOARDER", "RELATIONSHIP_MANAGER", "DIRECTOR", "HR"].includes(nextRole)) {
+    if (!nextRole || !["CLIENT_ONBOARDER", "RELATIONSHIP_MANAGER", "DIRECTOR", "HR", "SUPPORT"].includes(nextRole)) {
       setError("Select a valid role.");
       return;
     }
@@ -83,7 +83,7 @@ export default function AdminUsers() {
       <h3>Create user</h3>
       <label>User ID<input value={userId} pattern="[a-z][a-z0-9-]{2,31}" required onChange={(event) => setUserId(event.target.value)} /></label>
       <label>Display name<input value={displayName} minLength={2} maxLength={80} required onChange={(event) => setDisplayName(event.target.value)} /></label>
-      <label>Role<select value={role} onChange={(event) => { const next = event.target.value as Role; setRole(next); if (next === "DIRECTOR" || next === "HR") setTeamId(""); }}><option value="CLIENT_ONBOARDER">Client onboarder</option><option value="RELATIONSHIP_MANAGER">Relationship manager</option><option value="DIRECTOR">Director</option><option value="HR">HR</option></select></label>
+      <label>Role<select value={role} onChange={(event) => { const next = event.target.value as Role; setRole(next); if (next === "DIRECTOR" || next === "HR" || next === "SUPPORT") setTeamId(""); }}><option value="CLIENT_ONBOARDER">Client onboarder</option><option value="RELATIONSHIP_MANAGER">Relationship manager</option><option value="DIRECTOR">Director</option><option value="HR">HR</option><option value="SUPPORT">Support</option></select></label>
       {needsTeam && <label>Team<select value={teamId} required onChange={(event) => setTeamId(event.target.value)}><option value="">Select a team</option>{teams.map((team) => <option key={team.team_id} value={team.team_id}>{team.display_name}</option>)}</select></label>}
       <label>Temporary password<input type="password" value={password} minLength={12} maxLength={128} required autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} /></label>
       <label>Confirm password<input type="password" value={passwordConfirmation} minLength={12} maxLength={128} required autoComplete="new-password" onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>

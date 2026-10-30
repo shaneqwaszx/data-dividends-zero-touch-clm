@@ -420,7 +420,7 @@ def test_an_explicit_null_clears_what_a_draft_replaces(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(
-        USERS, "director-3-session", _profile("director-dov", "DIRECTOR", ["POLICY_APPROVE"])
+        USERS, "director-3-session", _profile("director-dov", "SUPPORT", ["KNOWLEDGE_REVIEW"])
     )
     first = drafted(quiet_kb)
     assert decide(quiet_kb, "director-session", first, 1).status_code == 200

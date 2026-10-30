@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import getpass
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ BACKEND_ROOT = ROOT / "apps" / "backend"
 sys.path.insert(0, str(BACKEND_ROOT))
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     from app.domain.access import SYNTHETIC_USER_PROFILES
     from app.services.authentication import (
         credential_setting_key,
@@ -24,7 +25,18 @@ def main() -> int:
             for profile in SYNTHETIC_USER_PROFILES
         ),
         ("hr-admin", "POC HR Administrator"),
+        ("support-user", "Support User"),
     ]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--user",
+        action="append",
+        choices=[user_id for user_id, _ in profiles],
+        help="generate only this bootstrap profile's hash (repeatable)",
+    )
+    selected = parser.parse_args([] if argv is None else argv).user
+    if selected:
+        profiles = [item for item in profiles if item[0] in selected]
     for user_id, display_name in profiles:
         credential = getpass.getpass(
             f"Password for bootstrap operator {display_name} ({user_id}): "
@@ -39,4 +51,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

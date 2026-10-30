@@ -44,6 +44,7 @@ _LIFECYCLE_AUTH_ENV = {
     for profile in SYNTHETIC_USER_PROFILES
 }
 _LIFECYCLE_AUTH_ENV[credential_setting_key("hr-admin")] = _LIFECYCLE_HASH
+_LIFECYCLE_AUTH_ENV[credential_setting_key("support-user")] = _LIFECYCLE_HASH
 
 _CREATION_TIME_PATTERN = re.compile(
     r"\A(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})T"

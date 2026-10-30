@@ -88,12 +88,13 @@ class AiAssistantSettings(BaseSettings):
     # The dedicated workspace's id; every response must name it (``anthropic-workspace-id``).
     anthropic_workspace_id: str = ""
     # The monthly spend limit the owner set on that workspace (not readable with an API key;
-    # owner-attested). At most US$5.00; 0 means not set, which refuses.
-    anthropic_workspace_limit_micro_usd: int = Field(default=0, ge=0, le=5_000_000)
+    # owner-attested). At most US$30.00 (D-102); 0 means not set, which refuses.
+    anthropic_workspace_limit_micro_usd: int = Field(default=0, ge=0, le=30_000_000)
     # The separate Anthropic ledger (relative to apps/assistant; git-ignored data/).
     anthropic_ledger_path: str = "data/budget/anthropic_ledger.sqlite3"
-    # Policy ceilings: at most US$1.00 a Singapore day and 20 calls per activation or restart.
-    anthropic_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=1_000_000)
+    # Defaults until an HR administrator sets them (D-102): US$1.00 a Singapore day (ceiling
+    # US$5.00) and 20 calls per activation or restart (ceiling 20).
+    anthropic_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=5_000_000)
     anthropic_max_calls: int = Field(default=20, ge=1, le=20)
 
     # Model management (D-093, local loopback models only): off unless IT names a profiles file
