@@ -168,7 +168,8 @@ classification-only `demo-government-scanned.pdf` (DEMO GOVERNMENT FYP TEST AUTH
    a Government label on a company or partnership legal form is UNSAFE and goes to manual review.
 3. The Ownership & UBO stage holds the **Government status** step instead of an ownership analysis
    (MAS Notice 626 para 6.12: confirm it is a Singapore Government entity). It shows the reviewed
-   founding instrument and signatories (display only; not sent to GoldTier, no ownership graph).
+   status document and its founding instrument; signatories stay on the document only (not extracted,
+   no ownership graph, not sent to GoldTier).
 4. **Confirm Government status** (authenticated RM, version-checked). Without a current reviewed
    status document, or without this confirmation, the case stays blocked
    (`GOVERNMENT_STATUS_REQUIRED`). It is never set automatically or from the label alone.

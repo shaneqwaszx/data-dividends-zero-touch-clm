@@ -216,7 +216,7 @@ def test_partnership_happy_path_reaches_ready_for_approval_with_rm_confirmed_sha
 
 
 def test_government_happy_path_reaches_ready_for_approval_without_ownership_step():
-    with lane(GOVERNMENT) as (client, acra, target, _):
+    with lane(GOVERNMENT) as (client, acra, target, bundle):
         current = government_at_status(client)
         assert current["current_stage"] == "OWNERSHIP"
         assert blockers(current) == ["GOVERNMENT_STATUS_REQUIRED"]
@@ -235,9 +235,12 @@ def test_government_happy_path_reaches_ready_for_approval_without_ownership_step
         assert current["entity_type_basis"]["government_status"]["state"] == "CONFIRMED"
         final = confirm(client, current)
         assert final["status"] == "COMPLETED"
-        snapshot = final["clm"].get("submission_snapshot") or {}
-        if snapshot:
-            assert snapshot["provisional_ubo"]["candidate_count"] == 0
+        # The browser projection omits UBO detail, so read the frozen domain snapshot.
+        snapshot = bundle.clm.get_for_case(UUID(final["case"]["case_id"])).submission_snapshot
+        assert snapshot is not None
+        assert snapshot.ownership_reference.status == "GOVERNMENT_STATUS_CONFIRMED"
+        assert snapshot.provisional_ubo.candidate_count == 0
+        assert snapshot.provisional_ubo.internal_party_ids == ()
         assert acra.calls == []
 
 

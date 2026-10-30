@@ -1382,5 +1382,6 @@ routing or backend change; the qualification basis stays `33f602653de7…`.
 - **Shared:** a bounded KYC type / legal form compatibility table (mismatch UNSAFE; unknown form
   UNSAFE for automatic candidates only), a new `GOVERNMENT` registry legal form, case snapshot
   schema v17, and regenerated D-094 synthetic boundary and eligibility manifests.
-- **Open:** database-classification E2E rewrites, integrated acceptance, independent Quality Gate,
-  pre-PR and publication authorisation.
+- **Done:** database-classification Partnership and Government journeys rewritten (E2E); integrated
+  acceptance run locally.
+- **Open:** independent Quality Gate to PASS, pre-PR and publication authorisation.

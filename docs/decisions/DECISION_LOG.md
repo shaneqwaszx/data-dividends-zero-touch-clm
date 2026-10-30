@@ -1580,8 +1580,8 @@ Defaults, Shane to confirm:
 - Partner shares use the existing policy UBO threshold (default 25%), the same as company shares.
 - Government proof is a reviewed document showing the founding Act or Gazette, the UEN and a letter
   of authority. This is project-defined, not sponsor-confirmed.
-- Authorised signatories are shown on the Government case for display only: not sent to GoldTier, and
-  no ownership graph.
+- Authorised signatories appear only on the status document: they are not extracted, stored as an
+  ownership graph or sent to GoldTier. The case page says so.
 - `GOLDTIER_REGISTRATION_TYPE_POC_VALUE` stays "ACRA" for every case, including Government.
 - A Partner Share line may end with an explicit owner type (for example `: NATURAL_PERSON`), so the
   existing document-ownership comparison has an owner type.
