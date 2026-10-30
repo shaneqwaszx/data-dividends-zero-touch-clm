@@ -13,7 +13,7 @@ from ai_assistant.config import AiAssistantSettings
 from ai_assistant.knowledge.ingest import ingest_guidance
 from ai_assistant.knowledge.models import Entry, EntryKind, EntryStatus, Visibility
 from ai_assistant.knowledge.service import KnowledgeBase
-from ai_assistant.knowledge.store import KnowledgeStore
+from ai_assistant.knowledge.store import SCHEMA_VERSION, KnowledgeStore
 from ai_assistant.knowledge_api import GUIDANCE_ID
 from ai_assistant.main import create_app
 from tests.test_ai_assistant import CASE_ID, DOCUMENTS, ME, ORIGIN, SUMMARY, FakeModel, _session
@@ -799,7 +799,8 @@ def test_a_store_from_before_this_change_is_migrated(tmp_path: Path) -> None:
         db.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+        version = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+        assert version == str(SCHEMA_VERSION)
     assert store.entries() == []
 
 
@@ -889,7 +890,8 @@ def test_a_version_3_store_gains_request_statuses_and_close_reasons(tmp_path: Pa
         before = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
     store = KnowledgeStore(path)  # migrates
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+        version = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+        assert version == str(SCHEMA_VERSION)
         after = [tuple(row) for row in db.execute("SELECT * FROM feedback ORDER BY id")]
         assert (
             db.execute("SELECT name FROM sqlite_master WHERE name = 'feedback_v3'").fetchone()

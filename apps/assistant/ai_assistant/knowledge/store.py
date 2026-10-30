@@ -26,10 +26,17 @@ Rules enforced here, in one transaction per change:
   expires, and "Not helpful" links it to the new request. Expired records are deleted:
   unlinked ones some days after the answer, linked ones some days after their request was
   resolved or closed. Every view of a record is logged.
+- a conversation (schema v6, D-100) groups one user's answer records on one case. Ending it
+  records the user's rating once (resolved, satisfaction, comment) and, in the same write,
+  adds its feedback row: an open enhancement request when the rating has a priority (neutral
+  or worse), otherwise a request closed as needing no review. Every record of the
+  conversation is linked to that row, so it follows the request's retention. A reviewer's
+  draft fix is kept on the conversation until the fix is saved or the request is closed.
 """
 
 import json
 import re
+import secrets
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -39,7 +46,7 @@ from typing import Any
 
 from .models import Entry, EntryKind, EntryStatus, Visibility
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _ENTRY_COLUMNS = (
     "entry_id, version, kind, status, title, body, blocker_codes, fields, stages, visibility, "
@@ -155,9 +162,32 @@ CREATE TABLE IF NOT EXISTS answer_records (
     result TEXT NOT NULL,
     shown_answer TEXT NOT NULL,
     rated_at TEXT,
-    linked_request_id INTEGER REFERENCES feedback (id)
+    linked_request_id INTEGER REFERENCES feedback (id),
+    conversation_id TEXT
 );
 CREATE INDEX IF NOT EXISTS answer_records_by_request ON answer_records (linked_request_id);
+CREATE INDEX IF NOT EXISTS answer_records_by_conversation ON answer_records (conversation_id);
+CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT,
+    team TEXT,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ended_at TEXT,
+    resolved INTEGER,
+    satisfaction TEXT CHECK (satisfaction IS NULL OR satisfaction IN
+        ('very_satisfied', 'satisfied', 'neutral', 'unsatisfied', 'very_unsatisfied')),
+    comment TEXT,
+    priority TEXT CHECK (priority IS NULL OR priority IN ('high', 'medium', 'low')),
+    feedback_id INTEGER REFERENCES feedback (id),
+    draft TEXT,
+    draft_by TEXT,
+    draft_at TEXT
+);
+CREATE INDEX IF NOT EXISTS conversations_by_user ON conversations (user_id, updated_at);
 """
     + _ANSWER_KEEPS
     + """CREATE TABLE IF NOT EXISTS answer_record_views (
@@ -248,6 +278,40 @@ def _answer_row(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     for key in _ANSWER_JSON:
         item[key] = json.loads(item[key])
+    return item
+
+
+# A conversation's review status (D-100), from its rating and its feedback row.
+_REVIEW_STATUS_SQL = (
+    "CASE WHEN c.ended_at IS NULL THEN 'open' "
+    "WHEN c.priority IS NULL THEN 'no_review' "
+    "WHEN f.status = 'open' AND c.draft IS NOT NULL THEN 'draft' "
+    "WHEN f.status = 'open' THEN 'not_reviewed' "
+    "WHEN f.status = 'drafted' THEN 'awaiting_publish' "
+    "WHEN f.status = 'resolved' THEN 'fixed' "
+    "ELSE 'closed' END"
+)
+REVIEW_STATUSES = (
+    "open",
+    "no_review",
+    "draft",
+    "not_reviewed",
+    "awaiting_publish",
+    "fixed",
+    "closed",
+)
+_CONVERSATION_SELECT = (
+    "SELECT c.*, f.status AS request_status, f.close_reason AS close_reason, "
+    f"({_REVIEW_STATUS_SQL}) AS review_status, "
+    "(SELECT COUNT(*) FROM answer_records a WHERE a.conversation_id = c.id) AS answers "
+    "FROM conversations c LEFT JOIN feedback f ON f.id = c.feedback_id"
+)
+
+
+def _conversation_row(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    item["resolved"] = None if item["resolved"] is None else bool(item["resolved"])
+    item["draft"] = json.loads(item["draft"]) if item["draft"] else None
     return item
 
 
@@ -424,6 +488,7 @@ class KnowledgeStore:
                 self._repair_5(db)
             if version is not None:
                 self._add_entry_origin(db)
+                self._add_conversation_link(db)
             db.executescript(_SCHEMA)
             db.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -1042,6 +1107,7 @@ class KnowledgeStore:
                 "WHERE id = ?",
                 (entry.entry_id, entry.version, feedback_id),
             )
+            self._drop_draft(db, feedback_id)
         return entry
 
     def close_feedback(
@@ -1063,6 +1129,17 @@ class KnowledgeStore:
                 "close_reason = ? WHERE id = ?",
                 (by, self._clock(), reason.strip(), feedback_id),
             )
+            self._drop_draft(db, feedback_id)
+
+    @staticmethod
+    def _drop_draft(db: sqlite3.Connection, feedback_id: int) -> None:
+        """A saved fix or a closed request ends the conversation's draft (D-100)."""
+
+        db.execute(
+            "UPDATE conversations SET draft = NULL, draft_by = NULL, draft_at = NULL "
+            "WHERE feedback_id = ?",
+            (feedback_id,),
+        )
 
     @staticmethod
     def _open_request(db: sqlite3.Connection, feedback_id: int) -> dict[str, Any]:
@@ -1081,19 +1158,50 @@ class KnowledgeStore:
 
     def add_answer_record(
         self, record: dict[str, Any], *, purge_days: tuple[int, int] | None = None
-    ) -> None:
+    ) -> str:
         """Store a new answer record (insert only; its id must be new). With ``purge_days``
-        (unrated, closed), expired records are deleted in the same write."""
+        (unrated, closed), expired records are deleted in the same write.
+
+        The record joins ``record["conversation_id"]`` when that is an open conversation of
+        the same user on the same case; otherwise (none given, someone else's, another case's,
+        ended or expired) a new conversation is started with this question as its title. The
+        conversation's id is returned."""
 
         with self._write() as db:
             now = self._clock()
             if purge_days is not None:
                 self._purge_answers(db, now, *purge_days)
+            conversation = self._open_conversation(
+                db,
+                record.get("conversation_id"),
+                user_id=record["user_id"],
+                case_id=record["case_id"],
+            )
+            if conversation is None:
+                conversation = secrets.token_urlsafe(16)
+                db.execute(
+                    "INSERT INTO conversations (id, case_id, user_id, role, team, title, "
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        conversation,
+                        record["case_id"],
+                        record["user_id"],
+                        record.get("role"),
+                        record["team"],
+                        record["question"][:200],
+                        now,
+                        now,
+                    ),
+                )
+            else:
+                db.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE id = ?", (now, conversation)
+                )
             db.execute(
                 "INSERT INTO answer_records (id, case_id, user_id, team, created_at, question, "
                 + ", ".join(_ANSWER_JSON)
-                + ") VALUES ("
-                + ", ".join("?" * (6 + len(_ANSWER_JSON)))
+                + ", conversation_id) VALUES ("
+                + ", ".join("?" * (7 + len(_ANSWER_JSON)))
                 + ")",
                 (
                     record["id"],
@@ -1103,6 +1211,211 @@ class KnowledgeStore:
                     now,
                     record["question"],
                     *(json.dumps(record[key]) for key in _ANSWER_JSON),
+                    conversation,
+                ),
+            )
+            return str(conversation)
+
+    @staticmethod
+    def _open_conversation(
+        db: sqlite3.Connection, conversation_id: str | None, *, user_id: str, case_id: str
+    ) -> str | None:
+        if not conversation_id:
+            return None
+        row = db.execute(
+            "SELECT id FROM conversations WHERE id = ? AND user_id = ? AND case_id = ? "
+            "AND ended_at IS NULL",
+            (conversation_id, user_id, case_id),
+        ).fetchone()
+        return str(row["id"]) if row is not None else None
+
+    # --- conversations (D-100) ----------------------------------------------------------
+
+    def end_conversation(
+        self,
+        conversation_id: str,
+        *,
+        user_id: str,
+        resolved: bool,
+        satisfaction: str,
+        priority: str | None,
+        comment: str,
+        blocker_codes: tuple[str, ...],
+        fields: tuple[str, ...],
+        stages: tuple[str, ...],
+    ) -> dict[str, Any]:
+        """Record the user's rating of their own open conversation, once, with its feedback
+        row (see the module rules). ``AnswerNotFoundError`` when it is not this user's open
+        conversation with at least one answer record, whatever the reason."""
+
+        with self._write() as db:
+            now = self._clock()
+            row = db.execute(
+                "SELECT * FROM conversations WHERE id = ? AND user_id = ? AND ended_at IS NULL",
+                (conversation_id, user_id),
+            ).fetchone()
+            records = db.execute(
+                "SELECT id FROM answer_records WHERE conversation_id = ? "
+                "ORDER BY created_at, rowid",
+                (conversation_id,),
+            ).fetchall()
+            if row is None or not records:
+                raise AnswerNotFoundError("no such conversation")
+            needs_review = priority is not None
+            cursor = db.execute(
+                "INSERT INTO feedback (case_id, user_id, role, team, helpful, note, "
+                "blocker_codes, fields, stages, entry_id, status, created_at, closed_by, "
+                "closed_at, close_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)",
+                (
+                    row["case_id"],
+                    user_id,
+                    row["role"],
+                    row["team"],
+                    int(not needs_review),
+                    comment,
+                    json.dumps(list(blocker_codes)),
+                    json.dumps(list(fields)),
+                    json.dumps(list(stages)),
+                    "open" if needs_review else "closed",
+                    now,
+                    None if needs_review else "system",
+                    None if needs_review else now,
+                    None if needs_review else "No review needed: rated satisfied or better.",
+                ),
+            )
+            feedback_id = int(cursor.lastrowid or 0)
+            *earlier, last = [str(item["id"]) for item in records]
+            db.execute(
+                "UPDATE answer_records SET rated_at = ?, linked_request_id = ? WHERE id = ?",
+                (now, feedback_id, last),
+            )
+            for record_id in earlier:
+                db.execute(
+                    "INSERT OR IGNORE INTO answer_record_keeps (record_id, request_id) "
+                    "VALUES (?, ?)",
+                    (record_id, feedback_id),
+                )
+            db.execute(
+                "UPDATE conversations SET ended_at = ?, updated_at = ?, resolved = ?, "
+                "satisfaction = ?, comment = ?, priority = ?, feedback_id = ? WHERE id = ?",
+                (
+                    now,
+                    now,
+                    int(resolved),
+                    satisfaction,
+                    comment,
+                    priority,
+                    feedback_id,
+                    conversation_id,
+                ),
+            )
+            ended = db.execute(
+                "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+        return dict(ended)
+
+    def conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        """One conversation with its review state (see ``_CONVERSATION_SELECT``)."""
+
+        with self._connect() as db:
+            row = db.execute(
+                _CONVERSATION_SELECT + " WHERE c.id = ?", (conversation_id,)
+            ).fetchone()
+        return _conversation_row(row) if row is not None else None
+
+    def conversations(
+        self,
+        *,
+        user_id: str | None = None,
+        team: str | None = None,
+        all_teams: bool = False,
+        rated_only: bool = False,
+        resolved: bool | None = None,
+        satisfaction: str | None = None,
+        review_status: str | None = None,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """A page of conversations and the total that match. ``user_id``: only that user's
+        (their history, newest first). Otherwise the review list: rated only, in
+        ``team`` unless ``all_teams``, ordered high, medium, low, then no priority, newest
+        first within each."""
+
+        where = ["EXISTS (SELECT 1 FROM answer_records a WHERE a.conversation_id = c.id)"]
+        values: list[Any] = []
+        if user_id is not None:
+            where.append("c.user_id = ?")
+            values.append(user_id)
+        elif not all_teams:
+            where.append("c.team IS ?")
+            values.append(team)
+        if rated_only:
+            where.append("c.ended_at IS NOT NULL")
+        if resolved is not None:
+            where.append("c.resolved = ?")
+            values.append(int(resolved))
+        if satisfaction is not None:
+            where.append("c.satisfaction = ?")
+            values.append(satisfaction)
+        if review_status is not None:
+            where.append(f"({_REVIEW_STATUS_SQL}) = ?")
+            values.append(review_status)
+        order = (
+            "c.updated_at DESC"
+            if user_id is not None
+            else "CASE c.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 "
+            "ELSE 3 END, c.ended_at DESC"
+        )
+        clause = " WHERE " + " AND ".join(where)
+        with self._connect() as db:
+            total = db.execute(
+                "SELECT COUNT(*) FROM conversations c LEFT JOIN feedback f ON f.id = c.feedback_id"
+                + clause,
+                values,
+            ).fetchone()[0]
+            rows = db.execute(
+                _CONVERSATION_SELECT + clause + f" ORDER BY {order}, c.id LIMIT ? OFFSET ?",
+                (*values, limit, offset),
+            ).fetchall()
+        return [_conversation_row(row) for row in rows], int(total)
+
+    def conversation_records(self, conversation_id: str) -> list[dict[str, Any]]:
+        """The conversation's answer records, oldest first."""
+
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM answer_records WHERE conversation_id = ? ORDER BY created_at, rowid",
+                (conversation_id,),
+            ).fetchall()
+        return [_answer_row(row) for row in rows]
+
+    def save_conversation_draft(
+        self,
+        conversation_id: str,
+        draft: dict[str, Any] | None,
+        *,
+        by: str,
+        authorize: Callable[[], None] | None = None,
+    ) -> None:
+        """Keep (or, with ``None``, discard) a reviewer's draft fix while its request is open
+        (``AnswerNotFoundError`` otherwise)."""
+
+        with self._write(authorize) as db:
+            row = db.execute(
+                "SELECT c.id FROM conversations c JOIN feedback f ON f.id = c.feedback_id "
+                "WHERE c.id = ? AND f.status = 'open'",
+                (conversation_id,),
+            ).fetchone()
+            if row is None:
+                raise AnswerNotFoundError("no open request for this conversation")
+            now = self._clock()
+            db.execute(
+                "UPDATE conversations SET draft = ?, draft_by = ?, draft_at = ? WHERE id = ?",
+                (
+                    json.dumps(draft) if draft is not None else None,
+                    by if draft is not None else None,
+                    now if draft is not None else None,
+                    conversation_id,
                 ),
             )
 
@@ -1188,6 +1501,11 @@ class KnowledgeStore:
             f"AND NOT EXISTS ({keeps} AND k.request_id NOT IN {done})",
             {"cutoff": _days_before(now, closed_days)},
         ).rowcount
+        # A conversation goes with its last record (D-100).
+        db.execute(
+            "DELETE FROM conversations WHERE NOT EXISTS "
+            "(SELECT 1 FROM answer_records a WHERE a.conversation_id = conversations.id)"
+        )
         return int(unlinked) + int(linked)
 
     # --- internals ------------------------------------------------------------------
@@ -1236,6 +1554,16 @@ class KnowledgeStore:
             db.execute(
                 "ALTER TABLE entries ADD COLUMN started_from_answer INTEGER NOT NULL DEFAULT 0"
             )
+            db.commit()
+
+    @staticmethod
+    def _add_conversation_link(db: sqlite3.Connection) -> None:
+        """Version 6 groups answer records into conversations (D-100): every earlier store
+        gains ``answer_records.conversation_id`` (NULL for existing records)."""
+
+        columns = {row[1] for row in db.execute("PRAGMA table_info(answer_records)")}
+        if columns and "conversation_id" not in columns:
+            db.execute("ALTER TABLE answer_records ADD COLUMN conversation_id TEXT")
             db.commit()
 
     @staticmethod

@@ -206,14 +206,14 @@ class AnswerRecorder:
             self._last_purge = now
             return True
 
-    def save(self, record: dict[str, Any]) -> str | None:
-        """Store the record; its id, or None when it could not be stored (the answer is
-        still given, it just cannot be rated)."""
+    def save(self, record: dict[str, Any]) -> tuple[str, str] | None:
+        """Store the record; its id and its conversation's id (D-100), or None when it could
+        not be stored (the answer is still given, it just cannot be rated)."""
 
         days = (self.unrated_days, self.closed_days) if self._purge_due() else None
         try:
-            self.store.add_answer_record(record, purge_days=days)
+            conversation = self.store.add_answer_record(record, purge_days=days)
         except Exception:  # an answer record must never break the answer itself
             log.exception("answer record not stored")
             return None
-        return str(record["id"])
+        return str(record["id"]), conversation

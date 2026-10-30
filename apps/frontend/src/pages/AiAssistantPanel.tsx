@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type AppendMessage,
   AssistantRuntimeProvider,
@@ -10,13 +10,15 @@ import {
 import "./AiAssistantPanel.css";
 import { AiAssistantText } from "./aiAssistantText";
 import { goToCaseSection } from "./caseSections";
+import { ConversationHistory, EndConversationForm } from "./ConversationFeedback";
 import {
   AiAssistantError,
   type AiAssistantSource,
+  type ConversationDetail,
   type AiAssistantTurn,
   askAiAssistantStreaming,
+  askSupportAssistant,
   fetchAiAssistantBrief,
-  sendAiAssistantFeedback,
 } from "../aiAssistant";
 
 interface ChatMessage extends AiAssistantTurn {
@@ -27,15 +29,12 @@ interface ChatMessage extends AiAssistantTurn {
   /** An answer that is still being written. */
   streaming?: boolean;
   sources?: AiAssistantSource[];
-  /** The service's record of this answer, sent back with feedback (none for small talk). */
+  /** The service's record of this answer (none for small talk). */
   answerId?: string | null;
   /** A small-talk reply: it never has a record, so nothing failed when answerId is missing. */
   smallTalk?: boolean;
-  /** How the finished answer was produced, as the service reported it (for its summary). */
+  /** How the finished answer was produced, as the service reported it. */
   answeredBy?: "model" | "case_data";
-  model?: string | null;
-  /** Measured in this browser, from sending the question to the final answer. */
-  elapsedMs?: number;
 }
 
 /** What the page has actually observed of a question in progress (no estimate, no percentage). */
@@ -50,14 +49,10 @@ interface Thread {
   messages: ChatMessage[];
   suggestions: string[];
   badge: number;
-}
-
-/** Feedback on one answer: writing the note "Not helpful" needs, sending, sent, or failed. */
-interface FeedbackState {
-  helpful: boolean;
-  stage: "note" | "sending" | "sent" | "error";
-  note: string;
-  message?: string;
+  /** The service's conversation for this chat (D-100); End conversation rates it. */
+  conversationId: string | null;
+  /** Shown above a chat reopened from History. */
+  resumedNote?: string | null;
 }
 
 interface AiAssistantPanelProps {
@@ -67,9 +62,20 @@ interface AiAssistantPanelProps {
   onboardingWithoutCase?: boolean;
   /** Opens the Cases list, offered when no case has been opened yet. */
   onOpenCases: () => void;
+  /** Support (D-100): with no case open, chat about the approved rules and the policy. */
+  canChatWithoutCase?: boolean;
+  /** Opens a case page, to continue a past chat about another case from History. */
+  onOpenCase?: (caseId: string) => void;
+  /** D-100: Support asked about this case from a Knowledge Review page: open on it, with the
+   * user's question offered first. A new ``nonce`` opens it again. */
+  askAbout?: { caseId: string; question: string; nonce: number } | null;
 }
 
-const EMPTY_THREAD: Thread = { company: null, messages: [], suggestions: [], badge: 0 };
+const EMPTY_THREAD: Thread = { company: null, messages: [], suggestions: [], badge: 0, conversationId: null };
+// Support's chat without a case has its own thread.
+const SUPPORT_THREAD = "support";
+const SUPPORT_WELCOME =
+  "Ask me about the approved rules (official guidance and past resolutions) or the active policy settings.";
 
 let nextId = 0;
 const newId = () => `m${(nextId += 1)}`;
@@ -107,15 +113,11 @@ function toThreadMessage(message: ChatMessage): ThreadMessageLike {
         streaming: Boolean(message.streaming),
         sources: (message.sources ?? []) as unknown as Record<string, unknown>[],
         answeredBy: message.answeredBy ?? null,
-        model: message.model ?? null,
-        elapsedMs: message.elapsedMs ?? null,
         smallTalk: Boolean(message.smallTalk),
       },
     },
   };
 }
-
-const MODEL_NAMES: Record<string, string> = { "openai/gpt-oss-120b": "GPT-OSS 120B" };
 
 export function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
@@ -144,33 +146,6 @@ export function AnswerActivity({ activity, writing, now }: { activity: Activity;
       <span className="ai-assistant-activity-time" aria-hidden="true">{seconds(Math.max(0, now - activity.startedAt))}</span>
       <span className="sr-only" role="status">{current?.label ?? ""}</span>
     </div>
-  );
-}
-
-/** After an answer: how it was produced, from the service's reply and this page's clock only.
- * ``sources`` counts the cited sources only (the ones the source chips show). */
-export function AnswerUsed({ answeredBy, model, sources, elapsedMs }: {
-  answeredBy: "model" | "case_data";
-  model: string | null;
-  sources: number;
-  elapsedMs: number | null;
-}) {
-  return (
-    <details className="ai-assistant-used">
-      <summary>What this answer used</summary>
-      <ul>
-        {answeredBy === "model" ? (
-          <>
-            <li>Model: {model ? MODEL_NAMES[model] ?? model : "AI model"}</li>
-            <li>Every line shown was checked against this case's approved wording before display.</li>
-          </>
-        ) : (
-          <li>No AI model wrote this answer: it comes from this case's data and any approved guidance cited.</li>
-        )}
-        {sources > 0 && <li>Approved sources cited: {sources}</li>}
-        {elapsedMs !== null && <li>Time to answer: {seconds(elapsedMs)} (measured in this browser)</li>}
-      </ul>
-    </details>
   );
 }
 
@@ -234,26 +209,6 @@ function BookIcon() {
   );
 }
 
-function ThumbIcon({ down = false }: { down?: boolean }) {
-  return (
-    <svg
-      className="ai-assistant-icon-small"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-      style={down ? { transform: "rotate(180deg)" } : undefined}
-    >
-      <path
-        d="M7 10v11H4V10h3Zm0 0 4.5-7c1.4 0 2.5 1.1 2.5 2.5V9h5a2 2 0 0 1 2 2.3l-1.3 7.9A2 2 0 0 1 17.7 21H7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 /**
  * The AI assistant only discusses a case the system has already replied on: a case page under
  * Cases, or the case being onboarded on New onboarding. The button is on every page so it is
@@ -263,20 +218,45 @@ function ThumbIcon({ down = false }: { down?: boolean }) {
  * The chat window is built from assistant-ui primitives over this component's own state
  * (an external store), so per-case threads, cancellation and access handling stay here.
  */
-export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false, onOpenCases }: AiAssistantPanelProps) {
+export default function AiAssistantPanel({
+  caseId,
+  onboardingWithoutCase = false,
+  onOpenCases,
+  canChatWithoutCase = false,
+  onOpenCase,
+  askAbout = null,
+}: AiAssistantPanelProps) {
   const activeCaseId = caseId;
+  // Support's chat without a case (D-100), when no case is open.
+  const supportChat = !activeCaseId && canChatWithoutCase;
+  const threadKey = activeCaseId ?? (supportChat ? SUPPORT_THREAD : null);
   const [open, setOpen] = useState(false);
   const [threads, setThreads] = useState<Record<string, Thread>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
-  const [feedback, setFeedback] = useState<Record<string, FeedbackState>>({});
+  // The chat, the End conversation form, or the user's past chats.
+  const [view, setView] = useState<"chat" | "end" | "history">("chat");
+  const [endedNotice, setEndedNotice] = useState<string | null>(null);
   const pending = useRef<AbortController | null>(null);
   const [activity, setActivity] = useState<Activity | null>(null);
   const [now, setNow] = useState(() => performance.now());
   const briefRequest = useRef<AbortController | null>(null);
 
-  const thread = (activeCaseId && threads[activeCaseId]) || EMPTY_THREAD;
+  const thread = (threadKey && threads[threadKey]) || EMPTY_THREAD;
+  // The question Support asked about, offered first while the panel is on its case.
+  const askedQuestion = askAbout && askAbout.caseId === activeCaseId ? askAbout.question : null;
+  const suggestions = askedQuestion
+    ? [askedQuestion, ...thread.suggestions.filter((question) => question !== askedQuestion)]
+    : thread.suggestions;
+
+  // Asking about a case from Knowledge Review opens the panel on it.
+  useEffect(() => {
+    if (askAbout) {
+      setOpen(true);
+      setView("chat");
+    }
+  }, [askAbout?.nonce]);
 
   function updateThread(key: string, change: (current: Thread) => Thread): void {
     setThreads((all) => ({ ...all, [key]: change(all[key] ?? EMPTY_THREAD) }));
@@ -304,6 +284,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
       .then((brief) => {
         if (controller.signal.aborted) return;
         updateThread(key, (current) => ({
+          ...current,
           company: brief.company,
           messages: [
             { id: `brief-${key}`, role: "assistant", content: brief.message, brief: true },
@@ -332,6 +313,8 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     pending.current = null;
     setBusy(false);
     setActivity(null);
+    setView("chat");
+    setEndedNotice(null);
   }, [activeCaseId]);
 
   // The elapsed time beside the progress stages: one tick a second, only while a question runs.
@@ -345,8 +328,9 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
 
   function ask(question: string): void {
     const text = question.trim();
-    if (!text || busy || !activeCaseId) return;
-    const key = activeCaseId;
+    if (!text || busy || !threadKey) return;
+    const key = threadKey;
+    setEndedNotice(null);
     // The opening summary repeats the case facts the service sends anyway, so it is not
     // sent back as history: a shorter prompt is a faster answer.
     const history: AiAssistantTurn[] = thread.messages
@@ -371,23 +355,27 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     const controller = new AbortController();
     pending.current = controller;
     const withoutDraft = (messages: ChatMessage[]) => messages.filter((item) => !item.streaming);
-    askAiAssistantStreaming(
-      key,
-      text,
-      history,
-      (soFar) => {
-        if (controller.signal.aborted) return;
-        updateThread(key, (current) => ({
-          ...current,
-          messages: current.messages.map((item) => (item.streaming ? { ...item, content: soFar } : item)),
-        }));
-      },
-      controller.signal,
-      earlierAnswerIds,
-      () => {
-        if (!controller.signal.aborted) setActivity((current) => current && { ...current, connected: true });
-      },
-    )
+    const answer = supportChat
+      ? askSupportAssistant(text, history, controller.signal)
+      : askAiAssistantStreaming(
+        key,
+        text,
+        history,
+        (soFar) => {
+          if (controller.signal.aborted) return;
+          updateThread(key, (current) => ({
+            ...current,
+            messages: current.messages.map((item) => (item.streaming ? { ...item, content: soFar } : item)),
+          }));
+        },
+        controller.signal,
+        earlierAnswerIds,
+        () => {
+          if (!controller.signal.aborted) setActivity((current) => current && { ...current, connected: true });
+        },
+        thread.conversationId,
+      );
+    answer
       .then((reply) => {
         if (controller.signal.aborted) return;
         updateThread(key, (current) => ({
@@ -403,11 +391,10 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
               answerId: reply.answer_id ?? null,
               smallTalk: reply.small_talk === true,
               answeredBy: reply.answered_by,
-              model: reply.model,
-              elapsedMs: performance.now() - startedAt,
             },
           ],
           suggestions: reply.suggested_questions,
+          conversationId: reply.conversation_id ?? current.conversationId,
         }));
       })
       .catch((reason: unknown) => {
@@ -427,32 +414,48 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
       });
   }
 
-  function startFeedback(messageId: string, helpful: boolean): void {
-    // "Yes, helpful" is one click that records the rating; "Not helpful" asks what was missing
-    // (required) and becomes an enhancement request for a Director.
-    if (helpful) {
-      sendFeedback(messageId, { helpful: true, stage: "note", note: "" });
-      return;
-    }
-    setFeedback((all) => ({ ...all, [messageId]: { helpful, stage: "note", note: "" } }));
+  /**
+   * From History: the past chat continues in this chat window. An open conversation goes on as
+   * itself; a rated one cannot take more answers, so new questions start a new conversation
+   * with the past exchange as context. A chat about another case opens that case's page.
+   */
+  function resumeConversation(past: ConversationDetail): void {
+    const messages: ChatMessage[] = past.turns.flatMap((turn) => [
+      { id: newId(), role: "user" as const, content: turn.question },
+      {
+        id: newId(),
+        role: "assistant" as const,
+        content: turn.answer,
+        answerId: turn.answer_id,
+        answeredBy: turn.answered_by ?? undefined,
+        note: turn.notices.join(" ") || null,
+      },
+    ]);
+    updateThread(past.case_id, (current) => ({
+      ...current,
+      messages: [...current.messages.filter((item) => item.brief), ...messages],
+      conversationId: past.ended_at ? null : past.conversation_id,
+      resumedNote: past.ended_at
+        ? "You rated this chat. New questions continue it as a new conversation."
+        : "Continuing your earlier chat.",
+    }));
+    setEndedNotice(null);
+    setView("chat");
+    if (past.case_id !== activeCaseId) onOpenCase?.(past.case_id);
   }
 
-  function sendFeedback(messageId: string, given?: FeedbackState): void {
-    const state = given ?? feedback[messageId];
-    if (!state || !activeCaseId) return;
-    const note = state.note.trim();
-    if (!state.helpful && !note) return;
-    const key = activeCaseId;
-    const answerId = answerIdOf(messageId);
-    setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "sending" } }));
-    // The rating, the note and which answer it is about: the conversation is not sent.
-    sendAiAssistantFeedback(key, { helpful: state.helpful, note, ...(answerId ? { answer_id: answerId } : {}) })
-      .then((result) =>
-        setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "sent", message: result.message } })),
-      )
-      .catch((reason: unknown) =>
-        setFeedback((all) => ({ ...all, [messageId]: { ...state, stage: "error", message: errorText(reason) } })),
-      );
+  /** After End conversation: the chat starts again (its summary stays), with a thank-you. */
+  function conversationEnded(message: string): void {
+    if (threadKey) {
+      updateThread(threadKey, (current) => ({
+        ...current,
+        messages: current.messages.filter((item) => item.brief),
+        conversationId: null,
+        resumedNote: null,
+      }));
+    }
+    setEndedNotice(message);
+    setView("chat");
   }
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
@@ -465,77 +468,6 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
   function goToSection(title: string): void {
     // Scrolls the case page behind the panel; the panel stays open.
     goToCaseSection(title);
-  }
-
-  function answerIdOf(messageId: string): string | null {
-    return thread.messages.find((item) => item.id === messageId)?.answerId ?? null;
-  }
-
-  function feedbackControls(messageId: string): ReactNode {
-    const state = feedback[messageId];
-    if (!state) {
-      return (
-        <div className="ai-assistant-rate" role="group" aria-label="Was this answer helpful?">
-          <span className="ai-assistant-rate-question">Was this answer helpful?</span>
-          <span className="ai-assistant-rate-buttons">
-            <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, true)}>
-              <ThumbIcon /> Yes, helpful
-            </button>
-            {/* Always offered: without an answer record the Director still gets the note. */}
-            <button type="button" className="ai-assistant-feedback-button" onClick={() => startFeedback(messageId, false)}>
-              <ThumbIcon down /> Not helpful
-            </button>
-          </span>
-        </div>
-      );
-    }
-    if (state.stage === "sent" || state.stage === "error") {
-      return (
-        <p className={state.stage === "error" ? "ai-assistant-error" : "ai-assistant-feedback-done"} role="status">
-          {state.message}
-        </p>
-      );
-    }
-    return (
-      <div className="ai-assistant-feedback-form">
-        <label>
-          What was missing?
-          <textarea
-            rows={2}
-            maxLength={1000}
-            required
-            value={state.note}
-            disabled={state.stage === "sending"}
-            onChange={(event) => setFeedback((all) => ({ ...all, [messageId]: { ...state, note: event.target.value } }))}
-          />
-        </label>
-        <p className="ai-assistant-hint">Your note goes to a Director. Client names, UENs and addresses are removed first.</p>
-        {/* Only when a record should exist: small talk never has one. */}
-        {!answerIdOf(messageId) && !thread.messages.find((item) => item.id === messageId)?.smallTalk && (
-          <p className="ai-assistant-hint" role="note">
-            We couldn't save the details of this answer, so the Director will only see your note.
-          </p>
-        )}
-        <div className="ai-assistant-feedback">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={state.stage === "sending" || !state.note.trim()}
-            onClick={() => sendFeedback(messageId)}
-          >
-            Send
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={state.stage === "sending"}
-            onClick={() => setFeedback(({ [messageId]: _dropped, ...rest }) => rest)}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
   }
 
   if (!open) {
@@ -553,7 +485,7 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     );
   }
 
-  if (!activeCaseId) {
+  if (!threadKey) {
     // Nothing to explain yet: a small card instead of the full chat window.
     return (
       <aside className="ai-assistant-panel ai-assistant-panel-compact" aria-label="AI Assistant">
@@ -578,7 +510,9 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
     );
   }
 
-  const subtitle = `${thread.company ?? "This case"} · read-only`;
+  const subtitle = supportChat ? "Approved rules and policy · read-only" : `${thread.company ?? "This case"} · read-only`;
+  // Ending rates the conversation: only a case chat with at least one recorded answer.
+  const canEnd = !supportChat && thread.conversationId !== null && !busy;
   const writing = thread.messages.some((item) => item.streaming && item.content);
 
   return (
@@ -589,25 +523,51 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
           <span className="ai-assistant-subtitle">{subtitle}</span>
         </div>
         <div className="ai-assistant-header-actions">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => setRefreshTick((tick) => tick + 1)}
-            aria-label="Refresh the summary"
-            title="Refresh"
-          >
-            ↻
-          </button>
+          {canEnd && view === "chat" && (
+            <button type="button" className="btn btn-ghost ai-assistant-end-open" onClick={() => setView("end")}>
+              End conversation
+            </button>
+          )}
+          {!supportChat && !canChatWithoutCase && (
+            <button
+              type="button"
+              className="btn btn-ghost ai-assistant-history-open"
+              onClick={() => setView(view === "history" ? "chat" : "history")}
+              aria-pressed={view === "history"}
+            >
+              History
+            </button>
+          )}
+          {!supportChat && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setRefreshTick((tick) => tick + 1)}
+              aria-label="Refresh the summary"
+              title="Refresh"
+            >
+              ↻
+            </button>
+          )}
           <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)} aria-label="Close AI assistant">
             ✕
           </button>
         </div>
       </header>
 
+      {view === "end" && thread.conversationId && (
+        <EndConversationForm conversationId={thread.conversationId} onDone={conversationEnded} onCancel={() => setView("chat")} />
+      )}
+      {view === "history" && <ConversationHistory onClose={() => setView("chat")} onOpen={resumeConversation} />}
+      {view === "chat" && (
       <AssistantRuntimeProvider runtime={runtime}>
         <ThreadPrimitive.Root className="ai-assistant-thread">
           <ThreadPrimitive.Viewport className="ai-assistant-messages" aria-live="polite">
-            {thread.messages.length === 0 && !error && <p className="ai-assistant-hint">Reading this case…</p>}
+            {endedNotice && <p className="ai-assistant-feedback-done" role="status">{endedNotice}</p>}
+            {thread.resumedNote && <p className="ai-assistant-hint" role="note">{thread.resumedNote}</p>}
+            {thread.messages.length === 0 && !error && (
+              <p className="ai-assistant-hint">{supportChat ? SUPPORT_WELCOME : "Reading this case…"}</p>
+            )}
             <ThreadPrimitive.Messages>
               {({ message }) => {
                 const custom = (message.metadata?.custom ?? {}) as {
@@ -616,8 +576,6 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
                   streaming?: boolean;
                   sources?: AiAssistantSource[];
                   answeredBy?: "model" | "case_data" | null;
-                  model?: string | null;
-                  elapsedMs?: number | null;
                   smallTalk?: boolean;
                 };
                 const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
@@ -631,17 +589,16 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
                     {/* D-098: an answer no AI model wrote is labelled where it is read, not only in the details below. */}
                     {finished && custom.answeredBy === "case_data" && !custom.smallTalk && (
                       <p className="ai-assistant-guidance-label" data-testid="case-data-label">
-                        <strong>Case-data guidance, not AI-generated.</strong> The AI model did not write this answer; it comes from this case's data and any approved guidance cited.
+                        {supportChat ? (
+                          <><strong>Approved wording, not AI-generated.</strong> The AI model did not write this answer; it lists the matching approved rules and policy.</>
+                        ) : (
+                          <><strong>Case-data guidance, not AI-generated.</strong> The AI model did not write this answer; it comes from this case's data and any approved guidance cited.</>
+                        )}
                       </p>
                     )}
                     {message.role === "assistant" ? <AiAssistantText text={text} onSection={goToSection} /> : <p>{text}</p>}
                     {custom.note && <span className="ai-assistant-note">{custom.note}</span>}
                     {finished && <SourceChips sources={custom.sources ?? []} />}
-                    {finished && custom.answeredBy && !custom.smallTalk && (
-                      <AnswerUsed answeredBy={custom.answeredBy} model={custom.model ?? null}
-                        sources={(custom.sources ?? []).filter((source) => source.cited).length} elapsedMs={custom.elapsedMs ?? null} />
-                    )}
-                    {finished && feedbackControls(message.id)}
                   </div>
                 );
               }}
@@ -650,9 +607,9 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
             {error && <p className="ai-assistant-error" role="alert">{error}</p>}
           </ThreadPrimitive.Viewport>
 
-          {thread.suggestions.length > 0 && (
+          {suggestions.length > 0 && (
             <div className="ai-assistant-suggestions">
-              {thread.suggestions.slice(0, 3).map((question) => (
+              {suggestions.slice(0, 3).map((question) => (
                 <button key={question} type="button" className="ai-assistant-chip" disabled={busy} onClick={() => ask(question)}>
                   {question}
                 </button>
@@ -665,8 +622,8 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
               rows={1}
               maxRows={5}
               maxLength={600}
-              placeholder="Ask about this case…"
-              aria-label="Ask the AI assistant about this case"
+              placeholder={supportChat ? "Ask about the rules or the policy…" : "Ask about this case…"}
+              aria-label={supportChat ? "Ask the AI assistant about the rules or the policy" : "Ask the AI assistant about this case"}
               submitMode="enter"
             />
             <ComposerPrimitive.Send className="ai-assistant-send" disabled={busy} aria-label="Send" title="Send (Enter)">
@@ -677,7 +634,10 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
           </ComposerPrimitive.Root>
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>
-      <p className="ai-assistant-disclaimer">AI answers can be wrong. The case page is the source of truth.</p>
+      )}
+      {supportChat && (
+        <p className="ai-assistant-disclaimer">AI answers can be wrong. The Policy tab and the approved rules are the source of truth.</p>
+      )}
     </aside>
   );
 }

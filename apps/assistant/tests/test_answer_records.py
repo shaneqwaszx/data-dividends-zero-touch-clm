@@ -659,10 +659,10 @@ def test_expired_records_go_on_start_up_and_at_most_hourly(
     kb.store.add_answer_record(blank("G" * 22))
     age(kb, "G" * 22, "2000-01-01T00:00:00+00:00")
     clock[0] += 60  # within the hour: no purge with this write
-    assert recorder.save(blank("H" * 22)) == "H" * 22
+    assert recorder.save(blank("H" * 22))[0] == "H" * 22  # type: ignore[index]
     assert kb.store.answer_record("G" * 22) is not None
     clock[0] += 3600  # an hour later: the next write purges
-    assert recorder.save(blank("J" * 22)) == "J" * 22
+    assert recorder.save(blank("J" * 22))[0] == "J" * 22  # type: ignore[index]
     assert kb.store.answer_record("G" * 22) is None
 
 
@@ -732,7 +732,8 @@ def test_a_branch_only_v5_store_without_shown_answer_records_again(
                 " NULL, 0, 'n', '[]', '[]', '[]', NULL, 'open', '2026-10-25T05:30:00+00:00');"
                 "UPDATE answer_records SET kept_for_request_id = last_insert_rowid();"
             )
-        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+        # As that branch stamped it (before D-100's version 6).
+        db.execute("UPDATE meta SET value = '5' WHERE key = 'schema_version'")
     knowledge = _kb(tmp_path)  # opening the store repairs it
     store = knowledge.store
     with sqlite3.connect(path) as db:

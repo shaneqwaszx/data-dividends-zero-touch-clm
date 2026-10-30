@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import AiAssistantPanel, { AnswerActivity, AnswerUsed } from "./AiAssistantPanel";
+import AiAssistantPanel, { AnswerActivity } from "./AiAssistantPanel";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,12 +62,28 @@ async function flush(): Promise<void> {
 
 const noop = () => undefined;
 
-function render(caseId: string | null, onOpenCases: () => void = noop): HTMLDivElement {
+function render(caseId: string | null, onOpenCases: () => void = noop, canChatWithoutCase = false): HTMLDivElement {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  act(() => root?.render(<AiAssistantPanel caseId={caseId} onOpenCases={onOpenCases} />));
+  act(() => root?.render(<AiAssistantPanel caseId={caseId} onOpenCases={onOpenCases} canChatWithoutCase={canChatWithoutCase} />));
   return container;
+}
+
+function typeInto(field: Element | null, value: string): void {
+  const box = field as HTMLTextAreaElement;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, value);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function buttonNamed(view: HTMLElement, text: string): HTMLButtonElement | undefined {
+  return [...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
+}
+
+function choiceLabels(fieldset: Element | null | undefined): string[] {
+  return [...(fieldset?.querySelectorAll("label") ?? [])].map((label) => label.textContent?.trim() ?? "");
 }
 
 function rerender(caseId: string | null): void {
@@ -95,6 +111,7 @@ function ndjsonStream(): { response: Response; send: (event: unknown) => void; e
 }
 
 const ANSWER_ID = "A".repeat(22);
+const CONVERSATION_ID = "C".repeat(22);
 
 describe("AiAssistantPanel", () => {
   it("shows the answer while it is being written, then the final answer", async () => {
@@ -140,13 +157,10 @@ describe("AiAssistantPanel", () => {
     expect(view.textContent).toContain("Then upload ownership evidence.");
     expect(view.querySelectorAll(".ai-assistant-assistant")).toHaveLength(2);
     expect(view.textContent).toContain("Where are we now?");
-    // Answer ready: the progress stages are gone; how the answer was produced is one click away.
+    // Answer ready: the progress stages are gone, and there is no "What this answer used" (D-100).
     expect(view.querySelector(".ai-assistant-activity")).toBeNull();
-    const used = view.querySelector(".ai-assistant-used");
-    expect(used?.textContent).toContain("What this answer used");
-    expect(used?.textContent).toContain("Model: ministral-3:8b");
-    expect(used?.textContent).toContain("checked against this case's approved wording");
-    expect(used?.textContent).toMatch(/Time to answer: \d+\.\d s \(measured in this browser\)/);
+    expect(view.querySelector(".ai-assistant-used")).toBeNull();
+    expect(view.textContent).not.toContain("What this answer used");
 
     // The next question sends the earlier exchange, but not the opening summary.
     act(() => {
@@ -361,9 +375,8 @@ describe("AiAssistantPanel", () => {
     expect(view.querySelector("[role=alert]")).toBeNull();
   });
 
-  it("shows cited sources and sends Yes, helpful as a rating only, without the conversation", async () => {
-    const sent: unknown[] = [];
-    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+  it("shows cited sources and no per-answer helpful buttons (D-100)", async () => {
+    stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
       if (url.endsWith("/chat/stream")) {
@@ -383,10 +396,6 @@ describe("AiAssistantPanel", () => {
           { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
         );
       }
-      if (url.endsWith("/feedback")) {
-        sent.push(JSON.parse(String(init?.body)));
-        return json({ feedback_id: 1, message: "Thanks for your feedback." });
-      }
       return json({}, 404);
     });
 
@@ -400,94 +409,22 @@ describe("AiAssistantPanel", () => {
     expect(sources?.textContent).toContain("G1");
     expect(sources?.textContent).toContain("Registered address differs from ACRA");
     expect(sources?.textContent).not.toContain("Not cited");
-    // The summary counts what the chips show: one cited source, not both retrieved ones.
-    expect(view.querySelector(".ai-assistant-used")?.textContent).toContain("Approved sources cited: 1");
-
-    // One click: an RM is not asked to write anything when the answer helped.
-    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Yes, helpful"));
-    await flush();
-    expect(view.querySelector(".ai-assistant-feedback-form")).toBeNull();
-
-    expect(sent).toEqual([{ helpful: true, note: "" }]);
-    expect(view.textContent).toContain("Thanks for your feedback.");
-    // The opening summary has no feedback buttons.
-    expect([...view.querySelectorAll(".ai-assistant-feedback-button")]).toHaveLength(0);
+    expect(buttonNamed(view, "Yes, helpful")).toBeUndefined();
+    expect(buttonNamed(view, "Not helpful")).toBeUndefined();
   });
 
-  it("asks Not helpful for a required note and sends it as an enhancement request", async () => {
-    const sent: unknown[] = [];
-    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
-      if (url.endsWith("/chat/stream")) {
-        return new Response(
-          `${JSON.stringify({ type: "done", answer: "Keep the registry value.", answered_by: "model", model: "m", notice: null, suggested_questions: [], answer_id: ANSWER_ID })}\n`,
-          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
-        );
-      }
-      if (url.endsWith("/feedback")) {
-        sent.push(JSON.parse(String(init?.body)));
-        return json({ feedback_id: 2, message: "Thanks. This has been flagged so the answer can be improved." });
-      }
-      return json({}, 404);
-    });
-
-    const view = render("case-1");
-    click(view.querySelector(".ai-assistant-launcher"));
-    await flush();
-    click(view.querySelector(".ai-assistant-chip"));
-    await flush();
-    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
-    await flush();
-
-    const form = view.querySelector(".ai-assistant-feedback-form");
-    expect(form?.querySelector("label")?.textContent).toBe("What was missing?");
-    expect(form?.textContent).not.toContain("optional");
-    expect(form?.querySelector(".ai-assistant-hint")?.textContent).toBe(
-      "Your note goes to a Director. Client names, UENs and addresses are removed first.",
-    );
-    const note = form?.querySelector("textarea") as HTMLTextAreaElement;
-    expect(note.required).toBe(true);
-    const send = [...(form?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === "Send");
-    // Nothing typed, or only whitespace: Send stays disabled and nothing is sent.
-    expect(send?.disabled).toBe(true);
-    const type = (value: string) => act(() => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, value);
-      note.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    type("   ");
-    expect(send?.disabled).toBe(true);
-    click(send);
-    await flush();
-    expect(sent).toEqual([]);
-
-    type("  It did not list the proof to ask for. ");
-    expect(send?.disabled).toBe(false);
-    click(send);
-    await flush();
-    // The answer's record id goes with the note, so a Director can see what happened.
-    expect(sent).toEqual([{ helpful: false, note: "It did not list the proof to ask for.", answer_id: ANSWER_ID }]);
-    expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
-  });
-
-  it("keeps each answer's record id, sends earlier ids with the next question and with feedback", async () => {
+  it("keeps the conversation and sends it, with the earlier answer ids, on the next question", async () => {
     const asked: Record<string, unknown>[] = [];
-    const rated: unknown[] = [];
     const ids = [ANSWER_ID, "B".repeat(22)];
     stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
       if (url.endsWith("/chat/stream")) {
         asked.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-        const answerId = ids[asked.length - 1];
         return new Response(
-          `${JSON.stringify({ type: "done", answer: `Answer ${asked.length}.`, answered_by: "model", model: "m", notice: null, suggested_questions: ["Next?"], answer_id: answerId })}\n`,
+          `${JSON.stringify({ type: "done", answer: `Answer ${asked.length}.`, answered_by: "model", model: "m", notice: null, suggested_questions: ["Next?"], answer_id: ids[asked.length - 1], conversation_id: CONVERSATION_ID })}\n`,
           { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
         );
-      }
-      if (url.endsWith("/feedback")) {
-        rated.push(JSON.parse(String(init?.body)));
-        return json({ feedback_id: 3, message: "Thanks for your feedback." });
       }
       return json({}, 404);
     });
@@ -498,56 +435,188 @@ describe("AiAssistantPanel", () => {
     await flush();
     click(view.querySelector(".ai-assistant-chip"));
     await flush();
-    // The first question has no earlier answers; the second names the first answer only.
     expect(asked[0].earlier_answer_ids).toBeUndefined();
+    expect(asked[0].conversation_id).toBeUndefined();
     expect(asked[1].earlier_answer_ids).toEqual([ANSWER_ID]);
-    const helpful = [...view.querySelectorAll("button")].filter((b) => b.textContent?.trim() === "Yes, helpful");
-    click(helpful[1]);
-    await flush();
-    expect(rated).toEqual([{ helpful: true, note: "", answer_id: "B".repeat(22) }]);
+    expect(asked[1].conversation_id).toBe(CONVERSATION_ID);
   });
 
-  it("still offers Not helpful when the answer has no record, and says only the note is sent", async () => {
-    const sent: unknown[] = [];
+  it("ends the conversation with the feedback form: resolved first, then the ratings it allows", async () => {
+    const ended: unknown[] = [];
+    const asked: Record<string, unknown>[] = [];
     stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
       if (url.endsWith("/chat/stream")) {
-        // The record could not be saved (or small talk, or the knowledge store off).
+        asked.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         return new Response(
-          `${JSON.stringify({ type: "done", answer: "From ACRA (MOCK).", answered_by: "case_data", model: null, notice: null, suggested_questions: [], answer_id: null })}\n`,
+          `${JSON.stringify({ type: "done", answer: "Keep the registry value.", answered_by: "model", model: "m", notice: null, suggested_questions: ["Why?"], answer_id: ANSWER_ID, conversation_id: CONVERSATION_ID })}\n`,
           { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
         );
       }
-      if (url.endsWith("/feedback")) {
-        sent.push(JSON.parse(String(init?.body)));
-        return json({ feedback_id: 3, message: "Thanks. This has been flagged so the answer can be improved." });
+      if (url.endsWith(`/conversations/${CONVERSATION_ID}/end`)) {
+        ended.push(JSON.parse(String(init?.body)));
+        return json({ conversation_id: CONVERSATION_ID, message: "Thanks. Your feedback has been sent so the answers can be improved." });
       }
       return json({}, 404);
     });
     const view = render("case-1");
     click(view.querySelector(".ai-assistant-launcher"));
     await flush();
+    // Nothing to rate before an answer.
+    expect(buttonNamed(view, "End conversation")).toBeUndefined();
     click(view.querySelector(".ai-assistant-chip"));
     await flush();
-    const labels = [...view.querySelectorAll(".ai-assistant-rate button")].map((b) => b.textContent?.trim());
-    expect(labels).toEqual(["Yes, helpful", "Not helpful"]);
-    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
+    click(buttonNamed(view, "End conversation"));
     await flush();
-    const form = view.querySelector(".ai-assistant-feedback-form");
-    expect(form?.querySelector('[role="note"]')?.textContent).toBe(
-      "We couldn't save the details of this answer, so the Director will only see your note.",
-    );
-    const note = form?.querySelector("textarea") as HTMLTextAreaElement;
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(note, "It did not show the two addresses.");
-      note.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const form = view.querySelector('form[aria-label="End conversation"]');
+    const fieldsets = () => [...(form?.querySelectorAll("fieldset") ?? [])];
+    expect(fieldsets().map((item) => item.querySelector("legend")?.textContent)).toEqual(["Was this issue resolved?"]);
+    const submit = () => buttonNamed(view, "Submit and end");
+    expect(submit()?.disabled).toBe(true);
+
+    // Yes: very satisfied, satisfied or neutral, and optional comments.
+    click(fieldsets()[0].querySelectorAll("input")[0]);
+    expect(choiceLabels(fieldsets()[1])).toEqual(["Very satisfied", "Satisfied", "Neutral"]);
+    expect(form?.querySelector(".ai-assistant-end-comment")?.textContent).toContain("Additional comments (optional)");
+    click(fieldsets()[1].querySelectorAll("input")[0]); // very satisfied
+    expect(submit()?.disabled).toBe(false);
+
+    // No: neutral, unsatisfied or very unsatisfied; "very satisfied" is no longer chosen; the
+    // improvement text is required.
+    click(fieldsets()[0].querySelectorAll("input")[1]);
+    expect(choiceLabels(fieldsets()[1])).toEqual(["Neutral", "Unsatisfied", "Very unsatisfied"]);
+    expect([...fieldsets()[1].querySelectorAll("input")].some((input) => (input as HTMLInputElement).checked)).toBe(false);
+    expect(form?.querySelector(".ai-assistant-end-comment")?.textContent).toContain("How should it be improved?");
+    click(fieldsets()[1].querySelectorAll("input")[2]); // very unsatisfied
+    expect(submit()?.disabled).toBe(true);
+    typeInto(form?.querySelector("textarea") ?? null, "  Show the two addresses. ");
+    expect(submit()?.disabled).toBe(false);
+    click(submit());
+    await flush();
+
+    expect(ended).toEqual([{ resolved: false, satisfaction: "very_unsatisfied", comment: "Show the two addresses." }]);
+    expect(view.textContent).toContain("Thanks. Your feedback has been sent so the answers can be improved.");
+    // The chat starts again: no End conversation until the next answer, and a new conversation.
+    expect(buttonNamed(view, "End conversation")).toBeUndefined();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    expect(asked[1].conversation_id).toBeUndefined();
+  });
+
+  it("reopens a past chat from History in the same chat, to continue it", async () => {
+    const asked: Record<string, unknown>[] = [];
+    const opened: string[] = [];
+    const past = (caseId: string, ended: boolean) => ({
+      conversation_id: CONVERSATION_ID, case_id: caseId, title: "Why is this case blocked?", created_at: "2026-10-30T01:00:00+00:00", updated_at: "2026-10-30T01:05:00+00:00", ended_at: ended ? "2026-10-30T01:05:00+00:00" : null, resolved: ended ? true : null, satisfaction: ended ? "satisfied" : null, priority: null, review_status: ended ? "no_review" : "open", answers: 1, team: "TEAM_A", user_id: "maya-lim", comment: null,
+      turns: [{ answer_id: ANSWER_ID, created_at: "2026-10-30T01:00:00+00:00", question: "Why is this case blocked?", answer: "[COMPANY] needs ownership evidence.", notices: [], answered_by: "model" }],
     });
-    click([...(form?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === "Send"));
+    let detail = past("case-1", true);
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/conversations?page=1")) {
+        const { comment: _c, turns: _t, ...row } = detail;
+        return json({ items: [row], total: 1, page: 1, page_size: 10 });
+      }
+      if (url.endsWith(`/conversations/${CONVERSATION_ID}`)) return json(detail);
+      if (url.endsWith("/chat/stream")) {
+        asked.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(
+          `${JSON.stringify({ type: "done", answer: "Upload it under Ownership.", answered_by: "model", model: "m", notice: null, suggested_questions: [], answer_id: "B".repeat(22), conversation_id: "D".repeat(22) })}\n`,
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      return json({}, 404);
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<AiAssistantPanel caseId="case-1" onOpenCases={noop} onOpenCase={(id) => opened.push(id)} />));
+    const view = container;
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
-    // The note alone: no answer_id is made up.
-    expect(sent).toEqual([{ helpful: false, note: "It did not show the two addresses." }]);
-    expect(view.textContent).toContain("Thanks. This has been flagged so the answer can be improved.");
+    click(buttonNamed(view, "History"));
+    await flush();
+    const item = view.querySelector(".ai-assistant-history-item");
+    expect(item?.textContent).toContain("Why is this case blocked?");
+    expect(item?.textContent).toContain("Satisfied");
+    click(item);
+    await flush();
+    // Back in the chat with the past exchange, and the composer to continue.
+    expect(view.textContent).toContain("[COMPANY] needs ownership evidence.");
+    expect(view.textContent).toContain("You rated this chat. New questions continue it as a new conversation.");
+    expect(view.querySelector("textarea")).not.toBeNull();
+    expect(opened).toEqual([]); // same case: no navigation
+    typeInto(view.querySelector("textarea"), "Where do I upload it?");
+    click(view.querySelector(".ai-assistant-send"));
+    await flush();
+    // A rated chat continues as a new conversation, with the past exchange as context.
+    expect(asked[0].conversation_id).toBeUndefined();
+    expect(asked[0].history).toEqual([
+      { role: "user", content: "Why is this case blocked?" },
+      { role: "assistant", content: "[COMPANY] needs ownership evidence." },
+    ]);
+    expect(asked[0].earlier_answer_ids).toEqual([ANSWER_ID]);
+
+    // An open chat about another case continues as itself, on that case's page.
+    detail = past("case-2", false);
+    click(buttonNamed(view, "History"));
+    await flush();
+    click(view.querySelector(".ai-assistant-history-item"));
+    await flush();
+    expect(opened).toEqual(["case-2"]);
+  });
+
+  it("opens on the case Support asked about, with the user's question first (D-100)", async () => {
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/cases/case-9/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      return json({}, 404);
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const panel = (nonce: number) => (
+      <AiAssistantPanel caseId="case-9" onOpenCases={noop} canChatWithoutCase askAbout={{ caseId: "case-9", question: "Explain the address difference", nonce }} />
+    );
+    act(() => root?.render(panel(1)));
+    await flush();
+    // Opened by itself, on the case, with the user's question as the first suggestion.
+    expect(container.querySelector(".ai-assistant-launcher")).toBeNull();
+    expect(container.textContent).toContain("Summary of Garden.");
+    expect([...container.querySelectorAll(".ai-assistant-chip")].map((chip) => chip.textContent)).toEqual([
+      "Explain the address difference",
+      "Why is this case blocked?",
+    ]);
+    // Support keeps no history and has nothing to rate.
+    expect(buttonNamed(container, "History")).toBeUndefined();
+    expect(buttonNamed(container, "End conversation")).toBeUndefined();
+  });
+
+  it("lets Support chat about the rules and policy without a case (D-100)", async () => {
+    const sent: unknown[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/support/chat")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ answer: "UBO threshold: 25. [ownership.ubo_threshold_percent]", answered_by: "model", model: "m", notice: null, suggested_questions: [] });
+      }
+      return json({}, 404);
+    });
+    const view = render(null, noop, true);
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expect(view.textContent).toContain("Ask me about the approved rules");
+    expect(view.textContent).not.toContain("Go to Cases");
+    expect(buttonNamed(view, "History")).toBeUndefined();
+    typeInto(view.querySelector("textarea"), "What is the UBO threshold?");
+    click(view.querySelector(".ai-assistant-send"));
+    await flush();
+    expect(sent).toEqual([{ message: "What is the UBO threshold?", history: [] }]);
+    expect(view.textContent).toContain("UBO threshold: 25.");
+    expect(buttonNamed(view, "End conversation")).toBeUndefined();
   });
 
   it("labels a case-data answer as not AI-generated where it is read (D-098)", async () => {
@@ -575,70 +644,6 @@ describe("AiAssistantPanel", () => {
       act(() => root?.unmount());
       root = null;
     }
-  });
-
-  it("does not say a record failed after small talk, which never has one", async () => {
-    stubFetch(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
-      if (url.endsWith("/chat/stream")) {
-        return new Response(
-          `${JSON.stringify({ type: "done", answer: "Hello!", answered_by: "case_data", model: null, notice: null, suggested_questions: [], answer_id: null, small_talk: true })}\n`,
-          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
-        );
-      }
-      return json({}, 404);
-    });
-    const view = render("case-1");
-    click(view.querySelector(".ai-assistant-launcher"));
-    await flush();
-    click(view.querySelector(".ai-assistant-chip"));
-    await flush();
-    click([...view.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Not helpful"));
-    await flush();
-    const form = view.querySelector(".ai-assistant-feedback-form");
-    expect(form?.querySelector("textarea")).not.toBeNull();
-    expect(form?.querySelector('[role="note"]')).toBeNull();
-  });
-
-  it("offers Not helpful on every answer, including a one-line answer after a rated one", async () => {
-    const answers = [
-      "The current case offers \"Keep registry value\".",
-      "Document or reconciliation review required: this is for the document reviewer.",
-    ];
-    stubFetch(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith("/brief")) return json(brief("MERLION CIRCULAR LABS PTE. LTD.", "Summary of Merlion."));
-      if (url.endsWith("/chat/stream")) {
-        const answer = answers.shift();
-        return new Response(
-          `${JSON.stringify({ type: "done", answer, answered_by: "model", model: "m", notice: null, suggested_questions: ["Who should I call about this?"] })}\n`,
-          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
-        );
-      }
-      if (url.endsWith("/feedback")) return json({ feedback_id: 1, message: "Thanks for your feedback." });
-      return json({}, 404);
-    });
-    const buttons = (label: string) =>
-      [...view.querySelectorAll(".ai-assistant-feedback-button")].filter((b) => b.textContent?.trim() === label);
-
-    const view = render("case-1");
-    click(view.querySelector(".ai-assistant-launcher"));
-    await flush();
-    click(view.querySelector(".ai-assistant-chip"));
-    await flush();
-    expect(buttons("Yes, helpful")).toHaveLength(1);
-    expect(buttons("Not helpful")).toHaveLength(1);
-    click(buttons("Yes, helpful")[0]);
-    await flush();
-    expect(view.textContent).toContain("Thanks for your feedback.");
-
-    click(view.querySelector(".ai-assistant-chip"));
-    await flush();
-    expect(view.textContent).toContain("this is for the document reviewer.");
-    // The new one-line answer has no answer record and is not small talk: both buttons show.
-    expect(buttons("Yes, helpful")).toHaveLength(1);
-    expect(buttons("Not helpful")).toHaveLength(1);
   });
 
   it("no longer opens Knowledge review, even for someone the backend allows to review (D-099)", async () => {
@@ -684,20 +689,5 @@ describe("AiAssistantPanel answer progress and summary", () => {
     const showing = shown(<AnswerActivity activity={{ startedAt: 0, connected: true }} writing now={13_000} />);
     expect(showing).toContain("✓ Checking model readiness and waiting for the answer");
     expect(showing).toContain("… Showing lines that passed the check");
-  });
-
-  it("summarises a case-data answer without claiming a model wrote it", () => {
-    const html = shown(<AnswerUsed answeredBy="case_data" model={null} sources={0} elapsedMs={640} />);
-    expect(html).toContain("No AI model wrote this answer: it comes from this case's data and any approved guidance cited.");
-    expect(html).not.toContain("Model:");
-    expect(html).not.toContain("sources cited");
-    expect(html).toContain("0.6 s");
-  });
-
-  it("names GPT-OSS 120B and counts cited sources for a model answer", () => {
-    const html = shown(<AnswerUsed answeredBy="model" model="openai/gpt-oss-120b" sources={2} elapsedMs={12_437} />);
-    expect(html).toContain("Model: GPT-OSS 120B");
-    expect(html).toContain("Approved sources cited: 2");
-    expect(html).toContain("12 s");
   });
 });

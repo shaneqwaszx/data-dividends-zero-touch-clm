@@ -92,6 +92,19 @@ class ClmBackendClient:
             )
         return actor
 
+    def load_policies(self, session_token: str | None) -> dict[str, Any] | None:
+        """D-100: the active policy catalogue as the backend shows it to this user (GET only),
+        or None when it cannot be read."""
+
+        try:
+            with self._client(session_token) as client:
+                catalogue = self._get(client, "/api/policies")
+        except ClmBackendError as exc:
+            if exc.code == "AUTHENTICATION_REQUIRED":
+                raise
+            return None
+        return catalogue if isinstance(catalogue, dict) else None
+
     def load_document_digests(
         self, case_id: UUID, session_token: str | None
     ) -> list[dict[str, Any]] | None:

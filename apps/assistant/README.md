@@ -163,7 +163,15 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the reviewer then sees only the note |
+| POST | `/assistant/conversations/{id}/end` | The user who asked | End conversation (D-100): `resolved`, `satisfaction` (Yes: `very_satisfied`, `satisfied`, `neutral`; No: `neutral`, `unsatisfied`, `very_unsatisfied`) and `comment` (required when not resolved), redacted; once per conversation. Neutral or worse becomes an enhancement request with a priority (low, medium, high) |
+| GET | `/assistant/conversations?page=` | anyone signed in | Their own conversations, newest first, 10 a page (history) |
+| GET | `/assistant/conversations/{id}` | The user who asked | One of their conversations: questions and answers as shown, redacted (views logged) |
+| GET | `/assistant/knowledge/conversations?page=&resolved=&satisfaction=&status=` | Support | Rated conversations, 10 a page, high, medium, low, then no priority |
+| GET | `/assistant/knowledge/conversations/{id}` | Support | Rating, comment, the whole chat (views logged), its request and the saved draft |
+| PUT / DELETE | `/assistant/knowledge/conversations/{id}/draft` | Support | Save (redacted) or discard the draft fix of an open request |
+| POST | `/assistant/knowledge/conversations/{id}/try` | Support | Preview: the user's question answered with an unsaved rule change offered as if approved (local model only; nothing saved, published or recorded) |
+| POST | `/assistant/support/chat` | Support | A question about the approved rules and the active policy, no case (local model only) |
+| POST | `/assistant/cases/{case_id}/feedback` | RM on the case | (Kept for compatibility; the panel no longer sends it, D-100.) "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the reviewer then sees only the note |
 | GET | `/assistant/answers/{answer_id}` | the RM who asked | Their own answer record (view logged); HR gets 403, anyone else 404 |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
 | GET | `/assistant/knowledge/reviews` | Support | Drafts waiting for review and open enhancement requests (`gaps`, each with its `answer_id` and question; listing them is not a logged record view, opening the record is) |
@@ -222,23 +230,29 @@ record.
 ### In the app
 
 The panel is built on `@assistant-ui/react`. Each answer shows the guidance and past cases it
-cited as chips (G1, P1 …) and has **Yes, helpful** (one click, no note) and **Not helpful**
-(asks "What was missing?"; Send stays disabled until a note is typed) buttons. Knowledge review
-is not in the panel: Support users (`KNOWLEDGE_REVIEW`) review on the **Knowledge Review** tab
-(D-099); Directors no longer review knowledge.
+cited as chips (G1, P1 …). Feedback is given once per conversation (D-100): **End conversation**
+asks "Was this issue resolved?", then how satisfied the user is (Yes: very satisfied, satisfied
+or neutral, with optional comments; No: neutral, unsatisfied or very unsatisfied, with a required
+"How should it be improved?"), and the chat starts again. **History** lists the user's past
+chats; one opens back in the chat to continue it (a rated chat continues as a new conversation;
+client details in past answers show as placeholders). Knowledge review is not
+in the panel: Support users (`KNOWLEDGE_REVIEW`) review on the **Knowledge Review** tab (D-099);
+Directors no longer review knowledge. With no case open, Support gets a chat about the approved
+rules and the active policy (`POST /assistant/support/chat`, local model only, exact-line rule).
 
 ### Demo script
 
 1. Sign in as an RM, open a case blocked by a document/ACRA address conflict, open the AI Assistant.
 2. Ask "Can I use the document address?" The answer cites guidance [G1] and an illustrative past
    case [P1], shown as chips.
-3. Click **Not helpful** and say what was missing, naming the client.
-4. Sign in as Support (support-user), open the **Knowledge Review** tab: under **Enhancement requests** the
-   request's row shows the note with the client's name replaced with `[COMPANY]`. Open the
-   row; under **Write the fix**, write what resolves it as a past case and **Save the fix for
-   review**.
-5. Under **Waiting for review**, click **Approve**, check the final text and **Confirm and
-   publish** (single-reviewer mode; it is listed under **Published by a single reviewer**).
+3. Click **End conversation**: **No**, **Very unsatisfied**, and say how it should be improved,
+   naming the client.
+4. Sign in as Support (support-user), open the **Knowledge Review** tab: the conversation is at the
+   top with **High** priority and the comment's client name replaced with `[COMPANY]`. Click
+   **Review**; under **Write the fix**, write what resolves it as a past case. **Save as draft**
+   keeps it for later (the row then shows **Edit draft**).
+5. **Save and publish**, check the final text and **Confirm and publish** (Support is the single
+   reviewer). The row now shows **Fixed**.
 6. Back as an RM on a similar case, ask again: the new resolution is now cited.
 
 ## Output policy

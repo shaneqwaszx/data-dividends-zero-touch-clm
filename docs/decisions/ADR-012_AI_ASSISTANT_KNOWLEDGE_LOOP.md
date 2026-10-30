@@ -767,3 +767,14 @@ grants no case pages, portfolio, mutation or evidence decisions. The review UI i
 **Knowledge Review** tab instead of a window opened from the AI Assistant panel. Sections A and
 C, the content-hash decision, maker-checker, single-reviewer mode (D-083), two-person
 retirement and redaction are unchanged.
+
+## Amendment 6 - conversation feedback and Support's review list (OWNER-DIRECTED, D-100)
+
+Status: owner-directed for the local POC; not sponsor policy. Feedback moves from each answer to
+the conversation: End conversation records resolved, satisfaction and a comment, and a rating of
+neutral or worse becomes an enhancement request with a priority (low, medium, high). Support
+reviews rated conversations in a filtered, paged list and fixes them through the existing request
+machinery (fix-start, redaction, placeholder refusal, single-reviewer publishing), with drafts
+kept on the conversation. Users can open their past conversations read-only. Support can also ask
+about the approved knowledge and the policy without a case, under the same exact-line rule. Sections
+A and C are unchanged.

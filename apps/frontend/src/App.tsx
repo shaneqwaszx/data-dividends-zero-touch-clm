@@ -1805,6 +1805,8 @@ export default function App({
   const [teamOptions, setTeamOptions] = useState<AuthenticatedTeam[]>([]);
   const [casePriority, setCasePriority] = useState<number | "">("");
   const [deleteCurrentCaseOpen, setDeleteCurrentCaseOpen] = useState(false);
+  // D-100: the case Support asked the AI Assistant about from a Knowledge Review page.
+  const [askedAbout, setAskedAbout] = useState<{ caseId: string; question: string; nonce: number } | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -2248,6 +2250,9 @@ export default function App({
 
   const retainedIntakeCaseId = retainedCreatedSummary?.case.case_id ?? null;
   const aiAssistantContext = aiAssistantContextFor(location.pathname, retainedIntakeCaseId);
+  // D-100: on a Knowledge Review page, Support opens the AI Assistant on the conversation's case;
+  // it goes back to the rules chat once Support leaves that page.
+  const assistantFocus = location.pathname === paths.knowledgeReview ? askedAbout : null;
   const liveOnboarding = (
     <>
       <HomeOnboarding
@@ -2383,15 +2388,28 @@ export default function App({
           goldtierSandbox={<GoldTierSandbox key={actor.user_id} actor={actor} />}
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}
           aiModels={<AiModelManagement key={actor.user_id} actor={actor} />}
-          knowledgeReview={<KnowledgeReview key={actor.user_id} />}
+          knowledgeReview={
+            <KnowledgeReview
+              key={actor.user_id}
+              onAskAboutCase={(caseId, question) =>
+                setAskedAbout((current) => ({ caseId, question, nonce: (current?.nonce ?? 0) + 1 }))}
+              onLeaveCase={() => setAskedAbout(null)}
+            />
+          }
         />
       </div>
-      <AiAssistantPanel
-        key={actor.user_id}
-        caseId={aiAssistantContext.caseId}
-        onboardingWithoutCase={aiAssistantContext.onboardingWithoutCase}
-        onOpenCases={() => navigate(paths.cases)}
-      />
+      {/* Only for users who can use it: case users, and Support (D-100). HR has neither. */}
+      {(actor.capabilities.includes("CASE_ACCESS") || actor.capabilities.includes("KNOWLEDGE_REVIEW")) && (
+        <AiAssistantPanel
+          key={actor.user_id}
+          caseId={assistantFocus?.caseId ?? aiAssistantContext.caseId}
+          askAbout={assistantFocus}
+          onboardingWithoutCase={aiAssistantContext.onboardingWithoutCase}
+          onOpenCases={() => navigate(paths.cases)}
+          onOpenCase={(id) => navigate(paths.caseDetail(id))}
+          canChatWithoutCase={actor.capabilities.includes("KNOWLEDGE_REVIEW") && !actor.capabilities.includes("CASE_ACCESS")}
+        />
+      )}
     </main>
   );
 }

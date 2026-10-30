@@ -59,6 +59,7 @@ from .knowledge.redaction import Redactor, case_parties
 from .knowledge.retrieval import case_context
 from .knowledge.service import KnowledgeBase
 from .knowledge.store import (
+    REVIEW_STATUSES,
     AnswerNotFoundError,
     ConfirmationRequiredError,
     ContentChangedError,
@@ -88,6 +89,55 @@ class FeedbackRequest(BaseModel):
         if not self.helpful and not self.note.strip():
             raise ValueError("say what was missing")
         return self
+
+
+# --- conversation feedback (D-100) ------------------------------------------------------
+
+Satisfaction = Literal["very_satisfied", "satisfied", "neutral", "unsatisfied", "very_unsatisfied"]
+# What the form offers after "Was this issue resolved?": Yes or No.
+SATISFACTION_IF_RESOLVED = ("very_satisfied", "satisfied", "neutral")
+SATISFACTION_IF_NOT_RESOLVED = ("neutral", "unsatisfied", "very_unsatisfied")
+# A rating with a priority is reviewed by Support; satisfied or better needs no review.
+PRIORITY = {"neutral": "low", "unsatisfied": "medium", "very_unsatisfied": "high"}
+CONVERSATION_PAGE_SIZE = 10
+CONVERSATION_NOT_FOUND_MESSAGE = "No such conversation."
+
+
+class EndConversationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resolved: bool
+    satisfaction: Satisfaction
+    # "Additional comments" when resolved (optional); "How should it be improved" when not
+    # (required).
+    comment: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def _fits_the_form(self) -> "EndConversationRequest":
+        offered = SATISFACTION_IF_RESOLVED if self.resolved else SATISFACTION_IF_NOT_RESOLVED
+        if self.satisfaction not in offered:
+            raise ValueError("this rating is not offered for that answer to 'resolved'")
+        if not self.resolved and not self.comment.strip():
+            raise ValueError("say how it should be improved")
+        return self
+
+
+class ConversationDraft(BaseModel):
+    """Support's unsaved fix for a conversation's request; every field may still be empty."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["resolution", "guidance"] = "resolution"
+    title: str = Field(default="", max_length=200)
+    body: str = Field(default="", max_length=4000)
+    follow_ups: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, max_length=10
+    )
+    entry_id: str | None = Field(default=None, max_length=90)
+    source_ref: str = Field(default="", max_length=300)
+    blocker_codes: list[Annotated[str, Field(max_length=80)]] = Field(
+        default_factory=list, max_length=20
+    )
+    fields: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=20)
+    stages: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=20)
 
 
 class FeedbackResponse(BaseModel):
@@ -480,6 +530,261 @@ def knowledge_router(
                 else "Thanks. This has been flagged so the answer can be improved."
             ),
         )
+
+    # --- conversations (D-100) ---------------------------------------------------------
+
+    def find_conversation(conversation_id: str) -> dict[str, Any] | None:
+        if not re.fullmatch(ANSWER_ID, conversation_id):
+            return None
+        return kb.store.conversation(conversation_id)
+
+    def conversation_not_found() -> HTTPException:
+        return HTTPException(
+            404, detail={"code": "NOT_FOUND", "message": CONVERSATION_NOT_FOUND_MESSAGE}
+        )
+
+    def conversation_view(row: dict[str, Any]) -> dict[str, Any]:
+        """A conversation as a list row: no comment, no draft text."""
+
+        return {
+            "conversation_id": row["id"],
+            "case_id": row["case_id"],
+            "title": row["title"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "ended_at": row["ended_at"],
+            "resolved": row["resolved"],
+            "satisfaction": row["satisfaction"],
+            "priority": row["priority"],
+            "review_status": row["review_status"],
+            "answers": row["answers"],
+            "team": row["team"],
+            "user_id": row["user_id"],
+        }
+
+    def transcript(
+        conversation_id: str, viewer: str, request: Request, profile: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """The conversation's questions and answers as shown (redacted); each view logged."""
+
+        turns = []
+        for record in kb.store.conversation_records(conversation_id):
+            try:
+                viewed = kb.store.view_answer(
+                    record["id"],
+                    viewer=viewer,
+                    allow=lambda row: row.get("conversation_id") == conversation_id,
+                    authorize=same_user(request, profile),
+                )
+            except AnswerNotFoundError:
+                continue  # removed meanwhile
+            turns.append(
+                {
+                    "answer_id": viewed["id"],
+                    "created_at": viewed["created_at"],
+                    "question": viewed["question"],
+                    "answer": viewed["shown_answer"],
+                    "notices": viewed["result"].get("notices", []),
+                    "answered_by": viewed["result"].get("answered_by"),
+                }
+            )
+        return turns
+
+    @router.post("/assistant/conversations/{conversation_id}/end")
+    def end_conversation(
+        conversation_id: str, body: EndConversationRequest, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        """The user rates their own open conversation (End conversation), once."""
+
+        me = user_id(profile)
+        row = find_conversation(conversation_id)
+        if row is None or row["user_id"] != me or row["ended_at"] is not None:
+            raise conversation_not_found()
+        # The case must still be theirs to open; its values are redacted from the comment.
+        snapshot = load_case(UUID(row["case_id"]), request)
+        facts = build_case_facts(snapshot)
+        ctx = case_context(facts)
+        comment = Redactor(facts, parties=case_parties(snapshot.summary)).redact(
+            body.comment.strip()
+        )
+        try:
+            ended = kb.store.end_conversation(
+                conversation_id,
+                user_id=me,
+                resolved=body.resolved,
+                satisfaction=body.satisfaction,
+                priority=PRIORITY.get(body.satisfaction),
+                comment=comment,
+                blocker_codes=ctx.blocker_codes,
+                fields=ctx.fields,
+                stages=ctx.stages,
+            )
+        except AnswerNotFoundError:
+            raise conversation_not_found() from None
+        return {
+            "conversation_id": ended["id"],
+            "message": "Thanks for your feedback."
+            if PRIORITY.get(body.satisfaction) is None
+            else "Thanks. Your feedback has been sent so the answers can be improved.",
+        }
+
+    @router.get("/assistant/conversations")
+    def my_conversations(profile: Actor, page: int = 1) -> dict[str, Any]:
+        """The user's own chats (history), newest first, 10 per page."""
+
+        page = max(1, page)
+        rows, total = kb.store.conversations(
+            user_id=user_id(profile),
+            limit=CONVERSATION_PAGE_SIZE,
+            offset=(page - 1) * CONVERSATION_PAGE_SIZE,
+        )
+        return {
+            "items": [conversation_view(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": CONVERSATION_PAGE_SIZE,
+        }
+
+    @router.get("/assistant/conversations/{conversation_id}")
+    def my_conversation(conversation_id: str, profile: Actor, request: Request) -> dict[str, Any]:
+        """One of the user's own chats: what they asked and were shown (views logged)."""
+
+        me = user_id(profile)
+        row = find_conversation(conversation_id)
+        if row is None or row["user_id"] != me:
+            raise conversation_not_found()
+        load_case(UUID(row["case_id"]), request)  # still theirs to open
+        return {
+            **conversation_view(row),
+            "comment": row["comment"],
+            "turns": transcript(conversation_id, me, request, profile),
+        }
+
+    def with_request(conversation_id: str, profile: dict[str, Any]) -> dict[str, Any]:
+        """A rated conversation with a priority (so with a request), in scope, else 404."""
+
+        row = reviewable(conversation_id, profile)
+        if row["priority"] is None:
+            raise conversation_not_found()
+        return row
+
+    def reviewable(conversation_id: str, profile: dict[str, Any]) -> dict[str, Any]:
+        """A rated conversation in the reviewer's scope, else 404."""
+
+        row = find_conversation(conversation_id)
+        if row is None or row["ended_at"] is None:
+            raise conversation_not_found()
+        if not (global_reviewer(profile) or row["team"] == team(profile)):
+            raise conversation_not_found()
+        return row
+
+    @router.get("/assistant/knowledge/conversations")
+    def review_list(
+        profile: Actor,
+        page: int = 1,
+        resolved: bool | None = None,
+        satisfaction: Satisfaction | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """Rated conversations for Support: high, medium, low, then no priority; 10 a page."""
+
+        require(profile, REVIEW)
+        if status is not None and status not in REVIEW_STATUSES:
+            raise HTTPException(
+                422, detail={"code": "INVALID_STATUS", "message": "Unknown status."}
+            )
+        page = max(1, page)
+        rows, total = kb.store.conversations(
+            team=team(profile),
+            all_teams=global_reviewer(profile),
+            rated_only=True,
+            resolved=resolved,
+            satisfaction=satisfaction,
+            review_status=status,
+            limit=CONVERSATION_PAGE_SIZE,
+            offset=(page - 1) * CONVERSATION_PAGE_SIZE,
+        )
+        return {
+            "items": [conversation_view(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": CONVERSATION_PAGE_SIZE,
+        }
+
+    @router.get("/assistant/knowledge/conversations/{conversation_id}")
+    def review_conversation(
+        conversation_id: str, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        """A rated conversation for Support: rating, comment, the whole chat (views logged),
+        its enhancement request when it has a priority, and the saved draft."""
+
+        require(profile, REVIEW)
+        row = reviewable(conversation_id, profile)
+        gap = next(
+            (
+                item
+                for item in team_feedback(profile, helpful=False)
+                if item["id"] == row["feedback_id"]
+            ),
+            None,
+        )
+        return {
+            **conversation_view(row),
+            "comment": row["comment"],
+            "close_reason": row["close_reason"],
+            "request": gap,
+            "draft": row["draft"],
+            "draft_by": row["draft_by"],
+            "draft_at": row["draft_at"],
+            "turns": transcript(conversation_id, user_id(profile), request, profile),
+        }
+
+    @router.put("/assistant/knowledge/conversations/{conversation_id}/draft")
+    def save_draft(
+        conversation_id: str, body: ConversationDraft, profile: Actor, request: Request
+    ) -> dict[str, Any]:
+        """Save Support's fix as a draft (not knowledge yet): redacted against the case."""
+
+        require(profile, REVIEW)
+        row = with_request(conversation_id, profile)
+        snapshot = load_case(UUID(row["case_id"]), request)
+        redact = Redactor(build_case_facts(snapshot), parties=case_parties(snapshot.summary)).redact
+        draft = {
+            "kind": body.kind,
+            "title": redact(body.title),
+            "body": redact(body.body),
+            "follow_ups": [redact(item) for item in body.follow_ups],
+            "entry_id": body.entry_id,
+            "source_ref": body.source_ref,
+            "blocker_codes": body.blocker_codes,
+            "fields": body.fields,
+            "stages": body.stages,
+        }
+
+        def still_reviewer() -> None:
+            fresh = actor(request)
+            if user_id(fresh) != user_id(profile) or not can(fresh, REVIEW):
+                raise HTTPException(
+                    403, detail={"code": "FORBIDDEN", "message": "You are not allowed to do this."}
+                )
+
+        try:
+            kb.store.save_conversation_draft(
+                conversation_id, draft, by=user_id(profile), authorize=still_reviewer
+            )
+        except AnswerNotFoundError:
+            raise request_refused(ContentChangedError("not open")) from None
+        return {"status": "draft", "draft": draft}
+
+    @router.delete("/assistant/knowledge/conversations/{conversation_id}/draft")
+    def discard_draft(conversation_id: str, profile: Actor) -> dict[str, Any]:
+        require(profile, REVIEW)
+        with_request(conversation_id, profile)
+        try:
+            kb.store.save_conversation_draft(conversation_id, None, by=user_id(profile))
+        except AnswerNotFoundError:
+            raise request_refused(ContentChangedError("not open")) from None
+        return {"status": "not_reviewed"}
 
     # --- answer records ---------------------------------------------------------------
 

@@ -1966,6 +1966,32 @@ describe("Phase 15C intake and mutation safety", () => {
     expect(calls.some((call) => call.url.includes("/intake/"))).toBe(false);
   });
 
+  it("shows the AI Assistant to case users and Support, never to HR", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => unavailable());
+    for (const [profile, path, shown] of [
+      [hrActor, paths.adminUsers, false],
+      [relationshipActor, paths.dashboard, true],
+      [supportActor, paths.knowledgeReview, true],
+    ] as const) {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const routeRoot = createRoot(host);
+      await act(async () => {
+        routeRoot.render(
+          <MemoryRouter initialEntries={[path]}>
+            <QueryClientProvider client={testClient()}>
+              <App actor={profile} onLogout={() => undefined} />
+            </QueryClientProvider>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+      expect(Boolean(host.querySelector(".ai-assistant-launcher")), profile.role).toBe(shown);
+      await act(async () => routeRoot.unmount());
+      host.remove();
+    }
+  });
+
   it("P15C-NAV-14 makes the audit URL the only case-filter identity and Clear changes the URL", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
