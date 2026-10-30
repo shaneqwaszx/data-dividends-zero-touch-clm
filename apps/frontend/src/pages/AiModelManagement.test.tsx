@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MODEL_AUDIT_LIMIT, type ModelAuditEvent, type ModelBudgetStatus, type ModelClaudeBudget, type ModelClaudeSpendingControls, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
+import { MODEL_AUDIT_LIMIT, type ModelAuditEvent, type ModelBudgetStatus, type ModelClaudeBudget, type ModelClaudeSpendingControls, type ModelDataAccess, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
@@ -1746,5 +1746,114 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     expect(JSON.parse(put(calls, "/admin/models/budget/claude/lifetime-cap")[0].body ?? "{}")).toEqual({
       cap_micro_usd: 2_000_000, confirm_cap_micro_usd: null, expected_cap_micro_usd: 5_000_000,
     });
+  });
+  it("shows Claude's own figures on the overview when Claude is the active model", async () => {
+    const active = { ...claudeProfile, active: true };
+    const data: ModelOverview = {
+      ...withClaudeBudget(claudeView({ calls_used: 3, calls_remaining: 17 })),
+      active: { ...overview.active, profile_id: active.profile_id, display_name: "Claude Sonnet 5.5", model_id: "claude-sonnet-5-5" },
+      profiles: [overview.profiles[0], remoteSelectable, active],
+    };
+    const view = mount(controlsServer(data, []));
+    await waitFor(() => expect(view.textContent).toContain("Available now (Claude)"));
+    expect(view.textContent).toContain("Calls this activation (Claude)");
+    expect(view.textContent).toContain("17 remaining");
+    expect(view.textContent).not.toContain("Available now (GPT-OSS)");
+    expect(view.textContent).not.toContain("GPT-OSS is not the active model");
+  });
+
+  it("shows Claude's figures on the overview even when the GPT-OSS spending view is not configured", async () => {
+    const active = { ...claudeProfile, active: true };
+    const base = withClaudeBudget(claudeView({ calls_used: 2, calls_remaining: 18 }));
+    const data: ModelOverview = {
+      ...base,
+      budget: { ...base.budget!, configured: false },
+      active: { ...overview.active, profile_id: active.profile_id, display_name: "Claude Sonnet 5.5", model_id: "claude-sonnet-5-5" },
+      profiles: [overview.profiles[0], remoteSelectable, active],
+    };
+    const view = mount(controlsServer(data, []));
+    await waitFor(() => expect(view.textContent).toContain("Available now (Claude)"));
+    expect(view.textContent).toContain("18 remaining");
+    expect(view.textContent).not.toContain("Available now (GPT-OSS)");
+  });
+});
+
+// --- Data Access & Privacy: "Restrict AI to verified synthetic cases" ------------------------------
+
+describe("AiModelManagement data access policy", () => {
+  const policy = (changes: Partial<ModelDataAccess> = {}, localRestricted = false): ModelDataAccess => ({
+    status: "default", revision: 0, changed_at: null,
+    classes: [
+      { provider_class: "openrouter", restricted: true, locked: true },
+      { provider_class: "anthropic", restricted: true, locked: true },
+      { provider_class: "it_configured", restricted: true, locked: true },
+      { provider_class: "local_internal", restricted: localRestricted, locked: false },
+    ],
+    active_class: "local_internal", active_restricted: localRestricted,
+    verification: "D-095", ...changes,
+  });
+  const policyServer = (data: ModelDataAccess, calls: Array<{ method: string; url: string; body: string | null }>) =>
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
+      if (url.endsWith("/admin/models/data-access")) return json(data);
+      if (url.endsWith("/api/assistant/admin/models")) return json({ ...overview, data_access: data });
+      if (url.includes("/admin/models/audit")) return json({ events: [] });
+      return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+    });
+  const box = (view: HTMLElement, name: string) => view.querySelector<HTMLInputElement>(`[data-testid=restrict-${name}]`)!;
+  const puts = (calls: Array<{ method: string; url: string; body: string | null }>) =>
+    calls.filter((call) => call.method === "PUT" && call.url.endsWith("/admin/models/data-access"));
+
+  it("is a console section that shows the server's effective policy with external models locked", async () => {
+    const view = mount(policyServer(policy(), []));
+    await waitFor(() => expect(view.textContent).toContain("Models & Overview"));
+    go(view, "Data Access & Privacy");
+    await waitFor(() => expect(view.querySelector("[data-testid=data-access]")).not.toBeNull());
+    expect(view.querySelector("h1")?.textContent).toBe("Data Access & Privacy");
+    expect(box(view, "openrouter").checked && box(view, "openrouter").disabled).toBe(true);
+    expect(box(view, "anthropic").checked && box(view, "anthropic").disabled).toBe(true);
+    expect(box(view, "it_configured").checked && box(view, "it_configured").disabled).toBe(true);
+    expect(box(view, "local_internal").checked).toBe(false);
+    expect(box(view, "local_internal").disabled).toBe(false);
+    expect(view.textContent).toContain("Restrict AI to verified synthetic cases");
+    expect(view.textContent).toContain("it cannot be enabled on this page");
+    expect(view.textContent).toContain("D-095 verified synthetic cases");
+  });
+
+  it("restricts a local model without confirmation and always keeps external models restricted", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(policyServer(policy(), calls), "privacy");
+    await waitFor(() => expect(view.querySelector("[data-testid=data-access]")).not.toBeNull());
+    act(() => box(view, "local_internal").click());
+    expect(view.querySelector("[data-testid=data-access-widen-confirm]")).toBeNull();
+    await act(async () => button(view, "Save Data Access Policy").click());
+    await waitFor(() => expect(puts(calls)).toHaveLength(1));
+    expect(JSON.parse(puts(calls)[0].body ?? "{}")).toEqual({
+      expected_revision: 0, restrict_external: true, restrict_local: true, confirm_widen: false,
+    });
+  });
+
+  it("needs an explicit confirmation to widen a restricted local model", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(policyServer(policy({ status: "stored", revision: 4 }, true), calls), "privacy");
+    await waitFor(() => expect(view.querySelector("[data-testid=data-access]")).not.toBeNull());
+    act(() => box(view, "local_internal").click());
+    expect(button(view, "Save Data Access Policy").disabled).toBe(true);
+    act(() => view.querySelector<HTMLInputElement>("[data-testid=data-access-widen-confirm]")!.click());
+    await act(async () => button(view, "Save Data Access Policy").click());
+    await waitFor(() => expect(puts(calls)).toHaveLength(1));
+    expect(JSON.parse(puts(calls)[0].body ?? "{}")).toEqual({
+      expected_revision: 4, restrict_external: true, restrict_local: false, confirm_widen: true,
+    });
+  });
+
+  it("says when the policy is unreadable or only the D-094 fixture applies, and allows no change", async () => {
+    const view = mount(policyServer(policy({ status: "unavailable", revision: null, verification: "D-094" }, true), []), "privacy");
+    await waitFor(() => expect(view.querySelector("[data-testid=data-access]")).not.toBeNull());
+    expect(view.textContent).toContain("could not be read, so local models are restricted");
+    expect(view.textContent).toContain("D-094 fixed synthetic fixture only");
+    expect(box(view, "local_internal").checked && box(view, "local_internal").disabled).toBe(true);
   });
 });

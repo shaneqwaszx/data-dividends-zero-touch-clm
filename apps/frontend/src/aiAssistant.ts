@@ -119,6 +119,12 @@ const SAFE_ERROR_MESSAGES = new Set([
   "The onboarding app returned an unexpected reply.",
   // Fixed knowledge-review messages (apps/assistant/ai_assistant/knowledge_api.py).
   "You are not allowed to do this.",
+  // Data access policy.
+  "External models (OpenRouter and Anthropic) are restricted to verified synthetic cases on this deployment; this setting cannot change that. Nothing changed.",
+  "The data access policy could not be read, so local models are restricted to verified synthetic cases until IT repairs it. Nothing changed.",
+  "The data access policy changed since this view. Refresh and try again.",
+  "Too many data access policy changes. Wait a few minutes and try again.",
+  "Confirm that the local model may answer every case you are authorised to see. Nothing changed.",
   "No such entry.",
   "You cannot approve or reject an entry you wrote or edited.",
   "This entry has changed or was already decided. Refresh and try again.",
@@ -695,6 +701,22 @@ export interface ModelOverview {
   profiles: ModelProfileView[];
   /** D-095: the remote profile's spending view (null unless the remote test mode is configured). */
   budget?: ModelBudgetStatus | null;
+  /** The data access policy in force on the server (absent from older servers). */
+  data_access?: ModelDataAccess;
+}
+
+/** "Restrict AI to verified synthetic cases", per provider class, as the server enforces it. */
+export interface ModelDataAccess {
+  /** default: never set (local models answer every authorised case); unavailable: unreadable (local restricted). */
+  status: "default" | "stored" | "unavailable" | "not_managed";
+  revision: number | null;
+  changed_at: string | null;
+  /** it_configured: an endpoint IT configured that is not on this machine (locked, restricted). */
+  classes: Array<{ provider_class: "openrouter" | "anthropic" | "it_configured" | "local_internal"; restricted: boolean; locked: boolean }>;
+  active_class: "openrouter" | "anthropic" | "it_configured" | "local_internal" | null;
+  active_restricted: boolean;
+  /** The shared synthetic check in force: D-095 provenance, or the D-094 fixed fixture. */
+  verification: "D-095" | "D-094";
 }
 
 /** D-095 addendum: where the OpenRouter key comes from. Never the key, nor any part of it. */
@@ -938,6 +960,14 @@ export const saveClaudeSpendingControls = (
     max_calls: maxCalls,
     ...(confirmDailyCapMicroUsd === null ? {} : { confirm_daily_cap_micro_usd: confirmDailyCapMicroUsd }),
     ...(confirmMaxCalls === null ? {} : { confirm_max_calls: confirmMaxCalls }),
+  }, undefined, "PUT");
+/** External providers stay restricted: the server refuses anything else. */
+export const saveDataAccessPolicy = (expectedRevision: number, restrictLocal: boolean, confirmWiden: boolean) =>
+  request<ModelDataAccess>("/admin/models/data-access", {
+    expected_revision: expectedRevision,
+    restrict_external: true,
+    restrict_local: restrictLocal,
+    confirm_widen: confirmWiden,
   }, undefined, "PUT");
 export const saveClaudeLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: number | null, expectedCapMicroUsd: number) =>
   request<ModelBudgetStatus>("/admin/models/budget/claude/lifetime-cap", {

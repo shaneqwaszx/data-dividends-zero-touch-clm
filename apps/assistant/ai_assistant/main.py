@@ -46,6 +46,7 @@ from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
+from .data_access import REFUSAL_NOTICES as POLICY_REFUSALS
 from .guardrails import (
     LEFT_OUT_REASON,
     StreamingGuard,
@@ -223,6 +224,8 @@ _REMOTE_REFUSALS = (
     REMOTE_ELIGIBILITY_NOTICE,
     CLAUDE_NOTICES.boundary,
     CLAUDE_NOTICES.eligibility,
+    # D-104: a local or IT-configured model under the data access policy says so (QG L1).
+    *POLICY_REFUSALS,
 )
 
 
@@ -703,7 +706,10 @@ def create_app(
             return active.model, None
         notices: Notices = getattr(active.model, "notices", REMOTE_NOTICES)
         entries = [item.hit.entry for item in prep.tagged]
-        if synthetic_dev_mode(config):
+        # D-104 A1: a model that decides D-095 mode itself (Claude, a policy-restricted model)
+        # does so on the shared interlocks; GPT-OSS keeps the OpenRouter-ready mode.
+        development = getattr(active.model, "development_mode", None)
+        if development() if development is not None else synthetic_dev_mode(config):
             # D-095: any verified synthetic development case, by provenance. The document
             # digests are read only here, with the RM's own session.
             digests = backend.load_document_digests(case_id, session) if snapshot.documents else []

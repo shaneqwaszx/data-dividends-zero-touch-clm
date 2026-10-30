@@ -63,9 +63,9 @@ from typing import Annotated, Any
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
-from . import anthropic_profiles, anthropic_runtime, key_sources
+from . import anthropic_profiles, anthropic_runtime, data_access, key_sources
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
     MAX_MICRO_USD,
@@ -83,6 +83,7 @@ from .model_admin_store import (
     MAX_CALLS_RANGE,
     Activation,
     Choice,
+    DataAccessPolicy,
     ModelAdminStore,
     QualificationBusy,
     RevisionConflict,
@@ -254,6 +255,25 @@ MESSAGES = {
         "Claude is not fully configured on this server, so its limits can only be lowered."
         " Nothing changed."
     ),
+    # Data access policy (data_access.py).
+    "EXTERNAL_DATA_POLICY_LOCKED": (
+        "External models (OpenRouter and Anthropic) are restricted to verified synthetic cases"
+        " on this deployment; this setting cannot change that. Nothing changed."
+    ),
+    "DATA_ACCESS_POLICY_UNAVAILABLE": (
+        "The data access policy could not be read, so local models are restricted to verified"
+        " synthetic cases until IT repairs it. Nothing changed."
+    ),
+    "DATA_ACCESS_POLICY_CONFLICT": (
+        "The data access policy changed since this view. Refresh and try again."
+    ),
+    "DATA_ACCESS_RATE_LIMITED": (
+        "Too many data access policy changes. Wait a few minutes and try again."
+    ),
+    "WIDEN_CONFIRMATION_REQUIRED": (
+        "Confirm that the local model may answer every case you are authorised to see."
+        " Nothing changed."
+    ),
 }
 
 # D-102: which message a Claude spending refusal shows (its code is returned unchanged).
@@ -308,9 +328,13 @@ class ModelSelector:
         *,
         environ: dict[str, str] | None = None,
         transport: object = None,
+        restrict_remote: bool = False,
     ) -> None:
         self.settings = settings
         self.store = store
+        # D-104 (re-QG M1): a model on a non-loopback endpoint is restricted with or without a
+        # state database. Only a model passed in by tests or the evaluation harness is exempt.
+        self.restrict_remote = restrict_remote or store is not None
         self.environ = environ
         self.transport = transport
         # The public listing reader for the D-094 preflight (tests replace it).
@@ -388,7 +412,39 @@ class ModelSelector:
 
         active = self._current()
         self.sync_controls(active)
-        return active
+        return self._with_data_access(active)
+
+    # --- data access policy ---------------------------------------------------------------
+
+    def data_access_policy(self) -> DataAccessPolicy | None:
+        # The stored policy (revision 0 when never set), or None when unreadable. Comments,
+        # not docstrings, in the D-104 additions (data_access.py says why).
+        if self.store is None:
+            return DataAccessPolicy(0, False, None, None)
+        try:
+            return self.store.data_access_policy()
+        except Exception:
+            log.error("data access policy unavailable; local models restricted until it is")
+            return None
+
+    def _with_data_access(self, active: Active) -> Active:
+        # A local or IT-configured model under the policy's restriction (or an unreadable
+        # policy) answers only cases that pass the shared synthetic gate (data_access.py).
+        # External models are restricted by their own code; without a store nothing changes.
+        # A model on an endpoint that is not literal loopback is restricted whatever the policy,
+        # with or without a state database (restrict_remote).
+        if active.model is None:
+            return active
+        kind = data_access.model_class(active.model, active.base_url)
+        if kind == data_access.LOCAL_CLASS:
+            if self.store is None or not data_access.local_restricted(self.data_access_policy()):
+                return active
+        elif kind != data_access.IT_CLASS or not self.restrict_remote:
+            return active
+        model = data_access.SyntheticOnlyModel(
+            active.model, self.settings, local=kind == data_access.LOCAL_CLASS
+        )
+        return replace(active, model=model)
 
     def _current(self) -> Active:
         if self.store is None:
@@ -1154,7 +1210,7 @@ def open_selector(
     passed in (tests and the evaluation harness keep a fixed model)."""
 
     if injected or not settings.llm_enabled or not settings.model_profiles_file:
-        return ModelSelector(settings, baseline_model)
+        return ModelSelector(settings, baseline_model, restrict_remote=not injected)
     return ModelSelector(settings, baseline_model, ModelAdminStore(store_file(settings)))
 
 
@@ -1195,6 +1251,17 @@ class ClaudeSpendingControlsRequest(SpendingControlsRequest):
     (QG L1); GPT-OSS's request model is unchanged."""
 
     confirm_max_calls: StrictInt | None = None
+
+
+class DataAccessRequest(BaseModel):
+    # Restrict AI to verified synthetic cases, per provider class. restrict_external must stay
+    # true (locked); letting a restricted local model answer every case needs confirm_widen.
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: StrictInt = Field(ge=0)
+    restrict_external: StrictBool = True
+    restrict_local: StrictBool
+    confirm_widen: StrictBool = False
 
 
 class LifetimeCapRequest(BaseModel):
@@ -1360,6 +1427,17 @@ def model_admin_router(
             return [entry.reason or "PROFILE_NOT_SELECTABLE"]
         return [blocker] if blocker else []
 
+    def data_access_view(active: Active | None = None) -> dict[str, Any]:
+        current = active or selector.current()
+        return data_access.view(
+            selector.data_access_policy(),
+            managed=selector.managed,
+            remote_restricted=selector.restrict_remote,
+            settings=settings,
+            model=current.model,
+            base_url=current.base_url,
+        )
+
     def overview() -> dict[str, Any]:
         selector.close_interrupted()
         catalogue = load_catalogue(settings)
@@ -1453,6 +1531,7 @@ def model_admin_router(
             "profiles": profiles,
             # D-095: the remote profile's spending view and key status (never the key).
             "budget": budget_view() if settings.local_api_test_decision else None,
+            "data_access": data_access_view(active),
         }
 
     @router.get("")
@@ -2082,8 +2161,17 @@ def model_admin_router(
         )
 
     budget_attempts: dict[str, list[float]] = {}
+    # D-104 (QG L3): data access changes have their own count and their own message.
+    policy_attempts: dict[str, list[float]] = {}
 
-    def guard_budget(request: Request, profile: dict[str, Any], action: str) -> None:
+    def guard_budget(
+        request: Request,
+        profile: dict[str, Any],
+        action: str,
+        *,
+        attempts: dict[str, list[float]] = budget_attempts,
+        limited_code: str = "BUDGET_RATE_LIMITED",
+    ) -> None:
         """Like a key change: the Origin header of an allowed page is required, and each
         administrator has a bounded number of spending changes and refreshes per window."""
 
@@ -2093,16 +2181,14 @@ def model_admin_router(
         now = time.monotonic()
         user = str(profile.get("user_id"))
         with attempts_lock:
-            recent = [
-                at for at in budget_attempts.get(user, []) if now - at < CREDENTIAL_WINDOW_SECONDS
-            ]
+            recent = [at for at in attempts.get(user, []) if now - at < CREDENTIAL_WINDOW_SECONDS]
             limited = len(recent) >= BUDGET_ATTEMPTS
             if not limited:
                 recent.append(now)
-            budget_attempts[user] = recent
+            attempts[user] = recent
         if limited:
-            audit(profile, action, "refused", code="BUDGET_RATE_LIMITED")
-            raise _refusal(429, "BUDGET_RATE_LIMITED")
+            audit(profile, action, "refused", code=limited_code)
+            raise _refusal(429, limited_code)
 
     @router.put("/budget/controls")
     def put_spending_controls(
@@ -2421,5 +2507,56 @@ def model_admin_router(
             code=None if report.passed else "PREFLIGHT_FAILED:" + ",".join(failed),
         )
         return budget_view()
+
+    @router.get("/data-access")
+    def get_data_access(profile: Admin) -> dict[str, Any]:
+        return data_access_view()
+
+    @router.put("/data-access")
+    def put_data_access(
+        body: DataAccessRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        # Restrict AI to verified synthetic cases. External models stay restricted (locked);
+        # a local or IT-configured model may answer every authorised case only with the change
+        # confirmed. Compare-and-set on the policy's revision, the capability re-checked inside
+        # the change, every change and refusal audited with the old and new setting as a code.
+        action = "DATA_ACCESS_POLICY_CHANGED"
+        guard_budget(
+            request,
+            profile,
+            action,
+            attempts=policy_attempts,
+            limited_code="DATA_ACCESS_RATE_LIMITED",
+        )
+        store = managed()
+        if not body.restrict_external:
+            audit(profile, action, "refused", code="EXTERNAL_DATA_POLICY_LOCKED")
+            raise _refusal(409, "EXTERNAL_DATA_POLICY_LOCKED")
+        with selector.change_lock:
+            recheck(request, profile, action)
+            stored = selector.data_access_policy()
+            if stored is None:
+                audit(profile, action, "refused", code="DATA_ACCESS_POLICY_UNAVAILABLE")
+                raise _refusal(409, "DATA_ACCESS_POLICY_UNAVAILABLE")
+            if stored.revision != body.expected_revision:
+                audit(profile, action, "refused", code="DATA_ACCESS_POLICY_CONFLICT")
+                raise _refusal(409, "DATA_ACCESS_POLICY_CONFLICT")
+            widening = stored.local_restricted and not body.restrict_local
+            if widening and not body.confirm_widen:
+                audit(profile, action, "refused", code="WIDEN_CONFIRMATION_REQUIRED")
+                raise _refusal(400, "WIDEN_CONFIRMATION_REQUIRED")
+            # QG L4: the policy and its audit row are written in one transaction.
+            try:
+                store.set_data_access_policy(
+                    body.expected_revision,
+                    body.restrict_local,
+                    str(profile.get("user_id")),
+                    role=str(profile.get("role")) if profile.get("role") else None,
+                    action=action,
+                )
+            except RevisionConflict:
+                audit(profile, action, "refused", code="DATA_ACCESS_POLICY_CONFLICT")
+                raise _refusal(409, "DATA_ACCESS_POLICY_CONFLICT") from None
+        return data_access_view()
 
     return router
