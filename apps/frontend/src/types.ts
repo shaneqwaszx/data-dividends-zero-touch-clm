@@ -633,7 +633,8 @@ export interface OwnershipDocumentDiscrepancy {
   compared_relationship_ids: string[];
   current_percentage: string | null;
   proposed_percentage: string | null;
-  reason_code: "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED" | "OWNERSHIP_DOCUMENT_CONFLICT" | "OWNERSHIP_DOCUMENT_INCOMPLETE" | "OWNERSHIP_DOCUMENT_AMBIGUOUS";
+  reason_code: "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED" | "OWNERSHIP_DOCUMENT_CONFLICT" | "OWNERSHIP_DOCUMENT_INCOMPLETE" | "OWNERSHIP_DOCUMENT_AMBIGUOUS"
+    | "PARTNERSHIP_AGREEMENT_SHARE"; // D-101
   verification_state: "REVIEW_REQUIRED" | "REVIEWED";
 }
 
@@ -1241,6 +1242,23 @@ export interface CaseActivityPage {
   has_more: boolean;
 }
 
+/** D-101 derived, server-owned labels for the partnership and Government demo entity types. */
+export interface GovernmentStatusProjection {
+  state: "EVIDENCE_REQUIRED" | "CONFIRMATION_REQUIRED" | "CONFIRMED";
+  document_id: string | null;
+  document_event_count: number | null;
+  founding_instrument: string | null;
+  confirmed_by_actor_id: string | null;
+  confirmed_at: string | null;
+}
+
+export interface EntityTypeBasis {
+  entity_type: "PARTNERSHIP" | "GOVERNMENT";
+  label: string;
+  partnership_state?: "AWAITING_RM_CONFIRMATION" | "RM_CONFIRMED" | null;
+  government_status: GovernmentStatusProjection | null;
+}
+
 export const BUSINESS_EXCEPTION_TYPES = [
   "REGISTRY_REVIEW_REQUIRED",
   "JURISDICTION_UNRESOLVED",
@@ -1255,6 +1273,7 @@ export const BUSINESS_EXCEPTION_TYPES = [
   "OWNERSHIP_CYCLE",
   "OWNERSHIP_INCOMPLETE",
   "OWNERSHIP_REVIEW_REQUIRED",
+  "GOVERNMENT_STATUS_REQUIRED",
   "ENTITY_RESOLUTION_REVIEW_REQUIRED",
   "MOCK_RISK_REVIEW_REQUIRED",
   "EXISTING_PARTY_REVIEW_REQUIRED",
@@ -1279,6 +1298,7 @@ export const BUSINESS_EXCEPTION_TYPE_LABELS: Record<BusinessExceptionType, strin
   OWNERSHIP_CYCLE: "Ownership cycle",
   OWNERSHIP_INCOMPLETE: "Ownership incomplete",
   OWNERSHIP_REVIEW_REQUIRED: "Ownership review required",
+  GOVERNMENT_STATUS_REQUIRED: "Government status confirmation required",
   ENTITY_RESOLUTION_REVIEW_REQUIRED: "Entity resolution review required",
   MOCK_RISK_REVIEW_REQUIRED: "Mock advisory risk review required",
   EXISTING_PARTY_REVIEW_REQUIRED: "Existing party review required",
@@ -1551,6 +1571,7 @@ export interface ZeroTouchCaseSummary {
   document_replacement_authorized?: boolean;
   document_refresh_recovery?: { can_resume: boolean } | null;
   ownership_edit_authorized?: boolean;
+  entity_type_basis?: EntityTypeBasis | null;
   case: OnboardingCase;
   clm: ClmCaseSummary;
   automation_id: string;

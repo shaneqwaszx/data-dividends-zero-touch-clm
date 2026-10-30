@@ -311,6 +311,27 @@ class DocumentClassificationObservation(ClassificationObservationValues):
     document_version: Literal[1]
 
 
+class GovernmentStatusObservationValues(DocumentFieldCandidate):
+    """D-101: one exact labelled Government-status line; evidence, never a status decision."""
+
+    value: str = Field(min_length=1, max_length=160)
+
+    @field_validator("value")
+    @classmethod
+    def safe_label_value(cls, value: str) -> str:
+        if any(category(character).startswith("C") for character in value):
+            raise ValueError("Government status observation must not contain control characters")
+        return value
+
+    field_key: Literal["FOUNDING_INSTRUMENT"]
+    evidence_score: float = Field(ge=0, le=1)
+
+
+class DocumentGovernmentStatusObservation(GovernmentStatusObservationValues):
+    document_id: UUID
+    document_version: Literal[1]
+
+
 class DocumentWorkflowEvent(BaseModel):
     """Audit-safe event with no filename, extracted value, note, or PDF content."""
 
@@ -362,6 +383,11 @@ class DocumentProcessingRecord(BaseModel):
     classification_observations: tuple[DocumentClassificationObservation, ...] = Field(
         default=(), max_length=64
     )
+    # D-101 (schema 17). Left out of dumps while empty, so evidence fingerprints of
+    # documents without it (every document before schema 17) do not change.
+    government_status_observations: tuple[DocumentGovernmentStatusObservation, ...] = Field(
+        default=(), max_length=8, exclude_if=lambda value: not value
+    )
     events: list[DocumentWorkflowEvent] = Field(default_factory=list)
     error: SafeError | None = None
     created_at: datetime
@@ -385,10 +411,14 @@ class DocumentProcessingRecord(BaseModel):
                for candidate in item.candidates):
             raise ValueError("document candidate requires its retained page")
         observations: tuple[
-            DocumentOwnershipObservation | DocumentClassificationObservation, ...
+            DocumentOwnershipObservation
+            | DocumentClassificationObservation
+            | DocumentGovernmentStatusObservation,
+            ...,
         ] = (
             *self.ownership_observations,
             *self.classification_observations,
+            *self.government_status_observations,
         )
         if any(
             observation.document_id != self.document_id

@@ -3,6 +3,10 @@
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
+
+from pydantic import ValidationError
 
 from app.connectors.document_ownership_parser import parse_ownership_observations
 from app.connectors.idp import (
@@ -22,7 +26,9 @@ from app.domain.documents import (
     ExtractionMethod,
     ExtractionQuality,
     ExtractionScoreKind,
+    GovernmentStatusObservationValues,
     IdpEnvironment,
+    OwnershipObservationValues,
 )
 from app.domain.target_classification import TargetClassificationKey
 
@@ -32,6 +38,15 @@ _FIELD_LABELS: dict[DocumentFieldKey, tuple[str, ...]] = {
     DocumentFieldKey.REGISTERED_ADDRESS: ("Registered Address",),
     DocumentFieldKey.COUNTRY_OF_INCORPORATION: ("Country", "Country of Incorporation"),
 }
+# D-101 exact agreement / Government-status labels. A percentage is an exact decimal; the
+# partner type is taken only when the line states it (never inferred from the name).
+_PARTNER_SHARE = re.compile(
+    r"(?im)^[ \t]*Partner Share[ \t]*:[ \t]*([^:\r\n]+?)[ \t]*:[ \t]*"
+    r"(\d{1,3}(?:\.\d{1,6})?)[ \t]*percent"
+    r"(?:[ \t]*:[ \t]*(NATURAL_PERSON|LEGAL_ENTITY))?[ \t]*$"
+)
+_AGREEMENT_DATE = re.compile(r"(?im)^[ \t]*Agreement Date[ \t]*:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$")
+_FOUNDING_INSTRUMENT = re.compile(r"(?im)^[ \t]*Founding Instrument[ \t]*:[ \t]*([^\r\n]+)[ \t]*$")
 _MAX_TEXT = 64_000
 _TOTAL_TIMEOUT_SECONDS = 60.0
 
@@ -75,15 +90,92 @@ class LocalPdfTextIdpProvider:
                 evidence_score=self._score(page.evidence, primary=True),
             )
         )
+        fields = [self._field_from_pages(pages, key) for key in DocumentFieldKey]
+        uen = next(
+            item.value for item in fields if item.field_key == DocumentFieldKey.REGISTRATION_NUMBER
+        )
+        ownership = (*ownership, *self._partner_shares_from_pages(pages, uen))
         if len(ownership) > 128:
             raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
         return IdpSourceResult(
             profile=document.profile,
-            fields=[self._field_from_pages(pages, key) for key in DocumentFieldKey],
+            fields=fields,
             pages=tuple(page.evidence for page in pages),
             ownership_observations=ownership,
             classification_observations=self._classification_from_pages(pages),
+            government_status_observations=self._government_status_from_pages(pages),
         )
+
+    def _partner_shares_from_pages(
+        self, pages: tuple[_Page, ...], uen: str | None
+    ) -> tuple[OwnershipObservationValues, ...]:
+        """D-101: exact `Partner Share: <name>: <n> percent[: <type>]` agreement lines.
+
+        Each row is a proposal for the document's single labelled UEN; the RM confirms it.
+        Without a unique UEN, or with more than one agreement date, no row is proposed.
+        """
+        rows: list[tuple[_Page, int, str, Decimal, str | None]] = []
+        dates: set[str] = set()
+        for page in pages:
+            for match in _PARTNER_SHARE.finditer(page.text):
+                row = page.text[: match.start()].count("\n") + 1
+                rows.append(
+                    (page, row, match.group(1).strip(), Decimal(match.group(2)), match.group(3))
+                )
+            dates.update(match.group(1) for match in _AGREEMENT_DATE.finditer(page.text))
+        if len(rows) > 64:
+            raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+        if not rows or uen is None or len(dates) > 1:
+            return ()
+        try:
+            as_of = date.fromisoformat(next(iter(dates))) if dates else None
+        except ValueError:
+            return ()
+        observations: list[OwnershipObservationValues] = []
+        for page, row, name, percent, owner_type in rows:
+            try:
+                observations.append(
+                    OwnershipObservationValues(
+                        **page.evidence.model_dump(exclude={"page_number", "source_reference"}),
+                        page_number=page.evidence.page_number,
+                        source_reference=f"PAGE_{page.evidence.page_number}_PARTNER_SHARE_ROW_{row}",
+                        evidence_score=self._score(page.evidence, primary=True),
+                        owner_name=name,
+                        owner_type=owner_type,
+                        owned_entity_registration_identifier=uen,
+                        explicit_percentage=percent,
+                        as_of_date=as_of,
+                    )
+                )
+            except ValidationError:
+                return ()
+        return tuple(observations)
+
+    def _government_status_from_pages(
+        self, pages: tuple[_Page, ...]
+    ) -> tuple[GovernmentStatusObservationValues, ...]:
+        """D-101: exact `Founding Instrument:` lines; never a Government status decision."""
+        observations: list[GovernmentStatusObservationValues] = []
+        for page in pages:
+            for match in _FOUNDING_INSTRUMENT.finditer(page.text):
+                value = match.group(1).strip()
+                if not value:
+                    continue
+                if len(value) > 160:
+                    raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+                row = page.text[: match.start()].count("\n") + 1
+                observations.append(
+                    GovernmentStatusObservationValues(
+                        **page.evidence.model_dump(exclude={"source_reference"}),
+                        field_key="FOUNDING_INSTRUMENT",
+                        value=value,
+                        evidence_score=self._score(page.evidence, primary=True),
+                        source_reference=f"PAGE_{page.evidence.page_number}_LINE_{row}",
+                    )
+                )
+        if len(observations) > 8:
+            raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+        return tuple(observations)
 
     def _classification_from_pages(
         self, pages: tuple[_Page, ...]

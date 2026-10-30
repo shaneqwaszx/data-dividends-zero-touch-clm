@@ -28,6 +28,7 @@ from app.domain.documents import (
     DocumentCompletionMethod,
     DocumentEventType,
     DocumentFieldKey,
+    DocumentGovernmentStatusObservation,
     DocumentOwnershipObservation,
     DocumentProcessingRecord,
     DocumentProcessingState,
@@ -415,6 +416,12 @@ class DocumentProcessingService:
                 )
                 for item in source_result.classification_observations
             )
+            record.government_status_observations = tuple(
+                DocumentGovernmentStatusObservation(
+                    **item.model_dump(), document_id=record.document_id, document_version=1
+                )
+                for item in source_result.government_status_observations
+            )
             record.processed_at = self._clock()
             record = self._record(
                 record,
@@ -547,7 +554,9 @@ class DocumentProcessingService:
                     key == TargetClassificationKey.KYC_CUSTOMER_TYPE
                     and case.entity is not None
                     and not bounded_classification_compatible(
-                        case.entity.party_type, normalized.get(next(iter(values)), "")
+                        case.entity.party_type,
+                        normalized.get(next(iter(values)), ""),
+                        automatic=True,
                     )
                 )
             ):
@@ -1242,6 +1251,7 @@ class DocumentProcessingService:
         failed_record.fields = []
         failed_record.pages = ()
         failed_record.ownership_observations = ()
+        failed_record.government_status_observations = ()
         failed_record.processed_at = None
         failed_record.classification_observations = ()
         failed_record.reviewed_at = None

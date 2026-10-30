@@ -137,6 +137,12 @@ from app.domain.zero_touch import (
     SafeExceptionEvidence,
     ZeroTouchAutomationRecord,
 )
+from app.services.government_status import (
+    government_profile_applies,
+    government_status_confirmed,
+    government_status_evidence,
+)
+from app.services.partnership_agreement import registry_partner_names
 
 ProcessingNodeStatus = Literal[
     "UNSUPPORTED",
@@ -1131,6 +1137,19 @@ def project_human_interventions(
             no_action = None
             if "MISSING" in exception.blocker_code or exception.blocker_code == "DOCUMENT_REQUIRED":
                 classification = "RECOVERABLE_INPUT"
+        elif exception.exception_type == BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED:
+            # D-101: never offer ownership inputs for a Government entity.
+            title = "Government status — needs confirmation"
+            classification = "RECOVERABLE_INPUT"
+            required = (
+                "One current reviewed status document with the legal name, UEN, founding "
+                "instrument, KYC Customer Type: Government and Client Segment: DI - Government.",
+            )
+            expected = (
+                "The case creator confirms Government status in the Government status step; "
+                "no ownership or UBO analysis applies and automation then resumes."
+            )
+            no_action = None
         elif exception.stage == AutomationStage.OWNERSHIP and (
             ownership is not None
             and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
@@ -1505,6 +1524,89 @@ class BrowserTargetClassification(BaseModel):
         )
 
 
+GOVERNMENT_IDENTITY_LABEL: Literal[
+    "Local synthetic identity: not ACRA-registered; government status from reviewed document"
+] = "Local synthetic identity: not ACRA-registered; government status from reviewed document"
+PARTNERSHIP_CONFIRMED_LABEL: Literal["Partner shares from partnership agreement, RM-confirmed"] = (
+    "Partner shares from partnership agreement, RM-confirmed"
+)
+PARTNERSHIP_PENDING_LABEL: Literal[
+    "Partner shares from partnership agreement, awaiting RM confirmation"
+] = "Partner shares from partnership agreement, awaiting RM confirmation"
+
+
+class BrowserGovernmentStatus(BaseModel):
+    """D-101 Government status step; never an ACRA verification or approval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["EVIDENCE_REQUIRED", "CONFIRMATION_REQUIRED", "CONFIRMED"]
+    document_id: UUID | None = None
+    document_event_count: int | None = None
+    founding_instrument: str | None = None
+    confirmed_by_actor_id: str | None = None
+    confirmed_at: datetime | None = None
+
+
+class BrowserEntityTypeBasis(BaseModel):
+    """D-101 derived labels for the non-company demo entity types (not stored)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity_type: Literal["PARTNERSHIP", "GOVERNMENT"]
+    label: str = Field(min_length=1, max_length=120)
+    partnership_state: Literal["AWAITING_RM_CONFIRMATION", "RM_CONFIRMED"] | None = None
+    government_status: BrowserGovernmentStatus | None = None
+
+
+def project_entity_type_basis(
+    case: OnboardingCase,
+    ownership: OwnershipAnalysisRecord | None,
+    documents: list[DocumentProcessingRecord],
+) -> BrowserEntityTypeBasis | None:
+    threshold = float(case.policy_snapshot.idp_review_confidence_threshold)
+    if government_profile_applies(case):
+        evidence = government_status_evidence(case, documents, confidence_threshold=threshold)
+        confirmation = case.government_status_confirmation
+        confirmed = government_status_confirmed(case, documents, confidence_threshold=threshold)
+        return BrowserEntityTypeBasis(
+            entity_type="GOVERNMENT",
+            label=GOVERNMENT_IDENTITY_LABEL,
+            government_status=BrowserGovernmentStatus(
+                state=(
+                    "CONFIRMED" if confirmed
+                    else "CONFIRMATION_REQUIRED" if evidence is not None
+                    else "EVIDENCE_REQUIRED"
+                ),
+                document_id=evidence.document_id if evidence is not None else None,
+                document_event_count=(
+                    evidence.document_event_count if evidence is not None else None
+                ),
+                founding_instrument=(
+                    evidence.founding_instrument if evidence is not None else None
+                ),
+                confirmed_by_actor_id=(
+                    confirmation.actor_id if confirmed and confirmation is not None else None
+                ),
+                confirmed_at=(
+                    confirmation.confirmed_at if confirmed and confirmation is not None else None
+                ),
+            ),
+        )
+    if registry_partner_names(case.registry_acquisition):
+        confirmed = (
+            ownership is not None
+            and ownership.state == OwnershipAnalysisState.ANALYZED
+            and ownership.manual_review_receipt is not None
+        )
+        return BrowserEntityTypeBasis(
+            entity_type="PARTNERSHIP",
+            label=PARTNERSHIP_CONFIRMED_LABEL if confirmed else PARTNERSHIP_PENDING_LABEL,
+            partnership_state="RM_CONFIRMED" if confirmed else "AWAITING_RM_CONFIRMATION",
+        )
+    return None
+
+
 class BrowserOwnershipRecovery(BaseModel):
     """Safe current ownership action metadata and optional manual review receipt."""
 
@@ -1580,6 +1682,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     document_replacement_authorized: bool = False
     document_refresh_recovery: BrowserDocumentRefreshRecovery | None = None
     ownership_edit_authorized: bool = False
+    entity_type_basis: BrowserEntityTypeBasis | None = None
     timeline: list[AutomationEvent]
     created_at: datetime
     updated_at: datetime
@@ -1603,6 +1706,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         document_replacement_authorized: bool = False,
         document_refresh_recovery_authorized: bool | None = None,
         ownership_edit_authorized: bool = False,
+        entity_type_basis: BrowserEntityTypeBasis | None = None,
     ) -> "ZeroTouchCaseSummaryResponse":
         target_classification = BrowserTargetClassification.from_case(
             case, classification_assessment,
@@ -1619,6 +1723,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
                 if document_refresh_recovery_authorized is not None else None
             ),
             ownership_edit_authorized=ownership_edit_authorized,
+            entity_type_basis=entity_type_basis,
             clm=ClmCaseSummaryResponse.from_domain(clm_record, case, team),
             automation_id=record.automation_id,
             version=record.version,

@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[16] = 16
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[17] = 17
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -783,6 +783,7 @@ class DurableCaseSnapshotV15(BaseModel):
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
         reject_document_digest_legacy_fields(value)
+        reject_entity_type_legacy_fields(value)
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
@@ -801,12 +802,54 @@ class DurableCaseSnapshotV15(BaseModel):
         return self
 
 
+class DurableCaseSnapshotV16(BaseModel):
+    """Exact schema-16 envelope: D-095 document digests without D-101 entity-type evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[16] = 16
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_entity_type_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        # From the attributes, not model_dump: a dump would drop backend-only excluded
+        # evidence (for example D-095 document digests).
+        return DurableCaseSnapshot.model_validate(
+            {
+                **{name: getattr(self, name) for name in type(self).model_fields},
+                "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION,
+            }
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV16":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[16] = 16
+    schema_version: Literal[17] = 17
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -984,6 +1027,48 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
             for item in audit.get("records", ()) or ()
         ):
             raise ValueError("Historical schema cannot contain a D-088 business profile.")
+
+
+def reject_entity_type_legacy_fields(value: Any) -> None:
+    """Schema <= 16 envelopes cannot carry D-101 entity-type evidence, even if null or empty.
+
+    That covers the Government status confirmation and status observations, the exact
+    GOVERNMENT legal form, the Government status hold and partnership agreement shares.
+    A schema-16 case reads as having none of them; the read does not rewrite it.
+    """
+    raw = _explicit_fields(value)
+    if "government_status_confirmation" in _explicit_fields(raw.get("onboarding")):
+        raise ValueError("Historical schema cannot contain a Government status confirmation.")
+    if any(
+        "government_status_observations" in _explicit_fields(doc)
+        for doc in raw.get("documents", ()) or ()
+    ):
+        raise ValueError("Historical schema cannot contain Government status observations.")
+    if str(_explicit_fields(raw.get("ownership")).get("legal_form")) in {
+        "GOVERNMENT", "RegistryLegalForm.GOVERNMENT",
+    }:
+        raise ValueError("Historical schema cannot contain the GOVERNMENT legal form.")
+    ownership = _explicit_fields(raw.get("ownership"))
+    if any(
+        str(_explicit_fields(item).get("reason_code")) == "PARTNERSHIP_AGREEMENT_SHARE"
+        for record in (
+            ownership, *map(_explicit_fields, ownership.get("prior_analyses", ()) or ())
+        )
+        for item in record.get("document_discrepancies", ()) or ()
+    ):
+        raise ValueError("Historical schema cannot contain a partnership agreement share.")
+    automation = _explicit_fields(raw.get("automation"))
+    if any(
+        str(_explicit_fields(item).get("exception_type")).endswith("GOVERNMENT_STATUS_REQUIRED")
+        for item in automation.get("exceptions", ()) or ()
+    ):
+        raise ValueError("Historical schema cannot contain a Government status hold.")
+    readiness = _explicit_fields(_explicit_fields(raw.get("clm")).get("readiness"))
+    if any(
+        str(code).endswith("GOVERNMENT_STATUS_REQUIRED")
+        for code in readiness.get("blockers", ()) or ()
+    ):
+        raise ValueError("Historical schema cannot contain a Government status blocker.")
 
 
 def reject_document_digest_legacy_fields(value: Any) -> None:

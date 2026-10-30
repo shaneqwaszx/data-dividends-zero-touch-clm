@@ -60,7 +60,7 @@ async function create(page: Page, company: typeof garden, fresh = false) {
     const created = await response.json();
     const bound = await page.request.put("/api/clm/zero-touch/cases/" + created.case.case_id + "/target-classification", {
       headers: { "X-CSRF-Token": route.request().headers()["x-csrf-token"], "Origin": process.env.PLAYWRIGHT_BASE_URL! },
-      data: { kyc_customer_type: "Company - Private", client_segment: "Corporate",
+      data: { kyc_customer_type: company === garden ? "Partnership - Unregulated" : "Company - Private", client_segment: "Corporate",
         expected_automation_version: created.version, expected_case_event_count: created.case.events.length },
     });
     expect(bound.status()).toBe(200);

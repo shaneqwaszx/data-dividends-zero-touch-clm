@@ -55,7 +55,7 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
             "zero-touch-database/straits-sponsor-demo-registry-annex.pdf",
             "zero-touch-database/meridian-sponsor-demo-registry-annex.pdf",
         }
-        self.assertEqual({path.relative_to(fixture_root).as_posix() for path in fixture_root.rglob("*.pdf") if path.name not in {"demo-alpha-scanned.pdf", "demo-beta-scanned.pdf", "demo-gamma-scanned.pdf", "demo-delta-scanned.pdf", "demo-government-scanned.pdf"}}, expected)
+        self.assertEqual({path.relative_to(fixture_root).as_posix() for path in fixture_root.rglob("*.pdf") if path.name not in {"demo-alpha-scanned.pdf", "demo-beta-scanned.pdf", "demo-gamma-scanned.pdf", "demo-delta-scanned.pdf", "demo-government-scanned.pdf", "demo-gamma-partnership-agreement.pdf", "demo-parks-government-status.pdf"}}, expected)
         index = (fixture_root / "README.md").read_text(encoding="utf-8")
         indexed = dict(
             re.findall(

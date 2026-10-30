@@ -29,7 +29,7 @@ from app.domain.documents import (
     ReviewDecision,
 )
 from app.domain.jurisdiction import is_eligible_singapore_uen
-from app.domain.models import EventOutcome, SafeError, WorkflowState
+from app.domain.models import EventOutcome, OnboardingCase, SafeError, WorkflowState
 from app.domain.onboarding_intelligence import (
     EntityResolutionOutcome,
     MockRiskBand,
@@ -87,6 +87,11 @@ from app.services.document_errors import (
 )
 from app.services.document_processing import DocumentProcessingService
 from app.services.errors import OnboardingInfrastructureError
+from app.services.government_status import (
+    government_profile_applies,
+    government_status_confirmed,
+    government_status_evidence,
+)
 from app.services.manual_ownership_evidence import (
     ManualOwnershipDeclaration,
     ManualOwnershipEvidenceError,
@@ -95,6 +100,11 @@ from app.services.manual_ownership_evidence import (
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_errors import OwnershipInfrastructureError, OwnershipRequestError
+from app.services.partnership_agreement import (
+    agreement_rows,
+    partnership_agreement_issues,
+    registry_partner_names,
+)
 from app.services.reconciliation import ReconciliationService
 from app.services.reconciliation_errors import (
     ReconciliationInfrastructureError,
@@ -118,6 +128,7 @@ _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES = frozenset({
     BusinessExceptionType.OWNERSHIP_CYCLE,
     BusinessExceptionType.OWNERSHIP_INCOMPLETE,
     BusinessExceptionType.OWNERSHIP_REVIEW_REQUIRED,
+    BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED,
 })
 
 
@@ -1400,6 +1411,36 @@ class ZeroTouchOrchestrator:
                 self._project_existing_confirmation_locked(record) if record is not None else None
             )
 
+    def _require_partnership_agreement_match(
+        self, case: OnboardingCase, declaration: ManualOwnershipDeclaration
+    ) -> None:
+        """D-101: a partnership's confirmed shares must equal its reviewed agreement."""
+        partners = registry_partner_names(case.registry_acquisition)
+        if not partners:
+            return
+        document = self._documents.get_document(
+            case_id=case.case_id, document_id=declaration.evidence_document_id
+        )
+        names = {party.party_id: party.display_name for party in declaration.parties}
+        issues = partnership_agreement_issues(
+            registry_partners=partners,
+            rows=agreement_rows(document) if document is not None else (),
+            root_uen=case.entity.registration_number if case.entity is not None else "",
+            confidence_threshold=float(case.policy_snapshot.idp_review_confidence_threshold),
+            declared=tuple(
+                (names[edge.child_party_id], edge.ownership_percent)
+                for edge in declaration.relationships
+            ),
+        )
+        if issues:
+            raise ZeroTouchRequestError(
+                code="ZERO_TOUCH_PARTNERSHIP_AGREEMENT_MISMATCH",
+                message=(
+                    "The partnership agreement does not match the registry partners or the "
+                    "confirmed shares; the case stays in review."
+                ),
+            )
+
     def submit_manual_ownership_evidence(
         self,
         *,
@@ -1479,6 +1520,7 @@ class ZeroTouchOrchestrator:
                         code="ZERO_TOUCH_MANUAL_OWNERSHIP_STALE",
                         message="Current document ownership evidence changed before the decision.",
                     )
+                self._require_partnership_agreement_match(case, declaration)
                 replacement = self._ownership.replace_review_required_source(
                     case_id=case_id,
                     provider=provider,
@@ -1569,6 +1611,133 @@ class ZeroTouchOrchestrator:
                 outcome=EventOutcome.SUCCEEDED,
                 code="MANUAL_OWNERSHIP_EVIDENCE_ACCEPTED",
                 message="Creator-reviewed ownership evidence revised the retained source.",
+            )
+            saved = self._save(record, candidate)
+            if saved.active_exceptions:
+                return saved
+            return self._advance_locked(case_id=case_id)
+
+    def confirm_government_status(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        document_id: UUID,
+        document_event_count: int,
+        expected_automation_version: int,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """D-101: the RM confirms Government status from one exact reviewed document."""
+
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            case = self._cases.get_case(case_id)
+            clm_record = self._clm.get(case_id=case_id)
+            if (
+                record.version != expected_automation_version
+                or case is None
+                or len(case.events) != expected_case_event_count
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_GOVERNMENT_STATUS_STALE",
+                    message="The onboarding case changed before Government status was confirmed.",
+                )
+            if case.created_by_actor_id is None or case.created_by_actor_id != actor_id:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_GOVERNMENT_STATUS_CREATOR_REQUIRED",
+                    message="Only the current case creator may confirm Government status.",
+                )
+            open_hold = any(
+                item.exception_type == BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED
+                for item in record.active_exceptions
+            )
+            if (
+                not government_profile_applies(case)
+                or not open_hold
+                or record.status != AutomationStatus.WAITING_FOR_REVIEW
+                or clm_record is None
+                or case.goldtier_result is not None
+                or clm_record.submission_snapshot is not None
+                or clm_record.status == ClmStatus.SUBMITTING
+                or self._cases.has_retained_target_execution(case_id)
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_GOVERNMENT_STATUS_NOT_ALLOWED",
+                    message=(
+                        "Government status is confirmed only for a current pre-submission "
+                        "Government case."
+                    ),
+                )
+            documents = [
+                item
+                for item in self._documents.list_documents(case_id=case_id)
+                if item.is_current_evidence
+            ]
+            evidence = government_status_evidence(
+                case,
+                documents,
+                confidence_threshold=float(case.policy_snapshot.idp_review_confidence_threshold),
+            )
+            if (
+                evidence is None
+                or evidence.document_id != document_id
+                or evidence.document_event_count != document_event_count
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_GOVERNMENT_STATUS_EVIDENCE_REQUIRED",
+                    message=(
+                        "A current reviewed document with every Government status label "
+                        "is required."
+                    ),
+                )
+            try:
+                self._cases.confirm_government_status(
+                    case_id=case_id,
+                    actor_id=actor_id,
+                    expected_case_event_count=expected_case_event_count,
+                    document_id=evidence.document_id,
+                    document_event_count=evidence.document_event_count,
+                    evidence_fingerprint=evidence.evidence_fingerprint,
+                )
+                self._clm.refresh_pre_submission_evidence(case_id=case_id)
+            except ValueError:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_GOVERNMENT_STATUS_STALE",
+                    message="The onboarding case changed before Government status was confirmed.",
+                ) from None
+            except ClmRequestError as exc:
+                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+            except ClmInfrastructureError as exc:
+                raise ZeroTouchInfrastructureError(
+                    case_id=case_id, automation_id=record.automation_id,
+                    code=exc.code, message=exc.public_message,
+                ) from None
+            candidate = record.model_copy(deep=True)
+            resolved_at = self._clock()
+            for item in candidate.active_exceptions:
+                if item.exception_type == BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED or (
+                    item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+                    and item.evidence_version.startswith("target-confirmation:")
+                ):
+                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.resolved_at = resolved_at
+            candidate.metrics.human_interventions += 1
+            candidate.metrics.exceptions_resolved += 1
+            if candidate.active_exceptions:
+                candidate.status = AutomationStatus.WAITING_FOR_REVIEW
+                candidate.current_stage = _earliest_open_stage(candidate)
+            else:
+                candidate.status = AutomationStatus.RESUMING
+                candidate.current_stage = AutomationStage.OWNERSHIP
+            candidate = self._append_event(
+                candidate,
+                event_type=AutomationEventType.BUSINESS_EXCEPTION_RESOLVED,
+                outcome=EventOutcome.SUCCEEDED,
+                code="GOVERNMENT_STATUS_CONFIRMED",
+                message="The RM confirmed Government status from a reviewed document.",
             )
             saved = self._save(record, candidate)
             if saved.active_exceptions:
@@ -2874,10 +3043,16 @@ class ZeroTouchOrchestrator:
         ):
             return record
         ownership = self._ownership.get(case_id=record.case_id)
+        government = self._government_gate(record.case_id)
         current_review = (
             ownership is not None
             and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
             and not self._ownership.poc_basis_accepted(ownership)
+            and not government
+        ) or (government is False and ownership is not None)
+        # D-101: a Government checkpoint is proved only by a confirmation that is current.
+        government_revoked = (
+            AutomationStage.OWNERSHIP in record.completed_stages and government is False
         )
         # D-082 F2: only an analysis carrying a POC acceptance can complete OWNERSHIP while
         # REVIEW_REQUIRED; once that acceptance is not current, its checkpoint is unproved.
@@ -2893,7 +3068,7 @@ class ZeroTouchOrchestrator:
             and (ownership is None or ownership.state in {
                 OwnershipAnalysisState.LOADED, OwnershipAnalysisState.FAILED,
             })
-        ) or poc_revoked
+        ) or poc_revoked or government_revoked
         if not obsolete and not unproved_ownership_checkpoint:
             # A durable ownership result can precede its automation checkpoint.
             # Restore that owned dependency even beside an independent later blocker.
@@ -3178,7 +3353,14 @@ class ZeroTouchOrchestrator:
                 # D-082: a current opt-in POC acceptance completes the stage below with
                 # its own audit code; every other review outcome raises the exception.
                 poc_accepted = self._ownership.poc_basis_accepted(ownership)
-                if ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED and not poc_accepted:
+                # D-101: for a Government entity only a current RM confirmation completes
+                # this stage, whatever the (unsupported) ownership analysis says.
+                government = self._government_gate(case_id)
+                if government is False or (
+                    government is None
+                    and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+                    and not poc_accepted
+                ):
                     if self._intelligence_evaluator is not None:
                         intelligence = self._intelligence_evaluator(case_id)
                         if intelligence is not None:
@@ -3191,7 +3373,10 @@ class ZeroTouchOrchestrator:
                         code=(ownership.error.code if ownership.error else "OWNERSHIP_FAILED"),
                         message="Ownership processing stopped after a technical failure.",
                     )
-                if ownership.state == OwnershipAnalysisState.ANALYZED or poc_accepted:
+                if government or (
+                    government is None
+                    and (ownership.state == OwnershipAnalysisState.ANALYZED or poc_accepted)
+                ):
                     intelligence = (
                         self._intelligence_evaluator(case_id)
                         if self._intelligence_evaluator is not None
@@ -3204,12 +3389,17 @@ class ZeroTouchOrchestrator:
                         stage=AutomationStage.OWNERSHIP,
                         event_type=AutomationEventType.OWNERSHIP_AUTOMATED,
                         code=(
-                            "OWNERSHIP_POC_BASIS_ACCEPTED"
+                            "GOVERNMENT_STATUS_CONFIRMED"
+                            if government
+                            else "OWNERSHIP_POC_BASIS_ACCEPTED"
                             if poc_accepted
                             else "OWNERSHIP_AUTOMATED"
                         ),
                         message=(
-                            "Ownership calculated; the scenario's declared POC basis was "
+                            "Government status was confirmed by the RM from a reviewed "
+                            "document; no ownership or UBO analysis applies (D-101)."
+                            if government
+                            else "Ownership calculated; the scenario's declared POC basis was "
                             "accepted by D-085. Classification review is retained."
                             if poc_accepted
                             else "Deterministic ownership analysis completed automatically."
@@ -3731,10 +3921,47 @@ class ZeroTouchOrchestrator:
             f"{discrepancy.evidence_fingerprint}"
         )
 
+    def _government_gate(self, case_id: UUID) -> bool | None:
+        """D-101: None when the Government profile does not apply, else whether the RM
+        confirmation is bound to the current evidence."""
+        case = self._cases.get_case(case_id)
+        if case is None or not government_profile_applies(case):
+            return None
+        documents = [
+            item
+            for item in self._documents.list_documents(case_id=case_id)
+            if item.is_current_evidence
+        ]
+        return government_status_confirmed(
+            case,
+            documents,
+            confidence_threshold=float(case.policy_snapshot.idp_review_confidence_threshold),
+        )
+
     def _raise_ownership_exception(
         self, record: ZeroTouchAutomationRecord, ownership: OwnershipAnalysisRecord,
         *, persist: bool = True,
     ) -> ZeroTouchAutomationRecord:
+        case = self._cases.get_case(record.case_id)
+        if case is not None and government_profile_applies(case):
+            # D-101: the Government status step replaces every ownership exception.
+            return self._add_exception(
+                record,
+                exception_type=BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED,
+                stage=AutomationStage.OWNERSHIP,
+                blocker_code="GOVERNMENT_STATUS_REQUIRED",
+                explanation=(
+                    "Confirm Singapore Government status from a reviewed document. "
+                    "No ownership or UBO analysis applies; not ACRA-registered."
+                ),
+                evidence_version=(
+                    f"government-status:{ownership.analysis_id}:{ownership.version}:"
+                    f"{len(case.events)}"
+                ),
+                persist=persist,
+                evidence=(),
+                actions=(),
+            )
         issue_codes = {item.code.value for item in ownership.issues}
         evidence_specific = next((item for item in ownership.issues if item.code.value in {
             "OWNERSHIP_DENOMINATOR_REQUIRED", "OWNERSHIP_REQUIRED",
@@ -4006,6 +4233,7 @@ class ZeroTouchOrchestrator:
             "OWNERSHIP_REVIEW_REQUIRED": (
                 BlockerDecisionAction.PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE
             ),
+            "GOVERNMENT_STATUS_REQUIRED": BlockerDecisionAction.CONFIRM_GOVERNMENT_STATUS,
             "GOLDTIER_CLASSIFICATION_REQUIRED": (
                 BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION
             ),

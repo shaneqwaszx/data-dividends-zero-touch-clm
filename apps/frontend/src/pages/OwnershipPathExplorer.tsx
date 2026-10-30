@@ -17,6 +17,13 @@ const PARTIAL_ISSUE_CODES: string[] = [
   "CORPORATE_OWNERSHIP_UNRESOLVED",
   "PERSON_IDENTITY_UNRESOLVED",
 ];
+/** D-101: a partnership's registry lists partners without shares, so its root has no disclosed
+ * owners until the RM confirms the agreement shares; that is expected, not a partial chain. */
+function partialOwnershipIssues(record: OwnershipAnalysisRecord | null, partnershipPendingLabel: string | null) {
+  return record?.issues.filter((issue) => PARTIAL_ISSUE_CODES.includes(issue.code)
+    && !(partnershipPendingLabel && issue.code === "INCOMPLETE_LEGAL_ENTITY")) ?? [];
+}
+
 const DISCOVERY_OUTCOME_LABELS: Record<string, string> = {
   CACHE_HIT: "Reused fresh registry evidence",
   FETCHED: "Acquired from its own registry record",
@@ -76,7 +83,7 @@ function EdgeList({ edges }: { edges: OwnershipPath["edges"] }) {
   ));
 }
 
-export default function OwnershipPathExplorer({ record, acquisition, primaryBlockerVisible = false, presentation = "full" }: { record: OwnershipAnalysisRecord | null; acquisition?: RegistryAcquisition | null; primaryBlockerVisible?: boolean; presentation?: "full" | "main" }) {
+export default function OwnershipPathExplorer({ record, acquisition, primaryBlockerVisible = false, presentation = "full", partnershipPendingLabel = null }: { record: OwnershipAnalysisRecord | null; acquisition?: RegistryAcquisition | null; primaryBlockerVisible?: boolean; presentation?: "full" | "main"; partnershipPendingLabel?: string | null }) {
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [pathId, setPathId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -113,7 +120,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
     setPage((current) => Math.min(current, maxPage));
   }, [record?.analysis_id, candidate?.party.party_id, candidate?.paths.length]);
 
-  const partialIssues = record?.issues.filter((issue) => PARTIAL_ISSUE_CODES.includes(issue.code)) ?? [];
+  const partialIssues = partialOwnershipIssues(record, partnershipPendingLabel);
   const totalPages = Math.max(1, Math.ceil((candidate?.paths.length ?? 0) / PAGE_SIZE));
   const visiblePaths = useMemo(
     () => candidate?.paths.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) ?? [],
@@ -206,7 +213,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
       <p className="s2-ownership-summary">{record.candidates.length} retained natural-person candidate{record.candidates.length === 1 ? "" : "s"} · {record.parties.length} parties · {record.relationships.length} direct relationships. {record.state === "ANALYZED" ? "Calculable provisional view." : record.poc_basis_accepted ? "Calculated on the accepted POC basis." : record.simulation_calculated ? "Simulation calculated on declared synthetic relationships; review required." : "Incomplete or disputed evidence requires review."}</p>
       {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
       <UboSummary record={record} />
-      <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); if (candidate?.party.party_id !== partyId) setInspectionOpen(false); }} />
+      <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} unlinkedHint={partnershipPendingLabel} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); if (candidate?.party.party_id !== partyId) setInspectionOpen(false); }} />
       <CorporateDiscoverySummary key={`discovery:${record.analysis_id}`} record={record} />
       {presentation === "main" ? <>
         {partialIssues.length > 0 && <div className="ds-banner ds-banner-warn" role="note"><strong>Non-definitive partial ownership view.</strong>{partialIssues.map(issue => <p key={`${issue.code}-${issue.message}`}>{issue.code}: {issue.message}</p>)}</div>}
@@ -223,7 +230,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
           </details>}
       </> : <details key={record.analysis_id} className="evidence-details s2-ownership-structure">
         <summary>Technical calculations and retained paths</summary>
-        <OwnershipSupportingDetails record={record} presentation="full" primaryBlockerVisible={primaryBlockerVisible} />
+        <OwnershipSupportingDetails record={record} presentation="full" primaryBlockerVisible={primaryBlockerVisible} partnershipPendingLabel={partnershipPendingLabel} />
         {candidateInspection}
       </details>}
 
@@ -232,8 +239,9 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
 }
 
 /** Passive projections never create candidate/path or form state. */
-export function OwnershipSupportingDetails({ record, presentation, primaryBlockerVisible = false }: {
+export function OwnershipSupportingDetails({ record, presentation, primaryBlockerVisible = false, partnershipPendingLabel = null }: {
   record: OwnershipAnalysisRecord | null; presentation: "full" | "more" | "technical"; primaryBlockerVisible?: boolean;
+  partnershipPendingLabel?: string | null;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [technicalOpen, setTechnicalOpen] = useState(false);
@@ -251,7 +259,7 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
   if (!record) return null;
   const Disclosure = presentation === "full" ? "details" : "section";
   const Label = presentation === "full" ? "summary" : "h5";
-  const partialIssues = record?.issues.filter((issue) => PARTIAL_ISSUE_CODES.includes(issue.code)) ?? [];
+  const partialIssues = partialOwnershipIssues(record, partnershipPendingLabel);
   return <section ref={panel} className="ownership-support-panel">
     {presentation !== "more" && <>
       {presentation === "technical" && <>
@@ -360,7 +368,9 @@ function OwnershipObservations({ record }: { record: OwnershipAnalysisRecord }) 
             <td>{observation.owner_name} ({observation.owner_type ?? "Type unknown"}) → {observation.owned_entity_name ?? observation.owned_entity_registration_identifier ?? "Unknown owned entity"}</td>
             <td>Percentage {observation.explicit_percentage !== null ? `${formatOwnershipPercent(observation.explicit_percentage)}` : "not supplied"} · shares {observation.share_count ?? "not supplied"} · denominator {observation.explicit_total_shares ?? "not supplied"} · class {observation.share_class ?? "not supplied"} · as of {observation.as_of_date ?? "not supplied"}</td>
             <td>{observation.extraction_quality ?? "UNKNOWN"} · {observation.extraction_method ?? "UNKNOWN"} · {observation.evidence_score} (not a probability)</td>
-            <td>{discrepancy?.agreement ?? "NOT COMPARED"} · current {formatOwnershipPercent(discrepancy?.current_percentage)} / proposed {formatOwnershipPercent(discrepancy?.proposed_percentage)}{discrepancy && ` · ${discrepancy.reason_code}`}</td>
+            <td>{discrepancy?.reason_code === "PARTNERSHIP_AGREEMENT_SHARE"
+              ? `No registry percentage (partnership); from partnership agreement, ${discrepancy.verification_state === "REVIEWED" ? "RM-confirmed" : "awaiting RM confirmation"}`
+              : <>{discrepancy?.agreement ?? "NOT COMPARED"} · current {formatOwnershipPercent(discrepancy?.current_percentage)} / proposed {formatOwnershipPercent(discrepancy?.proposed_percentage)}{discrepancy && ` · ${discrepancy.reason_code}`}</>}</td>
             <td>{observation.decision_state} · {discrepancy?.verification_state ?? "REVIEW_REQUIRED"}</td>
             <td>{observation.document_id} · document version {observation.document_version} · page {observation.page_number} · {observation.source_reference} · {observation.observation_id}</td>
           </tr>;

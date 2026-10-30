@@ -15,7 +15,7 @@ from scripts.mongo_test_safety import (
     require_ephemeral_mongo_database,
 )
 from scripts.seed_zero_touch_happy_path_companies import manage_fixtures
-from scripts.zero_touch_happy_path_fixtures import COMPANIES
+from scripts.zero_touch_happy_path_fixtures import COMPANIES, SHARE_COMPANIES
 from test_slice_b_registry_demo import confirm
 from test_zero_touch_database_happy_path import (
     NoAcra,
@@ -66,9 +66,10 @@ def test_physical_cli_seed_check_rerun_and_restart_are_safe_idempotent(database)
         database,
     ]
     for flag, expected in (
-        ("--seed", "CREATED=8"),
+        # D-101: nine seeds, including the PARTIAL Government identity.
+        ("--seed", "CREATED=9"),
         ("--seed", "CREATED=0"),
-        ("--check", "FRESH=8"),
+        ("--check", "FRESH=9"),
     ):
         result = subprocess.run(
             [*command, flag],
@@ -85,7 +86,8 @@ def test_physical_cli_seed_check_rerun_and_restart_are_safe_idempotent(database)
         assert "local-synthetic" not in result.stdout
     first, store = open_store(database)
     originals = [store.get(company.snapshot(datetime.now(UTC)).key) for company in COMPANIES]
-    assert first[database]["clm_registry_snapshots"].count_documents({}) == 8
+    # D-101: nine seeds, including the PARTIAL Government identity.
+    assert first[database]["clm_registry_snapshots"].count_documents({}) == 9
     first.close()
     second, restored = open_store(database)
     try:
@@ -100,7 +102,8 @@ def test_physical_cli_seed_check_rerun_and_restart_are_safe_idempotent(database)
         second.close()
 
 
-@pytest.mark.parametrize("company", COMPANIES, ids=lambda item: item.code)
+# D-101: Gamma has no registry shares; its agreement journey is in test_zero_touch_entity_types.
+@pytest.mark.parametrize("company", SHARE_COMPANIES, ids=lambda item: item.code)
 def test_normal_mongo_runtime_reuses_seed_and_retains_completed_no_replay_after_restart(
     database, company
 ):

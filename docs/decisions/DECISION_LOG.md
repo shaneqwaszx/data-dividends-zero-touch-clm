@@ -1552,6 +1552,70 @@ only the loaded events and says so; dialogs make the background inert (D3) and k
 newer dialog (D5). No API, gate, limit, key, permission, routing or basis change. HR key entry
 and HR-editable Claude limits remain deferred: they need new backend authority.
 
+## D-101 - Partnership and Government entity types in the zero-touch database demo set (candidate)
+
+Status: candidate. Authority `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`: owner approval
+in chat 2026-10-29 for both plans; Shane to confirm here. Not legal UBO policy (Q-004), not ACRA
+capability (Q-012), not Live, not sponsor policy.
+
+Decision: the database demo set has one clean case per entity type. Company (Alpha `209990101A`)
+is unchanged.
+
+- **Partnership (Gamma `209990103C`).** The registry seed lists partners P1..P6 by name and role only,
+  with no ownership links or percentages, because a partnership register carries no shares. The split
+  comes only from a reviewed partnership agreement (`Partner Share: <name>: <n> percent[: <type>]`
+  lines, exact-label extraction in `connectors/local_pdf_idp.py`). The rows are suggestions, reused
+  through the existing document-ownership and manual-ownership-evidence path, and count only after
+  the RM submits them. Fail-closed cross-checks (`services/partnership_agreement.py`): a current
+  reviewed agreement for this entity at the frozen confidence threshold, registry and agreement
+  partners equal under the existing name normalisation, no duplicates, every share > 0, a Decimal
+  total of exactly 100, and the confirmed declaration equal to the agreement. Any failure keeps the
+  case blocked and in review. The existing Decimal engine computes UBOs (P1 30%, P2 25%). Labels say
+  "from partnership agreement, RM-confirmed", never ACRA or registry.
+- **Government (DEMO PARKS FYP TEST AUTHORITY, `T99FY0105G`).** It replaces the classification-only
+  `DEMO GOVERNMENT FYP TEST AUTHORITY`, `209990105E` fixture and its scan. The UEN is a fictional
+  T-format value that passes `is_eligible_singapore_uen`; its letters are not claimed as an official
+  code. Government bodies are not ACRA-registered: identity comes from the existing local synthetic
+  seed (`LOCAL_SYNTHETIC_UAT_V1`), with no new `SourceSystem`, labelled "Local synthetic identity: not
+  ACRA-registered; government status from reviewed document". Following MAS Notice 626 para 6.12,
+  when the KYC type is Government and the legal form is `GOVERNMENT` (a new `RegistryLegalForm`
+  value for that exact source value only; others stay `OTHER`), readiness and zero-touch replace the
+  ownership requirement with `GOVERNMENT_STATUS_REQUIRED` (rule BPD-GOVERNMENT-STATUS-1). It is met
+  only by a current reviewed government status document with the labelled fields plus an explicit,
+  version-checked RM confirmation; never automatically and never from the label alone. Readiness then
+  records ownership evidence `GOVERNMENT_STATUS_CONFIRMED` with 0 UBO candidates. Foreign government
+  bodies are out of scope and keep normal checks.
+- **Legal-form compatibility (both).** `bounded_classification_compatible` uses a small table:
+  Company only on COMPANY; Partnership on BUSINESS_PARTNERSHIP, LLP or LP; Sole Trader on
+  BUSINESS_PARTNERSHIP; Government only on GOVERNMENT. A known mismatch is UNSAFE and goes to manual
+  review, never auto-corrected. An unknown legal form (`OTHER`) is UNSAFE for an automatic candidate,
+  but a manual pick is allowed.
+- **Narrowed PARTIAL local seed.** A PARTIAL bundle is used only from the `LOCAL_SYNTHETIC_UAT_V1`
+  dataset with a complete entity profile, for BUSINESS_PARTNERSHIP or GOVERNMENT, fresh, and never as
+  a cache hit.
+- **Persistence.** Case snapshot schema v17. Older readers strictly reject the new fields; the new
+  optional fields are omitted when empty, so older case fingerprints are stable.
+
+Defaults, Shane to confirm:
+- Partner shares use the existing policy UBO threshold (default 25%), the same as company shares.
+- Government proof is a reviewed document showing the founding Act or Gazette, the UEN and a letter
+  of authority. This is project-defined, not sponsor-confirmed.
+- Authorised signatories appear only on the status document: they are not extracted, stored as an
+  ownership graph or sent to GoldTier. The case page says so.
+- `GOLDTIER_REGISTRATION_TYPE_POC_VALUE` stays "ACRA" for every case, including Government.
+- A Partner Share line may end with an explicit owner type (for example `: NATURAL_PERSON`), so the
+  existing document-ownership comparison has an owner type.
+- On Government cases the Ownership & UBO stage keeps its title and holds the Government status step,
+  so the AI Assistant's section links match.
+- The D-094 synthetic boundary and eligibility manifests were regenerated with the existing
+  generators: `code_vocabulary` +9/-1; eligibility adds the two new fictional PDFs and drops the
+  retired one. The company list is unchanged, so remote AI use on the Government case stays refused.
+
+Out of scope: LLP- or LP-specific rules, `Partnership - Regulated`, foreign government bodies,
+GoldTier hierarchy or related-party writes, and the Garden and Marketplace Mock lanes (apart from
+the compatibility table: Garden tests now use "Partnership - Unregulated", and four classification
+tests use "Company - Public").
+
 ## D-102 - AI Assistant Claude spending ceiling US$30.00 and HR-editable Claude limits (ACCEPTED, synthetic-only FYP development)
 
 Status: ACCEPTED by the repository owner on 2026-10-30 for synthetic-only FYP development,
@@ -1732,7 +1796,7 @@ sponsor policy. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
 | E5 | **Owner-confirmed, not verified.** The workspace's monthly limit and the four statements cannot be read through an inference key. They are owner confirmations recorded by HR, and the page says the limit "is not read from Anthropic, and the app cannot verify it". The workspace id is the one the key itself reported. |
 | E6 | **Data access.** Claude's D-095 mode under HR enablement is the approved local deployment itself, so it no longer needs the D-095 decision name. Every D-095 check still applies: provenance, document SHA-256 digests, approved case access, identifier screening and the single-use admission ticket, re-checked in the adapter. Data Access & Privacy shows two things for each external provider: whether the provider is enabled, and what it may receive ("Verified synthetic cases only", fixed). It no longer shows a disabled checkbox. Real customer data on an external provider still needs a separately approved data-governance decision. |
 | E7 | **Views.** Claude's key and spending views no longer need the D-094 decision name in the overview. The overview carries `anthropic_setup` (source, readiness, record, the last workspace read, the confirmations required). |
-| Q1 | **Qualification basis.** `anthropic_runtime.py`, `data_access.py` and the generated `synthetic_boundary.json` changed. The basis moves from main's `7e386b8a69e1…` to `80448c6d7d61…`, so Claude Balanced needs one new technical qualification on the merged code, within the owner's existing authorisation (2 billed calls, at most US$0.192 reserved). The boundary's code vocabulary gains `disable`, `monthly`, `ro` and `setup` (system messages only). |
+| Q1 | **Qualification basis.** `anthropic_runtime.py`, `data_access.py` and the generated `synthetic_boundary.json` changed. The basis moves from main's `7e386b8a69e1…` to `80448c6d7d61…` on `7e5653d`; integrated onto main `c6b37f2` (PR #142, D-101, which changed `synthetic_eligibility.json` and the boundary) it moves from `5adfe7ec2c58…` to `5dc26b296026…`, so Claude Balanced needs one new technical qualification on the merged code, within the owner's existing authorisation (2 billed calls, at most US$0.192 reserved). The boundary's code vocabulary gains `disable`, `monthly`, `ro` and `setup` (system messages only). |
 
 Residual risks (owner-accepted with the approval): the monthly limit and the dedicated-workspace
 statement remain owner confirmations, as they were as environment attestations; the paid

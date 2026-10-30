@@ -1038,6 +1038,25 @@ class TargetDispatchConfirmation(BaseModel):
     classification: Literal["USER_AUTHORIZED_POC"] = "USER_AUTHORIZED_POC"
 
 
+class GovernmentStatusConfirmation(BaseModel):
+    """D-101 RM confirmation of Government status from one reviewed document version.
+
+    It replaces the ownership/UBO step only while it stays bound to that exact current
+    evidence; it is never set automatically and is not approval.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    confirmation_id: UUID
+    actor_id: str = Field(min_length=3, max_length=32, pattern=r"^[a-z][a-z0-9-]{2,31}$")
+    confirmed_at: datetime
+    case_event_count: int = Field(ge=1)
+    document_id: UUID
+    document_event_count: int = Field(ge=1)
+    evidence_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    classification: Literal["USER_AUTHORIZED_POC"] = "USER_AUTHORIZED_POC"
+
+
 class SafeError(BaseModel):
     """Sanitised application error safe for API and history responses."""
 
@@ -1065,6 +1084,11 @@ class OnboardingCase(BaseModel):
         default=(), max_length=2
     )
     target_dispatch_confirmation: TargetDispatchConfirmation | None = None
+    # D-101 (schema 17). Left out of dumps while unset, so fingerprints and review digests
+    # of cases without it (every case before schema 17) do not change.
+    government_status_confirmation: GovernmentStatusConfirmation | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     policy_snapshot: CasePolicySnapshot = Field(default_factory=legacy_phase13_policy_snapshot)
     policy_snapshot_revision: int = Field(default=1, ge=1)
     policy_rebind_history: tuple[CasePolicyRebindAudit, ...] = Field(default=(), max_length=8)

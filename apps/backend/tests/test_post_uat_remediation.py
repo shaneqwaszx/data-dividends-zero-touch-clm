@@ -232,7 +232,8 @@ def test_garden_manual_edits_with_absent_note_can_finalize_after_multilevel_edit
     ).json()
     current = client.put(
         f"/api/clm/zero-touch/cases/{case_id}/target-classification", json={
-            "kyc_customer_type": "Company - Private", "client_segment": "Corporate",
+            # D-101: Garden's BUSINESS legal form only takes a Partnership type.
+            "kyc_customer_type": "Partnership - Unregulated", "client_segment": "Corporate",
             "expected_automation_version": current["version"],
             "expected_case_event_count": len(current["case"]["events"]),
         },

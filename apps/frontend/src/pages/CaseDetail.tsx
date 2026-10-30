@@ -25,6 +25,7 @@ import {
   confirmExistingGoldTierCustomer,
   rebindZeroTouchPolicy,
   submitManualOwnershipEvidence,
+  confirmGovernmentStatus,
   reviewDocument,
   resolveZeroTouchException,
   resumeZeroTouchCase,
@@ -95,6 +96,7 @@ import StageDisclosure, { revealStage } from "./StageDisclosure";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
 import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
+import GovernmentStatusPanel from "./GovernmentStatusPanel";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import PolicyRebindPanel, { PolicyRebindDetails } from "./PolicyRebindPanel";
 
@@ -1296,6 +1298,10 @@ export default function CaseDetail({
   const finalHeaderContext = headerReadSummary("final review", [detailQuery, documentQuery, ownershipQuery])
     + targetHeaderStatus + " " + (frozenReview || summary.status === "COMPLETED" ? "Reviewed package frozen. " : "");
   // D-082 N2: never claim acceptance while the workflow still holds the ownership stage.
+  // D-101: for a Government entity the Ownership & UBO stage holds the Government status step
+  // instead of an ownership analysis; the stage keeps its title so AI Assistant section links match.
+  const governmentBasis = summary.entity_type_basis?.entity_type === "GOVERNMENT" ? summary.entity_type_basis : null;
+  const partnershipPendingLabel = summary.entity_type_basis?.partnership_state === "AWAITING_RM_CONFIRMATION" ? summary.entity_type_basis.label : null;
   const ownershipHeaderStatus = ownership?.poc_basis_accepted && !stageNeedsAttention(["OWNERSHIP"])
     ? "Ownership calculated — POC basis accepted."
     : ownership
@@ -1569,9 +1575,33 @@ export default function CaseDetail({
             <ConfirmDetailsPanel presentation="technical" summary={summary} />
           </>}
         />
-        <StageDisclosure title="Ownership & UBO" status={stageStatusFor(summary, ["OWNERSHIP_UBO"])} summary={`${ownershipHeaderFreshness}${ownershipHeaderStatus}`} scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="Ownership & UBO" status={stageStatusFor(summary, ["OWNERSHIP_UBO"])} summary={governmentBasis ? governmentBasis.label : `${ownershipHeaderFreshness}${ownershipHeaderStatus}`} scopeKey={disclosureIdentity} main={governmentBasis ? <>
+          {renderInterventions(["OWNERSHIP"])}
+          <div key={`${evidenceIdentity}:government`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target" tabIndex={-1}>
+            <GovernmentStatusPanel
+              basis={governmentBasis}
+              canConfirm={summary.ownership_edit_authorized === true}
+              disabled={isBusy || mutationBlocked}
+              onConfirm={() => {
+                const status = governmentBasis.government_status;
+                if (!status?.document_id || status.document_event_count === null) return;
+                void runMutation(
+                  () => confirmGovernmentStatus(caseId, {
+                    document_id: status.document_id!,
+                    document_event_count: status.document_event_count!,
+                    expected_automation_version: summary.version,
+                    expected_case_event_count: summary.case.events.length,
+                  }),
+                  "Confirming Government status…",
+                  "manual-ownership",
+                );
+              }}
+            />
+          </div>
+        </> : <>
           {ownershipReadNotice}
           {confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}
+          {summary.entity_type_basis?.entity_type === "PARTNERSHIP" && <p className="ds-banner" role="note" data-testid="partnership-basis">{summary.entity_type_basis.label}</p>}
           {renderInterventions(["OWNERSHIP"])}
         {ownershipRecovery && summary.ownership_edit_authorized === true
           && ownership?.analysis_id === ownershipRecovery.analysis_id
@@ -1621,11 +1651,11 @@ export default function CaseDetail({
           </div>
         )}
           <div key={`${evidenceIdentity}:ownership`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target" tabIndex={-1}>
-            {ownership && <OwnershipPathExplorer presentation="main" key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} primaryBlockerVisible={summary.active_exceptions.some((item) => item.stage === "OWNERSHIP")} />}
+            {ownership && <OwnershipPathExplorer presentation="main" partnershipPendingLabel={partnershipPendingLabel} key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} primaryBlockerVisible={summary.active_exceptions.some((item) => item.stage === "OWNERSHIP")} />}
           </div>
         </>}
-          moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" /></>}
-          technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" /></>}
+          moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" partnershipPendingLabel={partnershipPendingLabel} /></>}
+          technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" partnershipPendingLabel={partnershipPendingLabel} /></>}
         />
         {/* An uncertain outcome or pending safe recovery needs the reviewer: the section opens on load and shows the blocked final step. */}
         <StageDisclosure title={GOLDTIER_DETAILS_STAGE_LABEL} active={targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || safeContinuation || summary.status === "RECOVERY_PENDING" ? true : undefined}

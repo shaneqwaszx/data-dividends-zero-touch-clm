@@ -8,7 +8,7 @@ import { openStage } from "./stage-disclosures";
 const fixtures = [
   { label: "Alpha", mode: "database-alpha", name: "DEMO ALPHA CIRCULAR FYP TEST PTE. LTD.", uen: "209990101A", document: "demo-alpha-scanned.pdf", kyc: "Company - Private" },
   { label: "Partnership", mode: "database-partnership", name: "DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP", uen: "209990103C", document: "demo-gamma-scanned.pdf", kyc: "Partnership - Unregulated" },
-  { label: "Government", mode: "database-government", name: "DEMO GOVERNMENT FYP TEST AUTHORITY", uen: "209990105E", document: "demo-government-scanned.pdf", kyc: "Government" },
+  { label: "Government", mode: "database-government", name: "DEMO PARKS FYP TEST AUTHORITY", uen: "T99FY0105G", document: "demo-parks-government-status.pdf", kyc: "Government" },
 ];
 
 async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise<void> {
@@ -28,41 +28,54 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
     await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
     await page.getByLabel("Company Legal Name", { exact: true }).fill(fixture.name);
     await page.getByLabel("Registration ID / UEN").fill(fixture.uen);
-    await page.locator("#home-document").setInputFiles(path.resolve("../backend/tests/fixtures/uat/zero-touch-database", fixture.document));
+    // D-101: a partnership's shares come only from its agreement, uploaded with the profile scan.
+    const documents = fixture.label === "Partnership" ? [fixture.document, "demo-gamma-partnership-agreement.pdf"] : [fixture.document];
+    await page.locator("#home-document").setInputFiles(documents.map((name) => path.resolve("../backend/tests/fixtures/uat/zero-touch-database", name)));
     await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
     await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     const caseId = page.url().split("/").at(-1)!;
     const read = async (): Promise<ZeroTouchCaseSummary> => (await page.request.get(`/api/clm/zero-touch/cases/${caseId}`)).json();
-    if (fixture.label === "Government") {
-      await expect.poll(async () => (await read()).target_classification.kyc_customer_type.selected_value).toBe("Government");
-    } else await expect.poll(async () => (await read()).active_exceptions.map((item) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
+    const blockers = async () => (await read()).active_exceptions.map((item) => item.blocker_code);
+    if (fixture.label === "Partnership") {
+      // Registry partners carry no shares: the agreement's split waits for the RM (D-101).
+      await expect.poll(blockers).toEqual(["UBO_REVIEW_REQUIRED"]);
+      await openStage(page, "Ownership & UBO");
+      await expect(page.getByTestId("partnership-basis")).toHaveText("Partner shares from partnership agreement, awaiting RM confirmation");
+      // The RM records the review date explicitly (the agreement date); nothing is accepted automatically.
+      await page.getByLabel("As-of date", { exact: true }).fill("2026-01-05");
+      const proposals = page.locator(".manual-ownership input[type=checkbox]");
+      await expect(proposals).toHaveCount(6);
+      for (const box of await proposals.all()) { await expect(box).not.toBeChecked(); await box.check(); }
+      const declared = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/manual-ownership-evidence"));
+      await page.getByRole("button", { name: "Submit manual ownership evidence", exact: true }).click();
+      expect((await declared).status()).toBeLessThan(300);
+      await expect(page.getByTestId("partnership-basis")).toHaveText("Partner shares from partnership agreement, RM-confirmed");
+    } else if (fixture.label === "Government") {
+      // No ownership analysis: the Government status step needs the reviewed letter plus the RM (D-101).
+      await expect.poll(blockers).toEqual(["GOVERNMENT_STATUS_REQUIRED"]);
+      const pending = await read();
+      expect(pending.case.registry_evidence_binding?.disposition).not.toBe("CACHE_HIT");
+      await openStage(page, "Ownership & UBO");
+      await expect(page.getByText("Local synthetic identity: not ACRA-registered; government status from reviewed document", { exact: false }).first()).toBeVisible();
+      const confirmed = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/government-status-confirmation"));
+      await page.getByRole("button", { name: "Confirm Government status", exact: true }).click();
+      expect((await confirmed).status()).toBe(200);
+    }
+    await expect.poll(blockers).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
     await expect(page).toHaveURL(`/cases/${caseId}`);
     const summary = await read();
     expect(summary.clm.target_search_checkpoint?.disposition).toBe("NO_MATCH");
-    if (fixture.label === "Government") {
-      expect(summary.target_classification.kyc_customer_type.selected_value).toBe("Government");
-      expect(summary.target_classification.client_segment.selected_value).toBe("DI - Government");
-      expect(summary.target_classification.kyc_customer_type.selection?.source).toBe("DOCUMENT");
-      expect(summary.target_classification.kyc_customer_type.selection?.document_evidence?.extraction_method).toBe("LOCAL_TESSERACT_OCR");
-      expect(summary.current_stage).toBe("OWNERSHIP"); expect(summary.active_exceptions.length).toBeGreaterThan(0);
-      expect(summary.target_submission?.state).toBe("NOT_SUBMITTED");
+    if (fixture.label === "Alpha") expect(summary.case.registry_evidence_binding?.disposition).toBe("CACHE_HIT");
+    else expect(summary.case.registry_evidence_binding?.disposition).not.toBe("CACHE_HIT");
+    if (fixture.label === "Partnership") {
       const ownership = await (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
-      expect(ownership.state).toBe("REVIEW_REQUIRED"); expect(ownership.candidates).toEqual([]);
-      await openStage(page, "GoldTier Details & Status");
-      await expect(page.getByRole("button", { name: "Save target classification", exact: true })).toHaveCount(0);
-      await expect(page.getByText("Automatically classified from document", { exact: false }).first()).toBeVisible();
-      await openStage(page, "Final review & send");
-      await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toHaveCount(0);
-      const before = await counts();
-      expect(before.calls).toEqual({ SEARCH: 1, SHELL: 0, POLICY: 0, AMEND: 0, READBACK: 0 });
-      expect(before.external_calls).toBe(0); expect(before.mutation_attempt_count).toBe(0);
-      expect(classificationPuts).toBe(0); expect(violations).toEqual([]);
-      return;
+      const ubo = ownership.candidates.filter((item: { classification: string }) => item.classification === "PROVISIONAL_UBO_CANDIDATE")
+        .map((item: { party: { display_name: string }; aggregated_ownership_percent: string }) => [item.party.display_name, Number(item.aggregated_ownership_percent)]);
+      expect(ubo.sort()).toEqual([["DEMO GAMMA PERSON P1", 30], ["DEMO GAMMA PERSON P2", 25]]);
     }
-    expect(summary.case.registry_evidence_binding?.disposition).toBe("CACHE_HIT");
     expect(summary.target_submission?.state).toBe("NOT_SUBMITTED");
     expect(summary.target_classification.kyc_customer_type.selected_value).toBe(fixture.kyc);
-    expect(summary.target_classification.client_segment.selected_value).toBe("Corporate");
+    expect(summary.target_classification.client_segment.selected_value).toBe(fixture.label === "Government" ? "DI - Government" : "Corporate");
     for (const field of [summary.target_classification.kyc_customer_type, summary.target_classification.client_segment]) {
       expect(field.selection?.source).toBe("DOCUMENT");
       expect(field.selection?.document_evidence?.extraction_method).toBe("LOCAL_TESSERACT_OCR");
@@ -93,8 +106,8 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
 }
 
 test("database classification Alpha actual scan auto-bound then explicit Send", { tag: "@s3-sandbox-database-alpha" }, async ({ page }) => runFixture(page, fixtures[0]));
-test("database classification Partnership actual scan auto-bound then explicit Send", { tag: "@s3-sandbox-database-partnership" }, async ({ page }) => runFixture(page, fixtures[1]));
-test("database classification Government actual scan auto-bound with unsupported ownership", { tag: "@s3-sandbox-database-government" }, async ({ page }) => runFixture(page, fixtures[2]));
+test("database classification Partnership scan plus agreement, RM-confirmed shares, then explicit Send", { tag: "@s3-sandbox-database-partnership" }, async ({ page }) => runFixture(page, fixtures[1]));
+test("database classification Government status letter auto-bound, RM-confirmed status, then explicit Send", { tag: "@s3-sandbox-database-government" }, async ({ page }) => runFixture(page, fixtures[2]));
 
 
 test("database classification conflict prior USER then explicit current review", { tag: "@s3-sandbox-database-alpha" }, async ({ page }) => {

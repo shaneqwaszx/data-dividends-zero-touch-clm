@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 16,
+  "case_envelope_schema_version": 17,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1365,6 +1365,27 @@ routing or backend change; the qualification basis stays `33f602653de7…`.
 - **Open:** independent Quality Gate, owner review and publication authorisation. HR key entry
   and HR-editable Claude limits stay deferred (they need new backend authority).
 
+## Zero-touch D-101 Partnership and Government entity types (branch, not merged) - 2026-10-30
+
+- **Branch `feat/zero-touch-entity-types` (D-101 candidate, owner approval in chat 2026-10-29;
+  Shane to confirm):** the database demo set covers one clean case per entity type. Company
+  (Alpha) is unchanged.
+- **Partnership (Gamma `209990103C`):** registry partners by name and role only; shares come from
+  a reviewed partnership agreement, are suggested only, and count after the RM submits them
+  through the existing manual ownership evidence path. Fail-closed cross-checks: partner sets,
+  duplicates, positive shares, a Decimal total of 100, and declaration = agreement.
+- **Government (DEMO PARKS FYP TEST AUTHORITY `T99FY0105G`):** local synthetic identity labelled
+  "not ACRA-registered; government status from reviewed document". The Ownership & UBO stage
+  holds a Government status step (`GOVERNMENT_STATUS_REQUIRED`), met only by a reviewed status
+  document plus an explicit RM confirmation; readiness then records 0 UBO candidates. Replaces the
+  classification-only `209990105E` fixture.
+- **Shared:** a bounded KYC type / legal form compatibility table (mismatch UNSAFE; unknown form
+  UNSAFE for automatic candidates only), a new `GOVERNMENT` registry legal form, case snapshot
+  schema v17, and regenerated D-094 synthetic boundary and eligibility manifests.
+- **Done:** database-classification Partnership and Government journeys rewritten (E2E); integrated
+  acceptance run locally.
+- **Open:** independent Quality Gate to PASS, pre-PR and publication authorisation.
+
 ## AI Assistant D-102 Claude ceiling US$30.00 and HR-editable Claude limits (local branch, uncommitted) - 2026-10-29
 
 Delta only. Branch `feat/claude-hr-spending-d102` from main `d90ab6a`; nothing committed, pushed,
@@ -1446,7 +1467,7 @@ Delta only. Owner-approved (D-106):
 - **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge,
   then the authorised Claude Balanced qualification, activation and one Garden RM verification.
 
-## AI Assistant D-107 Claude set up by HR (branch `feat/assistant-claude-hr-enablement`, uncommitted) - 2026-10-30
+## AI Assistant D-107 Claude set up by HR (branch `feat/assistant-claude-hr-enablement`, integrated onto main `c6b37f2` as `feat/assistant-claude-hr-enablement-int`) - 2026-10-30
 
 Delta only. Owner-approved (D-107):
 - HR sets Claude up on Providers → Anthropic. HR reads the workspace the key reports (free),
@@ -1458,7 +1479,7 @@ Delta only. Owner-approved (D-107):
   stood for (model on, loopback CLM backend, local origins). The workspace pin, Claude's ledger
   and limits, reconciliation, the D-095 checks and the no-switch rule are unchanged.
 - Data Access & Privacy separates "provider enabled" from "verified synthetic cases only".
-- The qualification basis moves `7e386b8a69e1…` → `80448c6d7d61…`.
+- The qualification basis moves `7e386b8a69e1…` → `80448c6d7d61…`; on main `c6b37f2` (D-101) `5adfe7ec2c58…` → `5dc26b296026…`.
 - Evidence class: offline mock and local only.
 - **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge,
   then HR setup, one authorised Claude Balanced qualification, activation and one Garden RM

@@ -115,12 +115,6 @@
    "size_bytes": 804
   },
   {
-   "sha256": "1dccb019648600993d302fc8ec54f0a56e21c1b010ab79c4359f6537ffe16aa4",
-   "display_name": "demo-government-scanned.pdf",
-   "media_type": "application/pdf",
-   "size_bytes": 177053
-  },
-  {
    "sha256": "22d74234c8512ab55ee16eec45865c8c642c69bd70df0245049a670c744945d8",
    "display_name": "no-text.pdf",
    "media_type": "application/pdf",
@@ -229,6 +223,12 @@
    "size_bytes": 807
   },
   {
+   "sha256": "e45feb3aad2a02f9c493cfd7601acd0ec01774f4d8f1a46829f222344c08cd54",
+   "display_name": "demo-gamma-partnership-agreement.pdf",
+   "media_type": "application/pdf",
+   "size_bytes": 358866
+  },
+  {
    "sha256": "e72533ae8c1fe03f0813985c9db922fc79213e21c3e3bab79da07c359c8c75be",
    "display_name": "pacific-synthetic-ledger-client.pdf",
    "media_type": "application/pdf",
@@ -239,6 +239,12 @@
    "display_name": "second-case-isolation.pdf",
    "media_type": "application/pdf",
    "size_bytes": 812
+  },
+  {
+   "sha256": "ed3bb29eb88b80c0b3771a56f74ac5576e8d763878d0efca21d11a721daee5a8",
+   "display_name": "demo-parks-government-status.pdf",
+   "media_type": "application/pdf",
+   "size_bytes": 236014
   },
   {
    "sha256": "eda014f1509bd8c00f2d53bbf841877976c96883bf493b85f5a19caaf02721bd",
