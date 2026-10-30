@@ -264,7 +264,11 @@ class AdministrationService:
         next_team = team_id if team_supplied else current.team_id
         if role_supplied and role is None:
             raise AdministrationValidationError
-        if role_supplied and next_role in {Role.DIRECTOR, Role.HR} and not team_supplied:
+        if (
+            role_supplied
+            and next_role in {Role.DIRECTOR, Role.HR, Role.SUPPORT}
+            and not team_supplied
+        ):
             next_team = None
         self._validate_role_team(next_role, next_team)
         if len(current.audit_events) >= MAX_AUDIT_EVENTS:

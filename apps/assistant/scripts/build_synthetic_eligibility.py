@@ -44,6 +44,7 @@ SEEDED_USERS = (
     BACKEND / "app" / "domain" / "access.py",
     BACKEND / "app" / "services" / "admin_repository.py",
 )
+NON_CASE_VIEWERS = frozenset({"Support User"})
 MEDIA_TYPES = {
     ".pdf": "application/pdf",
     ".png": "image/png",
@@ -114,7 +115,8 @@ def viewers() -> list[str]:
                 r'user_id="[^"]+",\s*display_name="([^"]+)"', path.read_text(encoding="utf-8")
             )
         )
-    return sorted(names)
+    # D-099: the Support reviewer has no case access, so it never views a case in chat.
+    return sorted(names - NON_CASE_VIEWERS)
 
 
 def build() -> str:

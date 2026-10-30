@@ -99,7 +99,7 @@ def test_generator_emits_only_new_profile_hash_assignments(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    credentials = [secrets.token_urlsafe(24) for _ in range(6)]
+    credentials = [secrets.token_urlsafe(24) for _ in range(7)]
     entries = iter(value for credential in credentials for value in (credential, credential))
     monkeypatch.setattr("getpass.getpass", lambda _prompt: next(entries))
 
@@ -115,10 +115,27 @@ def test_generator_emits_only_new_profile_hash_assignments(
         "PHASE13_RYAN_LEE_PASSWORD_HASH",
         "PHASE13_OLIVIA_KOH_PASSWORD_HASH",
         "PHASE14_5_HR_ADMIN_PASSWORD_HASH",
+        "PHASE13_SUPPORT_USER_PASSWORD_HASH",
     ]
     for line in lines:
         parse_scrypt_password_hash(line.split("=", 1)[1])
     assert all(credential not in captured.out for credential in credentials)
+
+
+def test_hash_generator_can_emit_only_the_named_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    credential = secrets.token_urlsafe(24)
+    entries = iter((credential, credential))
+    monkeypatch.setattr("getpass.getpass", lambda _prompt: next(entries))
+
+    assert generate_hashes(["--user", "support-user"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert [line.split("=", 1)[0] for line in lines] == ["PHASE13_SUPPORT_USER_PASSWORD_HASH"]
+    parse_scrypt_password_hash(lines[0].split("=", 1)[1])
+    assert credential not in lines[0]
 
 
 def test_seeder_authenticates_as_the_new_synthetic_director() -> None:

@@ -295,6 +295,17 @@ def bootstrap_administration(
         ),
         timestamp,
     )
+    _insert_seed_profile(
+        profiles,
+        credential_hashes,
+        UserProfile(
+            user_id="support-user",
+            display_name="Support User",
+            role=Role.SUPPORT,
+            team_id=None,
+        ),
+        timestamp,
+    )
 
 
 def _insert_seed_profile(

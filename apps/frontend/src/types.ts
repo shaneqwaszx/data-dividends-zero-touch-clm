@@ -11,7 +11,7 @@ export type WorkflowState =
   | "FAILED";
 
 export type TeamId = string;
-export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR" | "HR";
+export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR" | "HR" | "SUPPORT";
 export type Capability =
   | "POLICY_VIEW"
   | "POLICY_MUTATE"
@@ -22,7 +22,9 @@ export type Capability =
   | "IDENTITY_ADMIN"
   | "TEAM_ADMIN"
   | "PROVIDER_SANDBOX_TEST"
-  | "MODEL_CONFIG_MANAGE";
+  | "MODEL_CONFIG_MANAGE"
+  | "KNOWLEDGE_REVIEW"
+  | "KNOWLEDGE_CASE_READ";
 
 export interface AuthenticatedTeam {
   team_id: TeamId;

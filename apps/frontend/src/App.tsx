@@ -50,6 +50,7 @@ import DeleteCaseDialog from "./pages/DeleteCaseDialog";
 import GoldTierRequestPreview from "./pages/GoldTierRequestPreview";
 import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
+import KnowledgeReview from "./pages/KnowledgeReview";
 import AdminTeams from "./pages/AdminTeams";
 import AdminUsers from "./pages/AdminUsers";
 import GoldTierSandbox from "./pages/GoldTierSandbox";
@@ -2382,6 +2383,7 @@ export default function App({
           goldtierSandbox={<GoldTierSandbox key={actor.user_id} actor={actor} />}
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}
           aiModels={<AiModelManagement key={actor.user_id} actor={actor} />}
+          knowledgeReview={<KnowledgeReview key={actor.user_id} />}
         />
       </div>
       <AiAssistantPanel

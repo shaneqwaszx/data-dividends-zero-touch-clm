@@ -20,6 +20,8 @@ class RouteAccess(StrEnum):
     PUBLIC = "PUBLIC"
     ACTOR_ONLY = "ACTOR_ONLY"
     CASE_SCOPED = "CASE_SCOPED"
+    # Read-only case GET that a KNOWLEDGE_CASE_READ actor may also load (D-099).
+    CASE_READ = "CASE_READ"
     CASE_CREATION = "CASE_CREATION"
     CASE_PORTFOLIO = "CASE_PORTFOLIO"
 
@@ -119,7 +121,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/demo/clm/zero-touch/cases/{case_id}/intake/complete",
         RouteAccess.CASE_SCOPED,
     ),
-    RoutePolicy("GET", "/api/clm/zero-touch/cases/{case_id}", RouteAccess.CASE_SCOPED),
+    RoutePolicy("GET", "/api/clm/zero-touch/cases/{case_id}", RouteAccess.CASE_READ),
     RoutePolicy(
         "GET",
         "/api/clm/zero-touch/cases/{case_id}/intelligence",
@@ -232,7 +234,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/demo/onboarding/cases/{case_id}/documents",
         RouteAccess.CASE_SCOPED,
     ),
-    RoutePolicy("GET", "/api/onboarding/cases/{case_id}/documents", RouteAccess.CASE_SCOPED),
+    RoutePolicy("GET", "/api/onboarding/cases/{case_id}/documents", RouteAccess.CASE_READ),
     # D-095: content digests of the same documents, under the same case scope.
     RoutePolicy(
         "GET", "/api/onboarding/cases/{case_id}/document-digests", RouteAccess.CASE_SCOPED
@@ -280,6 +282,27 @@ class CaseAccessPolicy:
     ) -> OnboardingCase:
         case = cases.get_case(case_id)
         if case is None or not self.can_access(actor, case):
+            raise CaseNotAvailableError
+        return case
+
+    def can_read(self, actor: AuthenticatedActor, case: OnboardingCase) -> bool:
+        """Case access, or the team-less knowledge redaction read (D-099)."""
+
+        if self.can_access(actor, case):
+            return True
+        return (
+            Capability.KNOWLEDGE_CASE_READ in ROLE_CAPABILITIES[actor.profile.role]
+            and actor.profile.team_id is None
+        )
+
+    def require_case_read(
+        self,
+        actor: AuthenticatedActor,
+        case_id: UUID,
+        cases: OnboardingService,
+    ) -> OnboardingCase:
+        case = cases.get_case(case_id)
+        if case is None or not self.can_read(actor, case):
             raise CaseNotAvailableError
         return case
 

@@ -10,14 +10,12 @@ import {
 import "./AiAssistantPanel.css";
 import { AiAssistantText } from "./aiAssistantText";
 import { goToCaseSection } from "./caseSections";
-import KnowledgeReview from "./KnowledgeReview";
 import {
   AiAssistantError,
   type AiAssistantSource,
   type AiAssistantTurn,
   askAiAssistantStreaming,
   fetchAiAssistantBrief,
-  fetchKnowledgeAccess,
   sendAiAssistantFeedback,
 } from "../aiAssistant";
 
@@ -273,8 +271,6 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [feedback, setFeedback] = useState<Record<string, FeedbackState>>({});
-  const [canReview, setCanReview] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const pending = useRef<AbortController | null>(null);
   const [activity, setActivity] = useState<Activity | null>(null);
   const [now, setNow] = useState(() => performance.now());
@@ -329,20 +325,6 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
       if (briefRequest.current === controller) briefRequest.current = null;
     };
   }, [activeCaseId, open, refreshTick]);
-
-  // Whether this user may review knowledge (usability only: the backend checks every call).
-  useEffect(() => {
-    if (!open) return undefined;
-    const controller = new AbortController();
-    fetchKnowledgeAccess(controller.signal)
-      .then((access) => {
-        if (!controller.signal.aborted) setCanReview(Boolean(access?.can_review));
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setCanReview(false);
-      });
-    return () => controller.abort();
-  }, [open]);
 
   // A question in flight belongs to the case it was asked about.
   useEffect(() => {
@@ -588,16 +570,10 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
               Go to Cases
             </button>
           )}
-          {canReview && (
-            <button type="button" className="btn btn-ghost ai-assistant-review-open" onClick={() => setReviewOpen(true)}>
-              Knowledge review
-            </button>
-          )}
         </div>
         <button type="button" className="btn btn-ghost ai-assistant-compact-close" onClick={() => setOpen(false)} aria-label="Close AI assistant">
           ✕
         </button>
-        {reviewOpen && <KnowledgeReview onClose={() => setReviewOpen(false)} />}
       </aside>
     );
   }
@@ -613,16 +589,6 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
           <span className="ai-assistant-subtitle">{subtitle}</span>
         </div>
         <div className="ai-assistant-header-actions">
-          {canReview && (
-            <button
-              type="button"
-              className="btn btn-ghost ai-assistant-review-open"
-              onClick={() => setReviewOpen(true)}
-              title="Review knowledge"
-            >
-              Review
-            </button>
-          )}
           <button
             type="button"
             className="btn btn-ghost"
@@ -712,7 +678,6 @@ export default function AiAssistantPanel({ caseId, onboardingWithoutCase = false
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>
       <p className="ai-assistant-disclaimer">AI answers can be wrong. The case page is the source of truth.</p>
-      {reviewOpen && <KnowledgeReview onClose={() => setReviewOpen(false)} />}
     </aside>
   );
 }

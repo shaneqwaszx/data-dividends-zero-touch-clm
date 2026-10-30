@@ -24,7 +24,7 @@ test("answer records: RM asks, marks it Not helpful, and a Director opens the re
       function App() {
         const [director, setDirector] = useState(false);
         return director
-          ? <KnowledgeReview onClose={()=>{}} />
+          ? <KnowledgeReview />
           : <><button onClick={()=>setDirector(true)}>Sign in as the Director</button>
               <Panel caseId="case-one" onOpenCases={()=>{}} /></>;
       }

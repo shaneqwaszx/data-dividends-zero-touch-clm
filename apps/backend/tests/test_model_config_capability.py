@@ -35,3 +35,20 @@ def test_model_management_leaves_every_other_capability_unchanged() -> None:
         assert ROLE_CAPABILITIES[role] == frozenset(
             {Capability.POLICY_VIEW, Capability.CASE_ACCESS}
         )
+
+
+def test_support_reviews_knowledge_and_views_policy_without_case_access() -> None:
+    """D-099: SUPPORT alone reviews knowledge; Director keeps policy approval only."""
+
+    assert ROLE_CAPABILITIES[Role.SUPPORT] == frozenset(
+        {
+            Capability.POLICY_VIEW,
+            Capability.KNOWLEDGE_REVIEW,
+            Capability.KNOWLEDGE_CASE_READ,
+        }
+    )
+    for capability in (Capability.KNOWLEDGE_REVIEW, Capability.KNOWLEDGE_CASE_READ):
+        assert {role for role in Role if has_capability(role, capability)} == {Role.SUPPORT}
+    assert not has_capability(Role.SUPPORT, Capability.CASE_ACCESS)
+    assert not has_capability(Role.SUPPORT, Capability.POLICY_APPROVE)
+    assert not has_capability(Role.SUPPORT, Capability.POLICY_MUTATE)

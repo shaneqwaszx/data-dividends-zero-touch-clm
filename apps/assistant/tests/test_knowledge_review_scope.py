@@ -35,21 +35,26 @@ def _backend_profile(
     return me
 
 
-DIRECTOR_CAPABILITIES = [
+SUPPORT_CAPABILITIES = [
     "POLICY_VIEW",
-    "POLICY_APPROVE",
-    "CASE_ACCESS",
-    "CASE_GLOBAL",
-    "TARGET_RECOVERY",
+    "KNOWLEDGE_REVIEW",
+    "KNOWLEDGE_CASE_READ",
 ]
 BACKEND_USERS = {
-    # The backend's seeded Director: role DIRECTOR, team_id None, global case scope.
+    # The backend's seeded Support reviewer: role SUPPORT, team_id None (D-099).
     "director-global-session": _backend_profile(
-        "olivia-koh", "DIRECTOR", None, DIRECTOR_CAPABILITIES
+        "support-user", "SUPPORT", None, SUPPORT_CAPABILITIES
     ),
-    # A second global Director, for the two-person steps.
+    # A second global Support reviewer, for the two-person steps.
     "director-global-2-session": _backend_profile(
-        "director-gus", "DIRECTOR", None, DIRECTOR_CAPABILITIES
+        "support-gus", "SUPPORT", None, SUPPORT_CAPABILITIES
+    ),
+    # The backend's seeded Director keeps policy approval but no longer reviews knowledge.
+    "director-policy-session": _backend_profile(
+        "olivia-koh",
+        "DIRECTOR",
+        None,
+        ["POLICY_VIEW", "POLICY_APPROVE", "CASE_ACCESS", "CASE_GLOBAL", "TARGET_RECOVERY"],
     ),
     "rm-b-session": _backend_profile(
         "ryan-lee", "RELATIONSHIP_MANAGER", "TEAM_B", ["POLICY_VIEW", "CASE_ACCESS"]
@@ -155,7 +160,7 @@ def test_a_global_director_approves_a_team_a_rm_draft_with_the_shown_hash(
         json={"approve": True, "content_hash": shown["content_hash"]},
     )
     assert reply.status_code == 200, reply.text
-    assert reply.json()["status"] == "approved" and reply.json()["approver"] == "olivia-koh"
+    assert reply.json()["status"] == "approved" and reply.json()["approver"] == "support-user"
     # Approval does not widen who may search it: TEAM_A only.
     approved = kb.store.current(entry_id)
     assert approved is not None and approved.visibility.teams == ("TEAM_A",)
@@ -177,11 +182,11 @@ def test_a_global_director_cannot_decide_a_version_it_edited(
     assert widened.status_code == 409 and widened.json()["detail"]["code"] == "NOT_ALLOWED"
     edited = edit(kb, "director-global-session", entry_id, 1, title="Tidied by the Director")
     assert edited.status_code == 200 and edited.json()["version"] == 2
-    assert edited.json()["author"] == "olivia-koh"
+    assert edited.json()["author"] == "support-user"
     refused = decide(kb, "director-global-session", entry_id, 2)
     assert refused.status_code == 403 and refused.json()["detail"]["code"] == "MAKER_CHECKER"
     approved = decide(kb, "director-global-2-session", entry_id, 2)
-    assert approved.status_code == 200 and approved.json()["approver"] == "director-gus"
+    assert approved.status_code == 200 and approved.json()["approver"] == "support-gus"
 
 
 def test_a_team_b_rm_still_cannot_read_list_or_decide_a_team_a_draft(
@@ -202,7 +207,7 @@ def test_a_global_director_drafts_a_team_b_request_visible_to_team_b_only(
     # The draft takes the team the request came from, not the drafting Director's (none).
     entry_id = drafted_in_team_b(kb, session="director-global-session")
     draft = kb.store.get(entry_id, 1)
-    assert draft is not None and draft.author == "olivia-koh"
+    assert draft is not None and draft.author == "support-user"
     assert draft.visibility.teams == ("TEAM_B",)
     assert (
         client(kb, "director-session").get(f"/assistant/knowledge/entries/{entry_id}").status_code
@@ -214,8 +219,8 @@ def test_a_global_director_drafts_a_team_b_request_visible_to_team_b_only(
 
 
 def test_the_full_flow_with_the_real_synthetic_roles(kb: KnowledgeBase) -> None:  # noqa: F811
-    """RM maya-lim says "Not helpful"; the one Director, olivia-koh, writes the fix and, in the
-    POC's single-reviewer mode, publishes it herself after confirming; the request is resolved
+    """RM maya-lim says "Not helpful"; the one Support reviewer, support-user, writes the fix
+    and, in the POC's single-reviewer mode, publishes it after confirming; the request is resolved
     and the next similar question cites it. HR (hr-admin) cannot write the fix."""
 
     question = {"message": "Client moved office, can I use the document address?"}
@@ -244,7 +249,7 @@ def test_the_full_flow_with_the_real_synthetic_roles(kb: KnowledgeBase) -> None:
     )
     assert written.status_code == 200, written.text
     entry = written.json()
-    assert entry["author"] == "olivia-koh"
+    assert entry["author"] == "support-user"
 
     def publish(confirm: bool) -> httpx.Response:
         return olivia.post(
@@ -259,13 +264,13 @@ def test_the_full_flow_with_the_real_synthetic_roles(kb: KnowledgeBase) -> None:
     assert publish(False).json()["detail"]["code"] == "CONFIRM_SINGLE_REVIEWER"
     published = publish(True)
     assert published.status_code == 200, published.text
-    assert published.json()["approver"] == "olivia-koh"
+    assert published.json()["approver"] == "support-user"
     assert published.json()["single_reviewer"] is True
     assert [(r["reviewer"], r["single_reviewer"]) for r in kb.store.reviews(entry["entry_id"])] == [
-        ("olivia-koh", True)
+        ("support-user", True)
     ]
     (row,) = kb.store.feedback()
-    assert (row["status"], row["closed_by"]) == ("resolved", "olivia-koh")
+    assert (row["status"], row["closed_by"]) == ("resolved", "support-user")
     sources = rm.post(f"/assistant/cases/{CASE_ID}/chat", json=question).json()["sources"]
     assert [s["title"] for s in sources if s["kind"] == "resolution"] == [entry["title"]]
 
@@ -289,3 +294,23 @@ def test_with_two_person_review_the_only_director_cannot_publish_her_own_fix(
     )
     assert refused.status_code == 403 and refused.json()["detail"]["code"] == "MAKER_CHECKER"
     assert kb.store.feedback()[0]["status"] == "drafted"
+
+
+def test_a_director_with_policy_approval_cannot_review_knowledge(
+    kb: KnowledgeBase,  # noqa: F811
+) -> None:
+    """D-099: knowledge review is KNOWLEDGE_REVIEW (Support), not POLICY_APPROVE."""
+
+    entry_id = drafted(kb)
+    director = client(kb, "director-policy-session")
+    assert director.get("/assistant/knowledge/me").json()["can_review"] is False
+    for path in ("/assistant/knowledge/reviews", "/assistant/knowledge/stats"):
+        assert director.get(path).status_code == 403
+    refused = director.post(
+        f"/assistant/knowledge/entries/{entry_id}/versions/1/decision",
+        json={"approve": True, "content_hash": "0" * 64},
+    )
+    assert refused.status_code == 403
+    assert kb.store.current(entry_id) is None
+    support = client(kb, "director-global-session")
+    assert support.get("/assistant/knowledge/me").json()["can_review"] is True

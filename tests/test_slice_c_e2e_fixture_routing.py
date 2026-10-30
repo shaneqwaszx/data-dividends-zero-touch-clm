@@ -201,7 +201,8 @@ def _system(monkeypatch, mode):
     encoded = generate_scrypt_password_hash(password)
     values = {}
     for user_id in [profile.user_id for profile in SYNTHETIC_USER_PROFILES] + [
-        "hr-admin"
+        "hr-admin",
+        "support-user",
     ]:
         key = credential_setting_key(user_id)
         monkeypatch.setenv(key, encoded)

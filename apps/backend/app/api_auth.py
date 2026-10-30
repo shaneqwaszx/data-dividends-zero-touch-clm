@@ -82,6 +82,7 @@ class AuthenticatedProfileResponse(BaseModel):
     ) -> "AuthenticatedProfileResponse":
         team = teams.get(profile.team_id)
         is_hr = profile.role == Role.HR
+        is_support = profile.role == Role.SUPPORT
         return cls(
             user_id=profile.user_id,
             display_name=profile.display_name,
@@ -95,13 +96,21 @@ class AuthenticatedProfileResponse(BaseModel):
                 else (
                     "Administration only; no client-case access"
                     if is_hr
-                    else "Global / cross-team access"
+                    else (
+                        "Knowledge support only; no client-case access"
+                        if is_support
+                        else "Global / cross-team access"
+                    )
                 )
             ),
             client_scope_label=(
                 team.client_scope_label
                 if team is not None
-                else ("Administration" if is_hr else "Global / cross-team")
+                else (
+                    "Administration"
+                    if is_hr
+                    else ("Knowledge support" if is_support else "Global / cross-team")
+                )
             ),
             capabilities=tuple(sorted(ROLE_CAPABILITIES[profile.role], key=str)),
         )
@@ -255,12 +264,18 @@ def install_auth_boundary(
         ):
             return _csrf_error()
 
-        if policy is not None and policy.access == RouteAccess.CASE_SCOPED:
+        if policy is not None and policy.access in {
+            RouteAccess.CASE_SCOPED,
+            RouteAccess.CASE_READ,
+        }:
+            authorize_case = (
+                access.require_case_read
+                if policy.access == RouteAccess.CASE_READ
+                else access.require_case_access
+            )
             try:
                 case_id = UUID(path_values["case_id"])
-                request.state.authorized_case = access.require_case_access(
-                    session.actor, case_id, cases
-                )
+                request.state.authorized_case = authorize_case(session.actor, case_id, cases)
             except (CaseNotAvailableError, KeyError, TypeError, ValueError):
                 return _fixed_error(
                     status.HTTP_404_NOT_FOUND,

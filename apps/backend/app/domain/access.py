@@ -38,6 +38,9 @@ class Role(StrEnum):
     RELATIONSHIP_MANAGER = "RELATIONSHIP_MANAGER"
     DIRECTOR = "DIRECTOR"
     HR = "HR"
+    # Knowledge support (D-099, owner-directed): reviews AI Assistant knowledge and views
+    # policy read-only; never grants case access.
+    SUPPORT = "SUPPORT"
 
 
 class Capability(StrEnum):
@@ -53,6 +56,12 @@ class Capability(StrEnum):
     # AI Assistant model management (D-093, local loopback models only). HR only for the
     # POC; independent of policy and knowledge publishing; never grants case access.
     MODEL_CONFIG_MANAGE = "MODEL_CONFIG_MANAGE"
+    # AI Assistant knowledge review (D-099). SUPPORT only; independent of policy approval.
+    KNOWLEDGE_REVIEW = "KNOWLEDGE_REVIEW"
+    # Read-only case load so the AI Assistant can redact a knowledge fix against the
+    # request's case (D-099). Only the case summary and document list GET routes; never
+    # case mutation, portfolio listing, or evidence-decision authority.
+    KNOWLEDGE_CASE_READ = "KNOWLEDGE_CASE_READ"
 
 
 ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
@@ -77,6 +86,13 @@ ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
             Capability.TEAM_ADMIN,
             Capability.PROVIDER_SANDBOX_TEST,
             Capability.MODEL_CONFIG_MANAGE,
+        }
+    ),
+    Role.SUPPORT: frozenset(
+        {
+            Capability.POLICY_VIEW,
+            Capability.KNOWLEDGE_REVIEW,
+            Capability.KNOWLEDGE_CASE_READ,
         }
     ),
 }
@@ -129,7 +145,7 @@ class UserProfile(BaseModel):
 
     @model_validator(mode="after")
     def validate_role_team(self) -> "UserProfile":
-        if self.role in {Role.DIRECTOR, Role.HR} and self.team_id is not None:
+        if self.role in {Role.DIRECTOR, Role.HR, Role.SUPPORT} and self.team_id is not None:
             raise ValueError("global profile must not have a team")
         if self.role in {Role.CLIENT_ONBOARDER, Role.RELATIONSHIP_MANAGER} and self.team_id is None:
             raise ValueError("case profile requires a team")
@@ -144,7 +160,11 @@ class UserProfile(BaseModel):
         return (
             TEAM_BY_ID[self.team_id].client_scope_label
             if self.team_id is not None
-            else ("Administration only" if self.role == Role.HR else "Global / cross-team")
+            else (
+                "Administration only"
+                if self.role == Role.HR
+                else ("Knowledge support" if self.role == Role.SUPPORT else "Global / cross-team")
+            )
         )
 
     @property
@@ -159,7 +179,11 @@ class UserProfile(BaseModel):
             else (
                 "Administration only; no client-case access"
                 if self.role == Role.HR
-                else "Global / cross-team access"
+                else (
+                    "Knowledge support only; no client-case access"
+                    if self.role == Role.SUPPORT
+                    else "Global / cross-team access"
+                )
             )
         )
 

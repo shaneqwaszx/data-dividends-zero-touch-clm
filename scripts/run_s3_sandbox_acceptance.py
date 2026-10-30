@@ -376,6 +376,7 @@ def main() -> int:
         "phase13_maya_lim_password_hash", "phase13_ethan_tan_password_hash",
         "phase13_sophia_ng_password_hash", "phase13_ryan_lee_password_hash",
         "phase13_olivia_koh_password_hash", "phase14_5_hr_admin_password_hash",
+        "phase13_support_user_password_hash",
     )}
     values = read_required_xpi_configuration(args.configuration_file) if args.external else {
         "GOLDTIER_SANDBOX_BASE_URL": "https://sandbox.goldtier.invalid",

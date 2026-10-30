@@ -641,32 +641,21 @@ describe("AiAssistantPanel", () => {
     expect(buttons("Not helpful")).toHaveLength(1);
   });
 
-  it("offers Knowledge review only to someone the backend allows to review", async () => {
+  it("no longer opens Knowledge review, even for someone the backend allows to review (D-099)", async () => {
+    const fetched: string[] = [];
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
+      fetched.push(url);
       if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary."));
-      if (url.endsWith("/knowledge/reviews")) return json({ pending: [], gaps: [] });
-      if (url.endsWith("/knowledge/stats")) return json({ entries: {}, feedback: { total: 0, helpful: 0, not_helpful: 0, helpful_rate: null, open_gaps: 0 }, by_topic: {} });
-      if (url.includes("/knowledge/entries")) return json([]);
       return json({}, 404);
-    }, { user_id: "director-dan", can_review: true, can_edit_guidance: false });
-    const view = render("case-1");
-    click(view.querySelector(".ai-assistant-launcher"));
-    await flush();
-    click(view.querySelector(".ai-assistant-review-open"));
-    await flush();
-    expect(view.querySelector('[role="dialog"]')?.textContent).toContain("Knowledge review");
-    expect(view.textContent).toContain("Nothing to review.");
-  });
-
-  it("hides Knowledge review from an RM", async () => {
-    stubFetch(async (input: RequestInfo | URL) =>
-      String(input).endsWith("/brief") ? json(brief("GARDEN BUSINESS", "Summary.")) : json({}, 404),
-    );
+    }, { user_id: "support-user", can_review: true, can_edit_guidance: false });
     const view = render("case-1");
     click(view.querySelector(".ai-assistant-launcher"));
     await flush();
     expect(view.querySelector(".ai-assistant-review-open")).toBeNull();
+    expect(view.querySelector('[role="dialog"]')).toBeNull();
+    // The Knowledge Review tab owns review; the panel does not ask who may review.
+    expect(fetched.some((url) => url.endsWith("/knowledge/me"))).toBe(false);
   });
 });
 

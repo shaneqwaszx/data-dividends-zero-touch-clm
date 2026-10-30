@@ -181,13 +181,16 @@ not delete Mongo data. No general durable-data purge command is supplied.
 
 Before backend startup, run
 `python scripts/generate_admin_bootstrap_password_hashes.py`.
-Enter and confirm a password for each prompt, then place only the six emitted scrypt
+Enter and confirm a password for each prompt, then place only the seven emitted scrypt
 hash assignments in the local untracked `.env`. Do not save plaintext passwords in the
 repository, shell history, launcher scripts, screenshots, or UAT evidence. The browser
 sign-in user IDs are `maya-lim`, `ethan-tan`, `sophia-ng`, `ryan-lee`, and `olivia-koh`.
 These are synthetic POC identities. If a local `.env` contains hashes generated before
-the identity remediation, regenerate all six hashes: the old setting names are
-intentionally not reused.
+the identity remediation, regenerate all seven hashes: the old setting names are
+intentionally not reused. To add only the D-099 Support account to an existing `.env`, run
+`python scripts/generate_admin_bootstrap_password_hashes.py --user support-user` and add
+the one emitted `PHASE13_SUPPORT_USER_PASSWORD_HASH=...` line; startup fails until it is
+present.
 
 Maya Lim and Ethan Tan see only Alpha cases. Sophia Ng and Ryan Lee
 see only Beta cases. Olivia Koh has global/cross-team Director
@@ -202,6 +205,11 @@ The sixth bootstrap identity is `hr-admin`. It can administer synthetic users an
 teams, but it cannot view cases, Dashboard, Onboarded, Audit, or mutate policy. Policy
 values are read from the backend catalogue; only Relationship Manager and Director can
 edit the two runtime thresholds. Such an edit affects newly created cases only.
+
+The seventh bootstrap identity is `support-user` (D-099). It lands on **Knowledge Review**,
+where it reviews AI Assistant knowledge and enhancement requests, and also sees a read-only
+**Policy** tab. It has no case pages; the backend lets it read a case summary and document
+list only so that a knowledge fix can be redacted. Directors no longer review knowledge.
 
 To create the reproducible two-team portfolio through normal authenticated APIs, start
 the backend with Demo Controls enabled and run:

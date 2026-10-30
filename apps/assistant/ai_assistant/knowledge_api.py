@@ -1,7 +1,7 @@
 """Feedback and review endpoints for the knowledge loop.
 
     RM / Client Onboarder  POST /assistant/cases/{id}/feedback      "Yes, helpful" / "Not helpful"
-    Director (POLICY_APPROVE)   review queue, edit, approve/reject, retire, re-index, stats,
+    Support (KNOWLEDGE_REVIEW)  review queue, edit, approve/reject, retire, re-index, stats,
                                 write the fix for or close an enhancement request
     HR (POLICY_MUTATE)          propose new guidance or a new version of guidance
 
@@ -10,19 +10,20 @@ their own session); nothing in a request body can grant a permission. Nobody who
 edited an entry can approve or reject it, and a decision applies only to the exact content
 the reviewer was shown (both enforced by the store). The POC's single-reviewer setting
 (``knowledge_single_reviewer``, D-083, proposed; it relaxes D-074's two-person control
-because the synthetic users have one Director) lets a reviewer decide an entry they wrote or
+because the synthetic users have one Support reviewer) lets a reviewer decide an entry they wrote or
 edited: an approval needs ``confirm_single_reviewer`` and is recorded as single-reviewer.
 Every review or guidance change asks the backend again inside its write transaction, so a
 role, team or session withdrawn since the request began stops it.
 
 "Yes, helpful" only records the rating with the case context (it counts towards confidence by
 topic in the stats); it drafts nothing. "Not helpful" needs a note and is an enhancement
-request, which a Director handles end to end: either writes the fix as a past resolution or a
-guidance change linked to the request (pending review like any other entry; approving it
-resolves the request, rejecting it opens the request again) or closes it with a reason.
+request, which a Support reviewer handles end to end: either writes the fix as a past
+resolution or a guidance change linked to the request (pending review like any other entry;
+approving it resolves the request, rejecting it opens the request again) or closes it with a
+reason.
 
-Team scope: approved past resolutions are visible only to the team they came from. A Director,
-whom the CLM backend scopes globally (a Director has no team), sees, edits and decides every
+Team scope: approved past resolutions are visible only to the team they came from. A Support
+reviewer, whom the CLM backend gives no team (D-099), sees, edits and decides every
 team's drafts and enhancement requests (called gaps here), and their stats count every team.
 Any other caller keeps the team rule: anything outside their team is answered as "not found",
 and stats count only their team's entries and feedback. Guidance proposed by HR keeps the
@@ -68,7 +69,7 @@ from .knowledge.store import (
     earlier_shown,
 )
 
-APPROVE = "POLICY_APPROVE"
+REVIEW = "KNOWLEDGE_REVIEW"
 MUTATE = "POLICY_MUTATE"
 _HASH = r"^[0-9a-f]{64}$"
 GUIDANCE_ID = r"^guidance\.[a-z0-9-]{3,80}$"
@@ -337,10 +338,10 @@ def knowledge_router(
         return str(value) if value else None
 
     def global_reviewer(profile: dict[str, Any]) -> bool:
-        """A Director, whom the CLM backend scopes globally (a Director has no team), reviews
-        every team's entries and gaps; anyone else keeps the team rule."""
+        """A Support reviewer, whom the CLM backend gives no team (D-099), reviews every
+        team's entries and gaps; anyone else keeps the team rule."""
 
-        return profile.get("role") == "DIRECTOR" and team(profile) is None
+        return profile.get("role") == "SUPPORT" and team(profile) is None
 
     def in_scope(entry: Entry, profile: dict[str, Any]) -> bool:
         return global_reviewer(profile) or in_team(entry, team(profile))
@@ -519,7 +520,7 @@ def knowledge_router(
         """The record behind ``request_answer``, with the view logged."""
 
         reach = request_in_scope(feedback_id)
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         reach(profile)
         linked = next(
             (
@@ -548,7 +549,7 @@ def knowledge_router(
                 wanted,
                 viewer=user_id(profile),
                 allow=allow,
-                authorize=recheck(request, profile, APPROVE, reach),
+                authorize=recheck(request, profile, REVIEW, reach),
             )
         except AnswerNotFoundError:
             raise answer_not_found() from None
@@ -567,7 +568,7 @@ def knowledge_router(
         is called and nothing is saved: the fix is saved, and checked, only on Save."""
 
         reach = request_in_scope(feedback_id)
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         reach(profile)
         row = next(row for row in team_feedback(profile, helpful=False) if row["id"] == feedback_id)
         if row["answer_id"] is None:
@@ -595,7 +596,7 @@ def knowledge_router(
     def me(profile: Actor) -> dict[str, Any]:
         return {
             "user_id": profile.get("user_id"),
-            "can_review": can(profile, APPROVE),
+            "can_review": can(profile, REVIEW),
             "can_edit_guidance": can(profile, MUTATE),
             "single_reviewer": single_reviewer,
         }
@@ -604,7 +605,7 @@ def knowledge_router(
 
     @router.get("/assistant/knowledge/reviews")
     def reviews(profile: Actor) -> dict[str, Any]:
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         return {
             "pending": [
                 entry_view(e)
@@ -617,7 +618,7 @@ def knowledge_router(
 
     @router.get("/assistant/knowledge/entries")
     def entries(profile: Actor, kind: EntryKind | None = None) -> list[dict[str, Any]]:
-        require(profile, APPROVE, MUTATE)
+        require(profile, REVIEW, MUTATE)
         single = kb.store.single_reviewer_approvals()
         return [
             entry_view(e, single_reviewer=e.key in single)
@@ -630,7 +631,7 @@ def knowledge_router(
         versions = kb.store.versions(entry_id)
         if not versions:
             raise not_found()
-        reviewer = can(profile, APPROVE) or can(profile, MUTATE)
+        reviewer = can(profile, REVIEW) or can(profile, MUTATE)
         if reviewer and in_scope(versions[-1], profile):
             single = kb.store.single_reviewer_approvals()
             return {
@@ -661,7 +662,7 @@ def knowledge_router(
                 "versions": [entry_view(v) for v in own if v.version not in edited_in_place],
                 "reviews": [],
             }
-        require(profile, APPROVE, MUTATE)
+        require(profile, REVIEW, MUTATE)
         raise not_found()
 
     @router.post("/assistant/knowledge/entries/{entry_id}/versions/{version}/edit")
@@ -673,7 +674,7 @@ def knowledge_router(
             if body.replaces is not None:
                 found(kb.store.current(body.replaces), who)
 
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         reach(profile)
         # A fix started from the AI's answer may not gain a placeholder in an edit either
         # (one left by redaction on save stays the reviewer's to judge). Other entries keep
@@ -712,7 +713,7 @@ def knowledge_router(
                 version,
                 editor=user_id(profile),
                 expected_hash=body.content_hash,
-                authorize=recheck(request, profile, APPROVE, reach),
+                authorize=recheck(request, profile, REVIEW, reach),
                 **changes,
             )
         except KnowledgeError as exc:
@@ -726,7 +727,7 @@ def knowledge_router(
         def reach(who: dict[str, Any]) -> None:
             found(kb.store.get(entry_id, version), who)
 
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         reach(profile)
         try:
             decided = kb.decide(
@@ -736,7 +737,7 @@ def knowledge_router(
                 approve=body.approve,
                 notes=body.notes,
                 expected_hash=body.content_hash,
-                authorize=recheck(request, profile, APPROVE, reach),
+                authorize=recheck(request, profile, REVIEW, reach),
                 single_reviewer=single_reviewer,
                 confirmed=body.confirm_single_reviewer,
             )
@@ -755,7 +756,7 @@ def knowledge_router(
         def reach(who: dict[str, Any]) -> None:
             found(kb.store.current(entry_id), who)
 
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         reach(profile)
         # Two people: the first call asks for the retirement, a different reviewer confirms.
         try:
@@ -763,7 +764,7 @@ def knowledge_router(
                 entry_id,
                 by=user_id(profile),
                 notes=body.notes,
-                authorize=recheck(request, profile, APPROVE, reach),
+                authorize=recheck(request, profile, REVIEW, reach),
             )
         except KnowledgeError as exc:
             raise refused(exc) from None
@@ -800,7 +801,7 @@ def knowledge_router(
             if existing is not None:
                 found(existing, who)
 
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         reach(profile)
         # A fix started from the AI's answer must not keep its placeholders: they stand for
         # this client's details and would read as a rule about "[ADDRESS]".
@@ -859,7 +860,7 @@ def knowledge_router(
 
         try:
             drafted = kb.store.draft_request(
-                feedback_id, build, authorize=recheck(request, profile, APPROVE, reach)
+                feedback_id, build, authorize=recheck(request, profile, REVIEW, reach)
             )
         except KnowledgeError as exc:
             if isinstance(exc, KnowledgeRuleError):
@@ -872,14 +873,14 @@ def knowledge_router(
         feedback_id: int, body: CloseRequest, profile: Actor, request: Request
     ) -> dict[str, str]:
         reach = request_in_scope(feedback_id)
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         reach(profile)
         try:
             kb.store.close_feedback(
                 feedback_id,
                 by=user_id(profile),
                 reason=body.reason,
-                authorize=recheck(request, profile, APPROVE, reach),
+                authorize=recheck(request, profile, REVIEW, reach),
             )
         except KnowledgeError as exc:
             raise request_refused(exc) from None
@@ -887,14 +888,14 @@ def knowledge_router(
 
     @router.post("/assistant/knowledge/reindex")
     def reindex(profile: Actor, request: Request) -> dict[str, int]:
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         # Re-embeds every current approved version, so a changed embedding model takes effect.
-        report = kb.rebuild(authorize=recheck(request, profile, APPROVE))
+        report = kb.rebuild(authorize=recheck(request, profile, REVIEW))
         return {"indexed": report.indexed, "removed": report.removed, "waiting": report.failed}
 
     @router.get("/assistant/knowledge/stats")
     def stats(profile: Actor) -> dict[str, Any]:
-        require(profile, APPROVE)
+        require(profile, REVIEW)
         feedback_rows = team_feedback(profile)
         helpful = sum(1 for row in feedback_rows if row["helpful"])
         # Confidence by topic: the ratings given on cases with each blocker code (a rating on
