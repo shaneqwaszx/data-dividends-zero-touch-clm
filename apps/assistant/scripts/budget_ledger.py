@@ -64,6 +64,7 @@ Phase A2 creates no real ledger; the remote profile is dormant.
 
 import argparse
 import json
+import sqlite3
 import sys
 import time
 from collections.abc import Iterator
@@ -183,16 +184,22 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def _is_anthropic(path: Path) -> bool:
-    # Read without recovering (the lock and marker rules apply to the Claude ledger only).
+    # Read without recovering. QG H1: an unreadable or busy ledger is never taken to be
+    # another provider's (the lock and marker rules would be skipped): the error stands.
+    return anthropic_runtime.ledger_profile(path) == LEDGER_PROFILE_ID
+
+
+def _is_openrouter(path: Path) -> bool:
     try:
-        return anthropic_runtime.ledger_profile(path) == LEDGER_PROFILE_ID
+        return anthropic_runtime.ledger_profile(path) == OPENROUTER_PROFILE_ID
     except LedgerError:
         return False
 
 
 @contextmanager
 def _guarded(path: Path, override_run: str | None = None) -> Iterator[None]:
-    if _is_anthropic(path):
+    # Every ledger not proven to be GPT-OSS's takes the reconcile lock and the marker rules.
+    if not _is_openrouter(path):
         with reconciliation.operator_write(path, override_run=override_run):
             yield
     else:
@@ -249,7 +256,7 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
     with _guarded(path, args.override_intent):
         ledger = BudgetLedger.open(path)
         unverified = len(ledger.unverified_closed_calls())
-        if unverified and _is_anthropic(path):
+        if unverified and not _is_openrouter(path):
             print(
                 f"warning: {unverified} closed call(s) not verified; run verify first",
                 file=sys.stderr,
@@ -401,6 +408,12 @@ def main(argv: list[str] | None = None) -> int:
     except reconciliation.ReconcileRefused as refused:
         facts = f" {json.dumps(refused.facts)}" if refused.facts else ""
         print(f"refused ({refused.code}){facts}", file=sys.stderr)
+        return 2
+    except reconciliation.RunConflict as conflict:
+        print(f"refused (RUN_CONFLICT): run {conflict} changed meanwhile", file=sys.stderr)
+        return 2
+    except sqlite3.Error:
+        print("refused (RUN_STORE_UNAVAILABLE): the model state database", file=sys.stderr)
         return 2
     except ValidationError as error:
         # QG L3: name the failing settings (field names only, never values).

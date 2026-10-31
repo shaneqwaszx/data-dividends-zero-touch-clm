@@ -667,6 +667,12 @@ def test_a_cli_release_with_the_same_figure_resolves_failed(
     world.past_bound()
     assert world.resolve(run_id)["outcome"] == "failed"
     assert world.only_run()["reason"] == "event_released"
+    # QG L1: the override marker is kept for the owner, who clears it with owner close.
+    marker = world.marker()
+    assert marker is not None and marker["overridden"] is True
+    world.recon.owner_close(run_id, by="owner", reference="seen", acknowledged_event_id=None)
+    assert world.marker() is None
+    assert world.only_run()["status"] == "failed"
 
 
 def test_another_writer_at_p_plus_one_resolves_failed(tmp_path: Path, monkeypatch: Any) -> None:
@@ -754,7 +760,7 @@ def test_a_stale_marker_after_a_finished_run_is_cleared_by_resolve(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     world = World(tmp_path)
-    monkeypatch.setattr(rc, "clear_marker", lambda path, run_id: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(rc, "clear_marker", lambda *a, **k: (_ for _ in ()).throw(OSError()))
     world.apply(world.preview(20_000))
     monkeypatch.undo()
     run = world.only_run()
@@ -1010,3 +1016,260 @@ def test_the_new_module_is_not_a_basis_file_and_moves_no_basis() -> None:
     assert not any("model_admin" in name for name in names)
     data = json.loads((HERE / "ai_assistant" / "synthetic_boundary.json").read_text("utf-8"))
     assert "reconciliations" not in data["code_vocabulary"]
+
+
+# --- QG round 1 remediation (H1, M1, M2, L1 to L4) ----------------------------------------
+
+
+def _copy_run(world: World, **changes: Any) -> None:
+    run = dict(world.runs.all()[0])
+    run.update(changes)
+    with sqlite3.connect(world.state_path) as db:
+        db.execute(
+            f"INSERT INTO claude_reconciliation_runs ({', '.join(run)})"
+            f" VALUES ({', '.join('?' for _ in run)})",
+            tuple(run.values()),
+        )
+
+
+def test_h1_the_cli_guard_fails_closed_when_the_profile_cannot_be_read(
+    cli_world: World, monkeypatch: Any
+) -> None:
+    rc.write_marker(cli_world.ledger_path, {"run_id": "2" * 32, "overridden": False})
+
+    def busy(path: Any) -> str:
+        raise LedgerError("LEDGER_BUSY", "busy")
+
+    monkeypatch.setattr(anthropic_runtime, "ledger_profile", busy)
+    before = _digest(cli_world.ledger_path)
+    for args in (
+        ("reconcile", "--provider-usage", "0.02"),
+        ("set-cap", "--usd", "24.00"),
+        ("reset-breaker", "--code", "usage_missing"),
+        ("verify",),
+    ):
+        assert _cli(cli_world, *args) == 2, args
+    assert _digest(cli_world.ledger_path) == before
+    marker = cli_world.marker()
+    assert marker is not None and marker["overridden"] is False
+
+
+def test_m1_owner_close_clears_the_stale_marker_of_a_finished_run(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    world = World(tmp_path)
+    monkeypatch.setattr(rc, "clear_marker", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+    world.apply(world.preview(20_000))
+    monkeypatch.undo()
+    run_id = world.only_run()["run_id"]
+    assert world.marker() is not None
+    result = world.recon.owner_close(run_id, by="owner", reference="x", acknowledged_event_id=None)
+    assert result["outcome"] == "applied"  # unchanged; only the stale marker went
+    assert world.marker() is None
+    with sqlite3.connect(world.state_path) as db:
+        outcomes = [row[0] for row in db.execute("SELECT outcome FROM events")]
+    assert "stale_marker_cleared" in outcomes
+
+
+@pytest.mark.parametrize(
+    ("marker", "reason"),
+    [
+        (None, "marker_missing"),
+        ({"run_id": "9" * 32, "overridden": False}, "marker_missing"),
+        ("other_p", "marker_missing"),
+    ],
+)
+def test_a_marker_that_is_missing_or_not_this_runs_is_unresolved(
+    tmp_path: Path, monkeypatch: Any, marker: Any, reason: str
+) -> None:
+    world = World(tmp_path)
+    run_id = _crash_after_the_commit(world, monkeypatch, 20_000)
+    current = world.marker()
+    assert current is not None
+    if marker is None:
+        rc.marker_file(world.ledger_path).unlink()
+    elif marker == "other_p":
+        rc.write_marker(world.ledger_path, {**current, "pre_event_id": current["pre_event_id"] + 7})
+    else:
+        rc.write_marker(world.ledger_path, marker)
+    world.past_bound()
+    assert world.resolve(run_id)["outcome"] == "unresolved"
+    assert world.only_run()["reason"] == reason
+
+
+def test_an_event_after_the_bound_is_unresolved(tmp_path: Path, monkeypatch: Any) -> None:
+    world = World(tmp_path)
+    run_id = _crash_after_the_commit(world, monkeypatch, 20_000)
+    run = world.only_run()
+    with sqlite3.connect(world.ledger_path) as db:
+        db.execute(
+            "UPDATE operator_events SET created_at = ? WHERE id = ?",
+            (run["deadline_at"] + 60_000, run["pre_event_id"] + 1),
+        )
+    world.past_bound()
+    world.clock.advance(120)
+    assert world.resolve(run_id)["outcome"] == "unresolved"
+    assert world.only_run()["reason"] == "event_after_bound"
+
+
+def test_a_missing_predicted_breaker_event_is_unresolved(tmp_path: Path, monkeypatch: Any) -> None:
+    world = World(tmp_path)
+    run_id = _crash_after_the_commit(world, monkeypatch, 20_000)
+    run = world.only_run()
+    expected = json.loads(run["expected"])
+    expected["breaker_open"] = 1
+    with sqlite3.connect(world.state_path) as db:
+        db.execute("UPDATE claude_reconciliation_runs SET expected = ?", (json.dumps(expected),))
+    world.past_bound()
+    assert world.resolve(run_id)["outcome"] == "unresolved"
+    assert world.only_run()["reason"] == "sequence_mismatch"
+
+
+def test_another_run_holding_the_same_event_is_unresolved(tmp_path: Path, monkeypatch: Any) -> None:
+    world = World(tmp_path)
+    run_id = _crash_after_the_commit(world, monkeypatch, 20_000)
+    _copy_run(world, run_id="8" * 32, status="unresolved")
+    world.past_bound()
+    assert world.resolve(run_id)["outcome"] == "unresolved"
+    assert world.runs.get(run_id)["reason"] == "shared_event"
+
+
+def test_a_missing_prerequisite_at_resolve_is_unresolved(tmp_path: Path, monkeypatch: Any) -> None:
+    world = World(tmp_path)
+    run_id = _crash_after_the_commit(world, monkeypatch, 20_000)
+    with sqlite3.connect(world.state_path) as db:
+        db.execute("DELETE FROM claude_reconciliation_prerequisite")
+    world.past_bound()
+    assert world.resolve(run_id)["outcome"] == "unresolved"
+    assert world.only_run()["reason"] == "prerequisite_missing"
+
+
+def test_an_unreadable_marker_is_busy_and_finalises_nothing(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    world = World(tmp_path)
+    run_id = _crash_after_the_commit(world, monkeypatch, 20_000)
+    rc.marker_file(world.ledger_path).write_text("{not json", encoding="utf-8")
+    world.past_bound()
+    with _refused("LEDGER_BUSY"):
+        world.resolve(run_id)
+    assert world.only_run()["status"] == "requested"
+
+
+def test_an_unexpected_ledger_write_is_rolled_back_and_failed(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    # The ledger opens the breaker before its reconcile time (a clock step back): the check
+    # after the accounting catches it, the transaction rolls back, and the run is failed.
+    world = World(tmp_path)
+    preview = world.preview(200_000)
+    before = _digest(world.ledger_path)
+    original = BudgetLedger._open_breaker
+
+    def stepped(self: BudgetLedger, connection: Any, code: str) -> None:
+        original(self, connection, code)
+        connection.execute("UPDATE ledger_meta SET breaker_opened_at = last_reconciled_at - 1")
+
+    monkeypatch.setattr(BudgetLedger, "_open_breaker", stepped)
+    with _refused("CONTROLS_CONFLICT"):
+        world.apply(preview)
+    monkeypatch.undo()
+    assert _digest(world.ledger_path) == before
+    assert world.only_run()["status"] == "failed"
+
+
+def test_p1_dependency_a_lockless_legacy_writer_would_be_misattributed(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    # Documents why P1 (earlier script copies retired, attested) is binding: a writer that
+    # ignores the lock and marker leaves an intact marker, and resolve cannot tell.
+    world = World(tmp_path)
+    run_id = _crash_before_the_ledger(world, monkeypatch)
+    BudgetLedger(world.ledger_path).reconcile(20_000, settle_lag_seconds=0)
+    world.past_bound()
+    assert world.resolve(run_id)["outcome"] == "applied"
+
+
+def test_applied_is_never_written_without_its_proof(tmp_path: Path, monkeypatch: Any) -> None:
+    world = World(tmp_path)
+    run_id = _crash_before_the_ledger(world, monkeypatch)
+    for fields in ({}, {"event_id": 3}, {"attribution_basis": "x"}):
+        with pytest.raises(rc.RunConflict):
+            world.runs.finish(run_id, "applied", expected="requested", actor="x", **fields)
+    assert world.only_run()["status"] == "requested"
+
+
+def test_an_open_run_found_at_the_intent_step_refuses(tmp_path: Path) -> None:
+    world = World(tmp_path)
+    world.apply(world.preview(20_000))
+    world.clock.advance(1)
+    preview = world.preview(20_000)
+    _copy_run(world, run_id="7" * 32, status="unresolved")
+    with _refused("RUN_UNRESOLVED"):
+        world.apply(preview)
+    assert [run["status"] for run in world.runs.all()].count("requested") == 0
+
+
+def test_a_ledger_of_another_profile_refuses(tmp_path: Path) -> None:
+    world = World(tmp_path)
+    world.ledger_path.unlink()
+    from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID
+
+    BudgetLedger.initialise(
+        world.ledger_path,
+        cap_micro_usd=1_000_000,
+        opening_usage_micro_usd=0,
+        key_alias="key-01",
+        profile_id=OPENROUTER_PROFILE_ID,
+    )
+    with _refused("LEDGER_PROFILE_MISMATCH"):
+        world.preview(0)
+
+
+def test_the_prerequisite_is_checked_again_at_apply(tmp_path: Path) -> None:
+    world = World(tmp_path)
+    preview = world.preview(20_000)
+    with sqlite3.connect(world.state_path) as db:
+        db.execute("DELETE FROM claude_reconciliation_prerequisite")
+    with _refused("PREREQUISITE_MISSING"):
+        world.apply(preview)
+    assert world.runs.all() == []
+
+
+def test_the_viewing_age_is_checked_again_at_apply(tmp_path: Path) -> None:
+    world = World(tmp_path)
+    preview = world.preview(20_000, as_of_ago=7150, viewed_ago=7150)
+    world.clock.advance(100)
+    with _refused("EVIDENCE_STALE"):
+        world.apply(preview)
+    assert world.runs.all() == []
+
+
+def test_resolve_while_an_apply_holds_the_lock_is_busy(tmp_path: Path, monkeypatch: Any) -> None:
+    world = World(tmp_path)
+    run_id = _crash_before_the_ledger(world, monkeypatch)
+    world.past_bound()
+    held, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with rc.reconcile_lock(world.ledger_path):
+            held.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    held.wait(5)
+    try:
+        with _refused("LEDGER_BUSY"):
+            world.resolve(run_id)
+    finally:
+        release.set()
+        thread.join()
+    assert world.only_run()["status"] == "requested"
+
+
+def test_the_prerequisite_is_audited_as_recorded(tmp_path: Path) -> None:
+    world = World(tmp_path)
+    with sqlite3.connect(world.state_path) as db:
+        rows = db.execute("SELECT outcome FROM events WHERE code = 'PREREQUISITE'").fetchall()
+    assert rows == [("recorded",)]

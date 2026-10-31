@@ -322,10 +322,21 @@ def write_marker(path: Path | str, marker: dict[str, Any]) -> None:
     _fsync_directory(target.parent)
 
 
-def clear_marker(path: Path | str, run_id: str) -> bool:
-    # Only the marker of this run is ever removed (rev 9 L2).
+def clear_marker(
+    path: Path | str,
+    run_id: str,
+    pre_event_id: int | None = None,
+    *,
+    keep_overridden: bool = False,
+) -> bool:
+    # Only the marker of this run (and its P, when given) is ever removed (rev 9 L2); with
+    # keep_overridden an override marker stays for the owner to close (QG L1).
     marker = read_marker(path)
     if marker is None or marker.get("run_id") != run_id:
+        return False
+    if pre_event_id is not None and marker.get("pre_event_id") != pre_event_id:
+        return False
+    if keep_overridden and marker.get("overridden"):
         return False
     marker_file(path).unlink()
     _fsync_directory(marker_file(path).parent)
@@ -763,7 +774,13 @@ class Runs:
                 (by, self._now(), reference),
             )
             ModelAdminStore._insert_event(
-                db, actor=by, role=None, action=ACTION, outcome=APPLIED, code="PREREQUISITE"
+                db, actor=by, role=None, action=ACTION, outcome="recorded", code="PREREQUISITE"
+            )
+
+    def note(self, *, actor: str, outcome: str, code: str) -> None:
+        with self._write() as db:
+            ModelAdminStore._insert_event(
+                db, actor=actor, role=None, action=ACTION, outcome=outcome, code=code
             )
 
     def begin(self, row: dict[str, Any]) -> None:
@@ -805,6 +822,9 @@ class Runs:
         **fields: Any,
     ) -> None:
         if status not in TRANSITIONS.get(expected, ()):
+            raise RunConflict(run_id)
+        if status == APPLIED and not (fields.get("attribution_basis") and fields.get("event_id")):
+            # Q12: applied needs its proof recorded with it (the apply returned, or resolve).
             raise RunConflict(run_id)
         values = {"status": status, "finished_at": self._now(), **fields}
         assignments = ", ".join(f"{name} = ?" for name in values)
@@ -1065,6 +1085,8 @@ class Reconciler:
             raise ReconcileRefused("SCOPE_UNCONFIRMED")
         if canonical(self.ledger_path()) != preview.ledger_key:
             raise ReconcileRefused("LEDGER_PROFILE_MISMATCH")
+        if self._now_ms() - preview.reading.viewed_at_ms > MAX_VIEWED_AGE_SECONDS * 1000:
+            raise ReconcileRefused("EVIDENCE_STALE")
         try:
             prerequisite = self.runs.prerequisite()
         except sqlite3.Error:
@@ -1178,7 +1200,7 @@ class Reconciler:
             if finish(status, code.lower()):
                 # A marker left behind names a finished run (stale): resolve clears it.
                 with suppress(OSError, ReconcileRefused):
-                    clear_marker(path, run_id)
+                    clear_marker(path, run_id, preview.pre_event_id)
             public = code if code in ("CONTROLS_CONFLICT", "LEDGER_BUSY") else "RECONCILE_REFUSED"
             raise ReconcileRefused(public, run_id=run_id) from None
         if not finish(
@@ -1188,7 +1210,7 @@ class Reconciler:
             return self._run_view(run_id, outcome="uncertain")
         # A marker left behind names a finished run (stale): resolve clears it.
         with suppress(OSError, ReconcileRefused):
-            clear_marker(path, run_id)
+            clear_marker(path, run_id, preview.pre_event_id)
         return self._run_view(run_id, outcome=APPLIED)
 
     def _run_view(self, run_id: str, *, outcome: str) -> dict[str, Any]:
@@ -1212,7 +1234,9 @@ class Reconciler:
             marker = read_marker(path)
             if run["status"] != REQUESTED:
                 if run["status"] in FINAL_STATES and marker and marker.get("run_id") == run_id:
-                    clear_marker(path, run_id)  # stale (rev 9 L4)
+                    # Stale (rev 9 L4); an override marker stays for the owner (QG L1).
+                    with suppress(OSError):
+                        clear_marker(path, run_id, int(run["pre_event_id"]), keep_overridden=True)
                 return {"outcome": run["status"], "run": run_view(run)}
             if self._now_ms() < resolve_bound_ms(run):
                 raise ReconcileRefused("RESOLVE_NOT_YET", retry_after=iso(resolve_bound_ms(run)))
@@ -1251,7 +1275,10 @@ class Reconciler:
             except sqlite3.Error:
                 raise ReconcileRefused("RUN_STORE_UNAVAILABLE") from None
             if status in (APPLIED, FAILED):
-                clear_marker(path, run_id)
+                # A failed run's override marker stays for the owner's close (QG L1); a clear
+                # that fails leaves a stale marker the next resolve or owner close removes.
+                with suppress(OSError):
+                    clear_marker(path, run_id, int(run["pre_event_id"]), keep_overridden=True)
             return self._run_view(run_id, outcome=status)
 
     # -- owner close (the operator's script only, F6) -------------------------------------
@@ -1267,6 +1294,13 @@ class Reconciler:
         path = self.ledger_path()
         with reconcile_lock(path):
             status = run["status"]
+            if status in FINAL_STATES:
+                marker = read_marker(path)
+                if marker is None or marker.get("run_id") != run_id:
+                    raise ReconcileRefused("RUN_UNRESOLVED", run_id=run_id)
+                clear_marker(path, run_id)
+                self.runs.note(actor=by, outcome="stale_marker_cleared", code=f"RUN_{run_id}")
+                return self._run_view(run_id, outcome=status)
             if not (
                 status == UNRESOLVED
                 or (status == REQUESTED and self._now_ms() >= resolve_bound_ms(run))
