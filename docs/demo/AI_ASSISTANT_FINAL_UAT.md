@@ -4,7 +4,7 @@ Date: 2026-10-31. Scope: the AI Assistant (Claude Sonnet 5.5 Fast active), the H
 Console including D-110 reconciliation, and the RM and Support assistant surfaces. Evidence
 class: **Local**. Status vocabulary: **PASS**, **FAIL**, **NOT EXECUTED** (with the reason),
 **KNOWN BASELINE FAILURE** (only the 14 named Errno 24 tests in
-`cutover-20261031\evidence\assistant-errno24-baseline.txt` and the `test_knowledge_answers`
+`docs/evidence/AI_ASSISTANT_FINAL_VALIDATION_2026-10-31.md` section 3 and the `test_knowledge_answers`
 Chroma "Nothing found on disk" flake, which must pass alone), and **EXPECTED STARTUP-STORE
 CHANGE** (only `knowledge.sqlite3` bytes and Chroma `acquire_write` +1 at an assistant start).
 
@@ -48,7 +48,7 @@ each step; none needs a paid call unless stated.
 |---|---|---|---|---|
 | X1 | Qualification basis | `5dc26b296026…` unchanged | `qualification_basis()` print | PASS |
 | X2 | Synthetic boundary | current | `build_synthetic_boundary.py --check` | PASS |
-| X3 | Full assistant suite | only known baseline failures | junit | PASS |
+| X3 | Full assistant suite | only known baseline failures | junit: B1-B 3117, B2 3078, integrated 3159 tests, each with the same 14 Errno 24 | PASS with KNOWN BASELINE FAILURE |
 | X4 | Frontend suite, typecheck, build | pass | vitest, tsc, vite | PASS |
 | X5 | Browser E2E for the reconciliation panel | pass in real Chromium | `e2e/ai-models-reconciliation.e2e.ts` (self-contained); the full `run_e2e.py` lifecycle needs Mongo and Tesseract | PASS (self-contained); full lifecycle NOT EXECUTED |
 | X6 | Restart and persistence | fingerprints identical except expected start-up changes; activation, basis, ledger and runs intact | *owner*: restart | NOT EXECUTED |
