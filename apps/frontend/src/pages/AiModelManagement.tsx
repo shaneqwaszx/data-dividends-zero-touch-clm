@@ -1262,7 +1262,7 @@ const RECONCILE_REFUSAL_TEXT: Record<string, string> = {
   CALL_OPEN: "A Claude call is open (or was left open by a stopped service). Wait for it to finish, or ask an operator to run budget_ledger.py --anthropic status. Nothing changed.",
   CALLS_UNVERIFIED: "Some Claude calls are not yet verified. The next chat answer or a Test connection verifies them (or an operator runs verify). Nothing changed.",
   CALLS_QUARANTINED: "A Claude call was quarantined after the last reconciliation. The owner must reconcile with the operator's script. Nothing changed.",
-  RUN_UNRESOLVED: "Another reconciliation run is not finished. Resolve it below (or the owner closes it with the operator's script). Nothing changed.",
+  RUN_UNRESOLVED: "Another reconciliation run is not finished, or its marker remains. If the run below shows Resolve, use it; otherwise the owner closes it with the operator's script (owner-close). Nothing changed.",
   USAGE_LOWER: "The Console figure is lower than at the last reconciliation. Cumulative cost never falls: check the figure and its scope, or wait until the Console has caught up. Nothing changed.",
   USAGE_BEHIND: "The Console figure is too far below what the ledger charged since the last reconciliation, so it is probably an older or lagging reading. Take a newer reading. Nothing changed.",
   EVIDENCE_FUTURE: "The reading's time is in the future. Check the times entered. Nothing changed.",
@@ -1271,7 +1271,7 @@ const RECONCILE_REFUSAL_TEXT: Record<string, string> = {
   PREVIEW_UNKNOWN: "This preview is no longer available (it was used, replaced, or made by someone else). Preview again. Nothing changed.",
   PREVIEW_EXPIRED: "This preview expired (five minutes). Preview again. Nothing changed.",
   CONTROLS_CONFLICT: "The Claude ledger changed after the preview (a call, a limit change or another reconciliation). Preview again. Nothing changed.",
-  RECONCILE_REFUSED: "The ledger refused the reconciliation (a call finished too recently, or the reading is out of range). Preview again later. Nothing changed.",
+  RECONCILE_REFUSED: "The ledger refused or rolled back the reconciliation. Preview again later; if it persists, ask the owner to check the ledger. Nothing changed.",
   RESOLVE_NOT_YET: "This run cannot be resolved yet.",
   RUN_UNKNOWN: "No such reconciliation run.",
   RUN_STORE_UNAVAILABLE: "The reconciliation records could not be read. Nothing changed.",
@@ -1530,8 +1530,9 @@ function ClaudeSpending({ userId, items, claude, busy, onChanged }: {
       <Responsibilities label="Who can change Claude's limits" duties={[
         { who: "hr", text: "Change Claude's daily, call and lifetime limits above, within the D-102 ceilings." },
         { who: "hr", text: "Reconcile Claude's ledger with the Anthropic Console above (D-110) before any raise or paid run, and at least every 7 days for chat." },
-        { who: "operator", text: "Reconcile with scripts/budget_ledger.py --anthropic when HR cannot, release an overcount, reset the breaker, verify calls and close unresolved runs (owner-close)." },
+        { who: "operator", text: "Reconcile with scripts/budget_ledger.py --anthropic when HR cannot, release an overcount, reset the breaker and verify calls." },
         { who: "owner", text: "Keep the Anthropic workspace's monthly spend limit in the Anthropic Console (attested at most US$30.00)." },
+        { who: "owner", text: "Close unresolved reconciliation runs with the operator's script (owner-close), and record that earlier script copies and launchers are retired (attest-legacy-retired)." },
       ]} />
     </section>
   );
