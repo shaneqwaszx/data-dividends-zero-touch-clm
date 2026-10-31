@@ -9,6 +9,12 @@ activated against the fake, then the RM asks streamed questions. Because the fak
 once, the times are what the service itself adds (case reads, eligibility, prompt building,
 preflight, the ledger's durable reservation and settlement, the line guard and the stream),
 never how fast Claude is. At most 17 answers: the 20-call limit per activation holds here too.
+
+Isolation (final QG L5): this runs outside pytest, so the suite's conftest guards do not apply.
+It relies on the journey's own isolation instead: the ledgers and the model state database are
+under a new temporary folder, knowledge is off, keys come from an explicit in-memory mapping
+(never .env), and every HTTP call goes through an in-memory mock transport. Run it only from a
+development checkout; it opens no configured data root.
 """
 
 from __future__ import annotations
