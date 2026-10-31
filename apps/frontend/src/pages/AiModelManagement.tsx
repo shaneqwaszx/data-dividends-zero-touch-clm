@@ -27,6 +27,7 @@ import {
   type AnthropicSetup,
   type CredentialProvider,
   type ModelClaudeBudget,
+  type ModelClaudeReconciliation,
   type ModelCredentialStatus,
   type ModelDataAccess,
   type ModelDiagnosis,
@@ -114,6 +115,8 @@ const CLAUDE_REASON_TEXT: Record<string, string> = {
   CREDENTIAL_SESSION_UNVERIFIED: "The Anthropic session key is held back: the HR session that entered it cannot be checked now.",
   CREDENTIAL_INVALID: "The configured Anthropic key is not a valid inference key.",
   LEDGER_UNAVAILABLE: "The separate Claude spending ledger is missing or unhealthy.",
+  // B1: the ledger changed (or could not be checked) while the page read it, so no mixed figures are shown.
+  LEDGER_BUSY: "The Claude ledger was changing while this page read it, so its figures are not shown. Refresh in a moment.",
   DAILY_ALLOWANCE_EXHAUSTED: "Claude's own daily allowance (set in Spending & Limits, at most US$5.00 a Singapore day) has no room for another call.",
   LIFETIME_CAP_EXHAUSTED: "The Claude ledger's lifetime cap has no room for another call.",
 };
@@ -1103,7 +1106,11 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
         <div><dt>Anthropic workspace limit</dt><dd>{claude.workspace_limit_micro_usd > 0 ? `${usd(dollars(claude.workspace_limit_micro_usd))} a month (owner-confirmed, not read from Anthropic; changed only in the Anthropic Console)` : "Not confirmed yet (set up Claude in Providers → Anthropic)"}</dd></div>
         <div><dt>Last reconciled</dt><dd>{claude.ledger?.reconciled_at ? formatTimestamp(claude.ledger.reconciled_at) : "Never (an operator reconciles the Claude ledger)"}</dd></div>
         <div><dt>Available now</dt><dd><strong>{usd(claude.effective_remaining_usd)}</strong> (the stricter of today's allowance and the lifetime headroom)</dd></div>
-        <div><dt>Calls this activation</dt><dd>{controls.calls_used === null ? `No Claude configuration is active (limit ${controls.max_calls} per activation)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls}`}</dd></div>
+        <div><dt>Calls this activation</dt><dd>{controls.calls_used !== null
+          ? `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls}`
+          : claude.ledger === null
+            ? `${LEDGER_UNREAD} (limit ${controls.max_calls} per activation)`
+            : `No Claude configuration is active (limit ${controls.max_calls} per activation)`}</dd></div>
         <div><dt>Next daily reset</dt><dd>{formatTimestamp(claude.next_reset_at)} (midnight, Singapore)</dd></div>
         <div><dt>Status</dt><dd>{claude.ledger?.breaker_open ? `Stopped: ${readable(claude.ledger.breaker_code, ANTHROPIC_DEPLOYMENT)} (an operator must reconcile)` : claude.refusal ? readable(claude.refusal, ANTHROPIC_DEPLOYMENT) : "Calls allowed"}</dd></div>
       </dl>
@@ -1172,6 +1179,69 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
   );
 }
 
+const DUE_SOON_MS = 24 * 60 * 60 * 1000;
+
+/** A time in Singapore time (formatTimestamp's zone), labelled so it is never read as local. */
+const sgtTime = (value: string) => `${formatTimestamp(value)} SGT`;
+
+/** One reconciliation window: when it ends and whether it has ended (or ends within a day). */
+function windowText(deadline: string | null, fresh: boolean, now: number): string {
+  if (deadline === null) return "Not open: the Claude ledger has never been reconciled";
+  const at = sgtTime(deadline);
+  if (!fresh) return `Ended ${at}: reconciliation required`;
+  const left = Date.parse(deadline) - now;
+  return left <= DUE_SOON_MS ? `Open until ${at} (ends within a day)` : `Open until ${at}`;
+}
+
+/** B1 Phase A: the Claude ledger's accounting and reconciliation windows, read-only. Nothing
+ *  here reconciles, resets or changes the ledger (an operator reconciles it). */
+function ClaudeReconciliation({ reconciliation }: { reconciliation: ModelClaudeReconciliation | null | undefined }) {
+  if (reconciliation === undefined) return null;  // an older server
+  if (reconciliation === null) {
+    return <p className="control-help" role="status" data-testid="claude-reconciliation">{LEDGER_UNREAD}, so its reconciliation figures are not shown.</p>;
+  }
+  const now = Date.now();
+  const calls = reconciliation.calls;
+  const overdue = !reconciliation.chat_fresh;
+  // QG L2: the ledger's baseline is the provider's usage at the last reconciliation plus any
+  // overcount the ledger kept (it never lowers spend it already counted), and the estimate is
+  // the baseline plus what it charged since. The page shows every term so the sums can be checked.
+  const provider = reconciliation.last_provider_usage_micro_usd;
+  const baseline = reconciliation.baseline_micro_usd;
+  const kept = baseline - provider;
+  const addsUp = kept >= 0 && baseline + reconciliation.local_charged_micro_usd === reconciliation.estimate_micro_usd;
+  return (
+    <div className="console-subcard" data-testid="claude-reconciliation">
+      <h3>Claude ledger and reconciliation (read-only)</h3>
+      {overdue && (
+        <p className="ds-banner ds-banner-warn" role="alert">
+          The Claude ledger is not reconciled within the last 7 days, so Claude chat is refused until an operator reconciles it with the Anthropic Console.
+        </p>
+      )}
+      <dl className="acra-detail-list" aria-label="Claude ledger accounting">
+        <div><dt>Key</dt><dd>{reconciliation.key_alias} (alias only; the key itself is never shown)</dd></div>
+        <div><dt>Last reconciled</dt><dd>{reconciliation.reconciled_at ? sgtTime(reconciliation.reconciled_at) : "Never"}</dd></div>
+        <div><dt>Chat window (7 days)</dt><dd>{windowText(reconciliation.chat_deadline_at, reconciliation.chat_fresh, now)}</dd></div>
+        <div><dt>Paid qualification and activation window (24 hours)</dt><dd>{windowText(reconciliation.paid_deadline_at, reconciliation.paid_fresh, now)}</dd></div>
+        <div><dt>Anthropic usage reported at the last reconciliation</dt><dd>{usd(exactDollars(provider))}</dd></div>
+        <div><dt>Overcount kept by the ledger</dt><dd data-testid="claude-overcount">{kept > 0
+          ? `${usd(exactDollars(kept))}: at the last reconciliation the ledger had counted more than Anthropic reported, and it keeps the higher figure (spend already counted is never lowered without an operator), so headroom is never overstated`
+          : "None (the ledger matched or was below Anthropic's report)"}</dd></div>
+        <div><dt>Ledger baseline (reported usage + overcount kept)</dt><dd>{usd(exactDollars(baseline))}</dd></div>
+        <div><dt>Charged by the ledger since the last reconciliation</dt><dd>{usd(exactDollars(reconciliation.local_charged_micro_usd))}</dd></div>
+        <div><dt>Ledger estimate of the key's cumulative usage (baseline + charged since)</dt><dd><strong>{usd(exactDollars(reconciliation.estimate_micro_usd))}</strong> (compare with the Anthropic Console; a difference above {usd(exactDollars(reconciliation.tolerance_micro_usd))} stops Claude when reconciled)</dd></div>
+        {!addsUp && (
+          <div><dt>Check</dt><dd role="alert">These ledger figures do not add up as expected. Refresh; if it persists, ask an operator to check the ledger (scripts/budget_ledger.py --anthropic status).</dd></div>
+        )}
+        <div><dt>Reserved by open calls</dt><dd>{usd(exactDollars(reconciliation.open_reserved_micro_usd))}{calls.open > 0 ? ` (${calls.open} open)` : ""}</dd></div>
+        <div><dt>Calls in this ledger</dt><dd>{calls.total} ({calls.settled} settled, {calls.unsettled} unsettled, {calls.abandoned} abandoned, {calls.open} open)</dd></div>
+        <div><dt>Call verification</dt><dd>{calls.verified} verified, {calls.quarantined} quarantined, {calls.unverified} not yet verified</dd></div>
+        <div><dt>Charged in this ledger</dt><dd>{usd(exactDollars(calls.charged_micro_usd))}</dd></div>
+      </dl>
+    </div>
+  );
+}
+
 /** Claude's spending: its own HR limits (D-102) and what a paid qualification may spend. */
 function ClaudeSpending({ items, claude, busy, onChanged }: {
   items: ModelProfileView[];
@@ -1189,6 +1259,7 @@ function ClaudeSpending({ items, claude, busy, onChanged }: {
       {claude ? <ClaudeLimits claude={claude} busy={busy} onChanged={onChanged} /> : (
         <p className="console-help">This server does not send Claude's spending or limits, so they cannot be changed here.</p>
       )}
+      {claude && <ClaudeReconciliation reconciliation={claude.reconciliation} />}
       {items.map((item) => {
         const paid = item.paid_qualification;
         return (

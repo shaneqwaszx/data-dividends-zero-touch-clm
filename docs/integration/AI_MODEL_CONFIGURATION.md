@@ -145,8 +145,8 @@ availability and last connection test, and who manages what: HR on this page, an
 the server, the key or workspace owner at the provider. The OpenRouter key form stays where
 the server allows HR entry; Claude's inference key is set on the server only, and the page
 says that the server does not send its status. *Spending & Limits* keeps the HR-editable
-GPT-OSS limits and shows Claude's fixed limits read-only, with only the server's
-paid-qualification figures (Claude's usage, headroom and reconciliation time are not sent).
+GPT-OSS limits and Claude's own limits (D-102), and shows the Claude ledger's accounting and
+reconciliation windows read-only (B1 Phase A; see the Claude section below).
 *Qualifications & Recovery* shows technical qualification, answer quality and availability
 apart for every external configuration, including those not yet qualified, with the server's
 raw codes, the latest run's gates and provider-specific troubleshooting; a first or repeated
@@ -565,6 +565,20 @@ needs the new value confirmed and a reconciliation within 24 hours, lowering nev
 strictly lower lifetime cap is allowed even without an attested workspace limit). The workspace id, its
 limit and the attestations stay server settings. Nothing switches to or from Claude
 automatically.
+B1 Phase A (read-only): Spending & Limits also shows the Claude ledger's key alias, last
+reconciliation, the chat window (7 days) and the paid qualification and activation window
+(24 hours) with their end times in Singapore time (SGT), the usage Anthropic reported at the
+last reconciliation, any overcount the ledger kept (it keeps the higher figure, so headroom is
+never overstated), the ledger's baseline (reported usage plus kept overcount), what it charged
+since, and its estimate of the key's cumulative usage (baseline plus charged since; compare
+with the Anthropic Console), open reservations, and call counts by state and verification. The
+view reads the ledger without opening it for recovery (an expired open call stays open) and
+never reads the GPT-OSS ledger. All Claude ledger figures in one response come from one ledger
+state: the reads are bracketed by SQLite's `data_version` on a read-only connection, read
+again when another writer committed in between, and withheld (`LEDGER_BUSY`) if the ledger
+keeps changing or its state cannot be checked (never shown unchecked).
+Reconciliation itself is unchanged: an operator runs `scripts/budget_ledger.py --anthropic
+reconcile`.
 
 **Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
 plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary

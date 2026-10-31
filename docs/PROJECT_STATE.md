@@ -1501,3 +1501,22 @@ Delta only. Owner-approved (D-109; D-108 merged as PR #143):
 - The qualification basis is unchanged (`5dc26b296026…`); no runtime code changed.
 - Evidence class: Local. Claude ledger reconciliation is due under a separate authorisation.
 - **Open:** independent QG, `pre_pr_check.py`, owner publication authorisation and merge.
+
+## AI Assistant B1 Phase A: read-only Claude ledger view (branch `feat/b1-claude-ledger-view`, uncommitted) - 2026-10-31
+
+Delta only. Owner-approved (B1 Phase A only; Phase B reconciliation is not implemented):
+- `GET /assistant/admin/models/budget` adds `claude.reconciliation`: key alias, last
+  reconciliation, chat (7-day) and paid (24-hour) window end times and freshness, the
+  ledger's estimate of the key's cumulative usage (baseline + charged since), open
+  reservations and call counts by state and verification. HR only (`MODEL_CONFIG_MANAGE`).
+- Read-only: the ledger is read without recovery, the GPT-OSS ledger is never read, and no
+  route, authority, limit, breaker or reconciliation rule changed.
+- Spending & Limits shows the figures in a read-only Claude panel with overdue warnings, times
+  labelled SGT, and the ledger baseline apart from Anthropic's last report (a kept overcount is
+  shown and explained; a mismatch in the sums is flagged).
+- QG L1: all Claude ledger figures in one response come from one ledger state (reads bracketed by
+  SQLite `data_version` on a read-only connection, re-read on change, withheld if unstable).
+- The qualification basis is unchanged (`5dc26b296026…`) and the synthetic boundary is current.
+- Evidence class: offline mock and local only.
+- **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge;
+  the running assistant shows the view only after an owner-approved restart.
