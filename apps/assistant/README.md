@@ -528,6 +528,23 @@ Metrics version 2 adds content-free profile, requested endpoint, usage, budget a
 fields; telemetry stays off by default. The test suite fails on any connection to a host that
 is not this machine (`tests/conftest.py`).
 
+### Claude API model benchmark (evaluation only; synthetic Phase B questions)
+
+`scripts/benchmark_claude.py` asks the 17 Phase B questions through the real service with
+`assistant_eval/claude_bench.py`, a harness-only chat model over the native Anthropic Messages
+API (official SDK, installed git-ignored in `data/anthropic-sdk`). It is not a runtime profile:
+no Claude model is selectable in AI Models and the service never imports it. Every prompt must
+pass the D-094 synthetic text check and an offline SHA-256 approval (`prompts`); the free
+`preflight` checks the Models API, counts every prompt's tokens and prices the worst case; the
+paid `run` makes one request per model and question, pinned to `https://api.anthropic.com`,
+with no retries and no server-side model fallback, against its own SQLite ledger (run cap at
+most US$6, at most US$0.10 reserved per call, at most 51 calls, breaker on any model, tier,
+geography or cost discrepancy; any refusal before sending also stops the run).
+`--ledger NAME` gives each experiment its own ledger and preflight file. The SDK client always
+gets an explicit direct transport (its default would mount system or environment proxies).
+The key is read only from `AI_ASSISTANT_ANTHROPIC_API_KEY` in the process environment. Results, ledger and a blinded owner-scoring set stay under
+`data/eval/claude/`. Report: `.ai-pipeline/reports/CLAUDE_API_MODEL_BENCHMARK.md`.
+
 ## Model management (D-093; local loopback models only)
 
 An HR administrator (`MODEL_CONFIG_MANAGE`) can switch the application-wide model among the
