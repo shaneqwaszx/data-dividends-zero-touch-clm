@@ -24,6 +24,23 @@ reconcile      anchor the ledger on the key's cumulative usage from the dashboar
                is kept unless --release is given.
 reset-breaker  only after a reconcile that is newer than the breaker, and naming its code.
 
+D-110 (HR reconciliation in AI Models): on the Anthropic ledger, reconcile, reset-breaker,
+set-cap and verify take the reconcile lock beside the ledger and refuse while an HR run's
+intent marker is there (resolve the run in AI Models, or close it with owner-close). Only
+`reconcile --override-intent RUN` proceeds past it, recording the override on the marker
+first; that run can then never be proven to be HR's.
+
+verify         check every closed, unverified Claude call in-band (offline), as the chat's
+               free preflight does.
+runs           the HR reconciliation runs (read-only).
+resolve-report what resolve would decide for a run now (read-only; nothing is written).
+owner-close    the owner closes an unresolved run (or a requested one past its bound) with a
+               reference. It records an owner acknowledgement, never that HR applied it, and
+               never changes the ledger.
+attest-legacy-retired
+               the owner records that every earlier copy of this script and every earlier
+               launcher has been retired (D-110 P1). HR reconciliation needs it.
+
 --anthropic    (D-099 Option B) the separate Anthropic ledger for Claude Sonnet 5.5
                (AI_ASSISTANT_ANTHROPIC_LEDGER_PATH). Its provider usage is the dedicated
                workspace's cumulative cost as the Claude Console shows it. Its cap may never
@@ -46,7 +63,11 @@ Phase A2 creates no real ledger; the remote profile is dormant.
 """
 
 import argparse
+import json
 import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -57,6 +78,7 @@ sys.path.insert(0, str(HERE))
 from pydantic import ValidationError  # noqa: E402
 
 from ai_assistant import anthropic_runtime  # noqa: E402
+from ai_assistant import claude_reconciliation as reconciliation  # noqa: E402
 from ai_assistant.anthropic_profiles import LEDGER_PROFILE_ID  # noqa: E402
 from ai_assistant.budget import (  # noqa: E402
     KEY_ALIASES,
@@ -160,8 +182,33 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _is_anthropic(path: Path) -> bool:
+    # Read without recovering (the lock and marker rules apply to the Claude ledger only).
+    try:
+        return anthropic_runtime.ledger_profile(path) == LEDGER_PROFILE_ID
+    except LedgerError:
+        return False
+
+
+@contextmanager
+def _guarded(path: Path, override_run: str | None = None) -> Iterator[None]:
+    if _is_anthropic(path):
+        with reconciliation.operator_write(path, override_run=override_run):
+            yield
+    else:
+        if override_run is not None:
+            raise LedgerError("INVALID_INPUT", "--override-intent is for the Anthropic ledger")
+        yield
+
+
 def cmd_set_cap(args: argparse.Namespace) -> int:
-    ledger = BudgetLedger.open(_path(args))
+    path = _path(args)
+    with _guarded(path):
+        return _set_cap(args, path)
+
+
+def _set_cap(args: argparse.Namespace, path: Path) -> int:
+    ledger = BudgetLedger.open(path)
     status = ledger.status()
     # D-099: the Anthropic rules, checked against the cap the change is then made from.
     expected = None
@@ -187,18 +234,107 @@ def _settle_lag(args: argparse.Namespace) -> float:
     return lag
 
 
+def _reading_lag(args: argparse.Namespace, lag: float) -> float:
+    # D-110 F8: with --reading-at (the Console's refresh time), every call must have closed
+    # at least the margin before that reading.
+    if args.reading_at is None:
+        return lag
+    reading = reconciliation.parse_moment(args.reading_at) / 1000
+    margin = max(float(reconciliation.REFRESHED_MARGIN_SECONDS), lag)
+    return max(lag, max(time.time() - reading, 0) + margin)
+
+
 def cmd_reconcile(args: argparse.Namespace) -> int:
-    drift = BudgetLedger.open(_path(args)).reconcile(
-        args.provider_usage, release=args.release, settle_lag_seconds=_settle_lag(args)
-    )
+    path = _path(args)
+    with _guarded(path, args.override_intent):
+        ledger = BudgetLedger.open(path)
+        unverified = len(ledger.unverified_closed_calls())
+        if unverified and _is_anthropic(path):
+            print(
+                f"warning: {unverified} closed call(s) not verified; run verify first",
+                file=sys.stderr,
+            )
+        drift = ledger.reconcile(
+            args.provider_usage,
+            release=args.release,
+            settle_lag_seconds=_reading_lag(args, _settle_lag(args)),
+        )
     sign = "-" if drift < 0 else ""
     print(f"reconciled; provider minus ledger: {sign}{usd(abs(drift))}")
     return 0
 
 
 def cmd_reset_breaker(args: argparse.Namespace) -> int:
-    BudgetLedger.open(_path(args)).reset_breaker(args.code)
+    path = _path(args)
+    with _guarded(path):
+        BudgetLedger.open(path).reset_breaker(args.code)
     print("breaker reset")
+    return 0
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    path = _path(args)
+    if not _is_anthropic(path):
+        raise LedgerError("INVALID_INPUT", "verify is for the Anthropic ledger")
+    with _guarded(path):
+        checked, quarantined = anthropic_runtime.verify_calls(BudgetLedger.open(path))
+    print(f"checked {checked} call(s); quarantined {quarantined}")
+    return 0
+
+
+def _reconciler(args: argparse.Namespace, path: Path) -> reconciliation.Reconciler:
+    from ai_assistant.model_admin import store_file
+
+    settings = _settings(args)
+    return reconciliation.Reconciler(
+        lambda: path,
+        reconciliation.Runs(store_file(settings)),
+        lambda: float(settings.budget_settle_lag_seconds),
+    )
+
+
+def cmd_runs(args: argparse.Namespace) -> int:
+    print(json.dumps(_reconciler(args, _path(args)).listing(), indent=1))
+    return 0
+
+
+def cmd_resolve_report(args: argparse.Namespace) -> int:
+    path = _path(args)
+    recon = _reconciler(args, path)
+    run = recon.runs.get(args.run)
+    if run is None:
+        raise reconciliation.ReconcileRefused("RUN_UNKNOWN")
+    if run["status"] != reconciliation.REQUESTED:
+        print(f"{run['status']} (already decided; nothing to resolve)")
+        return 0
+    snapshot = reconciliation.read_snapshot(path, events_after=int(run["pre_event_id"]))
+    status, reason = reconciliation.classify(
+        run,
+        snapshot,
+        reconciliation.read_marker(path),
+        sharing=recon.runs.sharing(run["ledger_id"], run["pre_event_id"], run["run_id"]),
+        prerequisite=recon.runs.prerequisite(),
+    )
+    bound = reconciliation.iso(reconciliation.resolve_bound_ms(run))
+    print(f"report only: would be {status} ({reason}); resolvable after {bound}")
+    return 0
+
+
+def cmd_owner_close(args: argparse.Namespace) -> int:
+    path = _path(args)
+    result = _reconciler(args, path).owner_close(
+        args.run, by=args.by, reference=args.reference, acknowledged_event_id=args.acknowledge_event
+    )
+    print(json.dumps(result, indent=1))
+    return 0
+
+
+def cmd_attest_legacy_retired(args: argparse.Namespace) -> int:
+    path = _path(args)
+    if not args.reference.strip():
+        raise LedgerError("INVALID_INPUT", "a reference is required")
+    _reconciler(args, path).runs.record_prerequisite(args.by, args.reference.strip()[:200])
+    print("recorded: earlier copies of this script and earlier launchers are retired")
     return 0
 
 
@@ -229,17 +365,42 @@ def main(argv: list[str] | None = None) -> int:
     reconcile.add_argument("--provider-usage", type=micro, required=True)
     reconcile.add_argument("--release", action="store_true")
     reconcile.add_argument("--settle-lag-seconds", type=float, default=None)
+    reconcile.add_argument("--reading-at", help="the Console's refresh time (ISO 8601)")
+    reconcile.add_argument("--override-intent", metavar="RUN", default=None)
     reconcile.set_defaults(run=cmd_reconcile)
 
     reset = commands.add_parser("reset-breaker")
     reset.add_argument("--code", required=True)
     reset.set_defaults(run=cmd_reset_breaker)
 
+    commands.add_parser("verify").set_defaults(run=cmd_verify)
+    commands.add_parser("runs").set_defaults(run=cmd_runs)
+
+    report = commands.add_parser("resolve-report")
+    report.add_argument("run")
+    report.set_defaults(run=cmd_resolve_report)
+
+    close = commands.add_parser("owner-close")
+    close.add_argument("run")
+    close.add_argument("--reference", required=True)
+    close.add_argument("--acknowledge-event", type=int, default=None)
+    close.add_argument("--by", default="owner")
+    close.set_defaults(run=cmd_owner_close)
+
+    attest = commands.add_parser("attest-legacy-retired")
+    attest.add_argument("--reference", required=True)
+    attest.add_argument("--by", default="owner")
+    attest.set_defaults(run=cmd_attest_legacy_retired)
+
     args = parser.parse_args(argv)
     try:
         code: int = args.run(args)
     except LedgerError as error:
         print(f"refused ({error.code}): {error}", file=sys.stderr)
+        return 2
+    except reconciliation.ReconcileRefused as refused:
+        facts = f" {json.dumps(refused.facts)}" if refused.facts else ""
+        print(f"refused ({refused.code}){facts}", file=sys.stderr)
         return 2
     except ValidationError as error:
         # QG L3: name the failing settings (field names only, never values).
