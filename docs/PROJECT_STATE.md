@@ -1502,6 +1502,25 @@ Delta only. Owner-approved (D-109; D-108 merged as PR #143):
 - Evidence class: Local. Claude ledger reconciliation is due under a separate authorisation.
 - **Open:** independent QG, `pre_pr_check.py`, owner publication authorisation and merge.
 
+## AI Assistant B1 Phase B: HR reconciliation of the Claude ledger, D-110 (branch `feat/b1b-hr-reconciliation`, local commits) - 2026-10-31
+
+Delta only. D-110 owner-approved for development 2026-10-31 (Q12 clarified):
+- New `ai_assistant/claude_reconciliation.py` (not a basis file) and routes `GET|POST
+  .../budget/claude/reconciliation[/preview|/apply|/runs/{run}/resolve]`, HR only. The existing
+  `BudgetLedger.reconcile` stays the accounting rule; a subclass checks the previewed state and
+  exactly what was written inside its one write transaction.
+- A cross-process reconcile lock and a durable intent marker beside the Claude ledger; the
+  operator's script takes the same lock and refuses while a marker exists (owner override
+  recorded); new script commands `verify`, `runs`, `resolve-report`, `owner-close`,
+  `attest-legacy-retired`.
+- Q12: a run is applied only when commit and attribution are proven, failed only when
+  non-commit is proven, otherwise unresolved for the owner; LEDGER_BUSY never decides a run.
+- Spending & Limits gains the HR reconcile form (preview, typed-figure confirmation, runs,
+  resolve). No release, breaker reset, limit change or deadline extension by HR.
+- Basis unchanged (`5dc26b296026…`); synthetic boundary current. Evidence class: Local.
+- **Open (owner):** S1 to S3, the P1 attestation, publication, merge, an approved assistant
+  restart, and the first live reconciliation before 2026-11-07 09:42:37 SGT (or the CLI fallback).
+
 ## AI Assistant B1 Phase A: read-only Claude ledger view (branch `feat/b1-claude-ledger-view`, uncommitted) - 2026-10-31
 
 Delta only. Owner-approved (B1 Phase A only; Phase B reconciliation is not implemented):
