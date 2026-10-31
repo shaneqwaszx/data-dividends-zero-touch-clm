@@ -1064,7 +1064,8 @@ def test_m1_owner_close_clears_the_stale_marker_of_a_finished_run(
     run_id = world.only_run()["run_id"]
     assert world.marker() is not None
     result = world.recon.owner_close(run_id, by="owner", reference="x", acknowledged_event_id=None)
-    assert result["outcome"] == "applied"  # unchanged; only the stale marker went
+    assert result["outcome"] == "stale_marker_cleared"
+    assert world.only_run()["status"] == "applied"  # unchanged
     assert world.marker() is None
     with sqlite3.connect(world.state_path) as db:
         outcomes = [row[0] for row in db.execute("SELECT outcome FROM events")]

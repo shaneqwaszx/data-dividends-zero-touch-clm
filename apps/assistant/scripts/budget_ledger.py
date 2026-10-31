@@ -408,6 +408,12 @@ def main(argv: list[str] | None = None) -> int:
     except reconciliation.ReconcileRefused as refused:
         facts = f" {json.dumps(refused.facts)}" if refused.facts else ""
         print(f"refused ({refused.code}){facts}", file=sys.stderr)
+        if refused.code == "RUN_UNRESOLVED":
+            print(
+                "an HR reconciliation run is open or its marker remains: resolve it in AI Models,"
+                " or the owner runs: owner-close RUN --reference TEXT",
+                file=sys.stderr,
+            )
         return 2
     except reconciliation.RunConflict as conflict:
         print(f"refused (RUN_CONFLICT): run {conflict} changed meanwhile", file=sys.stderr)

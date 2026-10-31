@@ -1300,7 +1300,7 @@ class Reconciler:
                     raise ReconcileRefused("RUN_UNRESOLVED", run_id=run_id)
                 clear_marker(path, run_id)
                 self.runs.note(actor=by, outcome="stale_marker_cleared", code=f"RUN_{run_id}")
-                return self._run_view(run_id, outcome=status)
+                return self._run_view(run_id, outcome="stale_marker_cleared")
             if not (
                 status == UNRESOLVED
                 or (status == REQUESTED and self._now_ms() >= resolve_bound_ms(run))
