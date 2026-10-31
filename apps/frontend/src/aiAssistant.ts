@@ -1047,6 +1047,41 @@ export interface ModelClaudeBudget {
   controls: ModelClaudeSpendingControls;
   /** D-106: the Anthropic key's source and status (absent from older servers). */
   credential?: ModelCredentialStatus;
+  /** B1: the Claude ledger's accounting and reconciliation windows (read-only; absent from
+   *  older servers, null when the Claude ledger is missing or unreadable). */
+  reconciliation?: ModelClaudeReconciliation | null;
+}
+
+/** B1: read-only. Amounts are micro-USD; times are ISO 8601 (UTC). Never a key, only its alias. */
+export interface ModelClaudeReconciliation {
+  key_alias: string;
+  reconciled_at: string | null;
+  /** When chat (7 days) and a paid qualification or activation (24 hours) stop being allowed
+   *  unless the ledger is reconciled again; null when it was never reconciled. */
+  chat_deadline_at: string | null;
+  paid_deadline_at: string | null;
+  chat_fresh: boolean;
+  paid_fresh: boolean;
+  chat_window_seconds: number;
+  paid_window_seconds: number;
+  baseline_micro_usd: number;
+  local_charged_micro_usd: number;
+  /** The ledger's estimate of the key's cumulative Anthropic usage (baseline + local charges). */
+  estimate_micro_usd: number;
+  last_provider_usage_micro_usd: number;
+  open_reserved_micro_usd: number;
+  tolerance_micro_usd: number;
+  calls: {
+    total: number;
+    open: number;
+    settled: number;
+    unsettled: number;
+    abandoned: number;
+    verified: number;
+    quarantined: number;
+    unverified: number;
+    charged_micro_usd: number;
+  };
 }
 
 /** D-102: Claude's HR controls. "environment" means HR has not set the value yet. */

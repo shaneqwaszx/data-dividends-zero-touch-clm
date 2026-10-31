@@ -55,11 +55,13 @@ answer and an administrator decides.
 import json
 import logging
 import re
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
 from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -73,9 +75,11 @@ from . import anthropic_profiles, anthropic_runtime, data_access, key_sources
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
     MAX_MICRO_USD,
+    RECONCILE_TOLERANCE_MICRO_USD,
     BudgetedChatModel,
     BudgetLedger,
     LedgerError,
+    LedgerStatus,
 )
 from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
@@ -153,6 +157,9 @@ CREDENTIAL_ATTEMPTS = 5
 WORKSPACE_READ_SECONDS = 3600.0
 CREDENTIAL_WINDOW_SECONDS = 600.0
 MAX_CREDENTIAL_BODY = 1024
+# B1 (QG L1): how many times the Claude spending view is read again when the ledger changed
+# while it was being read, before its figures are withheld instead of mixing two states.
+CLAUDE_VIEW_ATTEMPTS = 3
 # HR spending changes and provider-limit refreshes (D-096), per administrator in the window.
 BUDGET_ATTEMPTS = 20
 # Reconciliation checks a lifetime cap increase needs (remote_checks.check_ledger).
@@ -2276,6 +2283,44 @@ def model_admin_router(
         return view
 
     def claude_budget_view() -> dict[str, Any]:
+        # B1 (QG L1): every Claude ledger figure in one response comes from one unchanged ledger
+        # state. The reads below run in several transactions (budget_status, the call count, the
+        # lifetime and reconciliation reads), so they are bracketed by SQLite's data_version on a
+        # separate read-only connection (mode=ro: it can never write or recover the ledger). A
+        # commit by any other connection or process in between changes it, and the whole view is
+        # read again; if the ledger keeps changing, its figures are withheld (fail closed).
+        path = Path(anthropic_runtime.ledger_file(settings)).resolve()
+        try:
+            watch = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=2)
+        except sqlite3.Error:
+            # No readable ledger file: the reads report it themselves (nothing to mix).
+            return claude_budget_read()
+        with closing(watch):
+
+            def version() -> int:
+                return int(watch.execute("PRAGMA data_version").fetchone()[0])
+
+            view: dict[str, Any] = {}
+            for _ in range(CLAUDE_VIEW_ATTEMPTS):
+                try:
+                    before = version()
+                    view = claude_budget_read()
+                    if version() == before:
+                        return view
+                except sqlite3.Error:
+                    # The file opened but its version could not be read (busy, or a hot journal
+                    # this connection may not recover): the reads cannot be shown as one state.
+                    view = view or claude_budget_read()
+                    break
+        # The ledger kept changing, or could not be checked, while it was read.
+        view.update(ledger=None, daily=None, reconciliation=None, effective_remaining_micro_usd=0)
+        view["effective_remaining_usd"] = f"{0:.6f}"
+        # Any refusal the unchecked reads produced may itself come from mixed states.
+        view["refusal"] = "LEDGER_BUSY"
+        view["controls"].update(lifetime=None, calls_used=None, calls_remaining=None)
+        return view
+
+    def claude_budget_read() -> dict[str, Any]:
         """D-102: Claude's spending view (anthropic_runtime.budget_status, read-only) with the
         HR controls that apply, the calls an active Claude configuration has left, and the
         range its lifetime cap may be set within. Nothing is sent, recovered or changed."""
@@ -2289,6 +2334,7 @@ def model_admin_router(
             used = None
         limit = effective.anthropic_max_calls
         lifetime = None
+        reconciliation = None
         try:
             ledger = BudgetLedger(anthropic_runtime.ledger_file(settings))
             ledger.verify()
@@ -2300,8 +2346,10 @@ def model_admin_router(
                     "max_cap_micro_usd": claude_cap_ceiling(),
                     "committed_micro_usd": status.committed,
                 }
+                reconciliation = claude_reconciliation_view(ledger, status, time.time())
         except LedgerError:
             pass
+        view["reconciliation"] = reconciliation
         view["controls"] = {
             "revision": controls.revision if controls is not None else None,
             "readable": controls is not None,
@@ -2324,6 +2372,61 @@ def model_admin_router(
             "lifetime": lifetime,
         }
         return view
+
+    def claude_reconciliation_view(
+        ledger: BudgetLedger, status: LedgerStatus, now: float
+    ) -> dict[str, Any]:
+        # B1 Phase A (read-only): the Claude ledger's accounting and its reconciliation windows,
+        # from the ledger's own read methods (BudgetLedger(path), never BudgetLedger.open, so no
+        # expired call is closed here). The GPT-OSS ledger is never opened. Content-free: counts,
+        # micro-USD amounts, the key alias and times only.
+        reconciled = ledger.last_reconciled_ms()
+        closed = ledger.closed_calls_after(0)
+
+        def moment(ms: float | None) -> str | None:
+            if ms is None:
+                return None
+            return datetime.fromtimestamp(ms / 1000, UTC).isoformat(timespec="seconds")
+
+        def within(seconds: int) -> bool:
+            # The same rule the chat and paid gates apply, at this view's moment.
+            return anthropic_runtime.reconciled_within(ledger, seconds, clock=lambda: now)
+
+        chat = anthropic_runtime.CHAT_RECONCILE_SECONDS
+        paid = anthropic_runtime.PAID_RECONCILE_SECONDS
+        states = [call.state for call in closed]
+        checks = [call.verification for call in closed]
+        return {
+            "key_alias": status.key_alias,
+            "reconciled_at": moment(reconciled),
+            # When chat (7 days) and a paid qualification or activation (1 day) stop being
+            # allowed unless the ledger is reconciled again (D-099); None if never reconciled.
+            "chat_deadline_at": None if reconciled is None else moment(reconciled + chat * 1000),
+            "paid_deadline_at": None if reconciled is None else moment(reconciled + paid * 1000),
+            "chat_fresh": within(chat),
+            "paid_fresh": within(paid),
+            "chat_window_seconds": chat,
+            "paid_window_seconds": paid,
+            # The ledger's estimate of the key's cumulative provider usage: the last reconciled
+            # baseline plus what it charged since. A reconciliation compares the Console with it.
+            "baseline_micro_usd": status.baseline,
+            "local_charged_micro_usd": status.local_charged,
+            "estimate_micro_usd": status.baseline + status.local_charged,
+            "last_provider_usage_micro_usd": status.last_provider_usage,
+            "open_reserved_micro_usd": status.open_reserved,
+            "tolerance_micro_usd": RECONCILE_TOLERANCE_MICRO_USD,
+            "calls": {
+                "total": len(closed) + status.open_calls,
+                "open": status.open_calls,
+                "settled": states.count("settled"),
+                "unsettled": states.count("unsettled"),
+                "abandoned": states.count("abandoned"),
+                "verified": checks.count("verified"),
+                "quarantined": checks.count("quarantined"),
+                "unverified": checks.count("unverified"),
+                "charged_micro_usd": sum(call.charged_micro_usd or 0 for call in closed),
+            },
+        }
 
     def claude_cap_ceiling() -> int:
         # The lower of the D-102 lifetime ceiling and the owner-confirmed workspace limit

@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MODEL_AUDIT_LIMIT, type AnthropicSetup, type ModelAuditEvent, type ModelBudgetStatus, type ModelClaudeBudget, type ModelClaudeSpendingControls, type ModelDataAccess, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
+import { MODEL_AUDIT_LIMIT, type AnthropicSetup, type ModelAuditEvent, type ModelBudgetStatus, type ModelClaudeBudget, type ModelClaudeReconciliation, type ModelClaudeSpendingControls, type ModelDataAccess, type ModelOverview, type ModelProfileView, type ModelQualification } from "../aiAssistant";
 import { configureAuthenticatedTransport } from "../api";
 import { requiredCapabilityForPath, paths, WorkspaceTabs } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
@@ -1810,6 +1810,165 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     await waitFor(() => expect(view.textContent).toContain("Available now (Claude)"));
     expect(view.textContent).toContain("18 remaining");
     expect(view.textContent).not.toContain("Available now (GPT-OSS)");
+  });
+
+  // --- B1 Phase A: the Claude ledger's accounting and reconciliation windows (read-only) ---
+
+  const HOUR = 3_600_000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const reconciliationView = (reconciledAgoMs: number | null, extra: Partial<ModelClaudeReconciliation> = {}): ModelClaudeReconciliation => {
+    const reconciled = reconciledAgoMs === null ? null : Date.now() - reconciledAgoMs;
+    return {
+      key_alias: "key-02",
+      reconciled_at: reconciled === null ? null : iso(reconciled),
+      chat_deadline_at: reconciled === null ? null : iso(reconciled + 7 * 24 * HOUR),
+      paid_deadline_at: reconciled === null ? null : iso(reconciled + 24 * HOUR),
+      chat_fresh: reconciled !== null && reconciledAgoMs! <= 7 * 24 * HOUR,
+      paid_fresh: reconciled !== null && reconciledAgoMs! <= 24 * HOUR,
+      chat_window_seconds: 604_800,
+      paid_window_seconds: 86_400,
+      baseline_micro_usd: 20_000,
+      local_charged_micro_usd: 54_136,
+      estimate_micro_usd: 74_136,
+      last_provider_usage_micro_usd: 20_000,
+      open_reserved_micro_usd: 0,
+      tolerance_micro_usd: 50_000,
+      calls: { total: 6, open: 0, settled: 6, unsettled: 0, abandoned: 0, verified: 6, quarantined: 0, unverified: 0, charged_micro_usd: 54_136 },
+      ...extra,
+    };
+  };
+  const withReconciliation = (reconciliation: ModelClaudeReconciliation | null | undefined) =>
+    withClaudeBudget({ ...claudeView(), reconciliation });
+  const reconciliationPanel = (view: HTMLElement) => view.querySelector<HTMLElement>("[data-testid=claude-reconciliation]");
+
+  it("shows the Claude ledger's accounting and both reconciliation windows, read-only", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const view = mount(controlsServer(withReconciliation(reconciliationView(2 * HOUR)), calls), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    const text = reconciliationPanel(view)!.textContent ?? "";
+    expect(text).toContain("key-02 (alias only; the key itself is never shown)");
+    expect(text).toContain("US$0.074136"); // the ledger's estimate
+    expect(text).toContain("US$0.020000"); // usage at the last reconciliation
+    expect(text).toContain("US$0.054136"); // charged since
+    expect(text).toContain("US$0.050000"); // the drift tolerance
+    expect(text).toContain("6 (6 settled, 0 unsettled, 0 abandoned, 0 open)");
+    expect(text).toContain("6 verified, 0 quarantined, 0 not yet verified");
+    expect(text).toMatch(/Chat window \(7 days\)Open until /);
+    expect(text).toContain("(ends within a day)"); // the 24-hour window ends in 22 hours
+    expect(reconciliationPanel(view)!.querySelector("[role=alert]")).toBeNull();
+    // Read-only: no form, input or button, and nothing is sent.
+    expect(reconciliationPanel(view)!.querySelector("form, input, button")).toBeNull();
+    expect(calls.filter((call) => call.method !== "GET")).toHaveLength(0);
+    expect(text).not.toContain("OpenRouter");
+  });
+
+  it("marks a stale paid window while chat is still open", async () => {
+    const view = mount(controlsServer(withReconciliation(reconciliationView(2 * 24 * HOUR)), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    const text = reconciliationPanel(view)!.textContent ?? "";
+    expect(text).toMatch(/Paid qualification and activation window \(24 hours\)Ended .*reconciliation required/);
+    expect(text).toMatch(/Chat window \(7 days\)Open until /);
+    expect(reconciliationPanel(view)!.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("warns when the chat window has ended", async () => {
+    const view = mount(controlsServer(withReconciliation(reconciliationView(8 * 24 * HOUR)), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    expect(reconciliationPanel(view)!.querySelector("[role=alert]")?.textContent).toContain("Claude chat is refused until an operator reconciles it");
+    expect(reconciliationPanel(view)!.textContent).toMatch(/Chat window \(7 days\)Ended .*reconciliation required/);
+  });
+
+  it("explains a never-reconciled ledger without inventing a deadline", async () => {
+    const view = mount(controlsServer(withReconciliation(reconciliationView(null)), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    expect(reconciliationPanel(view)!.textContent).toContain("Not open: the Claude ledger has never been reconciled");
+  });
+
+  it("shows no figures when the Claude ledger could not be read", async () => {
+    const view = mount(controlsServer(withReconciliation(null), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    expect(reconciliationPanel(view)!.textContent).toContain("could not be read, so its reconciliation figures are not shown");
+    expect(reconciliationPanel(view)!.textContent).not.toContain("US$");
+  });
+
+  it("shows nothing extra for an older server without the reconciliation view", async () => {
+    const view = mount(controlsServer(withReconciliation(undefined), []), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-daily-limit-input")).not.toBeNull());
+    expect(reconciliationPanel(view)).toBeNull();
+  });
+
+  // QG L2: the baseline is shown apart from the provider's report, and the terms add up.
+  const terms = (text: string) => ({
+    provider: text.match(/Anthropic usage reported at the last reconciliationUS\$([\d.]+)/)?.[1],
+    baseline: text.match(/Ledger baseline \(reported usage \+ overcount kept\)US\$([\d.]+)/)?.[1],
+    since: text.match(/Charged by the ledger since the last reconciliationUS\$([\d.]+)/)?.[1],
+    estimate: text.match(/\(baseline \+ charged since\)US\$([\d.]+)/)?.[1],
+  });
+  const micro = (amount: string | undefined) => Math.round(Number(amount) * 1_000_000);
+
+  it("shows a kept overcount between the provider's report and the ledger baseline, and the sums add up", async () => {
+    const data = reconciliationView(2 * HOUR, { baseline_micro_usd: 30_000, estimate_micro_usd: 84_136 });
+    const view = mount(controlsServer(withReconciliation(data), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    const text = reconciliationPanel(view)!.textContent ?? "";
+    expect(view.querySelector("[data-testid=claude-overcount]")?.textContent).toContain("US$0.010000: at the last reconciliation the ledger had counted more than Anthropic reported");
+    const shown = terms(text);
+    expect(shown).toEqual({ provider: "0.020000", baseline: "0.030000", since: "0.054136", estimate: "0.084136" });
+    expect(micro(shown.provider) + 10_000).toBe(micro(shown.baseline)); // reported + kept = baseline
+    expect(micro(shown.baseline) + micro(shown.since)).toBe(micro(shown.estimate)); // baseline + since = estimate
+    expect(reconciliationPanel(view)!.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("says no overcount is kept when the baseline equals the provider's report", async () => {
+    const view = mount(controlsServer(withReconciliation(reconciliationView(2 * HOUR)), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    expect(view.querySelector("[data-testid=claude-overcount]")?.textContent).toContain("None");
+    const shown = terms(reconciliationPanel(view)!.textContent ?? "");
+    expect(shown.provider).toBe(shown.baseline);
+    expect(micro(shown.baseline) + micro(shown.since)).toBe(micro(shown.estimate));
+  });
+
+  it("flags figures that do not add up instead of presenting them as consistent", async () => {
+    const data = reconciliationView(2 * HOUR, { estimate_micro_usd: 99_999 });
+    const view = mount(controlsServer(withReconciliation(data), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    expect(reconciliationPanel(view)!.querySelector("[role=alert]")?.textContent).toContain("These ledger figures do not add up as expected");
+  });
+
+  it("labels every reconciliation time as Singapore time", async () => {
+    const view = mount(controlsServer(withReconciliation(reconciliationView(2 * HOUR)), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    const text = reconciliationPanel(view)!.textContent ?? "";
+    expect(text).toMatch(/Last reconciled[^]*? SGTChat window/);
+    expect(text).toMatch(/Chat window \(7 days\)Open until [^]*? SGT/);
+    expect(text).toMatch(/\(24 hours\)Open until [^]*? SGT \(ends within a day\)/);
+  });
+
+  it("explains withheld figures while the Claude ledger was changing, without claiming no Claude is active", async () => {
+    const busy: ModelClaudeBudget = {
+      ...claudeView({ calls_used: null, calls_remaining: null, lifetime: null }),
+      ledger: null, daily: null, reconciliation: null,
+      effective_remaining_micro_usd: 0, effective_remaining_usd: "0.000000", refusal: "LEDGER_BUSY",
+    };
+    const view = mount(controlsServer(withClaudeBudget(busy), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    const text = panel(view).textContent ?? "";
+    expect(text).toContain("The Claude ledger was changing while this page read it, so its figures are not shown. Refresh in a moment.");
+    expect(text).toMatch(/Calls this activationUnavailable: the ledger could not be read \(limit 20 per activation\)/);
+    expect(text).not.toContain("No Claude configuration is active");
+    expect(reconciliationPanel(view)!.textContent).not.toContain("US$");
+  });
+
+  it("never shows a GPT-OSS figure in the Claude ledger panel", async () => {
+    const view = mount(controlsServer(withReconciliation(reconciliationView(2 * HOUR)), []), "spending");
+    await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
+    const text = reconciliationPanel(view)!.textContent ?? "";
+    // GPT-OSS's own fixture values (lifetime, committed, opening, headroom) are on the page...
+    expect(view.textContent).toContain("US$0.590000");
+    // ...but never in the Claude panel, which shows only the Claude ledger's figures.
+    for (const gptoss of ["0.590000", "0.600000", "0.100000", "0.098924", "1.001076"]) {
+      expect(text).not.toContain(gptoss);
+    }
   });
 });
 
