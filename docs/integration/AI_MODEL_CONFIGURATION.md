@@ -205,6 +205,55 @@ folder outside the repository:
   and the local baseline model run as before. An external provider needs the teammate's own
   key, provider limit and ledger (`scripts/budget_ledger.py init`).
 
+### 7.2 Running on a persistent data root (operator runbook, D-109)
+
+Layout under the root (`<root>` = for example the expanded `%LOCALAPPDATA%\DataDividendsCLM\assistant`):
+
+| Path | Store |
+| --- | --- |
+| `<root>/models/model_admin.sqlite3` | model state: activation, qualifications, HR enablement, spending controls, audit |
+| `<root>/models/profiles.json` | IT's model profiles file |
+| `<root>/budget/anthropic_fyp_ledger.sqlite3` | the active Claude ledger (named explicitly, so the default name never resolves) |
+| `<root>/budget/ledger.sqlite3` | the GPT-OSS ledger |
+| `<root>/knowledge/` | knowledge SQLite (answer records, conversations) and the Chroma index |
+| `<root>/archive/` | earlier ledgers kept for history; no setting or default reaches them |
+
+- **Protect the root first.** Create the folder and remove inherited access before any data is
+  copied, so only the owner, SYSTEM and Administrators can read or write it (SQLite journal
+  files are created beside the database and inherit this):
+  `icacls <parent> /inheritance:r /grant:r "*<owner SID>:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F"`.
+- **Launcher.** Copy `apps/assistant/scripts/storage/start_assistant.example.ps1` to an
+  owner-only folder outside the repository, run it with Windows PowerShell 5.1 and pass
+  `-WorkspaceId` (the workspace HR enabled) and `-RepoRoot` (always needed for a copy outside
+  the repository; the default only works when it runs from `scripts/storage`), plus
+  `-DataRoot` if the root is not the suggested one.
+  `-StatusOnly` checks the code, the stores and their resolved paths without starting the
+  service. The live copy holds machine paths and the workspace pin, so it is never committed.
+- **Key source.** The service reads the Anthropic key from `apps/assistant/.env` next to the code
+  it loads (or an HR session key, which wins while it lasts), never from the data root. Run the
+  service from the checkout whose `.env` holds the intended key.
+- **Same ledger for the CLI.** Set the same variables as the launcher (`AI_ASSISTANT_DATA_DIR`,
+  `AI_ASSISTANT_ANTHROPIC_LEDGER_PATH=data/budget/anthropic_fyp_ledger.sqlite3`,
+  `AI_ASSISTANT_BUDGET_LEDGER_PATH=data/budget/ledger.sqlite3`) before `scripts/budget_ledger.py`
+  and check the `ledger:` line it prints. Without the Claude ledger override the CLI looks for
+  `budget/anthropic_ledger.sqlite3`, finds none and refuses (`LEDGER_MISSING`).
+- **Backups and moves.** Stop the assistant only, then use
+  `scripts/storage/backup_stores.py <manifest> <src>=><dst> ...` (backup API from read-only
+  sources; nothing is published unless every copy verifies; never overwrites; refuses a hot
+  journal) and compare
+  `scripts/storage/store_fingerprint.py <state> <claude> <archive> <gptoss> <knowledge> <chroma>`
+  before and after. Fingerprint output includes key aliases, ledger ids and a workspace-id
+  suffix: keep it in an owner-only folder, never in tracked files. A backup is not byte-identical to its source; compare fingerprints, not
+  hashes. Never create an empty replacement store: the service creates a missing state or
+  knowledge database, so the launcher refuses to start unless every store exists.
+- **Recovery is forward only.** Once the root has new ledger, audit or answer records, never
+  start a service on the earlier stores: that would undercount spend and lose audit history.
+  Restore from a fingerprint-verified backup of the root instead, or carry the new records back
+  under a separately approved procedure.
+- **Retired launchers and stores.** Earlier launchers are renamed `*.retired-<date>` (with a
+  `RETIRED.txt` beside them) and the worktrees holding earlier stores are locked
+  (`git worktree lock`), so routine clean-up cannot remove them. Both are reversible.
+
 ## 8. Audit history
 
 Each test, qualification start/finish/cancel, activation, rollback, refusal (with the user and

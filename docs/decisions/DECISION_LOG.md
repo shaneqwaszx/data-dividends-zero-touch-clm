@@ -1824,3 +1824,25 @@ Unchanged: the qualification basis (no basis file changes; `config.py`, the CLI 
 outside it, and store paths are not fingerprint inputs), model selection and activation,
 credentials and key order, ledgers and spending controls, D-095, guardrails, RBAC and the CLM
 backend.
+
+## D-109 - AI Assistant storage cutover closure: persistent data root in use, operator tools and recovery limits (OWNER-APPROVED, B0 Assignments 2 and 3)
+
+Status: on 2026-10-31 the owner approved and verified the cutover of the owner's local AI
+Assistant stores to a persistent data root (B0 Assignment 2) and approved this closure and
+hardening (Assignment 3). This is a local operator change recorded for traceability. Not
+sponsor policy. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Sanitised
+evidence: `docs/evidence/B0_STORAGE_CUTOVER_2026-10-31.md`.
+
+| # | Decision |
+| --- | --- |
+| C1 | **Authoritative stores.** The owner's assistant runs with `AI_ASSISTANT_DATA_DIR` set to a per-user root outside the repository (D-108 S3), protected so only the owner, SYSTEM and Administrators can read or write it. Layout: `models/model_admin.sqlite3` (model state and audit), `models/profiles.json`, `budget/anthropic_fyp_ledger.sqlite3` (the active Claude ledger), `budget/ledger.sqlite3` (the GPT-OSS ledger), `knowledge/` (knowledge SQLite and Chroma), and `archive/` (the earlier Claude ledger, kept read-only by convention and reachable by no default). Every store setting is relative and set explicitly by the launcher, so `.env` or an inherited absolute value cannot redirect it. |
+| C2 | **Launcher.** The live launcher is an owner-only file outside the repository (it holds machine paths and the workspace pin, so it is never tracked). `apps/assistant/scripts/storage/start_assistant.example.ps1` is the tracked, parameterised template: the workspace pin, repository root and data root are parameters, it refuses code without the data root, checks that every store already exists and resolves under the root (`check_data_root.py`), and keeps the model, spending, key-order and D-095 settings unchanged. |
+| C3 | **Operator tools.** `scripts/storage/backup_stores.py` (SQLite backup API from read-only sources; nothing is published unless every copy verifies; never overwrites), `scripts/storage/store_fingerprint.py` (read-only logical fingerprint with every table counted; no key material or case text, but it does print key aliases, ledger ids and the last four characters of the workspace id, so its output stays in the owner-only evidence folder and is never pasted into tracked files) and `scripts/storage/check_data_root.py`. They were independently reviewed before the cutover; the tracked copies differ from the reviewed ones by formatting and docstrings only. |
+| C4 | **Recovery is forward only.** After the cutover the new stores received ledger, audit and answer records, so starting a service on the earlier stores would undercount spend and lose audit history. The earlier stores and launchers are retained unchanged as history; returning to them needs a separately approved, data-preserving procedure. |
+| C5 | **Legacy hardening (local).** The package-relative data folder in the owner's checkout no longer grants write access to sandbox accounts; the obsolete launchers are retired by a reversible rename; the worktrees that hold historical stores are locked against removal. The historical SQLite files are not modified (a read-only attribute was deferred). |
+| C6 | **Recorded deviation.** During the post-cutover smoke test an HR administrator explicitly ran an unapproved Claude Fast technical requalification (2 paid calls, verified, charged to the active Claude ledger). Its records and charges are kept; it was not activated. The approved single paid case question then passed. |
+
+Unchanged: the qualification basis, model activation and qualifications in force, credentials
+and key order, ledgers, breakers and spending controls (no reset, reconcile or cap change),
+D-095, guardrails, RBAC and the CLM backend. The Claude ledger still needs its scheduled
+reconciliation (the 7-day freshness rule) under a separate authorisation.

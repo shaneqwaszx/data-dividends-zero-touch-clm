@@ -1484,3 +1484,20 @@ Delta only. Owner-approved (D-107):
 - **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge,
   then HR setup, one authorised Claude Balanced qualification, activation and one Garden RM
   verification.
+
+## AI Assistant D-108/D-109 persistent data root in use and cutover closure (branch `feat/b0-storage-cutover-closure`, uncommitted) - 2026-10-31
+
+Delta only. Owner-approved (D-109; D-108 merged as PR #143):
+- The owner's local assistant runs on a protected per-user data root outside the repository
+  (Assignment 2). Stores were copied with the SQLite backup API and verified by logical
+  fingerprint; the earlier stores and launchers are unchanged history. Recovery is forward only.
+- One approved paid case question on a verified synthetic case passed on the new root. A
+  separate, unapproved Claude Fast requalification (2 paid calls) is recorded as a deviation and
+  was not activated. Activation, qualifications in force, breakers and limits are unchanged.
+- New operator tools `apps/assistant/scripts/storage/` (backup, fingerprint, data-root check)
+  with tests on synthetic stores, a parameterised launcher template, runbook section 7.2 in
+  `docs/integration/AI_MODEL_CONFIGURATION.md` and sanitised evidence
+  `docs/evidence/B0_STORAGE_CUTOVER_2026-10-31.md`.
+- The qualification basis is unchanged (`5dc26b296026…`); no runtime code changed.
+- Evidence class: Local. Claude ledger reconciliation is due under a separate authorisation.
+- **Open:** independent QG, `pre_pr_check.py`, owner publication authorisation and merge.
