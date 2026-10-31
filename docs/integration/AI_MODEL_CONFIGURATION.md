@@ -166,6 +166,45 @@ the page loaded (the server's most recent 100) and says so; nothing is searched 
 - Run one service process per state database, or several sharing it: every request checks the
   stored choice, so all processes use the same model.
 
+### 7.1 Where the runtime stores live, and tests (B0, D-108)
+
+By default the state database, ledgers, profiles file and knowledge store live under
+`apps/assistant/data` (git-ignored). That needs no set-up and suits a teammate's own clone.
+For data that must outlive a checkout, set `AI_ASSISTANT_DATA_DIR` to an existing absolute
+folder outside the repository:
+
+| Platform | Suggested data root |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\DataDividendsCLM\assistant` (write the expanded path) |
+| macOS | `~/Library/Application Support/DataDividendsCLM/assistant` |
+| Container | a mounted persistent volume, for example `/var/lib/clm-assistant` |
+
+- Relative store paths then resolve under the root, with the defaults' leading `data/`
+  dropped (`<root>/budget/ledger.sqlite3`, `<root>/models/model_admin.sqlite3`,
+  `<root>/knowledge`). An absolute per-store path is always used as it is.
+- A root that is not an existing absolute directory, or a store path that would leave it, is
+  refused when the settings load, so the service does not start; nothing is created and
+  nothing falls back to `apps/assistant/data`. Creating the folder and moving stores into it
+  is an operator step, never automatic.
+- `scripts/budget_ledger.py` reads the process environment (never `.env`) and accepts
+  `--data-dir`; `--ledger` wins over both. It prints the ledger path it uses on stderr and
+  refuses an invalid root (`DATA_DIR_INVALID`) or other invalid settings, naming the fields
+  only (`SETTINGS_INVALID`). If the
+  root is set only in `.env`, export `AI_ASSISTANT_DATA_DIR` or pass `--data-dir` to the CLI,
+  otherwise it works on the package-relative ledger (check the printed path before `init`).
+- Tests isolate themselves: `tests/conftest.py` removes the developer's store settings, puts
+  the knowledge store, the Claude ledger and the model state database in a temporary folder
+  before `ai_assistant.main` is imported, and refuses to open any SQLite or Chroma file under
+  `apps/assistant/data`, the suggested data roots or a store named by the developer's
+  environment. No special variables are needed. Known limits of the guard: it compares
+  normalised paths, so links, junctions, short (8.3) names and macOS case variants are not
+  recognised; folders may be created before an open is refused; child processes do not carry
+  the guard (they inherit the redirected settings). The data root escape check is lexical: a
+  link inside the root that points elsewhere is followed.
+- A teammate needs none of the owner's files: the backend's memory mode, the mock connectors
+  and the local baseline model run as before. An external provider needs the teammate's own
+  key, provider limit and ledger (`scripts/budget_ledger.py init`).
+
 ## 8. Audit history
 
 Each test, qualification start/finish/cancel, activation, rollback, refusal (with the user and

@@ -26,15 +26,28 @@ Sources (all synthetic or system text, never client data):
 
 import argparse
 import ast
+import atexit
 import json
+import os
 import re
+import shutil
 import sys
+import tempfile
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
+
+# B0: importing assistant_eval imports ai_assistant.main, whose module-level app opens the
+# knowledge store (and, with a profiles file, the model state database) at import. This
+# generator only captures prompts, so it uses a temporary knowledge folder and no model
+# management: regenerating or checking the boundary never opens a real runtime store.
+_SCRATCH = tempfile.mkdtemp(prefix="boundary-build-")
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
+os.environ["AI_ASSISTANT_KNOWLEDGE_DATA_DIR"] = os.path.join(_SCRATCH, "knowledge")
+os.environ["AI_ASSISTANT_MODEL_PROFILES_FILE"] = ""
 
 from ai_assistant.clm_client import CaseSnapshot  # noqa: E402
 from ai_assistant.context import build_case_facts  # noqa: E402

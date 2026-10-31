@@ -1803,3 +1803,24 @@ statement remain owner confirmations, as they were as environment attestations; 
 qualification's question list (`AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS` and
 `..._COUNT`) is still a server setting; ledger initialisation and reconciliation remain operator
 steps (`scripts/budget_ledger.py --anthropic`).
+
+## D-108 - AI Assistant runtime data root and test isolation from live stores (OWNER-APPROVED, B0 Assignment 1)
+
+Status: the owner approved B0 Assignment 1 on 2026-10-31 (persistent storage configuration,
+automatic test isolation, CLI path handling and documentation). Built on branch
+`feat/b0-storage-isolation` from main `59a4609`. Moving the owner's live stores (Assignment 2)
+is a separate, separately authorised operator step and is not part of this entry. Not sponsor
+policy. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`.
+
+| # | Decision |
+| --- | --- |
+| S1 | **Optional data root.** `AI_ASSISTANT_DATA_DIR` (empty by default). Empty keeps every store where it was (`apps/assistant/data`, package-relative). Set, it must be an existing absolute directory; relative store paths (`budget_ledger_path`, `anthropic_ledger_path`, `model_admin_db_path`, `model_profiles_file`, `knowledge_data_dir`) resolve under it with the defaults' leading `data/` dropped, and absolute per-store paths are kept. Resolved once, in `config.py`, so every existing resolver receives an absolute path. |
+| S2 | **Fail closed.** A relative, missing or non-directory root, or a store path that is drive- or root-relative or would leave the root, refuses the settings (the service does not start). Nothing is created and nothing falls back to the package-relative stores. |
+| S3 | **Suggested roots (documentation only).** Windows `%LOCALAPPDATA%\DataDividendsCLM\assistant`, macOS `~/Library/Application Support/DataDividendsCLM/assistant`, containers a mounted volume. No username or machine path is in tracked code. |
+| S4 | **Operator CLI.** `scripts/budget_ledger.py` honours the process environment's data root and a new `--data-dir` (`--ledger` wins), never reads `.env`, prints the ledger path it uses and refuses an invalid root (`DATA_DIR_INVALID`) or other invalid settings, naming the fields but never their values (`SETTINGS_INVALID`). Ledger rules (no creation on `status`, init only where none exists, reconcile, reset) are unchanged. |
+| S5 | **Test isolation.** `tests/conftest.py` runs before any test module imports `ai_assistant.main`: it removes the developer's store settings and Anthropic key variable, puts the knowledge store, the Claude ledger and the model state database in a session temporary folder, and refuses (PermissionError) to open any SQLite or Chroma file under `apps/assistant/data`, the suggested data roots or a store the developer's environment named, subject to the limits listed in `docs/integration/AI_MODEL_CONFIGURATION.md` section 7.1. |
+
+Unchanged: the qualification basis (no basis file changes; `config.py`, the CLI and tests are
+outside it, and store paths are not fingerprint inputs), model selection and activation,
+credentials and key order, ledgers and spending controls, D-095, guardrails, RBAC and the CLM
+backend.

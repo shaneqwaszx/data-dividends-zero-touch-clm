@@ -1,13 +1,37 @@
 """AI Assistant settings, read from AI_ASSISTANT_* environment variables or apps/assistant/.env."""
 
-from typing import Literal
+import os
+from pathlib import Path, PurePath
+from typing import Literal, Self
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def under_data_root(root: Path, value: str) -> str:
+    # A relative store path resolved under the data root. A leading "data" segment (the
+    # package-relative defaults' folder) is dropped, so "data/budget/ledger.sqlite3" becomes
+    # "<root>/budget/ledger.sqlite3". A path that would leave the root is refused. (Comments,
+    # not a docstring: string constants here feed the D-094 boundary vocabulary.)
+    pure = PurePath(value)
+    if pure.drive or pure.root:  # drive- or root-relative (e.g. "C:x", "\\x"): ambiguous
+        raise ValueError("a store path in the data root must be relative or absolute")
+    parts = pure.parts
+    if parts and parts[0] == "data":
+        parts = parts[1:]
+    if not parts or any(part in ("..", ".") for part in parts):
+        raise ValueError("a store path must stay inside the data root")
+    return os.path.normpath(root.joinpath(*parts))
 
 
 class AiAssistantSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_ASSISTANT_", env_file=".env", extra="ignore")
+
+    # B0: optional root for the assistant's runtime stores (state DB, ledgers, profiles file,
+    # knowledge). Empty keeps the package-relative defaults (apps/assistant/data). When set it
+    # must be an existing absolute directory (never created here); relative store paths are
+    # then resolved under it and absolute ones are kept, so nothing falls back elsewhere.
+    data_dir: str = ""
 
     # The CLM backend the AI assistant reads from. The RM's own session is forwarded, so the
     # backend still decides what this user may see.
@@ -153,3 +177,33 @@ class AiAssistantSettings(BaseSettings):
     # Content-free metrics for each explicit question (telemetry.py): off by default; "log"
     # writes one JSON line per answer with counts, sizes, timings and codes only.
     telemetry: Literal["off", "log"] = "off"
+
+    @model_validator(mode="after")
+    def _place_stores_under_data_root(self) -> Self:
+        # B0: an invalid root refuses the settings (the service does not start) instead of
+        # silently using the package-relative stores or creating an empty root.
+        raw = self.data_dir.strip()
+        if not raw:
+            self.data_dir = ""
+            return self
+        root = Path(raw).expanduser()
+        if not root.is_absolute():
+            raise ValueError("the data root must be an absolute path")
+        if not root.is_dir():
+            raise ValueError("the data root must be an existing path")
+        root = root.resolve(strict=True)
+        self.data_dir = str(root)
+
+        def place(value: str) -> str:
+            # Relative stores go under the root; absolute ones (and an empty profiles file)
+            # are kept as they are.
+            if value and not Path(value).is_absolute():
+                return under_data_root(root, value)
+            return value
+
+        self.budget_ledger_path = place(self.budget_ledger_path)
+        self.anthropic_ledger_path = place(self.anthropic_ledger_path)
+        self.model_admin_db_path = place(self.model_admin_db_path)
+        self.model_profiles_file = place(self.model_profiles_file)
+        self.knowledge_data_dir = place(self.knowledge_data_dir)
+        return self
