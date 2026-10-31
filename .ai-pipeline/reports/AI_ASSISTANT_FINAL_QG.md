@@ -21,18 +21,25 @@ always a separate step, followed by a fresh review of the changed content.
 |---|---|---|---|
 | PR-1a QG | `bf3151b` | FAIL | **H1** the operator's script skipped the lock and marker rules when the ledger profile read was busy, so a CLI reconcile could be resolved as HR's `applied` (reproduced); **M1** owner close could not clear a stale marker; **M2** missing tests; L1–L5 |
 | PR-1a re-QG | `2d9eff0` | PASS WITH NOTES | all closed; two wording Lows applied in `7d381a2` |
-| Final integrated QG | `ed3f845` (B1-B with PR-1b and E2E, B2 merged, B3 records) | PASS WITH NOTES | **M1** the UAT and evidence records claimed PASS for the integrated full suite before its rerun finished, and referenced this report before it existed; L1–L3 page wording; L4 a local-only file cited; L5 the overhead benchmark's isolation undocumented |
+| Final integrated QG (B2's own measurement code and D-111 were first reviewed here) | `ed3f845` (B1-B with PR-1b and E2E, B2 merged, B3 records) | PASS WITH NOTES | **M1** the UAT and evidence records claimed PASS for the integrated full suite before its rerun finished, and referenced this report before it existed; L1–L3 page wording; L4 a local-only file cited; L5 the overhead benchmark's isolation undocumented |
 
-## 3. Remediation of the final QG (focused re-check below)
+## 3. Remediation of the final QG, and its focused re-check
 
 - M1: the evidence and UAT records now give the completed integrated rerun on `ed3f845` (3159
-  tests, 3145 passed, the same 14 Errno 24 failures as B1-B and B2), say what later commits
+  tests, 3145 passed, the same 14 Errno 24 failures as B1-B and B2, on the code of `027f5d6`,
+  which `ed3f845` changed only in documents), say what later commits
   changed and how they were re-verified, and point to this report, which now exists.
 - L1–L3 (`0f4992a`): RUN_UNRESOLVED points to Resolve only where it exists, otherwise to the
   owner's close; RECONCILE_REFUSED no longer guesses a cause; owner close and the P1 attestation
   are listed under the owner. Page tests 135 / 135, typecheck and the reconcile E2E pass again.
 - L4: the UAT cites the tracked evidence record's list of the 14 tests.
 - L5 (`c096175`): the overhead benchmark documents the isolation it relies on.
+
+Focused re-check (fresh reviewer) of `ed3f845..e5e70bf`: **PASS WITH NOTES**. M1 and L1–L5
+closed; the three junit files re-parsed (3117, 3078 and 3159 tests, the identical 14 Errno 24
+failures); merges carried only `0f4992a` and `c096175`. Its two wording notes (this section's
+title, and that the integrated run tested the code of `027f5d6`, which `ed3f845` changed only
+in documents) are applied in this revision.
 
 ## 4. Constant across every review
 

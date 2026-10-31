@@ -61,7 +61,7 @@ Known baseline failures (identical set on every branch):
 The first integrated run stalled at 22% inside asyncio's Windows socket-pair emulation during
 event-loop setup (an unrelated evaluation-harness test; no progress for 10 minutes, the known
 pattern on this host) and was stopped by its watchdog: ENVIRONMENT-BLOCKED, not a defect. The
-rerun on `ed3f845` completed: 3159 tests, 3145 passed, 14 failed, all with "Too many open
+rerun on the code of `ed3f845` (identical to `027f5d6`; `ed3f845` changed only documents) completed: 3159 tests, 3145 passed, 14 failed, all with "Too many open
 files" and exactly the set named in section 3 (identical to the B1-B and B2 runs). Later
 commits change only page wording (re-verified: vitest 135 / 135 for the page, typecheck, the
 reconcile E2E) and a script docstring; the assistant suite was not rerun for them.
