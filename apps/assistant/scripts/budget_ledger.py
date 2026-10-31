@@ -37,6 +37,10 @@ reset-breaker  only after a reconcile that is newer than the breaker, and naming
         --opening-provider-usage 0.00 --key-alias key-01
     ../../.venv/bin/python scripts/budget_ledger.py --anthropic reconcile --provider-usage 0.42
 
+--data-dir     (B0) the assistant's data root (AI_ASSISTANT_DATA_DIR), so the configured
+               relative ledger paths resolve where the running service keeps them. The
+               ledger path used is printed on stderr. --ledger, when given, wins.
+
 This script makes no network request: it reads no key and never contacts OpenRouter.
 Phase A2 creates no real ledger; the remote profile is dormant.
 """
@@ -49,6 +53,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
+
+from pydantic import ValidationError  # noqa: E402
 
 from ai_assistant import anthropic_runtime  # noqa: E402
 from ai_assistant.anthropic_profiles import LEDGER_PROFILE_ID  # noqa: E402
@@ -84,11 +90,21 @@ def usd(amount: int) -> str:
     return f"{Decimal(amount) * _MICRO:.6f}"
 
 
+def _settings(args: argparse.Namespace) -> AiAssistantSettings:
+    # The process environment only (never .env, which may hold a key); --data-dir overrides
+    # AI_ASSISTANT_DATA_DIR. An invalid data root is refused (DATA_DIR_INVALID).
+    overrides = {"data_dir": args.data_dir} if args.data_dir else {}
+    return AiAssistantSettings(_env_file=None, **overrides)
+
+
 def _path(args: argparse.Namespace) -> Path:
     if args.ledger:
-        return Path(args.ledger)
-    settings = AiAssistantSettings(_env_file=None)
-    return anthropic_runtime.ledger_file(settings) if args.anthropic else ledger_path(settings)
+        path = Path(args.ledger)
+    else:
+        settings = _settings(args)
+        path = anthropic_runtime.ledger_file(settings) if args.anthropic else ledger_path(settings)
+    print(f"ledger: {path}", file=sys.stderr)
+    return path
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -108,7 +124,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     ledger = BudgetLedger.open(_path(args))
     status = ledger.status()
-    settings = AiAssistantSettings(_env_file=None)
+    settings = _settings(args)
     anthropic = status.profile_id == LEDGER_PROFILE_ID
     daily = ledger.daily_status(
         settings.anthropic_daily_cap_micro_usd if anthropic else settings.budget_daily_cap_micro_usd
@@ -160,7 +176,7 @@ def cmd_set_cap(args: argparse.Namespace) -> int:
 
 
 def _settle_lag(args: argparse.Namespace) -> float:
-    configured = float(AiAssistantSettings(_env_file=None).budget_settle_lag_seconds)
+    configured = float(_settings(args).budget_settle_lag_seconds)
     if args.settle_lag_seconds is None:
         return configured
     if args.settle_lag_seconds < configured:
@@ -189,6 +205,7 @@ def cmd_reset_breaker(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--ledger", help="ledger file (default: the configured path)")
+    parser.add_argument("--data-dir", help="the assistant data root (AI_ASSISTANT_DATA_DIR)")
     parser.add_argument(
         "--anthropic", action="store_true", help="the separate Anthropic ledger (D-099)"
     )
@@ -223,6 +240,21 @@ def main(argv: list[str] | None = None) -> int:
         code: int = args.run(args)
     except LedgerError as error:
         print(f"refused ({error.code}): {error}", file=sys.stderr)
+        return 2
+    except ValidationError as error:
+        # QG L3: name the failing settings (field names only, never values).
+        fields = sorted({str(item["loc"][0]) for item in error.errors() if item.get("loc")})
+        if fields:
+            print(
+                f"refused (SETTINGS_INVALID): invalid settings: {', '.join(fields)}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "refused (DATA_DIR_INVALID): the data root and its store paths must be an"
+                " existing absolute directory and paths inside it",
+                file=sys.stderr,
+            )
         return 2
     return code
 
