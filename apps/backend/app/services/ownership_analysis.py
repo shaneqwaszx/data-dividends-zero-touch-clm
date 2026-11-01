@@ -1,7 +1,7 @@
 """Bounded ownership loading, graph traversal, aggregation, and classification."""
 
 import json
-from collections import Counter, defaultdict, deque
+from collections import defaultdict, deque
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
@@ -20,8 +20,6 @@ from app.connectors.hybrid_ownership_overlay import (
     POC_ISSUED_CAPITAL_PROVIDER,
     HybridOverlayScenario,
     HybridOwnershipOverlayCatalogue,
-    PocAcceptanceDeclaration,
-    issued_capital_matches,
     overlay_component,
 )
 from app.connectors.ownership import (
@@ -491,13 +489,6 @@ def synthetic_basis_threshold_results(
     return results
 
 
-# D-085: which declared assumption each link provenance exercises. Any other link kind
-# (an official ACRA edge, a manual declaration) is outside every POC acceptance.
-_POC_ACCEPTANCE_EDGE_ASSUMPTIONS: Final = {
-    OVERLAY_RELATIONSHIP_PROVIDER: PocAssumption.SIMULATED_RELATIONSHIPS,
-    POC_EQUAL_UNITS_PROVIDER: PocAssumption.EQUAL_UNIT_DENOMINATOR,
-    POC_ISSUED_CAPITAL_PROVIDER: PocAssumption.ISSUED_CAPITAL_DENOMINATOR,
-}
 _OWNERSHIP_LIKE_ROLES: Final = frozenset({"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"})
 _UNRESOLVED_EVIDENCE_KINDS: Final = frozenset(
     {"GROUP_SHAREHOLDER", "UNKNOWN", "CONTROL", "MEMBERSHIP_INTEREST", "ECONOMIC_INTEREST"}
@@ -695,102 +686,6 @@ def _intermediate_role_records(
     )
 
 
-def _undeclared_intermediate_roles(
-    discovery: OwnershipDiscoveryAudit,
-    scenario: HybridOverlayScenario,
-    declaration: PocAcceptanceDeclaration,
-) -> bool:
-    """D-087 fail closed: an ownership-like intermediate role outside the declaration.
-
-    Accepted only for the role kinds the trusted declaration names for that issuer, on a
-    non-root issuer of this scenario recorded once with its official entity profile, and
-    only for role records that keep the official OFFICERS evidence contract.
-    """
-
-    if not (records := _intermediate_role_records(discovery)):
-        return False
-    counts = Counter(item.registration_number for item in discovery.records)
-    return (
-        PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES not in declaration.accepted_assumptions
-        # The acceptance keeps at most 32 descriptive intermediate role records.
-        or sum(len(item.official_officer_roles) for item in records) > 32
-        or any(
-            item.registration_number is None
-            or item.registration_number == scenario.root_uen
-            or scenario.issuer(item.registration_number) is None
-            or counts[item.registration_number] != 1
-            or item.identity_basis != "OFFICIAL_MOCK_ENTITY_PROFILE"
-            or item.outcome != OwnershipDiscoveryOutcome.LOCAL_SYNTHETIC_OVERLAY
-            or any(
-                role.source_operation != "OFFICERS"
-                or role.provider != "ACRA_REGISTRY_ACQUISITION"
-                or role.environment != "MOCK"
-                or role.status not in {"CURRENT", "CEASED"}
-                or (
-                    role.role.strip().upper() in _OWNERSHIP_LIKE_ROLES
-                    and role.role.strip().upper()
-                    not in declaration.descriptive_roles_of(item.registration_number)
-                )
-                for role in item.official_officer_roles
-            )
-            for item in records
-        )
-    )
-
-
-def _issued_capital_links_disagree(
-    record: OwnershipAnalysisRecord,
-    discovery: OwnershipDiscoveryAudit,
-    scenario: HybridOverlayScenario,
-) -> bool:
-    """D-088 fail closed: issued-capital links not reproduced by their retained profile.
-
-    Every such link must come from a scenario-named issuer whose retained businessProfile
-    still satisfies the exact capital match, and the links from that issuer must be
-    exactly its rows' holder names and quantized issued-capital shares.
-    """
-
-    links = [
-        edge
-        for edge in record.relationships
-        if edge.provenance.provider == POC_ISSUED_CAPITAL_PROVIDER
-    ]
-    profiles = [
-        item
-        for item in discovery.records
-        if item.reason_code == OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL
-    ]
-    if {edge.parent_party_id for edge in links} != {item.party_id for item in profiles}:
-        return True
-    names = {party.party_id: party.display_name for party in record.parties}
-    for item in profiles:
-        profile = item.official_business_profile
-        if (
-            profile is None
-            or item.registration_number is None
-            or item.registration_number not in scenario.business_profile_issuers
-            or len(profile.issued_share_capital) != 1
-            or not all(row.assumed_current for row in profile.shareholders)
-            or not issued_capital_matches(
-                profile.shareholders, profile.issued_share_capital, profile.paid_up_capital
-            )
-        ):
-            return True
-        denominator = profile.issued_share_capital[0].number_of_shares or Decimal("0")
-        expected = sorted(
-            (row.display_name, quantized_unit_share(row.number_of_shares, denominator))
-            for row in profile.shareholders
-        )
-        actual = sorted(
-            (names.get(edge.child_party_id, ""), edge.ownership_percent)
-            for edge in links
-            if edge.parent_party_id == item.party_id
-        )
-        if actual != expected:
-            return True
-    return False
-
-
 def _officer_role_evidence_id(party_id: str) -> str:
     """The registry ownership adapter's stable id for an officer's role evidence."""
 
@@ -812,173 +707,19 @@ def eligible_poc_acceptance(
     accepted_at: datetime,
     ownership_version: int,
 ) -> OwnershipPocAcceptance | None:
-    """D-085 fail-closed eligibility: only the scenario's declared assumptions remain open.
+    """D-112 (owner O7, 2026-11-01): one evidence rule for every company.
 
-    The trusted catalogue declaration (project code, never a case field) lists the
-    accepted assumptions, and each accepts exactly one review cause. The analysis must
-    belong to that scenario's official Mock root, have a complete topology built only
-    from declared link kinds over issuers that are not locally named, calculated
-    assumed-basis results, and no other cause, issue or defect. Nothing is changed:
+    No catalogue scenario grants acceptance any more, and ``scenario`` is ignored: a
+    hybrid analysis built on simulated links never qualifies, and every other official
+    Mock analysis is judged by the code-level evidence rule alone. Nothing is changed:
     state, issues, evidence and classifications stay.
     """
 
-    if scenario is None and (record.discovery is None or not record.discovery.overlay_scenario_id):
-        return _evidence_poc_acceptance(
-            record, accepted_at=accepted_at, ownership_version=ownership_version
-        )
-    discovery = record.discovery
-    declaration = scenario.poc_acceptance if scenario is not None else None
-    if (
-        scenario is None
-        or declaration is None
-        or discovery is None
-        or discovery.overlay_scenario_id != scenario.scenario_id
-    ):
+    del scenario
+    if record.discovery is not None and record.discovery.overlay_scenario_id:
         return None
-    declared = declaration.accepted_assumptions
-    root_uen = scenario.root_uen
-    root = next((item for item in record.parties if item.party_id == record.root_party_id), None)
-    retained = [item for item in discovery.records if item.official_shareholders]
-    poc_edges = [
-        edge
-        for edge in record.relationships
-        if edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
-    ]
-    link_assumptions = {
-        _POC_ACCEPTANCE_EDGE_ASSUMPTIONS.get(edge.provenance.provider)
-        for edge in record.relationships
-    }
-    codes = {issue.code for issue in record.issues}
-    causes = _review_causes(record)
-    legal_form_other = record.legal_form == RegistryLegalForm.OTHER
-    if (
-        record.source_classification != HYBRID_SOURCE_CLASSIFICATION
-        or record.provider_name != "ACRA_REGISTRY_ACQUISITION"
-        or record.provider_environment != OwnershipEnvironment.MOCK
-        or record.identity_registration_number != root_uen
-        or record.identity_correction_version is None
-        or root is None
-        or root.registration_number != root_uen
-        or record.legal_form is None
-        # D-101: a Government body has no ownership method, so no POC basis either.
-        or record.legal_form == RegistryLegalForm.GOVERNMENT
-        or (legal_form_other and PocAssumption.UNCLASSIFIED_LEGAL_FORM not in declared)
-        or record.error is not None
-        or record.manual_review_receipt is not None
-        or record.supplemental_relationships
-        or discovery.topology_complete is not True
-        or discovery.unresolved_person_party_ids
-        or any(
-            item.verification_state == "REVIEW_REQUIRED" for item in record.document_discrepancies
-        )
-        # A locally named issuer is a fabricated identity, never a declared assumption.
-        or any(item.identity_basis == "LOCAL_SYNTHETIC_IDENTITY" for item in discovery.records)
-        # D-086/D-087 fail closed: an intermediate issuer's ownership-like official officer
-        # roles block unless the trusted declaration names that issuer.
-        or _undeclared_intermediate_roles(discovery, scenario, declaration)
-        or _issued_capital_links_disagree(record, discovery, scenario)
-        or not link_assumptions
-        or not link_assumptions <= declared
-        or any(
-            item.reason_code != OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
-            or item.official_shareholder_lookup is None
-            for item in retained
-        )
-        or {edge.parent_party_id for edge in poc_edges} != {item.party_id for item in retained}
-        or any(
-            item.provider != OVERLAY_RELATIONSHIP_PROVIDER or item.environment != "LOCAL"
-            for item in record.supplemental_evidence
-        )
-        # Genuine evidence defects stay blocking whatever the recorded issue code says.
-        or causes.unquantified
-        or causes.contradictory
-        or causes.has_conflict
-        or causes.has_unbound
-        or causes.has_unsupported_activity
-        or causes.unresolved_kinds
-        or (causes.unresolved_roles and PocAssumption.DESCRIPTIVE_OFFICER_ROLES not in declared)
-        or len(causes.unresolved_roles) > 16
-        # Retained root evidence is only official Mock officer roles, kept as context;
-        # none is a shareholding, a percentage or a classification input.
-        or any(
-            item.kind != "ROLE"
-            or item.source_operation != "OFFICERS"
-            or item.provider != "ACRA_REGISTRY_ACQUISITION"
-            or item.environment != "MOCK"
-            or item.entity_identifier != root_uen
-            or item.source_status not in {None, "CEASED"}
-            or item.evidence_id != _officer_role_evidence_id(item.party_id)
-            for item in record.evidence
-        )
-        or len({item.party_id for item in record.evidence}) != len(record.evidence)
-        or len({item.evidence_id for item in record.evidence}) != len(record.evidence)
-        or len(codes) != len(record.issues)
-        or not record.candidates
-        or any(
-            item.classification
-            not in {
-                OwnershipCandidateClassification.REVIEW_REQUIRED,
-                OwnershipCandidateClassification.INDETERMINATE,
-            }
-            or item.synthetic_basis_threshold_result
-            not in {OwnershipThresholdResult.MET, OwnershipThresholdResult.NOT_MET}
-            for item in record.candidates
-        )
-    ):
-        return None
-    exercised = {item for item in link_assumptions if item is not None}
-    if causes.unresolved_roles:
-        exercised.add(PocAssumption.DESCRIPTIVE_OFFICER_ROLES)
-    intermediate_statuses = [
-        role.status
-        for item in _intermediate_role_records(discovery)
-        for role in item.official_officer_roles
-        if role.role.strip().upper() in _OWNERSHIP_LIKE_ROLES
-    ]
-    if intermediate_statuses:
-        exercised.add(PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES)
-    if legal_form_other:
-        exercised.add(PocAssumption.UNCLASSIFIED_LEGAL_FORM)
-    # One registry review issue is recorded by priority: legal form OTHER masks roles.
-    expected = {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE}
-    if poc_edges:
-        expected.add(OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED)
-    if legal_form_other:
-        expected.add(OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED)
-    elif causes.unresolved_roles:
-        expected.add(OwnershipIssueCode.UBO_REVIEW_REQUIRED)
-    if codes != expected:
-        return None
-    statuses = [
-        "CEASED" if item.source_status == "CEASED" else "CURRENT"
-        for item in causes.unresolved_roles
-    ]
-    return OwnershipPocAcceptance(
-        policy=OWNERSHIP_POC_ACCEPTANCE_POLICY,
-        accepted_at=accepted_at,
-        case_id=record.case_id,
-        analysis_id=record.analysis_id,
-        ownership_version=ownership_version,
-        identity_registration_number=root_uen,
-        identity_correction_version=record.identity_correction_version,
-        overlay_scenario_id=scenario.scenario_id,
-        accepted_issue_codes=tuple(sorted(codes)),
-        poc_relationship_ids=tuple(sorted({edge.relationship_id for edge in poc_edges})),
-        descriptive_current_role_count=statuses.count("CURRENT"),
-        descriptive_ceased_role_count=statuses.count("CEASED"),
-        descriptive_intermediate_current_role_count=intermediate_statuses.count("CURRENT"),
-        descriptive_intermediate_ceased_role_count=intermediate_statuses.count("CEASED"),
-        issued_capital_relationship_ids=tuple(
-            sorted(
-                {
-                    edge.relationship_id
-                    for edge in record.relationships
-                    if edge.provenance.provider == POC_ISSUED_CAPITAL_PROVIDER
-                }
-            )
-        ),
-        accepted_assumptions=tuple(sorted(exercised)),
-        basis_fingerprint=_poc_basis_fingerprint(record),
+    return _evidence_poc_acceptance(
+        record, accepted_at=accepted_at, ownership_version=ownership_version
     )
 
 
@@ -1059,6 +800,25 @@ def _evidence_poc_acceptance(
             or item.kind not in {"ROLE", "SHARE_UNITS", "DIRECT_PERCENTAGE"}
             for item in record.evidence
         )
+        # The root officer roles are descriptive context only (O3): each is the
+        # adapter's own record for this root, once, with a supported status.
+        or any(
+            item.kind == "ROLE"
+            and item.entity_identifier == root.registration_number
+            and (
+                item.source_status not in {None, "CEASED"}
+                or item.evidence_id != _officer_role_evidence_id(item.party_id)
+            )
+            for item in record.evidence
+        )
+        or any(
+            item.kind == "ROLE" and item.entity_identifier != root.registration_number
+            and item.raw_value.strip().upper() in _OWNERSHIP_LIKE_ROLES
+            for item in record.evidence
+        )
+        or len({item.evidence_id for item in record.evidence}) != len(record.evidence)
+        or len({item.party_id for item in record.evidence if item.kind == "ROLE"})
+        != sum(1 for item in record.evidence if item.kind == "ROLE")
         or codes != expected
         or len(codes) != len(record.issues)
         or not record.candidates

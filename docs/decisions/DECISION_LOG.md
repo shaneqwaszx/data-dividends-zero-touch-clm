@@ -1952,3 +1952,19 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **Rollback.** A bundle stored with a class label fails validation under code older than D-112.
   - **Completeness.** It rests on the provider's own `COMPLETE` status, because the row-count check mirrors the bundle validator. A provider that silently truncates its collection is not detectable, and a 100% total never counts as completeness.
   - **Owner step still open (O7 and Garden supplement).** Retiring the scenario declarations breaks 82 existing tests across 4 modules (D-085/D-086/D-087/D-089), about 35 of them defect cases to re-derive against the generic rule, so it is deferred rather than weakened. The default-lane Garden fixture supplement is also unchanged.
+
+- **O7 retired (owner approval 2026-11-01).**
+  - **Catalogue.** No catalogue scenario declares POC acceptance any more (Garden direct, OPQ Garden/SIM LIM, OPQ Garden/ABC).
+  - **One rule.** `eligible_poc_acceptance` ignores any scenario argument and applies the code-level evidence rule. An analysis whose discovery records an overlay scenario never qualifies, so the hybrid demonstrations stay usable as labelled evidence but are held for ownership review. The deleted helper code was the scenario-only declaration and guard logic (`_undeclared_intermediate_roles`, `_issued_capital_links_disagree` and the edge-assumption map).
+  - **Role-integrity guards carried over.** The generic rule now holds the role guards the scenario path enforced:
+    - every root role is the adapter's own record, with an evidence id derived from its officer id, once, with a supported status;
+    - a role at another entity that is ownership-like blocks;
+    - evidence ids are unique.
+  - **Generic baseline.** The D-085 suite now runs on an ordinary company with no scenario (`tests/evidence_poc_fixture.py`), over the real Marketplace Mock protocol path. Its defect cases, readiness, toggling, confirmation, document-binding, persistence and schema tests are kept and re-pointed to it.
+  - **Obsolete expectations** (recorded in `RETIRED_D087_EXPECTATIONS` / `RETIRED_D089_EXPECTATIONS` and `OBSOLETE_HYBRID_ONLY`), each asserted against a scenario's own acceptance that no longer exists:
+    - the D-087 intermediate-role declaration and its validators and runtime guards;
+    - revoking a recorded scenario acceptance;
+    - the D-087 schema fields round-trip;
+    - tampered issued-capital links;
+    - locally named or non-distributed hybrid issuer records.
+    The hybrid-only defect cases are still asserted against the hybrid Garden case, which can no longer qualify.

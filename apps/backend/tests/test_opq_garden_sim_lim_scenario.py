@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
-from unittest.mock import patch
 from uuid import UUID
 
 import pytest
@@ -23,15 +22,13 @@ from test_poc_ownership_acceptance import (
     garden_transport,
     lane,
     ownership_of,
-    resume,
     runtime,
     service_lane,
     summary_of,
 )
 from test_simulation_calculation_status import FIVE_LAYER_AGGREGATES
-from test_slice_b_registry_demo import confirm, start
+from test_slice_b_registry_demo import start
 
-from app.composition import build_ownership_analysis_service
 from app.connectors.hybrid_ownership_overlay import (
     FIVE_LAYER_ROOT_UEN,
     FIVE_LAYER_SCENARIO_ID,
@@ -41,17 +38,14 @@ from app.connectors.hybrid_ownership_overlay import (
     OVERLAY_RELATIONSHIP_PROVIDER,
     OWNER_DECLARED_PERCENT_SUFFIX,
     POC_EQUAL_UNITS_PROVIDER,
-    HybridOverlayScenario,
     HybridOwnershipOverlayCatalogue,
     OverlayHolder,
     OverlayIssuer,
     hybrid_overlay_scenarios,
 )
-from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState, PocAssumption
+from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
 from app.persistence.composition import build_persistence_bundle
 from app.services.ownership_analysis import (
-    eligible_poc_acceptance,
-    poc_acceptance_current,
     simulation_calculation_complete,
 )
 
@@ -377,9 +371,9 @@ def garden_roles(record: OwnershipAnalysisRecord) -> list[tuple[str, str]]:
     return sorted((role.role, role.status) for role in garden.official_officer_roles)
 
 
-def test_observed_garden_owner_roles_are_descriptive_context_for_the_declared_chain() -> None:
+def test_observed_garden_owner_roles_are_descriptive_context_for_the_chain() -> None:
     ownership, record = analysed()
-    # Review state, issues and classifications are unchanged: acceptance sits beside them.
+    # Review state, issues and classifications are unchanged.
     assert record.state == OwnershipAnalysisState.REVIEW_REQUIRED
     assert sorted(item.code for item in record.issues) == [
         "OWNERSHIP_DENOMINATOR_REQUIRED",
@@ -387,18 +381,10 @@ def test_observed_garden_owner_roles_are_descriptive_context_for_the_declared_ch
         "SYNTHETIC_OWNERSHIP_EVIDENCE",
     ]
     assert all(item.classification == "REVIEW_REQUIRED" for item in record.candidates)
-    acceptance = record.poc_acceptance
-    assert acceptance is not None
-    assert acceptance.overlay_scenario_id == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
-    assert list(acceptance.accepted_assumptions) == OBSERVED_ASSUMPTIONS
-    # Garden's 3 current and 1 ceased official Owner roles are counted, never identified.
-    assert (
-        acceptance.descriptive_intermediate_current_role_count,
-        acceptance.descriptive_intermediate_ceased_role_count,
-        acceptance.descriptive_current_role_count,
-        acceptance.descriptive_ceased_role_count,
-    ) == (3, 1, 0, 0)
-    assert ownership.poc_basis_accepted(record)
+    # D-112 (O7): the scenario declares nothing, so its simulated chain is labelled
+    # demonstration evidence only and is never accepted for readiness.
+    assert record.poc_acceptance is None
+    assert not ownership.poc_basis_accepted(record)
     # The retained evidence is unchanged: status, provenance and no holdings.
     assert garden_roles(record) == [
         ("OWNER", "CEASED"),
@@ -414,45 +400,32 @@ def test_observed_garden_owner_roles_are_descriptive_context_for_the_declared_ch
     assert simulation_calculation_complete(record) is False
 
 
-def test_the_chain_without_garden_officer_records_exercises_no_intermediate_assumption() -> None:
-    # Counterfactual: the identical chain with no Garden officer records is accepted
-    # without the intermediate-role assumption, so the record reflects actual evidence.
+def test_the_chain_without_garden_officer_records_is_still_never_accepted() -> None:
+    # Counterfactual: the identical chain with no Garden officer records. D-112 (O7): the
+    # calculation is unchanged and, with no scenario privilege, it stays in review.
     ownership, record = analysed(
         transport=without_garden_officers(opq_transport(OBSERVED_OPQ_POSITIONS))
     )
-    acceptance = record.poc_acceptance
-    assert acceptance is not None
-    assert list(acceptance.accepted_assumptions) == [
-        "EQUAL_UNIT_DENOMINATOR",
-        "SIMULATED_RELATIONSHIPS",
-        "UNCLASSIFIED_LEGAL_FORM",
-    ]
-    assert (
-        acceptance.descriptive_intermediate_current_role_count,
-        acceptance.descriptive_intermediate_ceased_role_count,
-    ) == (0, 0)
-    assert ownership.poc_basis_accepted(record)
+    assert record.state == OwnershipAnalysisState.REVIEW_REQUIRED
+    assert record.poc_acceptance is None
+    assert not ownership.poc_basis_accepted(record)
     assert {
         item.party.display_name: item.aggregated_ownership_percent for item in record.candidates
     } == EXPECTED
 
 
 @pytest.mark.parametrize(
-    ("positions", "accepted"),
+    "positions",
     [
-        (("OWNER",), True),
-        # Ownership-like kinds the declaration does not name for Garden stay blocking.
-        (("SHAREHOLDER",), False),
-        (("PARTNER",), False),
-        (("MEMBER",), False),
-        (("OWNER", "SHAREHOLDER"), False),
-        # A non-ownership role is retained context and exercises no assumption.
-        (("DIRECTOR",), True),
+        ("OWNER",),
+        ("SHAREHOLDER",),
+        ("PARTNER",),
+        ("MEMBER",),
+        ("OWNER", "SHAREHOLDER"),
+        ("DIRECTOR",),
     ],
 )
-def test_only_the_declared_intermediate_role_kinds_are_accepted(
-    positions: tuple[str, ...], accepted: bool
-) -> None:
+def test_no_intermediate_role_kind_grants_acceptance(positions: tuple[str, ...]) -> None:
     transport = opq_transport(OBSERVED_OPQ_POSITIONS)
     profile: Any = transport.profiles[GARDEN_UEN]
     officers = profile["entities"][0]["entityOfficersRecord"]["officerAppointmentDetails"]
@@ -460,139 +433,16 @@ def test_only_the_declared_intermediate_role_kinds_are_accepted(
         officer["position"] = positions[index % len(positions)]
     ownership, record = analysed(transport=transport)
     assert len(garden_roles(record)) == 4
-    assert (record.poc_acceptance is not None) is accepted
-    assert ownership.poc_basis_accepted(record) is accepted
-    if record.poc_acceptance is not None:
-        assert (
-            "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES" in record.poc_acceptance.accepted_assumptions
-        ) is (positions == ("OWNER",))
+    # D-112 (O7): no declaration names Garden's roles any more; none is accepted.
+    assert record.poc_acceptance is None
+    assert not ownership.poc_basis_accepted(record)
     # Whatever the outcome, no role becomes a holding and the arithmetic is unchanged.
     assert {
         item.party.display_name: item.aggregated_ownership_percent for item in record.candidates
     } == EXPECTED
 
 
-def _declared(**update: Any) -> HybridOverlayScenario:
-    data = OPQ_GARDEN_SIM_LIM_SCENARIO.model_dump()
-    data["poc_acceptance"] = {**data["poc_acceptance"], **update}
-    return HybridOverlayScenario.model_validate(data)
 
-
-def test_intermediate_roles_need_the_trusted_declaration_naming_their_issuer() -> None:
-    _, record = analysed()
-    declaration = OPQ_GARDEN_SIM_LIM_SCENARIO.poc_acceptance
-    assert declaration is not None and record.poc_acceptance is not None
-    without = declaration.accepted_assumptions - {
-        PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES
-    }
-    undeclared = _declared(accepted_assumptions=without, descriptive_intermediate_roles=())
-    at = record.poc_acceptance.accepted_at
-    assert (
-        eligible_poc_acceptance(
-            record, scenario=undeclared, accepted_at=at, ownership_version=record.version
-        )
-        is None
-    )
-    assert (
-        eligible_poc_acceptance(
-            record,
-            scenario=OPQ_GARDEN_SIM_LIM_SCENARIO,
-            accepted_at=at,
-            ownership_version=record.version,
-        )
-        == record.poc_acceptance
-    )
-    # The declaration must name its issuers; only non-root scenario issuers qualify.
-    for invalid in (
-        {"descriptive_intermediate_roles": ()},
-        {
-            "descriptive_intermediate_roles": (
-                {"issuer_uen": FIVE_LAYER_ROOT_UEN, "roles": {"OWNER"}},
-            )
-        },
-        {"descriptive_intermediate_roles": ({"issuer_uen": SIM, "roles": {"OWNER"}},)},
-        {
-            "descriptive_intermediate_roles": (
-                {"issuer_uen": GARDEN_UEN, "roles": {"OWNER"}},
-                {"issuer_uen": GARDEN_UEN, "roles": {"PARTNER"}},
-            )
-        },
-        {"descriptive_intermediate_roles": ({"issuer_uen": GARDEN_UEN, "roles": set()},)},
-        {"descriptive_intermediate_roles": ({"issuer_uen": GARDEN_UEN, "roles": {"DIRECTOR"}},)},
-        {"accepted_assumptions": without},
-    ):
-        with pytest.raises(ValidationError):
-            _declared(**invalid)
-    # Neither the Garden scenario nor the historical five-layer fixture declares it.
-    for scenario in hybrid_overlay_scenarios("five_layer_simulation"):
-        assert scenario.poc_acceptance is None or not (
-            scenario.poc_acceptance.descriptive_intermediate_roles
-        )
-
-
-def _with_garden(record: OwnershipAnalysisRecord, **update: Any) -> OwnershipAnalysisRecord:
-    """Test-only tamper of Garden's discovery record (copied without validation)."""
-
-    assert record.discovery is not None
-    records = tuple(
-        item.model_copy(update=update) if item.registration_number == GARDEN_UEN else item
-        for item in record.discovery.records
-    )
-    return record.model_copy(
-        update={"discovery": record.discovery.model_copy(update={"records": records})}
-    )
-
-
-def _role_copy(record: OwnershipAnalysisRecord, **update: Any) -> tuple[Any, ...]:
-    assert record.discovery is not None
-    [garden] = [item for item in record.discovery.records if item.registration_number == GARDEN_UEN]
-    first, *rest = garden.official_officer_roles
-    return (first.model_copy(update=update), *rest)
-
-
-def test_malformed_or_improperly_bound_intermediate_roles_still_block() -> None:
-    _, record = analysed()
-    assert record.discovery is not None and record.poc_acceptance is not None
-    at = record.poc_acceptance.accepted_at
-    [garden] = [item for item in record.discovery.records if item.registration_number == GARDEN_UEN]
-    tampered = (
-        _with_garden(record, identity_basis="LOCAL_SYNTHETIC_IDENTITY"),
-        _with_garden(record, outcome="PROVIDER_PARTIAL"),
-        _with_garden(record, registration_number=FIVE_LAYER_ROOT_UEN),
-        _with_garden(record, registration_number=None),
-        _with_garden(record, official_officer_roles=_role_copy(record, environment="SANDBOX")),
-        _with_garden(record, official_officer_roles=_role_copy(record, source_operation="ROLE")),
-        _with_garden(record, official_officer_roles=_role_copy(record, provider="OTHER")),
-        _with_garden(record, official_officer_roles=_role_copy(record, status="UNKNOWN")),
-        _with_garden(record, official_officer_roles=garden.official_officer_roles * 9),
-        record.model_copy(
-            update={
-                "discovery": record.discovery.model_copy(
-                    update={"records": (*record.discovery.records, garden)}
-                )
-            }
-        ),
-    )
-    for item in tampered:
-        assert (
-            eligible_poc_acceptance(
-                item,
-                scenario=OPQ_GARDEN_SIM_LIM_SCENARIO,
-                accepted_at=at,
-                ownership_version=record.version,
-            )
-            is None
-        )
-
-
-def test_a_changed_intermediate_role_revokes_the_recorded_acceptance() -> None:
-    ownership, record = analysed()
-    assert ownership.poc_basis_accepted(record)
-    roles = _role_copy(record, status="CURRENT")
-    changed = _with_garden(record, official_officer_roles=(*roles, roles[0]))
-    # Still an eligible shape, but not the content the acceptance was bound to.
-    assert not poc_acceptance_current(changed, OPQ_GARDEN_SIM_LIM_SCENARIO)
-    assert poc_acceptance_current(record, OPQ_GARDEN_SIM_LIM_SCENARIO)
 
 
 @pytest.mark.parametrize(
@@ -610,11 +460,13 @@ def test_contradicting_root_evidence_is_never_bypassed(
     assert not ownership.poc_basis_accepted(record)
 
 
-def test_default_off_and_switching_the_selector_back_withdraw_authority() -> None:
+def test_no_composition_or_selector_grants_the_chain_authority() -> None:
     _, disabled = analysed("disabled")
     assert disabled.poc_acceptance is None
     ownership, record = analysed()
-    assert ownership.poc_basis_accepted(record)
+    # D-112 (O7): enabled or not, the scenario chain is never accepted.
+    assert record.poc_acceptance is None
+    assert not ownership.poc_basis_accepted(record)
     # The same persisted analysis under a five-layer composition: its scenario is gone.
     _, reverted = service_lane("accept_eligible_poc", opq_transport(OBSERVED_OPQ_POSITIONS))
     assert reverted._poc_scenario(record) is None
@@ -624,7 +476,7 @@ def test_default_off_and_switching_the_selector_back_withdraw_authority() -> Non
     assert not off.poc_basis_accepted(record)
 
 
-def test_the_observed_chain_passes_ownership_and_waits_for_explicit_confirmation() -> None:
+def test_the_observed_chain_is_calculated_but_held_for_ownership_review() -> None:
     settings = lane(**CHAIN)
     bundle = build_persistence_bundle(settings)
     with runtime(settings, bundle, opq_transport(OBSERVED_OPQ_POSITIONS)) as client:
@@ -633,13 +485,9 @@ def test_the_observed_chain_passes_ownership_and_waits_for_explicit_confirmation
         ]["case_id"]
         ownership = ownership_of(client, case_id)
         summary = summary_of(client, case_id)
-        assert (ownership["poc_basis_accepted"], ownership["state"]) == (True, "REVIEW_REQUIRED")
-        acceptance = ownership["poc_acceptance"]
-        assert acceptance["accepted_assumptions"] == OBSERVED_ASSUMPTIONS
-        assert (
-            acceptance["descriptive_intermediate_current_role_count"],
-            acceptance["descriptive_intermediate_ceased_role_count"],
-        ) == (3, 1)
+        # D-112 (O7): calculated and labelled, but no scenario privilege accepts it.
+        assert (ownership["poc_basis_accepted"], ownership["state"]) == (False, "REVIEW_REQUIRED")
+        assert ownership["poc_acceptance"] is None
         assert {
             item["party"]["display_name"]: Decimal(item["aggregated_ownership_percent"])
             for item in ownership["candidates"]
@@ -660,203 +508,39 @@ def test_the_observed_chain_passes_ownership_and_waits_for_explicit_confirmation
             names[item["party_id"]]: Decimal(item["effective_ownership_percent"])
             for item in ownership["entity_effective_interests"]
         } == {"GARDEN BUSINESS": Decimal("100"), "SIM LIM PTE. LTD.": Decimal("62.5")}
-        # Ownership is READY with no blocker; nothing is sent before explicit confirmation.
+        # Ownership holds readiness; no target confirmation is offered and nothing is sent.
         readiness = summary["clm"]["readiness"]
-        assert readiness["blockers"] == []
-        assert readiness["ownership"]["status"] == "READY"
-        assert [item["exception_type"] for item in summary["active_exceptions"]] == [
-            "TARGET_CONFIRMATION_REQUIRED"
+        assert "OWNERSHIP_REVIEW_REQUIRED" in readiness["blockers"]
+        assert readiness["ownership"]["status"] != "READY"
+        assert "TARGET_CONFIRMATION_REQUIRED" not in [
+            item["exception_type"] for item in summary["active_exceptions"]
         ]
         assert summary["case"].get("goldtier_result") is None
         assert summary["clm"]["submission"] is None
         assert bundle.target_executions.list_for_case(UUID(case_id)) == ()
-        # Only an explicit confirmation sends to Mock GoldTier, with no provisional UBO id.
-        sent = confirm(client, summary)
-    assert sent["status"] == "COMPLETED"
-    snapshot = bundle.clm.get_for_case(UUID(case_id)).submission_snapshot
-    assert snapshot is not None
-    assert snapshot.provisional_ubo.candidate_count == 0
-    assert snapshot.ownership_reference.status == "REVIEW_REQUIRED"
 
 
-def test_withdrawing_the_policy_reinstates_the_ownership_hold() -> None:
-    settings = lane(**CHAIN)
-    bundle = build_persistence_bundle(settings)
-    composed: list[Any] = []
-
-    def capture(*args: Any, **kwargs: Any) -> Any:
-        composed.append(build_ownership_analysis_service(*args, **kwargs))
-        return composed[-1]
-
-    with (
-        patch("app.main.build_ownership_analysis_service", side_effect=capture),
-        runtime(settings, bundle, opq_transport(OBSERVED_OPQ_POSITIONS)) as client,
-    ):
-        case_id = start(client, FIVE_LAYER_FIELDS, "five-layer-marketplace-hybrid-client.pdf")[
-            "case"
-        ]["case_id"]
-        [service] = composed
-        assert summary_of(client, case_id)["clm"]["readiness"]["blockers"] == []
-        # The composition's runtime authority is withdrawn (the physical lane restarts).
-        service._poc_acceptance_enabled = False
-        assert ownership_of(client, case_id)["poc_basis_accepted"] is False
-        held = resume(client, case_id)
-        assert (held["status"], held["current_stage"]) == ("WAITING_FOR_REVIEW", "OWNERSHIP")
-        assert "OWNERSHIP_REVIEW_REQUIRED" in held["clm"]["readiness"]["blockers"]
-        assert held["case"].get("goldtier_result") is None
-        assert bundle.target_executions.list_for_case(UUID(case_id)) == ()
-        # Re-enabled: the recorded acceptance is honoured again and the hold clears.
-        service._poc_acceptance_enabled = True
-        resumed = resume(client, case_id)
-        assert resumed["clm"]["readiness"]["blockers"] == []
-        assert [item["exception_type"] for item in resumed["active_exceptions"]] == [
-            "TARGET_CONFIRMATION_REQUIRED"
-        ]
-
-
-def test_the_acceptance_round_trips_in_schema_fifteen_and_older_readers_reject_it() -> None:
-    from test_official_shareholder_evidence import snapshot_of
-
-    from app.domain.ownership import OwnershipDiscoveryRecord, OwnershipPocAcceptance
-    from app.persistence.models import DurableCaseSnapshot, reject_scenario_poc_legacy_fields
-
-    onboarding, ownership = service_lane(
-        "accept_eligible_poc", opq_transport(OBSERVED_OPQ_POSITIONS), **CHAIN
-    )
-    case = onboarding.create_staged_case(FIVE_LAYER_ROOT_UEN)
-    ownership.load(case_id=case.case_id)
-    record = ownership.analyze(case_id=case.case_id)
-    assert record.poc_acceptance is not None
-    encoded = snapshot_of(onboarding, record).model_dump(mode="json")
-    assert encoded["schema_version"] == 17
-    assert DurableCaseSnapshot.model_validate(encoded).ownership == record
-    with pytest.raises(ValueError, match="D-085 POC acceptance"):
-        reject_scenario_poc_legacy_fields(encoded)
-    roles_only = {"ownership": {**encoded["ownership"], "poc_acceptance": None}}
-    with pytest.raises(ValueError, match="D-086 officer role observations"):
-        reject_scenario_poc_legacy_fields(roles_only)
-    legacy_counts = {
-        "ownership": {
-            "poc_acceptance": {
-                "policy": "D082_HYBRID_POC_EQUAL_UNITS_V1",
-                "descriptive_intermediate_current_role_count": 1,
-            }
-        }
-    }
-    with pytest.raises(ValueError, match="D-085 POC acceptance"):
-        reject_scenario_poc_legacy_fields(legacy_counts)
-    empty = {"ownership": {"discovery": {"records": [{"official_officer_roles": []}]}}}
-    reject_scenario_poc_legacy_fields(empty)
-    # The acceptance validates its own intermediate-role authority.
-    data = record.poc_acceptance.model_dump()
-    for invalid in (
-        {
-            "descriptive_intermediate_current_role_count": 0,
-            "descriptive_intermediate_ceased_role_count": 0,
-        },
-        {
-            "accepted_assumptions": [
-                item
-                for item in data["accepted_assumptions"]
-                if item != "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES"
-            ]
-        },
-        {"policy": "D082_HYBRID_POC_EQUAL_UNITS_V1", "accepted_assumptions": []},
-    ):
-        with pytest.raises(ValidationError):
-            OwnershipPocAcceptance.model_validate({**data, **invalid})
-    # Role observations require the issuer's official entity profile.
-    garden = next(
-        item.model_dump()
-        for item in record.discovery.records  # type: ignore[union-attr]
-        if item.registration_number == GARDEN_UEN
-    )
-    with pytest.raises(ValidationError, match="require an official entity profile"):
-        OwnershipDiscoveryRecord.model_validate(
-            {**garden, "identity_basis": "LOCAL_SYNTHETIC_IDENTITY"}
-        )
 
 
 # --- Runtime guards behind the declaration validators (D-087 QG F1/F2) -------------------
 
 OTHER_UEN = "209900001K"  # neither an issuer of the OPQ scenario nor a discovery record
 
-
-def _unvalidated(roles: tuple[tuple[str, str], ...], *, assumption: bool = True) -> Any:
-    """A declaration built without its validators, so each runtime guard stands alone."""
-    from app.connectors.hybrid_ownership_overlay import (
-        DescriptiveIntermediateRoles,
-        PocAcceptanceDeclaration,
-    )
-
-    base = OPQ_GARDEN_SIM_LIM_SCENARIO.poc_acceptance
-    assert base is not None
-    assumptions = set(base.accepted_assumptions)
-    if not assumption:
-        assumptions.discard(PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES)
-    declaration = PocAcceptanceDeclaration.model_construct(
-        quantity_basis=base.quantity_basis,
-        accepted_assumptions=frozenset(assumptions),
-        descriptive_intermediate_roles=tuple(
-            DescriptiveIntermediateRoles.model_construct(issuer_uen=uen, roles=frozenset({kind}))
-            for uen, kind in roles
-        ),
-    )
-    return OPQ_GARDEN_SIM_LIM_SCENARIO.model_copy(update={"poc_acceptance": declaration})
-
-
-@pytest.mark.parametrize(
-    ("roles", "registration", "assumption"),
-    [
-        # The root is never an intermediate issuer, even if a declaration names it.
-        (((GARDEN_UEN, "OWNER"), (FIVE_LAYER_ROOT_UEN, "OWNER")), FIVE_LAYER_ROOT_UEN, True),
-        # A named UEN outside the scenario's issuers is never accepted.
-        (((GARDEN_UEN, "OWNER"), (OTHER_UEN, "OWNER")), OTHER_UEN, True),
-        # Named issuers without the declared assumption are never accepted.
-        (((GARDEN_UEN, "OWNER"),), GARDEN_UEN, False),
-    ],
+# D-112 (owner O7, 2026-11-01): these D-087/D-089 expectations are obsolete, not
+# weakened. They asserted acceptance through the scenario's own declaration (declared
+# intermediate roles, their validators and runtime guards, revocation of a recorded
+# scenario acceptance, and its schema fields). No scenario declares acceptance now, so
+# the chain is never accepted; see the tests above for what remains asserted.
+RETIRED_D087_EXPECTATIONS = (
+    "test_intermediate_roles_need_the_trusted_declaration_naming_their_issuer",
+    "test_malformed_or_improperly_bound_intermediate_roles_still_block",
+    "test_a_changed_intermediate_role_revokes_the_recorded_acceptance",
+    "test_withdrawing_the_policy_reinstates_the_ownership_hold",
+    "test_the_acceptance_round_trips_in_schema_fifteen_and_older_readers_reject_it",
+    "test_each_intermediate_role_runtime_guard_stands_alone",
+    "test_a_legacy_d082_acceptance_never_carries_intermediate_counts",
+    "_declared",
+    "_with_garden",
+    "_role_copy",
+    "_unvalidated",
 )
-def test_each_intermediate_role_runtime_guard_stands_alone(
-    roles: tuple[tuple[str, str], ...], registration: str, assumption: bool
-) -> None:
-    _, record = analysed()
-    assert record.poc_acceptance is not None
-    tampered = (
-        record
-        if registration == GARDEN_UEN
-        else _with_garden(record, registration_number=registration)
-    )
-    assert (
-        eligible_poc_acceptance(
-            tampered,
-            scenario=_unvalidated(roles, assumption=assumption),
-            accepted_at=record.poc_acceptance.accepted_at,
-            ownership_version=record.version,
-        )
-        is None
-    )
-
-
-def test_a_legacy_d082_acceptance_never_carries_intermediate_counts() -> None:
-    from app.domain.ownership import OwnershipPocAcceptance
-
-    _, record = analysed()
-    assert record.poc_acceptance is not None
-    legacy = {
-        **record.poc_acceptance.model_dump(),
-        "policy": "D082_HYBRID_POC_EQUAL_UNITS_V1",
-        "accepted_assumptions": (),
-        "accepted_issue_codes": (
-            "OWNERSHIP_DENOMINATOR_REQUIRED",
-            "SYNTHETIC_OWNERSHIP_EVIDENCE",
-        ),
-    }
-    with pytest.raises(ValidationError):
-        OwnershipPocAcceptance.model_validate(legacy)
-    OwnershipPocAcceptance.model_validate(
-        {
-            **legacy,
-            "descriptive_intermediate_current_role_count": 0,
-            "descriptive_intermediate_ceased_role_count": 0,
-        }
-    )
