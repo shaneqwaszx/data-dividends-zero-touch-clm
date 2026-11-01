@@ -411,7 +411,8 @@ class AcraRegistryProviderAdapter:
             ),
             payload_type=AcraOwnershipPartiesPayload,
             collection_name="ownership_parties",
-            normalize=_normalize_ownership_party,
+            # Owner O2 (2026-11-01): keep the source class so mixed classes are detected.
+            normalize=_normalize_shareholder_evidence_party,
             environment=entity.source.environment,
         )
         results.append(ownership_result)

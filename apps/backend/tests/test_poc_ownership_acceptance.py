@@ -305,34 +305,32 @@ def accepted_record() -> tuple[Any, OwnershipAnalysisService, OwnershipAnalysisR
 # --- Policy authority: opt-in, default off, hybrid Mock lane only -------------------
 
 
-def test_the_policy_is_opt_in_default_off_and_limited_to_the_hybrid_mock_lane() -> None:
-    assert Settings(_env_file=None).acra_marketplace_poc_ownership_acceptance == "disabled"
+def test_the_policy_is_one_default_on_lane_switch_inert_outside_the_mock_lane() -> None:
+    # O5: one lane-wide switch, default on, never per company; it can still be disabled.
+    assert (
+        Settings(_env_file=None).acra_marketplace_poc_ownership_acceptance
+        == "accept_eligible_poc"
+    )
     assert lane("disabled").acra_marketplace_poc_ownership_acceptance == "disabled"
-    for update in (
-        {"acra_marketplace_ownership_overlay": "garden_legacy_supplement"},
-        {
-            "acra_connector_mode": "mock",
-            "acra_marketplace_ownership_overlay": "garden_legacy_supplement",
-        },
-    ):
-        with pytest.raises(ValidationError, match="POC ownership acceptance requires"):
-            lane(**update)
+    # The legacy lane and a non-Marketplace lane are valid; composition keeps the switch
+    # inert off the official Mock lane (O6).
+    lane(acra_marketplace_ownership_overlay="garden_legacy_supplement")
+    lane(acra_connector_mode="mock", acra_marketplace_ownership_overlay="garden_legacy_supplement")
     with pytest.raises(ValidationError):
         lane("accept_everything")
-    # The service refuses the policy without the hybrid overlay owner, whatever settings say.
-    with pytest.raises(ValueError, match="requires the hybrid overlay lane"):
-        OwnershipAnalysisService(
-            cases=object(),  # type: ignore[arg-type]
-            provider=object(),  # type: ignore[arg-type]
-            repository=InMemoryOwnershipAnalysisRepository(),
-            threshold_percent=Decimal("25"),
-            poc_acceptance_enabled=True,
-            max_parties=100,
-            max_relationships=200,
-            max_depth=8,
-            max_paths_per_candidate=64,
-            max_total_paths=256,
-        )
+    # A service without the overlay owner judges only the code-level evidence rule.
+    OwnershipAnalysisService(
+        cases=object(),  # type: ignore[arg-type]
+        provider=object(),  # type: ignore[arg-type]
+        repository=InMemoryOwnershipAnalysisRepository(),
+        threshold_percent=Decimal("25"),
+        poc_acceptance_enabled=True,
+        max_parties=100,
+        max_relationships=200,
+        max_depth=8,
+        max_paths_per_candidate=64,
+        max_total_paths=256,
+    )
 
 
 def test_default_off_keeps_the_garden_case_blocked_without_any_acceptance() -> None:

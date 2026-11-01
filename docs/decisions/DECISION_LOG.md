@@ -1917,3 +1917,24 @@ Acceptance after approval (targets for the re-scored 17 questions on Fast): over
 2.85 (from 2.75), completeness at least 2.60 (from 2.24), grounding 3.00, correctness at least
 2.94, rejects at most 1 (from 2) with P06#1 and P06#2 accepted, no unsafe line, prompt under
 9,250 characters, every earlier guardrail test passing. Until then these are NOT EXECUTED.
+
+## D-112 - evidence-based POC ownership basis for every company on the official Mock lane (OWNER-APPROVED 2026-11-01, O1 to O8)
+
+Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extended from catalogue scenarios to any company, using one rule in code and no per-company code or configuration.
+
+- **Calculation (O1).** When no compatible ACRA quantity produced a graph, an official Mock root register is converted at `holder current units / issuer's total current units x 100` (the existing six-decimal `quantized_unit_share`). Each link has `LOCAL_POC_ASSUMED_EQUAL_UNITS` / `LOCAL` provenance (`quantify_poc_equal_units`). The source evidence is retained unchanged. Withdrawn or ceased rows stay history and never enter the denominator. Any other status, a non-positive unit count, a duplicate holder, an ACRA denominator, a percentage scalar or a conflict means no POC link.
+- **Classes (O2).** The untrusted D-080 class and currency now label root unit evidence (`share_class`). Current units of more than one class, or with no reported class, are never combined: the analysis stays in review with a precise mixed-class message. This narrows D-081's labelled pooling for the generic basis only; hybrid scenarios are unchanged.
+- **Acceptance (O1, O3, O4).** The code-level declaration `EVIDENCE_POC_BASIS_V1` (recorded in `overlay_scenario_id` under the D-085 policy literal, so API and frontend types are unchanged) accepts only `EQUAL_UNIT_DENOMINATOR` and the root's official Mock officer roles as descriptive context. It requires:
+  - identity binding and a supported legal form (`OTHER` and `GOVERNMENT` never qualify);
+  - only POC links from the root to natural persons, each matching its recomputed share;
+  - complete discovery, if run;
+  - no unquantified, contradictory, conflicting, unbound, unsupported, unresolved, document-discrepant or supplemental cause;
+  - review-classified candidates with calculated assumed-basis results (the inclusive 25% threshold).
+  Classifications and issues are unchanged, and POC percentages are never verified UBO ownership.
+- **Indirect.** A corporate holder is never accepted on the generic basis; it stays in review until its own register is resolved. Generic indirect POC discovery is NOT implemented.
+- **Switch (O5).** `ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE` is one official Mock lane switch, now defaulting to `accept_eligible_poc`. It has no effect off that lane and is never configured per company.
+- **Excluded (O6).** Sandbox and Live never receive an assumption-based quantity or acceptance.
+- **Demo scenarios (O7).** NOT changed in this slice: the hybrid scenario declarations still apply in `hybrid_direct_overlay`.
+- **Existing cases (O8).** Only new analyses are affected; operators re-run analyses for existing cases. There is no migration.
+- **Unchanged.** Explicit Mock GoldTier submission confirmation, reviewer controls, the manual review receipt, provenance and audit events.
+- **Remaining gap.** `_review_causes` still names the legacy Garden fixture UEN for its supplement lane.

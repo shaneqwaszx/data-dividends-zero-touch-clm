@@ -893,6 +893,12 @@ POC_ASSUMPTION_ISSUES: dict[PocAssumption, OwnershipIssueCode] = {
     PocAssumption.DESCRIPTIVE_OFFICER_ROLES: OwnershipIssueCode.UBO_REVIEW_REQUIRED,
     PocAssumption.UNCLASSIFIED_LEGAL_FORM: OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED,
 }
+# Owner O1/O3 (2026-11-01): the code-level evidence basis for any company, recorded in
+# `overlay_scenario_id`; it never accepts simulated links or an unclassified legal form.
+EVIDENCE_POC_BASIS_ID = "EVIDENCE_POC_BASIS_V1"
+EVIDENCE_POC_ASSUMPTIONS: frozenset[PocAssumption] = frozenset(
+    {PocAssumption.EQUAL_UNIT_DENOMINATOR, PocAssumption.DESCRIPTIVE_OFFICER_ROLES}
+)
 
 
 class OwnershipPocAcceptance(BaseModel):
@@ -962,9 +968,16 @@ class OwnershipPocAcceptance(BaseModel):
             # Exactly the synthetic-evidence marker plus one issue per exercised
             # assumption; equal-unit links exist exactly when that assumption does. The
             # one registry review issue is chosen by priority, so OTHER masks the roles.
-            expected = {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE} | {
+            evidence_basis = self.overlay_scenario_id == EVIDENCE_POC_BASIS_ID
+            # O1 (2026-11-01): the code-level evidence basis has no synthetic marker and
+            # accepts only the equal-unit denominator and descriptive officer roles.
+            expected = (
+                set() if evidence_basis else {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE}
+            ) | {
                 POC_ASSUMPTION_ISSUES[item] for item in assumptions if item in POC_ASSUMPTION_ISSUES
             }
+            if evidence_basis and not assumptions <= EVIDENCE_POC_ASSUMPTIONS:
+                raise ValueError("POC acceptance covers only declared POC assumption issues")
             if PocAssumption.UNCLASSIFIED_LEGAL_FORM in assumptions:
                 expected.discard(OwnershipIssueCode.UBO_REVIEW_REQUIRED)
             valid = (

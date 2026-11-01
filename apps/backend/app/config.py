@@ -33,10 +33,11 @@ class Settings(BaseSettings):
     acra_marketplace_ownership_overlay: Literal[
         "garden_legacy_supplement", "hybrid_direct_overlay"
     ] = "garden_legacy_supplement"
-    # D-085 opt-in demonstration policy, hybrid lane only: an analysis is accepted on its
-    # whitelisted scenario's declared POC basis at the readiness boundary. Never verification.
+    # O5 (2026-11-01): one official Mock lane switch, default on. An analysis is accepted at
+    # the readiness boundary on the code-level evidence POC basis (or a hybrid scenario's
+    # declared basis), never per company. Never verification; Sandbox/Live never qualify.
     acra_marketplace_poc_ownership_acceptance: Literal["disabled", "accept_eligible_poc"] = (
-        "disabled"
+        "accept_eligible_poc"
     )
     # D-086 operator selector, hybrid lane only: which whitelisted scenario the OPQ root
     # uses. The historical five-layer simulation stays the default; never a case field.
@@ -155,13 +156,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Hybrid ownership overlays require the explicit official Marketplace Mock lane."
             )
-        if self.acra_marketplace_poc_ownership_acceptance == "accept_eligible_poc" and (
-            self.acra_connector_mode != "api_marketplace_mock"
-            or self.acra_marketplace_ownership_overlay != "hybrid_direct_overlay"
-        ):
-            raise ValueError(
-                "POC ownership acceptance requires the Marketplace Mock hybrid overlay lane."
-            )
+        # O5/O6: POC acceptance is composed only on the official Marketplace Mock lane;
+        # elsewhere the default-on switch is inert, never a fallback.
         if self.acra_marketplace_opq_scenario != "five_layer_simulation" and (
             self.acra_connector_mode != "api_marketplace_mock"
             or self.acra_marketplace_ownership_overlay != "hybrid_direct_overlay"
