@@ -144,8 +144,26 @@ def test_supplied_unsafe_note_is_rejected_by_declaration_and_durable_receipt(not
         ManualOwnershipReviewReceipt.model_validate(receipt)
 
 
-@pytest.mark.parametrize("legacy_toggle", [False, True])
-def test_official_garden_normal_composition_is_automatic_with_either_legacy_toggle(legacy_toggle):
+def test_official_garden_without_the_legacy_toggle_is_official_evidence_only():
+    # D-112: the toggle now controls the supplement; off, Garden's official partnership
+    # record has no ownership register and the analysis stays in review.
+    case = official_garden_case()
+    settings = Settings(
+        _env_file=None, app_env="test", acra_connector_mode="api_marketplace_mock",
+    )
+    service = build_ownership_analysis_service(Cases(case), settings)
+    service._clock = lambda: case.updated_at
+    service._provider._clock = lambda: case.updated_at
+    service.load(case_id=case.case_id)
+    record = service.analyze(case_id=case.case_id)
+    assert record.state == "REVIEW_REQUIRED"
+    assert record.source_classification == "SINGLE_SOURCE"
+    assert record.relationships == []
+    assert record.supplemental_relationships == ()
+
+
+@pytest.mark.parametrize("legacy_toggle", [True])
+def test_official_garden_legacy_toggle_composes_the_labelled_supplement(legacy_toggle):
     case = official_garden_case()
     settings = Settings(
         _env_file=None, app_env="test", acra_connector_mode="api_marketplace_mock",

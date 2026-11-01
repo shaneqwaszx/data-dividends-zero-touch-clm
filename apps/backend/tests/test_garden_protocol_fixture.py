@@ -16,9 +16,13 @@ from app.main import create_app
 
 
 def fixture_settings() -> Settings:
+    # D-112: these legacy Garden fixture flows explicitly opt in to the labelled local
+    # supplement; Garden's normal happy path is the reviewed creator declaration
+    # (tests/test_declared_ownership_discovery.py).
     return Settings(
         _env_file=None, app_env="test", clm_persistence_mode="memory",
         acra_connector_mode="api_marketplace_mock", goldtier_connector_mode="mock",
+        garden_supplement_enabled=True,
         acra_api_marketplace_mock_client_id=SecretStr(secrets.token_urlsafe(32)),
         acra_api_marketplace_mock_secret_key=SecretStr(secrets.token_urlsafe(32)),
     )

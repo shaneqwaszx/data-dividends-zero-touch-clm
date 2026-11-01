@@ -189,6 +189,11 @@ def main() -> int:
             "acra_api_marketplace_mock_secret_key": SecretStr(secrets.token_urlsafe(32)),
         })
         five_layer_transport = None
+        if registry_demo == "garden-partnership" or garden_protocol_fixture:
+            # D-112: these existing Garden E2E lanes explicitly opt in to the labelled legacy
+            # supplement (off by default). The declaration happy path is backend-verified;
+            # migrating these browser specs to it is a separate, E2E-verified step.
+            settings = settings.model_copy(update={"garden_supplement_enabled": True})
         if registry_demo == "garden-partnership":
             from scripts.slice_b_registry_fixture import (
                 GardenPartnershipProtocolTransport,

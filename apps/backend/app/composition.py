@@ -381,14 +381,17 @@ def build_ownership_analysis_service(
         official_lane
         and settings.acra_marketplace_poc_ownership_acceptance == "accept_eligible_poc"
     )
+    # D-112 (owner decision, 2026-11-01): the legacy flattened Garden fixture is an explicit
+    # opt-in only; Garden's happy path is the generic reviewed creator declaration.
+    legacy_supplement = official_lane and not hybrid and settings.garden_supplement_enabled
     return OwnershipAnalysisService(
         cases=onboarding_service,
         provider=RegistryAcquisitionOwnershipProvider(
             onboarding_service,
-            garden_supplement_enabled=official_lane and not hybrid,
+            garden_supplement_enabled=legacy_supplement,
         ),
         documents=documents,
-        garden_supplement_enabled=official_lane and not hybrid,
+        garden_supplement_enabled=legacy_supplement,
         # D-086: the operator-selected OPQ scenario; the five-layer simulation by default.
         hybrid_overlay=(
             HybridOwnershipOverlayCatalogue(
