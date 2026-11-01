@@ -1294,7 +1294,7 @@ def test_acceptance_records_validate_their_own_authority_and_binding() -> None:
         {"case_id": acceptance.analysis_id},
         {"poc_acceptance": {**payload, "analysis_id": acceptance.case_id}},
     ):
-        with pytest.raises(ValidationError, match="binds only its own hybrid review analysis"):
+        with pytest.raises(ValidationError, match="binds only its own matching review analysis"):
             OwnershipAnalysisRecord.model_validate({**encoded, **update})
 
 

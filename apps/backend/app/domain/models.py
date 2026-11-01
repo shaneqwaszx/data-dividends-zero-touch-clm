@@ -300,11 +300,9 @@ class RegistryAcquisitionBundle(BaseModel):
                 and evidence_count != 0
             ):
                 raise ValueError("non-complete registry operations cannot retain evidence")
-        if any(
-            item.share_type is not None or item.currency is not None
-            for item in self.ownership_parties
-        ):
-            raise ValueError("share class is retained only on entity-less shareholder evidence")
+        # D-112 (owner O2, 2026-11-01): ownership parties keep the untrusted source class
+        # and currency so mixed classes are detected; units of different classes are
+        # never combined. (D-080 had kept them only on entity-less shareholder evidence.)
 
         entity_result = results_by_operation[RegistryOperation.ENTITY_PROFILE]
         if entity_result.status != RegistryOperationStatus.COMPLETE:

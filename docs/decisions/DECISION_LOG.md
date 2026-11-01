@@ -1938,3 +1938,11 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
 - **Existing cases (O8).** Only new analyses are affected; operators re-run analyses for existing cases. There is no migration.
 - **Unchanged.** Explicit Mock GoldTier submission confirmation, reviewer controls, the manual review receipt, provenance and audit events.
 - **Remaining gap.** `_review_causes` still names the legacy Garden fixture UEN for its supplement lane.
+- **Completion (owner follow-up, 2026-11-01).**
+  - **Each issuer.** The same rule now runs for every issuer: at the root before discovery, and inside discovery for each corporate holder's own register. The existing Decimal path engine then gives direct, indirect and aggregated interests against the inclusive 25% threshold (for example, 80% x 50% = 40%).
+  - **Corporate holders.** A corporate holder is accepted once its own register resolved and the discovery graph is complete. Every edge must be an official Mock registry link or a POC link that matches its issuer's own recomputed single-class basis.
+  - **Collection completeness.** This is judged separately from totals (`ownership_collection_complete`): the shareholder operation must be `COMPLETE` and every returned row kept. The provider never asserts that its register is the issuer's complete legal register; that stays the labelled O1 assumption.
+  - **Discovery outcomes.** A `PARTIAL` issuer bundle whose other operations are only `EMPTY` (a definitive answer) is judged on its evidence. Issuers whose units cannot be combined get precise discovery reasons: `ISSUER_SHARE_CLASSES_MIXED` or `ISSUER_UNITS_NOT_QUANTIFIED`.
+  - **D-080 narrowed.** Ownership parties now keep the untrusted source class and currency, which O2 needs. Stored bundles without classes stay unquantified until they are refreshed (fail-closed).
+  - **Garden UEN removed** from the review-cause path; the legacy supplement lane is recognised by its classification alone.
+  - **Not done here (owner step).** Retiring the hybrid scenario declarations (O7), about 52 test assertions plus the demo lane. Removing the default-lane Garden fixture supplement, whose eligibility is Garden-specific.

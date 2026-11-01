@@ -220,10 +220,27 @@ def test_an_accepted_evidence_record_round_trips_through_validation() -> None:
     restored = OwnershipAnalysisRecord.model_validate(accepted.model_dump())
     assert restored.poc_acceptance == accepted.poc_acceptance
     # The evidence basis never binds a hybrid analysis.
-    with pytest.raises(ValidationError, match="binds only its own hybrid review analysis"):
+    with pytest.raises(ValidationError, match="binds only its own matching review analysis"):
         OwnershipAnalysisRecord.model_validate(
             {
                 **accepted.model_dump(),
                 "source_classification": "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY",
             }
         )
+
+
+def test_an_accepted_evidence_record_survives_prior_snapshot_and_readback() -> None:
+    from app.domain.ownership import OwnershipAnalysisRecord, PriorOwnershipAnalysisSnapshot
+    from app.services.ownership_analysis import _snapshot_prior_analysis
+
+    record = analyze("202400001A", register("202400001A"))
+    accepted = record.model_copy(update={"poc_acceptance": accept(record)})
+    # Replacement retains a validated prior snapshot; a later read re-validates it.
+    snapshot = _snapshot_prior_analysis(accepted)
+    assert snapshot.poc_acceptance == accepted.poc_acceptance
+    restored = PriorOwnershipAnalysisSnapshot.model_validate(snapshot.model_dump())
+    assert restored == snapshot
+    carrying = OwnershipAnalysisRecord.model_validate(
+        {**record.model_dump(), "prior_analyses": [snapshot.model_dump()]}
+    )
+    assert carrying.prior_analyses[0].poc_acceptance == accepted.poc_acceptance

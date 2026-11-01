@@ -1083,7 +1083,7 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
             source_classification=self.source_classification,
             manual_review_receipt=self.manual_review_receipt,
         ):
-            raise ValueError("a POC acceptance binds only its own hybrid review analysis")
+            raise ValueError("a POC acceptance binds only its own matching review analysis")
         return self
 
 
@@ -1147,5 +1147,5 @@ class OwnershipAnalysisRecord(BaseModel):
             source_classification=self.source_classification,
             manual_review_receipt=self.manual_review_receipt,
         ) or (self.poc_acceptance is not None and self.poc_acceptance.case_id != self.case_id):
-            raise ValueError("a POC acceptance binds only its own hybrid review analysis")
+            raise ValueError("a POC acceptance binds only its own matching review analysis")
         return self

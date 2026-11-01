@@ -80,6 +80,9 @@ from app.services.ownership_analysis import (
     aggregate_ownership_paths,
     build_ownership_graph,
     calculate_ownership_paths,
+    ownership_collection_complete,
+    poc_mixed_share_classes,
+    quantify_poc_equal_units,
     validate_ownership_graph,
 )
 from app.services.registry_acquisition import (
@@ -792,7 +795,14 @@ class _DiscoveryRun:
             return OwnershipDiscoveryOutcome.PROVIDER_FAILED, (
                 bundle.issues[0].code if bundle.issues else None
             )
-        if bundle.status != RegistryAcquisitionStatus.COMPLETE:
+        # D-112: EMPTY operations are definitive provider answers, not failures. A
+        # PARTIAL bundle whose shareholder collection is complete and that has no failed,
+        # skipped or unsupported operation is judged on its evidence like any issuer.
+        definitive = self._overlay is None and ownership_collection_complete(bundle) and all(
+            item.status in {RegistryOperationStatus.COMPLETE, RegistryOperationStatus.EMPTY}
+            for item in bundle.operation_results
+        )
+        if bundle.status != RegistryAcquisitionStatus.COMPLETE and not definitive:
             unsupported = any(
                 item.operation
                 in {RegistryOperation.OWNERSHIP_PARTIES, RegistryOperation.RELATIONSHIPS}
@@ -827,6 +837,21 @@ class _DiscoveryRun:
                 root_registration_number=uen,
                 evidence_version=max(1, len(self._parent.events)),
             )
+            if self._overlay is None:
+                # D-112: the same official Mock equal-unit rule as the root, per issuer;
+                # no other provider or environment ever qualifies (O1, O6).
+                issuer = quantify_poc_equal_units(
+                    issuer, collection_complete=ownership_collection_complete(bundle)
+                )
+                if not issuer.relationships and any(
+                    item.kind == "SHARE_UNITS" for item in issuer.evidence
+                ):
+                    # Precise evidence outcomes, never an invalid-record label (O2, 7).
+                    return OwnershipDiscoveryOutcome.PROVIDER_PARTIAL, (
+                        "ISSUER_SHARE_CLASSES_MIXED"
+                        if poc_mixed_share_classes(issuer.evidence)
+                        else "ISSUER_UNITS_NOT_QUANTIFIED"
+                    )
             validate_ownership_graph(build_ownership_graph(issuer))
         except (ValidationError, OwnershipGraphError, ValueError, KeyError):
             return OwnershipDiscoveryOutcome.PROVIDER_INVALID, "ISSUER_RECORD_INVALID"
