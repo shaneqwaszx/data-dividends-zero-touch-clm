@@ -281,4 +281,10 @@ def test_sandbox_and_live_keep_verified_paths_and_never_pool_classes() -> None:
         # Mixed classes are never combined, and no POC basis exists outside Mock.
         mixed = (same[0], same[1].model_copy(update={"share_class": "PREFERENCE"}), same[2])
         assert quantify_ownership_evidence(source(mixed)).relationships == []
-        assert poc_unit_basis(same[:2], "202400001A") is None
+        # The same official registry rows have a POC basis only in Mock.
+        acra = tuple(
+            item.model_copy(update={"provider": "ACRA_REGISTRY_ACQUISITION"}) for item in same[:2]
+        )
+        mock = tuple(item.model_copy(update={"environment": "MOCK"}) for item in acra)
+        assert poc_unit_basis(mock, "202400001A") is not None
+        assert poc_unit_basis(acra, "202400001A") is None
