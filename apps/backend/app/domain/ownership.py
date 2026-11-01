@@ -1017,7 +1017,14 @@ def _poc_acceptance_is_bound(
     return acceptance is None or (
         acceptance.analysis_id == analysis_id
         and state == OwnershipAnalysisState.REVIEW_REQUIRED
-        and source_classification == "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY"
+        # A scenario basis binds only a hybrid analysis; the D-112 evidence basis binds
+        # only a single-source official analysis.
+        and source_classification
+        == (
+            "SINGLE_SOURCE"
+            if acceptance.overlay_scenario_id == EVIDENCE_POC_BASIS_ID
+            else "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY"
+        )
         and manual_review_receipt is None
     )
 

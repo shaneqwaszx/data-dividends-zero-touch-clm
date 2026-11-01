@@ -2428,7 +2428,11 @@ class OwnershipAnalysisService:
                         else "OWNERSHIP_GRAPH_REVIEW_REQUIRED"
                     ),
                     message=(
-                        "Ownership calculated on the scenario's declared POC basis and "
+                        "Ownership calculated on the D-112 evidence POC basis and accepted "
+                        "for readiness; classification review is retained."
+                        if record.poc_acceptance is not None
+                        and record.poc_acceptance.overlay_scenario_id == EVIDENCE_POC_BASIS_ID
+                        else "Ownership calculated on the scenario's declared POC basis and "
                         "accepted for readiness by D-085; classification review is retained."
                         if record.poc_acceptance is not None
                         else "Ownership analysis completed with issues requiring human review."

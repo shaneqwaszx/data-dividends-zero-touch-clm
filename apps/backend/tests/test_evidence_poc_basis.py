@@ -206,3 +206,24 @@ def test_sandbox_and_live_never_receive_an_assumption_based_quantity() -> None:
     )
     assert accept(record) is None
     assert poc_unit_basis(items, uen) is None
+
+
+def test_an_accepted_evidence_record_round_trips_through_validation() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from app.domain.ownership import OwnershipAnalysisRecord
+
+    record = analyze("202400001A", register("202400001A"))
+    accepted = record.model_copy(update={"poc_acceptance": accept(record)})
+    # Mongo hydration and prior snapshots validate a dump; the binding must hold.
+    restored = OwnershipAnalysisRecord.model_validate(accepted.model_dump())
+    assert restored.poc_acceptance == accepted.poc_acceptance
+    # The evidence basis never binds a hybrid analysis.
+    with pytest.raises(ValidationError, match="binds only its own hybrid review analysis"):
+        OwnershipAnalysisRecord.model_validate(
+            {
+                **accepted.model_dump(),
+                "source_classification": "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY",
+            }
+        )
