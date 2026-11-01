@@ -54,6 +54,9 @@ class SponsorDemoBrowserFixture:
                 "mongo_uri": SecretStr("mongodb" + f"://127.0.0.1:{port}"),
                 "acra_connector_mode": "api_marketplace_mock",
                 "registry_cache_mode": "auto",
+                # D-112: the existing sponsor Garden lane explicitly opts in to the
+                # labelled legacy supplement (off by default; only Garden is eligible).
+                "garden_supplement_enabled": True,
                 "acra_api_marketplace_mock_client_id": SecretStr(
                     secrets.token_urlsafe(32)
                 ),

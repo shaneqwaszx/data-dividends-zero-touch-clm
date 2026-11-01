@@ -97,7 +97,7 @@ def main() -> int:
         raise RuntimeError("Sandbox fixtures require separate compositions")
     if recovery_demo and (registry_demo or garden_protocol_fixture):
         raise RuntimeError("Recovery fixtures require separate compositions")
-    if registry_demo not in {None, "garden-partnership", "five-layer-hybrid", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
+    if registry_demo not in {None, "garden-partnership", "garden-declaration", "five-layer-hybrid", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
         raise RuntimeError("Unknown isolated registry fixture")
     if registry_demo and garden_protocol_fixture:
         raise RuntimeError("Registry fixtures require separate compositions")
@@ -170,7 +170,7 @@ def main() -> int:
     settings = Settings(_env_file=None, **setting_values)
     fixture_connector = None
     protocol_fixture = garden_protocol_fixture or registry_demo in {
-        'garden-partnership', 'five-layer-hybrid',
+        'garden-partnership', 'garden-declaration', 'five-layer-hybrid',
     }
     if registry_demo:
         settings = settings.model_copy(update={
@@ -189,7 +189,14 @@ def main() -> int:
             "acra_api_marketplace_mock_secret_key": SecretStr(secrets.token_urlsafe(32)),
         })
         five_layer_transport = None
-        if registry_demo == "garden-partnership":
+        if registry_demo == "garden-partnership" or garden_protocol_fixture:
+            # D-112: these existing Garden E2E lanes explicitly opt in to the labelled legacy
+            # supplement (off by default). The declaration happy path is backend-verified;
+            # migrating these browser specs to it is a separate, E2E-verified step.
+            settings = settings.model_copy(update={"garden_supplement_enabled": True})
+        # D-112: garden-declaration is the same Garden protocol lane with the supplement off,
+        # so Garden's happy path must use the reviewed creator declaration.
+        if registry_demo in {"garden-partnership", "garden-declaration"}:
             from scripts.slice_b_registry_fixture import (
                 GardenPartnershipProtocolTransport,
             )
@@ -268,6 +275,9 @@ def main() -> int:
                 "acra_connector_mode": "api_marketplace_mock",
                 "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),
                 "acra_api_marketplace_mock_secret_key": SecretStr("synthetic-offline-key"),
+                # D-112: this existing Garden lane explicitly opts in to the labelled
+                # legacy supplement (off by default).
+                "garden_supplement_enabled": True,
             })
             garden_transport = GardenCorrectionProtocolTransport()
             fixture_connector = build_acra_connector(
@@ -434,7 +444,7 @@ def main() -> int:
         def registry_counts() -> dict[str, object]:
             if registry_demo == "synthetic-seed":
                 return {"fixture": registry_demo, **seed_transport.metadata()}
-            if registry_demo == "garden-partnership":
+            if registry_demo in {"garden-partnership", "garden-declaration"}:
                 return {"fixture": registry_demo, "calls": list(transport.calls), "external_calls": 0}
             if registry_demo == "five-layer-hybrid":
                 assert five_layer_transport is not None

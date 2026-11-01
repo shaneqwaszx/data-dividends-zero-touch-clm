@@ -23,7 +23,14 @@ structured operator review. A current official-Mock demonstration needs a client
 matching that case's actually observed canonical fields; do not assume the offline
 synthetic address is official evidence.
 
-S2 candidate: explicitly enable GARDEN_SUPPLEMENT_ENABLED only with the official
+D-112 happy path (default): `GARDEN_SUPPLEMENT_ENABLED` is off, so Garden onboards on its
+official Mock evidence (a partnership with no ownership register) and waits for review.
+Upload `garden-d076-ownership-declaration-client.pdf` (labelled synthetic, not an ACRA
+extract) and submit the reviewer's full D-076 declaration (`MANUAL_DECLARATION_POC`) bound
+to it; the document's content is not automatically verified against the declaration. The
+case then reaches final review and only an explicit confirmation sends to Mock GoldTier.
+
+Legacy regression only: explicitly enable GARDEN_SUPPLEMENT_ENABLED only with the official
 Marketplace Mock lane to combine successful compatible official/cache evidence with
 the unchanged known Garden local fixture. This is separately LOCAL_SYNTHETIC_SUPPLEMENT,
 never official ownership or network failure fallback. Current exact counts/derivation

@@ -222,6 +222,17 @@ def acquisition_ownership_source(
                     environment="MOCK",
                     retrieved_at=item.provenance.retrieved_at,
                     source_status=item.source_status,
+                    # Owner O2 (2026-11-01): the untrusted D-080 class and currency label
+                    # units, so units of different classes are never combined.
+                    share_class=(
+                        f"{item.share_type.strip().upper()} {item.currency.strip().upper()}"
+                        if kind == OwnershipEvidenceKind.SHARE_UNITS
+                        and item.share_type
+                        and item.share_type.strip()
+                        and item.currency
+                        and item.currency.strip()
+                        else None
+                    ),
                     evidence_version=evidence_version,
                     determination_basis=(
                         "PROVIDER_PERCENTAGE"

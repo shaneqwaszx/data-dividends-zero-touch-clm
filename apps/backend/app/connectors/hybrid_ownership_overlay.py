@@ -738,18 +738,8 @@ GARDEN_DIRECT_SCENARIO = HybridOverlayScenario(
     scenario_id=GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
     root_uen=GARDEN_BUSINESS_UEN,
     issuers=(_garden_direct_issuer(),),
-    # D-085: the owner-supplied Garden direct register (D-076), SIM LIM's own official
-    # rows under D-081 and the root's official officer Owner roles as context.
-    poc_acceptance=PocAcceptanceDeclaration(
-        quantity_basis="OWNER_SUPPLIED_DIRECT_REGISTER",
-        accepted_assumptions=frozenset(
-            {
-                PocAssumption.SIMULATED_RELATIONSHIPS,
-                PocAssumption.EQUAL_UNIT_DENOMINATOR,
-                PocAssumption.DESCRIPTIVE_OFFICER_ROLES,
-            }
-        ),
-    ),
+    # D-112 (owner O7, 2026-11-01): no catalogue scenario declares POC acceptance;
+    # its simulated links are labelled demonstration evidence only.
 )
 # Historical D-077 demonstration: fictional units and LOCAL_SYNTHETIC_IDENTITY names
 # below the root, so it declares no POC acceptance and always stays in review.
@@ -782,27 +772,8 @@ OPQ_GARDEN_SIM_LIM_SCENARIO = HybridOverlayScenario(
         ),
         GARDEN_DIRECT_SCENARIO.issuers[0],
     ),
-    # The root's official legal form is unclassified (OTHER) and its officer roles are
-    # non-ownership roles, so no root descriptive-role assumption is declared. D-087
-    # (owner decision 2026-10-25): Garden's official OFFICERS Owner roles, which the
-    # Garden scenario already accepts as context at its root, are accepted as descriptive
-    # context at its intermediate position here, and only for Garden.
-    poc_acceptance=PocAcceptanceDeclaration(
-        quantity_basis="OWNER_DECLARED_PERCENTAGE_AND_DIRECT_REGISTER",
-        accepted_assumptions=frozenset(
-            {
-                PocAssumption.SIMULATED_RELATIONSHIPS,
-                PocAssumption.EQUAL_UNIT_DENOMINATOR,
-                PocAssumption.UNCLASSIFIED_LEGAL_FORM,
-                PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES,
-            }
-        ),
-        descriptive_intermediate_roles=(
-            DescriptiveIntermediateRoles(
-                issuer_uen=GARDEN_BUSINESS_UEN, roles=frozenset({"OWNER"})
-            ),
-        ),
-    ),
+    # D-112 (owner O7, 2026-11-01): no catalogue scenario declares POC acceptance;
+    # its simulated links are labelled demonstration evidence only.
 )
 # D-089 (owner decision 2026-10-25, Option A): a separate OPQ multi-holder variant. OPQ's
 # register is owner-declared 50% GARDEN BUSINESS and 50% ABC COMPANY (the only two new
@@ -836,23 +807,8 @@ OPQ_GARDEN_ABC_SCENARIO = HybridOverlayScenario(
         GARDEN_DIRECT_SCENARIO.issuers[0],
     ),
     business_profile_issuers=frozenset({ABC_COMPANY_UEN}),
-    poc_acceptance=PocAcceptanceDeclaration(
-        quantity_basis="OWNER_DECLARED_PERCENTAGES_DIRECT_REGISTER_AND_ISSUED_CAPITAL",
-        accepted_assumptions=frozenset(
-            {
-                PocAssumption.SIMULATED_RELATIONSHIPS,
-                PocAssumption.EQUAL_UNIT_DENOMINATOR,
-                PocAssumption.UNCLASSIFIED_LEGAL_FORM,
-                PocAssumption.DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES,
-                PocAssumption.ISSUED_CAPITAL_DENOMINATOR,
-            }
-        ),
-        descriptive_intermediate_roles=(
-            DescriptiveIntermediateRoles(
-                issuer_uen=GARDEN_BUSINESS_UEN, roles=frozenset({"OWNER"})
-            ),
-        ),
-    ),
+    # D-112 (owner O7, 2026-11-01): no catalogue scenario declares POC acceptance;
+    # its simulated links are labelled demonstration evidence only.
 )
 _OPQ_VARIANTS: dict[str, HybridOverlayScenario] = {
     "five_layer_simulation": FIVE_LAYER_SCENARIO,
