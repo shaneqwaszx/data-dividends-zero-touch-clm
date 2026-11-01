@@ -1973,7 +1973,14 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **Entity-less official rows outside a scenario.** An issuer's entity-less official Mock rows (D-079) are distributed on the equal-unit basis without a scenario overlay only when every current row reports one class and currency (O2). The discovery audit then carries the same explicit evidence separation as a hybrid analysis, and is never `COMPLETE` certainty.
   - **What this gives.** With a single-class SIM LIM register, a declaration of only Garden's own owners reproduces the original graph and percentages, with each link's true source. It stays in review because SIM LIM's level rests on the equal-unit assumption, and no POC acceptance exists for a declared analysis (an owner policy decision).
   - **What it does not do.** SIM LIM's observed Mock rows mix Ordinary, Preference and Others, so they are never pooled below a declaration. OPQ -> Garden still blocks: Garden is a partnership with no official ownership register (`PROVIDER_UNSUPPORTED`). ABC's register is a scenario-only D-088 business profile (`NOT_FOUND`). Nothing is reused across onboardings.
-  - **Unchanged.** Full declarations, the supplement-on lane and official-only behaviour.
+  - **Unchanged.** Full declarations and the supplement-on lane.
+  - **Changed official-only behaviour.** An ACRA-root analysis whose corporate holder has entity-less, single-class official rows now gets labelled equal-unit links for that holder, with explicit evidence separation and UNCERTAIN certainty. It is still never accepted, because the holder stays `PROVIDER_PARTIAL` and the graph is incomplete.
+  - **QG remediation.**
+    - Official evidence that discovery attaches below a declaration is retained on the declared analysis, so its review causes are never dropped. The declared analysis stays in review; its cause there is the units' unresolved status, because the per-issuer POC basis applies only to official-lane analyses.
+    - The load path's currentness recheck now also runs after discovery under a declaration.
+  - **Limitations.**
+    - On the Marketplace Mock transport the relationships operation is unsupported, so a corporate holder that has an entity profile is `PROVIDER_UNSUPPORTED` and never attached. Only entity-less registers, such as SIM LIM's, combine there.
+    - The schema stays 17. A schema-17 reader older than this change rejects an audit with POC records but no overlay, which is fail-closed on rollback.
 - **Legal-form observation (investigation only, nothing changed).**
   - **The rule.** D-101: the registry legal forms `OTHER` and `GOVERNMENT` have no supported ownership method and raise `OWNERSHIP_METHOD_UNSUPPORTED`.
   - **Why a declaration skips it.** A declared source carries no `legal_form` (`manual_ownership_evidence.py`, `OwnershipSourceResult` without it), so the check never runs and a declared `OTHER` company can reach `ANALYZED` and readiness. GoldTier confirmation is still required.

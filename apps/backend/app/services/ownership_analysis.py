@@ -1615,6 +1615,17 @@ class OwnershipAnalysisService:
                         code="OWNERSHIP_MALFORMED_SOURCE",
                         message="Ownership source data could not be validated safely.",
                     ) from None
+                # The same currentness recheck as the load path after official lookups.
+                latest = self._cases.get_case(case_id)
+                if (
+                    latest is None
+                    or latest.goldtier_result is not None
+                    or not ownership_is_current(current, latest)
+                ):
+                    raise OwnershipRequestError(
+                        code="OWNERSHIP_SOURCE_STALE",
+                        message="The case changed while corporate ownership was acquired.",
+                    )
             now = self._clock()
             snapshot = _snapshot_prior_analysis(current)
             replacement = OwnershipAnalysisRecord(
@@ -1630,6 +1641,9 @@ class OwnershipAnalysisService:
                 state=OwnershipAnalysisState.LOADING,
                 parties=[item.model_copy(deep=True) for item in source.parties],
                 relationships=[item.model_copy(deep=True) for item in source.relationships],
+                # D-112: official evidence that discovery attached below the declaration is
+                # retained, so its own review causes (e.g. an assumed denominator) remain.
+                evidence=tuple(source.evidence),
                 threshold_percent=parent.policy_snapshot.ubo_threshold_percent,
                 events=[
                     OwnershipWorkflowEvent(
