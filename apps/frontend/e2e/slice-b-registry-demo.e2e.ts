@@ -9,6 +9,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const fixtures = path.join(root, "apps/backend/tests/fixtures/uat");
 const operations = ["ENTITY_PROFILE", "OFFICERS", "OWNERSHIP_PARTIES", "RELATIONSHIPS"];
 const garden = { name: "GARDEN BUSINESS", uen: "11111999A", pdf: "garden-partnership-reviewed-client.pdf" };
+// D-112: Garden's happy path with the legacy supplement off, evidenced by the labelled
+// synthetic D-076 declaration document (not an ACRA extract; content is not auto-verified).
+const gardenDeclaration = { ...garden, pdf: "garden-d076-ownership-declaration-client.pdf" };
 const second = { name: "MULTIPLE OWNER DEMO PTE. LTD.", uen: "202400008H", pdf: "multiple-owner-demo-client.pdf" };
 const merlion = { name: "MERLION CIRCULAR LABS PTE. LTD.", uen: "202400001A", pdf: "clean-company-profile.pdf" };
 let violations: string[];
@@ -60,7 +63,7 @@ async function create(page: Page, company: typeof garden, fresh = false) {
     const created = await response.json();
     const bound = await page.request.put("/api/clm/zero-touch/cases/" + created.case.case_id + "/target-classification", {
       headers: { "X-CSRF-Token": route.request().headers()["x-csrf-token"], "Origin": process.env.PLAYWRIGHT_BASE_URL! },
-      data: { kyc_customer_type: company === garden ? "Partnership - Unregulated" : "Company - Private", client_segment: "Corporate",
+      data: { kyc_customer_type: company.uen === garden.uen ? "Partnership - Unregulated" : "Company - Private", client_segment: "Corporate",
         expected_automation_version: created.version, expected_case_event_count: created.case.events.length },
     });
     expect(bound.status()).toBe(200);
@@ -117,6 +120,69 @@ test("Slice B Garden partnership automatically uses labelled local ownership", {
   await expect.poll(async () => (await summary(page, caseId)).active_exceptions).toEqual([]);
   expect((await summary(page, caseId)).case.registry_acquisition).toEqual(initial.case.registry_acquisition);
   expect(await counts(page)).toEqual(["TOKEN", "ENTITY_PROFILE", "ENTITY_PROFILE"]);
+});
+
+test("Slice B Garden happy path uses the case-bound creator declaration with the supplement off", { tag: "@slice-b-garden-declaration" }, async ({ page }) => {
+  const caseId = await create(page, gardenDeclaration);
+  const ownershipOf = async () => (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
+  // Official Mock evidence only: Garden's partnership record has no ownership register.
+  const before = await ownershipOf();
+  expect(before.state).toBe("REVIEW_REQUIRED");
+  expect(before.source_classification).toBe("SINGLE_SOURCE");
+  expect(before.supplemental_relationships).toEqual([]);
+  expect(before.relationships).toEqual([]);
+  const initial = await summary(page, caseId);
+  expect(initial.active_exceptions.map((item: any) => item.blocker_code)).not.toContain("TARGET_CONFIRMATION_REQUIRED");
+  // The creator's reviewed declaration of the full D-076 register, bound to this case's document.
+  const session = await (await page.request.get("/api/auth/me")).json() as { csrf_token: string };
+  const documents = await (await page.request.get(`/api/onboarding/cases/${caseId}/documents`)).json();
+  const document = documents.find((item: any) => !item.superseded_by_document_id);
+  const root = before.parties.find((item: any) => item.party_id === before.root_party_id);
+  const person = (party_id: string, display_name: string) => ({ party_id, display_name, party_type: "NATURAL_PERSON" });
+  const links: [string, string, string][] = [
+    [root.party_id, "SIMLIM", "62.500000"], [root.party_id, "LCH", "37.500000"],
+    ["SIMLIM", "ABCD", "81.818182"], ["SIMLIM", "TWL", "9.090909"], ["SIMLIM", "EFGH", "9.090909"],
+  ];
+  const declared = await page.request.post(`/api/clm/zero-touch/cases/${caseId}/manual-ownership-evidence`, {
+    headers: { "X-CSRF-Token": session.csrf_token, "Origin": process.env.PLAYWRIGHT_BASE_URL! },
+    data: {
+      root_registration_number: garden.uen,
+      evidence_document_id: document.document_id,
+      evidence_document_version: document.events.length,
+      as_of_date: "2026-10-20", rationale: null, root_party_id: root.party_id,
+      parties: [root,
+        { party_id: "SIMLIM", display_name: "SIM LIM PTE. LTD.", party_type: "LEGAL_ENTITY", registration_number: "111111111M" },
+        person("LCH", "LIM CHOON HUAT"), person("ABCD", "ABCD123"), person("TWL", "TAN WEI LING"), person("EFGH", "EFGH2345")],
+      relationships: links.map(([parent, child, value], index) => ({
+        relationship_id: `DECL-${index + 1}`, parent_party_id: parent, child_party_id: child, ownership_percent: value,
+      })),
+      observed_document_versions: before.document_bindings, selected_observation_ids: [],
+      source_selection: "USER_SUPPLIED_DECLARATION",
+      expected_automation_version: initial.version, expected_ownership_version: before.version,
+      expected_case_event_count: initial.case.events.length,
+    },
+  });
+  expect(declared.status()).toBe(200);
+  const ownership = await ownershipOf();
+  expect(ownership.state).toBe("ANALYZED");
+  expect(ownership.manual_review_receipt.evidence_document_id).toBe(document.document_id);
+  expect(new Set(ownership.relationships.map((edge: any) => edge.provenance.provider))).toEqual(new Set(["MANUAL_DECLARATION_POC"]));
+  expect(ownership.supplemental_relationships).toEqual([]);
+  const ubo = Object.fromEntries(ownership.candidates.map((item: any) => [item.party.display_name, [item.aggregated_ownership_percent, item.classification]]));
+  expect(ubo["ABCD123"][0]).toMatch(/^51\.136363750*$/);
+  expect(ubo["LIM CHOON HUAT"]).toEqual([expect.stringMatching(/^37\.50*$/), "PROVISIONAL_UBO_CANDIDATE"]);
+  expect(ubo["ABCD123"][1]).toBe("PROVISIONAL_UBO_CANDIDATE");
+  expect(ubo["TAN WEI LING"][1]).toBe("BELOW_PROVISIONAL_THRESHOLD");
+  // The UI labels the declaration as client-supplied, not ACRA-derived.
+  await page.reload();
+  await openStage(page, "Ownership & UBO");
+  await expect(page.getByText(/MANUAL_DECLARATION_POC · not ACRA-derived/).first()).toBeVisible();
+  // Final review waits for an explicit confirmation; nothing is sent before it.
+  const ready = await summary(page, caseId);
+  expect(ready.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
+  expect(ready.case.goldtier_result ?? null).toBeNull();
+  await openStage(page, "Final review & send");
+  await complete(page, caseId);
 });
 
 test("Slice B second synthetic company completes", { tag: "@slice-b-synthetic-cache" }, async ({ page }) => {
