@@ -3,6 +3,8 @@ import { formatOwnershipPercent } from "../ownershipDisplay";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import { useMemo, useState, type FormEvent } from "react";
 
+import ConfirmPartnerShares, { type PartnerShareTotal } from "./ConfirmPartnerShares";
+
 import type { DocumentOwnershipObservation, DocumentProcessingRecord, OwnershipAnalysisRecord, OwnershipDocumentBinding, OwnershipParty } from "../types";
 
 const MAX_OWNER_COUNT = 200;
@@ -53,6 +55,15 @@ export function ownershipTotalIsExactly100(values: string[]): boolean {
     && scaled.reduce((total, value) => total + value, 0n) === 100n * DECIMAL_SCALE;
 }
 
+// Display only: the exact sum of selected percentages, as a trimmed decimal string.
+export function exactPercentTotal(values: string[]): PartnerShareTotal | null {
+  const scaled = values.map(scaledPercent);
+  if (!scaled.every((value): value is bigint => value !== null)) return null;
+  const total = scaled.reduce((sum, value) => sum + value, 0n);
+  const fraction = (total % DECIMAL_SCALE).toString().padStart(6, "0").replace(/0+$/, "");
+  return { display: `${total / DECIMAL_SCALE}${fraction ? `.${fraction}` : ""}`, exactly100: total === 100n * DECIMAL_SCALE };
+}
+
 export function shouldShowManualOwnershipEvidence(action: string | null | undefined): boolean {
   return action === "MANUAL_OWNERSHIP_EVIDENCE";
 }
@@ -97,9 +108,18 @@ export function ownersFromDocumentObservations(observations: DocumentOwnershipOb
   }));
 }
 
-export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialRootLegalName, documents, ownership, disabled, onSubmit, onUploadEvidence }: {
+/** The one Agreement Date the document reader recorded on every partner row, if there is one. */
+function agreementDate(document: DocumentProcessingRecord | undefined): string {
+  const dates = new Set((document?.ownership_observations ?? []).filter(isPartnerShareRow).map((row) => row.as_of_date));
+  const [only] = [...dates];
+  return dates.size === 1 && only ? only : "";
+}
+
+export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialRootLegalName, legalFormLabel, documents, ownership, disabled, onSubmit, onUploadEvidence }: {
   canonicalRootUen: string;
   initialRootLegalName: string;
+  /** Backend-classified legal form for the partnership summary line (display only). */
+  legalFormLabel?: string;
   documents: DocumentProcessingRecord[];
   ownership?: OwnershipAnalysisRecord | null;
   disabled: boolean;
@@ -124,11 +144,16 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
     USER_SUPPLIED_DECLARATION: ownership?.manual_review_receipt?.as_of_date ?? singaporeCalendarDate(),
     CURRENT_EVIDENCE: "", DOCUMENT_OBSERVATIONS: "",
   }));
+  const [agreementAsOfDate, setAgreementAsOfDate] = useState(() => agreementDate(agreementDocument));
   const selectedObservations = observations.filter(item => selectedObservationIds.includes(item.observation_id));
   const documentDates = new Set(selectedObservations.map(item => item.as_of_date));
   const sourceDate = sourceSelection === "CURRENT_EVIDENCE" ? ownership?.manual_review_receipt?.as_of_date ?? null
     : sourceSelection === "DOCUMENT_OBSERVATIONS" && documentDates.size === 1 ? [...documentDates][0] ?? null : null;
-  const asOfDate = sourceDate ?? asOfDates[sourceSelection];
+  // Partnership mode: document observations from a reviewed agreement with Partner Share rows.
+  // Its agreement date is pre-filled and stays editable; every other mode is unchanged.
+  const partnerRows = (selectedDocument?.ownership_observations ?? []).filter(isPartnerShareRow);
+  const partnershipMode = sourceSelection === "DOCUMENT_OBSERVATIONS" && partnerRows.length > 0;
+  const asOfDate = partnershipMode ? agreementAsOfDate : sourceDate ?? asOfDates[sourceSelection];
   const [rationale, setRationale] = useState("");
   const [rootPartyId, setRootPartyId] = useState(ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`);
   const [rootDisplayName, setRootDisplayName] = useState(initialRoot?.display_name ?? initialRootLegalName);
@@ -150,15 +175,23 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
       setOwners([]);
     }
   }
-  function selectObservation(id: string, checked: boolean): void {
-    const ids = checked ? [...selectedObservationIds, id] : selectedObservationIds.filter((item) => item !== id);
+  function applySelection(ids: string[]): void {
     setSelectedObservationIds(ids);
+    const selected = observations.filter((item) => ids.includes(item.observation_id));
+    setOwners(ownersFromDocumentObservations(selected, [{ party_id: rootPartyId, display_name: rootDisplayName, party_type: "LEGAL_ENTITY", registration_number: canonicalRootUen, country: initialRoot?.country ?? "SG" }, ...(ownership?.parties.filter((party) => party.party_id !== rootPartyId) ?? [])]));
+  }
+  function selectObservation(id: string, checked: boolean): void {
     if (checked && !selectedObservationIds.length) {
       const sourceDocumentId = observations.find((item) => item.observation_id === id)?.document_id;
       if (reviewedDocuments.some((document) => document.document_id === sourceDocumentId)) setDocumentId(sourceDocumentId!);
     }
-    const selected = observations.filter((item) => ids.includes(item.observation_id));
-    setOwners(ownersFromDocumentObservations(selected, [{ party_id: rootPartyId, display_name: rootDisplayName, party_type: "LEGAL_ENTITY", registration_number: canonicalRootUen, country: initialRoot?.country ?? "SG" }, ...(ownership?.parties.filter((party) => party.party_id !== rootPartyId) ?? [])]));
+    applySelection(checked ? [...selectedObservationIds, id] : selectedObservationIds.filter((item) => item !== id));
+  }
+  function changeAgreement(id: string): void {
+    // Rows never carry over between agreements; the new agreement's own date is filled in.
+    setDocumentId(id);
+    applySelection([]);
+    setAgreementAsOfDate(agreementDate(reviewedDocuments.find((document) => document.document_id === id)));
   }
   function updateOwner(index: number, field: keyof OwnerDraft, value: string): void {
     setOwners((current) => current.map((owner, ownerIndex) => ownerIndex === index ? { ...owner, [field]: value } : owner));
@@ -208,6 +241,24 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
       source_selection: sourceSelection, observed_document_versions: bindings, selected_observation_ids: sourceSelection === "DOCUMENT_OBSERVATIONS" ? selectedObservationIds : [],
       as_of_date: asOfDate, rationale: rationale.trim() || null, root_party_id: rootPartyId.trim(), root_display_name: rootDisplayName.trim(),
       parties: sourceSelection === "CURRENT_EVIDENCE" && ownership ? ownership.parties : [...partyMap.values()], owners: cleanOwners });
+  }
+
+  if (partnershipMode && selectedDocument) {
+    const selectedRows = partnerRows.filter((row) => selectedObservationIds.includes(row.observation_id));
+    return <section className="manual-ownership manual-ownership--partnership" aria-labelledby="manual-ownership-title">
+      <form onSubmit={submit} noValidate>
+        <ConfirmPartnerShares legalName={rootDisplayName} uen={canonicalRootUen} legalFormLabel={legalFormLabel}
+          documents={reviewedDocuments} documentId={selectedDocument.document_id} onDocument={changeAgreement}
+          asOfDate={asOfDate} onAsOfDate={setAgreementAsOfDate}
+          rows={partnerRows} selectedIds={selectedObservationIds}
+          onToggle={selectObservation} onToggleAll={(checked) => applySelection(checked ? partnerRows.map((row) => row.observation_id) : [])}
+          total={exactPercentTotal(selectedRows.map((row) => row.explicit_percentage ?? ""))}
+          rationale={rationale} onRationale={setRationale} disabled={disabled} validationError={validationError}
+          sourceLabel={`Supplementary client-supplied evidence · operator review · LOCAL · MANUAL_DECLARATION_POC · ${sourceSelection}`}
+          rootPartyId={rootPartyId} rootDisplayName={rootDisplayName} bindings={bindings}
+          onEnterManually={() => changeSource("USER_SUPPLIED_DECLARATION")} />
+      </form>
+    </section>;
   }
 
   return <section className="manual-ownership" aria-labelledby="manual-ownership-title">
