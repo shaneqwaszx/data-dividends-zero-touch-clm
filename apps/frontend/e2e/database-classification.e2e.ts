@@ -6,9 +6,9 @@ import type { ZeroTouchCaseSummary } from "../src/types";
 import { openStage } from "./stage-disclosures";
 
 const fixtures = [
-  { label: "Alpha", mode: "database-alpha", name: "DEMO ALPHA CIRCULAR FYP TEST PTE. LTD.", uen: "209990101A", document: "demo-alpha-scanned.pdf", kyc: "Company - Private" },
-  { label: "Partnership", mode: "database-partnership", name: "DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP", uen: "209990103C", document: "demo-gamma-scanned.pdf", kyc: "Partnership - Unregulated" },
-  { label: "Government", mode: "database-government", name: "DEMO PARKS FYP TEST AUTHORITY", uen: "T99FY0105G", document: "demo-parks-government-status.pdf", kyc: "Government" },
+  { label: "Alpha", mode: "database-alpha", name: "DEMO ALPHA CIRCULAR FYP TEST PTE. LTD.", uen: "209990101A", document: "demo-alpha-scanned.pdf", kyc: "Company - Private", entity: "COMPANY" },
+  { label: "Partnership", mode: "database-partnership", name: "DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP", uen: "209990103C", document: "demo-gamma-scanned.pdf", kyc: "Partnership - Unregulated", entity: "PARTNERSHIP" },
+  { label: "Government", mode: "database-government", name: "DEMO PARKS FYP TEST AUTHORITY", uen: "T99FY0105G", document: "demo-parks-government-status.pdf", kyc: "Government", entity: "GOVERNMENT" },
 ];
 
 async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise<void> {
@@ -26,6 +26,8 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
     expect((await counts()).fixture).toBe(fixture.mode);
     await page.getByRole("link", { name: "New onboarding", exact: true }).click();
     await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
+    // D-114: the RM's entity type; a Government body is read only from the government register.
+    await page.getByLabel("Entity type", { exact: true }).selectOption(fixture.entity);
     await page.getByLabel("Company Legal Name", { exact: true }).fill(fixture.name);
     await page.getByLabel("Registration ID / UEN").fill(fixture.uen);
     // D-101: a partnership's shares come only from its agreement, uploaded with the profile scan.

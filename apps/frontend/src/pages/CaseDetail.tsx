@@ -1375,6 +1375,7 @@ export default function CaseDetail({
             expected_automation_version: summary.version,
             expected_clm_version: summary.clm.version,
             expected_case_event_count: summary.case.events.length,
+            ...(values.entity_category ? { entity_category: values.entity_category } : {}),
             };
             return identitySearchRecheck
               ? recheckZeroTouchIdentitySearch(caseId, identityInput)

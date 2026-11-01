@@ -483,6 +483,8 @@ export interface OnboardingCase {
     legal_name: string;
     registration_number: string;
     country_of_incorporation: string;
+    /** D-114: omitted for COMPANY, the default. */
+    entity_category?: EntityCategory;
   } | null;
   identity_corrections?: Array<{
     correction_id: string;
@@ -1251,6 +1253,9 @@ export interface GovernmentStatusProjection {
   confirmed_by_actor_id: string | null;
   confirmed_at: string | null;
 }
+
+/** D-114: the RM's entity type; GOVERNMENT is read only from the government register, never ACRA. */
+export type EntityCategory = "COMPANY" | "PARTNERSHIP" | "GOVERNMENT";
 
 export interface EntityTypeBasis {
   entity_type: "PARTNERSHIP" | "GOVERNMENT";

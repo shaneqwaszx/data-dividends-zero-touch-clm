@@ -464,13 +464,14 @@ def test_schema9_rejects_explicit_later_evidence_and_does_not_rewrite(explicit, 
         raw["onboarding"]["policy_snapshot"].pop("ownership_discovery")
         raw["onboarding"].pop("target_classification_selections")
         raw["onboarding"].pop("government_status_confirmation")  # D-101 (schema 17)
+        (raw["onboarding"].get("initial_identity") or {}).pop("entity_category", None)  # D-114
         for doc in raw["documents"]:
             doc.pop("classification_observations")
             doc.pop("content_sha256")
             doc.pop("government_status_observations")  # D-101 (schema 17)
         before = deepcopy(raw)
         decoded = object.__new__(MongoCaseStore)._decode(raw)
-        assert raw == before and decoded.schema_version == 17
+        assert raw == before and decoded.schema_version == 18
         assert decoded.onboarding.target_classification_selections == ()
         assert decoded.documents[0].classification_observations == ()
         if explicit == "target_classification_selections":

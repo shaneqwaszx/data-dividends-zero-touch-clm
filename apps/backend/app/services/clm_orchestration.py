@@ -43,6 +43,7 @@ from app.domain.documents import (
     DocumentProcessingState,
 )
 from app.domain.models import (
+    EntityCategory,
     EventOutcome,
     GoldTierResult,
     OnboardingCase,
@@ -136,6 +137,7 @@ class ClmOrchestrationService:
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
         created_by_actor_id: str | None = None,
+        entity_category: EntityCategory = EntityCategory.COMPANY,
     ) -> ClmOrchestrationRecord:
         """Create a registry-validated staged case and stop before GoldTier."""
 
@@ -149,6 +151,7 @@ class ClmOrchestrationService:
             team_id=team_id,
             priority=priority,
             created_by_actor_id=created_by_actor_id,
+            entity_category=entity_category,
         )
 
     def create_case_with_identity(
@@ -162,6 +165,7 @@ class ClmOrchestrationService:
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
         created_by_actor_id: str | None = None,
+        entity_category: EntityCategory = EntityCategory.COMPANY,
     ) -> ClmOrchestrationRecord:
         """Create CLM state for an identity already inside its lifecycle boundary."""
 
@@ -175,6 +179,7 @@ class ClmOrchestrationService:
                 team_id=team_id,
                 priority=priority,
                 created_by_actor_id=created_by_actor_id,
+                entity_category=entity_category,
             )
         except OnboardingInfrastructureError as exc:
             failed_case = self._cases.get_case(exc.case_id)
