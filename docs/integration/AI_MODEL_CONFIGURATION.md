@@ -577,8 +577,42 @@ never reads the GPT-OSS ledger. All Claude ledger figures in one response come f
 state: the reads are bracketed by SQLite's `data_version` on a read-only connection, read
 again when another writer committed in between, and withheld (`LEDGER_BUSY`) if the ledger
 keeps changing or its state cannot be checked (never shown unchecked).
-Reconciliation itself is unchanged: an operator runs `scripts/budget_ledger.py --anthropic
-reconcile`.
+B1 Phase B (D-110): HR reconciles the Claude ledger in AI Models → Spending & Limits, under the
+Claude ledger panel. Its provider figure is the **Anthropic Console's cumulative cost of the
+HR-enabled workspace since it was created** (the ledger's "key" wording reads as this; the
+workspace is dedicated to one inference key).
+
+1. Before the first use the owner records, once, that earlier copies of the script and earlier
+   launchers are retired: `scripts/budget_ledger.py --anthropic attest-legacy-retired --reference "<what was retired>"`.
+2. HR reads the Console figure and the time the Console says its data was refreshed (or, only
+   when the Console shows no such time, the time HR looked at it), ticks the three scope
+   statements and asks for a preview. Nothing changes yet. The preview shows the ledger before
+   and after, the difference, whether the breaker would open, and the new chat (7 days) and
+   paid (24 hours) windows; it expires after five minutes and belongs to that administrator.
+3. HR types the figure again and applies. The server takes the reconcile lock, records the
+   intent, writes a marker beside the ledger, and runs the ledger's own reconcile, which commits
+   only if the ledger is still exactly as previewed and wrote exactly what was predicted.
+
+The preview is refused while the breaker is open, a call is open (an expired one too: an
+operator's `status` closes it and opens the breaker), a closed call is not yet verified (the next
+chat, a Test connection, or `verify` checks it), a quarantined call is not yet covered by an
+operator reconciliation, another run is open or unresolved, the figure is lower than last time or
+leaves the ledger more than US$0.05 ahead of what it charged since, the reading is in the future,
+more than two hours old, or older than the last call plus the margin (600 seconds after the
+Console's refresh time; 3,600 seconds after HR's viewing time), or the scope statements are not all
+ticked. An undercount above US$0.05 may be applied after a warning: it opens the breaker, and
+chat stays stopped until the owner reconciles again with the script and resets it. HR never
+releases an overcount, resets the breaker or extends a window.
+
+If an apply is interrupted, its run stays "requested". After its bound (about 42 seconds) HR
+chooses Resolve: the run becomes applied only when the ledger's own events prove both that it
+committed and that it was this run; failed only when they prove it did not; otherwise
+unresolved, for the owner to close with `owner-close RUN --reference "<note>"` (which records an
+acknowledgement, never that HR applied it). While a run is open the script's `reconcile`,
+`reset-breaker`, `set-cap` and `verify` refuse; `reconcile --override-intent RUN` proceeds and
+records the override, after which that run can only be closed by the owner. `runs` and
+`resolve-report RUN` are read-only. Reading the page, listing runs and starting the service
+write nothing to the ledger, the runs or the marker.
 
 **Requalification.** D-099 regenerates `synthetic_boundary.json` (owner-approved seven words,
 plus three Option B identifier fragments `ant`, `usr`, `wrkspc`, all system-message vocabulary

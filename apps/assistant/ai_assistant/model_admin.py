@@ -20,6 +20,10 @@ qualification, activation, rollback and an audit history.
                                PUT  /assistant/admin/models/budget/controls     (D-096)
                                PUT  /assistant/admin/models/budget/lifetime-cap
                                POST /assistant/admin/models/budget/provider-refresh
+                               GET  .../budget/claude/reconciliation          (D-110)
+                               POST .../budget/claude/reconciliation/preview
+                               POST .../budget/claude/reconciliation/apply
+                               POST .../budget/claude/reconciliation/runs/{run}/resolve
 
 Who is asking, and whether they hold ``MODEL_CONFIG_MANAGE``, always comes from the CLM
 backend with the caller's own session; activation and rollback ask again inside the lock
@@ -52,6 +56,7 @@ failing at run time is never switched automatically: the RM gets the determinist
 answer and an administrator decides.
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -72,6 +77,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
 from . import anthropic_profiles, anthropic_runtime, data_access, key_sources
+from . import claude_reconciliation as reconciliation
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
     MAX_MICRO_USD,
@@ -395,6 +401,8 @@ class ModelSelector:
         self._finished: int | None = None
         # D-098 (F2): stored reverts whose audit write failed, recorded once writes work.
         self._pending_audits: list[dict[str, Any]] = []
+        # D-110: the HR reconciliation workflow, set by the router (None without a store).
+        self.reconciler: Any = None
         if store is not None:
             # D-098 (F2): until the stored activation is read and usable there is no model
             # (never the environment baseline, which may be a local LLM, in place of GPT-OSS).
@@ -1368,6 +1376,30 @@ class DataAccessRequest(BaseModel):
     restrict_external: StrictBool = True
     restrict_local: StrictBool
     confirm_widen: StrictBool = False
+
+
+class ReconciliationPreviewRequest(BaseModel):
+    # D-110: HR's Anthropic Console reading. Times are ISO 8601 with their offset.
+    model_config = ConfigDict(extra="forbid")
+
+    usage_micro_usd: StrictInt = Field(ge=0, le=MAX_MICRO_USD)
+    as_of: str = Field(max_length=40)
+    as_of_kind: str = Field(max_length=40)
+    viewed_at: str = Field(max_length=40)
+    scope_workspace: StrictBool
+    scope_only: StrictBool
+    scope_cumulative: StrictBool
+
+
+class ReconciliationApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preview_id: str = Field(min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
+    # The figure typed again (the HR confirmation step).
+    confirm_usage_micro_usd: StrictInt
+    scope_workspace: StrictBool
+    scope_only: StrictBool
+    scope_cumulative: StrictBool
 
 
 class LifetimeCapRequest(BaseModel):
@@ -2765,6 +2797,136 @@ def model_admin_router(
                     code=f"{'RAISED' if raising else 'LOWERED'}_TO_{cap}_MICRO_USD",
                 )
         return budget_view()
+
+    # --- D-110: HR reconciliation of the Claude ledger (claude_reconciliation.py) ----------
+
+    reconciler = (
+        reconciliation.Reconciler(
+            lambda: Path(anthropic_runtime.ledger_file(settings)),
+            reconciliation.Runs(store_file(settings)),
+            lambda: float(settings.budget_settle_lag_seconds),
+        )
+        if selector.store is not None
+        else None
+    )
+    # Tests replace the clocks through this handle.
+    selector.reconciler = reconciler
+
+    reconcile_status = {
+        "INVALID_INPUT": 400,
+        "SCOPE_UNCONFIRMED": 400,
+        "USAGE_CONFIRMATION_REQUIRED": 400,
+        "RUN_UNKNOWN": 404,
+    }
+
+    def reconcile_refusal(
+        profile: dict[str, Any], action: str, refused: reconciliation.ReconcileRefused
+    ) -> HTTPException:
+        audit(profile, action, "refused", code=refused.code)
+        # The page words every code itself; the facts are numbers, times and run ids only.
+        return HTTPException(
+            status_code=reconcile_status.get(refused.code, 409),
+            detail={"code": refused.code, "message": "Nothing changed.", **refused.facts},
+        )
+
+    def session_of(request: Request) -> str:
+        cookie = request.cookies.get(SESSION_COOKIE_NAME) or ""
+        return hashlib.sha256(cookie.encode()).hexdigest()
+
+    def reconciler_for() -> reconciliation.Reconciler:
+        if reconciler is None:
+            raise _refusal(409, "MODEL_MANAGEMENT_OFF")
+        return reconciler
+
+    @router.get("/budget/claude/reconciliation")
+    def get_claude_reconciliation(profile: Admin) -> dict[str, Any]:
+        """The runs, the owner's recorded prerequisite and any intent marker. Read-only: no
+        ledger, run or marker is written here (D-110 F11)."""
+
+        action = "CLAUDE_RECONCILIATION"
+        try:
+            return reconciler_for().listing()
+        except reconciliation.ReconcileRefused as refused:
+            raise reconcile_refusal(profile, action, refused) from None
+
+    @router.post("/budget/claude/reconciliation/preview")
+    def post_claude_reconciliation_preview(
+        body: ReconciliationPreviewRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """What reconciling with this Console reading would do. Nothing is written but the
+        preview itself, kept in this process for five minutes for this administrator."""
+
+        action = "CLAUDE_RECONCILIATION"
+        guard_budget(request, profile, action)
+        recon = reconciler_for()
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                reading = reconciliation.Reading(
+                    usage_micro_usd=body.usage_micro_usd,
+                    as_of_ms=reconciliation.parse_moment(body.as_of),
+                    as_of_kind=body.as_of_kind,
+                    viewed_at_ms=reconciliation.parse_moment(body.viewed_at),
+                    scope_workspace=body.scope_workspace,
+                    scope_only=body.scope_only,
+                    scope_cumulative=body.scope_cumulative,
+                )
+                return recon.preview(
+                    reading, actor=str(profile.get("user_id")), session=session_of(request)
+                )
+            except reconciliation.ReconcileRefused as refused:
+                raise reconcile_refusal(profile, action, refused) from None
+
+    @router.post("/budget/claude/reconciliation/apply")
+    def post_claude_reconciliation_apply(
+        body: ReconciliationApplyRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Apply a stored preview with the existing BudgetLedger.reconcile (no release, no
+        breaker reset). The lock, the intent and the ledger write all happen in this request's
+        own worker thread, so a dropped connection cannot release the lock early."""
+
+        action = "CLAUDE_RECONCILIATION"
+        guard_budget(request, profile, action)
+        recon = reconciler_for()
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                result = recon.apply(
+                    body.preview_id,
+                    confirm_usage_micro_usd=body.confirm_usage_micro_usd,
+                    scopes=(body.scope_workspace, body.scope_only, body.scope_cumulative),
+                    actor=str(profile.get("user_id")),
+                    role=str(profile.get("role")) if profile.get("role") else None,
+                    session=session_of(request),
+                )
+            except reconciliation.ReconcileRefused as refused:
+                raise reconcile_refusal(profile, action, refused) from None
+        return {**result, "budget": budget_view()}
+
+    @router.post("/budget/claude/reconciliation/runs/{run_id}/resolve")
+    def post_claude_reconciliation_resolve(
+        run_id: str, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Decide a run that did not finish, from the ledger's own events: applied only when
+        its commit and its attribution are proven, failed only when no commit is proven,
+        otherwise unresolved for the owner. The ledger is never written here."""
+
+        action = "CLAUDE_RECONCILIATION"
+        guard_budget(request, profile, action)
+        if not re.fullmatch(r"[0-9a-f]{32}", run_id):
+            raise reconcile_refusal(profile, action, reconciliation.ReconcileRefused("RUN_UNKNOWN"))
+        recon = reconciler_for()
+        with selector.change_lock:
+            recheck(request, profile, action)
+            try:
+                result = recon.resolve(
+                    run_id,
+                    actor=str(profile.get("user_id")),
+                    role=str(profile.get("role")) if profile.get("role") else None,
+                )
+            except reconciliation.ReconcileRefused as refused:
+                raise reconcile_refusal(profile, action, refused) from None
+        return {**result, "budget": budget_view()}
 
     @router.post("/budget/provider-refresh")
     def post_provider_refresh(profile: Admin, request: Request) -> dict[str, Any]:

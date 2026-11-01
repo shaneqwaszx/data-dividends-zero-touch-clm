@@ -68,9 +68,33 @@ const chatBody = (
 });
 
 export class AiAssistantError extends Error {
-  constructor(message: string, readonly status: number | null = null) {
+  constructor(
+    message: string,
+    readonly status: number | null = null,
+    /** D-110: the server's closed refusal code (upper case and underscores only). */
+    readonly code: string | null = null,
+    /** D-110: content-free refusal facts (allowlisted keys; numbers, times and run ids). */
+    readonly facts: Readonly<Record<string, string | number>> = {},
+  ) {
     super(message);
   }
+}
+
+const REFUSAL_CODE = /^[A-Z][A-Z_]{2,48}$/;
+const REFUSAL_FACT_KEYS = new Set([
+  "run_id", "earliest_as_of", "latest_refresh_needed", "retry_after", "ledger_ahead_micro_usd",
+  "last_usage_micro_usd", "breaker_code", "count",
+]);
+const REFUSAL_FACT_TEXT = /^[0-9A-Za-z:.+\-_ ]{1,64}$/;
+
+function refusalFacts(detail: Record<string, unknown>): Record<string, string | number> {
+  const facts: Record<string, string | number> = {};
+  for (const [key, item] of Object.entries(detail)) {
+    if (!REFUSAL_FACT_KEYS.has(key)) continue;
+    if (typeof item === "number" && Number.isFinite(item)) facts[key] = item;
+    else if (typeof item === "string" && REFUSAL_FACT_TEXT.test(item)) facts[key] = item;
+  }
+  return facts;
 }
 
 async function send(
@@ -96,6 +120,8 @@ async function send(
   }
   if (!response.ok) {
     let message = httpErrorMessage(response.status);
+    let code: string | null = null;
+    let facts: Record<string, string | number> = {};
     try {
       const payload = await readJsonBody(response, MAX_ERROR_BODY_BYTES, signal);
       const detail = payload && typeof payload === "object" && "detail" in payload
@@ -106,11 +132,18 @@ async function send(
       // A length cap alone cannot sanitize provider diagnostics or proxy error pages.
       if (typeof candidate === "string" && candidate.length <= 256
         && SAFE_ERROR_MESSAGES.has(candidate)) message = candidate;
+      if (detail && typeof detail === "object") {
+        const named = "code" in detail ? detail.code : null;
+        if (typeof named === "string" && REFUSAL_CODE.test(named)) {
+          code = named;
+          facts = refusalFacts(detail as Record<string, unknown>);
+        }
+      }
     } catch {
       signal?.throwIfAborted();
       // Keep the safe status-specific fallback, never the body or parser exception.
     }
-    throw new AiAssistantError(message, response.status);
+    throw new AiAssistantError(message, response.status, code, facts);
   }
   return response;
 }
@@ -1253,6 +1286,80 @@ export const saveClaudeLifetimeCap = (capMicroUsd: number, confirmCapMicroUsd: n
     confirm_cap_micro_usd: confirmCapMicroUsd,
     expected_cap_micro_usd: expectedCapMicroUsd,
   }, undefined, "PUT");
+/** D-110: HR's reconciliation of the Claude ledger with the Anthropic Console. Amounts are
+ *  micro-USD; times are ISO 8601. The server keeps the preview; the page sends only its id. */
+export interface ClaudeReconciliationReading {
+  usage_micro_usd: number;
+  as_of: string;
+  as_of_kind: "console_refreshed" | "viewed";
+  viewed_at: string;
+  scope_workspace: boolean;
+  scope_only: boolean;
+  scope_cumulative: boolean;
+}
+
+export interface ClaudeReconciliationPreview {
+  preview_id: string;
+  expires_at: string;
+  fallback: boolean;
+  settle_lag_seconds: number;
+  margin_seconds: number;
+  before: { baseline_micro_usd: number; local_charged_micro_usd: number; estimate_micro_usd: number; last_provider_usage_micro_usd: number; reconciled_at: string | null };
+  after: { baseline_micro_usd: number; local_charged_micro_usd: number; estimate_micro_usd: number; last_provider_usage_micro_usd: number };
+  drift_micro_usd: number;
+  tolerance_micro_usd: number;
+  breaker_opens: boolean;
+  carried_micro_usd: number;
+  cap_micro_usd: number;
+  chat_deadline_at: string;
+  paid_deadline_at: string;
+  inputs: { usage_micro_usd: number; as_of: string; as_of_kind: string; viewed_at: string };
+}
+
+export interface ClaudeReconciliationRun {
+  run_id: string;
+  status: "requested" | "applied" | "refused" | "failed" | "unresolved" | "owner_closed";
+  actor: string;
+  intent_at: string;
+  finished_at: string | null;
+  usage_micro_usd: number;
+  drift_micro_usd: number;
+  as_of: string;
+  as_of_kind: string;
+  event_id: number | null;
+  reason: string | null;
+  attribution_basis: string | null;
+  owner_reference: string | null;
+  acknowledged_state: string | null;
+  resolvable_after?: string;
+}
+
+export interface ClaudeReconciliationListing {
+  runs: ClaudeReconciliationRun[];
+  prerequisite_recorded: boolean;
+  marker_readable: boolean;
+  marker_run_id: string | null;
+  marker_overridden: boolean;
+}
+
+export interface ClaudeReconciliationResult {
+  outcome: "applied" | "uncertain" | "refused" | "failed" | "unresolved" | "requested" | "owner_closed";
+  run: ClaudeReconciliationRun | null;
+}
+
+export const fetchClaudeReconciliation = (signal?: AbortSignal) =>
+  request<ClaudeReconciliationListing>("/admin/models/budget/claude/reconciliation", undefined, signal);
+export const previewClaudeReconciliation = (reading: ClaudeReconciliationReading) =>
+  request<ClaudeReconciliationPreview>("/admin/models/budget/claude/reconciliation/preview", reading);
+export const applyClaudeReconciliation = (body: {
+  preview_id: string;
+  confirm_usage_micro_usd: number;
+  scope_workspace: boolean;
+  scope_only: boolean;
+  scope_cumulative: boolean;
+}) => request<ClaudeReconciliationResult>("/admin/models/budget/claude/reconciliation/apply", body);
+export const resolveClaudeReconciliationRun = (runId: string) =>
+  request<ClaudeReconciliationResult>(`/admin/models/budget/claude/reconciliation/runs/${encodeURIComponent(runId)}/resolve`, {});
 // Read-only: the free preflight reads the key's OpenRouter limit; nothing is changed.
 export const refreshProviderLimits = () =>
   request<ModelBudgetStatus>("/admin/models/budget/provider-refresh", {});

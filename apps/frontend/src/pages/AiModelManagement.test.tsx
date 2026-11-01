@@ -1874,7 +1874,7 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
   it("warns when the chat window has ended", async () => {
     const view = mount(controlsServer(withReconciliation(reconciliationView(8 * 24 * HOUR)), []), "spending");
     await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
-    expect(reconciliationPanel(view)!.querySelector("[role=alert]")?.textContent).toContain("Claude chat is refused until an operator reconciles it");
+    expect(reconciliationPanel(view)!.querySelector("[role=alert]")?.textContent).toContain("Claude chat is refused until it is reconciled with the Anthropic Console (below, or by an operator)");
     expect(reconciliationPanel(view)!.textContent).toMatch(/Chat window \(7 days\)Ended .*reconciliation required/);
   });
 
@@ -1969,6 +1969,191 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     for (const gptoss of ["0.590000", "0.600000", "0.100000", "0.098924", "1.001076"]) {
       expect(text).not.toContain(gptoss);
     }
+  });
+
+  // --- D-110 (B1 Phase B): HR reconciles the Claude ledger with the Anthropic Console -------
+
+  type Call = { method: string; url: string; body: string | null };
+  const RUN = "a".repeat(32);
+  const listingOf = (extra: Record<string, unknown> = {}) => ({
+    runs: [], prerequisite_recorded: true, marker_readable: true, marker_run_id: null, marker_overridden: false, ...extra,
+  });
+  const previewOf = (extra: Record<string, unknown> = {}) => ({
+    preview_id: "b".repeat(32),
+    expires_at: iso(Date.now() + 300_000),
+    fallback: false,
+    settle_lag_seconds: 700,
+    margin_seconds: 600,
+    before: { baseline_micro_usd: 20_000, local_charged_micro_usd: 54_136, estimate_micro_usd: 74_136, last_provider_usage_micro_usd: 20_000, reconciled_at: iso(Date.now() - 2 * HOUR) },
+    after: { baseline_micro_usd: 80_000, local_charged_micro_usd: 0, estimate_micro_usd: 80_000, last_provider_usage_micro_usd: 80_000 },
+    drift_micro_usd: 5_864,
+    tolerance_micro_usd: 50_000,
+    breaker_opens: false,
+    carried_micro_usd: 0,
+    cap_micro_usd: 25_000_000,
+    chat_deadline_at: iso(Date.now() + 7 * 24 * HOUR),
+    paid_deadline_at: iso(Date.now() + 24 * HOUR),
+    inputs: { usage_micro_usd: 80_000, as_of: iso(Date.now() - 60_000), as_of_kind: "console_refreshed", viewed_at: iso(Date.now() - 30_000) },
+    ...extra,
+  });
+  const reconcileServer = (
+    calls: Call[],
+    options: { listing?: unknown; preview?: Response; apply?: Response; resolve?: Response } = {},
+  ) => vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ method, url, body: typeof init?.body === "string" ? init.body : null });
+    const data = withReconciliation(reconciliationView(2 * HOUR));
+    if (url.endsWith("/budget/claude/reconciliation/preview")) return options.preview ?? json(previewOf());
+    if (url.endsWith("/budget/claude/reconciliation/apply")) {
+      return options.apply ?? json({ outcome: "applied", run: null, budget: data.budget });
+    }
+    if (url.includes("/budget/claude/reconciliation/runs/")) {
+      return options.resolve ?? json({ outcome: "failed", run: { run_id: RUN, status: "failed" }, budget: data.budget });
+    }
+    if (url.endsWith("/budget/claude/reconciliation")) return json(options.listing ?? listingOf());
+    if (url.includes("/admin/models/budget/")) return json(data.budget);
+    if (url.endsWith("/api/assistant/admin/models")) return json(data);
+    if (url.includes("/admin/models/audit")) return json({ events: [] });
+    return json({ detail: { code: "NOT_FOUND", message: "No such model profile." } }, 404);
+  });
+  const reconcilePanel = (view: HTMLElement) => view.querySelector<HTMLElement>("[data-testid=claude-reconcile]");
+  const tick = (view: HTMLElement, testId: string) => act(() => view.querySelector<HTMLInputElement>(`[data-testid=${testId}]`)!.click());
+  const fillReading = (view: HTMLElement) => {
+    typeInto(input(view, "reconcile-usage"), "0.08");
+    typeInto(input(view, "reconcile-as-of"), "2026-10-31T10:00");
+    typeInto(input(view, "reconcile-viewed"), "2026-10-31T10:05");
+    for (const id of ["reconcile-scope-workspace", "reconcile-scope-only", "reconcile-scope-cumulative"]) tick(view, id);
+  };
+  const clickTestId = (view: HTMLElement, testId: string) =>
+    act(async () => view.querySelector<HTMLButtonElement>(`[data-testid=${testId}]`)!.click());
+
+  it("previews a Console reading, then applies it only after the figure is typed again", async () => {
+    const calls: Call[] = [];
+    const view = mount(reconcileServer(calls), "spending");
+    await waitFor(() => expect(reconcilePanel(view)).not.toBeNull());
+    const previewButton = view.querySelector<HTMLButtonElement>("[data-testid=reconcile-preview]")!;
+    expect(previewButton.disabled).toBe(true);
+    fillReading(view);
+    expect(previewButton.disabled).toBe(false);
+    await clickTestId(view, "reconcile-preview");
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-preview-result]")).not.toBeNull());
+    const sent = JSON.parse(calls.find((call) => call.url.endsWith("/reconciliation/preview"))!.body!);
+    expect(sent).toMatchObject({ usage_micro_usd: 80_000, as_of_kind: "console_refreshed", scope_workspace: true, scope_only: true, scope_cumulative: true });
+    expect(sent.as_of).toBe(new Date("2026-10-31T10:00").toISOString());
+    expect(sent.viewed_at).toBe(new Date("2026-10-31T10:05").toISOString());
+    expect(view.querySelector("[data-testid=reconcile-drift]")?.textContent).toContain("US$0.005864");
+    expect(calls.some((call) => call.url.endsWith("/reconciliation/apply"))).toBe(false);
+    await clickTestId(view, "reconcile-apply-open");
+    const apply = view.querySelector<HTMLButtonElement>("[data-testid=reconcile-apply]")!;
+    expect(apply.disabled).toBe(true);
+    typeInto(view.querySelector<HTMLInputElement>("[data-testid=reconcile-echo]")!, "0.07");
+    expect(apply.disabled).toBe(true);
+    typeInto(view.querySelector<HTMLInputElement>("[data-testid=reconcile-echo]")!, "0.08");
+    expect(apply.disabled).toBe(false);
+    await act(async () => apply.click());
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-message]")?.textContent).toContain("Reconciled."));
+    expect(JSON.parse(calls.find((call) => call.url.endsWith("/reconciliation/apply"))!.body!)).toEqual({
+      preview_id: "b".repeat(32), confirm_usage_micro_usd: 80_000, scope_workspace: true, scope_only: true, scope_cumulative: true,
+    });
+  });
+
+  it("needs every scope statement before a preview is sent", async () => {
+    const calls: Call[] = [];
+    const view = mount(reconcileServer(calls), "spending");
+    await waitFor(() => expect(reconcilePanel(view)).not.toBeNull());
+    typeInto(input(view, "reconcile-usage"), "0.08");
+    typeInto(input(view, "reconcile-as-of"), "2026-10-31T10:00");
+    tick(view, "reconcile-scope-workspace");
+    tick(view, "reconcile-scope-only");
+    expect(view.querySelector<HTMLButtonElement>("[data-testid=reconcile-preview]")!.disabled).toBe(true);
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
+  it("warns before applying an undercount that stops Claude", async () => {
+    const calls: Call[] = [];
+    const view = mount(reconcileServer(calls, { preview: json(previewOf({ breaker_opens: true, drift_micro_usd: 120_000 })) }), "spending");
+    await waitFor(() => expect(reconcilePanel(view)).not.toBeNull());
+    fillReading(view);
+    await clickTestId(view, "reconcile-preview");
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-breaker-warning]")).not.toBeNull());
+    expect(view.querySelector("[data-testid=reconcile-breaker-warning]")!.textContent).toContain("stops Claude (breaker open) until the owner reconciles again");
+  });
+
+  it("words a refusal from its code and safe facts only", async () => {
+    const calls: Call[] = [];
+    const refusal = json({ detail: { code: "CALL_TOO_RECENT", message: "Nothing changed.", earliest_as_of: "2026-10-31T02:10:00+00:00", path: "C:\\secret\\ledger" } }, 409);
+    const view = mount(reconcileServer(calls, { preview: refusal }), "spending");
+    await waitFor(() => expect(reconcilePanel(view)).not.toBeNull());
+    fillReading(view);
+    await clickTestId(view, "reconcile-preview");
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-message]")).not.toBeNull());
+    const text = view.querySelector("[data-testid=reconcile-message]")!.textContent ?? "";
+    expect(text).toContain("A Claude call finished too close to the reading");
+    expect(text).toContain("SGT");
+    expect(text).not.toContain("secret");
+    expect(view.querySelector("[data-testid=reconcile-preview-result]")).toBeNull();
+  });
+
+  it("explains that the owner's prerequisite is missing and offers no preview", async () => {
+    const view = mount(reconcileServer([], { listing: listingOf({ prerequisite_recorded: false }) }), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-prerequisite]")).not.toBeNull());
+    fillReading(view);
+    expect(view.querySelector<HTMLButtonElement>("[data-testid=reconcile-preview]")!.disabled).toBe(true);
+  });
+
+  it("uses the viewing time as the reading time only in the no-refresh-time fallback", async () => {
+    const calls: Call[] = [];
+    const view = mount(reconcileServer(calls), "spending");
+    await waitFor(() => expect(reconcilePanel(view)).not.toBeNull());
+    tick(view, "reconcile-kind-viewed");
+    expect(view.querySelector("#reconcile-as-of")).toBeNull();
+    typeInto(input(view, "reconcile-usage"), "0.08");
+    typeInto(input(view, "reconcile-viewed"), "2026-10-31T10:05");
+    for (const id of ["reconcile-scope-workspace", "reconcile-scope-only", "reconcile-scope-cumulative"]) tick(view, id);
+    await clickTestId(view, "reconcile-preview");
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith("/reconciliation/preview"))).toBe(true));
+    const sent = JSON.parse(calls.find((call) => call.url.endsWith("/reconciliation/preview"))!.body!);
+    expect(sent.as_of_kind).toBe("viewed");
+    expect(sent.as_of).toBe(sent.viewed_at);
+  });
+
+  it("reports an unconfirmed outcome as open, never as reconciled", async () => {
+    const calls: Call[] = [];
+    const view = mount(reconcileServer(calls, { apply: json({ outcome: "uncertain", run: null }) }), "spending");
+    await waitFor(() => expect(reconcilePanel(view)).not.toBeNull());
+    fillReading(view);
+    await clickTestId(view, "reconcile-preview");
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-apply-open]")).not.toBeNull());
+    await clickTestId(view, "reconcile-apply-open");
+    typeInto(view.querySelector<HTMLInputElement>("[data-testid=reconcile-echo]")!, "0.08");
+    await clickTestId(view, "reconcile-apply");
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-message]")).not.toBeNull());
+    const text = view.querySelector("[data-testid=reconcile-message]")!.textContent ?? "";
+    expect(text).toContain("could not be confirmed");
+    expect(text).not.toContain("Reconciled.");
+  });
+
+  it("lists runs and resolves an unfinished one on request", async () => {
+    const calls: Call[] = [];
+    const run = { run_id: RUN, status: "requested", actor: "hr-admin", intent_at: iso(Date.now() - 120_000), finished_at: null, usage_micro_usd: 80_000, drift_micro_usd: 0, as_of: iso(Date.now() - 180_000), as_of_kind: "console_refreshed", event_id: null, reason: null, attribution_basis: null, owner_reference: null, acknowledged_state: null, resolvable_after: iso(Date.now() - 60_000) };
+    const unresolved = { ...run, run_id: "c".repeat(32), status: "unresolved", resolvable_after: undefined };
+    const view = mount(reconcileServer(calls, { listing: listingOf({ runs: [run, unresolved] }) }), "spending");
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-runs]")).not.toBeNull());
+    const table = view.querySelector("[data-testid=reconcile-runs]")!;
+    expect(table.textContent).toContain("Not finished (resolve it)");
+    expect(table.textContent).toContain("Unresolved: the owner must check and close it");
+    expect([...table.querySelectorAll("button")]).toHaveLength(1);
+    await act(async () => table.querySelector("button")!.click());
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith(`/reconciliation/runs/${RUN}/resolve`))).toBe(true));
+    await waitFor(() => expect(view.querySelector("[data-testid=reconcile-message]")?.textContent).toContain("Failed (nothing changed)"));
+  });
+
+  it("never trusts a malformed run listing", async () => {
+    const view = mount(reconcileServer([], { listing: { runs: "nope" } }), "spending");
+    await waitFor(() => expect(reconcilePanel(view)).not.toBeNull());
+    expect(view.querySelector("[data-testid=reconcile-runs]")).toBeNull();
+    expect(view.querySelector("[data-testid=reconcile-prerequisite]")).toBeNull();
   });
 });
 
