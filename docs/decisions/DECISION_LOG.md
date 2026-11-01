@@ -2048,6 +2048,13 @@ Checked, no change needed: the `hybrid_direct_overlay` scenarios are whitelisted
 this lane) has only `Owner` officers, so M3 gives it no registry partners and its flows are
 unchanged.
 
+Relation to D-112 (#149, merged first; this entry was renumbered from D-112 to D-113): D-112's
+equal-unit POC basis and acceptance are for companies with an official register; a Mock
+partnership has none (`PROVIDER_UNSUPPORTED`), so D-113 does not use it. A partnership's shares
+still come only from the RM-confirmed agreement declaration under the D-101 checks. Re-run on
+the merged code (`ae5946b` plus this branch): the D-113, D-101, D-112 and hybrid suites pass,
+and the real Mock run with both XYZ documents gives the same result as above.
+
 Tests (`tests/test_marketplace_mock_partnerships.py`, new; no existing test changed): the four
 Mock officer rows give exactly TAN WEI LING and LILY; an unlisted position with brackets still
 fails the officers operation; an inconsistent status row fails; an agreement naming ALLIE or

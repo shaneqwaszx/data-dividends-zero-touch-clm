@@ -40,7 +40,7 @@ def registry_partner_names(acquisition: RegistryAcquisitionBundle | None) -> tup
     )
     if listed or not _shareholder_method_unsupported(acquisition):
         return listed
-    # D-112: the Marketplace Mock lists a partnership's partners only as officers.
+    # D-113: the Marketplace Mock lists a partnership's partners only as officers.
     # A current partner is a PARTNER role with no withdrawal (cessation) date.
     return tuple(
         officer.name

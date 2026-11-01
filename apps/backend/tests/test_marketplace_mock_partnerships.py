@@ -1,4 +1,4 @@
-"""D-112: Marketplace Mock partnerships take their registry partners from current partner officers.
+"""D-113: Marketplace Mock partnerships take their registry partners from current partner officers.
 
 The fixture follows the ACRA API Marketplace Mock sample record for T19PF1111A (fictional
 XYZ ACCOUNTING); officer ids are replaced with synthetic ones.

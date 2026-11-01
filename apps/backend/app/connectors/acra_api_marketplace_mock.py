@@ -48,7 +48,7 @@ ACRA_API_MARKETPLACE_MOCK_SHAREHOLDERS_PATH = "/entityQuery/coShareholdersDetail
 ACRA_API_MARKETPLACE_MOCK_BUSINESS_PROFILE_PATH = "/entityQuery/businessProfile"
 ACRA_API_MARKETPLACE_MOCK_RESPONSE_MAX_BYTES = 256 * 1024
 ACRA_API_MARKETPLACE_MOCK_DATASET_NAMESPACE = "ACRA_API_MARKETPLACE_MOCK_V1"
-# D-112: the closed list of Mock officer positions stored as role PARTNER, compared
+# D-113: the closed list of Mock officer positions stored as role PARTNER, compared
 # ignoring case and outer spaces. Any other position is decoded and validated unchanged.
 ACRA_API_MARKETPLACE_MOCK_PARTNER_POSITIONS = frozenset(
     {"PARTNER", "PARTNER UNDER SECTION 18(3)(C) OF THE ACCOUNTANTS ACT"}
@@ -71,7 +71,7 @@ def _has_explicit_empty_entities(body: object) -> bool:
 
 
 def _with_partner_roles(body: object) -> object:
-    """D-112: a listed partner role becomes PARTNER on a copy of the body.
+    """D-113: a listed partner role becomes PARTNER on a copy of the body.
 
     A partner row whose source status is present and not Active must carry its
     cessation date, so on this lane no cessation date means Active. Anything the
