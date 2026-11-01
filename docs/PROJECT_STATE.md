@@ -1502,6 +1502,22 @@ Delta only. Owner-approved (D-109; D-108 merged as PR #143):
 - Evidence class: Local. Claude ledger reconciliation is due under a separate authorisation.
 - **Open:** independent QG, `pre_pr_check.py`, owner publication authorisation and merge.
 
+## AI Assistant B2 answer quality and B3 final validation (branches `feat/b2-assistant-quality`, `feat/b3-final-validation`, local commits) - 2026-10-31
+
+Delta only:
+- B2-0: the Claude benchmark harness is on the main line (offline transport tests); degraded-mode
+  retrieval is measured per role with a regression gate (recall@3 0.96 with past cases, correct
+  "nothing" 1.00); the service adds about 82 ms around an instant model. The owner's 17 scored
+  Sonnet Fast answers are attributed: every gap that cost acceptance is a missing approved
+  catalog line or one dropped offered refusal, all in basis files, so D-111 (PROPOSED) lists
+  the exact changes, the qualification questions and the paid steps. Nothing in D-111 is
+  implemented; the basis (`5dc26b296026...`) and every guardrail are unchanged.
+- B3: `docs/demo/AI_ASSISTANT_FINAL_UAT.md` and
+  `docs/evidence/AI_ASSISTANT_FINAL_VALIDATION_2026-10-31.md` record what passed offline and
+  what is NOT EXECUTED (live reconciliation, paid steps, restart and persistence, full
+  lifecycle E2E without Mongo and Tesseract, semantic retrieval).
+- **Open (owner):** D-111 decisions; publication and merge of the three branches.
+
 ## AI Assistant B1 Phase B: HR reconciliation of the Claude ledger, D-110 (branch `feat/b1b-hr-reconciliation`, local commits) - 2026-10-31
 
 Delta only. D-110 owner-approved for development 2026-10-31 (Q12 clarified):
