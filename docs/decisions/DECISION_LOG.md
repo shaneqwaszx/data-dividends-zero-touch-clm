@@ -1951,7 +1951,7 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **Sandbox and Live.** Keeping the class label on ownership parties applies in every environment, but it only stops units of different classes being combined. Verified paths are unchanged: provider percentages, and an authoritative denominator with one class. No POC basis or acceptance exists outside Mock (tested in `test_sandbox_and_live_keep_verified_paths_and_never_pool_classes`).
   - **Rollback.** A bundle stored with a class label fails validation under code older than D-112.
   - **Completeness.** It rests on the provider's own `COMPLETE` status, because the row-count check mirrors the bundle validator. A provider that silently truncates its collection is not detectable, and a 100% total never counts as completeness.
-  - **Owner step still open (O7 and Garden supplement).** Retiring the scenario declarations breaks 82 existing tests across 4 modules (D-085/D-086/D-087/D-089), about 35 of them defect cases to re-derive against the generic rule, so it is deferred rather than weakened. The default-lane Garden fixture supplement is also unchanged.
+  - **Owner step still open (O7 and Garden supplement; O7 superseded by the entry below).** Retiring the scenario declarations breaks 82 existing tests across 4 modules (D-085/D-086/D-087/D-089), about 35 of them defect cases to re-derive against the generic rule, so it is deferred rather than weakened. The default-lane Garden fixture supplement is also unchanged.
 
 - **O7 retired (owner approval 2026-11-01).**
   - **Catalogue.** No catalogue scenario declares POC acceptance any more (Garden direct, OPQ Garden/SIM LIM, OPQ Garden/ABC).
@@ -1964,7 +1964,6 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **Obsolete expectations** (recorded in `RETIRED_D087_EXPECTATIONS` / `RETIRED_D089_EXPECTATIONS` and `OBSOLETE_HYBRID_ONLY`), each asserted against a scenario's own acceptance that no longer exists:
     - the D-087 intermediate-role declaration and its validators and runtime guards;
     - revoking a recorded scenario acceptance;
-    - the D-087 schema fields round-trip;
     - tampered issued-capital links;
     - locally named or non-distributed hybrid issuer records.
-    The hybrid-only defect cases are still asserted against the hybrid Garden case, which can no longer qualify.
+    The hybrid-only defect cases are still asserted against the hybrid Garden case, which can no longer qualify. The live guards from the retired D-087 round-trip test are kept in `test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields`: older schemas reject D-086 role observations and legacy intermediate counts, roles require an official entity profile, and a D-082 acceptance never carries intermediate counts.

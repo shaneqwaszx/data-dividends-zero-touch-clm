@@ -52,9 +52,7 @@ def generic_profile(ceased: tuple[int, ...] = (4,)) -> dict[str, object]:
                         "postalCode": "000002",
                     }
                 },
-                "entityConstnDetailsAndType": {
-                    "constitution": "PRIVATE COMPANY LIMITED BY SHARES"
-                },
+                "entityConstnDetailsAndType": {"constitution": "PRIVATE COMPANY LIMITED BY SHARES"},
                 "entityOfficersRecord": {
                     "officerAppointmentDetails": [
                         {

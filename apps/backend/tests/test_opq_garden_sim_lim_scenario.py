@@ -355,14 +355,7 @@ def test_officer_roles_of_root_and_intermediate_stay_descriptive_and_never_holdi
     } == EXPECTED
 
 
-# --- D-087 eligibility: Garden's declared intermediate Owner roles are context ----------
-
-OBSERVED_ASSUMPTIONS = [
-    "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES",
-    "EQUAL_UNIT_DENOMINATOR",
-    "SIMULATED_RELATIONSHIPS",
-    "UNCLASSIFIED_LEGAL_FORM",
-]
+# --- Garden's intermediate Owner roles: descriptive context, never a privilege -------
 
 
 def garden_roles(record: OwnershipAnalysisRecord) -> list[tuple[str, str]]:
@@ -442,9 +435,6 @@ def test_no_intermediate_role_kind_grants_acceptance(positions: tuple[str, ...])
     } == EXPECTED
 
 
-
-
-
 @pytest.mark.parametrize(
     ("positions", "reason"),
     [
@@ -520,17 +510,81 @@ def test_the_observed_chain_is_calculated_but_held_for_ownership_review() -> Non
         assert bundle.target_executions.list_for_case(UUID(case_id)) == ()
 
 
-
-
 # --- Runtime guards behind the declaration validators (D-087 QG F1/F2) -------------------
 
-OTHER_UEN = "209900001K"  # neither an issuer of the OPQ scenario nor a discovery record
+
+def test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields() -> None:
+    """Live persistence and domain guards kept from the retired D-087 round-trip test."""
+    from test_official_shareholder_evidence import snapshot_of
+    from test_poc_ownership_acceptance import accepted_record
+
+    from app.domain.ownership import OwnershipDiscoveryRecord, OwnershipPocAcceptance
+    from app.persistence.models import DurableCaseSnapshot, reject_scenario_poc_legacy_fields
+
+    onboarding, ownership = service_lane(
+        "accept_eligible_poc", opq_transport(OBSERVED_OPQ_POSITIONS), **CHAIN
+    )
+    case = onboarding.create_staged_case(FIVE_LAYER_ROOT_UEN)
+    ownership.load(case_id=case.case_id)
+    record = ownership.analyze(case_id=case.case_id)
+    assert record.poc_acceptance is None
+    encoded = snapshot_of(onboarding, record).model_dump(mode="json")
+    assert encoded["schema_version"] == 17
+    assert DurableCaseSnapshot.model_validate(encoded).ownership == record
+    # Older schemas still reject the D-086 officer role observations hybrid records carry.
+    with pytest.raises(ValueError, match="D-086 officer role observations"):
+        reject_scenario_poc_legacy_fields(encoded)
+    legacy_counts = {
+        "ownership": {
+            "poc_acceptance": {
+                "policy": "D082_HYBRID_POC_EQUAL_UNITS_V1",
+                "descriptive_intermediate_current_role_count": 1,
+            }
+        }
+    }
+    with pytest.raises(ValueError, match="D-085 POC acceptance"):
+        reject_scenario_poc_legacy_fields(legacy_counts)
+    reject_scenario_poc_legacy_fields(
+        {"ownership": {"discovery": {"records": [{"official_officer_roles": []}]}}}
+    )
+    # Role observations require the issuer's official entity profile.
+    garden = next(
+        item.model_dump()
+        for item in record.discovery.records  # type: ignore[union-attr]
+        if item.registration_number == GARDEN_UEN
+    )
+    with pytest.raises(ValidationError, match="require an official entity profile"):
+        OwnershipDiscoveryRecord.model_validate(
+            {**garden, "identity_basis": "LOCAL_SYNTHETIC_IDENTITY"}
+        )
+    # A stored D-082 acceptance can never carry intermediate role counts.
+    _, _, generic = accepted_record()
+    assert generic.poc_acceptance is not None
+    legacy = {
+        **generic.poc_acceptance.model_dump(),
+        "policy": "D082_HYBRID_POC_EQUAL_UNITS_V1",
+        "overlay_scenario_id": "GARDEN_DIRECT_OVERLAY_V1",
+        "accepted_assumptions": (),
+        "accepted_issue_codes": (
+            "OWNERSHIP_DENOMINATOR_REQUIRED",
+            "SYNTHETIC_OWNERSHIP_EVIDENCE",
+            "UBO_REVIEW_REQUIRED",
+        ),
+    }
+    OwnershipPocAcceptance.model_validate(legacy)
+    with pytest.raises(ValidationError):
+        OwnershipPocAcceptance.model_validate(
+            {**legacy, "descriptive_intermediate_current_role_count": 1}
+        )
+
 
 # D-112 (owner O7, 2026-11-01): these D-087/D-089 expectations are obsolete, not
 # weakened. They asserted acceptance through the scenario's own declaration (declared
 # intermediate roles, their validators and runtime guards, revocation of a recorded
 # scenario acceptance, and its schema fields). No scenario declares acceptance now, so
-# the chain is never accepted; see the tests above for what remains asserted.
+# the chain is never accepted; see the tests above for what remains asserted. The
+# round-trip test's live persistence guards moved to
+# test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields.
 RETIRED_D087_EXPECTATIONS = (
     "test_intermediate_roles_need_the_trusted_declaration_naming_their_issuer",
     "test_malformed_or_improperly_bound_intermediate_roles_still_block",

@@ -54,13 +54,6 @@ EXPECTED = {
     "TAN WEI LING": Decimal("2.8409090625"),
     "EFGH2345": Decimal("2.8409090625"),
 }
-ASSUMPTIONS = [
-    "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES",
-    "EQUAL_UNIT_DENOMINATOR",
-    "ISSUED_CAPITAL_DENOMINATOR",
-    "SIMULATED_RELATIONSHIPS",
-    "UNCLASSIFIED_LEGAL_FORM",
-]
 
 
 def transport(profile: dict[str, object] | None = None) -> Any:

@@ -1323,8 +1323,8 @@ class OwnershipAnalysisService:
         """POC readiness authority: a current acceptance, only while this runtime opts in.
 
         A persisted acceptance alone grants nothing: disabling the setting, leaving the
-        Mock hybrid lane or removing the scenario's catalogue declaration revokes it, and
-        so does any later identity or content change.
+        official Mock lane, or any later identity or content change revokes it, and no
+        catalogue scenario can grant one (D-112, owner O7).
         """
 
         # O1: a scenario analysis needs this composition's overlay; any other official Mock
