@@ -1988,3 +1988,11 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
     - (a) keep it: the declaration is the reviewer's attestation;
     - (b) carry the case's registry legal form into the declared analysis and keep the issue blocking;
     - (c) carry it as a visible, non-blocking review note.
+
+- **Garden cutover (owner decision, 2026-11-01).**
+  - **The setting.** `garden_supplement_enabled` now actually controls the legacy flattened Garden fixture: an explicit opt-in, default off. It is off outside the official Marketplace Mock lane and off in the hybrid lane.
+  - **Garden's happy path.** The reviewed creator declaration of the full D-076 register (`MANUAL_DECLARATION_POC`), bound to the labelled synthetic client document `garden-d076-ownership-declaration-client.pdf`. The document's content is not automatically verified against the declaration.
+  - **Legacy flows that opt in, labelled:** the Garden protocol fixture flows, the hybrid legacy-lane test, and the existing Garden E2E server lanes (`garden-partnership`, the Garden protocol fixture, `garden-existing-customer`, and the sponsor fixture).
+  - **Operator note.** A retained `GARDEN_SUPPLEMENT_ENABLED=true` in an operator `.env` now turns the fixture on; it is inert in the hybrid lane.
+  - **Correction.** The earlier "Unchanged: the supplement-on lane" line is superseded: the supplement is now off unless opted in.
+  - **Not done.** The browser E2E specs were not migrated to the declaration flow, nor executed (no Docker daemon or frontend `node_modules` in this environment).

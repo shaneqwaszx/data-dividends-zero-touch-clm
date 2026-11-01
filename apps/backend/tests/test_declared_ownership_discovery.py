@@ -510,9 +510,13 @@ def test_garden_demo_happy_path_uses_the_case_bound_declaration_not_the_suppleme
     assert found["ownership"]["state"] == "ANALYZED"
     assert {edge[3] for edge in found["edges"]} == {"MANUAL_DECLARATION_POC"}
     # Official Mock evidence keeps its own provenance beside the declaration.
-    assert {(item["provider"], item["environment"]) for item in found["ownership"]["evidence"]} <= {
-        ("ACRA_REGISTRY_ACQUISITION", "MOCK")
+    provenance = {
+        (item["provider"], item["environment"]) for item in found["ownership"]["evidence"]
     }
+    assert provenance in (set(), {("ACRA_REGISTRY_ACQUISITION", "MOCK")})
+    # The legacy supplement contributed nothing: no supplemental graph or evidence.
+    assert found["ownership"]["supplemental_relationships"] == []
+    assert found["ownership"]["source_classification"] == "SINGLE_SOURCE"
     assert {name: value for name, value in found["ubo"].items()} == {
         "ABCD123": (Decimal("51.13636375"), "PROVISIONAL_UBO_CANDIDATE", "MET"),
         "LIM CHOON HUAT": (Decimal("37.5"), "PROVISIONAL_UBO_CANDIDATE", "MET"),

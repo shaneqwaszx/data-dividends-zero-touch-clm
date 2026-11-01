@@ -273,6 +273,9 @@ def main() -> int:
                 "acra_connector_mode": "api_marketplace_mock",
                 "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),
                 "acra_api_marketplace_mock_secret_key": SecretStr("synthetic-offline-key"),
+                # D-112: this existing Garden lane explicitly opts in to the labelled
+                # legacy supplement (off by default).
+                "garden_supplement_enabled": True,
             })
             garden_transport = GardenCorrectionProtocolTransport()
             fixture_connector = build_acra_connector(
