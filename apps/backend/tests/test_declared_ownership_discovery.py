@@ -469,3 +469,65 @@ def test_post_discovery_validation_admits_only_official_mock_additions() -> None
     # Without the flag, an official-looking link under a declaration never passes.
     with pytest.raises(OwnershipGraphError):
         service._validate_source(source("ACRA_REGISTRY_ACQUISITION", "MOCK"), metadata, "11111999A")
+
+
+GARDEN_DECLARATION_PDF = "garden-d076-ownership-declaration-client.pdf"
+
+
+def test_the_garden_declaration_document_is_reproducible_and_states_each_value() -> None:
+    from pathlib import Path
+
+    from pypdf import PdfReader
+    from scripts.generate_garden_declaration_pdf import OUTPUT, render
+
+    assert Path(OUTPUT).read_bytes() == render()
+    text = " ".join(PdfReader(OUTPUT, strict=True).pages[0].extract_text().split())
+    assert "SYNTHETIC TEST" in text and "not an ACRA extract" in text
+    for party, value in (
+        ("SIM LIM PTE. LTD. (UEN 111111111M)", "62.5"),
+        ("LIM CHOON HUAT", "37.5"),
+        ("ABCD123", "81.818182"),
+        ("TAN WEI LING", "9.090909"),
+        ("EFGH2345", "9.090909"),
+    ):
+        assert f"{party} {value} percent" in text
+
+
+def test_garden_demo_happy_path_uses_the_case_bound_declaration_not_the_supplement() -> None:
+    # The supplement is off (autouse fixture): only official Mock evidence plus the
+    # creator's reviewed declaration, bound to the document that states it.
+    context, client, case_id = onboard(GARDEN_FIELDS, GARDEN_DECLARATION_PDF)
+    before = facts(client, case_id)
+    assert before["ownership"]["source_classification"] == "SINGLE_SOURCE"
+    assert before["blockers"] == ["OWNERSHIP_REVIEW_REQUIRED"]
+    response = declare(client, case_id, [*GARDEN_LEVEL, *SIM_LEVEL], root="GARDEN")
+    found = facts(client, case_id)
+    assert response.status_code == 200, response.text
+    receipt = found["ownership"]["manual_review_receipt"]
+    documents = successful(client.get(f"/api/onboarding/cases/{case_id}/documents"))
+    [document] = [item for item in documents if not item["superseded_by_document_id"]]
+    assert receipt["evidence_document_id"] == document["document_id"]
+    assert found["ownership"]["state"] == "ANALYZED"
+    assert {edge[3] for edge in found["edges"]} == {"MANUAL_DECLARATION_POC"}
+    # Official Mock evidence keeps its own provenance beside the declaration.
+    assert {(item["provider"], item["environment"]) for item in found["ownership"]["evidence"]} <= {
+        ("ACRA_REGISTRY_ACQUISITION", "MOCK")
+    }
+    assert {name: value for name, value in found["ubo"].items()} == {
+        "ABCD123": (Decimal("51.13636375"), "PROVISIONAL_UBO_CANDIDATE", "MET"),
+        "LIM CHOON HUAT": (Decimal("37.5"), "PROVISIONAL_UBO_CANDIDATE", "MET"),
+        "TAN WEI LING": (Decimal("5.681818125"), "BELOW_PROVISIONAL_THRESHOLD", "NOT_MET"),
+        "EFGH2345": (Decimal("5.681818125"), "BELOW_PROVISIONAL_THRESHOLD", "NOT_MET"),
+    }
+    names = {item["party_id"]: item["display_name"] for item in found["ownership"]["parties"]}
+    assert {
+        names[item["party_id"]]: Decimal(item["effective_ownership_percent"])
+        for item in found["ownership"]["entity_effective_interests"]
+    } == {"SIM LIM PTE. LTD.": Decimal("62.5")}
+    assert found["blockers"] == []
+    assert found["exceptions"] == ["TARGET_CONFIRMATION_REQUIRED"]
+    assert found["summary"]["case"].get("goldtier_result") is None
+    sent = confirm(client, found["summary"])
+    context.__exit__(None, None, None)
+    assert sent["status"] == "COMPLETED"
+    assert sent["case"].get("goldtier_result") is not None
