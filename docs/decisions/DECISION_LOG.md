@@ -1917,3 +1917,82 @@ Acceptance after approval (targets for the re-scored 17 questions on Fast): over
 2.85 (from 2.75), completeness at least 2.60 (from 2.24), grounding 3.00, correctness at least
 2.94, rejects at most 1 (from 2) with P06#1 and P06#2 accepted, no unsafe line, prompt under
 9,250 characters, every earlier guardrail test passing. Until then these are NOT EXECUTED.
+
+## D-112 - evidence-based POC ownership basis for every company on the official Mock lane (OWNER-APPROVED 2026-11-01, O1 to O8)
+
+Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extended from catalogue scenarios to any company, using one rule in code and no per-company code or configuration.
+
+- **Calculation (O1).** When no compatible ACRA quantity produced a graph, an official Mock root register is converted at `holder current units / issuer's total current units x 100` (the existing six-decimal `quantized_unit_share`). Each link has `LOCAL_POC_ASSUMED_EQUAL_UNITS` / `LOCAL` provenance (`quantify_poc_equal_units`). The source evidence is retained unchanged. Withdrawn or ceased rows stay history and never enter the denominator. Any other status, a non-positive unit count, a duplicate holder, an ACRA denominator, a percentage scalar or a conflict means no POC link.
+- **Classes (O2).** The untrusted D-080 class and currency now label root unit evidence (`share_class`). Current units of more than one class, or with no reported class, are never combined: the analysis stays in review with a precise mixed-class message. This narrows D-081's labelled pooling for the generic basis only; hybrid scenarios are unchanged.
+- **Acceptance (O1, O3, O4).** The code-level declaration `EVIDENCE_POC_BASIS_V1` (recorded in `overlay_scenario_id` under the D-085 policy literal, so API and frontend types are unchanged) accepts only `EQUAL_UNIT_DENOMINATOR` and the root's official Mock officer roles as descriptive context. It requires:
+  - identity binding and a supported legal form (`OTHER` and `GOVERNMENT` never qualify);
+  - only POC links from the root to natural persons, each matching its recomputed share;
+  - complete discovery, if run;
+  - no unquantified, contradictory, conflicting, unbound, unsupported, unresolved, document-discrepant or supplemental cause;
+  - review-classified candidates with calculated assumed-basis results (the inclusive 25% threshold).
+  Classifications and issues are unchanged, and POC percentages are never verified UBO ownership.
+- **Indirect.** A corporate holder is never accepted on the generic basis; it stays in review until its own register is resolved. Generic indirect POC discovery is NOT implemented.
+- **Switch (O5).** `ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE` is one official Mock lane switch, now defaulting to `accept_eligible_poc`. It has no effect off that lane and is never configured per company.
+- **Excluded (O6).** Sandbox and Live never receive an assumption-based quantity or acceptance.
+- **Demo scenarios (O7).** NOT changed in this slice: the hybrid scenario declarations still apply in `hybrid_direct_overlay`.
+- **Existing cases (O8).** Only new analyses are affected; operators re-run analyses for existing cases. There is no migration.
+- **Unchanged.** Explicit Mock GoldTier submission confirmation, reviewer controls, the manual review receipt, provenance and audit events.
+- **Remaining gap.** `_review_causes` still names the legacy Garden fixture UEN for its supplement lane.
+- **Completion (owner follow-up, 2026-11-01).**
+  - **Each issuer.** The same rule now runs for every issuer: at the root before discovery, and inside discovery for each corporate holder's own register. The existing Decimal path engine then gives direct, indirect and aggregated interests against the inclusive 25% threshold (for example, 80% x 50% = 40%).
+  - **Corporate holders.** A corporate holder is accepted once its own register resolved and the discovery graph is complete. Every edge must be an official Mock registry link or a POC link that matches its issuer's own recomputed single-class basis.
+  - **Collection completeness.** This is judged separately from totals (`ownership_collection_complete`): the shareholder operation must be `COMPLETE` and every returned row kept. The provider never asserts that its register is the issuer's complete legal register; that stays the labelled O1 assumption.
+  - **Discovery outcomes.** A `PARTIAL` issuer bundle whose other operations are only `EMPTY` (a definitive answer) is judged on its evidence. Issuers whose units cannot be combined get precise discovery reasons: `ISSUER_SHARE_CLASSES_MIXED` or `ISSUER_UNITS_NOT_QUANTIFIED`.
+  - **D-080 narrowed.** Ownership parties now keep the untrusted source class and currency, which O2 needs. Stored bundles without classes stay unquantified until they are refreshed (fail-closed).
+  - **Garden UEN removed** from the review-cause path; the legacy supplement lane is recognised by its classification alone.
+  - **Not done here (owner step).** Retiring the hybrid scenario declarations (O7), about 52 test assertions plus the demo lane. Removing the default-lane Garden fixture supplement, whose eligibility is Garden-specific.
+
+- **Review notes (2026-11-01).**
+  - **Sandbox and Live.** Keeping the class label on ownership parties applies in every environment, but it only stops units of different classes being combined. Verified paths are unchanged: provider percentages, and an authoritative denominator with one class. No POC basis or acceptance exists outside Mock (tested in `test_sandbox_and_live_keep_verified_paths_and_never_pool_classes`).
+  - **Rollback.** A bundle stored with a class label fails validation under code older than D-112.
+  - **Completeness.** It rests on the provider's own `COMPLETE` status, because the row-count check mirrors the bundle validator. A provider that silently truncates its collection is not detectable, and a 100% total never counts as completeness.
+  - **Owner step still open (O7 and Garden supplement; O7 superseded by the entry below).** Retiring the scenario declarations breaks 82 existing tests across 4 modules (D-085/D-086/D-087/D-089), about 35 of them defect cases to re-derive against the generic rule, so it is deferred rather than weakened. The default-lane Garden fixture supplement is also unchanged.
+
+- **O7 retired (owner approval 2026-11-01).**
+  - **Catalogue.** No catalogue scenario declares POC acceptance any more (Garden direct, OPQ Garden/SIM LIM, OPQ Garden/ABC).
+  - **One rule.** `eligible_poc_acceptance` ignores any scenario argument and applies the code-level evidence rule. An analysis whose discovery records an overlay scenario never qualifies, so the hybrid demonstrations stay usable as labelled evidence but are held for ownership review. The deleted helper code was the scenario-only declaration and guard logic (`_undeclared_intermediate_roles`, `_issued_capital_links_disagree` and the edge-assumption map).
+  - **Role-integrity guards carried over.** The generic rule now holds the role guards the scenario path enforced:
+    - every root role is the adapter's own record, with an evidence id derived from its officer id, once, with a supported status;
+    - a role at another entity that is ownership-like blocks;
+    - evidence ids are unique.
+  - **Generic baseline.** The D-085 suite now runs on an ordinary company with no scenario (`tests/evidence_poc_fixture.py`), over the real Marketplace Mock protocol path. Its defect cases, readiness, toggling, confirmation, document-binding, persistence and schema tests are kept and re-pointed to it.
+  - **Obsolete expectations** (recorded in `RETIRED_D087_EXPECTATIONS` / `RETIRED_D089_EXPECTATIONS` and `OBSOLETE_HYBRID_ONLY`), each asserted against a scenario's own acceptance that no longer exists:
+    - the D-087 intermediate-role declaration and its validators and runtime guards;
+    - revoking a recorded scenario acceptance;
+    - tampered issued-capital links;
+    - locally named or non-distributed hybrid issuer records.
+    The hybrid-only defect cases are still asserted against the hybrid Garden case, which can no longer qualify. The live guards from the retired D-087 round-trip test are kept in `test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields`: older schemas reject D-086 role observations and legacy intermediate counts, roles require an official entity profile, and a D-082 acceptance never carries intermediate counts.
+
+- **Declaration plus official discovery (owner priority, 2026-11-01).**
+  - **Discovery after a declaration.** A reviewed creator declaration (`MANUAL_DECLARATION_POC`) may name corporate holders with a verified UEN and no declared owners of their own. Those holders are discovered through the same official Mock lookups as any issuer. Discovery runs after every receipt check, and post-discovery validation admits only official Mock registry links, labelled equal-unit links and official Mock evidence attached by discovery. Declared links keep the declaration's own provenance.
+  - **Entity-less official rows outside a scenario.** An issuer's entity-less official Mock rows (D-079) are distributed on the equal-unit basis without a scenario overlay only when every current row reports one class and currency (O2). The discovery audit then carries the same explicit evidence separation as a hybrid analysis, and is never `COMPLETE` certainty.
+  - **What this gives.** With a single-class SIM LIM register, a declaration of only Garden's own owners reproduces the original graph and percentages, with each link's true source. It stays in review because SIM LIM's level rests on the equal-unit assumption, and no POC acceptance exists for a declared analysis (an owner policy decision).
+  - **What it does not do.** SIM LIM's observed Mock rows mix Ordinary, Preference and Others, so they are never pooled below a declaration. OPQ -> Garden still blocks: Garden is a partnership with no official ownership register (`PROVIDER_UNSUPPORTED`). ABC's register is a scenario-only D-088 business profile (`NOT_FOUND`). Nothing is reused across onboardings.
+  - **Unchanged.** Full declarations and the supplement-on lane.
+  - **Changed official-only behaviour.** An ACRA-root analysis whose corporate holder has entity-less, single-class official rows now gets labelled equal-unit links for that holder, with explicit evidence separation and UNCERTAIN certainty. It is still never accepted, because the holder stays `PROVIDER_PARTIAL` and the graph is incomplete.
+  - **QG remediation.**
+    - Official evidence that discovery attaches below a declaration is retained on the declared analysis, so its review causes are never dropped. The declared analysis stays in review; its cause there is the units' unresolved status, because the per-issuer POC basis applies only to official-lane analyses.
+    - The load path's currentness recheck now also runs after discovery under a declaration.
+  - **Limitations.**
+    - On the Marketplace Mock transport the relationships operation is unsupported, so a corporate holder that has an entity profile is `PROVIDER_UNSUPPORTED` and never attached. Only entity-less registers, such as SIM LIM's, combine there.
+    - The schema stays 17. A schema-17 reader older than this change rejects an audit with POC records but no overlay, which is fail-closed on rollback.
+- **Legal-form observation (investigation only, nothing changed).**
+  - **The rule.** D-101: the registry legal forms `OTHER` and `GOVERNMENT` have no supported ownership method and raise `OWNERSHIP_METHOD_UNSUPPORTED`.
+  - **Why a declaration skips it.** A declared source carries no `legal_form` (`manual_ownership_evidence.py`, `OwnershipSourceResult` without it), so the check never runs and a declared `OTHER` company can reach `ANALYZED` and readiness. GoldTier confirmation is still required.
+  - **Options for the owner:**
+    - (a) keep it: the declaration is the reviewer's attestation;
+    - (b) carry the case's registry legal form into the declared analysis and keep the issue blocking;
+    - (c) carry it as a visible, non-blocking review note.
+
+- **Garden cutover (owner decision, 2026-11-01).**
+  - **The setting.** `garden_supplement_enabled` now actually controls the legacy flattened Garden fixture: an explicit opt-in, default off. It is off outside the official Marketplace Mock lane and off in the hybrid lane.
+  - **Garden's happy path.** The reviewed creator declaration of the full D-076 register (`MANUAL_DECLARATION_POC`), bound to the labelled synthetic client document `garden-d076-ownership-declaration-client.pdf`. The document's content is not automatically verified against the declaration.
+  - **Legacy flows that opt in, labelled:** the Garden protocol fixture flows, the hybrid legacy-lane test, and the existing Garden E2E server lanes (`garden-partnership`, the Garden protocol fixture, `garden-existing-customer`, and the sponsor fixture).
+  - **Operator note.** A retained `GARDEN_SUPPLEMENT_ENABLED=true` in an operator `.env` now turns the fixture on; it is inert in the hybrid lane.
+  - **Correction.** The earlier "Unchanged: the supplement-on lane" line is superseded: the supplement is now off unless opted in.
+  - **Not done.** The browser E2E specs were not migrated to the declaration flow, nor executed (no Docker daemon or frontend `node_modules` in this environment).

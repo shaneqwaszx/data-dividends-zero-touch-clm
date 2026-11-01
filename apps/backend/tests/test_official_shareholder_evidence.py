@@ -651,9 +651,9 @@ def test_only_current_rows_decide_whether_share_classes_are_mixed() -> None:
     } == {"SYNTHETIC CURRENT ONE": Decimal("60"), "SYNTHETIC CURRENT TWO": Decimal("40")}
 
 
-def test_ordinary_acquisitions_never_carry_a_share_class() -> None:
-    # A COMPANY-form official issuer: the shared decoder reads `shareType`, yet the
-    # ordinary acquisition bundle drops it; only entity-less shareholder evidence keeps it.
+def test_ordinary_acquisitions_keep_the_untrusted_share_class() -> None:
+    # D-112 (owner O2) narrows D-080: a COMPANY-form issuer's ordinary acquisition keeps
+    # the untrusted class and currency, so mixed classes are detected and never combined.
     transport = OfflineFiveLayerProtocolTransport()
     transport.profiles[L2_UEN] = company_profile(
         L2_UEN, "OFFICIAL SYNTHETIC L2 PTE. LTD.", "PRIVATE COMPANY LIMITED BY SHARES"
@@ -676,11 +676,9 @@ def test_ordinary_acquisitions_never_carry_a_share_class() -> None:
     assert bundle is not None
     assert [
         (item.share_allotted, item.share_type, item.currency) for item in bundle.ownership_parties
-    ] == [(Decimal("10"), None, None)]
-    with_class = bundle.model_dump()
-    with_class["ownership_parties"][0]["share_type"] = "Preference"
-    with pytest.raises(ValidationError):
-        type(bundle).model_validate(with_class)
+    ] == [(Decimal("10"), "Preference", "SINGAPORE DOLLAR")]
+    # The retained label round-trips through validation (stored and cached bundles).
+    assert type(bundle).model_validate(bundle.model_dump()) == bundle
 
 
 def test_rows_named_like_the_local_fixture_keep_the_mock_values_and_provenance() -> None:
@@ -1413,6 +1411,10 @@ def test_poc_links_can_be_neither_kept_nor_redeclared_by_the_creator() -> None:
         "EFGH2345": (Decimal("5.681818125"), "REVIEW_REQUIRED", "INDETERMINATE"),
     }
     assert ownership["state"] == "REVIEW_REQUIRED"
+    # D-112 (O7): no scenario declares acceptance, so this hybrid Garden demonstration is
+    # never accepted and the ownership review blocker holds, even with the switch on.
+    assert ownership["poc_acceptance"] is None
+    assert ownership["poc_basis_accepted"] is False
     assert "OWNERSHIP_REVIEW_REQUIRED" in summary["clm"]["readiness"]["blockers"]
 
     # D-081 owner decision (F1): keeping, redeclaring unchanged, or keeping any single POC

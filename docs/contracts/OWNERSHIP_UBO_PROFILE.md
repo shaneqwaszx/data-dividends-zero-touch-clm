@@ -186,9 +186,10 @@ the bounded safe-text/control-character/prompt-marker and length checks. Actor/t
 source selection, as-of date, document IDs/event versions, selected immutable
 observations, graph and replacement bindings remain structured audit evidence.
 Historical string rationale decodes without read-time rewriting or fabricated prose.
-`GARDEN_SUPPLEMENT_ENABLED` is deprecated compatibility input; neither value disables
-the accepted official-Mock Garden path. Its historical true/outside-official-lane
-configuration rejection remains; internal isolated provider test seams remain explicit.
+`GARDEN_SUPPLEMENT_ENABLED` (D-112) controls the legacy flattened Garden fixture: an
+explicit opt-in, default off. Garden's happy path is the reviewed creator declaration
+(`MANUAL_DECLARATION_POC`) bound to its client document; the document's content is not
+automatically verified. True outside the official lane remains a configuration error.
 
 For that exact validated fixture graph, official OFFICERS role rows remain descriptive
 registry evidence and do not create a second quantitative ownership requirement.

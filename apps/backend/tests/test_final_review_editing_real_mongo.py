@@ -205,7 +205,12 @@ def test_physical_am18_retained_409_checkpoint_survives_restart_and_stale_writer
         blocked = client.get(f"/api/clm/zero-touch/cases/{cid}").json()
         graph = client.get(f"/api/onboarding/cases/{cid}/ownership").json()
         assert graph["state"] == "REVIEW_REQUIRED"
-        assert {issue["code"] for issue in graph["issues"]} == {"INCOMPLETE_LEGAL_ENTITY"}
+        # D-112: the declared ownerless corporate holder is also looked up through official
+        # discovery; the Mock registry has no record of it, so it is reported unresolved.
+        assert {issue["code"] for issue in graph["issues"]} == {
+            "INCOMPLETE_LEGAL_ENTITY",
+            "CORPORATE_OWNERSHIP_UNRESOLVED",
+        }
         assert graph["manual_review_receipt"]["rationale"] is None
         assert blocked["current_stage"] == "OWNERSHIP"
         assert blocked["version"] > before["version"]

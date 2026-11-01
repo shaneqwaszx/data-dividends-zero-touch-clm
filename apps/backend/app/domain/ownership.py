@@ -734,9 +734,14 @@ class OwnershipDiscoveryAudit(BaseModel):
             if item.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
         ]
         if self.overlay_scenario_id is None:
-            if any(value is not None for value in separated) or overlay_records or poc_records:
+            if overlay_records:
                 raise ValueError("evidence separation is retained only for hybrid overlays")
-            return self
+            if not poc_records:
+                if any(value is not None for value in separated):
+                    raise ValueError("evidence separation is retained only for hybrid overlays")
+                return self
+            # D-112: official equal-unit issuers outside a scenario carry the same explicit
+            # evidence separation; they are never quantitative or certain evidence.
         if any(value is None for value in separated):
             raise ValueError("hybrid overlays require explicit evidence separation")
         topology = all(discovery_topology_resolved(item) for item in self.records)
@@ -893,6 +898,12 @@ POC_ASSUMPTION_ISSUES: dict[PocAssumption, OwnershipIssueCode] = {
     PocAssumption.DESCRIPTIVE_OFFICER_ROLES: OwnershipIssueCode.UBO_REVIEW_REQUIRED,
     PocAssumption.UNCLASSIFIED_LEGAL_FORM: OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED,
 }
+# Owner O1/O3 (2026-11-01): the code-level evidence basis for any company, recorded in
+# `overlay_scenario_id`; it never accepts simulated links or an unclassified legal form.
+EVIDENCE_POC_BASIS_ID = "EVIDENCE_POC_BASIS_V1"
+EVIDENCE_POC_ASSUMPTIONS: frozenset[PocAssumption] = frozenset(
+    {PocAssumption.EQUAL_UNIT_DENOMINATOR, PocAssumption.DESCRIPTIVE_OFFICER_ROLES}
+)
 
 
 class OwnershipPocAcceptance(BaseModel):
@@ -962,9 +973,16 @@ class OwnershipPocAcceptance(BaseModel):
             # Exactly the synthetic-evidence marker plus one issue per exercised
             # assumption; equal-unit links exist exactly when that assumption does. The
             # one registry review issue is chosen by priority, so OTHER masks the roles.
-            expected = {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE} | {
+            evidence_basis = self.overlay_scenario_id == EVIDENCE_POC_BASIS_ID
+            # O1 (2026-11-01): the code-level evidence basis has no synthetic marker and
+            # accepts only the equal-unit denominator and descriptive officer roles.
+            expected = (
+                set() if evidence_basis else {OwnershipIssueCode.SYNTHETIC_OWNERSHIP_EVIDENCE}
+            ) | {
                 POC_ASSUMPTION_ISSUES[item] for item in assumptions if item in POC_ASSUMPTION_ISSUES
             }
+            if evidence_basis and not assumptions <= EVIDENCE_POC_ASSUMPTIONS:
+                raise ValueError("POC acceptance covers only declared POC assumption issues")
             if PocAssumption.UNCLASSIFIED_LEGAL_FORM in assumptions:
                 expected.discard(OwnershipIssueCode.UBO_REVIEW_REQUIRED)
             valid = (
@@ -1004,7 +1022,14 @@ def _poc_acceptance_is_bound(
     return acceptance is None or (
         acceptance.analysis_id == analysis_id
         and state == OwnershipAnalysisState.REVIEW_REQUIRED
-        and source_classification == "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY"
+        # A scenario basis binds only a hybrid analysis; the D-112 evidence basis binds
+        # only a single-source official analysis.
+        and source_classification
+        == (
+            "SINGLE_SOURCE"
+            if acceptance.overlay_scenario_id == EVIDENCE_POC_BASIS_ID
+            else "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY"
+        )
         and manual_review_receipt is None
     )
 
@@ -1063,7 +1088,7 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
             source_classification=self.source_classification,
             manual_review_receipt=self.manual_review_receipt,
         ):
-            raise ValueError("a POC acceptance binds only its own hybrid review analysis")
+            raise ValueError("a POC acceptance binds only its own matching review analysis")
         return self
 
 
@@ -1127,5 +1152,5 @@ class OwnershipAnalysisRecord(BaseModel):
             source_classification=self.source_classification,
             manual_review_receipt=self.manual_review_receipt,
         ) or (self.poc_acceptance is not None and self.poc_acceptance.case_id != self.case_id):
-            raise ValueError("a POC acceptance binds only its own hybrid review analysis")
+            raise ValueError("a POC acceptance binds only its own matching review analysis")
         return self

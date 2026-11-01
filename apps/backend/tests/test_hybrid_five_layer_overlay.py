@@ -137,9 +137,12 @@ def build(
     overlay: str = "hybrid_direct_overlay",
     discovery: OwnershipDiscoveryPolicySnapshot | None = DISCOVERY,
     repository: Any = None,
+    garden_supplement: bool = False,
 ) -> tuple[OnboardingService, OwnershipAnalysisService, OfflineFiveLayerProtocolTransport]:
     active = transport or OfflineFiveLayerProtocolTransport()
-    active_settings = settings(overlay)
+    active_settings = settings(overlay).model_copy(
+        update={"garden_supplement_enabled": garden_supplement}
+    )
     onboarding = build_onboarding_service(
         settings=active_settings,
         acra_transport=active,
@@ -673,8 +676,14 @@ def test_an_officially_found_non_scenario_issuer_stays_unresolved(unit_rows: boo
     assert transport.calls[("SHAREHOLDERS", "111111111M")] == 1
 
 
-def test_default_official_lane_keeps_the_accepted_flattened_garden_supplement() -> None:
-    onboarding, ownership, transport = build(overlay="garden_legacy_supplement")
+def test_the_legacy_lane_composes_the_flattened_garden_supplement_only_when_opted_in() -> None:
+    # D-112: off by default, Garden is official evidence only (no register, review).
+    onboarding, ownership, _ = build(overlay="garden_legacy_supplement")
+    default = analyze(onboarding, ownership, "11111999A")
+    assert (default.source_classification, default.relationships) == ("SINGLE_SOURCE", [])
+    onboarding, ownership, transport = build(
+        overlay="garden_legacy_supplement", garden_supplement=True
+    )
     record = analyze(onboarding, ownership, "11111999A")
     assert record.source_classification == "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
     assert record.discovery is None

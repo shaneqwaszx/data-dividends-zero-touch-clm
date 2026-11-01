@@ -23,7 +23,7 @@ from scripts.five_layer_hybrid_fixture import (
 )
 from test_opq_garden_sim_lim_scenario import OBSERVED_OPQ_POSITIONS, garden_roles, opq_transport
 from test_poc_ownership_acceptance import lane, ownership_of, runtime, service_lane, summary_of
-from test_slice_b_registry_demo import confirm, start
+from test_slice_b_registry_demo import start
 
 from app.connectors.hybrid_ownership_overlay import (
     ABC_COMPANY_UEN,
@@ -44,7 +44,6 @@ from app.domain.ownership import (
     OwnershipDiscoveryOutcome,
 )
 from app.persistence.composition import build_persistence_bundle
-from app.services.ownership_analysis import eligible_poc_acceptance, poc_acceptance_current
 
 GARDEN_UEN = "11111999A"
 MULTI = {"acra_marketplace_opq_scenario": "garden_abc_multi_holder"}
@@ -55,13 +54,6 @@ EXPECTED = {
     "TAN WEI LING": Decimal("2.8409090625"),
     "EFGH2345": Decimal("2.8409090625"),
 }
-ASSUMPTIONS = [
-    "DESCRIPTIVE_INTERMEDIATE_OFFICER_ROLES",
-    "EQUAL_UNIT_DENOMINATOR",
-    "ISSUED_CAPITAL_DENOMINATOR",
-    "SIMULATED_RELATIONSHIPS",
-    "UNCLASSIFIED_LEGAL_FORM",
-]
 
 
 def transport(profile: dict[str, object] | None = None) -> Any:
@@ -143,8 +135,11 @@ def test_profile_issuers_must_be_declared_non_overlay_holders() -> None:
     for issuers in ({GARDEN_UEN}, {FIVE_LAYER_ROOT_UEN}, {"200811111M"}):
         with pytest.raises(ValidationError, match="business profile issuers"):
             HybridOverlayScenario.model_validate({**data, "business_profile_issuers": issuers})
-    with pytest.raises(ValidationError, match="requires named profile issuers"):
-        HybridOverlayScenario.model_validate({**data, "business_profile_issuers": set()})
+    # D-112 (O7): no scenario declares the issued-capital assumption any more, so an
+    # unnamed profile issuer set is simply a scenario that reads no business profile.
+    assert not HybridOverlayScenario.model_validate(
+        {**data, "business_profile_issuers": set()}
+    ).business_profile_issuers
 
 
 # --- The calculation: unchanged engine, exact declared and derived values ----------------
@@ -248,7 +243,7 @@ def test_the_business_profile_is_retained_as_returned_with_the_assumption_separa
 # --- POC acceptance and readiness ----------------------------------------------------------
 
 
-def test_the_observed_variant_is_poc_accepted_without_changing_review_evidence() -> None:
+def test_the_observed_variant_is_calculated_but_never_accepted() -> None:
     ownership, record, _ = analysed()
     assert record.state == OwnershipAnalysisState.REVIEW_REQUIRED
     assert sorted(item.code for item in record.issues) == [
@@ -256,18 +251,13 @@ def test_the_observed_variant_is_poc_accepted_without_changing_review_evidence()
         "OWNERSHIP_METHOD_UNSUPPORTED",
         "SYNTHETIC_OWNERSHIP_EVIDENCE",
     ]
-    acceptance = record.poc_acceptance
-    assert acceptance is not None
-    assert acceptance.overlay_scenario_id == OPQ_GARDEN_ABC_SCENARIO_ID
-    assert list(acceptance.accepted_assumptions) == ASSUMPTIONS
-    assert acceptance.issued_capital_relationship_ids == (
-        f"{ABC_COMPANY_UEN}.BPIC_{ABC_COMPANY_UEN}_1",
-    )
-    assert (
-        acceptance.descriptive_intermediate_current_role_count,
-        acceptance.descriptive_intermediate_ceased_role_count,
-    ) == (3, 1)
-    assert ownership.poc_basis_accepted(record)
+    # D-112 (O7): the issued-capital link is still derived and labelled, but no scenario
+    # declaration accepts the variant for readiness.
+    assert f"{ABC_COMPANY_UEN}.BPIC_{ABC_COMPANY_UEN}_1" in {
+        edge.relationship_id for edge in record.relationships
+    }
+    assert record.poc_acceptance is None
+    assert not ownership.poc_basis_accepted(record)
     assert garden_roles(record)[0] == ("OWNER", "CEASED")
     synthetic = next(i for i in record.issues if i.code == "SYNTHETIC_OWNERSHIP_EVIDENCE")
     assert "LOCAL_POC_ISSUED_CAPITAL_BASIS" in synthetic.message
@@ -363,42 +353,6 @@ def test_the_profile_read_never_happens_outside_the_named_issuers() -> None:
         assert not any(label == "BUSINESS_PROFILE" for label, _ in channel.calls)
 
 
-def test_tampered_issued_capital_links_are_never_accepted() -> None:
-    _, record, _ = analysed()
-    at = record.poc_acceptance.accepted_at  # type: ignore[union-attr]
-    edges = list(record.relationships)
-    index = next(
-        i for i, edge in enumerate(edges) if edge.provenance.provider == POC_ISSUED_CAPITAL_PROVIDER
-    )
-    altered = record.model_copy(
-        update={
-            "relationships": [
-                *edges[:index],
-                edges[index].model_copy(update={"ownership_percent": Decimal("90")}),
-                *edges[index + 1 :],
-            ]
-        }
-    )
-    assert (
-        eligible_poc_acceptance(
-            altered,
-            scenario=OPQ_GARDEN_ABC_SCENARIO,
-            accepted_at=at,
-            ownership_version=record.version,
-        )
-        is None
-    )
-    # An unnamed issuer (scenario configuration change) also revokes it.
-    unnamed = OPQ_GARDEN_ABC_SCENARIO.model_copy(update={"business_profile_issuers": frozenset()})
-    assert (
-        eligible_poc_acceptance(
-            record, scenario=unnamed, accepted_at=at, ownership_version=record.version
-        )
-        is None
-    )
-    assert poc_acceptance_current(record, OPQ_GARDEN_ABC_SCENARIO)
-
-
 def test_the_match_rule_is_exact_and_status_free_only() -> None:
     _, record, _ = analysed()
     profile = abc_record(record).official_business_profile
@@ -418,11 +372,13 @@ def test_the_match_rule_is_exact_and_status_free_only() -> None:
     )
 
 
-def test_default_off_and_other_variants_withdraw_authority() -> None:
+def test_no_composition_or_variant_grants_authority() -> None:
     _, disabled, _ = analysed("disabled")
     assert disabled.poc_acceptance is None
     ownership, record, _ = analysed()
-    assert ownership.poc_basis_accepted(record)
+    # D-112 (O7): enabled or not, the scenario variant is never accepted.
+    assert record.poc_acceptance is None
+    assert not ownership.poc_basis_accepted(record)
     _, reverted = service_lane(
         "accept_eligible_poc", transport(), acra_marketplace_opq_scenario="garden_sim_lim_chain"
     )
@@ -431,7 +387,7 @@ def test_default_off_and_other_variants_withdraw_authority() -> None:
     assert not off.poc_basis_accepted(record)
 
 
-def test_the_case_reaches_target_confirmation_and_only_a_confirmation_sends_to_mock() -> None:
+def test_the_case_is_calculated_but_held_for_ownership_review() -> None:
     settings = lane(**MULTI)
     assert settings.goldtier_connector_mode == "mock"
     bundle = build_persistence_bundle(settings)
@@ -441,8 +397,8 @@ def test_the_case_reaches_target_confirmation_and_only_a_confirmation_sends_to_m
         ]["case_id"]
         ownership = ownership_of(client, case_id)
         summary = summary_of(client, case_id)
-        assert (ownership["poc_basis_accepted"], ownership["state"]) == (True, "REVIEW_REQUIRED")
-        assert ownership["poc_acceptance"]["accepted_assumptions"] == ASSUMPTIONS
+        assert (ownership["poc_basis_accepted"], ownership["state"]) == (False, "REVIEW_REQUIRED")
+        assert ownership["poc_acceptance"] is None
         assert {
             item["party"]["display_name"]: Decimal(item["aggregated_ownership_percent"])
             for item in ownership["candidates"]
@@ -452,20 +408,16 @@ def test_the_case_reaches_target_confirmation_and_only_a_confirmation_sends_to_m
         assert all(
             "source_reference" not in edge["provenance"] for edge in ownership["relationships"]
         )
+        # Ownership holds readiness; no target confirmation is offered and nothing is sent.
         readiness = summary["clm"]["readiness"]
-        assert readiness["blockers"] == []
-        assert readiness["ownership"]["status"] == "READY"
-        assert [item["exception_type"] for item in summary["active_exceptions"]] == [
-            "TARGET_CONFIRMATION_REQUIRED"
+        assert "OWNERSHIP_REVIEW_REQUIRED" in readiness["blockers"]
+        assert readiness["ownership"]["status"] != "READY"
+        assert "TARGET_CONFIRMATION_REQUIRED" not in [
+            item["exception_type"] for item in summary["active_exceptions"]
         ]
         assert summary["case"].get("goldtier_result") is None
+        assert summary["clm"]["submission"] is None
         assert bundle.target_executions.list_for_case(UUID(case_id)) == ()
-        sent = confirm(client, summary)
-    assert sent["status"] == "COMPLETED"
-    snapshot = bundle.clm.get_for_case(UUID(case_id)).submission_snapshot
-    assert snapshot is not None
-    assert snapshot.provisional_ubo.candidate_count == 0
-    assert snapshot.ownership_reference.status == "REVIEW_REQUIRED"
 
 
 def test_the_records_round_trip_in_schema_fifteen_and_older_readers_reject_them() -> None:
@@ -505,20 +457,10 @@ def test_the_records_round_trip_in_schema_fifteen_and_older_readers_reject_them(
 
 def test_an_unnamed_holder_is_never_read_or_interpreted(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.connectors import hybrid_ownership_overlay as overlay
-    from app.domain.ownership import PocAssumption
 
-    declaration = OPQ_GARDEN_ABC_SCENARIO.poc_acceptance
-    assert declaration is not None
+    assert OPQ_GARDEN_ABC_SCENARIO.poc_acceptance is None
     unnamed = HybridOverlayScenario.model_validate(
-        {
-            **OPQ_GARDEN_ABC_SCENARIO.model_dump(),
-            "business_profile_issuers": set(),
-            "poc_acceptance": {
-                **declaration.model_dump(),
-                "accepted_assumptions": declaration.accepted_assumptions
-                - {PocAssumption.ISSUED_CAPITAL_DENOMINATOR},
-            },
-        }
+        {**OPQ_GARDEN_ABC_SCENARIO.model_dump(), "business_profile_issuers": set()}
     )
     monkeypatch.setitem(overlay._OPQ_VARIANTS, "garden_abc_multi_holder", unnamed)
     ownership, record, channel = analysed()
@@ -578,3 +520,8 @@ def test_a_returned_status_can_never_be_recorded_as_assumed_current() -> None:
         OfficialBusinessProfileShareholder.model_validate(
             {**row, "provider_status": "Active", "assumed_current": True}
         )
+
+
+# D-112 (owner O7, 2026-11-01): obsolete, not weakened. It asserted tampering against
+# the scenario's own recorded acceptance; no scenario declares acceptance any more.
+RETIRED_D089_EXPECTATIONS = ("test_tampered_issued_capital_links_are_never_accepted",)
