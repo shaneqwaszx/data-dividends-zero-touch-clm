@@ -510,7 +510,7 @@ def test_the_observed_chain_is_calculated_but_held_for_ownership_review() -> Non
         assert bundle.target_executions.list_for_case(UUID(case_id)) == ()
 
 
-# --- Runtime guards behind the declaration validators (D-087 QG F1/F2) -------------------
+# --- Live persistence and domain guards for hybrid records ----------------------------
 
 
 def test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields() -> None:
@@ -590,8 +590,10 @@ RETIRED_D087_EXPECTATIONS = (
     "test_malformed_or_improperly_bound_intermediate_roles_still_block",
     "test_a_changed_intermediate_role_revokes_the_recorded_acceptance",
     "test_withdrawing_the_policy_reinstates_the_ownership_hold",
+    # Acceptance part retired; its live guards are kept in the round-trip test above.
     "test_the_acceptance_round_trips_in_schema_fifteen_and_older_readers_reject_it",
     "test_each_intermediate_role_runtime_guard_stands_alone",
+    # Kept as the D-082 intermediate-count check in the round-trip test above.
     "test_a_legacy_d082_acceptance_never_carries_intermediate_counts",
     "_declared",
     "_with_garden",
