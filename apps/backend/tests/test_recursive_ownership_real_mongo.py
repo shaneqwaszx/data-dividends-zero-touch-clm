@@ -15,10 +15,8 @@ from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
 )
-from scripts.slice_b_registry_fixture import GARDEN_FIELDS
 from test_ownership_discovery_policy import _legacy_catalogue_with_history
 from test_poc_ownership_acceptance import garden_transport
-from test_slice_b_registry_demo import start
 from test_zero_touch_exception_remediation import successful
 
 from app.composition import (
@@ -396,7 +394,12 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
 def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled(
     physical_settings,
 ):
-    """D-082: enabled -> accepted -> restart disabled or outside the lane -> blocked."""
+    """D-082: enabled -> accepted -> restart disabled or outside the lane -> blocked.
+
+    D-112 (O7): the accepted case is an ordinary company with no scenario, accepted on the
+    generic evidence rule; acceptance is default on (O5), so "disabled" is explicit.
+    """
+    from evidence_poc_fixture import add_generic_company, start_generic
 
     settings, client = physical_settings
     hybrid = {
@@ -410,12 +413,14 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
     enabled = settings.model_copy(
         update={**hybrid, "acra_marketplace_poc_ownership_acceptance": "accept_eligible_poc"}
     )
-    disabled = settings.model_copy(update=hybrid)
+    disabled = settings.model_copy(
+        update={**hybrid, "acra_marketplace_poc_ownership_acceptance": "disabled"}
+    )
     legacy = disabled.model_copy(
         update={"acra_marketplace_ownership_overlay": "garden_legacy_supplement"}
     )
     local_mock = legacy.model_copy(update={"acra_connector_mode": "mock"})
-    transport = garden_transport()
+    transport = add_generic_company(garden_transport())
 
     def application(active: Settings) -> TestClient:
         connector = (
@@ -434,9 +439,7 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
 
     collection = client[settings.mongo_database][settings.mongo_case_collection]
     with application(enabled) as first:
-        case_id = start(first, GARDEN_FIELDS, "garden-partnership-reviewed-client.pdf")["case"][
-            "case_id"
-        ]
+        case_id = start_generic(first)["case"]["case_id"]
         accepted = successful(first.get(f"/api/onboarding/cases/{case_id}/ownership"))
         summary = successful(first.get(f"/api/clm/zero-touch/cases/{case_id}"))
         assert (accepted["state"], accepted["poc_basis_accepted"]) == ("REVIEW_REQUIRED", True)
@@ -447,10 +450,10 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
     raw = collection.find_one({"_id": case_id})
     assert raw is not None and raw["schema_version"] == 17
     assert raw["ownership"]["poc_acceptance"]["policy"] == "D085_SCENARIO_DECLARED_POC_BASIS_V1"
+    assert raw["ownership"]["poc_acceptance"]["overlay_scenario_id"] == "EVIDENCE_POC_BASIS_V1"
     assert raw["ownership"]["poc_acceptance"]["accepted_assumptions"] == [
         "DESCRIPTIVE_OFFICER_ROLES",
         "EQUAL_UNIT_DENOMINATOR",
-        "SIMULATED_RELATIONSHIPS",
     ]
 
     for restarted in (disabled, legacy, local_mock):
