@@ -334,11 +334,14 @@ def poc_mixed_share_classes(
 
 
 def ownership_collection_complete(acquisition: RegistryAcquisitionBundle | None) -> bool:
-    """D-112: the provider's shareholder operation completed and every returned row kept.
+    """D-112: the provider reported its shareholder operation COMPLETE.
 
-    This is collection completeness as the provider reports it, independent of whether
-    calculated percentages total 100. The provider never asserts that its register is
-    the issuer's complete legal register; that remains the labelled O1 POC assumption.
+    This is collection completeness only as the provider reports it, and it is judged
+    independently of whether calculated percentages total 100 (a 100% total proves
+    nothing). The row-count check mirrors the bundle validator, so in practice it rests
+    on the provider's status: a provider that silently truncates its own collection is
+    not detectable here. The provider never asserts that its register is the issuer's
+    complete legal register; that remains the labelled O1 POC assumption.
     """
 
     result = next(

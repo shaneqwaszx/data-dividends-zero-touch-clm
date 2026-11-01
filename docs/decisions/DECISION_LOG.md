@@ -1946,3 +1946,9 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **D-080 narrowed.** Ownership parties now keep the untrusted source class and currency, which O2 needs. Stored bundles without classes stay unquantified until they are refreshed (fail-closed).
   - **Garden UEN removed** from the review-cause path; the legacy supplement lane is recognised by its classification alone.
   - **Not done here (owner step).** Retiring the hybrid scenario declarations (O7), about 52 test assertions plus the demo lane. Removing the default-lane Garden fixture supplement, whose eligibility is Garden-specific.
+
+- **Review notes (2026-11-01).**
+  - **Sandbox and Live.** Keeping the class label on ownership parties applies in every environment, but it only stops units of different classes being combined. Verified paths are unchanged: provider percentages, and an authoritative denominator with one class. No POC basis or acceptance exists outside Mock (tested in `test_sandbox_and_live_keep_verified_paths_and_never_pool_classes`).
+  - **Rollback.** A bundle stored with a class label fails validation under code older than D-112.
+  - **Completeness.** It rests on the provider's own `COMPLETE` status, because the row-count check mirrors the bundle validator. A provider that silently truncates its collection is not detectable, and a 100% total never counts as completeness.
+  - **Owner step still open (O7 and Garden supplement).** Retiring the scenario declarations breaks 82 existing tests across 4 modules (D-085/D-086/D-087/D-089), about 35 of them defect cases to re-derive against the generic rule, so it is deferred rather than weakened. The default-lane Garden fixture supplement is also unchanged.

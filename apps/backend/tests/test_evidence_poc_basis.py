@@ -244,3 +244,41 @@ def test_an_accepted_evidence_record_survives_prior_snapshot_and_readback() -> N
         {**record.model_dump(), "prior_analyses": [snapshot.model_dump()]}
     )
     assert carrying.prior_analyses[0].poc_acceptance == accepted.poc_acceptance
+
+
+def test_sandbox_and_live_keep_verified_paths_and_never_pool_classes() -> None:
+    """Review note: retained class labels only stop mixed classes being combined."""
+    from test_phase24_ownership_evidence import denominator, evidence, source
+
+    from app.services.ownership_analysis import quantify_ownership_evidence
+
+    for env in ("SANDBOX", "LIVE"):
+        # A provider percentage is verified-evidence quantification, class labels or not.
+        percentage = evidence(
+            kind="DIRECT_PERCENTAGE",
+            raw_value="60",
+            numeric_value="60",
+            environment=env,
+            determination_basis="PROVIDER_PERCENTAGE",
+            share_class=None,
+            unit_type=None,
+        )
+        assert [e.ownership_percent for e in quantify_ownership_evidence(
+            source((percentage,))
+        ).relationships] == [Decimal("60")]
+        # Units with one class and an authoritative denominator still calculate exactly.
+        same = (
+            evidence(environment=env),
+            evidence(
+                evidence_id="units-b", party_id="PERSON_B", raw_value="4000",
+                numeric_value="4000", environment=env,
+            ),
+            denominator(environment=env),
+        )
+        assert sorted(
+            e.ownership_percent for e in quantify_ownership_evidence(source(same)).relationships
+        ) == [Decimal("40"), Decimal("60")]
+        # Mixed classes are never combined, and no POC basis exists outside Mock.
+        mixed = (same[0], same[1].model_copy(update={"share_class": "PREFERENCE"}), same[2])
+        assert quantify_ownership_evidence(source(mixed)).relationships == []
+        assert poc_unit_basis(same[:2], "202400001A") is None

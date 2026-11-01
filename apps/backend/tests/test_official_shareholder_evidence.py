@@ -1411,11 +1411,12 @@ def test_poc_links_can_be_neither_kept_nor_redeclared_by_the_creator() -> None:
         "EFGH2345": (Decimal("5.681818125"), "REVIEW_REQUIRED", "INDETERMINATE"),
     }
     assert ownership["state"] == "REVIEW_REQUIRED"
-    # D-112 (O5): acceptance is default on; the review blocker remains exactly when no
-    # POC basis was accepted, and the creator refusals below hold either way.
-    assert ("OWNERSHIP_REVIEW_REQUIRED" in summary["clm"]["readiness"]["blockers"]) == (
-        ownership["poc_acceptance"] is None
-    )
+    # D-112 (O5): acceptance is default on, so this declared scenario case is accepted on
+    # its POC basis and the ownership review blocker is lifted; classifications stay
+    # review-required and the creator refusals below still hold.
+    assert ownership["poc_acceptance"] is not None
+    assert ownership["poc_acceptance"]["policy"] == "D085_SCENARIO_DECLARED_POC_BASIS_V1"
+    assert "OWNERSHIP_REVIEW_REQUIRED" not in summary["clm"]["readiness"]["blockers"]
 
     # D-081 owner decision (F1): keeping, redeclaring unchanged, or keeping any single POC
     # value is refused before any replacement, confirmation reset or readiness change.
