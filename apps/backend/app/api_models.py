@@ -1087,6 +1087,37 @@ def project_human_interventions(
             no_action = None
             identity_correction_action = "IDENTITY_SEARCH_RECHECK"
         elif (
+            # D-114: the government register stops; the RM corrects the UEN or entity type.
+            exception.blocker_code in {"GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH"}
+            and case.target_dispatch_confirmation is None
+            and case.goldtier_result is None
+            and clm.submission_snapshot is None
+            and automation.status != AutomationStatus.COMPLETED
+        ):
+            government_missing = exception.blocker_code == "GOVERNMENT_IDENTITY_NOT_FOUND"
+            title = (
+                "Government register record not found"
+                if government_missing
+                else "Entity type does not match the government register"
+            )
+            classification = "RECOVERABLE_INPUT"
+            required = (
+                (
+                    "A UEN with a current government register record, or a different "
+                    "entity type.",
+                )
+                if government_missing
+                else ("The Government entity type for this UEN.",)
+            )
+            expected = (
+                "Check the UEN against the authority's letter, or change the entity type. "
+                "ACRA is never called for a Government case."
+                if government_missing
+                else "Change the entity type to Government. ACRA was not called for this UEN."
+            )
+            no_action = None
+            identity_correction_action = "IDENTITY_SEARCH_RECHECK"
+        elif (
             exception.blocker_code in {
                 "INITIAL_IDENTITY_NOT_ELIGIBLE",
                 "REGISTRY_IDENTIFIER_NOT_ELIGIBLE",

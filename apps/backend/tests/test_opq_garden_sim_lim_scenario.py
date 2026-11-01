@@ -529,7 +529,7 @@ def test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields()
     record = ownership.analyze(case_id=case.case_id)
     assert record.poc_acceptance is None
     encoded = snapshot_of(onboarding, record).model_dump(mode="json")
-    assert encoded["schema_version"] == 17
+    assert encoded["schema_version"] == 18
     assert DurableCaseSnapshot.model_validate(encoded).ownership == record
     # Older schemas still reject the D-086 officer role observations hybrid records carry.
     with pytest.raises(ValueError, match="D-086 officer role observations"):

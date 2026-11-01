@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import type { OnboardingCase } from "../types";
+import type { EntityCategory, OnboardingCase } from "../types";
 
 export interface IdentityCorrectionValues {
   legal_name: string;
@@ -9,6 +9,8 @@ export interface IdentityCorrectionValues {
   choice?: "ENTERED" | "DOCUMENT" | "OTHER";
   document_id?: string;
   expected_document_event_count?: number;
+  /** D-114: the entity type to verify; GOVERNMENT is read only from the government register. */
+  entity_category?: EntityCategory;
 }
 
 export default function IdentityCorrectionForm({
@@ -36,6 +38,13 @@ export default function IdentityCorrectionForm({
   const legalNameValue = legalName.trim();
   const registrationNumberValue = registrationNumber.trim().toUpperCase();
   const complete = legalNameValue.length > 0 && registrationNumberValue.length > 0;
+  const [entityCategory, setEntityCategory] = useState<EntityCategory>(initial?.entity_category ?? "COMPANY");
+  // D-114: a government register stop is corrected by the UEN or the entity type.
+  const governmentRegisterStop = ["GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH"]
+    .includes(onboardingCase.error?.code ?? "");
+  // Sent only when changed: an omitted category keeps the case's current one.
+  const categoryChange = entityCategory !== (initial?.entity_category ?? "COMPANY")
+    ? { entity_category: entityCategory } : {};
   const [editing, setEditing] = useState(!registryRecovery || !initial?.legal_name);
   const [validationError, setValidationError] = useState<string | null>(null);
   // UEN mismatch: one choice ("ENTERED", a document id, or "OTHER") and one confirm button.
@@ -45,7 +54,7 @@ export default function IdentityCorrectionForm({
   function choose(uen: string, choice: "ENTERED" | "DOCUMENT", documentId?: string, eventCount?: number): void {
     if (disabled || !legalNameValue) return;
     onSubmit({ legal_name: legalNameValue, registration_number: uen, country_of_incorporation: "SG",
-      choice, document_id: documentId, expected_document_event_count: eventCount });
+      choice, document_id: documentId, expected_document_event_count: eventCount, ...categoryChange });
   }
 
   function confirmChoice(event: FormEvent<HTMLFormElement>): void {
@@ -69,6 +78,7 @@ export default function IdentityCorrectionForm({
       legal_name: legalNameValue,
       registration_number: registrationNumberValue,
       country_of_incorporation: "SG",
+      ...categoryChange,
       ...(registryRecovery ? { choice: "OTHER" as const } : {}),
     });
   }
@@ -85,6 +95,7 @@ export default function IdentityCorrectionForm({
         (onboardingCase.error.code.startsWith("ACRA_") ||
          onboardingCase.error.code.startsWith("REGISTRY_")) &&
         <p role="status">Registry verification could not verify this UEN.</p>}
+      {registryRecovery && governmentRegisterStop && <p role="status">{onboardingCase.error?.message}</p>}
       {conflict && <form className="identity-choice" aria-label="UEN identity choices" onSubmit={confirmChoice}>
         <h3>Entity identity requires confirmation</h3>
         <p className="control-help">The UEN you entered and the UEN found in the document don't match. Choose the one to verify; the backend re-checks the registry and resumes the case.</p>
@@ -117,12 +128,21 @@ export default function IdentityCorrectionForm({
           <input id="identity-legal-name" className="input" value={legalName} maxLength={160} autoComplete="organization"
             disabled={disabled} onChange={(event) => setLegalName(event.target.value)} required />
         </div>}
+        <div className="identity-choice__name">
+          <label htmlFor="identity-choice-entity-category">Entity type</label>
+          <select id="identity-choice-entity-category" className="input" value={entityCategory} disabled={disabled}
+            onChange={(event) => setEntityCategory(event.target.value as EntityCategory)}>
+            <option value="COMPANY">Company</option>
+            <option value="PARTNERSHIP">Partnership</option>
+            <option value="GOVERNMENT">Government body</option>
+          </select>
+        </div>
         <div className="identity-choice__actions">
           <button type="submit" className="btn btn-primary"
             disabled={disabled || !selection || !legalNameValue || (selection === "OTHER" && !registrationNumberValue)}>Confirm UEN and resume</button>
         </div>
       </form>}
-      {!conflict && registryRecovery && !editing && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setEditing(true)}>Edit UEN</button>}
+      {!conflict && registryRecovery && !editing && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setEditing(true)}>{governmentRegisterStop ? "Edit UEN or entity type" : "Edit UEN"}</button>}
       {!conflict && (!registryRecovery || editing) && <>
       <p>{registryRecovery ? "Verify the proposed UEN through the existing registry acquisition path. The backend retains the correction, re-evaluates documents and resumes dependent processing." : <>
         Enter the company identity to run another read-only GoldTier Search for this case.
@@ -161,6 +181,15 @@ export default function IdentityCorrectionForm({
           <div>
             <label htmlFor="identity-country">Country of incorporation</label>
             <input id="identity-country" className="input" value="SG" readOnly aria-readonly="true" />
+          </div>
+          <div>
+            <label htmlFor="identity-entity-category">Entity type</label>
+            <select id="identity-entity-category" className="input" value={entityCategory} disabled={disabled}
+              onChange={(event) => setEntityCategory(event.target.value as EntityCategory)}>
+              <option value="COMPANY">Company</option>
+              <option value="PARTNERSHIP">Partnership</option>
+              <option value="GOVERNMENT">Government body</option>
+            </select>
           </div>
         </div>
         <p className="control-help">

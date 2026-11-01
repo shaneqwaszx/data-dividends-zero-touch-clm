@@ -170,7 +170,7 @@ def _raw(snapshot: DurableCaseSnapshot) -> dict[str, object]:
 def test_schema_16_keeps_the_digest_through_a_round_trip() -> None:
     digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
     raw = _raw(_snapshot(digest))
-    assert raw["schema_version"] == 17
+    assert raw["schema_version"] == 18
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
     assert decoded.documents[0].content_sha256 == digest
 
@@ -184,7 +184,7 @@ def test_a_schema_15_document_reads_without_a_digest_and_is_not_rewritten() -> N
         document.pop("government_status_observations")  # D-101 (schema 17)
     before = deepcopy(raw)
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
-    assert decoded.schema_version == 17
+    assert decoded.schema_version == 18
     assert decoded.documents[0].content_sha256 is None
     assert raw == before
 
@@ -225,10 +225,10 @@ def test_a_populated_schema_15_case_upgrades_without_losing_hidden_evidence() ->
     decoded = codec._decode(raw)  # noqa: SLF001
 
     assert raw == original  # the read never rewrites the stored envelope
-    assert decoded.schema_version == 17
+    assert decoded.schema_version == 18
     assert all(document.content_sha256 is None for document in decoded.documents)
     expected = deepcopy(original)
-    expected["schema_version"] = 17
+    expected["schema_version"] = 18
     expected["onboarding"]["government_status_confirmation"] = None  # D-101 default
     for document in expected["documents"]:
         document["content_sha256"] = None

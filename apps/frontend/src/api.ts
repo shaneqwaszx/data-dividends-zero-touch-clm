@@ -2,6 +2,7 @@ import { UPLOAD_ERROR_BY_CODE } from "./uploadLimits";
 import type { ReviewDecisionBatch } from "./types";
 import { nextPollingDelay } from "./automationPolling";
 import type {
+  EntityCategory,
   AuthSession,
   CasePriorityResult,
   ClmCaseSummary,
@@ -179,6 +180,7 @@ export async function createZeroTouchCase(
   teamId?: TeamId,
   priority?: number | null,
   legalName?: string,
+  entityCategory?: EntityCategory,
 ): Promise<ZeroTouchCaseSummary> {
   const demo = demoScenario !== undefined;
   const response = await fetch(
@@ -195,6 +197,8 @@ export async function createZeroTouchCase(
         ...(demo ? { scenario: demoScenario } : {}),
         ...(teamId ? { team_id: teamId } : {}),
         ...(priority !== undefined && priority !== null ? { priority } : {}),
+        // D-114: sent only when chosen, so existing requests are unchanged (COMPANY by default).
+        ...(entityCategory ? { entity_category: entityCategory } : {}),
       }),
     },
   );
@@ -627,6 +631,8 @@ export interface IdentitySearchRecheckInput {
   expected_automation_version: number;
   expected_clm_version: number;
   expected_case_event_count: number;
+  /** D-114: omitted keeps the case's current entity type. */
+  entity_category?: EntityCategory;
 }
 
 export interface TargetStatusCheckResult {

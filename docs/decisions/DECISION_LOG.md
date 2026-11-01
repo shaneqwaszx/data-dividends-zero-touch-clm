@@ -2075,3 +2075,39 @@ For Shane to confirm:
 3. "Active" as no withdrawal date plus the M2 rejection (built), rather than storing the source
    `status` on the officer record (would need a case snapshot schema version).
 4. When to regenerate the synthetic boundary (main's existing drift plus the two words above).
+
+## D-114 - Government cases never call ACRA: an explicit entity category picks the register (candidate, Shane to confirm)
+
+Status: candidate. Owner approval in chat 2026-11-02 to build; Shane to confirm here (he reviews
+at the PR). Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Not sponsor policy,
+not legal policy, not Live. D-101's Government rules are unchanged. Numbered D-114 because D-113
+(Marketplace Mock partnerships) is on its own branch.
+
+**Problem.** A Government UEN avoided ACRA only when its local seed existed. Without the seed,
+or with the registry cache off, acquisition fell through to the ACRA provider
+(`registry_acquisition.py` after the seed branch; directly from `onboarding.py` without a
+coordinator). The RM's own correction verification (`_verify_registry_correction`) also called
+the provider.
+
+| # | Decision |
+| --- | --- |
+| E1 | **Explicit category.** Case creation takes `entity_category` = `COMPANY` \| `PARTNERSHIP` \| `GOVERNMENT` on all four create routes (`/api/onboarding/cases`, `/api/clm/cases`, `/api/clm/zero-touch/cases` and the demo route), default `COMPANY`, so existing callers and tests keep working. It is stored on `InitialCustomerIdentity`. A non-Company category needs the legal name and country; without them the case stops at the existing `INITIAL_IDENTITY_INCOMPLETE`. The Create case form has an "Entity type" choice (Company by default). |
+| E2 | **Government register only.** `RegistryAcquisitionCoordinator.read_government_register` reads only the approved local synthetic dataset (`LOCAL_SYNTHETIC_UAT_V1`) and takes no provider, so it cannot call ACRA. A Government case uses it at creation, after a correction and when verifying a correction. A missing, expired, unusable or non-GOVERNMENT record, or no registry cache, stops the case with `GOVERNMENT_IDENTITY_NOT_FOUND`: "No current government register record was found for this UEN. Check the UEN against the authority's letter, or change the entity type." |
+| E3 | **Company and Partnership.** The lookup is unchanged, except that the government register is checked first: a GOVERNMENT record stops the case with `ENTITY_CATEGORY_MISMATCH` ("This UEN is a government body in the government register. Change the entity type to Government.") before any ACRA call. |
+| E4 | **Correction.** Both codes use rule `BPD-GOVERNMENT-IDENTITY-1` (the same `CORRECT_INITIAL_IDENTITY` action and Search recheck as `ACRA_ENTITY_NOT_FOUND`). The identity-correction requests take an optional `entity_category` (omitted keeps the current one). A change is retained in the identity correction evidence and shown as the timeline event `ENTITY_CATEGORY_CORRECTED` ("Entity type changed from Company to Government."). The correction form has the same choice and sends it only when it changes. |
+| E5 | **Unchanged (D-101).** The Government KYC label, the legal-form compatibility table, `GOVERNMENT_STATUS_REQUIRED` and the RM's version-checked status confirmation, 0 UBO candidates, labels and the GoldTier registration value. |
+| E6 | **Persistence.** Case snapshot schema 18. `entity_category` is omitted from `model_dump` when `COMPANY`, so API projections and case fingerprints of existing cases are unchanged; the Mongo document stores every declared field, as before. A strict schema-17 reader (`DurableCaseSnapshotV17`) and the store reject any `entity_category` in schema 1 to 17 envelopes, even `COMPANY`; a schema-17 case reads as `COMPANY` (the only lookup earlier code had) and is not rewritten. Older code rejects schema 18 (rollback is fail-closed). |
+
+Tests: `tests/test_government_no_acra.py` (Government with and without the register record, a
+company or partnership record, the cache off and no legal name, all with zero ACRA calls; every
+create route; the coordinator read; mismatch for default, Company and Partnership; Company and
+Partnership unchanged; the default for old callers; correction to Government on both correction
+routes with the visible event; a refused correction to an unknown Government UEN),
+`tests/test_entity_category_persistence.py` (schema 18 round trip, strict schema-17 reads
+including nested identities, the schema-17 upgrade without rewrite, stable Company dumps), and
+`src/pages/EntityCategory.test.tsx` (the Create case choice, the create request, the correction
+form and evidence intake on the new stops).
+
+Synthetic boundary: new backend and frontend strings add words to the D-094 boundary
+vocabulary, which is already stale on main; regenerating it changes a qualification-basis file,
+so it stays Shane's decision.

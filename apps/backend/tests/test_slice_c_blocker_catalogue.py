@@ -93,7 +93,7 @@ def test_inventory_includes_registry_error_producers_and_dynamic_ownership_code(
 def test_catalogue_core_is_derived_from_every_rule_spec_and_has_complete_guidance():
     catalogue = policy.blocker_catalogue()
     assert tuple(entry.code for entry in catalogue) == tuple(sorted(policy.SUPPORTED_BLOCKER_CODES))
-    assert len(catalogue) == 63  # D-101: + GOVERNMENT_STATUS_REQUIRED
+    assert len(catalogue) == 65  # D-101 +1 Government status; D-114 +2 government register
     for entry in catalogue:
         spec = policy._RULE_INDEX[entry.code]
         assert entry.exception_types == tuple(sorted(spec.exception_types, key=str))
@@ -124,7 +124,7 @@ def test_categories_describe_recovery_without_changing_durable_enums():
     catalogue = policy.blocker_catalogue()
     counts = Counter(entry.classification for entry in catalogue)
     assert set(counts) == CATEGORIES
-    assert sum(counts.values()) == 63  # D-101: + GOVERNMENT_STATUS_REQUIRED
+    assert sum(counts.values()) == 65  # D-101 +1 Government status; D-114 +2 government register
     assert "OPERATOR_REVIEW_REQUIRED" not in {item.value for item in BlockerDecisionClassification}
     assert "AUTOMATIC_RECOVERY" not in {item.value for item in BlockerDecisionClassification}
     finalization = next(

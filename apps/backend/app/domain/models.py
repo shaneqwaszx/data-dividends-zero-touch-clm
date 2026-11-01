@@ -920,6 +920,14 @@ class GoldTierResult(BaseModel):
     readback_status: str | None = None
 
 
+class EntityCategory(StrEnum):
+    """D-114: the RM's declared entity category, which picks the identity register."""
+
+    COMPANY = "COMPANY"
+    PARTNERSHIP = "PARTNERSHIP"
+    GOVERNMENT = "GOVERNMENT"
+
+
 class InitialCustomerIdentity(BaseModel):
     """User-supplied identity retained before any registry or target lookup."""
 
@@ -928,6 +936,12 @@ class InitialCustomerIdentity(BaseModel):
     legal_name: str = Field(min_length=1, max_length=160)
     registration_number: str = Field(min_length=1, max_length=32)
     country_of_incorporation: str = Field(min_length=2, max_length=3)
+    # D-114: COMPANY (the default every earlier case used) is omitted when serialised, so
+    # existing snapshots and fingerprints are unchanged.
+    entity_category: EntityCategory = Field(
+        default=EntityCategory.COMPANY,
+        exclude_if=lambda value: value == EntityCategory.COMPANY,
+    )
 
 
 class ExistingTargetStateProvenance(BaseModel):
