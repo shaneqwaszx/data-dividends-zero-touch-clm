@@ -5,6 +5,10 @@ import { Link, useSearchParams } from "react-router";
 import {
   activateModel,
   AiAssistantError,
+  applyClaudeReconciliation,
+  fetchClaudeReconciliation,
+  previewClaudeReconciliation,
+  resolveClaudeReconciliationRun,
   cancelModelQualification,
   clearModelCredential,
   fetchModelAudit,
@@ -25,6 +29,8 @@ import {
   type ModelAuditEvent,
   type ModelBudgetStatus,
   type AnthropicSetup,
+  type ClaudeReconciliationPreview,
+  type ClaudeReconciliationRun,
   type CredentialProvider,
   type ModelClaudeBudget,
   type ModelClaudeReconciliation,
@@ -46,6 +52,8 @@ export const modelManagementQueryKeys = {
   root: (userId: string) => ["auth", userId, "assistant-models"] as const,
   overview: (userId: string) => ["auth", userId, "assistant-models", "overview"] as const,
   audit: (userId: string) => ["auth", userId, "assistant-models", "audit"] as const,
+  // D-110: the reconciliation runs (under root, so every page action re-reads them).
+  claudeReconciliation: (userId: string) => ["auth", userId, "assistant-models", "claude-reconciliation"] as const,
 };
 
 const STATUS_LABEL: Record<ModelProfileView["status"], string> = {
@@ -1215,7 +1223,7 @@ function ClaudeReconciliation({ reconciliation }: { reconciliation: ModelClaudeR
       <h3>Claude ledger and reconciliation (read-only)</h3>
       {overdue && (
         <p className="ds-banner ds-banner-warn" role="alert">
-          The Claude ledger is not reconciled within the last 7 days, so Claude chat is refused until an operator reconciles it with the Anthropic Console.
+          The Claude ledger is not reconciled within the last 7 days, so Claude chat is refused until it is reconciled with the Anthropic Console (below, or by an operator).
         </p>
       )}
       <dl className="acra-detail-list" aria-label="Claude ledger accounting">
@@ -1229,7 +1237,7 @@ function ClaudeReconciliation({ reconciliation }: { reconciliation: ModelClaudeR
           : "None (the ledger matched or was below Anthropic's report)"}</dd></div>
         <div><dt>Ledger baseline (reported usage + overcount kept)</dt><dd>{usd(exactDollars(baseline))}</dd></div>
         <div><dt>Charged by the ledger since the last reconciliation</dt><dd>{usd(exactDollars(reconciliation.local_charged_micro_usd))}</dd></div>
-        <div><dt>Ledger estimate of the key's cumulative usage (baseline + charged since)</dt><dd><strong>{usd(exactDollars(reconciliation.estimate_micro_usd))}</strong> (compare with the Anthropic Console; a difference above {usd(exactDollars(reconciliation.tolerance_micro_usd))} stops Claude when reconciled)</dd></div>
+        <div><dt>Ledger estimate of the workspace's cumulative cost (baseline + charged since)</dt><dd><strong>{usd(exactDollars(reconciliation.estimate_micro_usd))}</strong> (compare with the Anthropic Console; a difference above {usd(exactDollars(reconciliation.tolerance_micro_usd))} stops Claude when reconciled)</dd></div>
         {!addsUp && (
           <div><dt>Check</dt><dd role="alert">These ledger figures do not add up as expected. Refresh; if it persists, ask an operator to check the ledger (scripts/budget_ledger.py --anthropic status).</dd></div>
         )}
@@ -1242,8 +1250,248 @@ function ClaudeReconciliation({ reconciliation }: { reconciliation: ModelClaudeR
   );
 }
 
+/** D-110: what each reconciliation refusal means (the server returns closed codes only). */
+const RECONCILE_REFUSAL_TEXT: Record<string, string> = {
+  PREREQUISITE_MISSING: "HR reconciliation is not available yet: the owner must first record that every earlier copy of the operator's script and every earlier launcher is retired (budget_ledger.py attest-legacy-retired). Nothing changed.",
+  SCOPE_UNCONFIRMED: "Confirm all three statements about the Console figure. Nothing changed.",
+  USAGE_CONFIRMATION_REQUIRED: "The figure you typed again does not match the preview. Nothing changed.",
+  LEDGER_PROFILE_MISMATCH: "The Claude ledger is not the one this preview was made for. Preview again. Nothing changed.",
+  LEDGER_UNAVAILABLE: "The Claude ledger is missing or not usable. Nothing changed.",
+  LEDGER_BUSY: "The Claude ledger or its reconciliation lock is busy (another reconciliation, an operator, or a call in progress). Wait a moment and try again. Nothing changed.",
+  BREAKER_OPEN: "Claude is stopped (its breaker is open), so HR cannot reconcile now: the owner reconciles with the operator's script and resets the breaker. Nothing changed.",
+  CALL_OPEN: "A Claude call is open (or was left open by a stopped service). Wait for it to finish, or ask an operator to run budget_ledger.py --anthropic status. Nothing changed.",
+  CALLS_UNVERIFIED: "Some Claude calls are not yet verified. The next chat answer or a Test connection verifies them (or an operator runs verify). Nothing changed.",
+  CALLS_QUARANTINED: "A Claude call was quarantined after the last reconciliation. The owner must reconcile with the operator's script. Nothing changed.",
+  RUN_UNRESOLVED: "Another reconciliation run is not finished, or its marker remains. If the run below shows Resolve, use it; otherwise the owner closes it with the operator's script (owner-close). Nothing changed.",
+  USAGE_LOWER: "The Console figure is lower than at the last reconciliation. Cumulative cost never falls: check the figure and its scope, or wait until the Console has caught up. Nothing changed.",
+  USAGE_BEHIND: "The Console figure is too far below what the ledger charged since the last reconciliation, so it is probably an older or lagging reading. Take a newer reading. Nothing changed.",
+  EVIDENCE_FUTURE: "The reading's time is in the future. Check the times entered. Nothing changed.",
+  EVIDENCE_STALE: "The reading is too old (viewed more than two hours ago, or refreshed more than about a day ago). Take a newer reading. Nothing changed.",
+  CALL_TOO_RECENT: "A Claude call finished too close to the reading for the Console to be sure to include it. Take a reading refreshed later. Nothing changed.",
+  PREVIEW_UNKNOWN: "This preview is no longer available (it was used, replaced, or made by someone else). Preview again. Nothing changed.",
+  PREVIEW_EXPIRED: "This preview expired (five minutes). Preview again. Nothing changed.",
+  CONTROLS_CONFLICT: "The Claude ledger changed after the preview (a call, a limit change or another reconciliation). Preview again. Nothing changed.",
+  RECONCILE_REFUSED: "The ledger refused or rolled back the reconciliation. Preview again later; if it persists, ask the owner to check the ledger. Nothing changed.",
+  RESOLVE_NOT_YET: "This run cannot be resolved yet.",
+  RUN_UNKNOWN: "No such reconciliation run.",
+  RUN_STORE_UNAVAILABLE: "The reconciliation records could not be read. Nothing changed.",
+  INVALID_INPUT: "Check the amount and the times entered. Nothing changed.",
+};
+
+function reconcileError(error: unknown): string {
+  if (!(error instanceof AiAssistantError) || !error.code || !RECONCILE_REFUSAL_TEXT[error.code]) return safeError(error);
+  const facts = error.facts;
+  const parts = [RECONCILE_REFUSAL_TEXT[error.code]];
+  if (typeof facts.earliest_as_of === "string") parts.push(`The Console data must be refreshed at or after ${sgtTime(facts.earliest_as_of)}.`);
+  if (typeof facts.latest_refresh_needed === "string") parts.push(`The Console data must be refreshed after ${sgtTime(facts.latest_refresh_needed)}.`);
+  if (typeof facts.retry_after === "string") parts.push(`Try again after ${sgtTime(facts.retry_after)}.`);
+  if (typeof facts.ledger_ahead_micro_usd === "number") parts.push(`The ledger is ${usd(exactDollars(facts.ledger_ahead_micro_usd))} ahead of the increase.`);
+  if (typeof facts.last_usage_micro_usd === "number") parts.push(`Last reconciled figure: ${usd(exactDollars(facts.last_usage_micro_usd))}.`);
+  if (typeof facts.run_id === "string") parts.push(`Run ${facts.run_id.slice(0, 8)}.`);
+  return parts.join(" ");
+}
+
+/** A datetime-local value (this computer's time zone) as ISO 8601 with its offset, or null. */
+export function localToIso(value: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return null;
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+function nowLocal(): string {
+  const at = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+const RUN_STATUS_TEXT: Record<ClaudeReconciliationRun["status"], string> = {
+  requested: "Not finished (resolve it)",
+  applied: "Applied",
+  refused: "Refused (nothing changed)",
+  failed: "Failed (nothing changed)",
+  unresolved: "Unresolved: the owner must check and close it",
+  owner_closed: "Closed by the owner",
+};
+
+/** D-110: HR reconciles the Claude ledger with the Anthropic Console: preview, confirm with the
+ *  figure typed again, apply. The server checks everything again; nothing is reset or released. */
+function ClaudeReconcile({ userId, busy, onChanged }: { userId: string; busy: boolean; onChanged: () => void }) {
+  const runsQuery = useQuery({
+    queryKey: modelManagementQueryKeys.claudeReconciliation(userId),
+    queryFn: ({ signal }) => fetchClaudeReconciliation(signal),
+    retry: false,
+  });
+  const [usageText, setUsageText] = useState("");
+  const [kind, setKind] = useState<"console_refreshed" | "viewed">("console_refreshed");
+  const [asOfText, setAsOfText] = useState("");
+  const [viewedText, setViewedText] = useState(nowLocal);
+  const [scopes, setScopes] = useState({ workspace: false, only: false, cumulative: false });
+  const [preview, setPreview] = useState<ClaudeReconciliationPreview | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [echoText, setEchoText] = useState("");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const usage = toMicroUsd(usageText);
+  const viewedIso = localToIso(viewedText);
+  const asOfIso = kind === "viewed" ? viewedIso : localToIso(asOfText);
+  const allScopes = scopes.workspace && scopes.only && scopes.cumulative;
+  // Only a well-formed listing is trusted (an older server may answer this path differently).
+  const data = runsQuery.data;
+  const listing = data && Array.isArray(data.runs) && typeof data.prerequisite_recorded === "boolean" ? data : undefined;
+  const blocked = listing ? !listing.prerequisite_recorded : false;
+  const ready = usage !== null && viewedIso !== null && asOfIso !== null && allScopes && !blocked;
+  const disabled = pending || busy;
+  const echo = toMicroUsd(echoText);
+
+  function changed(update: () => void) {
+    update();
+    setPreview(null);
+    setMessage(null);
+  }
+
+  async function run(action: () => Promise<void>) {
+    setPending(true);
+    setMessage(null);
+    try {
+      await action();
+    } catch (error) {
+      setMessage({ kind: "error", text: reconcileError(error) });
+    } finally {
+      setPending(false);
+      onChanged();
+    }
+  }
+
+  const askPreview = () => run(async () => {
+    setPreview(null);
+    setPreview(await previewClaudeReconciliation({
+      usage_micro_usd: usage!,
+      as_of: asOfIso!,
+      as_of_kind: kind,
+      viewed_at: viewedIso!,
+      scope_workspace: scopes.workspace,
+      scope_only: scopes.only,
+      scope_cumulative: scopes.cumulative,
+    }));
+  });
+
+  const apply = (shown: ClaudeReconciliationPreview) => run(async () => {
+    setConfirming(false);
+    setPreview(null);
+    const result = await applyClaudeReconciliation({
+      preview_id: shown.preview_id,
+      confirm_usage_micro_usd: echo ?? -1,
+      scope_workspace: scopes.workspace,
+      scope_only: scopes.only,
+      scope_cumulative: scopes.cumulative,
+    });
+    setEchoText("");
+    if (result.outcome === "applied") {
+      setMessage({ kind: "ok", text: `Reconciled. The Claude ledger now records ${usd(exactDollars(shown.inputs.usage_micro_usd))} reported by the Anthropic Console; the chat and paid windows were renewed from now.${shown.breaker_opens ? " Claude is now stopped (breaker open) until the owner reconciles again with the operator's script and resets it." : ""}` });
+    } else {
+      setMessage({ kind: "error", text: "The outcome could not be confirmed, so the run stays open. Use Resolve on it below after the time shown; it is marked applied only when the ledger proves it." });
+    }
+  });
+
+  const resolve = (runId: string) => run(async () => {
+    const result = await resolveClaudeReconciliationRun(runId);
+    setMessage({ kind: result.outcome === "applied" ? "ok" : "error", text: `Run ${runId.slice(0, 8)}: ${RUN_STATUS_TEXT[result.run?.status ?? "requested"] ?? result.outcome}.` });
+  });
+
+  return (
+    <div className="console-subcard" data-testid="claude-reconcile">
+      <h3>Reconcile with the Anthropic Console (HR, D-110)</h3>
+      <p className="control-help">
+        Enter the Anthropic Console's cumulative cost of the Claude workspace since it was created, and the time the Console says its data was refreshed. Preview first: nothing changes until you confirm. Reconciling never resets the breaker, releases an overcount or raises a limit.
+      </p>
+      {runsQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{reconcileError(runsQuery.error)}</p>}
+      {blocked && <p className="ds-banner ds-banner-warn" role="alert" data-testid="reconcile-prerequisite">{RECONCILE_REFUSAL_TEXT.PREREQUISITE_MISSING}</p>}
+      {listing?.marker_overridden && <p className="ds-banner ds-banner-warn" role="alert">An operator overrode an unfinished HR reconciliation run. Only the owner can close it (owner-close).</p>}
+      <form aria-label="Reconcile Claude ledger" onSubmit={(event) => { event.preventDefault(); if (ready && !disabled) void askPreview(); }}>
+        <label className="control-help" htmlFor="reconcile-usage">Cumulative workspace cost in the Console (US$)</label>{" "}
+        <input id="reconcile-usage" inputMode="decimal" value={usageText} onChange={(event) => changed(() => setUsageText(event.target.value))} disabled={disabled || blocked} />
+        <fieldset className="control-help">
+          <legend>Time of the reading (this computer's time zone)</legend>
+          <label><input type="radio" name="reconcile-kind" checked={kind === "console_refreshed"} onChange={() => changed(() => setKind("console_refreshed"))} disabled={disabled || blocked} /> The Console shows when its data was refreshed</label>{" "}
+          <label><input type="radio" name="reconcile-kind" checked={kind === "viewed"} onChange={() => changed(() => setKind("viewed"))} disabled={disabled || blocked} data-testid="reconcile-kind-viewed" /> The Console shows no refresh time (use the time I looked; needs one hour without Claude calls before it)</label>
+          {kind === "console_refreshed" && (
+            <>
+              <br /><label htmlFor="reconcile-as-of">Console data refreshed at</label>{" "}
+              <input id="reconcile-as-of" type="datetime-local" value={asOfText} onChange={(event) => changed(() => setAsOfText(event.target.value))} disabled={disabled || blocked} />
+            </>
+          )}
+          <br /><label htmlFor="reconcile-viewed">I looked at the Console at</label>{" "}
+          <input id="reconcile-viewed" type="datetime-local" value={viewedText} onChange={(event) => changed(() => setViewedText(event.target.value))} disabled={disabled || blocked} />
+        </fieldset>
+        <fieldset className="control-help">
+          <legend>Scope of the figure</legend>
+          <label><input type="checkbox" checked={scopes.workspace} onChange={(event) => changed(() => setScopes({ ...scopes, workspace: event.target.checked }))} disabled={disabled || blocked} data-testid="reconcile-scope-workspace" /> It is for the Anthropic workspace Claude is set up with in Providers → Anthropic.</label><br />
+          <label><input type="checkbox" checked={scopes.only} onChange={(event) => changed(() => setScopes({ ...scopes, only: event.target.checked }))} disabled={disabled || blocked} data-testid="reconcile-scope-only" /> It covers that workspace only (no other workspace or organisation total).</label><br />
+          <label><input type="checkbox" checked={scopes.cumulative} onChange={(event) => changed(() => setScopes({ ...scopes, cumulative: event.target.checked }))} disabled={disabled || blocked} data-testid="reconcile-scope-cumulative" /> It is the cumulative cost since the workspace was created, not a monthly or daily figure.</label>
+        </fieldset>
+        <button type="submit" className="btn btn-secondary" disabled={disabled || !ready} data-testid="reconcile-preview">Preview reconciliation</button>
+        {!ready && !blocked && <p className="control-help" role="status">Enter an amount, the times, and tick all three statements to preview.</p>}
+      </form>
+
+      {preview && (
+        <div className="console-subcard" data-testid="reconcile-preview-result">
+          <h4>Preview (nothing has changed yet)</h4>
+          {preview.fallback && <p className="ds-banner ds-banner-warn" role="note">This reading uses the time you looked at the Console, because the Console showed no refresh time. The Console may still lag; the ledger keeps the higher figure if it does, and the next reconciliation corrects it.</p>}
+          {preview.breaker_opens && <p className="ds-banner ds-banner-warn" role="alert" data-testid="reconcile-breaker-warning">The Console shows {usd(exactDollars(preview.drift_micro_usd))} more than the ledger estimated (more than {usd(exactDollars(preview.tolerance_micro_usd))}). Applying adopts it and stops Claude (breaker open) until the owner reconciles again with the operator's script and resets it.</p>}
+          <dl className="acra-detail-list" aria-label="Reconciliation preview">
+            <div><dt>Console figure</dt><dd><strong>{usd(exactDollars(preview.inputs.usage_micro_usd))}</strong> ({preview.fallback ? "viewed" : "refreshed"} {sgtTime(preview.inputs.as_of)})</dd></div>
+            <div><dt>Ledger estimate now</dt><dd>{usd(exactDollars(preview.before.estimate_micro_usd))} (baseline {usd(exactDollars(preview.before.baseline_micro_usd))} + charged since {usd(exactDollars(preview.before.local_charged_micro_usd))})</dd></div>
+            <div><dt>Difference (Console − ledger)</dt><dd data-testid="reconcile-drift">{preview.drift_micro_usd >= 0 ? "" : "−"}{usd(exactDollars(Math.abs(preview.drift_micro_usd)))}{preview.drift_micro_usd < 0 ? " (the ledger keeps its higher figure)" : preview.drift_micro_usd === 0 ? " (match)" : " (the ledger adopts the Console's higher figure)"}</dd></div>
+            <div><dt>Ledger baseline after</dt><dd>{usd(exactDollars(preview.after.baseline_micro_usd))}</dd></div>
+            <div><dt>Chat window after</dt><dd>Until about {sgtTime(preview.chat_deadline_at)}</dd></div>
+            <div><dt>Paid qualification and activation window after</dt><dd>Until about {sgtTime(preview.paid_deadline_at)}</dd></div>
+            <div><dt>Preview expires</dt><dd>{sgtTime(preview.expires_at)}</dd></div>
+          </dl>
+          <button type="button" className="btn btn-primary" disabled={disabled} onClick={() => { setEchoText(""); setConfirming(true); }} data-testid="reconcile-apply-open">Apply reconciliation…</button>
+        </div>
+      )}
+
+      {confirming && preview && (
+        <ConsoleDialog labelledBy="reconcile-confirm-heading" testId="reconcile-confirm" focusFallbackIds={FOCUS_FALLBACKS} onClose={() => setConfirming(false)}>
+          <h2 id="reconcile-confirm-heading">Reconcile the Claude ledger to {usd(exactDollars(preview.inputs.usage_micro_usd))}?</h2>
+          <p>The server checks again that the ledger is exactly as previewed and applies the ledger's own reconciliation. It never resets the breaker or releases an overcount. Type the Console figure again to confirm.</p>
+          <label htmlFor="reconcile-echo">Console figure again (US$)</label>{" "}
+          <input id="reconcile-echo" inputMode="decimal" value={echoText} onChange={(event) => setEchoText(event.target.value)} autoComplete="off" data-testid="reconcile-echo" />
+          <div className="console-dialog__actions">
+            <button type="button" className="btn btn-secondary" onClick={() => setConfirming(false)}>Cancel</button>
+            <button type="button" className="btn btn-primary" disabled={disabled || echo !== preview.inputs.usage_micro_usd} onClick={() => void apply(preview)} data-testid="reconcile-apply">Apply</button>
+          </div>
+        </ConsoleDialog>
+      )}
+
+      {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"} data-testid="reconcile-message">{message.text}</p>}
+
+      {listing && listing.runs.length > 0 && (
+        <table className="console-table" aria-label="Reconciliation runs" data-testid="reconcile-runs">
+          <thead><tr><th>Started</th><th>By</th><th>Figure</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {listing.runs.map((item) => (
+              <tr key={item.run_id}>
+                <td>{sgtTime(item.intent_at)}</td>
+                <td>{item.actor}</td>
+                <td>{usd(exactDollars(item.usage_micro_usd))}</td>
+                <td>{RUN_STATUS_TEXT[item.status]}{item.status === "requested" && item.resolvable_after ? ` (from ${sgtTime(item.resolvable_after)})` : ""}</td>
+                <td>{item.status === "requested" && (
+                  <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => void resolve(item.run_id)}>Resolve</button>
+                )}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 /** Claude's spending: its own HR limits (D-102) and what a paid qualification may spend. */
-function ClaudeSpending({ items, claude, busy, onChanged }: {
+function ClaudeSpending({ userId, items, claude, busy, onChanged }: {
+  userId: string;
   items: ModelProfileView[];
   claude: ModelClaudeBudget | undefined;
   busy: boolean;
@@ -1260,6 +1508,7 @@ function ClaudeSpending({ items, claude, busy, onChanged }: {
         <p className="console-help">This server does not send Claude's spending or limits, so they cannot be changed here.</p>
       )}
       {claude && <ClaudeReconciliation reconciliation={claude.reconciliation} />}
+      {claude && claude.reconciliation !== undefined && <ClaudeReconcile userId={userId} busy={busy} onChanged={onChanged} />}
       {items.map((item) => {
         const paid = item.paid_qualification;
         return (
@@ -1280,14 +1529,16 @@ function ClaudeSpending({ items, claude, busy, onChanged }: {
       })}
       <Responsibilities label="Who can change Claude's limits" duties={[
         { who: "hr", text: "Change Claude's daily, call and lifetime limits above, within the D-102 ceilings." },
-        { who: "operator", text: "Reconcile Claude's ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic) before any raise or paid run." },
+        { who: "hr", text: "Reconcile Claude's ledger with the Anthropic Console above (D-110) before any raise or paid run, and at least every 7 days for chat." },
+        { who: "operator", text: "Reconcile with scripts/budget_ledger.py --anthropic when HR cannot, release an overcount, reset the breaker and verify calls." },
         { who: "owner", text: "Keep the Anthropic workspace's monthly spend limit in the Anthropic Console (attested at most US$30.00)." },
+        { who: "owner", text: "Close unresolved reconciliation runs with the operator's script (owner-close), and record that earlier script copies and launchers are retired (attest-legacy-retired)." },
       ]} />
     </section>
   );
 }
 
-function SpendingSection({ overview, busy, onChanged }: { overview: ModelOverview; busy: boolean; onChanged: () => void }) {
+function SpendingSection({ userId, overview, busy, onChanged }: { userId: string; overview: ModelOverview; busy: boolean; onChanged: () => void }) {
   const budget = overview.budget?.configured ? overview.budget : null;
   const anthropic = overview.profiles.filter((item) => providerKind(item) === "anthropic");
   if (!budget && anthropic.length === 0) {
@@ -1303,7 +1554,7 @@ function SpendingSection({ overview, busy, onChanged }: { overview: ModelOvervie
           <SpendingLimits budget={budget} busy={busy} onChanged={onChanged} />
         </>
       ) : <p className="ds-banner" role="status">The OpenRouter test mode is not configured on this server, so no GPT-OSS spending limits apply here.</p>}
-      {anthropic.length > 0 && <ClaudeSpending items={anthropic} claude={overview.budget?.claude} busy={busy} onChanged={onChanged} />}
+      {anthropic.length > 0 && <ClaudeSpending userId={userId} items={anthropic} claude={overview.budget?.claude} busy={busy} onChanged={onChanged} />}
     </>
   );
 }
@@ -2192,7 +2443,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
 
           {section === "providers" && overview && <ProvidersSection overview={overview} busy={busy} onChanged={refresh} />}
 
-          {section === "spending" && overview && <SpendingSection overview={overview} busy={busy} onChanged={refresh} />}
+          {section === "spending" && overview && <SpendingSection userId={actor.user_id} overview={overview} busy={busy} onChanged={refresh} />}
 
           {section === "privacy" && overview && <DataAccessSection policy={overview.data_access} overview={overview} busy={busy} onChanged={refresh} />}
 

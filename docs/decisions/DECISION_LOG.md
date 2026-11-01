@@ -1847,6 +1847,41 @@ and key order, ledgers, breakers and spending controls (no reset, reconcile or c
 D-095, guardrails, RBAC and the CLM backend. The Claude ledger still needs its scheduled
 reconciliation (the 7-day freshness rule) under a separate authorisation.
 
+## D-110 - AI Assistant Claude ledger reconciliation by HR in the AI Models Console (OWNER-APPROVED for development 2026-10-31; first live use gated on S1 to S3 and P1)
+
+Status: the owner approved D-110 for development on 2026-10-31 (Q1 to Q11 and Q13 to Q15 as
+recommended; Q12 clarified by the owner; Q4's fallback conditional). Built on branch
+`feat/b1b-hr-reconciliation` from main `11d2202`. It amends D-099 C6 and C9 and D-107 E4 only in
+that an HR administrator may now perform the reconciliation they describe; D-102 and D-109 are
+unchanged. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence class: Local
+(offline tests on disposable ledgers). Not sponsor policy; no Live, Sandbox or provider-status
+claim. The full design, its four independent design reviews and the owner's decisions are in the
+B1-B specification (rev 9).
+
+| # | Decision |
+| --- | --- |
+| R1 | **Scope.** The Claude ledger is reconciled against the Anthropic Console's cumulative cost of the HR-enabled FYP workspace, in USD, since the workspace was created (D-099 C6, D-107 E4). The generic ledger's "key's cumulative usage" wording reads as this scope; no accounting scope changes. |
+| R2 | **Authority.** HR administrators holding `MODEL_CONFIG_MANAGE` (re-checked inside the change lock, page Origin required, rate limited) may reconcile in AI Models → Spending & Limits. One approver, who types the figure again. No new capability and no backend RBAC change. |
+| R3 | **Flow.** Preview (cumulative cost, the Console's refresh time or HR's viewing time, three scope confirmations), then a confirmation dialog, then the existing `BudgetLedger.reconcile(release=False)`. |
+| R4 | **Consistency.** The apply commits only if the ledger is exactly the previewed state (a token over every ledger column, the calls' high-water id, open, last-close, unverified and uncovered-quarantine counts and the operator event sequence), checked inside reconcile's own write transaction by a subclass in non-basis code; afterwards, still inside it, exactly the predicted events (P+1 `reconciled`, and P+2 `breaker_opened` only when predicted) and every ledger column are checked, and the apply deadline (intent + 30 s) is checked before and after. Any difference rolls back. HR never recovers expired calls. |
+| R5 | **Lock and marker.** A cross-process reconcile lock beside the ledger (per handle on Windows, `flock` elsewhere; never deleted, never created at start-up) and a durable intent marker written before the ledger step. The operator's script takes the same lock for `reconcile`, `reset-breaker`, `set-cap` and `verify` and refuses while a marker exists; only `reconcile --override-intent RUN` passes, recording the override on the marker first. CLI reconciliation stays available. |
+| R6 | **Freshness.** `settle lag = (now − as_of) + margin`, margin at least the configured lag: 600 s from the Console's own refresh time; only when the Console shows no refresh time, 3600 s from HR's viewing time (Q4, with the reporting-lag risk disclosed). A reading at most 2 h old, never in the future (60 s skew), lag at most 86,400 s. |
+| R7 | **Refusals.** Breaker open, an open call, an unverified closed call or a quarantined call not yet covered by a reconciliation (R10), an open or unresolved run or a marker, a falling figure, a figure that leaves the ledger more than US$0.05 ahead of the increment since the last reconciliation, missing scope confirmations, a stale or future reading, or a call closed after the reading minus the margin. An undercount above US$0.05 may be applied after a warning: it opens the breaker, and chat stays stopped until the owner reconciles again and resets it with the script. |
+| R8 | **No release, reset or extension by HR.** HR cannot release an overcount, reset the breaker or extend a deadline; the 7-day chat and 24-hour paid windows renew only as a consequence of a successful reconcile. Renewal starts nothing: no paid call, no limit change, no activation (Q14: HR may afterwards raise limits within D-102 or start a paid run, each with its own confirmation). |
+| R9 | **Audit and recovery (Q12 as the owner clarified it).** An intent row (insert-only, never trimmed, with its audit row) is written before the ledger step. A run is `applied` only when commit and attribution are proven (the apply returned, or resolve finds P+1 matching with the run's own intact marker and the recorded P1 attestation); `failed` only when non-commit is proven (P+1 absent, another event or amount, or a release at P+2); otherwise `unresolved` for the owner, including an overridden marker (X1). `LEDGER_BUSY` never decides a run. Resolve is an explicit audited HR action after the bound; listing and start-up write nothing. Owner close (script only) records an acknowledgement, never `applied`, and never changes the ledger. |
+| R10 | **Unverified or quarantined calls block** HR reconciliation until the free preflight or the script's `verify` checks them, and a quarantine is covered by an owner reconciliation. |
+| R11 | **Basis.** No qualification-basis file changes; new backend strings use the existing boundary vocabulary (`build_synthetic_boundary.py --check` passes; basis `5dc26b296026…` unchanged). |
+| R12 | **Deadline fallback.** If this is not rolled out by 2026-11-05 18:00 SGT, the owner runs or authorises a CLI reconciliation before 2026-11-07 09:42:37 SGT. |
+| R13 | **P1 prerequisite.** HR reconciliation is refused until the owner records with `budget_ledger.py attest-legacy-retired` that every earlier copy of the script and every earlier launcher is retired. |
+
+Before the first live HR reconciliation (owner): S1 which figure (workspace or key) set the FYP
+ledger's opening usage and its 2026-10-31 reconciliation; S2 that `key-02` is the only key ever in
+the FYP workspace and whether Workbench was used; S3 the Console screen and range for "cumulative
+since creation" and whether it shows a refresh time; and the P1 attestation. Residual risks
+accepted with the approval: the Console figure is typed by a person; Console completeness is the
+provider's claim (bounded masking, never more than the existing undercount); the X1 case needs an
+owner acknowledgement; the subclass depends on `BudgetLedger._transaction` (pinned by tests, fails
+closed); the scope rests on owner attestations.
 ## D-111 - AI Assistant answer quality: catalog lines, required action refusals and requalification (PROPOSED, needs owner approval; nothing here is implemented)
 
 Status: drafted 2026-10-31 from the B2-0 measurement (`.ai-pipeline/reports/B2_0_MEASUREMENT.md`)
