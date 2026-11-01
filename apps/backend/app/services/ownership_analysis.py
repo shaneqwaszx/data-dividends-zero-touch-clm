@@ -447,6 +447,10 @@ HYBRID_SOURCE_CLASSIFICATION: Final = "OFFICIAL_MOCK_PLUS_LOCAL_DIRECT_OVERLAY"
 # The flattened legacy Garden supplement is never a lookup source; a hybrid direct
 # overlay is, because each corporate holder remains a verified-format issuer UEN.
 _DISCOVERY_SOURCE_CLASSIFICATIONS = frozenset({"SINGLE_SOURCE", HYBRID_SOURCE_CLASSIFICATION})
+# D-112: a reviewed creator declaration may introduce verified-UEN corporate holders whose
+# own registers are then discovered through the same official lookups (any company).
+_DECLARATION_PROVIDER: Final = "MANUAL_DECLARATION_POC"
+_DISCOVERY_PROVIDERS = frozenset({"ACRA_REGISTRY_ACQUISITION", _DECLARATION_PROVIDER})
 _SYNTHETIC_BASIS_BLOCKING_ISSUES = frozenset(
     {
         OwnershipIssueCode.CYCLE_DETECTED,
@@ -1575,6 +1579,42 @@ class OwnershipAnalysisService:
                     "replaced_ownership_version": current.version,
                 }
             )
+            # D-112: declared verified-UEN corporate holders with no declared owners of their
+            # own are discovered through the same official lookups as any issuer. This runs
+            # after every receipt check, so discovered links never satisfy declared coverage.
+            discovery_audit = None
+            discovery_policy = parent.policy_snapshot.ownership_discovery
+            if (
+                self._discovery is not None
+                and discovery_policy is not None
+                and metadata.provider_name == _DECLARATION_PROVIDER
+                and source.relationships
+            ):
+                try:
+                    source, discovery_audit = self._discovery.expand(
+                        source,
+                        parent=parent,
+                        policy=discovery_policy,
+                        ubo_threshold_percent=parent.policy_snapshot.ubo_threshold_percent,
+                        limits=DiscoveryLimits(
+                            max_parties=self.max_parties,
+                            max_relationships=self.max_relationships,
+                            max_depth=self.max_depth,
+                            max_paths_per_candidate=self.max_paths_per_candidate,
+                            max_total_paths=self.max_total_paths,
+                        ),
+                    )
+                    self._validate_source(
+                        source,
+                        metadata,
+                        parent.entity.registration_number,
+                        discovered_official=True,
+                    )
+                except (OwnershipGraphError, ValidationError):
+                    raise OwnershipRequestError(
+                        code="OWNERSHIP_MALFORMED_SOURCE",
+                        message="Ownership source data could not be validated safely.",
+                    ) from None
             now = self._clock()
             snapshot = _snapshot_prior_analysis(current)
             replacement = OwnershipAnalysisRecord(
@@ -1608,6 +1648,7 @@ class OwnershipAnalysisService:
                     )
                 ],
                 prior_analyses=(*current.prior_analyses[-3:], snapshot),
+                discovery=discovery_audit,
                 manual_review_receipt=review_receipt,
                 document_observations=observations,
                 document_bindings=bindings,
@@ -1793,7 +1834,7 @@ class OwnershipAnalysisService:
             if (
                 self._discovery is not None
                 and discovery_policy is not None
-                and metadata.provider_name == "ACRA_REGISTRY_ACQUISITION"
+                and metadata.provider_name in _DISCOVERY_PROVIDERS
                 # The legacy flattened Garden supplement is never a lookup source.
                 and record.source_classification in _DISCOVERY_SOURCE_CLASSIFICATIONS
                 and source.relationships
@@ -1820,6 +1861,7 @@ class OwnershipAnalysisService:
                     parent.entity.registration_number,
                     local_overlay=overlay is not None,
                     poc_links=poc_lane,
+                    discovered_official=metadata.provider_name == _DECLARATION_PROVIDER,
                 )
                 latest = self._cases.get_case(case_id)
                 if (
@@ -2581,6 +2623,7 @@ class OwnershipAnalysisService:
         *,
         local_overlay: bool = False,
         poc_links: bool = False,
+        discovered_official: bool = False,
     ) -> None:
         if (
             len(source.parties) > self.max_parties
@@ -2607,6 +2650,14 @@ class OwnershipAnalysisService:
                 == (POC_EQUAL_UNITS_PROVIDER, OwnershipEnvironment.LOCAL)
             ):
                 continue
+            # D-112: below a declaration, only what discovery itself attached from official
+            # Mock lookups: registry links and labelled equal-unit links. Declared links keep
+            # the declaration's own provenance, which the declaration owner sets.
+            if discovered_official and (provenance.provider, provenance.environment) in {
+                ("ACRA_REGISTRY_ACQUISITION", OwnershipEnvironment.MOCK),
+                (POC_EQUAL_UNITS_PROVIDER, OwnershipEnvironment.LOCAL),
+            }:
+                continue
             if (
                 provenance.provider != metadata.provider_name
                 or provenance.environment != metadata.environment
@@ -2616,6 +2667,10 @@ class OwnershipAnalysisService:
             if (
                 item.provider != metadata.provider_name
                 or item.environment != metadata.environment.value
+            ) and not (
+                discovered_official
+                and item.provider == "ACRA_REGISTRY_ACQUISITION"
+                and item.environment == "MOCK"
             ):
                 raise OwnershipGraphError
             if item.entity_identifier not in {None, registration_number}:

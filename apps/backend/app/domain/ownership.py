@@ -734,9 +734,14 @@ class OwnershipDiscoveryAudit(BaseModel):
             if item.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
         ]
         if self.overlay_scenario_id is None:
-            if any(value is not None for value in separated) or overlay_records or poc_records:
+            if overlay_records:
                 raise ValueError("evidence separation is retained only for hybrid overlays")
-            return self
+            if not poc_records:
+                if any(value is not None for value in separated):
+                    raise ValueError("evidence separation is retained only for hybrid overlays")
+                return self
+            # D-112: official equal-unit issuers outside a scenario carry the same explicit
+            # evidence separation; they are never quantitative or certain evidence.
         if any(value is None for value in separated):
             raise ValueError("hybrid overlays require explicit evidence separation")
         topology = all(discovery_topology_resolved(item) for item in self.records)

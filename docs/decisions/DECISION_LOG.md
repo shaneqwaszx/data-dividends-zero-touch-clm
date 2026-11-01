@@ -1967,3 +1967,17 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
     - tampered issued-capital links;
     - locally named or non-distributed hybrid issuer records.
     The hybrid-only defect cases are still asserted against the hybrid Garden case, which can no longer qualify. The live guards from the retired D-087 round-trip test are kept in `test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields`: older schemas reject D-086 role observations and legacy intermediate counts, roles require an official entity profile, and a D-082 acceptance never carries intermediate counts.
+
+- **Declaration plus official discovery (owner priority, 2026-11-01).**
+  - **Discovery after a declaration.** A reviewed creator declaration (`MANUAL_DECLARATION_POC`) may name corporate holders with a verified UEN and no declared owners of their own. Those holders are discovered through the same official Mock lookups as any issuer. Discovery runs after every receipt check, and post-discovery validation admits only official Mock registry links, labelled equal-unit links and official Mock evidence attached by discovery. Declared links keep the declaration's own provenance.
+  - **Entity-less official rows outside a scenario.** An issuer's entity-less official Mock rows (D-079) are distributed on the equal-unit basis without a scenario overlay only when every current row reports one class and currency (O2). The discovery audit then carries the same explicit evidence separation as a hybrid analysis, and is never `COMPLETE` certainty.
+  - **What this gives.** With a single-class SIM LIM register, a declaration of only Garden's own owners reproduces the original graph and percentages, with each link's true source. It stays in review because SIM LIM's level rests on the equal-unit assumption, and no POC acceptance exists for a declared analysis (an owner policy decision).
+  - **What it does not do.** SIM LIM's observed Mock rows mix Ordinary, Preference and Others, so they are never pooled below a declaration. OPQ -> Garden still blocks: Garden is a partnership with no official ownership register (`PROVIDER_UNSUPPORTED`). ABC's register is a scenario-only D-088 business profile (`NOT_FOUND`). Nothing is reused across onboardings.
+  - **Unchanged.** Full declarations, the supplement-on lane and official-only behaviour.
+- **Legal-form observation (investigation only, nothing changed).**
+  - **The rule.** D-101: the registry legal forms `OTHER` and `GOVERNMENT` have no supported ownership method and raise `OWNERSHIP_METHOD_UNSUPPORTED`.
+  - **Why a declaration skips it.** A declared source carries no `legal_form` (`manual_ownership_evidence.py`, `OwnershipSourceResult` without it), so the check never runs and a declared `OTHER` company can reach `ANALYZED` and readiness. GoldTier confirmation is still required.
+  - **Options for the owner:**
+    - (a) keep it: the declaration is the reviewer's attestation;
+    - (b) carry the case's registry legal form into the declared analysis and keep the issue blocking;
+    - (c) carry it as a visible, non-blocking review note.

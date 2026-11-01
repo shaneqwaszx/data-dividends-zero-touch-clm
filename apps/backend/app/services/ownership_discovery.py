@@ -303,7 +303,10 @@ class _DiscoveryRun:
         )
         complete = all(item.outcome in RESOLVED_DISCOVERY_OUTCOMES for item in records)
         ambiguous = self._ambiguous_persons()
-        hybrid = self._overlay is not None
+        # D-112: equal-unit issuers outside a scenario need the same evidence separation.
+        hybrid = self._overlay is not None or any(
+            item.reason_code == OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS for item in records
+        )
         certainty = (
             # Declared synthetic links can never certify a classification outcome.
             "UNCERTAIN"
@@ -465,7 +468,9 @@ class _DiscoveryRun:
                     provider_backed = provider_backed or shareholder_backed
                     if (
                         shareholders
-                        and self._overlay is not None
+                        # D-112: outside a scenario the same Mock equal-unit rule applies,
+                        # but only to one reported class and currency (owner O2).
+                        and (self._overlay is not None or _single_current_class(shareholders))
                         and self._attach_poc_distribution(node, uen, shareholders)
                     ):
                         reason = OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS
@@ -1168,6 +1173,20 @@ class _DiscoveryRun:
 
     def _uen(self, node: str) -> str:
         return _verified_uen(self._parties[node]) or ""
+
+
+def _single_current_class(rows: tuple[OfficialShareholderObservation, ...]) -> bool:
+    """D-112 (O2): every current row reports the same, non-empty class and currency."""
+
+    labels = {
+        (
+            (row.share_type or "").strip().upper(),
+            (row.currency or "").strip().upper(),
+        )
+        for row in rows
+        if row.current_interest
+    }
+    return len(labels) == 1 and all(part for part in next(iter(labels)))
 
 
 def _verified_uen(party: Party) -> str | None:
