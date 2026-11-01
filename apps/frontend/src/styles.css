@@ -3356,6 +3356,35 @@ dd {
 .partner-shares__technical { padding-top: 12px; border-top: 1px solid var(--color-divider); color: var(--color-neutral-700); }
 .partner-shares__technical summary { cursor: pointer; color: var(--color-text); font-weight: 700; }
 .partner-shares__technical summary:focus-visible { outline: 2px solid var(--color-accent-900); outline-offset: 2px; }
+.partner-shares__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 12px 24px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.partner-shares__facts dt { font-size: 13px; color: var(--color-neutral-700); }
+.partner-shares__facts dd { margin: 2px 0 0; font-weight: 700; }
+.partner-shares__confirmed-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--color-divider);
+  background: #fff;
+}
+.partner-shares__confirmed-table th,
+.partner-shares__confirmed-table td { padding: 10px 16px; border-top: 1px solid var(--color-divider); text-align: left; }
+.partner-shares__confirmed-table thead th {
+  background: var(--color-accent-100);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-accent-900);
+}
+.partner-shares__confirmed-table tfoot th,
+.partner-shares__confirmed-table tfoot td { border-top: 2px solid var(--color-divider); font-weight: 700; }
 
 @media (max-width: 640px) {
   .manual-ownership .partner-shares__row { grid-template-columns: 36px minmax(0, 1fr) auto; }

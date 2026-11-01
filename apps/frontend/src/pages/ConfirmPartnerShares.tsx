@@ -1,9 +1,57 @@
 import { formatOwnershipPercent } from "../ownershipDisplay";
+import { formatTimestamp } from "../shared";
 
-import type { DocumentOwnershipObservation, DocumentProcessingRecord, OwnershipDocumentBinding } from "../types";
+import type { DocumentOwnershipObservation, DocumentProcessingRecord, ManualOwnershipReviewReceipt, OwnershipAnalysisRecord, OwnershipDocumentBinding } from "../types";
 
 /** The exact selected total, or null while a selected share is not an exact decimal. */
 export interface PartnerShareTotal { display: string; exactly100: boolean }
+
+/**
+ * The saved RM confirmation, read only from the review receipt and the server's ownership
+ * analysis (its relationships and candidate classifications). Nothing is recalculated here.
+ */
+export function ConfirmedPartnerShares({ receipt, ownership, agreement, total, disabled, onChange }: {
+  receipt: ManualOwnershipReviewReceipt;
+  ownership: OwnershipAnalysisRecord;
+  agreement: DocumentProcessingRecord | undefined;
+  total: PartnerShareTotal | null;
+  disabled: boolean;
+  onChange: () => void;
+}) {
+  const names = new Map(ownership.parties.map((party) => [party.party_id, party.display_name]));
+  const edges = ownership.relationships.filter((edge) => edge.parent_party_id === ownership.root_party_id);
+  const classification = (partyId: string) => ownership.candidates.find((item) => item.party.party_id === partyId)?.classification;
+  return <div className="partner-shares partner-shares--confirmed">
+    <div className="partner-shares__intro">
+      <p className="partner-shares__eyebrow">Partnership · shares from the agreement</p>
+      <h2 id="manual-ownership-title">Partner shares confirmed</h2>
+      <p>These shares come from the partnership agreement and were confirmed by the RM. The server calculated the UBOs from them.</p>
+    </div>
+    <dl className="partner-shares__facts">
+      <div><dt>Confirmed by</dt><dd>{receipt.actor_id}</dd></div>
+      <div><dt>Confirmed at</dt><dd>{formatTimestamp(receipt.reviewed_at)} (SGT)</dd></div>
+      <div><dt>Partnership agreement</dt><dd>{agreement?.display_name ?? receipt.evidence_document_id} · review revision {receipt.evidence_document_version}</dd></div>
+      <div><dt>Agreement date (as-of date)</dt><dd>{receipt.as_of_date}</dd></div>
+    </dl>
+    <table className="partner-shares__confirmed-table">
+      <thead><tr><th scope="col">Partner</th><th scope="col">Share</th><th scope="col">Provisional UBO ({formatOwnershipPercent(ownership.threshold_percent)} or more)</th></tr></thead>
+      <tbody>{edges.map((edge) => {
+        const kind = classification(edge.child_party_id);
+        return <tr key={edge.relationship_id}>
+          <th scope="row">{names.get(edge.child_party_id) ?? edge.child_party_id}</th>
+          <td>{formatOwnershipPercent(edge.ownership_percent)}</td>
+          <td>{kind === "PROVISIONAL_UBO_CANDIDATE" ? "Yes" : kind === "BELOW_PROVISIONAL_THRESHOLD" ? "No" : "Not decided (review)"}</td>
+        </tr>;
+      })}</tbody>
+      <tfoot><tr><th scope="row">Total</th><td>{total ? `${total.display}%` : "Not available"}</td><td /></tr></tfoot>
+    </table>
+    <p><strong>Note for the reviewer:</strong> {receipt.rationale ?? "No note was added."}</p>
+    <div className="partner-shares__actions">
+      <button type="button" className="btn btn-secondary" disabled={disabled} onClick={onChange}>Change partner shares</button>
+      <span className="control-help">Changing them makes a new submission; readiness is checked again.</span>
+    </div>
+  </div>;
+}
 
 /**
  * D-101 partnership agreement confirmation (display only). The parent form owns every value

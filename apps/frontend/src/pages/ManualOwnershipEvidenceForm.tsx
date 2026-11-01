@@ -3,7 +3,7 @@ import { formatOwnershipPercent } from "../ownershipDisplay";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import { useMemo, useState, type FormEvent } from "react";
 
-import ConfirmPartnerShares, { type PartnerShareTotal } from "./ConfirmPartnerShares";
+import ConfirmPartnerShares, { ConfirmedPartnerShares, type PartnerShareTotal } from "./ConfirmPartnerShares";
 
 import type { DocumentOwnershipObservation, DocumentProcessingRecord, OwnershipAnalysisRecord, OwnershipDocumentBinding, OwnershipParty } from "../types";
 
@@ -115,11 +115,13 @@ function agreementDate(document: DocumentProcessingRecord | undefined): string {
   return dates.size === 1 && only ? only : "";
 }
 
-export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialRootLegalName, legalFormLabel, documents, ownership, disabled, onSubmit, onUploadEvidence }: {
+export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialRootLegalName, legalFormLabel, partnershipState, documents, ownership, disabled, onSubmit, onUploadEvidence }: {
   canonicalRootUen: string;
   initialRootLegalName: string;
   /** Backend-classified legal form for the partnership summary line (display only). */
   legalFormLabel?: string;
+  /** The backend's D-101 partnership state (`entity_type_basis.partnership_state`). */
+  partnershipState?: "AWAITING_RM_CONFIRMATION" | "RM_CONFIRMED" | null;
   documents: DocumentProcessingRecord[];
   ownership?: OwnershipAnalysisRecord | null;
   disabled: boolean;
@@ -154,6 +156,14 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
   const partnerRows = (selectedDocument?.ownership_observations ?? []).filter(isPartnerShareRow);
   const partnershipMode = sourceSelection === "DOCUMENT_OBSERVATIONS" && partnerRows.length > 0;
   const asOfDate = partnershipMode ? agreementAsOfDate : sourceDate ?? asOfDates[sourceSelection];
+  // A saved partnership-agreement confirmation: the backend says RM_CONFIRMED, the analysis is
+  // ANALYZED, and its receipt selected only current Partner Share rows. Read-only until changed.
+  const receipt = ownership?.manual_review_receipt ?? null;
+  const confirmedIds = receipt?.source_selection === "DOCUMENT_OBSERVATIONS" ? receipt.selected_observation_ids ?? [] : [];
+  const confirmedRows = observations.filter((item) => confirmedIds.includes(item.observation_id) && isPartnerShareRow(item));
+  const partnershipConfirmed = partnershipState === "RM_CONFIRMED" && ownership?.state === "ANALYZED"
+    && receipt !== null && confirmedRows.length > 0 && confirmedRows.length === confirmedIds.length;
+  const [changingConfirmed, setChangingConfirmed] = useState(false);
   const [rationale, setRationale] = useState("");
   const [rootPartyId, setRootPartyId] = useState(ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`);
   const [rootDisplayName, setRootDisplayName] = useState(initialRoot?.display_name ?? initialRootLegalName);
@@ -241,6 +251,24 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
       source_selection: sourceSelection, observed_document_versions: bindings, selected_observation_ids: sourceSelection === "DOCUMENT_OBSERVATIONS" ? selectedObservationIds : [],
       as_of_date: asOfDate, rationale: rationale.trim() || null, root_party_id: rootPartyId.trim(), root_display_name: rootDisplayName.trim(),
       parties: sourceSelection === "CURRENT_EVIDENCE" && ownership ? ownership.parties : [...partyMap.values()], owners: cleanOwners });
+  }
+
+  if (partnershipConfirmed && ownership && receipt && !changingConfirmed) {
+    const confirmedEdges = ownership.relationships.filter((edge) => edge.parent_party_id === ownership.root_party_id);
+    return <section className="manual-ownership manual-ownership--partnership" aria-labelledby="manual-ownership-title">
+      <ConfirmedPartnerShares receipt={receipt} ownership={ownership}
+        agreement={currentDocuments.find((document) => document.document_id === receipt.evidence_document_id)}
+        total={exactPercentTotal(confirmedEdges.map((edge) => edge.ownership_percent))} disabled={disabled}
+        onChange={() => {
+          // Reopen the form with the confirmed rows and date; submitting is a new decision.
+          setChangingConfirmed(true);
+          setValidationError(null);
+          setSourceSelection("DOCUMENT_OBSERVATIONS");
+          setDocumentId(receipt.evidence_document_id);
+          setAgreementAsOfDate(receipt.as_of_date);
+          applySelection(confirmedRows.map((item) => item.observation_id));
+        }} />
+    </section>;
   }
 
   if (partnershipMode && selectedDocument) {

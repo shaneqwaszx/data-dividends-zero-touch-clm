@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DocumentOwnershipObservation, DocumentProcessingRecord } from "../types";
+import type { DocumentOwnershipObservation, DocumentProcessingRecord, ManualOwnershipReviewReceipt, OwnershipAnalysisRecord, OwnershipCandidate } from "../types";
 import ManualOwnershipEvidenceForm, { exactPercentTotal, type ManualOwnershipEvidenceValues } from "./ManualOwnershipEvidenceForm";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -48,14 +48,45 @@ const xyzDocuments = (rows = XYZ_ROWS) => [
   reviewed(AGREEMENT_ID, "xyz-accounting-partnership-agreement.pdf", rows),
 ];
 
-function render(documents = xyzDocuments(), extra: { onUploadEvidence?: (file: File) => void; disabled?: boolean } = {}) {
+function render(documents = xyzDocuments(), extra: {
+  onUploadEvidence?: (file: File) => void; disabled?: boolean;
+  ownership?: OwnershipAnalysisRecord | null; partnershipState?: "AWAITING_RM_CONFIRMATION" | "RM_CONFIRMED" | null;
+} = {}) {
   const onSubmit = vi.fn<(values: ManualOwnershipEvidenceValues) => void>();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   act(() => root?.render(<ManualOwnershipEvidenceForm canonicalRootUen={UEN} initialRootLegalName={NAME} legalFormLabel="Partnership"
-    documents={documents} ownership={null} disabled={extra.disabled ?? false} onSubmit={onSubmit} onUploadEvidence={extra.onUploadEvidence} />));
+    partnershipState={extra.partnershipState} documents={documents} ownership={extra.ownership ?? null}
+    disabled={extra.disabled ?? false} onSubmit={onSubmit} onUploadEvidence={extra.onUploadEvidence} />));
   return { view: container, onSubmit };
+}
+
+const ROOT_ID = `ENTITY_${UEN}`;
+/** The saved analysis and receipt the backend returns after the RM confirmed (as on a reload). */
+function confirmedOwnership(shares: Array<[string, string, OwnershipCandidate["classification"]]> = [
+  ["TAN WEI LING", "60", "PROVISIONAL_UBO_CANDIDATE"], ["LILY", "40", "PROVISIONAL_UBO_CANDIDATE"],
+], receipt: Partial<ManualOwnershipReviewReceipt> = {}): OwnershipAnalysisRecord {
+  const partners = shares.map(([name], index) => ({ party_id: `PARTNER_${index + 1}`, display_name: name,
+    party_type: "NATURAL_PERSON" as const, registration_number: null, country: "SG" }));
+  return {
+    analysis_id: "analysis-xyz", version: 3, root_party_id: ROOT_ID, state: "ANALYZED",
+    parties: [{ party_id: ROOT_ID, display_name: NAME, party_type: "LEGAL_ENTITY", registration_number: UEN, country: "SG" }, ...partners],
+    relationships: shares.map(([, percent], index) => ({ relationship_id: `SHARE_${index + 1}`, parent_party_id: ROOT_ID,
+      child_party_id: `PARTNER_${index + 1}`, ownership_percent: percent })),
+    candidates: shares.map(([, percent, classification], index) => ({ party: partners[index], aggregated_ownership_percent: percent,
+      threshold_percent: "25", classification })),
+    threshold_percent: "25",
+    manual_review_receipt: {
+      case_id: "case-xyz", actor_id: "ethan-tan", reviewed_at: "2026-11-02T03:15:00Z",
+      rationale: "Checked against the signed agreement dated 2 Jan 2020.",
+      evidence_document_id: AGREEMENT_ID, evidence_document_version: 2, evidence_reference: "AGREEMENT",
+      source_type: "USER_SUPPLIED_DECLARATION", source_selection: "DOCUMENT_OBSERVATIONS",
+      observed_document_versions: [{ document_id: AGREEMENT_ID, event_count: 2 }],
+      selected_observation_ids: XYZ_ROWS.slice(0, shares.length).map((item) => item.observation_id),
+      provider_name: "MANUAL_DECLARATION_POC", provider_environment: "LOCAL", as_of_date: "2020-01-03", ...receipt,
+    },
+  } as unknown as OwnershipAnalysisRecord;
 }
 
 const q = <T extends Element>(view: HTMLElement, selector: string) => view.querySelector<T>(selector)!;
@@ -197,6 +228,70 @@ describe("partnership mode: Confirm partner shares", () => {
     expect(view.textContent).toContain("Declared ownership relationships");
     expect([...view.querySelectorAll("button")].some((item) => item.textContent === "Add owner")).toBe(true);
     expect(view.textContent).toContain("Submit manual ownership evidence");
+  });
+});
+
+describe("after the RM confirmed: Partner shares confirmed", () => {
+  it("shows the saved confirmation read-only after a reload, from the receipt and analysis only", () => {
+    const { view } = render(xyzDocuments(), { ownership: confirmedOwnership(), partnershipState: "RM_CONFIRMED" });
+    expect(q(view, "h2").textContent).toBe("Partner shares confirmed");
+    const facts = q(view, ".partner-shares__facts").textContent!;
+    expect(facts).toContain("Confirmed byethan-tan");
+    expect(facts).toContain("2 Nov 2026");
+    expect(facts).toContain("11:15");
+    expect(facts).toContain("xyz-accounting-partnership-agreement.pdf · review revision 2");
+    expect(facts).toContain("Agreement date (as-of date)2020-01-03");
+    const rows = [...view.querySelectorAll(".partner-shares__confirmed-table tbody tr")].map((item) => item.textContent);
+    expect(rows).toEqual(["TAN WEI LING60%Yes", "LILY40%Yes"]);
+    expect(q(view, ".partner-shares__confirmed-table thead").textContent).toContain("Provisional UBO (25% or more)");
+    expect(q(view, ".partner-shares__confirmed-table tfoot").textContent).toContain("Total100%");
+    expect(view.textContent).toContain("Checked against the signed agreement dated 2 Jan 2020.");
+    // No editable form and no confirm button until the RM chooses to change the shares.
+    expect(view.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect([...view.querySelectorAll("button")].map((item) => item.textContent)).toEqual(["Change partner shares"]);
+  });
+
+  it("shows below-threshold partners as not provisional UBOs, and an empty note plainly", () => {
+    const ownership = confirmedOwnership([["TAN WEI LING", "90", "PROVISIONAL_UBO_CANDIDATE"], ["LILY", "10", "BELOW_PROVISIONAL_THRESHOLD"]], { rationale: null });
+    const { view } = render(xyzDocuments([row(1, "TAN WEI LING", "90"), row(2, "LILY", "10")]), { ownership, partnershipState: "RM_CONFIRMED" });
+    expect([...view.querySelectorAll(".partner-shares__confirmed-table tbody tr")].map((item) => item.textContent))
+      .toEqual(["TAN WEI LING90%Yes", "LILY10%No"]);
+    expect(view.textContent).toContain("No note was added.");
+  });
+
+  it("Change partner shares reopens the form with the confirmed rows and date, and submits a new decision", () => {
+    const { view, onSubmit } = render(xyzDocuments(), { ownership: confirmedOwnership(), partnershipState: "RM_CONFIRMED" });
+    click([...view.querySelectorAll("button")].find((item) => item.textContent === "Change partner shares")!);
+    expect(q(view, "h2").textContent).toBe("Confirm partner shares from the partnership agreement");
+    expect(box(view, "Confirm TAN WEI LING at 60 percent").checked).toBe(true);
+    expect(box(view, "Confirm LILY at 40 percent").checked).toBe(true);
+    expect(q<HTMLInputElement>(view, 'input[name="as_of_date"]').value).toBe("2020-01-03");
+    expect(total(view).textContent).toContain("Selected total: 100%");
+    expect(button(view).disabled).toBe(false);
+    submit(view);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const values = onSubmit.mock.calls[0][0];
+    expect(values).toMatchObject({ source_selection: "DOCUMENT_OBSERVATIONS", evidence_document_id: AGREEMENT_ID,
+      selected_observation_ids: XYZ_ROWS.map((item) => item.observation_id), as_of_date: "2020-01-03", root_party_id: ROOT_ID });
+    expect(values.owners.map((owner) => [owner.party_id, owner.ownership_percent, owner.parent_party_id]))
+      .toEqual([["PARTNER_1", "60", ROOT_ID], ["PARTNER_2", "40", ROOT_ID]]);
+  });
+
+  it("keeps the unconfirmed form unchanged while the backend still awaits the RM", () => {
+    const awaiting = { ...confirmedOwnership(), state: "REVIEW_REQUIRED", relationships: [], candidates: [], manual_review_receipt: null } as unknown as OwnershipAnalysisRecord;
+    const { view } = render(xyzDocuments(), { ownership: awaiting, partnershipState: "AWAITING_RM_CONFIRMATION" });
+    expect(q(view, "h2").textContent).toBe("Confirm partner shares from the partnership agreement");
+    expect([...view.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].some((item) => item.checked)).toBe(false);
+    expect(total(view).textContent).toContain("Nothing selected yet");
+  });
+
+  it("does not show the summary without the backend's RM_CONFIRMED state or for a manual declaration", () => {
+    const { view } = render(xyzDocuments(), { ownership: confirmedOwnership() });
+    expect(q(view, "h2").textContent).toBe("Confirm partner shares from the partnership agreement");
+    act(() => root?.unmount()); container?.remove(); root = null;
+    const manual = confirmedOwnership(undefined, { source_selection: "USER_SUPPLIED_DECLARATION", selected_observation_ids: [] });
+    const second = render(xyzDocuments(), { ownership: manual, partnershipState: "RM_CONFIRMED" }).view;
+    expect(q(second, "h2").textContent).not.toBe("Partner shares confirmed");
   });
 });
 

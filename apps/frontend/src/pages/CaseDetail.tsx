@@ -1612,6 +1612,7 @@ export default function CaseDetail({
               canonicalRootUen={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen}
               initialRootLegalName={summary.case.entity?.legal_name ?? summary.case.initial_identity?.legal_name ?? ""}
               legalFormLabel={summary.entity_type_basis?.entity_type === "PARTNERSHIP" ? "Partnership" : undefined}
+              partnershipState={summary.entity_type_basis?.partnership_state}
               documents={documents}
               ownership={ownership}
               disabled={isBusy || mutationBlocked || ownershipReadUnconfirmed || summary.ownership_edit_authorized !== true}
