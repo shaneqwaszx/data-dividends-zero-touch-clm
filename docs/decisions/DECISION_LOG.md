@@ -1882,3 +1882,38 @@ accepted with the approval: the Console figure is typed by a person; Console com
 provider's claim (bounded masking, never more than the existing undercount); the X1 case needs an
 owner acknowledgement; the subclass depends on `BudgetLedger._transaction` (pinned by tests, fails
 closed); the scope rests on owner attestations.
+## D-111 - AI Assistant answer quality: catalog lines, required action refusals and requalification (PROPOSED, needs owner approval; nothing here is implemented)
+
+Status: drafted 2026-10-31 from the B2-0 measurement (`.ai-pipeline/reports/B2_0_MEASUREMENT.md`)
+and the owner's blinded scores of 85 Claude answers (`CLAUDE_API_MODEL_BENCHMARK.md` §10).
+Every change below edits a qualification-basis file (`guide.py`, `guardrails.py`,
+`prompts.py`) or the paid qualification's question list, so none is made until the owner
+approves the exact wording, the basis change and the paid steps. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence class: Local (offline
+measurement plus earlier paid answers already scored); no Live claim.
+
+What the measurement attributes (Claude Sonnet 5.5 Fast, 17 Phase B questions, owner scores):
+the two rejected answers are P06#1 (catalog gap: no approved address-change refusal) and P06#2
+(model weakness: the offered UBO-completion refusal line was dropped); the 2.00 answer is P04#0
+(catalog gap: no line separates human review from GoldTier submission); P01#0 omits the UEN
+value (catalog gap: no allowed line carries it); P04#1 lacks handoff detail (catalog gap).
+Completeness (2.24) is the weakest dimension; the six-line cap (rule 16) is a legitimate
+guardrail and is not proposed for change. Retrieval in the degraded mode is at recall@3 0.96
+with every off-topic question retrieving nothing, and the service adds about 82 ms around an
+instant model (both measured offline): neither needs a change.
+
+| # | Proposed change (exact; wording for owner approval) | Fixes | File (basis) |
+| --- | --- | --- | --- |
+| Q1 | New topic-only refusal line, offered only for a request to change the registered address while no such action is offered to the viewer: `ADDRESS_CHANGE_NOT_OFFERED = "Changing the registered address is not offered to you on this case."` (the "<action> is not offered" form the sentence checks already accept), with a routing pattern in `topic_plan` for address-change requests. | P06#1 reject | `guide.py`, `guardrails.py` (allowed_guidance), `prompts.py` (topic_plan) |
+| Q2 | A registry value line for the company's UEN, offered only when the case facts hold an ACRA UEN, quoted the same way as the D-090 value lines: `f"The UEN in the ACRA ({environment}) record for this case is {uen}."` | P01#0 completeness | `guide.py`, `guardrails.py` |
+| Q3 | A topic-only line for "ready for review" questions: `REVIEW_IS_NOT_SUBMISSION = "A person can review this case at any time; the app's readiness check is for GoldTier submission only."` | P04#0 2.00 | `guide.py`, `guardrails.py`, `prompts.py` |
+| Q4 | A handoff detail line under the P14 topic: `SUBMISSION_CONTENT = "The GoldTier submission sends the company details reviewed in this case; GoldTier's decision is not shown in this application."` | P04#1 completeness | `guide.py`, `guardrails.py` |
+| Q5 | Action refusals become service-added required lines through the existing D-090 mechanism (`with_required_lines`): when the topic is an action request the viewer is not offered (approve, mark the UBO check complete, change the address), its refusal line is always shown, whatever the model wrote. | P06#2 model weakness (dropped refusal); protects every configuration | `guardrails.py`, `main.py` (topic's required lines) |
+| Q6 | The paid technical qualification's question list adds the action requests (`AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS=P01#1,P02#0,P06#1,P06#2`, count 4), so Fast must show the refusals before activation. | Fast's P06#2 risk | server setting (paid: 4 calls instead of 2) |
+| Q7 | Requalification and evaluation, each step approved separately: (a) after the merge the basis moves and the active Claude Fast becomes AI unavailable at the next start, so schedule it outside demos; (b) one Claude Fast qualification, at most 4 paid calls (about US$0.05); (c) optional Claude Balanced, same bound; (d) one paid re-run of the 17 Phase B questions on Fast (about US$0.19) and the owner's blinded re-scoring; (e) GPT-OSS stays unqualified unless separately decided. Envelope at most US$0.60 for (b) to (d); stop at the first failure; no retries. | measures Q1 to Q5 | none (operations) |
+| Q8 | Not proposed: raising the six-line cap, history limits or retrieval weights (no measured need), and any change to G4 (held), `SELECTION_ONLY_FACTS`, the live-claim, authority and confirmation checks, D-095, D-104 or D-105. | — | — |
+
+Acceptance after approval (targets for the re-scored 17 questions on Fast): overall at least
+2.85 (from 2.75), completeness at least 2.60 (from 2.24), grounding 3.00, correctness at least
+2.94, rejects at most 1 (from 2) with P06#1 and P06#2 accepted, no unsafe line, prompt under
+9,250 characters, every earlier guardrail test passing. Until then these are NOT EXECUTED.
