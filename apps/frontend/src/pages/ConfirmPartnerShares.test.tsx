@@ -111,6 +111,9 @@ describe("partnership mode: Confirm partner shares", () => {
     expect(q(view, '[data-testid="partner-shares-summary"]').textContent).toBe(`${NAME}UEN ${UEN}Partnership`);
     expect(q<HTMLSelectElement>(view, 'select[aria-label="Partnership agreement"]').value).toBe(AGREEMENT_ID);
     const date = q<HTMLInputElement>(view, 'input[name="as_of_date"]');
+    // The label is exactly the field name; the hint is linked by aria-describedby, not inside it.
+    expect(date.closest("label")!.textContent).toBe("Agreement date (as-of date)");
+    expect(date.getAttribute("aria-describedby")).toBe("partner-shares-date-hint");
     expect(date.value).toBe("2020-01-02");
     expect(date.readOnly).toBe(false);
     setDate(view, "2020-03-01");
