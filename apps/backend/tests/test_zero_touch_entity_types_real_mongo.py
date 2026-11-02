@@ -59,7 +59,10 @@ def test_government_confirmation_survives_restart_and_is_never_replayed(database
         current = confirmed.json()
         case_id = current["case"]["case_id"]
     raw = raw_case(database, case_id)
-    assert raw is not None and raw["schema_version"] == 17
+    assert raw is not None and raw["schema_version"] == 18
+    # D-114: the system's UEN route is stored and survives the restart below.
+    assert raw["onboarding"]["uen_route"]["route"] == "GOVERNMENT_REGISTER"
+    assert raw["onboarding"]["uen_route"]["pq_code"] == "GB"
     retained = raw["onboarding"]["government_status_confirmation"]
     assert retained["classification"] == "USER_AUTHORIZED_POC"
     assert retained["document_id"] == current["entity_type_basis"]["government_status"][
@@ -73,6 +76,7 @@ def test_government_confirmation_survives_restart_and_is_never_replayed(database
         assert restored["entity_type_basis"] == current["entity_type_basis"]
         assert restored["entity_type_basis"]["government_status"]["state"] == "CONFIRMED"
         assert blockers(restored) == ["TARGET_CONFIRMATION_REQUIRED"]
+        assert restored["case"]["uen_route"]["route"] == "GOVERNMENT_REGISTER"
         again = confirm_government(app, {
             **restored,
             "entity_type_basis": current["entity_type_basis"],
@@ -93,7 +97,7 @@ def test_partnership_rm_confirmed_shares_survive_restart(database):  # noqa: F81
         assert response.status_code == 200, response.json()
         case_id = response.json()["case"]["case_id"]
         ownership = app.get(f"/api/onboarding/cases/{case_id}/ownership").json()
-    assert raw_case(database, case_id)["schema_version"] == 17
+    assert raw_case(database, case_id)["schema_version"] == 18
     with TestClient(create_app(settings, acra_connector=acra, goldtier_transport=target)) as app:
         restored = app.get(f"/api/clm/zero-touch/cases/{case_id}").json()
         assert restored["entity_type_basis"]["label"] == (

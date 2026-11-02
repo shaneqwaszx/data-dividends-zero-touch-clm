@@ -120,7 +120,7 @@ def test_garden_discovery_survives_restart_with_issuer_cache_and_current_envelop
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(case.case_id)}
         )
-        assert raw is not None and raw["schema_version"] == 17
+        assert raw is not None and raw["schema_version"] == 18
         identity = RegistryProviderIdentity(
             provider=SourceSystem.ACRA,
             environment=SourceEnvironment.MOCK,
@@ -212,7 +212,7 @@ def test_hybrid_five_layer_record_survives_restart_and_rejects_schema_eleven(phy
         assert second.ownership.get_for_case(case.case_id) == record
         collection = client[hybrid.mongo_database][hybrid.mongo_case_collection]
         raw = collection.find_one({"_id": str(case.case_id)})
-        assert raw is not None and raw["schema_version"] == 17
+        assert raw is not None and raw["schema_version"] == 18
         assert raw["ownership"]["discovery"]["overlay_scenario_id"] == (
             "FIVE_LAYER_MARKETPLACE_HYBRID_V1"
         )
@@ -330,7 +330,7 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
         database = client[hybrid.mongo_database]
         collection = database[hybrid.mongo_case_collection]
         raw = collection.find_one({"_id": str(case.case_id)})
-        assert raw is not None and raw["schema_version"] == 17
+        assert raw is not None and raw["schema_version"] == 18
         cache = database[hybrid.mongo_registry_cache_collection]
         assert (
             cache.count_documents(
@@ -375,6 +375,7 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
                     # D-101 (schema 17) keys never existed in schema 13.
                     "onboarding.government_status_confirmation": "",
                     "documents.$[].government_status_observations": "",
+                    "onboarding.uen_route": "",  # D-114 (schema 18)
                 },
             },
         )
@@ -448,7 +449,7 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
             "TARGET_CONFIRMATION_REQUIRED"
         ]
     raw = collection.find_one({"_id": case_id})
-    assert raw is not None and raw["schema_version"] == 17
+    assert raw is not None and raw["schema_version"] == 18
     assert raw["ownership"]["poc_acceptance"]["policy"] == "D085_SCENARIO_DECLARED_POC_BASIS_V1"
     assert raw["ownership"]["poc_acceptance"]["overlay_scenario_id"] == "EVIDENCE_POC_BASIS_V1"
     assert raw["ownership"]["poc_acceptance"]["accepted_assumptions"] == [

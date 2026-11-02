@@ -118,6 +118,7 @@ from app.domain.target_submission import (
     SubmissionCanonicalEntity,
     SubmissionRegisteredAddress,
 )
+from app.domain.uen_route import UenRoute, UenRouteDecision, route_change_message, route_uen
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.services.canonical_validation import validate_entity
 from app.services.errors import (
@@ -237,6 +238,22 @@ MALFORMED_TARGET_RESPONSE_CODE = "GT_MALFORMED_TARGET_RESPONSE"
 MALFORMED_TARGET_RESPONSE_MESSAGE = "GoldTier target returned an invalid response."
 TARGET_OUTCOME_FALLBACK_CODE = "GT_TARGET_OUTCOME_RECORDING_FAILED"
 TARGET_OUTCOME_FALLBACK_MESSAGE = "GoldTier target outcome recording failed safely."
+# D-114 RM guidance for the registry the UEN routes to.
+GOVERNMENT_IDENTITY_NOT_FOUND_MESSAGE = (
+    "No current government register record was found for this UEN. Check the UEN against "
+    "the authority's letter."
+)
+ENTITY_CATEGORY_MISMATCH_MESSAGE = (
+    "This UEN has a government body record in the government register, but its format routes "
+    "it to ACRA. Check the UEN; the case stays in review."
+)
+
+
+def uen_entity_type_unsupported_message(route: UenRouteDecision) -> str:
+    return (
+        "This UEN belongs to an entity type this POC doesn't onboard "
+        f"({route.entity_type}). Check the UEN."
+    )
 
 
 class _TargetOutcomeFallbackRecorded(Exception):
@@ -933,6 +950,33 @@ class OnboardingService:
                 ),
             )
             requested.updated_at = requested_at
+            previous_route = case.uen_route or (
+                route_uen(previous_identity.registration_number)
+                if previous_identity is not None
+                else None
+            )
+            corrected_route = route_uen(identity.registration_number)
+            # D-114: the recorded route always describes the corrected UEN, even when the
+            # registry is not re-read after this correction (QG F2).
+            requested.uen_route = corrected_route
+            if (
+                previous_route is not None
+                and corrected_route is not None
+                and previous_route.route != corrected_route.route
+            ):
+                # Part of this identity correction's evidence, never a separate choice.
+                requested.events.append(
+                    WorkflowEvent(
+                        sequence=len(requested.events) + 1,
+                        stage=requested.state,
+                        outcome=EventOutcome.SUCCEEDED,
+                        timestamp=requested_at,
+                        case_id=requested.case_id,
+                        correlation_id=requested.correlation_id,
+                        code="UEN_ROUTE_CHANGED",
+                        message=route_change_message(previous_route, corrected_route),
+                    )
+                )
             requested.events.append(
                 WorkflowEvent(
                     sequence=len(requested.events) + 1,
@@ -1170,30 +1214,57 @@ class OnboardingService:
         """The single request-bound registry verification path for every UEN choice.
 
         Verification precedes canonical mutation and performs no target operation.
+        D-114: the UEN's own entity type picks the register; a government body is never
+        verified through the ACRA provider.
         """
         _, provider = self._registry_router.route(
             JurisdictionCode.SINGAPORE, decided_at=self._clock()
         )
         if provider is None:
             raise ValueError("Registry verification could not verify this UEN.")
+        route = route_uen(identity.registration_number)
+        if route is not None and route.route == UenRoute.UNSUPPORTED:
+            raise ValueError(uen_entity_type_unsupported_message(route))
+        coordinator = self._registry_acquisition_coordinator
         try:
-            result = (
-                self._registry_acquisition_coordinator.acquire(
-                    provider,
+            government = (
+                coordinator.read_government_register(
                     identity.registration_number,
                     case_policy=case_policy.registry,
                     policy_version=case_policy.catalogue_version,
                 )
-                if self._registry_acquisition_coordinator is not None
+                if coordinator is not None
                 else None
             )
-            acquisition = (
-                result.acquisition
-                if result is not None
-                else provider.retrieve_acquisition(identity.registration_number)
-            )
-        except (ConnectorError, RegistryCacheError):
+        except RegistryCacheError:
             raise ValueError("Registry verification could not verify this UEN.") from None
+        result = None
+        acquisition: RegistryAcquisitionBundle | None
+        if route is not None and route.route == UenRoute.GOVERNMENT_REGISTER:
+            if government is None:
+                raise ValueError(GOVERNMENT_IDENTITY_NOT_FOUND_MESSAGE)
+            acquisition = government
+        elif government is not None:
+            raise ValueError(ENTITY_CATEGORY_MISMATCH_MESSAGE)
+        else:
+            try:
+                result = (
+                    coordinator.acquire(
+                        provider,
+                        identity.registration_number,
+                        case_policy=case_policy.registry,
+                        policy_version=case_policy.catalogue_version,
+                    )
+                    if coordinator is not None
+                    else None
+                )
+                acquisition = (
+                    result.acquisition
+                    if result is not None
+                    else provider.retrieve_acquisition(identity.registration_number)
+                )
+            except (ConnectorError, RegistryCacheError):
+                raise ValueError("Registry verification could not verify this UEN.") from None
         if (
             acquisition is None
             or acquisition.status
@@ -2130,6 +2201,19 @@ class OnboardingService:
             provider_backed=not result.cache_hit,
         )
 
+    def _read_government_register(
+        self, case: OnboardingCase, normalised_uen: str
+    ) -> RegistryAcquisitionBundle | None:
+        """D-114: the government register only; without a coordinator there is no register."""
+        coordinator = self._registry_acquisition_coordinator
+        if coordinator is None:
+            return None
+        return coordinator.read_government_register(
+            normalised_uen,
+            case_policy=case.policy_snapshot.registry,
+            policy_version=case.policy_snapshot.catalogue_version,
+        )
+
     def _acquire_required_registry_evidence(
         self,
         case: OnboardingCase,
@@ -2143,8 +2227,47 @@ class OnboardingService:
         acquisition: RegistryAcquisitionBundle | None
         binding = verified[1] if verified is not None else None
         registry_coordinator = self._registry_acquisition_coordinator
+        # D-114: the UEN's own entity type picks the register; the system records it.
+        route = route_uen(normalised_uen)
+        case.uen_route = route
+        government: RegistryAcquisitionBundle | None = None
+        if verified is None and route is not None:
+            if route.route == UenRoute.UNSUPPORTED:
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "UEN_ENTITY_TYPE_UNSUPPORTED",
+                    uen_entity_type_unsupported_message(route),
+                )
+            government = self._run_required_stage(
+                case,
+                code="REGISTRY_CACHE_FAILURE",
+                message="Registry evidence could not be prepared safely.",
+                operation=lambda: self._read_government_register(case, normalised_uen),
+            )
+            if route.route == UenRoute.GOVERNMENT_REGISTER and government is None:
+                # Never the ACRA provider for a government body.
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "GOVERNMENT_IDENTITY_NOT_FOUND",
+                    GOVERNMENT_IDENTITY_NOT_FOUND_MESSAGE,
+                )
+            if route.route == UenRoute.ACRA and government is not None:
+                # A government record under an ACRA-format UEN stops before ACRA.
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "ENTITY_CATEGORY_MISMATCH",
+                    ENTITY_CATEGORY_MISMATCH_MESSAGE,
+                )
         if verified is not None:
             acquisition = verified[0]
+        elif route is not None and route.route == UenRoute.GOVERNMENT_REGISTER:
+            acquisition = government
         elif registry_coordinator is None:
             acquisition = self._run_required_stage(
                 case,

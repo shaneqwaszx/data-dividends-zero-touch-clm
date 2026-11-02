@@ -123,6 +123,13 @@ export function validateIntakeFiles(files: File[]): string | null {
   return null;
 }
 
+// Registry stops that still let the RM add evidence to the retained case (D-114 adds the
+// three UEN-route stops).
+const RETAINED_INTAKE_REGISTRY_CODES = [
+  "REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE", "ACRA_ENTITY_NOT_FOUND",
+  "GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH", "UEN_ENTITY_TYPE_UNSUPPORTED",
+];
+
 export function isRegistryIntakeUnavailable(summary: ZeroTouchCaseSummary): boolean {
   const resolution = summary.case.jurisdiction_resolution;
   const route = summary.case.registry_route;
@@ -131,12 +138,12 @@ export function isRegistryIntakeUnavailable(summary: ZeroTouchCaseSummary): bool
     .filter((exception) => exception.stage === "REGISTRY");
   const evidenceIntakeCanContinue = registryExceptions.length > 0
     && registryExceptions.every(
-      (exception) => ["REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE", "ACRA_ENTITY_NOT_FOUND"]
+      (exception) => RETAINED_INTAKE_REGISTRY_CODES
         .includes(exception.blocker_code),
     );
   return (
     registryExceptions.some(
-      (exception) => !["REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE", "ACRA_ENTITY_NOT_FOUND"]
+      (exception) => !RETAINED_INTAKE_REGISTRY_CODES
         .includes(exception.blocker_code),
     )
     || resolution?.status === "CONFLICT"

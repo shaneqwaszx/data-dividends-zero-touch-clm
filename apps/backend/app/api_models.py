@@ -123,6 +123,7 @@ from app.domain.target_classification import (
     TargetClassificationKey,
     TargetClassificationSelection,
 )
+from app.domain.uen_route import UenRouteDecision
 from app.domain.zero_touch import (
     LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
@@ -397,6 +398,8 @@ class OnboardingCaseResponse(BaseModel):
     correlation_id: UUID
     requested_uen: str
     initial_identity: InitialCustomerIdentity | None = None
+    # D-114: how the system routed this UEN (read-only; never set from a request).
+    uen_route: UenRouteDecision | None = None
     identity_corrections: tuple[BrowserIdentityCorrectionEvidence, ...] = ()
     target_dispatch_confirmation: TargetDispatchConfirmation | None = None
     policy_snapshot: CasePolicySnapshot
@@ -1084,6 +1087,39 @@ def project_human_interventions(
                 "Correct the identity and run the authorized read-only Search recheck on this "
                 "retained case before any target mutation."
             )
+            no_action = None
+            identity_correction_action = "IDENTITY_SEARCH_RECHECK"
+        elif (
+            # D-114: the UEN's entity type picks the register; the RM corrects the UEN.
+            exception.blocker_code in {
+                "GOVERNMENT_IDENTITY_NOT_FOUND",
+                "ENTITY_CATEGORY_MISMATCH",
+                "UEN_ENTITY_TYPE_UNSUPPORTED",
+            }
+            and case.target_dispatch_confirmation is None
+            and case.goldtier_result is None
+            and clm.submission_snapshot is None
+            and automation.status != AutomationStatus.COMPLETED
+        ):
+            title, required, expected = {
+                "GOVERNMENT_IDENTITY_NOT_FOUND": (
+                    "Government register record not found",
+                    ("A UEN with a current government register record.",),
+                    "Check the UEN against the authority's letter. ACRA is never called for a "
+                    "government body.",
+                ),
+                "ENTITY_CATEGORY_MISMATCH": (
+                    "UEN does not match the government register",
+                    ("A UEN whose format matches the entity's register record.",),
+                    "Check the UEN. ACRA was not called; the case stays in review.",
+                ),
+                "UEN_ENTITY_TYPE_UNSUPPORTED": (
+                    "UEN entity type not onboarded in this POC",
+                    ("A UEN of an entity type this POC onboards.",),
+                    "Check the UEN. No registry was called for this entity type.",
+                ),
+            }[exception.blocker_code]
+            classification = "RECOVERABLE_INPUT"
             no_action = None
             identity_correction_action = "IDENTITY_SEARCH_RECHECK"
         elif (

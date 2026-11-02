@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[17] = 17
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[18] = 18
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -826,6 +826,7 @@ class DurableCaseSnapshotV16(BaseModel):
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
         reject_entity_type_legacy_fields(value)
+        reject_uen_route_legacy_fields(value)
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
@@ -844,12 +845,54 @@ class DurableCaseSnapshotV16(BaseModel):
         return self
 
 
+class DurableCaseSnapshotV17(BaseModel):
+    """Exact schema-17 envelope: D-101 entity types without the D-114 UEN route."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[17] = 17
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_uen_route_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        # From the attributes, not model_dump: a dump would drop backend-only excluded
+        # evidence (for example D-095 document digests).
+        return DurableCaseSnapshot.model_validate(
+            {
+                **{name: getattr(self, name) for name in type(self).model_fields},
+                "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION,
+            }
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV17":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[17] = 17
+    schema_version: Literal[18] = 18
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -1027,6 +1070,16 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
             for item in audit.get("records", ()) or ()
         ):
             raise ValueError("Historical schema cannot contain a D-088 business profile.")
+
+
+def reject_uen_route_legacy_fields(value: Any) -> None:
+    """Schema <= 17 envelopes cannot carry a D-114 UEN route, even if null.
+
+    A schema-17 case reads with no recorded route (routing by UEN did not exist yet); the
+    read does not rewrite it.
+    """
+    if "uen_route" in _explicit_fields(_explicit_fields(value).get("onboarding")):
+        raise ValueError("Historical schema cannot contain a D-114 UEN route.")
 
 
 def reject_entity_type_legacy_fields(value: Any) -> None:

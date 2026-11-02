@@ -19,6 +19,7 @@ from app.domain.policy import (
     legacy_phase13_policy_snapshot,
 )
 from app.domain.target_classification import TargetClassificationSelection
+from app.domain.uen_route import UenRouteDecision
 
 IDENTITY_RECHECK_HISTORY_LIMIT = 16
 
@@ -1085,6 +1086,11 @@ class OnboardingCase(BaseModel):
     # D-101 (schema 17). Left out of dumps while unset, so fingerprints and review digests
     # of cases without it (every case before schema 17) do not change.
     government_status_confirmation: GovernmentStatusConfirmation | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    # D-114 (schema 18): how the system routed the current UEN (ACRA, government register or
+    # unsupported), set from the UEN and never from a request. Left out of dumps while unset.
+    uen_route: UenRouteDecision | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
     policy_snapshot: CasePolicySnapshot = Field(default_factory=legacy_phase13_policy_snapshot)

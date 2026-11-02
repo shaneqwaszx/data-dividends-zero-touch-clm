@@ -173,6 +173,47 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         ),
     ),
     _RuleSpec(
+        # D-114: the government register, never ACRA; the RM corrects the UEN through the
+        # same visible identity correction.
+        codes=frozenset({"GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH"}),
+        exception_types=frozenset({BusinessExceptionType.REGISTRY_REVIEW_REQUIRED}),
+        classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
+        rule_version="BPD-GOVERNMENT-IDENTITY-1",
+        owner=BlockerDecisionOwner.IDENTITY_REVIEW_OWNER,
+        minimum_inputs=(
+            BlockerMinimumInput.CURRENT_CASE_VERSION,
+            BlockerMinimumInput.CORRECTED_IDENTITY_WITH_RATIONALE,
+        ),
+        permitted_actions=(BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,),
+        resume_stage=AutomationStage.GOLDTIER_SEARCH,
+        resume_transition=ResumeTransition.RECHECK_FROM_STAGE,
+        invalidated_dependencies=_IDENTITY_INVALIDATIONS,
+        explanation=(
+            "Check the UEN against the authority's letter, then run the read-only Search "
+            "recheck; a government body's identity is never read from ACRA."
+        ),
+    ),
+    _RuleSpec(
+        # D-114: a UEN entity type this POC does not onboard; no registry is called.
+        codes=frozenset({"UEN_ENTITY_TYPE_UNSUPPORTED"}),
+        exception_types=frozenset({BusinessExceptionType.REGISTRY_REVIEW_REQUIRED}),
+        classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
+        rule_version="BPD-UEN-ENTITY-TYPE-1",
+        owner=BlockerDecisionOwner.IDENTITY_REVIEW_OWNER,
+        minimum_inputs=(
+            BlockerMinimumInput.CURRENT_CASE_VERSION,
+            BlockerMinimumInput.CORRECTED_IDENTITY_WITH_RATIONALE,
+        ),
+        permitted_actions=(BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,),
+        resume_stage=AutomationStage.GOLDTIER_SEARCH,
+        resume_transition=ResumeTransition.RECHECK_FROM_STAGE,
+        invalidated_dependencies=_IDENTITY_INVALIDATIONS,
+        explanation=(
+            "The UEN belongs to an entity type this POC does not onboard. Check the UEN, then "
+            "run the read-only Search recheck; no registry is called for it."
+        ),
+    ),
+    _RuleSpec(
         codes=frozenset({"REGISTRY_RECHECK_INCOMPLETE"}),
         exception_types=frozenset({BusinessExceptionType.REGISTRY_REVIEW_REQUIRED}),
         classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
@@ -1220,6 +1261,8 @@ _OPERATOR_REVIEW_RULES = frozenset({
 })
 _RULE_SCENARIOS: Final[Mapping[str, str]] = MappingProxyType({
     "BPD-IDENTITY-1": "wrong_uen",
+    "BPD-GOVERNMENT-IDENTITY-1": "government_identity",
+    "BPD-UEN-ENTITY-TYPE-1": "government_identity",
     "BPD-REGISTRY-RECTIFICATION-1": "registry_incomplete",
     "BPD-CANONICAL-INCOMPLETE-1": "canonical_incomplete",
     "BPD-JURISDICTION-1": "jurisdiction",
@@ -1279,6 +1322,10 @@ _SCENARIO_TESTS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType({
         "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
     ),
     "government_status": ("apps/backend/tests/test_zero_touch_entity_types.py",),
+    "government_identity": (
+        "apps/backend/tests/test_government_no_acra.py",
+        "apps/frontend/e2e/database-classification.e2e.ts",
+    ),
     "search_review": (_ORCHESTRATION_TEST, "apps/frontend/e2e/authenticated-zero-touch.e2e.ts"),
     "search_failure": (_ORCHESTRATION_TEST, "apps/frontend/e2e/slice-c-recovery.e2e.ts"),
     "classification": (_ORCHESTRATION_TEST, "apps/frontend/e2e/slice-c-recovery.e2e.ts"),
@@ -1337,7 +1384,9 @@ def blocker_catalogue() -> tuple[BlockerCatalogueEntry, ...]:
             exception_types=tuple(sorted(spec.exception_types, key=str)),
             domain_stage=(
                 "REGISTRY > GOLDTIER_SEARCH"
-                if scenario in {"wrong_uen", "registry_incomplete", "jurisdiction"}
+                if scenario in {
+                    "wrong_uen", "government_identity", "registry_incomplete", "jurisdiction",
+                }
                 else spec.resume_stage.value if spec.resume_stage is not None else "TARGET_CONTRACT"
             ),
             classification=classification,

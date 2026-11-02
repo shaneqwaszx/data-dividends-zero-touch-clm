@@ -1572,7 +1572,7 @@ is unchanged.
   total of exactly 100, and the confirmed declaration equal to the agreement. Any failure keeps the
   case blocked and in review. The existing Decimal engine computes UBOs (P1 30%, P2 25%). Labels say
   "from partnership agreement, RM-confirmed", never ACRA or registry.
-- **Government (DEMO PARKS FYP TEST AUTHORITY, `T99FY0105G`).** It replaces the classification-only
+- **Government (DEMO PARKS FYP TEST AUTHORITY, `T99FY0105G`; renumbered `T99GB0105G` by D-114).** It replaces the classification-only
   `DEMO GOVERNMENT FYP TEST AUTHORITY`, `209990105E` fixture and its scan. The UEN is a fictional
   T-format value that passes `is_eligible_singapore_uen`; its letters are not claimed as an official
   code. Government bodies are not ACRA-registered: identity comes from the existing local synthetic
@@ -1996,3 +1996,135 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **Operator note.** A retained `GARDEN_SUPPLEMENT_ENABLED=true` in an operator `.env` now turns the fixture on; it is inert in the hybrid lane.
   - **Correction.** The earlier "Unchanged: the supplement-on lane" line is superseded: the supplement is now off unless opted in.
   - **Not done.** The browser E2E specs were not migrated to the declaration flow, nor executed (no Docker daemon or frontend `node_modules` in this environment).
+
+## D-113 - Marketplace Mock partnerships: registry partners from current partner officers (candidate, amends D-101)
+
+Status: candidate. Owner approval in chat 2026-11-02 to build M1 to M4; Shane to confirm here
+(he reviews at the PR). Drafted after a Local test of the synthetic XYZ ACCOUNTING documents
+(`T19PF1111A`, ACRA API Marketplace Mock sample record). Amends D-101's out-of-scope line for the
+Marketplace Mock lane, for `BUSINESS_PARTNERSHIP` only. Authority:
+`USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence class: `OBSERVED_MOCK_INTEROPERABILITY`
+(read-only Mock GETs through the backend's own connector, no case written). Not Live, not sponsor
+policy, not legal UBO policy (Q-004); Q-012 stays open.
+
+**Observed (Mock, 2026-11-02).** The case fails at the Registry stage, before any document is
+used: entity profile COMPLETE (`PARTNERSHIP`), officers FAILED, ownership parties and
+relationships NOT_ATTEMPTED; bundle FAILED, case FAILED, blocker `REGISTRY_FAILED`, event code
+`REGISTRY_OPERATION_MALFORMED_RESPONSE`. Cause: LILY's position
+`PARTNER UNDER SECTION 18(3)(C) OF THE ACCOUNTANTS ACT` fails the officer role pattern
+(`^[A-Za-z0-9][A-Za-z0-9 _.-]*$`), and one bad row fails the whole officers operation. With that
+row simulated as `PARTNER` (scratch only), the bundle is PARTIAL (`REGISTRY_EXPECTED_DATA_MISSING`,
+shareholder lookups UNSUPPORTED for a non-company), the case continues to VALIDATED, but
+`registry_partner_names()` returns no partners: it reads only `ownership_parties`, never officers.
+So none of the D-101 agreement checks run.
+
+| Officer (Mock) | Position | Status | Withdrawal date | Registry partner under D-113 |
+| --- | --- | --- | --- | --- |
+| TAN WEI LING | Partner | Active | none | Yes |
+| LILY | PARTNER UNDER SECTION 18(3)(C) OF THE ACCOUNTANTS ACT | Active | none | Yes |
+| RAIN JORDON | PUBLIC ACCOUNTANT EMPLOYEE | Active | none | No: not a partner position |
+| ALLIE | Partner | Withdrawn | 2019-12-31 | No: withdrawn |
+
+The synthetic agreement lists exactly TAN WEI LING 60% and LILY 40% (`Partner Share:` lines,
+extracted cleanly); the onboarding form matches the registry identity.
+
+| # | Change (smallest; candidate, Shane to confirm) | File |
+| --- | --- | --- |
+| M1 | **Partner positions, Marketplace Mock connector only.** Before validation, an officer position that equals, ignoring case and surrounding spaces, one entry of a closed list (`PARTNER`; `PARTNER UNDER SECTION 18(3)(C) OF THE ACCOUNTANTS ACT`) is stored as role `PARTNER`. Every other position is kept and validated exactly as today, so an unlisted position with parentheses still fails the operation. The shared role pattern (`SourceCodeText`) is not widened, and the shared `BizfileMockOfficersDecoder` and the dormant BizFile lane are unchanged. | `connectors/acra_api_marketplace_mock.py` |
+| M2 | **Active means no withdrawal date.** In the same mapping, a listed partner row whose source `status` is present and is not `Active` but has no `withdrawalDate` is rejected as malformed (fail closed). Non-partner rows keep today's handling. So for this lane "no cessation date" reliably means Active, with no new stored field and no snapshot schema change. | `connectors/acra_api_marketplace_mock.py` |
+| M3 | **Registry partners from officers.** `registry_partner_names()` keeps the D-101 seed path unchanged (PARTNER `ownership_parties`). Only when there are none, the legal form is `BUSINESS_PARTNERSHIP`, there are no relationships, and the bundle's `OWNERSHIP_PARTIES` operation is `UNSUPPORTED` (only the Marketplace company-only dispatch sets this) and the officer has Mock provenance, it returns officers with role `PARTNER` (ignoring case, so an earlier cached `Partner` row still counts) and no cessation date. LLP and LP stay out of scope (D-101). | `services/partnership_agreement.py` |
+| M4 | **Unchanged.** Every D-101 cross-check (current reviewed agreement at the frozen confidence threshold, registry and agreement partners equal, no duplicates, shares > 0, Decimal total exactly 100, declaration equal to the agreement), RM confirmation, maker-checker, the 25% UBO threshold and the "from partnership agreement, RM-confirmed" labels. An agreement naming ALLIE or RAIN JORDON blocks with `PARTNERSHIP_EXTRA_PARTNER_IN_AGREEMENT`. | — |
+
+M1 and M3 ship together or not at all: M1 alone would let a Mock partnership pass Registry with
+no registry partners, and readiness skips every D-101 check when the partner list is empty.
+
+Result (Local, real Mock GETs plus the API tests): Registry PARTIAL and VALIDATED; registry
+partners TAN WEI LING and LILY; with the reviewed agreement and the RM's confirmed declaration,
+UBOs TAN WEI LING (60%) and LILY (40%) and no `OWNERSHIP_REVIEW_REQUIRED`. Any mismatch keeps
+the case blocked in review.
+
+Checked, no change needed: the `hybrid_direct_overlay` scenarios are whitelisted by root UEN
+(Garden and OPQ) and do not include `T19PF1111A`. Garden (`11111999A`, `BUSINESS_PARTNERSHIP` on
+this lane) has only `Owner` officers, so M3 gives it no registry partners and its flows are
+unchanged.
+
+Relation to D-112 (#149, merged first; this entry was renumbered from D-112 to D-113): D-112's
+equal-unit POC basis and acceptance are for companies with an official register; a Mock
+partnership has none (`PROVIDER_UNSUPPORTED`), so D-113 does not use it. A partnership's shares
+still come only from the RM-confirmed agreement declaration under the D-101 checks. Re-run on
+the merged code (`ae5946b` plus this branch): the D-113, D-101, D-112 and hybrid suites pass,
+and the real Mock run with both XYZ documents gives the same result as above.
+
+Tests (`tests/test_marketplace_mock_partnerships.py`, new; no existing test changed): the four
+Mock officer rows give exactly TAN WEI LING and LILY; an unlisted position with brackets still
+fails the officers operation; an inconsistent status row fails; an agreement naming ALLIE or
+RAIN JORDON fails, at service and API level; Garden-style `Owner` officers give no partners;
+officers never stand in when the shareholder lookup ran, or for a company; the XYZ case reaches
+RM-confirmed shares on the Mock lane through the API. The D-101 seed (Gamma) tests are unchanged
+and pass.
+
+Synthetic boundary: main's `synthetic_boundary.json` is already stale before this change
+(`--check` fails on `origin/main`: 14 words added, 4 removed). D-113 adds `accountants` and
+`position` to `code_vocabulary` (from the exact position list). The file is not regenerated
+here: it is a qualification-basis file (D-107 Q1), so regenerating it is Shane's decision.
+
+For Shane to confirm:
+1. Marketplace Mock `BUSINESS_PARTNERSHIP` cases in D-101's scope (M1 to M4).
+2. The exact partner-position list. The section 18(3)(c) wording comes from the Mock sample only;
+   whether Live ACRA uses the same text is part of Q-012.
+3. "Active" as no withdrawal date plus the M2 rejection (built), rather than storing the source
+   `status` on the officer record (would need a case snapshot schema version).
+4. When to regenerate the synthetic boundary (main's existing drift plus the two words above).
+
+## D-114 - Government cases never call ACRA: the UEN's entity type picks the register (candidate, Shane to confirm)
+
+Status: candidate. Owner approval in chat 2026-11-02 to build; Shane to confirm here (he reviews
+at the PR). Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Not sponsor policy,
+not legal policy, not Live. D-101's Government rules are unchanged. Numbered D-114 because D-113
+(Marketplace Mock partnerships) is on its own branch. An earlier draft of this entry let the RM
+choose an "Entity type"; it never reached main and is replaced by routing on the UEN itself.
+
+**Problem.** A Government UEN avoided ACRA only when its local seed existed. Without the seed,
+or with the registry cache off, acquisition fell through to the ACRA provider
+(`registry_acquisition.py` after the seed branch; directly from `onboarding.py` without a
+coordinator). The RM's own correction verification (`_verify_registry_correction`) also called
+the provider.
+
+**Source for the UEN codes** (provisional, not sponsor-confirmed): "Annex 1 - Information on
+Singapore's Unique Entity Number (UEN) system" (PQ table: GA and GB issued by the Smart Nation and
+Digital Government Office; LL, LP, FC and PF by ACRA). The code lists live in one place,
+`app/domain/uen_route.py`.
+
+| # | Decision |
+| --- | --- |
+| E1 | **The UEN picks the route** (`route_uen`, rule `UEN-ROUTE-1`; the RM types only UEN, name and country, as before). Format A (8 digits + letter) and Format B (9 digits + letter): ACRA, unchanged. Format C `[TSR]yy` + PQ + 4 digits + letter with PQ `LL`, `LP`, `FC`, `PF`: ACRA, unchanged (`T19PF1111A` still goes to the Marketplace Mock). PQ `GA` (organs of state, ministries, departments) or `GB` (statutory boards): the government register only, never the ACRA provider. Any other PQ (for example GS schools, DP/CP embassies and consulates, NR international organisations, RF, SS societies, CC charities, TU trade unions, MC management corporations): new blocker `UEN_ENTITY_TYPE_UNSUPPORTED`, no registry call, guidance "This UEN belongs to an entity type this POC doesn't onboard (<type>). Check the UEN." Foreign government bodies stay out of scope (D-101). A UEN failing `is_eligible_singapore_uen` is unchanged. The route never decides Company vs Partnership: ACRA's legal form and the D-101 compatibility table still do. |
+| E2 | **Government register only.** `RegistryAcquisitionCoordinator.read_government_register` reads only the approved local synthetic dataset (`LOCAL_SYNTHETIC_UAT_V1`) and takes no provider, so it cannot call ACRA. A GA/GB UEN uses it at creation, after a correction and when verifying a correction. A missing, expired, unusable or non-GOVERNMENT record, or no registry cache, stops the case with `GOVERNMENT_IDENTITY_NOT_FOUND` ("No current government register record was found for this UEN. Check the UEN against the authority's letter."). The PQ code only says what the UEN claims to be; the register record is still required. |
+| E3 | **Safety check on the ACRA route.** An ACRA-route UEN that has a GOVERNMENT record in the register stops with `ENTITY_CATEGORY_MISMATCH` before any ACRA call. With the current seeds this cannot happen (Demo Parks is GB); it guards against misfiled register data. |
+| E4 | **Correction.** The RM corrects the UEN through the existing identity correction (rules `BPD-GOVERNMENT-IDENTITY-1` for the two register codes and `BPD-UEN-ENTITY-TYPE-1` for unsupported types, both `CORRECT_INITIAL_IDENTITY` with a Search recheck). The corrected UEN is routed again by E1; when the route changes, the case records it with that correction as the timeline event `UEN_ROUTE_CHANGED` (for example "Route changed from ACRA to government register (UEN type GB)."). There is no category input: a request carrying `entity_category` is rejected (422, `extra="forbid"`). |
+| E5 | **Unchanged (D-101).** The Government KYC label, the legal-form compatibility table, `GOVERNMENT_STATUS_REQUIRED` and the RM's version-checked status confirmation, 0 UBO candidates, labels and the GoldTier registration value. |
+| E6 | **Persistence.** Case snapshot schema 18 adds `OnboardingCase.uen_route` (route, format, PQ code, entity type, description, rule version), set by the system from the UEN and never from a request. It is the audit record of how the case was routed, kept even though it can be recomputed, so a later change to the code lists never rewrites history. It is omitted from `model_dump` while unset, so fingerprints of existing cases are unchanged; the Mongo document stores every declared field, as before. A strict schema-17 reader (`DurableCaseSnapshotV17`) and the store reject `uen_route` in schema 1 to 17 envelopes, even null; a schema-17 case reads with no recorded route and is not rewritten. Older code rejects schema 18 (rollback is fail-closed). |
+| E7 | **Display.** The case page's Registry verification section shows the backend's stored description, for example "Entity type from UEN: Government body (statutory board, code GB) · checked against the government register, not ACRA". The browser never works it out. |
+| E8 | **Demo Parks renumbered.** `T99FY0105G` used a made-up code (FY) and would now be unsupported. It is `T99GB0105G` (a parks authority is a statutory board; year 2099 keeps it fictional) in the seed, `demo-parks-government-status.pdf` (regenerated; new SHA-256 in the fixture README), the UAT guide and the project state. |
+
+Scope (QG F1): E1 to E3 govern the case's own identity (creation, correction and its
+verification). Corporate shareholders reached by recursive ownership discovery still use the
+existing read-only Mock lookups (`acquire_subsidiary_registry_evidence` and the shareholder and
+business-profile readers), which fail closed; routing those by UEN is a follow-up for Shane.
+When a UEN correction is not followed by a registry re-read, the recorded route still
+describes the corrected UEN (QG F2).
+
+Follow-ups (not done here): the shared `is_eligible_singapore_uen` regex rejects a Format C UEN
+whose PQ "Q" is a digit (for example `T99G10105G`); flagging a contradiction between the UEN
+format and ACRA's legal form was considered and deferred by the owner.
+
+Tests: `tests/test_uen_route.py` (every row of the routing table),
+`tests/test_government_no_acra.py` (GB with the record completes with zero ACRA calls; GB without
+the record and with the cache off; an unsupported code; a misfiled government record under an
+ACRA UEN; Alpha and Gamma unchanged; corrections from ACRA to GB and back, visible and without
+ACRA; refused corrections to a GB UEN without a record or an unsupported UEN; `entity_category`
+rejected; the coordinator read), `tests/test_uen_route_persistence.py` (schema 18 round trip,
+strict schema-17 reads, upgrade without rewrite, stable dumps) and `src/pages/UenRoute.test.tsx`.
+
+Synthetic manifests: the D-094 boundary vocabulary is already stale on main and is not
+regenerated here. `synthetic_eligibility.json` lists the Demo Parks PDF by SHA-256 and is a
+qualification-basis file, so its regeneration is a separate commit for Shane to accept or drop.

@@ -2431,7 +2431,12 @@ class ZeroTouchOrchestrator:
                 acquired_case is not None
                 and acquired_case.registry_acquisition is None
                 and acquired_case.error is not None
-                and acquired_case.error.code == "ACRA_ENTITY_NOT_FOUND"
+                and acquired_case.error.code in {
+                    "ACRA_ENTITY_NOT_FOUND",
+                    "GOVERNMENT_IDENTITY_NOT_FOUND",
+                    "ENTITY_CATEGORY_MISMATCH",
+                    "UEN_ENTITY_TYPE_UNSUPPORTED",
+                }
             ):
                 for item in candidate.active_exceptions:
                     if item.stage == AutomationStage.REGISTRY:
@@ -4594,6 +4599,9 @@ def _allows_retained_evidence_intake(record: ZeroTouchAutomationRecord) -> bool:
             "REGISTRY_EXPECTED_DATA_MISSING",
             "INITIAL_IDENTITY_INCOMPLETE",
             "ACRA_ENTITY_NOT_FOUND",
+            "GOVERNMENT_IDENTITY_NOT_FOUND",
+            "ENTITY_CATEGORY_MISMATCH",
+            "UEN_ENTITY_TYPE_UNSUPPORTED",
         }
         for item in record.active_exceptions
     )

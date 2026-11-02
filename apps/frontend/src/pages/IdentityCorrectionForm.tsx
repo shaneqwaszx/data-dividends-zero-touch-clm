@@ -11,6 +11,9 @@ export interface IdentityCorrectionValues {
   expected_document_event_count?: number;
 }
 
+// D-114: the backend's own guidance for the UEN-route stops is shown as written.
+const UEN_ROUTE_STOPS = ["GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH", "UEN_ENTITY_TYPE_UNSUPPORTED"];
+
 export default function IdentityCorrectionForm({
   onboardingCase,
   disabled,
@@ -85,6 +88,8 @@ export default function IdentityCorrectionForm({
         (onboardingCase.error.code.startsWith("ACRA_") ||
          onboardingCase.error.code.startsWith("REGISTRY_")) &&
         <p role="status">Registry verification could not verify this UEN.</p>}
+      {registryRecovery && onboardingCase.error && UEN_ROUTE_STOPS.includes(onboardingCase.error.code) &&
+        <p role="status">{onboardingCase.error.message}</p>}
       {conflict && <form className="identity-choice" aria-label="UEN identity choices" onSubmit={confirmChoice}>
         <h3>Entity identity requires confirmation</h3>
         <p className="control-help">The UEN you entered and the UEN found in the document don't match. Choose the one to verify; the backend re-checks the registry and resumes the case.</p>

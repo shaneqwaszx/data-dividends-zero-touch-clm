@@ -11,7 +11,12 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 
 from app.domain.documents import DocumentOwnershipObservation, DocumentProcessingRecord
-from app.domain.models import RegistryAcquisitionBundle
+from app.domain.models import (
+    RegistryAcquisitionBundle,
+    RegistryOperation,
+    RegistryOperationStatus,
+    SourceEnvironment,
+)
 from app.domain.registry_legal_form import RegistryLegalForm, classify_registry_legal_form
 from app.services.document_ownership import normalized_party_name
 
@@ -28,10 +33,30 @@ def registry_partner_names(acquisition: RegistryAcquisitionBundle | None) -> tup
         or acquisition.relationships
     ):
         return ()
-    return tuple(
+    listed = tuple(
         party.name
         for party in acquisition.ownership_parties
         if party.source_category == PARTNERSHIP_REGISTRY_ROLE
+    )
+    if listed or not _shareholder_method_unsupported(acquisition):
+        return listed
+    # D-113: the Marketplace Mock lists a partnership's partners only as officers.
+    # A current partner is a PARTNER role with no withdrawal (cessation) date.
+    return tuple(
+        officer.name
+        for officer in acquisition.officers
+        if officer.role.strip().upper() == PARTNERSHIP_REGISTRY_ROLE
+        and officer.cessation_date is None
+        and officer.provenance.environment == SourceEnvironment.MOCK
+    )
+
+
+def _shareholder_method_unsupported(acquisition: RegistryAcquisitionBundle) -> bool:
+    """Only the Marketplace Mock lane marks the shareholder lookup unsupported for a non-company."""
+    return any(
+        result.operation == RegistryOperation.OWNERSHIP_PARTIES
+        and result.status == RegistryOperationStatus.UNSUPPORTED
+        for result in acquisition.operation_results
     )
 
 

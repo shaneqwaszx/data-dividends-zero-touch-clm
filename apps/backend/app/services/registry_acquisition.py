@@ -214,6 +214,48 @@ class RegistryAcquisitionCoordinator:
         with self._locks_guard:
             return len(self._locks)
 
+    def read_government_register(
+        self,
+        identifier: str,
+        *,
+        case_policy: RegistryPolicySnapshot | None = None,
+        policy_version: int = 0,
+    ) -> RegistryAcquisitionBundle | None:
+        """D-114: a Government identity from the government register only, never from ACRA.
+
+        In this POC the register is the approved local synthetic dataset. This method takes
+        no provider, so it cannot call one. A missing, expired, unusable or non-GOVERNMENT
+        record returns None; a stored entry that fails validation still raises.
+        """
+        if self._local_seed_identity is None:
+            return None
+        key = RegistryCacheKey(
+            provider_identity=self._local_seed_identity,
+            normalized_identifier=identifier.strip().upper(),
+        )
+        seed = self._read(key)
+        if seed is None or seed.acquisition is None:
+            return None
+        now = self._utc_now()
+        self._validate_entry_for_use(seed, key, now)
+        policy = (
+            self._policy
+            if case_policy is None
+            else RegistryFreshnessPolicy(
+                policy_id="MOCK_ACRA_APPROVED_POLICY",
+                version=policy_version,
+                duration_seconds=case_policy.freshness_seconds,
+            )
+        )
+        if (
+            not registry_cache_window_is_fresh(policy.expires_at(seed.freshness_anchor), now)
+            or classify_registry_legal_form(seed.acquisition.entity_profile.party_type)
+            != RegistryLegalForm.GOVERNMENT
+            or not _usable_partial_local_seed(seed.acquisition)
+        ):
+            return None
+        return seed.acquisition.model_copy(deep=True)
+
     def acquire(
         self,
         provider: RegistryProvider,

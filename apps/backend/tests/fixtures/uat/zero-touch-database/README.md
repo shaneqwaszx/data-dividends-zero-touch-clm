@@ -50,7 +50,7 @@ tokens exactly.
 | Document | SHA256 | Content |
 |---|---|---|
 | demo-gamma-partnership-agreement.pdf | e45feb3aad2a02f9c493cfd7601acd0ec01774f4d8f1a46829f222344c08cd54 | Gamma identity labels, `Agreement Date: 2026-01-05`, one `Partner Share: DEMO GAMMA PERSON Pn: NN percent: NATURAL_PERSON` line per partner (30/25/20/10/10/5) and the signing partners |
-| demo-parks-government-status.pdf | ed3bb29eb88b80c0b3771a56f74ac5576e8d763878d0efca21d11a721daee5a8 | DEMO PARKS FYP TEST AUTHORITY, T99FY0105G (fictional T-format; the letters are not an official code), `Founding Instrument:`, `KYC Customer Type: Government`, `Client Segment: DI - Government`, two display-only authorised signatories; not ACRA-registered |
+| demo-parks-government-status.pdf | bbd0fd4d7c08e40d74fa9e777902343ac5f7465d41262b1fd00c066c5b118e96 | DEMO PARKS FYP TEST AUTHORITY, T99GB0105G (fictional: year 2099; D-114 PQ code GB = statutory board, so it routes to the government register), `Founding Instrument:`, `KYC Customer Type: Government`, `Client Segment: DI - Government`, two display-only authorised signatories; not ACRA-registered |
 
 Gamma's registry seed now lists P1-P6 as partners by name and role only, with no ownership
 links; the split comes only from the agreement, confirmed by the RM (D-101). The earlier

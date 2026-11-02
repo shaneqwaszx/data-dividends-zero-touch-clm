@@ -430,7 +430,7 @@ def test_the_records_round_trip_in_schema_fifteen_and_older_readers_reject_them(
     ownership.load(case_id=case.case_id)
     record = ownership.analyze(case_id=case.case_id)
     encoded = snapshot_of(onboarding, record).model_dump(mode="json")
-    assert encoded["schema_version"] == 17
+    assert encoded["schema_version"] == 18
     assert DurableCaseSnapshot.model_validate(encoded).ownership == record
     profile_only = {
         "ownership": {

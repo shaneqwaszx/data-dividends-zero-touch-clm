@@ -8,7 +8,7 @@ import { openStage } from "./stage-disclosures";
 const fixtures = [
   { label: "Alpha", mode: "database-alpha", name: "DEMO ALPHA CIRCULAR FYP TEST PTE. LTD.", uen: "209990101A", document: "demo-alpha-scanned.pdf", kyc: "Company - Private" },
   { label: "Partnership", mode: "database-partnership", name: "DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP", uen: "209990103C", document: "demo-gamma-scanned.pdf", kyc: "Partnership - Unregulated" },
-  { label: "Government", mode: "database-government", name: "DEMO PARKS FYP TEST AUTHORITY", uen: "T99FY0105G", document: "demo-parks-government-status.pdf", kyc: "Government" },
+  { label: "Government", mode: "database-government", name: "DEMO PARKS FYP TEST AUTHORITY", uen: "T99GB0105G", document: "demo-parks-government-status.pdf", kyc: "Government" },
 ];
 
 async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise<void> {
@@ -41,15 +41,19 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
       await expect.poll(blockers).toEqual(["UBO_REVIEW_REQUIRED"]);
       await openStage(page, "Ownership & UBO");
       await expect(page.getByTestId("partnership-basis")).toHaveText("Partner shares from partnership agreement, awaiting RM confirmation");
-      // The RM records the review date explicitly (the agreement date); nothing is accepted automatically.
-      await page.getByLabel("As-of date", { exact: true }).fill("2026-01-05");
-      const proposals = page.locator(".manual-ownership input[type=checkbox]");
+      // Prompt 10: the agreement date is filled in from the agreement; the RM still ticks every
+      // row and confirms explicitly, and nothing is accepted automatically.
+      await expect(page.getByRole("heading", { name: "Confirm partner shares from the partnership agreement", exact: true })).toBeVisible();
+      await expect(page.getByLabel("Agreement date (as-of date)", { exact: true })).toHaveValue("2026-01-05");
+      const proposals = page.locator(".partner-shares__row:not(.partner-shares__row--head) input[type=checkbox]");
       await expect(proposals).toHaveCount(6);
       for (const box of await proposals.all()) { await expect(box).not.toBeChecked(); await box.check(); }
+      await expect(page.getByTestId("partner-shares-total")).toContainText("Adds up to 100%");
       const declared = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/manual-ownership-evidence"));
-      await page.getByRole("button", { name: "Submit manual ownership evidence", exact: true }).click();
+      await page.getByRole("button", { name: "Confirm partner shares", exact: true }).click();
       expect((await declared).status()).toBeLessThan(300);
       await expect(page.getByTestId("partnership-basis")).toHaveText("Partner shares from partnership agreement, RM-confirmed");
+      await expect(page.getByRole("heading", { name: "Partner shares confirmed", exact: true })).toBeVisible();
     } else if (fixture.label === "Government") {
       // No ownership analysis: the Government status step needs the reviewed letter plus the RM (D-101).
       await expect.poll(blockers).toEqual(["GOVERNMENT_STATUS_REQUIRED"]);

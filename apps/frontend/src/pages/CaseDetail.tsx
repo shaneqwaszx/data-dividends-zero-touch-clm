@@ -95,6 +95,7 @@ import TargetRecoveryPanel, { TargetRecoveryDetails } from "./TargetRecoveryPane
 import StageDisclosure, { revealStage } from "./StageDisclosure";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
+import UenRouteNote from "./UenRouteNote";
 import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
 import GovernmentStatusPanel from "./GovernmentStatusPanel";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
@@ -1470,6 +1471,7 @@ export default function CaseDetail({
         <StageDisclosure title="Registry verification" status={stageStatusFor(summary, ["ACRA_REGISTRY"])} active={identityConflict || undefined} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
           main={<>
             {renderInterventions(["REGISTRY"])}
+            <UenRouteNote route={summary.case.uen_route} />
             {!identityInSearch && identityEditor}
             <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} compact />
             <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
@@ -1611,6 +1613,8 @@ export default function CaseDetail({
               key={`${evidenceIdentity}:${ownershipRecovery.analysis_id}:${ownershipRecovery.version}:${ownership.analysis_id}:${ownership.version ?? "unknown"}:${documents.map((document) => `${document.document_id}:${document.events.length}`).join("|")}`}
               canonicalRootUen={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen}
               initialRootLegalName={summary.case.entity?.legal_name ?? summary.case.initial_identity?.legal_name ?? ""}
+              legalFormLabel={summary.entity_type_basis?.entity_type === "PARTNERSHIP" ? "Partnership" : undefined}
+              partnershipState={summary.entity_type_basis?.partnership_state}
               documents={documents}
               ownership={ownership}
               disabled={isBusy || mutationBlocked || ownershipReadUnconfirmed || summary.ownership_edit_authorized !== true}

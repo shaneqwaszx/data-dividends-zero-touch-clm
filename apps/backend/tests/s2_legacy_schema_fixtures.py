@@ -6,9 +6,14 @@ from app.persistence.models import DurableCaseSnapshot
 from app.persistence.mongo_case_store import MongoCaseStore
 
 
+def drop_uen_route(onboarding: dict[str, Any]) -> dict[str, Any]:
+    """A copy without the D-114 (schema 18) UEN route, for an older envelope."""
+    return {key: value for key, value in onboarding.items() if key != "uen_route"}
+
+
 def without_d101_fields(raw: dict[str, Any]) -> dict[str, Any]:
-    """A copy without the schema-17 D-101 keys, for relabelling as an older envelope."""
-    legacy = {**raw, "onboarding": dict(raw["onboarding"])}
+    """A copy without the schema-17 D-101 and schema-18 D-114 keys, for an older envelope."""
+    legacy = {**raw, "onboarding": drop_uen_route(raw["onboarding"])}
     legacy["onboarding"].pop("government_status_confirmation", None)
     legacy["documents"] = [
         {key: value for key, value in document.items() if key != "government_status_observations"}
@@ -22,6 +27,7 @@ def omit_session2_fields(raw: dict[str, Any]) -> None:
     raw["onboarding"].pop("created_by_actor_id", None)
     raw["onboarding"].pop("target_classification_selections", None)
     raw["onboarding"].pop("government_status_confirmation", None)  # D-101 (schema 17)
+    raw["onboarding"] = drop_uen_route(raw["onboarding"])  # D-114 (schema 18)
     metadata = (
         "extraction_method", "extraction_quality", "score_kind", "score_formula",
         "raw_ocr_mean_confidence", "raw_ocr_word_count", "candidates",

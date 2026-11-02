@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from phase13_test_clients import RawTestClient
 from phase13_test_credentials import TEST_PASSWORD
 from pymongo import MongoClient
+from s2_legacy_schema_fixtures import drop_uen_route
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
@@ -115,9 +116,10 @@ def _as_schema_15(collection: Any, case_id: UUID | str) -> dict[str, Any]:
     field, which schema 15 never had) and return a deep copy of the stored envelope."""
 
     raw = collection.find_one({"_id": str(case_id)})
-    assert raw is not None and raw["schema_version"] == 17
+    assert raw is not None and raw["schema_version"] == 18
     raw["schema_version"] = 15
     raw["onboarding"].pop("government_status_confirmation")  # D-101 (schema 17)
+    raw["onboarding"] = drop_uen_route(raw["onboarding"])  # D-114 (schema 18)
     for document in raw["documents"]:
         document.pop("content_sha256")
         document.pop("government_status_observations")  # D-101 (schema 17)
@@ -156,7 +158,7 @@ def test_the_uploaded_documents_digest_is_stored_and_served_after_a_restart(
     assert "content_sha256" not in json.dumps(listed) and _sha(content) not in json.dumps(listed)
     # Physically stored at schema 16 on the document record.
     raw = collection.find_one({"_id": str(case_id)})
-    assert raw is not None and raw["schema_version"] == 17
+    assert raw is not None and raw["schema_version"] == 18
     assert [item["content_sha256"] for item in raw["documents"]] == [_sha(content)]
     store = _open_store(settings, initialize=False)
     try:
@@ -207,13 +209,14 @@ def test_a_populated_schema_15_case_reads_as_16_without_loss_rewrite_or_stale_ev
     store = _open_store(settings, initialize=False)
     try:
         upgraded = store.get(case_id)
-        assert upgraded is not None and upgraded.schema_version == 17
+        assert upgraded is not None and upgraded.schema_version == 18
         reencoded = store._encode(upgraded)  # noqa: SLF001 - the store's own serializer
     finally:
         store.close()
     expected = deepcopy(legacy)
-    expected["schema_version"] = 17
+    expected["schema_version"] = 18
     expected["onboarding"]["government_status_confirmation"] = None  # D-101 default
+    expected["onboarding"]["uen_route"] = None  # D-114 default
     for document in expected["documents"]:
         document["content_sha256"] = None
         document["government_status_observations"] = []  # D-101 default
@@ -242,7 +245,7 @@ def test_a_populated_schema_15_case_reads_as_16_without_loss_rewrite_or_stale_ev
         assert resolved.status_code == 200, resolved.text
     # The first write stores schema 16; the legacy document stays digest-less, its evidence kept.
     written = collection.find_one({"_id": str(case_id)})
-    assert written is not None and written["schema_version"] == 17
+    assert written is not None and written["schema_version"] == 18
     assert written["documents"] == [
         {**document, "content_sha256": None, "government_status_observations": []}
         for document in legacy["documents"]

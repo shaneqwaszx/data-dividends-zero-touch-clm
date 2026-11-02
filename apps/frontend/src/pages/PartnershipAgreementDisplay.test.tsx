@@ -95,8 +95,9 @@ it("1. defaults a partnership agreement to the document-observations source and 
   const view = mount(<ManualOwnershipEvidenceForm canonicalRootUen="209990103C" initialRootLegalName="DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP"
     documents={[reviewed(IDENTITY_ID, "demo-gamma-scanned.pdf", []), reviewed(AGREEMENT_ID, "demo-gamma-partnership-agreement.pdf", [shareRow(1, "30"), shareRow(2, "70")])]}
     ownership={null} disabled={false} onSubmit={onSubmit} />);
-  expect(view.querySelector<HTMLSelectElement>('[name="source_selection"]')!.value).toBe("DOCUMENT_OBSERVATIONS");
-  expect(view.querySelector<HTMLSelectElement>('[aria-label="Evidence document"]')!.value).toBe(AGREEMENT_ID);
+  // Prompt 10: the document-observations source now shows the "Confirm partner shares" form.
+  expect(view.querySelector("h2")!.textContent).toBe("Confirm partner shares from the partnership agreement");
+  expect(view.querySelector<HTMLSelectElement>('[aria-label="Partnership agreement"]')!.value).toBe(AGREEMENT_ID);
   // Rows are not preselected and nothing is submitted: the RM still confirms explicitly.
   expect([...view.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].every((box) => !box.checked)).toBe(true);
   expect(onSubmit).not.toHaveBeenCalled();

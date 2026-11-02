@@ -48,6 +48,12 @@ ACRA_API_MARKETPLACE_MOCK_SHAREHOLDERS_PATH = "/entityQuery/coShareholdersDetail
 ACRA_API_MARKETPLACE_MOCK_BUSINESS_PROFILE_PATH = "/entityQuery/businessProfile"
 ACRA_API_MARKETPLACE_MOCK_RESPONSE_MAX_BYTES = 256 * 1024
 ACRA_API_MARKETPLACE_MOCK_DATASET_NAMESPACE = "ACRA_API_MARKETPLACE_MOCK_V1"
+# D-113: the closed list of Mock officer positions stored as role PARTNER, compared
+# ignoring case and outer spaces. Any other position is decoded and validated unchanged.
+ACRA_API_MARKETPLACE_MOCK_PARTNER_POSITIONS = frozenset(
+    {"PARTNER", "PARTNER UNDER SECTION 18(3)(C) OF THE ACCOUNTANTS ACT"}
+)
+ACRA_API_MARKETPLACE_MOCK_PARTNER_ROLE = "PARTNER"
 
 
 def _query_free_provenance(url: str) -> str:
@@ -62,6 +68,48 @@ def _has_explicit_empty_entities(body: object) -> bool:
         and isinstance(body["entities"], list)
         and not body["entities"]
     )
+
+
+def _with_partner_roles(body: object) -> object:
+    """D-113: a listed partner role becomes PARTNER on a copy of the body.
+
+    A partner row whose source status is present and not Active must carry its
+    cessation date, so on this lane no cessation date means Active. Anything the
+    shape check does not recognise is left for the strict decoder to reject.
+    """
+    if not isinstance(body, dict):
+        return body
+    entities = body.get("entities")
+    if not isinstance(entities, list) or len(entities) != 1 or not isinstance(entities[0], dict):
+        return body
+    record = entities[0].get("entityOfficersRecord")
+    if not isinstance(record, dict):
+        return body
+    rows = record.get("officerAppointmentDetails")
+    if not isinstance(rows, list):
+        return body
+    mapped: list[object] = []
+    for row in rows:
+        position = row.get("position") if isinstance(row, dict) else None
+        if (
+            not isinstance(row, dict)
+            or not isinstance(position, str)
+            or position.strip().upper() not in ACRA_API_MARKETPLACE_MOCK_PARTNER_POSITIONS
+        ):
+            mapped.append(row)
+            continue
+        status = row.get("status")
+        if status is not None and row.get("withdrawalDate") is None and (
+            not isinstance(status, str) or status.strip().upper() != "ACTIVE"
+        ):
+            raise AcraMalformedResponseError
+        mapped.append({**row, "position": ACRA_API_MARKETPLACE_MOCK_PARTNER_ROLE})
+    return {
+        **body,
+        "entities": [
+            {**entities[0], "entityOfficersRecord": {**record, "officerAppointmentDetails": mapped}}
+        ],
+    }
 
 
 @dataclass(frozen=True)
@@ -402,7 +450,7 @@ class AcraApiMarketplaceMockConnector:
             raise AcraMalformedResponseError
         try:
             return self._officers_decoder.decode(
-                response.body,
+                _with_partner_roles(response.body),
                 requested_uen=normalized,
                 source_endpoint=_query_free_provenance(endpoint),
                 retrieved_at=self._clock(),

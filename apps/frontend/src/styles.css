@@ -3272,6 +3272,128 @@ dd {
 
 .manual-ownership__rationale { margin-bottom: 14px; }
 
+/* D-101 partnership agreement: "Confirm partner shares" (display only; the server decides). */
+.partner-shares { display: grid; gap: 18px; }
+.partner-shares__intro p { margin: 0; max-width: 60rem; line-height: 1.55; }
+.partner-shares__intro h2 { margin: 4px 0 8px; }
+.partner-shares__eyebrow {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-900);
+}
+.partner-shares__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.partner-shares__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 16px;
+}
+.partner-shares__fields .control-help { font-weight: 400; }
+.partner-shares__date { display: grid; gap: 5px; }
+.partner-shares__table {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: #fff;
+  overflow: hidden;
+}
+.manual-ownership .partner-shares__row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr);
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-divider);
+  font-weight: 400;
+  cursor: pointer;
+}
+.manual-ownership .partner-shares__row--head {
+  border-top: 0;
+  background: var(--color-accent-100);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-accent-900);
+  cursor: default;
+}
+.partner-shares__row--selected { background: #fdf8ef; }
+.partner-shares__row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--color-accent-700); }
+.partner-shares__row input[type="checkbox"]:focus-visible { outline: 2px solid var(--color-accent-900); outline-offset: 2px; }
+.partner-shares__name { font-weight: 700; }
+.partner-shares__share { font-size: 1.1em; font-weight: 700; }
+.partner-shares__where { color: var(--color-neutral-700); }
+.partner-shares__total {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 2px solid var(--color-divider);
+}
+.partner-shares__total-message { font-weight: 700; }
+.partner-shares__total--empty { background: #faf8f4; color: var(--color-neutral-700); }
+.partner-shares__total--ok { background: var(--color-accent-100); color: var(--color-accent-900); }
+.partner-shares__total--warn { background: #fbefe4; color: #7a3f12; }
+.partner-shares__note {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: #f4f2ee;
+  line-height: 1.5;
+}
+.partner-shares__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.partner-shares__manual { margin-left: auto; }
+.partner-shares__technical { padding-top: 12px; border-top: 1px solid var(--color-divider); color: var(--color-neutral-700); }
+.partner-shares__technical summary { cursor: pointer; color: var(--color-text); font-weight: 700; }
+.partner-shares__technical summary:focus-visible { outline: 2px solid var(--color-accent-900); outline-offset: 2px; }
+.partner-shares__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 12px 24px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.partner-shares__facts dt { font-size: 13px; color: var(--color-neutral-700); }
+.partner-shares__facts dd { margin: 2px 0 0; font-weight: 700; }
+.partner-shares__confirmed-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--color-divider);
+  background: #fff;
+}
+.partner-shares__confirmed-table th,
+.partner-shares__confirmed-table td { padding: 10px 16px; border-top: 1px solid var(--color-divider); text-align: left; }
+.partner-shares__confirmed-table thead th {
+  background: var(--color-accent-100);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-accent-900);
+}
+.partner-shares__confirmed-table tfoot th,
+.partner-shares__confirmed-table tfoot td { border-top: 2px solid var(--color-divider); font-weight: 700; }
+
+@media (max-width: 640px) {
+  .manual-ownership .partner-shares__row { grid-template-columns: 36px minmax(0, 1fr) auto; }
+  .partner-shares__where,
+  .partner-shares__row--head span:last-child { grid-column: 2 / -1; }
+  .partner-shares__manual { margin-left: 0; }
+}
+
 .manual-ownership__owners {
   min-width: 0;
   margin: 16px 0;

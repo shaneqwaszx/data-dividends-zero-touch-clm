@@ -73,7 +73,7 @@ def test_physical_warm_preserves_four_exact_bundles_and_original_microseconds(da
             assert entry.acquisition.retrieved_at == now
             # D-101: Gamma (partners only) and Government (identity only) are PARTIAL seeds.
             assert entry.acquisition.status == (
-                "PARTIAL" if entry.key.normalized_identifier in {"209990103C", "T99FY0105G"}
+                "PARTIAL" if entry.key.normalized_identifier in {"209990103C", "T99GB0105G"}
                 else "COMPLETE"
             )
             assert entry.key.provider_identity.dataset_namespace == "LOCAL_SYNTHETIC_UAT_V1"

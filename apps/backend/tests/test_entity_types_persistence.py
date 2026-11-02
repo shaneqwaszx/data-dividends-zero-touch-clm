@@ -42,18 +42,19 @@ def as_schema_16(raw: dict) -> dict:
     legacy = deepcopy(raw)
     legacy["schema_version"] = 16
     legacy["onboarding"].pop("government_status_confirmation")
+    legacy["onboarding"].pop("uen_route")  # D-114 (schema 18)
     for document in legacy["documents"]:
         document.pop("government_status_observations")
     return legacy
 
 
 def test_schema_17_round_trip_keeps_the_government_evidence(government):
-    assert CASE_SNAPSHOT_SCHEMA_VERSION == 17
+    assert CASE_SNAPSHOT_SCHEMA_VERSION == 18
     assert government.onboarding.government_status_confirmation is not None
     assert government.documents[0].government_status_observations
     assert government.ownership is not None and government.ownership.legal_form == "GOVERNMENT"
     raw = CODEC._encode(government)  # noqa: SLF001
-    assert raw["schema_version"] == 17
+    assert raw["schema_version"] == 18
     decoded = CODEC._decode(raw)  # noqa: SLF001
     assert decoded.onboarding.government_status_confirmation == (
         government.onboarding.government_status_confirmation
@@ -107,10 +108,12 @@ def test_a_schema_16_case_upgrades_without_d101_evidence_and_is_not_rewritten():
     original = deepcopy(legacy)
     decoded = CODEC._decode(legacy)  # noqa: SLF001
     assert legacy == original  # the read never rewrites the stored envelope
-    assert decoded.schema_version == 17
+    assert decoded.schema_version == 18
     assert decoded.onboarding.government_status_confirmation is None
     assert all(not item.government_status_observations for item in decoded.documents)
-    assert CODEC._encode(decoded) == raw  # noqa: SLF001 - every other field retained
+    # Every other field retained; a schema-16 case has no D-114 route.
+    expected = {**raw, "onboarding": {**raw["onboarding"], "uen_route": None}}
+    assert CODEC._encode(decoded) == expected  # noqa: SLF001
 
 
 def test_d101_fields_do_not_change_dumps_of_cases_without_them(government):
