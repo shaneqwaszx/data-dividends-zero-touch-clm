@@ -169,6 +169,23 @@ CREATE TABLE IF NOT EXISTS anthropic_enablement (
     changed_by TEXT NOT NULL
 );
 """
+# HR recovery requests to the owner (recovery centre). Insert-only content: the problem code,
+# the server's own evidence at the time and an optional short note; only the status changes.
+_RECOVERY_REQUESTS = """
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    request_id TEXT PRIMARY KEY,
+    problem_code TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    note TEXT,
+    status TEXT NOT NULL CHECK (status IN ('open', 'resolved', 'withdrawn')),
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    closed_at TEXT,
+    closed_by TEXT
+);
+"""
+MAX_OPEN_RECOVERY_REQUESTS = 20
+
 # The D-096 table's daily CHECK, which an existing database still has until it is upgraded.
 _D096_DAILY_CHECK = "BETWEEN 0 AND 1000000)"
 
@@ -184,6 +201,14 @@ CLAUDE_MAX_CALLS_RANGE = (1, 20)
 
 class RevisionConflict(Exception):
     """The activation changed since the caller's view."""
+
+
+class RecoveryRequestRefused(Exception):
+    """A recovery request cannot be recorded or changed as asked (closed code)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 class QualificationBusy(Exception):
@@ -363,6 +388,7 @@ class ModelAdminStore:
                 + _CLAUDE_SPENDING_CONTROLS
                 + _DATA_ACCESS_POLICY
                 + _ANTHROPIC_ENABLEMENT
+                + _RECOVERY_REQUESTS
             )
         self._upgrade()
 
@@ -670,6 +696,85 @@ class ModelAdminStore:
             )
         return expected_revision + 1
 
+    # --- recovery requests (HR to the owner) ------------------------------------------------
+
+    def open_recovery_request(
+        self,
+        problem_code: str,
+        evidence: list[dict[str, str]],
+        note: str | None,
+        by: str,
+        *,
+        role: str | None = None,
+    ) -> str:
+        # One open request per problem; the request and its audit row in one transaction.
+        request_id = uuid4().hex
+        with self._write() as db:
+            if db.execute(
+                "SELECT 1 FROM recovery_requests WHERE problem_code = ? AND status = 'open'",
+                (problem_code,),
+            ).fetchone():
+                raise RecoveryRequestRefused("RECOVERY_REQUEST_EXISTS")
+            (count,) = db.execute(
+                "SELECT COUNT(*) FROM recovery_requests WHERE status = 'open'"
+            ).fetchone()
+            if count >= MAX_OPEN_RECOVERY_REQUESTS:
+                raise RecoveryRequestRefused("RECOVERY_REQUEST_LIMIT")
+            db.execute(
+                "INSERT INTO recovery_requests (request_id, problem_code, evidence, note, status,"
+                " created_at, created_by) VALUES (?, ?, ?, ?, 'open', ?, ?)",
+                (request_id, problem_code, json.dumps(evidence), note, now(), by),
+            )
+            self._insert_event(
+                db, actor=by, role=role, action="RECOVERY_REQUESTED", outcome="applied",
+                code=problem_code,
+            )
+        return request_id
+
+    def close_recovery_request(
+        self, request_id: str, status: str, by: str, *, role: str | None = None
+    ) -> None:
+        if status not in ("resolved", "withdrawn"):
+            raise RecoveryRequestRefused("RECOVERY_REQUEST_STATUS_INVALID")
+        with self._write() as db:
+            row = db.execute(
+                "SELECT problem_code, status FROM recovery_requests WHERE request_id = ?",
+                (request_id,),
+            ).fetchone()
+            if row is None:
+                raise RecoveryRequestRefused("RECOVERY_REQUEST_UNKNOWN")
+            if row["status"] != "open":
+                raise RecoveryRequestRefused("RECOVERY_REQUEST_CLOSED")
+            db.execute(
+                "UPDATE recovery_requests SET status = ?, closed_at = ?, closed_by = ?"
+                " WHERE request_id = ? AND status = 'open'",
+                (status, now(), by, request_id),
+            )
+            self._insert_event(
+                db,
+                actor=by,
+                role=role,
+                action="RECOVERY_RESOLVED" if status == "resolved" else "RECOVERY_WITHDRAWN",
+                outcome="applied",
+                code=str(row["problem_code"]),
+            )
+
+    def recovery_request(self, request_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM recovery_requests WHERE request_id = ?", (request_id,)
+            ).fetchone()
+        return None if row is None else _recovery_request(row)
+
+    def recovery_requests(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM recovery_requests ORDER BY status = 'open' DESC, created_at DESC"
+                " LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_recovery_request(row) for row in rows]
+
     # --- audit -----------------------------------------------------------------------------
 
     def record(
@@ -904,6 +1009,12 @@ class ModelAdminStore:
                 "SELECT * FROM qualifications WHERE status = 'running' LIMIT 1"
             ).fetchone()
         return _qualification(row) if row else None
+
+
+def _recovery_request(row: sqlite3.Row) -> dict[str, Any]:
+    values = dict(row)
+    values["evidence"] = json.loads(values["evidence"])
+    return values
 
 
 def _qualification(row: sqlite3.Row) -> dict[str, Any]:

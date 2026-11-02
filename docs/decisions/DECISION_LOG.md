@@ -2132,3 +2132,18 @@ strict schema-17 reads, upgrade without rewrite, stable dumps) and `src/pages/Ue
 Synthetic manifests: the D-094 boundary vocabulary is already stale on main and is not
 regenerated here. `synthetic_eligibility.json` lists the Demo Parks PDF by SHA-256 and is a
 qualification-basis file, so its regeneration is a separate commit for Shane to accept or drop.
+
+## D-116 - HR recovery centre in the AI Model Console (PROJECT-DEFINED, within D-098, D-102, D-106 and D-110)
+
+Status: built on 2026-11-03 on branch `feat/hr-rectification-assistant-copilot` from main
+`c233ecd`. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence class: Local
+(disposable ledgers and state databases). No new HR capability, no backend RBAC change and no
+change to any ledger, limit, credential or reconciliation rule.
+
+| # | Decision |
+| --- | --- |
+| H1 | **Diagnosis.** `GET /assistant/admin/models/recovery` (HR, `MODEL_CONFIG_MANAGE`) lists every current problem from the views the console already serves (`recovery.diagnose`, read-only): reconciliation windows, breaker, open, unverified and quarantined calls, reconciliation runs and markers, the P1 prerequisite, daily and lifetime limits, keys (HR session key missing, invalid, unverified or ending; server key unavailable), qualification out of date or failed, model unavailable, configuration changed and a failed connection test. Each problem names its cause, evidence (codes, counts, amounts, times; never a key) and the action that fixes it, with who may act and what to check afterwards. |
+| H2 | **Actions.** HR actions are the existing guarded endpoints: reconcile (D-110), resolve a finished run, enter or replace a key (D-106), Test connection (free; it also verifies unverified calls in-band), edit the daily or lifetime limit (D-102, D-098), qualify, activate or roll back. Test connection and Resolve run start from the recovery centre after a confirmation, which then checks again whether the problem is still reported; the others open their own section's existing preview and confirmation. An action whose prerequisites are not met is shown with the problems that block it (for example reconciliation while the breaker is open). |
+| H3 | **Owner requests.** For problems only the owner or an operator may fix (breaker reset, quarantined or stuck calls, unresolved runs, an intent marker, the P1 attestation, the first reconciliation, an unreadable ledger, a server key, the US$30.00 ceiling), HR records an owner recovery request: the server's own evidence at the time and an optional note (at most 280 characters; key-like text refused). One open request per problem, at most 20 open; Origin required, rate limited, the capability re-checked inside the change lock, written with its audit row (`RECOVERY_REQUESTED`) in one transaction. A request can be withdrawn, or marked resolved only once the server no longer reports its problem (`RECOVERY_PROBLEM_STILL_PRESENT` otherwise). A request changes nothing else. |
+| H4 | **Separate deadlines.** The recovery centre shows the Claude chat window (7 days), the paid-operation window (24 hours), each HR session key's end, the daily reset and each configuration's qualification state apart; renewing one never extends another. |
+| H5 | **Unchanged (D-110 R8).** HR still cannot reset the breaker, release an overcount, extend a deadline or settle an unknown charge. The 2026-11-07 09:42:37 SGT chat deadline renews only through a reconciliation; R12's fallback (owner CLI reconciliation if HR reconciliation is not rolled out by 2026-11-05 18:00 SGT) still applies. |

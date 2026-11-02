@@ -76,7 +76,7 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
-from . import anthropic_profiles, anthropic_runtime, data_access, key_sources
+from . import anthropic_profiles, anthropic_runtime, data_access, key_sources, recovery
 from . import claude_reconciliation as reconciliation
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
@@ -100,6 +100,7 @@ from .model_admin_store import (
     DataAccessPolicy,
     ModelAdminStore,
     QualificationBusy,
+    RecoveryRequestRefused,
     RevisionConflict,
     SpendingControls,
     apply_claude_controls,
@@ -236,6 +237,16 @@ MESSAGES = {
     ),
     "CONTROLS_CONFLICT": "The spending limits changed since this view. Refresh and try again.",
     "BUDGET_RATE_LIMITED": "Too many spending changes. Wait a few minutes and try again.",
+    "RECOVERY_RATE_LIMITED": "Too many recovery requests. Wait a few minutes and try again.",
+    "RECOVERY_PROBLEM_NOT_PRESENT": "That problem is not reported now; check the page again.",
+    "RECOVERY_PROBLEM_NOT_OWNER": "HR can fix that problem on this page; no request is needed.",
+    "RECOVERY_PROBLEM_STILL_PRESENT": "The problem is still reported, so it stays open.",
+    "RECOVERY_REQUEST_EXISTS": "An open request for this problem already exists.",
+    "RECOVERY_REQUEST_LIMIT": "Too many open recovery requests. Close some first.",
+    "RECOVERY_REQUEST_UNKNOWN": "No such recovery request.",
+    "RECOVERY_REQUEST_CLOSED": "This recovery request is already closed.",
+    "RECOVERY_REQUEST_STATUS_INVALID": "That is not a valid way to close a request.",
+    "RECOVERY_NOTE_REFUSED": "The note must be plain text without keys or secrets.",
     "LEDGER_UNAVAILABLE": "The spending ledger is missing or not usable. Nothing changed.",
     "CAP_OUT_OF_RANGE": (
         "The lifetime limit cannot be below the key's opening usage. Nothing changed."
@@ -1400,6 +1411,24 @@ class ReconciliationApplyRequest(BaseModel):
     scope_workspace: StrictBool
     scope_only: StrictBool
     scope_cumulative: StrictBool
+
+
+# A short operator note; never a key (the D-106 key forms and long token-like runs refused).
+RECOVERY_NOTE_MAX = 280
+_NOTE_REFUSED = re.compile(r"sk-|sk_|Bearer\s|-----BEGIN|[A-Za-z0-9_\-]{32,}")
+
+
+class RecoveryRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    problem_code: str = Field(min_length=3, max_length=64, pattern="^[A-Z0-9_]+$")
+    note: str | None = Field(default=None, max_length=RECOVERY_NOTE_MAX)
+
+
+class RecoveryCloseBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(pattern="^(resolved|withdrawn)$")
 
 
 class LifetimeCapRequest(BaseModel):
@@ -3151,5 +3180,113 @@ def model_admin_router(
                 audit(profile, action, "refused", code="DATA_ACCESS_POLICY_CONFLICT")
                 raise _refusal(409, "DATA_ACCESS_POLICY_CONFLICT") from None
         return data_access_view()
+
+    # --- recovery centre ------------------------------------------------------------------
+
+    recovery_attempts: dict[str, list[float]] = {}
+
+    def recovery_view(profile: dict[str, Any]) -> dict[str, Any]:
+        """Every current problem, from the same views this page already shows. Read-only."""
+
+        listing: dict[str, Any] | None = None
+        listing_error: str | None = None
+        if reconciler is not None:
+            try:
+                listing = reconciler.listing()
+            except reconciliation.ReconcileRefused as refused:
+                listing_error = refused.code
+        view = recovery.diagnose(
+            overview(),
+            listing=listing,
+            listing_error=listing_error,
+            now=datetime.now(UTC),
+            hr_allowed=CAPABILITY in (profile.get("capabilities") or []),
+        )
+        requests = selector.store.recovery_requests() if selector.store else []
+        present = recovery.present_codes(view)
+        view["requests"] = [
+            {**item, "problem_present": item["problem_code"] in present} for item in requests
+        ]
+        return view
+
+    def recovery_refused(
+        profile: dict[str, Any], action: str, code: str, status: int = 409
+    ) -> HTTPException:
+        audit(profile, action, "refused", code=code)
+        return _refusal(status, code)
+
+    @router.get("/recovery")
+    def get_recovery(profile: Admin) -> dict[str, Any]:
+        return recovery_view(profile)
+
+    @router.post("/recovery/requests")
+    def post_recovery_request(
+        body: RecoveryRequestBody, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Ask the owner to act on a problem only the owner may fix. The request carries the
+        server's own evidence for it, never figures from the browser. Nothing else changes."""
+
+        action = "RECOVERY_REQUESTED"
+        guard_budget(
+            request, profile, action, attempts=recovery_attempts,
+            limited_code="RECOVERY_RATE_LIMITED",
+        )
+        store = managed()
+        note = (body.note or "").strip() or None
+        if note is not None and (_NOTE_REFUSED.search(note) or not note.isprintable()):
+            raise recovery_refused(profile, action, "RECOVERY_NOTE_REFUSED", 422)
+        with selector.change_lock:
+            recheck(request, profile, action)
+            view = recovery_view(profile)
+            if body.problem_code not in recovery.present_codes(view):
+                raise recovery_refused(profile, action, "RECOVERY_PROBLEM_NOT_PRESENT")
+            if body.problem_code not in recovery.OWNER_PROBLEMS:
+                raise recovery_refused(profile, action, "RECOVERY_PROBLEM_NOT_OWNER")
+            try:
+                store.open_recovery_request(
+                    body.problem_code,
+                    recovery.evidence_snapshot(view, body.problem_code),
+                    note,
+                    str(profile.get("user_id")),
+                    role=str(profile.get("role")) if profile.get("role") else None,
+                )
+            except RecoveryRequestRefused as refused:
+                raise recovery_refused(profile, action, refused.code) from None
+            return recovery_view(profile)
+
+    @router.post("/recovery/requests/{request_id}/close")
+    def post_recovery_close(
+        request_id: str, body: RecoveryCloseBody, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        """Withdraw a request, or mark it resolved: only once the server no longer reports
+        its problem (the recovery is verified here, not taken from the browser)."""
+
+        action = "RECOVERY_RESOLVED" if body.status == "resolved" else "RECOVERY_WITHDRAWN"
+        guard_budget(
+            request, profile, action, attempts=recovery_attempts,
+            limited_code="RECOVERY_RATE_LIMITED",
+        )
+        store = managed()
+        if not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            raise recovery_refused(profile, action, "RECOVERY_REQUEST_UNKNOWN", 404)
+        with selector.change_lock:
+            recheck(request, profile, action)
+            existing = store.recovery_request(request_id)
+            if existing is None:
+                raise recovery_refused(profile, action, "RECOVERY_REQUEST_UNKNOWN", 404)
+            if body.status == "resolved" and existing["problem_code"] in recovery.present_codes(
+                recovery_view(profile)
+            ):
+                raise recovery_refused(profile, action, "RECOVERY_PROBLEM_STILL_PRESENT")
+            try:
+                store.close_recovery_request(
+                    request_id,
+                    body.status,
+                    str(profile.get("user_id")),
+                    role=str(profile.get("role")) if profile.get("role") else None,
+                )
+            except RecoveryRequestRefused as refused:
+                raise recovery_refused(profile, action, refused.code) from None
+            return recovery_view(profile)
 
     return router
