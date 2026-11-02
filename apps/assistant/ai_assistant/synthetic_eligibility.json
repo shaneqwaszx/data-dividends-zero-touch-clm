@@ -169,6 +169,12 @@
    "size_bytes": 781
   },
   {
+   "sha256": "905c74ddf19c999603d7661a43175328f765fbdd6234eb35794018308b35c897",
+   "display_name": "garden-d076-ownership-declaration-client.pdf",
+   "media_type": "application/pdf",
+   "size_bytes": 1562
+  },
+  {
    "sha256": "a2d9b1985d53e31414b00af40ba3902689f4dffcd67a5fd7a620abe7e5555551",
    "display_name": "five-layer-marketplace-hybrid-client.pdf",
    "media_type": "application/pdf",
@@ -179,6 +185,12 @@
    "display_name": "straits-sponsor-demo-registry-annex.pdf",
    "media_type": "application/pdf",
    "size_bytes": 1996
+  },
+  {
+   "sha256": "bbd0fd4d7c08e40d74fa9e777902343ac5f7465d41262b1fd00c066c5b118e96",
+   "display_name": "demo-parks-government-status.pdf",
+   "media_type": "application/pdf",
+   "size_bytes": 236224
   },
   {
    "sha256": "befaea4d3fcc1c3c10ed3ce7b39156cb3341a522dc2d2b7986834d6c82cd700f",
@@ -239,12 +251,6 @@
    "display_name": "second-case-isolation.pdf",
    "media_type": "application/pdf",
    "size_bytes": 812
-  },
-  {
-   "sha256": "ed3bb29eb88b80c0b3771a56f74ac5576e8d763878d0efca21d11a721daee5a8",
-   "display_name": "demo-parks-government-status.pdf",
-   "media_type": "application/pdf",
-   "size_bytes": 236014
   },
   {
    "sha256": "eda014f1509bd8c00f2d53bbf841877976c96883bf493b85f5a19caaf02721bd",
