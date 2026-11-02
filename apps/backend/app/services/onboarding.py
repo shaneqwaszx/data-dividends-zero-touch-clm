@@ -956,13 +956,15 @@ class OnboardingService:
                 else None
             )
             corrected_route = route_uen(identity.registration_number)
+            # D-114: the recorded route always describes the corrected UEN, even when the
+            # registry is not re-read after this correction (QG F2).
+            requested.uen_route = corrected_route
             if (
                 previous_route is not None
                 and corrected_route is not None
                 and previous_route.route != corrected_route.route
             ):
-                # D-114: part of this identity correction's evidence, never a separate choice.
-                requested.uen_route = corrected_route
+                # Part of this identity correction's evidence, never a separate choice.
                 requested.events.append(
                     WorkflowEvent(
                         sequence=len(requested.events) + 1,

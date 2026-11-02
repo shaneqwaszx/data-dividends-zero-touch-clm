@@ -2027,6 +2027,13 @@ Digital Government Office; LL, LP, FC and PF by ACRA). The code lists live in on
 | E7 | **Display.** The case page's Registry verification section shows the backend's stored description, for example "Entity type from UEN: Government body (statutory board, code GB) · checked against the government register, not ACRA". The browser never works it out. |
 | E8 | **Demo Parks renumbered.** `T99FY0105G` used a made-up code (FY) and would now be unsupported. It is `T99GB0105G` (a parks authority is a statutory board; year 2099 keeps it fictional) in the seed, `demo-parks-government-status.pdf` (regenerated; new SHA-256 in the fixture README), the UAT guide and the project state. |
 
+Scope (QG F1): E1 to E3 govern the case's own identity (creation, correction and its
+verification). Corporate shareholders reached by recursive ownership discovery still use the
+existing read-only Mock lookups (`acquire_subsidiary_registry_evidence` and the shareholder and
+business-profile readers), which fail closed; routing those by UEN is a follow-up for Shane.
+When a UEN correction is not followed by a registry re-read, the recorded route still
+describes the corrected UEN (QG F2).
+
 Follow-ups (not done here): the shared `is_eligible_singapore_uen` regex rejects a Format C UEN
 whose PQ "Q" is a digit (for example `T99G10105G`); flagging a contradiction between the UEN
 format and ACRA's legal form was considered and deferred by the owner.
