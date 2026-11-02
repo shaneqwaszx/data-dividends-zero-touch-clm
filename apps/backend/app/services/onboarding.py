@@ -48,7 +48,6 @@ from app.domain.jurisdiction import (
 )
 from app.domain.models import (
     IDENTITY_RECHECK_HISTORY_LIMIT,
-    EntityCategory,
     EventOutcome,
     ExistingTargetStateProvenance,
     GoldTierResult,
@@ -119,6 +118,7 @@ from app.domain.target_submission import (
     SubmissionCanonicalEntity,
     SubmissionRegisteredAddress,
 )
+from app.domain.uen_route import UenRoute, UenRouteDecision, route_change_message, route_uen
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.services.canonical_validation import validate_entity
 from app.services.errors import (
@@ -238,15 +238,22 @@ MALFORMED_TARGET_RESPONSE_CODE = "GT_MALFORMED_TARGET_RESPONSE"
 MALFORMED_TARGET_RESPONSE_MESSAGE = "GoldTier target returned an invalid response."
 TARGET_OUTCOME_FALLBACK_CODE = "GT_TARGET_OUTCOME_RECORDING_FAILED"
 TARGET_OUTCOME_FALLBACK_MESSAGE = "GoldTier target outcome recording failed safely."
-# D-114 RM guidance for the government register.
+# D-114 RM guidance for the registry the UEN routes to.
 GOVERNMENT_IDENTITY_NOT_FOUND_MESSAGE = (
     "No current government register record was found for this UEN. Check the UEN against "
-    "the authority's letter, or change the entity type."
+    "the authority's letter."
 )
 ENTITY_CATEGORY_MISMATCH_MESSAGE = (
-    "This UEN is a government body in the government register. Change the entity type "
-    "to Government."
+    "This UEN has a government body record in the government register, but its format routes "
+    "it to ACRA. Check the UEN; the case stays in review."
 )
+
+
+def uen_entity_type_unsupported_message(route: UenRouteDecision) -> str:
+    return (
+        "This UEN belongs to an entity type this POC doesn't onboard "
+        f"({route.entity_type}). Check the UEN."
+    )
 
 
 class _TargetOutcomeFallbackRecorded(Exception):
@@ -825,12 +832,8 @@ class OnboardingService:
         source_document_id: UUID | None = None,
         source_document_event_count: int | None = None,
         reauthorize: Callable[[], None] | None = None,
-        entity_category: EntityCategory | None = None,
     ) -> OnboardingCase:
-        """Correct pre-submission identity and run one durable read-only Search recheck.
-
-        D-114: ``entity_category`` None keeps the case's current category.
-        """
+        """Correct pre-submission identity and run one durable read-only Search recheck."""
 
         identity = InitialCustomerIdentity(
             legal_name=" ".join(legal_name.strip().split()),
@@ -860,14 +863,6 @@ class OnboardingService:
                     registration_number=case.entity.registration_number,
                     country_of_incorporation=case.entity.country_of_incorporation or "",
                 )
-            previous_category = (
-                previous_identity.entity_category
-                if previous_identity is not None
-                else EntityCategory.COMPANY
-            )
-            identity = identity.model_copy(
-                update={"entity_category": entity_category or previous_category}
-            )
             missing_identity_repair = bool(
                 previous_search is None
                 and case.initial_identity is None
@@ -909,7 +904,6 @@ class OnboardingService:
                     legal_name=verified[0].entity_profile.legal_name or identity.legal_name,
                     registration_number=verified[0].entity_profile.registration_number,
                     country_of_incorporation="SG",
-                    entity_category=identity.entity_category,
                 )
 
             changed_identity = previous_identity != identity
@@ -956,8 +950,19 @@ class OnboardingService:
                 ),
             )
             requested.updated_at = requested_at
-            if identity.entity_category != previous_category:
-                # D-114: the RM's category correction is visible on the timeline.
+            previous_route = case.uen_route or (
+                route_uen(previous_identity.registration_number)
+                if previous_identity is not None
+                else None
+            )
+            corrected_route = route_uen(identity.registration_number)
+            if (
+                previous_route is not None
+                and corrected_route is not None
+                and previous_route.route != corrected_route.route
+            ):
+                # D-114: part of this identity correction's evidence, never a separate choice.
+                requested.uen_route = corrected_route
                 requested.events.append(
                     WorkflowEvent(
                         sequence=len(requested.events) + 1,
@@ -966,11 +971,8 @@ class OnboardingService:
                         timestamp=requested_at,
                         case_id=requested.case_id,
                         correlation_id=requested.correlation_id,
-                        code="ENTITY_CATEGORY_CORRECTED",
-                        message=(
-                            f"Entity type changed from {previous_category.value.title()} "
-                            f"to {identity.entity_category.value.title()}."
-                        ),
+                        code="UEN_ROUTE_CHANGED",
+                        message=route_change_message(previous_route, corrected_route),
                     )
                 )
             requested.events.append(
@@ -1210,13 +1212,17 @@ class OnboardingService:
         """The single request-bound registry verification path for every UEN choice.
 
         Verification precedes canonical mutation and performs no target operation.
-        D-114: a Government identity is read only from the government register.
+        D-114: the UEN's own entity type picks the register; a government body is never
+        verified through the ACRA provider.
         """
         _, provider = self._registry_router.route(
             JurisdictionCode.SINGAPORE, decided_at=self._clock()
         )
         if provider is None:
             raise ValueError("Registry verification could not verify this UEN.")
+        route = route_uen(identity.registration_number)
+        if route is not None and route.route == UenRoute.UNSUPPORTED:
+            raise ValueError(uen_entity_type_unsupported_message(route))
         coordinator = self._registry_acquisition_coordinator
         try:
             government = (
@@ -1231,10 +1237,11 @@ class OnboardingService:
         except RegistryCacheError:
             raise ValueError("Registry verification could not verify this UEN.") from None
         result = None
-        if identity.entity_category == EntityCategory.GOVERNMENT:
+        acquisition: RegistryAcquisitionBundle | None
+        if route is not None and route.route == UenRoute.GOVERNMENT_REGISTER:
             if government is None:
                 raise ValueError(GOVERNMENT_IDENTITY_NOT_FOUND_MESSAGE)
-            acquisition: RegistryAcquisitionBundle | None = government
+            acquisition = government
         elif government is not None:
             raise ValueError(ENTITY_CATEGORY_MISMATCH_MESSAGE)
         else:
@@ -1668,7 +1675,6 @@ class OnboardingService:
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
         created_by_actor_id: str | None = None,
-        entity_category: EntityCategory = EntityCategory.COMPANY,
     ) -> OnboardingCase:
         """Preserve the legacy intake route while stopping before target mutation."""
 
@@ -1679,7 +1685,6 @@ class OnboardingService:
             team_id=team_id,
             priority=priority,
             created_by_actor_id=created_by_actor_id,
-            entity_category=entity_category,
         )
         return case
 
@@ -1692,7 +1697,6 @@ class OnboardingService:
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
         created_by_actor_id: str | None = None,
-        entity_category: EntityCategory = EntityCategory.COMPANY,
     ) -> OnboardingCase:
         """Resolve jurisdiction, route, and validate registry data without GoldTier."""
 
@@ -1706,7 +1710,6 @@ class OnboardingService:
             team_id=team_id,
             priority=priority,
             created_by_actor_id=created_by_actor_id,
-            entity_category=entity_category,
         )
 
     def create_staged_case_with_identity(
@@ -1720,7 +1723,6 @@ class OnboardingService:
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
         created_by_actor_id: str | None = None,
-        entity_category: EntityCategory = EntityCategory.COMPANY,
     ) -> OnboardingCase:
         """Create a staged case using an identity reserved by an aggregate owner."""
 
@@ -1734,7 +1736,6 @@ class OnboardingService:
                 team_id=team_id,
                 priority=priority,
                 created_by_actor_id=created_by_actor_id,
-                entity_category=entity_category,
             )
 
     def _create_staged_case_locked(
@@ -1748,7 +1749,6 @@ class OnboardingService:
         team_id: TeamId | None,
         priority: CasePriority | None,
         created_by_actor_id: str | None,
-        entity_category: EntityCategory = EntityCategory.COMPANY,
     ) -> OnboardingCase:
         """Create and mutate one case while its canonical lifecycle lock is held."""
 
@@ -1794,7 +1794,6 @@ class OnboardingService:
                     legal_name=legal_name,
                     registration_number=normalised_uen,
                     country_of_incorporation=explicit_jurisdiction.value,
-                    entity_category=entity_category,
                 )
                 if legal_name is not None and explicit_jurisdiction is not None
                 else None
@@ -1816,15 +1815,6 @@ class OnboardingService:
             create=True,
         )
 
-        if entity_category != EntityCategory.COMPANY and case.initial_identity is None:
-            # D-114: only the retained identity can carry a non-default category.
-            return self._terminate(
-                case,
-                WorkflowState.REVIEW_REQUIRED,
-                EventOutcome.REVIEW_REQUIRED,
-                "INITIAL_IDENTITY_INCOMPLETE",
-                "Legal name and country are required for a Partnership or Government case.",
-            )
         if legal_name is not None:
             if explicit_jurisdiction is None:
                 return self._terminate(
@@ -2235,25 +2225,27 @@ class OnboardingService:
         acquisition: RegistryAcquisitionBundle | None
         binding = verified[1] if verified is not None else None
         registry_coordinator = self._registry_acquisition_coordinator
-        category = (
-            case.initial_identity.entity_category
-            if case.initial_identity is not None
-            else EntityCategory.COMPANY
-        )
-        government = (
-            self._run_required_stage(
+        # D-114: the UEN's own entity type picks the register; the system records it.
+        route = route_uen(normalised_uen)
+        case.uen_route = route
+        government: RegistryAcquisitionBundle | None = None
+        if verified is None and route is not None:
+            if route.route == UenRoute.UNSUPPORTED:
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "UEN_ENTITY_TYPE_UNSUPPORTED",
+                    uen_entity_type_unsupported_message(route),
+                )
+            government = self._run_required_stage(
                 case,
                 code="REGISTRY_CACHE_FAILURE",
                 message="Registry evidence could not be prepared safely.",
                 operation=lambda: self._read_government_register(case, normalised_uen),
             )
-            if verified is None
-            else None
-        )
-        if verified is None and category == EntityCategory.GOVERNMENT:
-            # D-114: a Government identity comes only from the government register; the
-            # ACRA provider is never called for it.
-            if government is None:
+            if route.route == UenRoute.GOVERNMENT_REGISTER and government is None:
+                # Never the ACRA provider for a government body.
                 return self._terminate(
                     case,
                     WorkflowState.REVIEW_REQUIRED,
@@ -2261,18 +2253,18 @@ class OnboardingService:
                     "GOVERNMENT_IDENTITY_NOT_FOUND",
                     GOVERNMENT_IDENTITY_NOT_FOUND_MESSAGE,
                 )
-        elif verified is None and government is not None:
-            # D-114: a government body entered as a company or partnership stops before ACRA.
-            return self._terminate(
-                case,
-                WorkflowState.REVIEW_REQUIRED,
-                EventOutcome.REVIEW_REQUIRED,
-                "ENTITY_CATEGORY_MISMATCH",
-                ENTITY_CATEGORY_MISMATCH_MESSAGE,
-            )
+            if route.route == UenRoute.ACRA and government is not None:
+                # A government record under an ACRA-format UEN stops before ACRA.
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "ENTITY_CATEGORY_MISMATCH",
+                    ENTITY_CATEGORY_MISMATCH_MESSAGE,
+                )
         if verified is not None:
             acquisition = verified[0]
-        elif category == EntityCategory.GOVERNMENT:
+        elif route is not None and route.route == UenRoute.GOVERNMENT_REGISTER:
             acquisition = government
         elif registry_coordinator is None:
             acquisition = self._run_required_stage(

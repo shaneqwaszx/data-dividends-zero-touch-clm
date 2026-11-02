@@ -1374,7 +1374,7 @@ routing or backend change; the qualification basis stays `33f602653de7…`.
   a reviewed partnership agreement, are suggested only, and count after the RM submits them
   through the existing manual ownership evidence path. Fail-closed cross-checks: partner sets,
   duplicates, positive shares, a Decimal total of 100, and declaration = agreement.
-- **Government (DEMO PARKS FYP TEST AUTHORITY `T99FY0105G`):** local synthetic identity labelled
+- **Government (DEMO PARKS FYP TEST AUTHORITY `T99GB0105G`, renumbered by D-114):** local synthetic identity labelled
   "not ACRA-registered; government status from reviewed document". The Ownership & UBO stage
   holds a Government status step (`GOVERNMENT_STATUS_REQUIRED`), met only by a reviewed status
   document plus an explicit RM confirmation; readiness then records 0 UBO candidates. Replaces the

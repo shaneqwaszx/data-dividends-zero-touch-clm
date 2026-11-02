@@ -826,7 +826,7 @@ class DurableCaseSnapshotV16(BaseModel):
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
         reject_entity_type_legacy_fields(value)
-        reject_entity_category_legacy_fields(value)
+        reject_uen_route_legacy_fields(value)
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
@@ -846,7 +846,7 @@ class DurableCaseSnapshotV16(BaseModel):
 
 
 class DurableCaseSnapshotV17(BaseModel):
-    """Exact schema-17 envelope: D-101 entity types without the D-114 entity category."""
+    """Exact schema-17 envelope: D-101 entity types without the D-114 UEN route."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -868,7 +868,7 @@ class DurableCaseSnapshotV17(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
-        reject_entity_category_legacy_fields(value)
+        reject_uen_route_legacy_fields(value)
         return value
 
     def to_current(self) -> "DurableCaseSnapshot":
@@ -1072,26 +1072,14 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
             raise ValueError("Historical schema cannot contain a D-088 business profile.")
 
 
-def reject_entity_category_legacy_fields(value: Any) -> None:
-    """Schema <= 17 envelopes cannot carry a D-114 entity category, even COMPANY.
+def reject_uen_route_legacy_fields(value: Any) -> None:
+    """Schema <= 17 envelopes cannot carry a D-114 UEN route, even if null.
 
-    Any identity in the case (initial, corrected, previous or searched) counts. A schema-17
-    case reads as COMPANY, the only lookup earlier code had; the read does not rewrite it.
+    A schema-17 case reads with no recorded route (routing by UEN did not exist yet); the
+    read does not rewrite it.
     """
-
-    def walk(item: Any) -> None:
-        if isinstance(item, BaseModel):
-            item = _explicit_fields(item)
-        if isinstance(item, dict):
-            if "entity_category" in item:
-                raise ValueError("Historical schema cannot contain a D-114 entity category.")
-            for child in item.values():
-                walk(child)
-        elif isinstance(item, (list, tuple)):
-            for child in item:
-                walk(child)
-
-    walk(_explicit_fields(value).get("onboarding"))
+    if "uen_route" in _explicit_fields(_explicit_fields(value).get("onboarding")):
+        raise ValueError("Historical schema cannot contain a D-114 UEN route.")
 
 
 def reject_entity_type_legacy_fields(value: Any) -> None:

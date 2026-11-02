@@ -179,6 +179,7 @@ def test_a_schema_15_document_reads_without_a_digest_and_is_not_rewritten() -> N
     raw = _raw(_snapshot(None))
     raw["schema_version"] = 15
     raw["onboarding"].pop("government_status_confirmation")  # type: ignore[attr-defined]
+    raw["onboarding"].pop("uen_route")  # type: ignore[attr-defined]  # D-114 (schema 18)
     for document in raw["documents"]:  # type: ignore[attr-defined]
         document.pop("content_sha256")
         document.pop("government_status_observations")  # D-101 (schema 17)
@@ -217,6 +218,7 @@ def test_a_populated_schema_15_case_upgrades_without_losing_hidden_evidence() ->
     raw = codec._encode(source)  # noqa: SLF001
     raw["schema_version"] = 15
     raw["onboarding"].pop("government_status_confirmation")  # D-101 (schema 17)
+    raw["onboarding"].pop("uen_route")  # D-114 (schema 18)
     for document in raw["documents"]:
         document.pop("content_sha256")
         document.pop("government_status_observations")  # D-101 (schema 17)
@@ -230,6 +232,7 @@ def test_a_populated_schema_15_case_upgrades_without_losing_hidden_evidence() ->
     expected = deepcopy(original)
     expected["schema_version"] = 18
     expected["onboarding"]["government_status_confirmation"] = None  # D-101 default
+    expected["onboarding"]["uen_route"] = None  # D-114 default
     for document in expected["documents"]:
         document["content_sha256"] = None
         document["government_status_observations"] = []  # D-101 default

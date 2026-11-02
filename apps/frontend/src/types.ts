@@ -483,9 +483,9 @@ export interface OnboardingCase {
     legal_name: string;
     registration_number: string;
     country_of_incorporation: string;
-    /** D-114: omitted for COMPANY, the default. */
-    entity_category?: EntityCategory;
   } | null;
+  /** D-114: omitted until the registry step has routed the UEN. */
+  uen_route?: UenRouteDecision | null;
   identity_corrections?: Array<{
     correction_id: string;
     actor_id: string;
@@ -1254,8 +1254,16 @@ export interface GovernmentStatusProjection {
   confirmed_at: string | null;
 }
 
-/** D-114: the RM's entity type; GOVERNMENT is read only from the government register, never ACRA. */
-export type EntityCategory = "COMPANY" | "PARTNERSHIP" | "GOVERNMENT";
+/** D-114: how the backend routed the case's UEN (set by the system from the UEN). */
+export interface UenRouteDecision {
+  uen: string;
+  route: "ACRA" | "GOVERNMENT_REGISTER" | "UNSUPPORTED";
+  uen_format: "A" | "B" | "C";
+  pq_code: string | null;
+  entity_type: string;
+  description: string;
+  rule_version: "UEN-ROUTE-1";
+}
 
 export interface EntityTypeBasis {
   entity_type: "PARTNERSHIP" | "GOVERNMENT";

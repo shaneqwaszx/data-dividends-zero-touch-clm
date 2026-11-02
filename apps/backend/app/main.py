@@ -92,7 +92,7 @@ from app.domain.clm import (
 from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, DocumentProcessingRecord, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
-from app.domain.models import EntityCategory, EventOutcome
+from app.domain.models import EventOutcome
 from app.domain.ownership import (
     OwnershipAnalysisState,
     OwnershipCandidate,
@@ -242,8 +242,6 @@ class StartOnboardingRequest(BaseModel):
     country_of_incorporation: JurisdictionCode | None = None
     legal_name: str | None = Field(default=None, min_length=1, max_length=160)
     team_id: TeamId | None = None
-    # D-114: COMPANY when omitted, so existing callers are unchanged.
-    entity_category: EntityCategory = EntityCategory.COMPANY
 
     @field_validator("uen", mode="before")
     @classmethod
@@ -339,8 +337,6 @@ class IdentitySearchRecheckRequest(BaseModel):
     expected_automation_version: int = Field(ge=1)
     expected_clm_version: int = Field(ge=0)
     expected_case_event_count: int = Field(ge=1)
-    # D-114: None keeps the case's current entity category.
-    entity_category: EntityCategory | None = None
 
 
 class RegistryIdentityCorrectionRequest(IdentitySearchRecheckRequest):
@@ -1432,7 +1428,6 @@ def create_app(
                 legal_name=request.legal_name,
                 team_id=creation_team(request, actor),
                     created_by_actor_id=actor.profile.user_id,
-                entity_category=request.entity_category,
             )
             return OnboardingCaseResponse.from_domain(
                 created_case, administration.directory.get(created_case.team_id)
@@ -1482,7 +1477,6 @@ def create_app(
                     legal_name=request.legal_name,
                     team_id=creation_team(request, actor),
                     created_by_actor_id=actor.profile.user_id,
-                    entity_category=request.entity_category,
                 )
             )
         except ClmInfrastructureError as exc:
@@ -1935,7 +1929,6 @@ def create_app(
                 team_id=creation_team(request, actor),
                 created_by_actor_id=actor.profile.user_id,
                 priority=request.priority,
-                entity_category=request.entity_category,
                 establishment_projection=project_established_case,
             )
             assert response is not None
@@ -2440,7 +2433,6 @@ def create_app(
                 expected_automation_version=correction.expected_automation_version,
                 expected_clm_version=correction.expected_clm_version,
                 expected_case_event_count=correction.expected_case_event_count,
-                entity_category=correction.entity_category,
                 reauthorize=build_case_reauthorizer(
                     request, authentication, access_policy, service, case_id,
                     require_creator=True,
@@ -2474,7 +2466,6 @@ def create_app(
                 verify_registry=True, identity_choice=correction.choice,
                 document_id=correction.document_id,
                 expected_document_event_count=correction.expected_document_event_count,
-                entity_category=correction.entity_category,
                 reauthorize=build_case_reauthorizer(
                     request, authentication, access_policy, service, case_id,
                     require_creator=True,
@@ -2807,7 +2798,6 @@ def create_app(
                 team_id=creation_team(request, actor),
                 created_by_actor_id=actor.profile.user_id,
                 priority=request.priority,
-                entity_category=request.entity_category,
                 establishment_action=lambda case_id: zero_touch_demo.register(
                     case_id, request.scenario
                 ),

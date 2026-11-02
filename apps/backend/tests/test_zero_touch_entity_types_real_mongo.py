@@ -60,8 +60,9 @@ def test_government_confirmation_survives_restart_and_is_never_replayed(database
         case_id = current["case"]["case_id"]
     raw = raw_case(database, case_id)
     assert raw is not None and raw["schema_version"] == 18
-    # D-114: the category is stored and survives the restart below.
-    assert raw["onboarding"]["initial_identity"]["entity_category"] == "GOVERNMENT"
+    # D-114: the system's UEN route is stored and survives the restart below.
+    assert raw["onboarding"]["uen_route"]["route"] == "GOVERNMENT_REGISTER"
+    assert raw["onboarding"]["uen_route"]["pq_code"] == "GB"
     retained = raw["onboarding"]["government_status_confirmation"]
     assert retained["classification"] == "USER_AUTHORIZED_POC"
     assert retained["document_id"] == current["entity_type_basis"]["government_status"][
@@ -75,7 +76,7 @@ def test_government_confirmation_survives_restart_and_is_never_replayed(database
         assert restored["entity_type_basis"] == current["entity_type_basis"]
         assert restored["entity_type_basis"]["government_status"]["state"] == "CONFIRMED"
         assert blockers(restored) == ["TARGET_CONFIRMATION_REQUIRED"]
-        assert restored["case"]["initial_identity"]["entity_category"] == "GOVERNMENT"
+        assert restored["case"]["uen_route"]["route"] == "GOVERNMENT_REGISTER"
         again = confirm_government(app, {
             **restored,
             "entity_type_basis": current["entity_type_basis"],

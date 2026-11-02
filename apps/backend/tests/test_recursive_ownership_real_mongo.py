@@ -375,6 +375,7 @@ def test_official_shareholder_evidence_survives_restart_and_rejects_schema_twelv
                     # D-101 (schema 17) keys never existed in schema 13.
                     "onboarding.government_status_confirmation": "",
                     "documents.$[].government_status_observations": "",
+                    "onboarding.uen_route": "",  # D-114 (schema 18)
                 },
             },
         )

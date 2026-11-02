@@ -1,7 +1,7 @@
 # Database-backed zero-touch happy paths: Company, Partnership and Government
 
 One clean case per entity type (D-101): **Company** Alpha `209990101A` (also Beta and Delta),
-**Partnership** Gamma `209990103C`, and **Government** DEMO PARKS FYP TEST AUTHORITY `T99FY0105G`.
+**Partnership** Gamma `209990103C`, and **Government** DEMO PARKS FYP TEST AUTHORITY `T99GB0105G`.
 
 All names, addresses, officers, ownership and UENs below are fictional FYP test data.
 Future-looking identifiers were generated to meet the repository's syntax validator;
@@ -155,13 +155,13 @@ hashes or connection strings into this guide, fixtures, shell transcripts or Git
 
 ## D-101 Government journey (Demo Parks)
 
-`demo-parks-government-status.pdf`: DEMO PARKS FYP TEST AUTHORITY, T99FY0105G (fictional T-format; the
-letters are not an official code), `Founding Instrument:`, `KYC Customer Type: Government`,
+`demo-parks-government-status.pdf`: DEMO PARKS FYP TEST AUTHORITY, T99GB0105G (fictional, year 2099;
+D-114: code GB = statutory board, so the UEN routes to the government register, never ACRA), `Founding Instrument:`, `KYC Customer Type: Government`,
 `Client Segment: DI - Government`, two display-only authorised signatories. It replaces the retired
 classification-only `demo-government-scanned.pdf` (DEMO GOVERNMENT FYP TEST AUTHORITY, 209990105E).
 
-1. Start the case as DEMO PARKS FYP TEST AUTHORITY / T99FY0105G / SG. Government bodies are not
-   ACRA-registered: identity comes from the local synthetic seed, labelled
+1. Start the case as DEMO PARKS FYP TEST AUTHORITY / T99GB0105G / SG. Government bodies are not
+   ACRA-registered: the UEN's code GB routes it to the government register (the local synthetic seed), labelled
    "Local synthetic identity: not ACRA-registered; government status from reviewed document".
    No ACRA verification is claimed.
 2. Upload the status letter and finish intake. Classification auto-binds Government / DI - Government;
