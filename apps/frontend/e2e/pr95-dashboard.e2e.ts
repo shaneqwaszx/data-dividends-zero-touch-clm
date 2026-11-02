@@ -113,12 +113,13 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   await page.locator(".category-card--live").click();
   await expect(page.getByRole("heading", { name: "Onboarding Dashboard" })).toBeVisible();
   await expect(page.locator(".dashboard-date-range")).toHaveValue("30d");
-  const recordedSegment = page.locator('.weekly-chart-seg[title="Singapore: 1"]');
+  // The weekly chart shows fixed mock figures; the week of 2026-10-26 is Singapore: 10.
+  const recordedSegment = page.locator('.weekly-chart-seg[title="Singapore: 10"]');
   await expect(recordedSegment).toBeVisible();
   const segmentBox = await recordedSegment.boundingBox();
   expect(segmentBox?.height).toBeGreaterThan(0);
   expect(segmentBox?.width).toBeGreaterThan(0);
-  await expect(page.locator('.weekly-chart-seg[title^="Australia:"]')).toHaveCount(0);
+  await expect(page.locator('.weekly-chart-seg[title^="Australia:"]')).toHaveCount(8);
   expect(dashboardRanges.length).toBeGreaterThan(0);
   expect(dashboardRanges.every(value => value === "30d")).toBe(true);
   // Browser-clock skew must not change the same server duration or its age filters.

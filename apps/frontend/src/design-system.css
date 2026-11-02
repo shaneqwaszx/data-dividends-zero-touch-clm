@@ -593,6 +593,9 @@ a.nav-brand:hover { color: var(--color-accent-800); }
 .dashboard-filters .director-team-filter select { box-sizing: border-box; width: auto; height: 32px; margin: 0; font: inherit; font-size: 11.5px; padding: 4px 8px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: #fff; color: var(--color-text); }
 .dashboard-filters .seg-toggle { box-sizing: border-box; height: 32px; }
 .dashboard-filters .seg-toggle button { box-sizing: border-box; height: 100%; display: inline-flex; align-items: center; }
+/* Manager / My work: give the active view a solid fill so it is easy to tell apart. */
+.dashboard-filters .seg-toggle button[aria-pressed="true"],
+.ds-root .dashboard-filters .seg-toggle button[aria-pressed="true"]:hover { background: var(--color-accent-800); color: #fff; }
 
 @media (max-width: 1360px) {
   .nav { flex-wrap: wrap; column-gap: var(--space-3); }

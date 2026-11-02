@@ -14,6 +14,8 @@ import type { AuthenticatedProfile, Capability } from "./types";
 export const routePatterns = {
   root: "/",
   dashboard: "/dashboard",
+  gtcDashboard: "/dashboard/gtc",
+  periodicReviewDashboard: "/dashboard/periodic-review",
   newOnboarding: "/new-onboarding",
   retainedIntake: "/new-onboarding/:caseId",
   cases: "/cases",
@@ -46,6 +48,8 @@ function buildCasePath(base: string, caseId: string): string {
 export const paths = {
   root: routePatterns.root,
   dashboard: routePatterns.dashboard,
+  gtcDashboard: routePatterns.gtcDashboard,
+  periodicReviewDashboard: routePatterns.periodicReviewDashboard,
   newOnboarding: routePatterns.newOnboarding,
   retainedIntake: (caseId: string) => buildCasePath(routePatterns.newOnboarding, caseId),
   cases: routePatterns.cases,
@@ -83,7 +87,7 @@ interface NavigationItem {
 }
 
 const navigationItems: NavigationItem[] = [
-  { tab: "dashboard", label: "Dashboard", path: paths.dashboard, capability: "CASE_ACCESS", end: true },
+  { tab: "dashboard", label: "Dashboard", path: paths.dashboard, capability: "CASE_ACCESS", end: false },
   { tab: "home", label: "New onboarding", path: paths.newOnboarding, capability: "CASE_ACCESS", end: false },
   { tab: "queue", label: "Cases", path: paths.cases, capability: "CASE_ACCESS", end: false },
   { tab: "audit", label: "Audit", path: paths.audit, capability: "CASE_ACCESS", end: false },
@@ -98,6 +102,8 @@ const navigationItems: NavigationItem[] = [
 
 const routeCapabilities: Array<{ pattern: string; capability: Capability; caseParam?: boolean }> = [
   { pattern: routePatterns.dashboard, capability: "CASE_ACCESS" },
+  { pattern: routePatterns.gtcDashboard, capability: "CASE_ACCESS" },
+  { pattern: routePatterns.periodicReviewDashboard, capability: "CASE_ACCESS" },
   { pattern: routePatterns.newOnboarding, capability: "CASE_ACCESS" },
   { pattern: routePatterns.retainedIntake, capability: "CASE_ACCESS", caseParam: true },
   { pattern: routePatterns.cases, capability: "CASE_ACCESS" },
@@ -235,6 +241,8 @@ export interface WorkspaceRoutesProps {
   actor: AuthenticatedProfile;
   retainedIntakeCaseId: string | null;
   dashboard: ReactNode;
+  gtcDashboard: ReactNode;
+  periodicReviewDashboard: ReactNode;
   newOnboarding: (caseId: string | null) => ReactNode;
   cases: ReactNode;
   caseDetail: (caseId: string) => ReactNode;
@@ -252,6 +260,8 @@ export function WorkspaceRoutes({
   actor,
   retainedIntakeCaseId,
   dashboard,
+  gtcDashboard,
+  periodicReviewDashboard,
   newOnboarding,
   cases,
   caseDetail,
@@ -271,6 +281,8 @@ export function WorkspaceRoutes({
     <Routes>
       <Route path={routePatterns.root} element={<LandingRoute actor={actor} />} />
       <Route path={routePatterns.dashboard} element={caseAccess(dashboard)} />
+      <Route path={routePatterns.gtcDashboard} element={caseAccess(gtcDashboard)} />
+      <Route path={routePatterns.periodicReviewDashboard} element={caseAccess(periodicReviewDashboard)} />
       <Route
         path={routePatterns.newOnboarding}
         element={caseAccess(
