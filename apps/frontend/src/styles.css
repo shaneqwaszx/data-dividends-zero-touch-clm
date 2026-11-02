@@ -3298,6 +3298,7 @@ dd {
   gap: 16px;
 }
 .partner-shares__fields .control-help { font-weight: 400; }
+.partner-shares__date { display: grid; gap: 5px; }
 .partner-shares__table {
   min-width: 0;
   margin: 0;

@@ -105,9 +105,10 @@ export default function ConfirmPartnerShares({
       <label>Partnership agreement<select className="input" aria-label="Partnership agreement" value={documentId} disabled={disabled} onChange={(event) => onDocument(event.target.value)}>
         {documents.map((document) => <option key={document.document_id} value={document.document_id}>{document.display_name} · review revision {document.events.length}</option>)}
       </select></label>
-      <label>Agreement date (as-of date)<input className="input" name="as_of_date" type="date" value={asOfDate} disabled={disabled} aria-describedby="partner-shares-date-hint" onChange={(event) => onAsOfDate(event.target.value)} />
+      <div className="partner-shares__date">
+        <label>Agreement date (as-of date)<input className="input" name="as_of_date" type="date" value={asOfDate} disabled={disabled} aria-describedby="partner-shares-date-hint" onChange={(event) => onAsOfDate(event.target.value)} /></label>
         <span id="partner-shares-date-hint" className="control-help">Filled in from the agreement's own date. Change it if the agreement was amended.</span>
-      </label>
+      </div>
     </div>
     <fieldset className="partner-shares__table">
       <legend className="sr-only">Partner shares from the agreement</legend>
