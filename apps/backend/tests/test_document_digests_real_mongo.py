@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 from phase13_test_clients import RawTestClient
 from phase13_test_credentials import TEST_PASSWORD
 from pymongo import MongoClient
-from s2_legacy_schema_fixtures import drop_entity_category
+from s2_legacy_schema_fixtures import drop_uen_route
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
@@ -119,7 +119,7 @@ def _as_schema_15(collection: Any, case_id: UUID | str) -> dict[str, Any]:
     assert raw is not None and raw["schema_version"] == 18
     raw["schema_version"] = 15
     raw["onboarding"].pop("government_status_confirmation")  # D-101 (schema 17)
-    raw["onboarding"] = drop_entity_category(raw["onboarding"])  # D-114 (schema 18)
+    raw["onboarding"] = drop_uen_route(raw["onboarding"])  # D-114 (schema 18)
     for document in raw["documents"]:
         document.pop("content_sha256")
         document.pop("government_status_observations")  # D-101 (schema 17)
@@ -216,8 +216,7 @@ def test_a_populated_schema_15_case_reads_as_16_without_loss_rewrite_or_stale_ev
     expected = deepcopy(legacy)
     expected["schema_version"] = 18
     expected["onboarding"]["government_status_confirmation"] = None  # D-101 default
-    if expected["onboarding"].get("initial_identity"):
-        expected["onboarding"]["initial_identity"]["entity_category"] = "COMPANY"  # D-114 default
+    expected["onboarding"]["uen_route"] = None  # D-114 default
     for document in expected["documents"]:
         document["content_sha256"] = None
         document["government_status_observations"] = []  # D-101 default

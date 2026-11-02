@@ -46,6 +46,7 @@ def _legacy_case(case: OnboardingCase) -> LegacyOnboardingCaseV1:
     value.pop("target_dispatch_confirmation")
     value.pop("policy_snapshot_revision")
     value.pop("policy_rebind_history")
+    value.pop("uen_route", None)  # D-114 (schema 18)
     return LegacyOnboardingCaseV1.model_validate(value)
 
 

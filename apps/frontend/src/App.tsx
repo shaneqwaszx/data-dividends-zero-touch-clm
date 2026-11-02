@@ -74,7 +74,6 @@ import {
 } from "./shared";
 import type {
   ClmCaseSummary,
-  EntityCategory,
   DocumentFieldKey,
   DocumentProcessingRecord,
   MockIdpScenario,
@@ -125,10 +124,10 @@ export function validateIntakeFiles(files: File[]): string | null {
 }
 
 // Registry stops that still let the RM add evidence to the retained case (D-114 adds the
-// government register stops).
+// three UEN-route stops).
 const RETAINED_INTAKE_REGISTRY_CODES = [
   "REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE", "ACRA_ENTITY_NOT_FOUND",
-  "GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH",
+  "GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH", "UEN_ENTITY_TYPE_UNSUPPORTED",
 ];
 
 export function isRegistryIntakeUnavailable(summary: ZeroTouchCaseSummary): boolean {
@@ -1810,7 +1809,6 @@ export default function App({
     useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
   const [uen, setUen] = useState("");
   const [legalName, setLegalName] = useState("");
-  const [entityCategory, setEntityCategory] = useState<EntityCategory>("COMPANY");
   const [countryOfIncorporation, setCountryOfIncorporation] =
     useState<JurisdictionSelection>("");
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
@@ -1880,7 +1878,6 @@ export default function App({
     setCasePriority("");
     setDemoScenario("STRAIGHT_THROUGH");
     setLegalName("");
-    setEntityCategory("COMPANY");
     setDirectorTeamId("");
     setTeamOptions([]);
     setDeleteCurrentCaseOpen(false);
@@ -2018,7 +2015,6 @@ export default function App({
             actor.role === "DIRECTOR" ? directorTeamId || undefined : undefined,
             casePriority === "" ? undefined : casePriority,
             legalName || undefined,
-            entityCategory === "COMPANY" ? undefined : entityCategory,
           ),
           onCreated: (created) => {
             if (!isCurrentIntakeOperation(operation)) return;
@@ -2219,7 +2215,6 @@ export default function App({
     setCasePriority("");
     setDemoScenario("STRAIGHT_THROUGH");
     setLegalName("");
-    setEntityCategory("COMPANY");
     setDirectorTeamId("");
     setDeleteCurrentCaseOpen(false);
     intakeCaseRef.current = null;
@@ -2278,8 +2273,6 @@ export default function App({
         onUenChange={setUen}
         legalName={legalName}
         onLegalNameChange={setLegalName}
-        entityCategory={entityCategory}
-        onEntityCategoryChange={setEntityCategory}
         countryOfIncorporation={countryOfIncorporation}
         onCountryChange={setCountryOfIncorporation}
         documentFiles={documentFiles}

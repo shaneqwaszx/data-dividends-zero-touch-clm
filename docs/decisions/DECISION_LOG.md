@@ -1572,7 +1572,7 @@ is unchanged.
   total of exactly 100, and the confirmed declaration equal to the agreement. Any failure keeps the
   case blocked and in review. The existing Decimal engine computes UBOs (P1 30%, P2 25%). Labels say
   "from partnership agreement, RM-confirmed", never ACRA or registry.
-- **Government (DEMO PARKS FYP TEST AUTHORITY, `T99FY0105G`).** It replaces the classification-only
+- **Government (DEMO PARKS FYP TEST AUTHORITY, `T99FY0105G`; renumbered `T99GB0105G` by D-114).** It replaces the classification-only
   `DEMO GOVERNMENT FYP TEST AUTHORITY`, `209990105E` fixture and its scan. The UEN is a fictional
   T-format value that passes `is_eligible_singapore_uen`; its letters are not claimed as an official
   code. Government bodies are not ACRA-registered: identity comes from the existing local synthetic
@@ -1997,12 +1997,13 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **Correction.** The earlier "Unchanged: the supplement-on lane" line is superseded: the supplement is now off unless opted in.
   - **Not done.** The browser E2E specs were not migrated to the declaration flow, nor executed (no Docker daemon or frontend `node_modules` in this environment).
 
-## D-114 - Government cases never call ACRA: an explicit entity category picks the register (candidate, Shane to confirm)
+## D-114 - Government cases never call ACRA: the UEN's entity type picks the register (candidate, Shane to confirm)
 
 Status: candidate. Owner approval in chat 2026-11-02 to build; Shane to confirm here (he reviews
 at the PR). Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Not sponsor policy,
 not legal policy, not Live. D-101's Government rules are unchanged. Numbered D-114 because D-113
-(Marketplace Mock partnerships) is on its own branch.
+(Marketplace Mock partnerships) is on its own branch. An earlier draft of this entry let the RM
+choose an "Entity type"; it never reached main and is replaced by routing on the UEN itself.
 
 **Problem.** A Government UEN avoided ACRA only when its local seed existed. Without the seed,
 or with the registry cache off, acquisition fell through to the ACRA provider
@@ -2010,25 +2011,34 @@ or with the registry cache off, acquisition fell through to the ACRA provider
 coordinator). The RM's own correction verification (`_verify_registry_correction`) also called
 the provider.
 
+**Source for the UEN codes** (provisional, not sponsor-confirmed): "Annex 1 - Information on
+Singapore's Unique Entity Number (UEN) system" (PQ table: GA and GB issued by the Smart Nation and
+Digital Government Office; LL, LP, FC and PF by ACRA). The code lists live in one place,
+`app/domain/uen_route.py`.
+
 | # | Decision |
 | --- | --- |
-| E1 | **Explicit category.** Case creation takes `entity_category` = `COMPANY` \| `PARTNERSHIP` \| `GOVERNMENT` on all four create routes (`/api/onboarding/cases`, `/api/clm/cases`, `/api/clm/zero-touch/cases` and the demo route), default `COMPANY`, so existing callers and tests keep working. It is stored on `InitialCustomerIdentity`. A non-Company category needs the legal name and country; without them the case stops at the existing `INITIAL_IDENTITY_INCOMPLETE`. The Create case form has an "Entity type" choice (Company by default). |
-| E2 | **Government register only.** `RegistryAcquisitionCoordinator.read_government_register` reads only the approved local synthetic dataset (`LOCAL_SYNTHETIC_UAT_V1`) and takes no provider, so it cannot call ACRA. A Government case uses it at creation, after a correction and when verifying a correction. A missing, expired, unusable or non-GOVERNMENT record, or no registry cache, stops the case with `GOVERNMENT_IDENTITY_NOT_FOUND`: "No current government register record was found for this UEN. Check the UEN against the authority's letter, or change the entity type." |
-| E3 | **Company and Partnership.** The lookup is unchanged, except that the government register is checked first: a GOVERNMENT record stops the case with `ENTITY_CATEGORY_MISMATCH` ("This UEN is a government body in the government register. Change the entity type to Government.") before any ACRA call. |
-| E4 | **Correction.** Both codes use rule `BPD-GOVERNMENT-IDENTITY-1` (the same `CORRECT_INITIAL_IDENTITY` action and Search recheck as `ACRA_ENTITY_NOT_FOUND`). The identity-correction requests take an optional `entity_category` (omitted keeps the current one). A change is retained in the identity correction evidence and shown as the timeline event `ENTITY_CATEGORY_CORRECTED` ("Entity type changed from Company to Government."). The correction form has the same choice and sends it only when it changes. |
+| E1 | **The UEN picks the route** (`route_uen`, rule `UEN-ROUTE-1`; the RM types only UEN, name and country, as before). Format A (8 digits + letter) and Format B (9 digits + letter): ACRA, unchanged. Format C `[TSR]yy` + PQ + 4 digits + letter with PQ `LL`, `LP`, `FC`, `PF`: ACRA, unchanged (`T19PF1111A` still goes to the Marketplace Mock). PQ `GA` (organs of state, ministries, departments) or `GB` (statutory boards): the government register only, never the ACRA provider. Any other PQ (for example GS schools, DP/CP embassies and consulates, NR international organisations, RF, SS societies, CC charities, TU trade unions, MC management corporations): new blocker `UEN_ENTITY_TYPE_UNSUPPORTED`, no registry call, guidance "This UEN belongs to an entity type this POC doesn't onboard (<type>). Check the UEN." Foreign government bodies stay out of scope (D-101). A UEN failing `is_eligible_singapore_uen` is unchanged. The route never decides Company vs Partnership: ACRA's legal form and the D-101 compatibility table still do. |
+| E2 | **Government register only.** `RegistryAcquisitionCoordinator.read_government_register` reads only the approved local synthetic dataset (`LOCAL_SYNTHETIC_UAT_V1`) and takes no provider, so it cannot call ACRA. A GA/GB UEN uses it at creation, after a correction and when verifying a correction. A missing, expired, unusable or non-GOVERNMENT record, or no registry cache, stops the case with `GOVERNMENT_IDENTITY_NOT_FOUND` ("No current government register record was found for this UEN. Check the UEN against the authority's letter."). The PQ code only says what the UEN claims to be; the register record is still required. |
+| E3 | **Safety check on the ACRA route.** An ACRA-route UEN that has a GOVERNMENT record in the register stops with `ENTITY_CATEGORY_MISMATCH` before any ACRA call. With the current seeds this cannot happen (Demo Parks is GB); it guards against misfiled register data. |
+| E4 | **Correction.** The RM corrects the UEN through the existing identity correction (rules `BPD-GOVERNMENT-IDENTITY-1` for the two register codes and `BPD-UEN-ENTITY-TYPE-1` for unsupported types, both `CORRECT_INITIAL_IDENTITY` with a Search recheck). The corrected UEN is routed again by E1; when the route changes, the case records it with that correction as the timeline event `UEN_ROUTE_CHANGED` (for example "Route changed from ACRA to government register (UEN type GB)."). There is no category input: a request carrying `entity_category` is rejected (422, `extra="forbid"`). |
 | E5 | **Unchanged (D-101).** The Government KYC label, the legal-form compatibility table, `GOVERNMENT_STATUS_REQUIRED` and the RM's version-checked status confirmation, 0 UBO candidates, labels and the GoldTier registration value. |
-| E6 | **Persistence.** Case snapshot schema 18. `entity_category` is omitted from `model_dump` when `COMPANY`, so API projections and case fingerprints of existing cases are unchanged; the Mongo document stores every declared field, as before. A strict schema-17 reader (`DurableCaseSnapshotV17`) and the store reject any `entity_category` in schema 1 to 17 envelopes, even `COMPANY`; a schema-17 case reads as `COMPANY` (the only lookup earlier code had) and is not rewritten. Older code rejects schema 18 (rollback is fail-closed). |
+| E6 | **Persistence.** Case snapshot schema 18 adds `OnboardingCase.uen_route` (route, format, PQ code, entity type, description, rule version), set by the system from the UEN and never from a request. It is the audit record of how the case was routed, kept even though it can be recomputed, so a later change to the code lists never rewrites history. It is omitted from `model_dump` while unset, so fingerprints of existing cases are unchanged; the Mongo document stores every declared field, as before. A strict schema-17 reader (`DurableCaseSnapshotV17`) and the store reject `uen_route` in schema 1 to 17 envelopes, even null; a schema-17 case reads with no recorded route and is not rewritten. Older code rejects schema 18 (rollback is fail-closed). |
+| E7 | **Display.** The case page's Registry verification section shows the backend's stored description, for example "Entity type from UEN: Government body (statutory board, code GB) · checked against the government register, not ACRA". The browser never works it out. |
+| E8 | **Demo Parks renumbered.** `T99FY0105G` used a made-up code (FY) and would now be unsupported. It is `T99GB0105G` (a parks authority is a statutory board; year 2099 keeps it fictional) in the seed, `demo-parks-government-status.pdf` (regenerated; new SHA-256 in the fixture README), the UAT guide and the project state. |
 
-Tests: `tests/test_government_no_acra.py` (Government with and without the register record, a
-company or partnership record, the cache off and no legal name, all with zero ACRA calls; every
-create route; the coordinator read; mismatch for default, Company and Partnership; Company and
-Partnership unchanged; the default for old callers; correction to Government on both correction
-routes with the visible event; a refused correction to an unknown Government UEN),
-`tests/test_entity_category_persistence.py` (schema 18 round trip, strict schema-17 reads
-including nested identities, the schema-17 upgrade without rewrite, stable Company dumps), and
-`src/pages/EntityCategory.test.tsx` (the Create case choice, the create request, the correction
-form and evidence intake on the new stops).
+Follow-ups (not done here): the shared `is_eligible_singapore_uen` regex rejects a Format C UEN
+whose PQ "Q" is a digit (for example `T99G10105G`); flagging a contradiction between the UEN
+format and ACRA's legal form was considered and deferred by the owner.
 
-Synthetic boundary: new backend and frontend strings add words to the D-094 boundary
-vocabulary, which is already stale on main; regenerating it changes a qualification-basis file,
-so it stays Shane's decision.
+Tests: `tests/test_uen_route.py` (every row of the routing table),
+`tests/test_government_no_acra.py` (GB with the record completes with zero ACRA calls; GB without
+the record and with the cache off; an unsupported code; a misfiled government record under an
+ACRA UEN; Alpha and Gamma unchanged; corrections from ACRA to GB and back, visible and without
+ACRA; refused corrections to a GB UEN without a record or an unsupported UEN; `entity_category`
+rejected; the coordinator read), `tests/test_uen_route_persistence.py` (schema 18 round trip,
+strict schema-17 reads, upgrade without rewrite, stable dumps) and `src/pages/UenRoute.test.tsx`.
+
+Synthetic manifests: the D-094 boundary vocabulary is already stale on main and is not
+regenerated here. `synthetic_eligibility.json` lists the Demo Parks PDF by SHA-256 and is a
+qualification-basis file, so its regeneration is a separate commit for Shane to accept or drop.

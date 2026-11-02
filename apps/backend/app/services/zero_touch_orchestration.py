@@ -29,13 +29,7 @@ from app.domain.documents import (
     ReviewDecision,
 )
 from app.domain.jurisdiction import is_eligible_singapore_uen
-from app.domain.models import (
-    EntityCategory,
-    EventOutcome,
-    OnboardingCase,
-    SafeError,
-    WorkflowState,
-)
+from app.domain.models import EventOutcome, OnboardingCase, SafeError, WorkflowState
 from app.domain.onboarding_intelligence import (
     EntityResolutionOutcome,
     MockRiskBand,
@@ -208,7 +202,6 @@ class ZeroTouchOrchestrator:
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
         created_by_actor_id: str | None = None,
-        entity_category: EntityCategory = EntityCategory.COMPANY,
         establishment_action: Callable[[UUID], None] | None = None,
         establishment_rollback: Callable[[UUID], None] | None = None,
         establishment_projection: Callable[[ZeroTouchAutomationRecord], None] | None = None,
@@ -227,7 +220,6 @@ class ZeroTouchOrchestrator:
                     team_id=team_id,
                     priority=priority,
                     created_by_actor_id=created_by_actor_id,
-                    entity_category=entity_category,
                 )
                 if establishment_action is not None:
                     establishment_action(record.case_id)
@@ -252,7 +244,6 @@ class ZeroTouchOrchestrator:
         team_id: TeamId | None,
         priority: CasePriority | None,
         created_by_actor_id: str | None = None,
-        entity_category: EntityCategory = EntityCategory.COMPANY,
     ) -> ZeroTouchAutomationRecord:
         """Create registry, CLM, and automation state while the RLock is owned."""
 
@@ -266,7 +257,6 @@ class ZeroTouchOrchestrator:
                 team_id=team_id,
                 priority=priority,
                 created_by_actor_id=created_by_actor_id,
-                entity_category=entity_category,
             )
         except ClmInfrastructureError as exc:
             recovered_clm_record = self._clm.get(case_id=exc.case_id)
@@ -2266,7 +2256,6 @@ class ZeroTouchOrchestrator:
         document_id: UUID | None = None,
         expected_document_event_count: int | None = None,
         reauthorize: Callable[[], None] | None = None,
-        entity_category: EntityCategory | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Repair/recheck the same pre-submission case without target mutation."""
 
@@ -2372,7 +2361,6 @@ class ZeroTouchOrchestrator:
                     source_document_event_count=(
                         expected_document_event_count if identity_choice == "DOCUMENT" else None
                     ),
-                    entity_category=entity_category,
                 )
                 refreshed = self._clm.refresh_initial_search_after_recheck(
                     case_id=case_id,
@@ -2447,6 +2435,7 @@ class ZeroTouchOrchestrator:
                     "ACRA_ENTITY_NOT_FOUND",
                     "GOVERNMENT_IDENTITY_NOT_FOUND",
                     "ENTITY_CATEGORY_MISMATCH",
+                    "UEN_ENTITY_TYPE_UNSUPPORTED",
                 }
             ):
                 for item in candidate.active_exceptions:
@@ -4612,6 +4601,7 @@ def _allows_retained_evidence_intake(record: ZeroTouchAutomationRecord) -> bool:
             "ACRA_ENTITY_NOT_FOUND",
             "GOVERNMENT_IDENTITY_NOT_FOUND",
             "ENTITY_CATEGORY_MISMATCH",
+            "UEN_ENTITY_TYPE_UNSUPPORTED",
         }
         for item in record.active_exceptions
     )

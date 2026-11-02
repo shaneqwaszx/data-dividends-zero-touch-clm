@@ -42,17 +42,10 @@ def lane(company) -> Iterator[tuple[TestClient, NoAcra, RecordingTarget, object]
         yield client, acra, target, bundle
 
 
-def entity_category(company) -> str:
-    """D-114: the RM's entity type for each fixture (Government is never looked up in ACRA)."""
-    return ("GOVERNMENT" if company.founding_instrument
-            else "PARTNERSHIP" if company.partners else "COMPANY")
-
-
 def create(client, company) -> dict:
     response = client.post(
         "/api/clm/zero-touch/cases",
-        json={"uen": company.uen, "legal_name": company.name, "country_of_incorporation": "SG",
-              "entity_category": entity_category(company)},
+        json={"uen": company.uen, "legal_name": company.name, "country_of_incorporation": "SG"},
     )
     assert response.status_code == 201, response.json()
     return response.json()

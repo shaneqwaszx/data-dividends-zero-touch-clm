@@ -80,7 +80,6 @@ from app.persistence.models import (
     _validate_case_bindings,
     reject_classification_legacy_fields,
     reject_document_digest_legacy_fields,
-    reject_entity_category_legacy_fields,
     reject_entity_type_legacy_fields,
     reject_hybrid_overlay_legacy_fields,
     reject_official_shareholder_legacy_fields,
@@ -88,6 +87,7 @@ from app.persistence.models import (
     reject_scenario_poc_legacy_fields,
     reject_session2_legacy_fields,
     reject_share_class_legacy_fields,
+    reject_uen_route_legacy_fields,
 )
 
 _SUPPORTED_SCHEMA_VERSIONS = [
@@ -620,7 +620,7 @@ class MongoCaseStore:
             }
         try:
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}:
-                reject_entity_category_legacy_fields(value)
+                reject_uen_route_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}:
                 reject_entity_type_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}:

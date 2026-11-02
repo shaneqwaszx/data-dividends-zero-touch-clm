@@ -173,8 +173,8 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         ),
     ),
     _RuleSpec(
-        # D-114: the government register, never ACRA; the RM corrects the UEN or the
-        # entity type through the same visible identity correction.
+        # D-114: the government register, never ACRA; the RM corrects the UEN through the
+        # same visible identity correction.
         codes=frozenset({"GOVERNMENT_IDENTITY_NOT_FOUND", "ENTITY_CATEGORY_MISMATCH"}),
         exception_types=frozenset({BusinessExceptionType.REGISTRY_REVIEW_REQUIRED}),
         classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
@@ -189,8 +189,28 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         resume_transition=ResumeTransition.RECHECK_FROM_STAGE,
         invalidated_dependencies=_IDENTITY_INVALIDATIONS,
         explanation=(
-            "Check the UEN against the authority's letter, or change the entity type, then "
-            "run the read-only Search recheck; a Government identity is never read from ACRA."
+            "Check the UEN against the authority's letter, then run the read-only Search "
+            "recheck; a government body's identity is never read from ACRA."
+        ),
+    ),
+    _RuleSpec(
+        # D-114: a UEN entity type this POC does not onboard; no registry is called.
+        codes=frozenset({"UEN_ENTITY_TYPE_UNSUPPORTED"}),
+        exception_types=frozenset({BusinessExceptionType.REGISTRY_REVIEW_REQUIRED}),
+        classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
+        rule_version="BPD-UEN-ENTITY-TYPE-1",
+        owner=BlockerDecisionOwner.IDENTITY_REVIEW_OWNER,
+        minimum_inputs=(
+            BlockerMinimumInput.CURRENT_CASE_VERSION,
+            BlockerMinimumInput.CORRECTED_IDENTITY_WITH_RATIONALE,
+        ),
+        permitted_actions=(BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,),
+        resume_stage=AutomationStage.GOLDTIER_SEARCH,
+        resume_transition=ResumeTransition.RECHECK_FROM_STAGE,
+        invalidated_dependencies=_IDENTITY_INVALIDATIONS,
+        explanation=(
+            "The UEN belongs to an entity type this POC does not onboard. Check the UEN, then "
+            "run the read-only Search recheck; no registry is called for it."
         ),
     ),
     _RuleSpec(
@@ -1242,6 +1262,7 @@ _OPERATOR_REVIEW_RULES = frozenset({
 _RULE_SCENARIOS: Final[Mapping[str, str]] = MappingProxyType({
     "BPD-IDENTITY-1": "wrong_uen",
     "BPD-GOVERNMENT-IDENTITY-1": "government_identity",
+    "BPD-UEN-ENTITY-TYPE-1": "government_identity",
     "BPD-REGISTRY-RECTIFICATION-1": "registry_incomplete",
     "BPD-CANONICAL-INCOMPLETE-1": "canonical_incomplete",
     "BPD-JURISDICTION-1": "jurisdiction",

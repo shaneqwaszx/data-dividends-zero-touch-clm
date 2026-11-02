@@ -2,7 +2,6 @@ import { useRef, useState, type DragEvent, type FormEvent } from "react";
 
 import type {
   AuthenticatedTeam,
-  EntityCategory,
   TeamId,
   ExceptionResolutionAction,
   ReconciliationDecisionAction,
@@ -61,8 +60,6 @@ export default function HomeOnboarding({
   onUenChange,
   legalName = "",
   onLegalNameChange = () => undefined,
-  entityCategory = "COMPANY",
-  onEntityCategoryChange = () => undefined,
   countryOfIncorporation,
   onCountryChange,
   documentFiles,
@@ -95,8 +92,6 @@ export default function HomeOnboarding({
   onUenChange: (value: string) => void;
   legalName?: string;
   onLegalNameChange?: (value: string) => void;
-  entityCategory?: EntityCategory;
-  onEntityCategoryChange?: (value: EntityCategory) => void;
   countryOfIncorporation: JurisdictionSelection;
   onCountryChange: (value: JurisdictionSelection) => void;
   documentFiles: File[];
@@ -182,23 +177,6 @@ export default function HomeOnboarding({
                 </select>
                 <p className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>
                   Singapore routes to ACRA. Other recognised jurisdictions stop safely in this POC.
-                </p>
-              </div>
-              <div className="field">
-                <label htmlFor="home-entity-category">Entity type</label>
-                <select
-                  id="home-entity-category"
-                  className="input"
-                  value={entityCategory}
-                  aria-describedby="home-entity-category-help"
-                  onChange={(event) => onEntityCategoryChange(event.target.value as EntityCategory)}
-                >
-                  <option value="COMPANY">Company</option>
-                  <option value="PARTNERSHIP">Partnership</option>
-                  <option value="GOVERNMENT">Government body</option>
-                </select>
-                <p id="home-entity-category-help" className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>
-                  Government bodies are checked only in the government register, never ACRA.
                 </p>
               </div>
               <div className="field">

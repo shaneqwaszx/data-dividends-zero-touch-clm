@@ -339,7 +339,7 @@ SHARE_COMPANIES = tuple(company for company in COMPANIES if company.edges)
 
 # D-101: a made-up agency with no share/control graph. The T-format UEN is fictional; its
 # letters are not an official entity-type code. Not ACRA-registered.
-GOVERNMENT = HappyPathCompany("GOVERNMENT", "DEMO PARKS FYP TEST AUTHORITY", "T99FY0105G",
+GOVERNMENT = HappyPathCompany("GOVERNMENT", "DEMO PARKS FYP TEST AUTHORITY", "T99GB0105G",
     "55 DEMO PARKS WAY", "000105", (), (), kyc_customer_type="Government",
     client_segment="DI - Government", party_type="GOVERNMENT",
     native_document_name="demo-parks-government-status.pdf",
