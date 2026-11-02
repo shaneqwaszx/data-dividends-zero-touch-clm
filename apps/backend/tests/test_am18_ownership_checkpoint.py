@@ -144,6 +144,10 @@ def test_retained_review_required_graph_reconciles_current_checkpoint_before_409
     assert response.json()["detail"]["code"] == "ZERO_TOUCH_MANUAL_OWNERSHIP_REVIEW_REQUIRED"
     retained = zero._ownership.get(case_id=case_id)
     assert retained.state == "REVIEW_REQUIRED"
+    # No corporate discovery is composed here, so the UEN-less holder is only an incomplete
+    # legal entity. With discovery (test_final_review_editing_real_mongo) it is also an
+    # unresolved corporate branch (UNVERIFIED_UEN).
+    assert retained.discovery is None
     assert {issue.code.value for issue in retained.issues} == {"INCOMPLETE_LEGAL_ENTITY"}
     assert retained.manual_review_receipt is not None
     assert retained.manual_review_receipt.actor_id == "maya-lim"

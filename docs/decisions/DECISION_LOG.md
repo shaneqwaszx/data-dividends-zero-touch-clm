@@ -1997,6 +1997,10 @@ Owner approval 2026-11-01 of the O1 to O8 proposal. D-085's acceptance is extend
   - **Correction.** The earlier "Unchanged: the supplement-on lane" line is superseded: the supplement is now off unless opted in.
   - **Not done.** The browser E2E specs were not migrated to the declaration flow, nor executed (no Docker daemon or frontend `node_modules` in this environment).
 
+- **Clarification (PR #149 review note, 2026-11-03; records existing behaviour, nothing changed).**
+  - **A declared corporate holder with no UEN and no owners of its own.** When official discovery is composed, it visits the holder, makes no registry call (no verified UEN to look up) and records `UNVERIFIED_UEN`. That branch is unresolved, so the analysis also reports `CORPORATE_OWNERSHIP_UNRESOLVED` beside `INCOMPLETE_LEGAL_ENTITY`, and the case stays in ownership review (`409 ZERO_TOUCH_MANUAL_OWNERSHIP_REVIEW_REQUIRED`). Without discovery the same declaration reports `INCOMPLETE_LEGAL_ENTITY` only. Both block; neither accepts the holder.
+  - **Tests.** `test_final_review_editing_real_mongo.py` asserts the discovery record and both codes; `test_am18_ownership_checkpoint.py` asserts that no discovery ran there. The earlier test comment saying the holder was looked up in the Mock registry was inaccurate and is corrected.
+
 ## D-113 - Marketplace Mock partnerships: registry partners from current partner officers (candidate, amends D-101)
 
 Status: candidate. Owner approval in chat 2026-11-02 to build M1 to M4; Shane to confirm here

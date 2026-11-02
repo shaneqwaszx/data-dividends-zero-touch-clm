@@ -274,6 +274,39 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
         self.assertNotIn(SECRET_URI, rendered)
         self.assertNotIn("private document body", rendered)
 
+    def test_a_failure_names_its_tests_but_never_their_messages(self) -> None:
+        output = io.StringIO()
+        raw_failure = (
+            "FAILED apps\\backend\\tests\\test_x_real_mongo.py::test_one - "
+            f"AssertionError: driver at {SECRET_URI}\n"
+            "ERROR apps/backend/tests/test_y_real_mongo.py::test_two[case-1] - private body\n"
+            "FAILED apps/backend/tests/test_x_real_mongo.py::test_one - repeated\n"
+        )
+        with (
+            patch.dict(os.environ, {"PHASE12_MONGO_URI": SECRET_URI}, clear=True),
+            patch.object(
+                RUNNER,
+                "_run_pytest",
+                side_effect=[completed(0, collection_output()), completed(1, raw_failure)],
+            ) as invoke,
+            patch.object(
+                RUNNER, "_summary", return_value=expected_counts(passed=3, failed=1, errors=1)
+            ),
+            redirect_stdout(output),
+        ):
+            result = RUNNER.run(timeout_seconds=60)
+        rendered = output.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("-rfE", invoke.call_args_list[1].args[0])
+        self.assertIn(
+            "PHYSICAL_MONGO_FAILED_TEST=apps/backend/tests/test_x_real_mongo.py::test_one\n"
+            "PHYSICAL_MONGO_FAILED_TEST=apps/backend/tests/test_y_real_mongo.py::test_two[case-1]",
+            rendered,
+        )
+        self.assertNotIn(SECRET_URI, rendered)
+        self.assertNotIn("private body", rendered)
+        self.assertNotIn("AssertionError", rendered)
+
     def test_missing_summary_is_sanitized_non_success(self) -> None:
         output = io.StringIO()
         with (

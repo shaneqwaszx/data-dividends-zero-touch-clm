@@ -48,6 +48,10 @@ _SUMMARY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _TIMED_SUMMARY_PATTERN = re.compile(r"\bin\s+\d+(?:\.\d+)?s\b", re.IGNORECASE)
+# pytest's short summary line ("FAILED path::test - message"). Only the node id is kept:
+# the message may quote stored values or the connection string and is never printed.
+_FAILED_NODE_PATTERN = re.compile(r"^(?:FAILED|ERROR) (?P<node>[\w./\\:-]+(?:\[[\w.-]+\])?)")
+_MAX_NAMED_FAILURES = 20
 _SYSTEM_ENV_KEYS = (
     "APPDATA",
     "COMSPEC",
@@ -125,6 +129,19 @@ def _summary(output: str) -> dict[str, int] | None:
     return None
 
 
+def _failed_nodes(output: str) -> list[str]:
+    """Node ids of failed or erroring tests, with forward slashes, first seen first."""
+
+    nodes: list[str] = []
+    for line in output.splitlines():
+        match = _FAILED_NODE_PATTERN.match(line.strip())
+        if match is not None:
+            node = match.group("node").replace("\\", "/")
+            if node not in nodes:
+                nodes.append(node)
+    return nodes[:_MAX_NAMED_FAILURES]
+
+
 def _suite_arguments() -> list[str]:
     return [str(path.relative_to(ROOT)) for path in PHYSICAL_SUITES]
 
@@ -170,7 +187,7 @@ def run(*, timeout_seconds: float) -> int:
             return 2
 
         execution = _run_pytest(
-            [*suite_arguments, *common],
+            [*suite_arguments, *common, "-rfE"],
             uri=uri,
             deadline=deadline,
         )
@@ -199,6 +216,8 @@ def run(*, timeout_seconds: float) -> int:
             "PHYSICAL_MONGO_RESULT=FAILED; REASON=EXECUTION_FAILED; "
             f"EXIT_CODE={execution.returncode}; {summary}"
         )
+        for node in _failed_nodes(_combined_output(execution)):
+            print(f"PHYSICAL_MONGO_FAILED_TEST={node}")
         return 1
     if counts["failed"] or counts["errors"]:
         print(f"PHYSICAL_MONGO_RESULT=FAILED; REASON=RESULT_REPORT_INCONSISTENT; {summary}")

@@ -205,12 +205,18 @@ def test_physical_am18_retained_409_checkpoint_survives_restart_and_stale_writer
         blocked = client.get(f"/api/clm/zero-touch/cases/{cid}").json()
         graph = client.get(f"/api/onboarding/cases/{cid}/ownership").json()
         assert graph["state"] == "REVIEW_REQUIRED"
-        # D-112: the declared ownerless corporate holder is also looked up through official
-        # discovery; the Mock registry has no record of it, so it is reported unresolved.
+        # D-112: this app composes official corporate discovery, which visits the declared
+        # corporate holder that has no owners. The holder has no UEN, so no registry call is
+        # made: discovery records it UNVERIFIED_UEN, an unresolved branch, and the graph also
+        # reports CORPORATE_OWNERSHIP_UNRESOLVED. (The in-memory twin in
+        # test_am18_ownership_checkpoint composes no discovery, so it has only the first code.)
         assert {issue["code"] for issue in graph["issues"]} == {
             "INCOMPLETE_LEGAL_ENTITY",
             "CORPORATE_OWNERSHIP_UNRESOLVED",
         }
+        assert [
+            (item["party_id"], item["outcome"]) for item in graph["discovery"]["records"]
+        ] == [("HOLDING_ENTITY", "UNVERIFIED_UEN")]
         assert graph["manual_review_receipt"]["rationale"] is None
         assert blocked["current_stage"] == "OWNERSHIP"
         assert blocked["version"] > before["version"]
