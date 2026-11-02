@@ -243,3 +243,33 @@ def test_register_read_returns_only_a_fresh_government_record():
         InMemoryRegistrySnapshotRepository(), RegistryFreshnessPolicy()
     )
     assert without_seed.read_government_register(GOVERNMENT.uen) is None
+
+
+def test_a_same_type_correction_without_registry_verification_updates_the_route():
+    # QG F2: the recorded route must describe the corrected UEN even when the registry is
+    # not re-read after the correction (Search REVIEW_REQUIRED or FAILED skips the re-read;
+    # simulated here by making the re-read return the case unchanged).
+    def no_reread(self, case, identity, *, verified=None):
+        return case
+
+    with lane() as (client, acra), patch(
+        "app.services.onboarding.OnboardingService._acquire_registry_after_identity_recheck",
+        no_reread,
+    ):
+        current = start(client, UNSEEDED_GB_UEN, "DEMO UNKNOWN FYP TEST AUTHORITY")
+        assert current["case"]["uen_route"]["uen"] == UNSEEDED_GB_UEN
+        response = client.post(
+            f"/api/clm/zero-touch/cases/{current['case']['case_id']}/identity-search-recheck",
+            json={"legal_name": "DEMO UNKNOWN FYP TEST AUTHORITY",
+                  "registration_number": "T99GB0198G", "country_of_incorporation": "SG",
+                  "expected_automation_version": current["version"],
+                  "expected_clm_version": current["clm"]["version"],
+                  "expected_case_event_count": len(current["case"]["events"])},
+        )
+        assert response.status_code == 200, response.json()
+        corrected = response.json()
+        assert corrected["case"]["requested_uen"] == "T99GB0198G"
+        assert corrected["case"]["uen_route"]["uen"] == "T99GB0198G"
+        assert corrected["case"]["uen_route"]["route"] == "GOVERNMENT_REGISTER"
+        assert route_messages(corrected) == []  # same route type: no route-change event
+        assert acra.calls == []
