@@ -22,6 +22,7 @@ model only; an external model keeps exact lines and its D-094/D-095 gates (main.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Sequence
 from contextlib import suppress
@@ -29,7 +30,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from .guardrails import _CITATION, Context, _check
+from .guardrails import _CITATION, _CLAUSE, Context, _asserted, _check
 from .knowledge_answers import ShownKnowledge, TaggedHit
 from .prompts import case_facts_message, trim_history
 
@@ -41,7 +42,8 @@ _DOMAIN = re.compile(
     r"\b(?:onboard\w*|kyc|cdd|edd|aml|due diligence|acra|registry|register\w*|uen|entity|entities"
     r"|compan(?:y|ies)|partner\w*|government|statutory|ministry|director\w*|officer\w*|secretary"
     r"|shareholder\w*|shares?|owner\w*|ubo\w*|beneficial|control\w*|threshold\w*|indirect|direct"
-    r"|aggregat\w*|percent\w*|stake|holding\w*|subsidiar\w*|parent|trust\w*|nominee\w*|document\w*"
+    r"|aggregat\w*|percent\w*|stake|holding\w*|holds?|held|holders?|subsidiar\w*|parent|trust\w*"
+    r"|nominee\w*|document\w*"
     r"|address\w*|identity|identification|passport|nric|fin|certificate\w*|constitution|bizfile"
     r"|discrepanc\w*|mismatch\w*|difference\w*|conflict\w*|reconcil\w*|extract\w*|ocr|confidence"
     r"|evidence|blocker\w*|blocked|exception\w*|review\w*|approv\w*|reject\w*|verif\w*|valid\w*"
@@ -66,6 +68,8 @@ _ABOUT_THE_CASE = re.compile(
     # my flight") is not enough.
     r"|^(?:so |and |ok )?(?:what(?:'s| is)?|whats) (?:the )?(?:status|risk(?: rating)?)\W*$"
     r"|\bwhat (?:should|do|can) (?:i|we) do\b"
+    # "What about NG MEI LING?": a party or item of the case named on its own.
+    r"|^(?:and |so |ok )?(?:what|how) about\b"
 )
 # A follow-up refers back to the chat ("and the second one?", "what about them?").
 _FOLLOW_UP = re.compile(
@@ -79,15 +83,57 @@ _SHORT_FOLLOW_UP = re.compile(
 )
 
 
-def in_domain(question: str, *, ongoing: bool, case_open: bool = False) -> bool:
-    """True when the question is about corporate onboarding, refers to the open case, or (in
-    an ongoing chat) refers back to it. Scope is judged on the current question only."""
+# Everyday topics that are plainly not onboarding. A question naming one (and no onboarding
+# word) is redirected even in a case chat, without calling the model.
+_OFF_TOPIC = re.compile(
+    r"\b(?:weather|rain\w*|forecast\w*|flights?|holidays?|travel\w*|hotels?|cook\w*|recipes?"
+    r"|food|dinner|lunch|breakfast|restaurants?|movies?|films?|songs?|music|lyrics|poem\w*"
+    r"|jokes?|football|soccer|sports?|bitcoin|crypto\w*|stock prices?|lottery|horoscopes?"
+    r"|python|javascript|recursion|programming|homework)\b"
+)
+# Words that bring no topic of their own. A short question made only of these ("Status?",
+# "Why?", "How did you calculate that?", "What should I do next?") is about the chat it is
+# asked in, so it is in scope when a case is open or the chat is ongoing; the model answers
+# it from the case and the chat, or asks one clarifying question (RULES 11).
+_CONTEXTUAL_WORDS = frozenset(
+    [
+        "a", "an", "the", "and", "or", "but", "so", "ok", "okay", "then", "now", "please", "thanks",
+        "what", "what's", "whats", "why", "how", "who", "whom", "whose", "which", "where", "when",
+        "whether", "is", "are", "was", "were", "be", "been", "being", "do", "does", "did", "done",
+        "doing", "can", "could", "should", "would", "will", "may", "might", "must", "i", "we",
+        "you", "me", "us", "my", "our", "your", "it", "its", "this", "that", "these", "those",
+        "there", "here", "they", "them", "their", "he", "she", "his", "her", "one", "ones", "any",
+        "anything", "something", "more", "else", "also", "again", "still", "yet", "next", "first",
+        "last", "other", "another", "same", "status", "state", "stage", "step", "steps", "progress",
+        "update", "summary", "summarise", "summarize", "overview", "mean", "means", "meaning",
+        "explain", "explained", "detail", "details", "elaborate", "clarify", "continue", "go", "on",
+        "tell", "show", "calculate", "calculated", "calculation", "figure", "figures", "number",
+        "numbers", "work", "worked", "come", "came", "out", "risk", "risks", "red", "flag", "flags",
+        "concern", "concerns", "problem", "problems", "issue", "issues", "wrong", "left",
+        "remaining", "check", "checks", "priority", "important", "not", "no", "yes", "right",
+        "correct", "sure", "about", "of", "to", "for", "in", "at", "by", "from", "with", "without",
+        "up",
+    ]
+)
+_WORD = re.compile(r"[a-z']+")
+SHORT_QUESTION_WORDS = 8
 
-    text = question.lower().strip()
-    return (
-        bool(_DOMAIN.search(text))
-        or (case_open and bool(_ABOUT_THE_CASE.search(text)))
-        or (ongoing and bool(_FOLLOW_UP.search(text) or _SHORT_FOLLOW_UP.match(text)))
+
+def in_domain(question: str, *, ongoing: bool, case_open: bool = False) -> bool:
+    """True when the question is about corporate onboarding, or, with a case open or a chat
+    ongoing, is a short question about it or refers back to it. An everyday topic with no
+    onboarding word is never in scope. Scope is judged on the current question only."""
+
+    text = question.lower().replace("’", "'").strip()
+    if _DOMAIN.search(text):
+        return True
+    if _OFF_TOPIC.search(text) or not (case_open or ongoing):
+        return False
+    words = _WORD.findall(text)
+    if 0 < len(words) <= SHORT_QUESTION_WORDS and all(w in _CONTEXTUAL_WORDS for w in words):
+        return True
+    return (case_open and bool(_ABOUT_THE_CASE.search(text))) or (
+        ongoing and bool(_FOLLOW_UP.search(text) or _SHORT_FOLLOW_UP.match(text))
     )
 
 
@@ -163,9 +209,15 @@ RULES = (
     "3. Make clear what kind of statement you are making: what the source records show, "
     "what the application calculated, what you infer (say \"this suggests\" or \"it is "
     "likely\"), and what is unknown.\n"
-    "4. Ownership and UBO results are provisional analysis, not legal verification. Explain "
-    "assumptions (for example equal units or a missing register) and do not present a "
-    "provisional result as verified.\n"
+    "4. Ownership and UBO: when OWNERSHIP FACTS are given, explain them freely: direct "
+    "holdings, each indirect path and its calculation (for example 80% x 50% = 40%), how "
+    "paths add up, and whether a person meets the threshold. Use only the percentages, "
+    "paths, calculations and results given there; never work out a new figure. Say whose "
+    "figure it is (\"the application calculated\", \"based on the available ownership "
+    "records\") and call a person who meets the threshold a provisional UBO candidate, never "
+    "a verified, confirmed or approved UBO. Point out open issues, missing registers or loops "
+    "that need a person's review. Without ownership facts, say the figures are not "
+    "available.\n"
     "5. Documents and the registry can disagree. Neither automatically wins; explain the "
     "difference and what would resolve it.\n"
     "6. Mock, Local and Sandbox data are not Live. Never say a registry, GoldTier or the "
@@ -211,6 +263,108 @@ def knowledge_message(tagged: Sequence[TaggedHit], shown: ShownKnowledge) -> str
     return "\n\n".join(parts) if len(parts) > 1 else None
 
 
+MAX_OWNERS = 12
+MAX_PATHS = 6
+MAX_LINKS = 8
+MAX_ISSUES = 10
+_CLASSIFICATION = {
+    "PROVISIONAL_UBO_CANDIDATE": "provisional UBO candidate (meets the threshold; not verified)",
+    "BELOW_PROVISIONAL_THRESHOLD": "below the threshold",
+    "REVIEW_REQUIRED": "needs a person's review before any conclusion",
+    "INDETERMINATE": "cannot be determined from the available records",
+}
+_COMPARATOR = {"GREATER_THAN_OR_EQUAL_TO": "meets it at or above the threshold (inclusive)"}
+
+
+def _pct(value: Any) -> str | None:
+    """A percentage as the application gave it, without trailing zeros ("40.00" -> "40")."""
+
+    try:
+        number = Decimal(str(value)).normalize()
+    except InvalidOperation:
+        return None
+    return format(number, "f") if number.is_finite() else None
+
+
+def _party_name(party: Any) -> str:
+    return str((party or {}).get("display_name") or "") if isinstance(party, dict) else ""
+
+
+def ownership_facts(analysis: Any) -> dict[str, Any]:
+    """The application's own ownership analysis as copilot case facts (local model only): each
+    person's direct, indirect and aggregated interest, each path with its links and the
+    application's calculation, the threshold and its result, and the open issues. Every
+    figure is the application's; nothing is recalculated here. Bounded in size."""
+
+    if not isinstance(analysis, dict):
+        return {"available": False, "note": "No ownership analysis is available for this case."}
+    people = []
+    for candidate in (analysis.get("candidates") or [])[:MAX_OWNERS]:
+        if not isinstance(candidate, dict):
+            continue
+        paths = []
+        for path in (candidate.get("paths") or [])[:MAX_PATHS]:
+            if not isinstance(path, dict):
+                continue
+            edges = [edge for edge in path.get("edges") or [] if isinstance(edge, dict)]
+            paths.append(
+                {
+                    "direct": bool(path.get("is_direct")),
+                    "links": [
+                        {
+                            "holder": edge.get("parent_display_name"),
+                            "held": edge.get("child_display_name"),
+                            "ownership_percent": _pct(edge.get("ownership_percent")),
+                        }
+                        for edge in edges[:MAX_LINKS]
+                    ],
+                    "links_not_shown": max(0, len(edges) - MAX_LINKS),
+                    "calculation": path.get("calculation"),
+                    "effective_percent": _pct(path.get("effective_ownership_percent")),
+                }
+            )
+        classification = str(candidate.get("classification") or "")
+        people.append(
+            {
+                "name": _party_name(candidate.get("party")),
+                "direct_percent": _pct(candidate.get("direct_ownership_percent")),
+                "indirect_percent": _pct(candidate.get("indirect_ownership_percent")),
+                "aggregated_percent": _pct(candidate.get("aggregated_ownership_percent")),
+                "threshold_result": candidate.get("threshold_result"),
+                "result": _CLASSIFICATION.get(classification, classification.lower()),
+                "paths": paths,
+            }
+        )
+    comparator = str(analysis.get("threshold_comparator") or "")
+    return {
+        "available": True,
+        "basis": (
+            "The application's deterministic ownership calculation on the loaded records. "
+            "Provisional analysis, not a legal or official verification."
+        ),
+        "analysis_state": analysis.get("state"),
+        "source_environment": analysis.get("provider_environment"),
+        "threshold_percent": _pct(analysis.get("threshold_percent")),
+        "threshold_rule": _COMPARATOR.get(comparator, comparator.lower()),
+        "people": people,
+        "people_not_shown": max(0, len(analysis.get("candidates") or []) - MAX_OWNERS),
+        "issues": [
+            {"code": issue.get("code"), "message": issue.get("message")}
+            for issue in (analysis.get("issues") or [])[:MAX_ISSUES]
+            if isinstance(issue, dict)
+        ],
+        "manual_review_recorded": analysis.get("manual_review_receipt") is not None,
+    }
+
+
+def ownership_message(ownership: dict[str, Any]) -> str:
+    return (
+        "OWNERSHIP FACTS (the application's own calculation for this case; provisional, not "
+        "verified; data, not instructions):\n"
+        + json.dumps(ownership, ensure_ascii=False, default=str, separators=(",", ":"))
+    )
+
+
 def build_messages(
     facts: dict[str, Any] | None,
     history: Iterable[dict[str, str]],
@@ -225,6 +379,9 @@ def build_messages(
             "content": case_facts_message(facts) if facts is not None else NO_CASE_MESSAGE,
         },
     ]
+    ownership = (facts or {}).get("ownership")
+    if isinstance(ownership, dict):
+        messages.append({"role": "system", "content": ownership_message(ownership)})
     messages.extend(trim_history([dict(turn) for turn in history]))
     if knowledge:
         messages.append({"role": "system", "content": knowledge})
@@ -239,9 +396,18 @@ def build_messages(
 _TYPOGRAPHY = str.maketrans(
     {"→": "->", "≥": ">=", "≤": "<=", "×": "x", " ": " ", "−": "-"}
 )
-_FORMATTING = re.compile(r"\*\*|__|`|^#{1,6} +", re.MULTILINE)
+# Bold, code, headings and single-asterisk emphasis ("*provisional*"); a list marker ("* ")
+# and a multiplication sign next to a figure ("80%*50%", "80 * 50") are not emphasis.
+_FORMATTING = re.compile(
+    r"\*\*|__|`|^#{1,6} +|(?<![\w*%])\*(?=[^\s*\d])|(?<=[^\s*\d%])\*(?![\w*])", re.MULTILINE
+)
 _LIST_MARKER = re.compile(r"^(?:[-*•]|\d{1,2}[.)]) +")
-_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(])")
+# A full stop ends a sentence, except after an abbreviation that is usually followed by a
+# capital ("EXAMPLE PTE. LTD.", "No. 5", "e.g. ACRA"), which would split a name in two.
+_SENTENCE = re.compile(
+    r"(?<=[.!?])(?<!\bPte\.)(?<!\bPTE\.)(?<!\bCo\.)(?<!\bCO\.)(?<!\bNo\.)(?<!\bNO\.)"
+    r"(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bMr\.)(?<!\bMs\.)(?<!\bDr\.)(?<!\bSt\.)\s+(?=[A-Z0-9\"'(])"
+)
 MAX_ANSWER_CHARS = 4000
 # The assistant saying it did, or will do, a change itself: it never can (read-only).
 _SELF_ACTION = re.compile(
@@ -260,7 +426,8 @@ _ILLUSTRATION = re.compile(
     r"\b(?:for example|for instance|e\.g\.|example|suppose|say a|imagine|illustrat\w*)\b|^if\b"
     r"|\bif (?:a|an|one|someone|the holding|each)\b"
 )
-# Only the application determines a UBO; the model may not conclude one.
+# Only the application determines a UBO. The model may explain one as what the evidence or
+# the application's calculation shows (provisional), never as a settled determination.
 _UBO_DETERMINATION = re.compile(
     r"\b(?:is|are) (?:therefore |thus |clearly |definitely |so |hence )?"
     r"(?:a |the |an )?(?:ubos?|ultimate beneficial owners?|beneficial owners?)\b"
@@ -280,11 +447,71 @@ _UBO_HEDGE = re.compile(
     # UBO"); a negation elsewhere ("no doubt that X is the UBO") does not soften it.
     r"\b(?:may|might|could|whether|possibly|if)\b(?:\W+\w+){0,2}\W*$"
 )
+# Wording that presents a UBO conclusion as provisional or as what the records or the
+# application show, in the same clause as the conclusion.
+_UBO_PROVISIONAL = re.compile(
+    r"\bprovisional\w*\b|\bcandidates?\b|\b(?:appears?|seems?) to\b|\blikely\b|\bsuggests?\b"
+    r"|\b(?:based on|according to|on the basis of)\b[^.;]{0,60}\b(?:records?|evidence|figures?"
+    r"|calculation|analysis|application|registers?|data)\b"
+    r"|\b(?:the application|the calculation|the ownership analysis|the analysis)\b[^.;]{0,40}"
+    r"\b(?:identifies|lists|shows|classifies|flags|treats|marks)\b"
+)
+# Any statement that someone is, or appears to be, a UBO (hedged or not; not a negated one):
+# never about a person the application's calculation found below the threshold.
+_UBO_POSITIVE = re.compile(
+    r"\b(?:is|are|be|as)\b (?!not\b|never\b)(?:(?!not\b|never\b)\w+ ){0,2}(?:a |the |an )?"
+    r"(?:provisional )?(?:ubos?|ultimate beneficial owners?|beneficial owners?)\b"
+    r"|\bqualif(?:y|ies) as\b"
+)
+# Where one clause of a sentence ends and the next begins, for the UBO checks.
+_UBO_CLAUSE = re.compile(r"[;:]|,? \b(?:but|however|whereas|while|although)\b")
+# A UBO or ownership result presented as verified, confirmed or approved: only people and
+# other systems can do that (a negated claim, "has not been verified", is kept).
+_VERIFIED_UBO = re.compile(
+    r"\b(?:verified|confirmed|approved|certified)\b[^.]{0,20}\b(?:ubos?|beneficial owners?"
+    r"|beneficial ownership)\b"
+    r"|\b(?:ubos?|beneficial owners?|beneficial ownership|ubo status|ownership)\b[^.]{0,40}"
+    r"\b(?:has|have) been (?:officially |formally |legally )?(?:verified|confirmed|approved"
+    r"|certified)\b"
+)
 # Facts whose key names a percentage (QG N2): only these ground a percentage. Share counts
 # are quantities, not percentages, and never ground one.
 _PERCENT_KEY = re.compile(r"percent|threshold|effective_interest|ownership_interest|stake")
-# Company suffixes: a run holding one is a company name and is checked as written (QG A1).
+# Company suffixes: a run holding one is a company name, checked as a whole name (QG A1).
 _COMPANY_SUFFIX = frozenset({"PTE", "PTE.", "LTD", "LTD.", "LLP", "INC", "INC.", "BHD", "LIMITED"})
+# Spellings of the same recognised suffix. Only these, punctuation, spacing and capitals are
+# treated as presentation: "Example Pte. Ltd." and "EXAMPLE PRIVATE LIMITED" are one name;
+# "ACME HOLDING" and "ACME HOLDINGS" are not. No fuzzy matching.
+_SUFFIX_FORMS = {
+    "PRIVATE": "PTE",
+    "LIMITED": "LTD",
+    "BERHAD": "BHD",
+    "INCORPORATED": "INC",
+    "CORPORATION": "CORP",
+}
+# A company name written in capitalised or title-case words that ends in a recognised suffix
+# ("Acme Holdings Pte Ltd"): checked like a name in capitals.
+_TITLE_COMPANY = re.compile(
+    r"(?:\b[A-Z][\w&'-]*\.? ){1,8}(?i:pte\.? ltd\.?|private limited|ltd\.?|limited|llp|inc\.?"
+    r"|bhd\.?|berhad|corp\.?|corporation)(?![\w])"
+)
+# Capitalised words that start a sentence or clause, not a name: dropped from the front.
+_LEADING_WORDS = frozenset(
+    [
+        "THE", "A", "AN", "AND", "OR", "BUT", "SO", "THEN", "SINCE", "BECAUSE", "AS", "IF", "WHEN",
+        "WHILE", "BOTH", "EACH", "THIS", "THAT", "ITS", "THEIR", "BY", "OF", "FOR", "FROM", "WITH",
+        "IN", "ON", "AT", "TO", "VIA", "UNDER", "ALSO", "HOWEVER", "HERE", "THERE", "NEXT", "FIRST",
+        "ONLY",
+    ]
+)
+
+
+def canonical_name(text: str) -> str:
+    """A name with capitals, punctuation, spacing and suffix spelling set aside, for an exact
+    comparison of the words that remain (never a similarity score)."""
+
+    words = re.findall(r"[A-Z0-9&']+", text.upper())
+    return " ".join(_SUFFIX_FORMS.get(word, word) for word in words)
 
 
 def _percentages(value: Any, key: str = "") -> set[Decimal]:
@@ -330,6 +557,14 @@ class CopilotGuard:
         # A case's facts ground percentages and names; the general chat has none to check.
         self._grounded = bool(facts)
         self._percentages = _percentages(facts or {})
+        self._names = f" {canonical_name(self._ctx.known)} "
+        # People the application's ownership calculation found below its threshold.
+        ownership = (facts or {}).get("ownership") or {}
+        self._below = [
+            canonical_name(str(person.get("name") or ""))
+            for person in ownership.get("people") or []
+            if isinstance(person, dict) and person.get("threshold_result") == "NOT_MET"
+        ]
         self._tags = {f"[{tag}]" for tag in knowledge_tags}
         self._required = list(required)
         self._buffer = ""
@@ -353,31 +588,81 @@ class CopilotGuard:
         if _SELF_ACTION.search(lowered):
             self._left_out.append("assistant_action_claim")
             return None
-        ubo = _UBO_DETERMINATION.search(lowered)
-        if ubo and not _UBO_HEDGE.search(lowered[: ubo.start()]):
-            self._left_out.append("ubo_determination")
+        if any(_asserted(_VERIFIED_UBO, clause, claim=True) for clause in _CLAUSE.split(lowered)):
+            self._left_out.append("authority_claim")
+            return None
+        problem = self._ubo_problem(lowered)
+        if problem:
+            self._left_out.append(problem)
             return None
         if self._grounded and not _ILLUSTRATION.search(lowered):
             for number in _PERCENT.findall(probe):
                 if Decimal(number).normalize() not in self._percentages:
                     self._left_out.append("unsupported_value")
                     return None
-            for name in _CAPS_NAME.findall(probe):
-                parts = name.split()
-                if any(part in _COMPANY_SUFFIX for part in parts):
-                    candidate = name
-                else:
-                    words = [w for w in parts if w.strip(".'&-") not in _NOT_NAMES]
-                    candidate = " ".join(words) if len(words) >= 2 else ""
-                if candidate and candidate.lower() not in self._ctx.known:
-                    self._left_out.append("unsupported_name")
-                    return None
+            if any(not self._known_name(name) for name in self._names_in(probe)):
+                self._left_out.append("unsupported_name")
+                return None
         reason = _check(probe, self._ctx)
         if reason is not None:
             self._left_out.append(reason)
             return None
         self._kept += 1
         return text
+
+    def _ubo_problem(self, lowered: str) -> str | None:
+        """Why a UBO conclusion in this sentence must be left out, if it has one. It is kept
+        when hedged just before ("may be the UBO") or, in its own clause, presented as
+        provisional or as what the records or the application show; on a case, never about a
+        person the application's calculation found below the threshold."""
+
+        start = 0
+        for clause in _UBO_CLAUSE.split(lowered):
+            offset = lowered.find(clause, start)
+            start = max(start, offset)
+            positive = _UBO_POSITIVE.search(clause)
+            if positive:
+                # The person the clause says is a UBO is named before that phrase.
+                subject = f" {canonical_name(clause[: positive.start()])} "
+                if any(name and f" {name} " in subject for name in self._below):
+                    return "ubo_contradicts_calculation"
+            found = _UBO_DETERMINATION.search(clause)
+            if (
+                found
+                and not _UBO_HEDGE.search(lowered[: offset + found.start()])
+                and not _UBO_PROVISIONAL.search(clause)
+            ):
+                return "ubo_determination"
+        return None
+
+    @staticmethod
+    def _names_in(text: str) -> list[str]:
+        """Runs of capitalised name words, and company names ending in a recognised suffix."""
+
+        names = []
+        for name in _CAPS_NAME.findall(text):
+            parts = name.split()
+            if any(part in _COMPANY_SUFFIX for part in parts):
+                names.append(name)
+            else:
+                words = [w for w in parts if w.strip(".'&-") not in _NOT_NAMES]
+                if len(words) >= 2:
+                    names.append(" ".join(words))
+        for match in _TITLE_COMPANY.finditer(text):
+            words = match.group(0).split()
+            while words and words[0].strip(".").upper() in _LEADING_WORDS:
+                words.pop(0)
+            names.append(" ".join(words))
+        return names
+
+    def _known_name(self, name: str) -> bool:
+        """The name's words, set out in one form, appear as whole words in the case facts. A
+        bare suffix ("Pte Ltd") names no company and is left to the other checks."""
+
+        canonical = canonical_name(name)
+        if not set(canonical.split()) - set(_SUFFIX_FORMS.values()) - {"PTE", "LTD", "LLP"}:
+            return True
+        return f" {canonical} " in self._names
 
     def _close_line(self) -> None:
         if self._current:

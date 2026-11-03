@@ -14,7 +14,17 @@ import pytest
 from ai_assistant import copilot
 from assistant_eval.copilot_eval import DIMENSIONS, SCENARIOS, Result, Scenario, report, score
 from tests.test_ai_assistant import CASE_ID
-from tests.test_copilot import CASE_B, Backend, Scripted, app, ask, browser, open_context, stream
+from tests.test_copilot import (
+    ANALYSIS,
+    CASE_B,
+    Backend,
+    Scripted,
+    app,
+    ask,
+    browser,
+    open_context,
+    stream,
+)
 
 
 class External(Scripted):
@@ -24,6 +34,7 @@ class External(Scripted):
 def run(scenario: Scenario) -> Result:
     model = External(scenario.answer) if scenario.external_model else Scripted(scenario.answer)
     backend = Backend()
+    backend.ownership = ANALYSIS if scenario.ownership else None
     client = browser(app(model, backend), "rm-a")
     if scenario.id == "cross-case":
         earlier = open_context(client, CASE_ID)
@@ -70,5 +81,5 @@ def test_the_suite_covers_every_category_and_dimension() -> None:
     summary = json.loads(report(results))
     print("\nCOPILOT_EVAL", json.dumps(summary))
     assert summary["failures"] == []
-    assert len(summary["categories"]) == 14
+    assert len(summary["categories"]) == 18
     assert all(summary["dimensions"][d]["scored"] > 0 for d in DIMENSIONS)

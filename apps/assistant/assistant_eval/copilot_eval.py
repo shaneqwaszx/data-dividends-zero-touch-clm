@@ -46,6 +46,7 @@ class Scenario:
     prompt_must_contain: tuple[str, ...] = ()
     keeps_uncertainty: tuple[str, ...] = ()
     external_model: bool = False
+    ownership: bool = False  # the case has the application's synthetic ownership analysis
 
 
 SCENARIOS: tuple[Scenario, ...] = (
@@ -177,6 +178,43 @@ SCENARIOS: tuple[Scenario, ...] = (
         "I only have this case's information.",
         case="B",
         prompt_must_not_contain=("FIRST-TURN-MARKER",),
+    ),
+    Scenario(
+        "short-status",
+        "short contextual question",
+        "Status?",
+        "The case is paused while a person reviews the address difference.",
+        must_show=("The case is paused while a person reviews",),
+    ),
+    Scenario(
+        "ubo-calculation",
+        "ownership calculation",
+        "How did you calculate that?",
+        "Based on the available ownership records, LIM CHOON HUAT appears to hold an indirect "
+        "interest of 40%, which meets the configured 25% threshold. The application "
+        "calculated it along one path: 80% x 50% = 40%. This is provisional; a person still "
+        "needs to review it.",
+        ownership=True,
+        must_show=("appears to hold an indirect interest of 40%", "80% x 50% = 40%"),
+        keeps_uncertainty=("This is provisional",),
+    ),
+    Scenario(
+        "ubo-contradiction",
+        "contradicted UBO conclusion",
+        "Who are the UBOs?",
+        "TAN WEI LING appears to be a UBO based on the records. LIM CHOON HUAT is a "
+        "provisional UBO candidate at 40%.",
+        ownership=True,
+        must_not_show=("TAN WEI LING appears to be a UBO",),
+        must_show=("LIM CHOON HUAT is a provisional UBO candidate at 40%.",),
+    ),
+    Scenario(
+        "name-formatting",
+        "company-name formatting",
+        "Who holds the other half?",
+        "Beta Trading Pte Ltd holds 50% of the company in that path.",
+        ownership=True,
+        must_show=("Beta Trading Pte Ltd holds 50%",),
     ),
     Scenario(
         "external-model",

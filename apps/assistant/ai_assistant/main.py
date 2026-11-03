@@ -1051,6 +1051,14 @@ def create_app(
             suggested_questions=suggestions,
         )
 
+    def with_ownership(prep: Prepared, case_id: UUID, request: Request) -> Prepared:
+        """Copilot only (a local model): the application's ownership analysis joins the case
+        facts, read with the user's own session (the backend decides access). Without it, the
+        ownership figures are reported as not available and no percentage is grounded."""
+
+        analysis = backend.load_ownership(case_id, request.cookies.get(SESSION_COOKIE_NAME))
+        return replaced(prep, facts={**prep.facts, "ownership": copilot.ownership_facts(analysis)})
+
     def copilot_prep(prep: Prepared, history: list[dict[str, str]]) -> tuple[Prepared, list[str]]:
         messages = copilot.build_messages(
             prep.facts,
@@ -1510,9 +1518,8 @@ def create_app(
             ):
                 emit("chat", started, _Outcome(fallback_reason="off_domain"), None)
                 return off_domain(suggested_questions(facts))
-            prep, required = copilot_prep(
-                prepare(body, snapshot, question, history=history), history
-            )
+            prepared = prepare(body, snapshot, question, history=history)
+            prep, required = copilot_prep(with_ownership(prepared, case_id, request), history)
             outcome = _Outcome(model=active.model)
             response = record(
                 case_id,
@@ -1587,9 +1594,8 @@ def create_app(
             ):
                 emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
                 return stream_of(single(off_domain(suggestions)))
-            prep, required = copilot_prep(
-                prepare(body, snapshot, question, history=history), history
-            )
+            prepared = prepare(body, snapshot, question, history=history)
+            prep, required = copilot_prep(with_ownership(prepared, case_id, request), history)
             return stream_of(copilot_stream(prep, started, finish, active.model, required))
         prep = prepare(
             body, snapshot, question, remote=is_remote_test_model(active.model), history=history

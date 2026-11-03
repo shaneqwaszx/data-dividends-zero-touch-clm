@@ -47,6 +47,9 @@ class Backend:
             "hr": _me("hr-hana", ["MODEL_CONFIG_MANAGE"], role="HR"),
         }
         self.revoked: set[str] = set()
+        # D-115 refinement: case A's ownership analysis (None: the backend has none).
+        self.ownership: dict[str, Any] | None = None
+        self.ownership_reads: list[str] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         cookie = request.headers.get("cookie", "")
@@ -64,6 +67,11 @@ class Backend:
                 return httpx.Response(200 if has_access else 404, json=summary)
             if path == f"/api/onboarding/cases/{case_id}/documents":
                 return httpx.Response(200 if has_access else 404, json=DOCUMENTS)
+            if path == f"/api/onboarding/cases/{case_id}/ownership":
+                self.ownership_reads.append(session)
+                if not has_access or case_id != CASE_ID or self.ownership is None:
+                    return httpx.Response(404, json={"detail": {"code": "OWNERSHIP_NOT_LOADED"}})
+                return httpx.Response(200, json=self.ownership)
         return httpx.Response(404, json={"detail": "not found"})
 
 
@@ -548,7 +556,9 @@ def test_a_hedge_counts_only_just_before_the_ubo_conclusion() -> None:
         ("What is the status?", False, True),
         ("why?", True, True),
         ("tell me more", True, True),
-        ("why?", False, False),
+        # D-115 refinement: with a case open, a bare "why?" is about the case; the model
+        # answers from it or asks one clarifying question.
+        ("why?", False, True),
     ],
 )
 def test_case_chat_scope_precision(question: str, ongoing: bool, inside: bool) -> None:
@@ -572,3 +582,260 @@ def test_company_names_with_a_suffix_and_share_counts_are_grounded_strictly() ->
     assert copilot.check_answer("GARDEN BUSINESS holds 100%.", facts).left_out == [
         "unsupported_value"
     ]
+
+
+# --- D-115 refinement: context-sensitive scope, company names, UBO explanations -------------
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Status?",
+        "Why?",
+        "What about the other shareholder?",
+        "How did you calculate that?",
+        "What should I do next?",
+        "Does that mean this is blocked?",
+        "Any red flags?",
+        "What should I check first?",
+        "What about NG MEI LING?",  # found in a real model run: a party named on its own
+        "Which one?",
+    ],
+)
+def test_short_questions_about_the_open_case_are_in_scope(question: str) -> None:
+    assert copilot.in_domain(question, ongoing=False, case_open=True)
+
+
+@pytest.mark.parametrize(
+    ("question", "case_open", "ongoing"),
+    [
+        ("What is the capital of France?", True, False),
+        ("Any good recipes for dinner?", True, True),
+        ("Status?", False, False),  # no case and no chat: nothing for it to be about
+        ("How did you calculate that?", False, False),
+    ],
+)
+def test_unrelated_or_contextless_questions_stay_out_of_scope(
+    question: str, case_open: bool, ongoing: bool
+) -> None:
+    assert not copilot.in_domain(question, ongoing=ongoing, case_open=case_open)
+
+
+NAMED_FACTS = {
+    "company": {"legal_name": "ORCHID PTE. LTD.", "uen": "11111999A"},
+    "discrepancies": [{"party": "ACME HOLDINGS PTE LTD"}],
+}
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Orchid Pte Ltd is the company being onboarded.",
+        "ORCHID PTE LTD is the company being onboarded.",
+        "ORCHID PRIVATE LIMITED is the company being onboarded.",
+        "ORCHID PTE. LTD. is the company being onboarded.",
+        "The Orchid Pte. Ltd. registry record lists one officer.",
+        "Acme Holdings Pte Ltd is a party.",
+    ],
+)
+def test_company_name_presentation_does_not_block_a_correct_answer(sentence: str) -> None:
+    check = copilot.check_answer(sentence, NAMED_FACTS)
+    assert (check.kept, check.left_out) == (1, []), check
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "ACME HOLDING PTE LTD is a party.",  # a different name, however close
+        "Acme Holding Pte Ltd is a party.",
+        "Orchid Trading Pte Ltd is related.",  # an invented company in title case
+        "ORCHID PTE LTD (UEN 22222999B) is the company.",  # the identifier still decides
+    ],
+)
+def test_similar_or_invented_company_names_are_not_matched(sentence: str) -> None:
+    assert copilot.check_answer(sentence, NAMED_FACTS).kept == 0
+
+
+def _path(links: list[tuple[str, str, str]], effective: str) -> dict[str, Any]:
+    edges = [
+        {
+            "relationship_id": f"rel-{index}",
+            "parent_party_id": f"p-{holder}",
+            "parent_display_name": holder,
+            "child_party_id": f"p-{held}",
+            "child_display_name": held,
+            "ownership_percent": percent,
+        }
+        for index, (holder, held, percent) in enumerate(links)
+    ]
+    factors = " x ".join(f"{percent}%" for _, _, percent in links)
+    return {
+        "path_id": "path-v1-" + "0" * 64,
+        "edges": edges,
+        "effective_ownership_percent": effective,
+        "is_direct": len(links) == 1,
+        "calculation": f"{factors} = {effective}%",
+    }
+
+
+def _candidate(
+    name: str,
+    shares: tuple[str, str, str],
+    result: str,
+    kind: str,
+    paths: list[dict[str, Any]],
+) -> dict[str, Any]:
+    direct, indirect, total = shares
+    return {
+        "party": {"party_id": f"p-{name}", "display_name": name, "party_type": "NATURAL_PERSON"},
+        "direct_ownership_percent": direct,
+        "indirect_ownership_percent": indirect,
+        "aggregated_ownership_percent": total,
+        "threshold_percent": "25.00",
+        "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+        "threshold_result": result,
+        "classification": kind,
+        "paths": paths,
+    }
+
+
+ALPHA = "ALPHA HOLDINGS PTE. LTD."
+BETA = "BETA TRADING PTE. LTD."
+ROOT = "GARDEN BUSINESS"
+ANALYSIS: dict[str, Any] = {
+    "state": "ANALYZED",
+    "provider_environment": "MOCK",
+    "threshold_percent": "25.00",
+    "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+    "candidates": [
+        _candidate(
+            "LIM CHOON HUAT",
+            ("0.00", "40.00", "40.00"),
+            "MET",
+            "PROVISIONAL_UBO_CANDIDATE",
+            [_path([("LIM CHOON HUAT", ALPHA, "80.00"), (ALPHA, ROOT, "50.00")], "40.00")],
+        ),
+        _candidate(
+            "NG MEI LING",
+            ("15.00", "10.00", "25.00"),
+            "MET",
+            "PROVISIONAL_UBO_CANDIDATE",
+            [
+                _path([("NG MEI LING", ROOT, "15.00")], "15.00"),
+                _path([("NG MEI LING", BETA, "20.00"), (BETA, ROOT, "50.00")], "10.00"),
+            ],
+        ),
+        _candidate(
+            "TAN WEI LING",
+            ("10.00", "0.00", "10.00"),
+            "NOT_MET",
+            "BELOW_PROVISIONAL_THRESHOLD",
+            [_path([("TAN WEI LING", ROOT, "10.00")], "10.00")],
+        ),
+    ],
+    "issues": [{"code": "CYCLE_DETECTED", "message": "A loop between two holders was found."}],
+    "manual_review_receipt": None,
+}
+OWNED = {"company": FACTS_A, "ownership": copilot.ownership_facts(ANALYSIS)}
+
+
+def test_ownership_facts_carry_the_applications_figures_without_recalculating() -> None:
+    facts = OWNED["ownership"]
+    assert facts["available"] and facts["threshold_percent"] == "25"
+    lim, ng, tan = facts["people"]
+    assert (lim["aggregated_percent"], lim["paths"][0]["calculation"]) == (
+        "40",
+        "80.00% x 50.00% = 40.00%",
+    )
+    assert [p["effective_percent"] for p in ng["paths"]] == ["15", "10"]
+    assert ng["aggregated_percent"] == "25" and "inclusive" in facts["threshold_rule"]
+    assert tan["threshold_result"] == "NOT_MET" and "not verified" in lim["result"]
+    assert facts["issues"][0]["code"] == "CYCLE_DETECTED"
+    assert copilot.ownership_facts(None)["available"] is False
+    many = {**ANALYSIS, "candidates": ANALYSIS["candidates"] * 10}
+    assert len(copilot.ownership_facts(many)["people"]) == copilot.MAX_OWNERS
+    prompt = json.dumps(copilot.build_messages(OWNED, [], "Who are the UBOs?"))
+    assert "OWNERSHIP FACTS" in prompt and "80.00% x 50.00% = 40.00%" in prompt
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Based on the available ownership records, LIM CHOON HUAT appears to hold an indirect "
+        "interest of 40%, which meets the configured 25% threshold.",
+        "The indirect interest is 80% x 50% = 40%.",
+        "The indirect interest is 80% × 50% = 40%.",
+        "NG MEI LING holds 15% directly and 10% through BETA TRADING PTE. LTD., 25% in total.",
+        "LIM CHOON HUAT appears to be a UBO based on the application's calculation.",
+        "LIM CHOON HUAT is a provisional UBO candidate, which a person must still review.",
+        "According to the application's analysis, NG MEI LING is a UBO candidate at exactly 25%.",
+        "LIM CHOON HUAT is not a verified UBO; the result is provisional.",
+        "TAN WEI LING holds 10%, below the 25% threshold.",
+        "The loop between two holders needs a person's review before any conclusion.",
+    ],
+)
+def test_ubo_explanations_grounded_in_the_calculation_are_kept(sentence: str) -> None:
+    check = copilot.check_answer(sentence, OWNED)
+    assert (check.kept, check.left_out) == (1, []), check
+
+
+@pytest.mark.parametrize(
+    ("sentence", "reason"),
+    [
+        ("LIM CHOON HUAT is the UBO.", "ubo_determination"),
+        (
+            "LIM CHOON HUAT is the UBO; the application lists NG MEI LING as a candidate.",
+            "ubo_determination",
+        ),
+        ("TAN WEI LING appears to be a UBO based on the records.", "ubo_contradicts_calculation"),
+        (
+            "LIM CHOON HUAT's beneficial ownership has been officially verified and approved.",
+            "authority_claim",
+        ),
+        ("LIM CHOON HUAT is a verified UBO.", "authority_claim"),
+        ("The indirect interest is 80% x 50% = 45%.", "unsupported_value"),
+        ("LIM CHOON HUAT holds 62%.", "unsupported_value"),
+    ],
+)
+def test_ubo_claims_that_are_settled_contradicted_or_invented_are_removed(
+    sentence: str, reason: str
+) -> None:
+    check = copilot.check_answer(sentence, OWNED)
+    assert (check.kept, check.left_out) == (0, [reason]), check
+
+
+def test_the_case_chat_reads_ownership_with_the_users_session_for_a_local_model_only() -> None:
+    backend = Backend()
+    backend.ownership = ANALYSIS
+    model = Scripted(
+        "Based on the available ownership records, LIM CHOON HUAT appears to hold an indirect "
+        "interest of 40%, which meets the configured 25% threshold. The path is 80% x 50% = 40%."
+    )
+    client = browser(app(model, backend), "rm-a")
+    context = open_context(client, CASE_ID)
+    reply = ask(client, CASE_ID, "How did you calculate that?", context).json()
+    assert reply["answered_by"] == "model"
+    assert "80% x 50% = 40%" in reply["answer"] and not reply["notice"]
+    assert backend.ownership_reads == ["rm-a"]
+    assert "OWNERSHIP FACTS" in model.prompt_text()
+    # Without an analysis the copilot is told so, and no percentage is grounded.
+    backend.ownership = None
+    ask(client, CASE_ID, "Who are the UBOs?", context)
+    assert '\\"available\\":false' in model.prompt_text()
+
+    class External(Scripted):
+        requires_synthetic_boundary = True
+
+    external_backend = Backend()
+    external_backend.ownership = ANALYSIS
+    external = browser(app(External("free text"), external_backend), "rm-a")
+    ask(external, CASE_ID, "Who are the UBOs?", None)
+    assert external_backend.ownership_reads == []  # never read for an external model
+
+
+def test_emphasis_marks_are_dropped_but_list_markers_and_arithmetic_are_not() -> None:
+    text = "These are *provisional* candidates.\n* LIM CHOON HUAT: 80%*50% = 40%."
+    assert copilot.check_answer(text, OWNED).text == (
+        "These are provisional candidates.\n- LIM CHOON HUAT: 80%*50% = 40%."
+    )
+    assert copilot.in_domain("What about the weather?", ongoing=True, case_open=True) is False
