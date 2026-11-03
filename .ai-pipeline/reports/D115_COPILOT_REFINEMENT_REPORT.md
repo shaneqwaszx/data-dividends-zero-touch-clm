@@ -52,7 +52,7 @@ is set). Real routes, fake backend serving the synthetic Garden case (with a syn
 three-person ownership analysis: LIM CHOON HUAT 80% x 50% = 40%; NG MEI LING 15% + 20% x 50% =
 25%; TAN WEI LING 10%) and a second synthetic case. Model `ministral-3:8b` (the project
 default), Ollama 0.40.13 on 127.0.0.1, temperature 0.2, 600 answer tokens, NVIDIA RTX 4080
-Laptop GPU (12 GB), 31.7 GB RAM, Windows 11. Configurations: exact-line mode (the earlier
+Laptop GPU (12 GB), 31.7 GB RAM, Windows 11. Code under test: refined runs r1 and r2 at `a1b6283`, r3 at `888e807` (whose negation rewrite was later withdrawn, so at the final commit more correctly negated sentences are left out than r3 shows); "before" at `04b6700`; exact lines at `a1b6283`. Configurations: exact-line mode (the earlier
 assistant), copilot before this refinement (`04b6700`, same tree as reviewed `d4bc872`), and
 copilot after it (two runs).
 
@@ -142,6 +142,7 @@ gaps in the grounding claims, all fixed in the remediation commit except where s
 | (found while fixing) correct negations "has not been verified" are removed by the shared check | a rewrite to "not be" was tried in `888e807` and withdrawn: the fresh re-QG (FAIL, F1, blocking) showed it also kept claims that are now true ("had not been officially verified until today", "by anyone but compliance", and outside UBOs "had never been officially approved before today"). The rewrite is removed; these negations stay left out (fail closed) |
 | re-QG F2: below-threshold names after a longer subject ("The UBOs, per the calculation, are LIM and TAN", "not only ... but also TAN") | `_UBO_LIST` allows up to five words before the verb and reads "not only ... but also" as a list |
 | re-QG F3: "The UBO status is final only after a human reviewer confirms it" and unhedged contrast lists are left out | kept as known fail-closed limits (usability cost) |
+| re-QG 2 (review of `3101513`, PASS WITH NOTES): some below-threshold lists still pass (more than five words before the verb, "appear to be", "not just ... but ... too", surname only); "The UBO result for X is MET" and similar are left out | documented as known limits in D-115 C3; to fix before activation |
 
 A third real-model run after the remediation (r3, same settings) answered the same 17
 questions with the model (weather redirected), median 4.7 s, max 8.7 s. It removed 9 sentences
@@ -154,7 +155,7 @@ guardrails, used unchanged by exact-line mode. They cost usefulness (the user se
 sentence(s) were left out"), never safety. Improving them changes the shared checks and should
 be a separate, reviewed change before copilot is activated.
 
-The first remediation (`888e807`) failed its fresh review on F1; the corrected remediation is reviewed again before publication, and the result is recorded in the PR.
+The first remediation (`888e807`) failed its fresh review on F1. The corrected remediation (`3101513`) passed a fresh independent review with notes (no blocking finding; F1 gone: the copilot path can only remove more than the shared checks, never less).
 
 ## 6. Owner decisions
 
