@@ -32,6 +32,48 @@ provider classification. The earlier Phase14.5 direct-policy-edit description be
 is historical and superseded for POC controls by D-064: HR proposal, distinct Director
 approval, new ACTIVE version, and unchanged frozen existing cases.
 
+## XPI optional enrichment (D-117)
+
+Source: the owner-supplied private sponsor response document recorded in D-117 (SHA-256
+`74b6c7cd...a72e`; document properties last modified 2026-10-22). Already answered there and
+not to be asked again: Group Company Name is free text and GoldTier associates a matching GCN
+or creates a new one; the current XPI Amend supports `rmUserLogin`, `anzsic`,
+`groupCompanyName` and External System / External System Key; Amend requires a
+GoldTier-generated Policy ID and `Singapore` is not one; Policy IDs for existing customers
+come from prior onboarding records, customer search results or other approved GoldTier
+retrieval. EDS answers are recorded as context only; EDS is out of scope. The owner relayed
+further answers on 2026-11-03 (D-117 O1 to O4), also not to be asked again: `Singapore` is a
+Policy selection value; Group Company Name and ANZSIC are optional Amend fields; GoldTier
+supports Singapore SSIC but the current Amend does not update it; the D-068 answers on the
+API user, Requested/Active Amend, Validation Failed, no idempotency/retry and the
+non-unique External System Key stand; non-empty `productType` / `accountEntityType`
+vocabularies are not established for current XPI.
+
+This section asks the sponsor nothing new. The items below are deferred
+`PROVIDER_QUALIFICATION_PENDING` dependencies (classification in D-117). None blocks the
+optional frontend feature or local implementation; each keeps its transmission disabled and
+current behaviour unchanged until a verified API contract detail, approved readback evidence
+or a separately authorized Sandbox operation exists.
+
+1. **Shell carriage of `groupCompanyName`.** Only the supplied collection example shows it on
+   Shell; Shell mapping stays behind the empty allowlist and Shell acceptance is not asserted.
+2. **GCN matching outcome and readback.** Which existing GCN a value associates with is
+   provider behaviour; the feature shows the associate-or-create consequence and needs no
+   matching algorithm to be built. The sponsor states Search can show persisted values and
+   that the verification mechanism is not finalized; provider confirmation waits for that.
+3. **Policy-ID retrieval and Amend binding.** No case retains a GoldTier-generated Policy ID
+   (the bounded S3 Policy create returned none). XPI Amend stays disabled; the fail-closed
+   safeguard needs no further sponsor reply.
+4. **Amend request schema.** Request alias, type and format for the Policy ID, `rmUserLogin`
+   and External System / External System Key are not in the supplied XPI artefacts; no
+   request field is invented.
+5. **RM login identity mapping.** No approved mapping from an application user to
+   `rmUserLogin` exists (Q-016); no mapping is invented.
+6. **ANZSIC values.** No code list is established; SSIC is not sent through Amend and is not
+   converted to ANZSIC.
+7. **Non-empty `productType` / `accountEntityType`.** Not established; the current empty-string
+   treatment is unchanged.
+
 ## Phase27 current delivery classification
 
 All eighteen questions retain their broader open scope. None blocks delivery of the
@@ -364,6 +406,11 @@ field; whether Singapore SSIC is supported when industry classification is requi
 and the exact safe retry/idempotency and atomic no-application semantics after a
 provider-verified validation failure. No ANZSIC/SSIC or group-company value will be
 invented while this remains unanswered.
+
+D-117 note: the sponsor has since stated that Amend requires a GoldTier-generated Policy ID
+and that `Singapore` is not one. That is consistent with the Garden Amend failure, but the
+provider gave no failed-field reason, so the cause remains unproved and the failed attempt is
+never replayed. The open remainder is listed under "XPI optional enrichment (D-117)" above.
 
 Phase 04 synthetic party/relationship fields and `SHARE_OWNERSHIP` basis are source-
 neutral POC concepts only and do not resolve or pre-empt these GoldTier mappings.
