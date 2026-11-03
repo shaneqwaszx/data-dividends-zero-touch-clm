@@ -92,11 +92,18 @@ def claude_ledger(
     return ledger
 
 
+def anchored_on_the_console(settings: AiAssistantSettings) -> None:
+    # A Claude ledger whose windows still apply (D-118 keeps the mode for an owner who
+    # chooses it at migration); a new ledger is provider-capped.
+    with sqlite3.connect(settings.anthropic_ledger_path) as connection:
+        connection.execute("UPDATE ledger_profile SET accounting_mode = 'provider_anchored'")
+
+
 def reconciled_ago(settings: AiAssistantSettings, seconds: float) -> None:
     # Moves the last reconciliation back in time (the ledger has no clock seam here).
     with sqlite3.connect(settings.anthropic_ledger_path) as connection:
         connection.execute(
-            "UPDATE ledger_meta SET last_reconciled_at = ?",
+            "UPDATE ledger_meta SET write_token = write_token + 1, last_reconciled_at = ?",
             (int((time.time() - seconds) * 1000),),
         )
 
@@ -557,8 +564,21 @@ def test_missing_billing_evidence_fails_before_anything_is_sent(tmp_path: Path) 
     claude = Claude()
     assert _failed(_preflight(settings, claude)) == ["ledger.healthy"]  # no ledger
     claude_ledger(settings, reconcile=False)
+    anchored_on_the_console(settings)
     assert _failed(_preflight(settings, claude)) == ["ledger.reconciled_recently"]
     assert claude.requests == []
+
+
+def test_a_provider_capped_ledger_needs_no_routine_reconciliation(tmp_path: Path) -> None:
+    # D-118 S4: never reconciled, or long ago: chat and paid runs are not gated on it.
+    settings = claude_config(tmp_path)
+    claude_ledger(settings, reconcile=False)
+    claude = Claude()
+    assert _preflight(settings, claude).passed
+    assert _preflight(settings, claude, within_seconds=PAID_RECONCILE_SECONDS).passed
+    reconciled = _preflight(settings, claude).checks
+    detail = next(c.detail for c in reconciled if c.name == "ledger.reconciled_recently")
+    assert "provider-capped" in detail
 
 
 def test_reconciliation_must_be_within_7_days_for_chat_and_24_hours_for_paid_runs(
@@ -566,6 +586,7 @@ def test_reconciliation_must_be_within_7_days_for_chat_and_24_hours_for_paid_run
 ) -> None:
     settings = claude_config(tmp_path)
     claude_ledger(settings)
+    anchored_on_the_console(settings)
     claude = Claude()
     reconciled_ago(settings, 2 * 86_400)
     assert _preflight(settings, claude, within_seconds=CHAT_RECONCILE_SECONDS).passed
@@ -626,7 +647,8 @@ def test_a_call_is_settled_from_usage_and_verified_in_band(tmp_path: Path) -> No
     [
         (lambda c: setattr(c, "reply_model", "claude-opus-5-5"), "routing_anomaly"),
         (lambda c: setattr(c, "workspace", "wrkspc_SomeOtherSpace"), "routing_anomaly"),
-        (lambda c: setattr(c, "finished", False), "reconcile_drift"),
+        # D-118 S6: charged in full with no usage and no anomaly: conservative.
+        (lambda c: setattr(c, "finished", False), "usage_missing"),
     ],
 )
 def test_an_unverifiable_call_is_charged_in_full_and_stops_later_calls(
@@ -928,6 +950,7 @@ def test_paid_runs_and_activation_need_a_reconciliation_within_24_hours(
 ) -> None:
     journey = ClaudeJourney(tmp_path, monkeypatch)
     profile_id = BALANCED.profile_id
+    anchored_on_the_console(journey.settings)
     reconciled_ago(journey.settings, 2 * 86_400)
     test = journey.client.post(f"{API}/{profile_id}/connection-test")
     assert test.json()["outcome"] == "passed"  # 7 days for a connection test

@@ -389,9 +389,23 @@ def verify_calls(ledger: BudgetLedger) -> tuple[int, int]:
     for call in calls:
         verified = call.state == "settled" and call.anomaly_bits == 0
         breaker = "routing_anomaly" if call.anomaly_bits & _ROUTING_BITS else "reconcile_drift"
+        if (
+            call.state in ("unsettled", "abandoned")
+            and call.charged_micro_usd == call.reserved_micro_usd
+            and call.anomaly_bits == 0
+        ):
+            # D-118 S6: charged in full with no usage and no anomaly: conservative, not a
+            # billing discrepancy (still quarantined; only HR's proven resume closes it).
+            breaker = "usage_missing"
         ledger.record_verification(call.call_id, verified=verified, breaker_code=breaker)
         quarantined += not verified
     return len(calls), quarantined
+
+
+def provider_capped(ledger: BudgetLedger) -> bool:
+    # D-118 S4: a provider-capped ledger is bounded by Anthropic's own workspace limit and
+    # conservative in-band accounting; its reconciliation windows gate nothing routine.
+    return ledger.profile().accounting_mode == "provider_capped"
 
 
 def reconciled_within(ledger: BudgetLedger, seconds: int, *, clock: Callable[[], float]) -> bool:
@@ -444,7 +458,8 @@ def check_ledger(
         ledger = open_own(ledger_file(settings))
         checked, quarantined = verify_calls(ledger)
         status = ledger.status()
-        fresh = reconciled_within(ledger, within_seconds, clock=clock)
+        capped = provider_capped(ledger)
+        fresh = capped or reconciled_within(ledger, within_seconds, clock=clock)
     except LedgerError as error:
         report.add("ledger.healthy", False, f"refused: {error.code}")
         return
@@ -469,7 +484,9 @@ def check_ledger(
     report.add(
         "ledger.reconciled_recently",
         fresh,
-        f"reconciled against the Console within the last {within_seconds} seconds",
+        "provider-capped: Anthropic's workspace limit bounds billing; no routine reconciliation"
+        if capped
+        else f"reconciled against the Console within the last {within_seconds} seconds",
     )
     reservation = worst_reservation()
     report.add(
@@ -681,7 +698,8 @@ def budget_status(
         ledger.verify()
         status = ledger.status()
         daily = ledger.daily_status(settings.anthropic_daily_cap_micro_usd)
-        fresh = reconciled_within(ledger, within_seconds, clock=clock)
+        capped = provider_capped(ledger)
+        fresh = capped or reconciled_within(ledger, within_seconds, clock=clock)
         reconciled = ledger.last_reconciled_ms()
     except LedgerError as error:
         view.update(ledger=None, daily=None, effective_remaining_micro_usd=0)
@@ -699,6 +717,7 @@ def budget_status(
         "breaker_open": status.breaker_open,
         "breaker_code": status.breaker_code,
         "reconciled_at": None if reconciled is None else _iso(reconciled / 1000),
+        "accounting_mode": "provider_capped" if capped else "provider_anchored",
     }
     view["daily"] = {
         "cap_micro_usd": daily.cap,
@@ -767,6 +786,7 @@ class ClaudeTestModel:
         transport: object = None,
         clock: Callable[[], float] = time.monotonic,
         within_seconds: int = CHAT_RECONCILE_SECONDS,
+        purpose: str = "chat",
     ) -> None:
         code = readiness(settings)
         if code is not None:
@@ -783,6 +803,8 @@ class ClaudeTestModel:
         self._transport = transport
         self._clock = clock
         self._within = within_seconds
+        # D-118: a paid qualification's calls share the session's money, not its chat calls.
+        self._purpose = purpose
         self._ledger_file = ledger_file(settings)
         try:
             self._start_call = open_own(self._ledger_file).last_call_id()
@@ -885,13 +907,18 @@ class ClaudeTestModel:
                     _last.clear()  # the shown preflight was another key's (QG L-2)
             try:
                 ledger = open_own(self._ledger_file)
-                calls = len(ledger.closed_calls_after(self._start_call)) + (
-                    ledger.status().open_calls
-                )
+                # D-118: chat calls in the open session, read from the ledger (a restart or
+                # re-activation never resets them); the ledger enforces it again on admission.
+                session = ledger.session()
             except LedgerError:
                 raise self._refuse("ledger") from None
-            if calls >= self._settings.anthropic_max_calls:
+            limit = self._settings.anthropic_max_calls
+            chat = self._purpose == "chat"
+            if chat and session is not None and session.chat_calls >= limit:
                 raise self._refuse("call limit")
+            if isinstance(self._inner, BudgetedChatModel):
+                self._inner.purpose = self._purpose
+                self._inner.session_call_limit = limit if chat else None
             now = self._clock()
             network = (
                 self._checked_at is None
@@ -931,10 +958,12 @@ class ClaudeTestModel:
         return open_own(self._ledger_file).closed_calls_after(self._start_call)
 
     def calls_used(self) -> int:
-        # Read-only: the ledger is checked, never recovered or changed.
+        # Read-only: the ledger is checked, never recovered or changed. D-118: the chat calls
+        # of the open session.
         ledger = BudgetLedger(self._ledger_file)
         ledger.verify()
-        return len(ledger.closed_calls_after(self._start_call)) + ledger.status().open_calls
+        session = ledger.session()
+        return 0 if session is None else session.chat_calls
 
     def _verify_after(self) -> None:
         try:

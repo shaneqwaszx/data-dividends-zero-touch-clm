@@ -489,6 +489,8 @@ def run_preflight(
     report.key_usage_micro_usd = micro_usd(key.usage_usd)
     report.key_limit_reset = key.limit_reset
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
+    if allocation is None and report.passed and not ledger_file.exists():
+        initialise_fresh(report, ledger_file, key)
     try:
         # D-099 (QG M-1/L-4): the profile is read without recovering, so another provider's
         # ledger is never recovered or verified here.
@@ -505,6 +507,8 @@ def run_preflight(
     report.add("ledger.healthy", True, f"profile {status.profile_id}, alias {status.key_alias}")
     try:
         verify_earlier_calls(report, ledger, account, endpoint)
+        if allocation is None:
+            auto_reconcile(report, ledger, key)
         status = ledger.status()
     except LedgerError as error:
         report.add("ledger.earlier_calls_verified", False, f"refused: {error.code}")
@@ -512,6 +516,68 @@ def run_preflight(
     check_ledger(report, key, status, ledger.last_call_id() > 0, reservation, allocation)
     check_daily(report, ledger, settings.budget_daily_cap_micro_usd, reservation)
     return report, ledger, account
+
+
+# D-118 S5: a fresh deployment's ledger, and routine reconciliation, from the key's own
+# provider-reported figures (read with the inference key; free). Never a paid call.
+FRESH_CAP_ABOVE_OPENING_MICRO_USD = 30_000_000
+FRESH_KEY_ALIAS = "key-01"
+AUTO_RECONCILE_SETTLE_SECONDS = 600
+
+
+def initialise_fresh(report: Preflight, ledger_file: Path, key: KeyStatus) -> None:
+    """Create the OpenRouter ledger where none exists, only for a key whose provider limit is
+    set, finite and never resets; its opening usage is the key's reported usage."""
+
+    if key.limit_usd is None or key.limit_remaining_usd is None or key.limit_reset is not None:
+        report.add("ledger.fresh_initialised", False, "the key has no fixed provider limit")
+        return
+    opening = micro_usd(key.usage_usd)
+    room = min(micro_usd(key.limit_remaining_usd), FRESH_CAP_ABOVE_OPENING_MICRO_USD)
+    try:
+        BudgetLedger.initialise(
+            ledger_file,
+            cap_micro_usd=min(opening + max(room, 0), MAX_MICRO_USD),
+            opening_usage_micro_usd=opening,
+            key_alias=FRESH_KEY_ALIAS,
+            profile_id=OPENROUTER_PROFILE_ID,
+            accounting_mode="provider_anchored",
+            opening_basis="provider_reported",
+        )
+    except LedgerError as error:
+        report.add("ledger.fresh_initialised", False, f"refused: {error.code}")
+        return
+    report.add(
+        "ledger.fresh_initialised",
+        True,
+        f"new ledger from provider-reported usage {_usd(opening)}",
+    )
+
+
+def auto_reconcile(report: Preflight, ledger: BudgetLedger, key: KeyStatus) -> None:
+    """Adopt the key's reported usage when it is within the existing tolerance of the ledger
+    (never a release, never above tolerance: that stays a failed check and the breaker)."""
+
+    if ledger.profile().accounting_mode != "provider_anchored":
+        return
+    status = ledger.status()
+    usage = micro_usd(key.usage_usd)
+    accounted = status.baseline + status.local_charged
+    if (
+        status.breaker_open
+        or status.open_calls
+        or usage == status.last_provider_usage
+        or not status.last_provider_usage <= usage <= accounted + RECONCILE_TOLERANCE_MICRO_USD
+    ):
+        return
+    try:
+        drift = ledger.reconcile(
+            usage, settle_lag_seconds=AUTO_RECONCILE_SETTLE_SECONDS, automatic=True
+        )
+    except LedgerError as error:
+        report.add("ledger.auto_reconciled", True, f"not yet: {error.code}")
+        return
+    report.add("ledger.auto_reconciled", True, f"provider usage adopted (drift {_usd(drift)})")
 
 
 def check_daily(

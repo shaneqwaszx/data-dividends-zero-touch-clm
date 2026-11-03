@@ -53,6 +53,7 @@ import anyio
 from . import key_sources, synthetic_eligibility
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
+    BudgetedChatModel,
     BudgetLedger,
     ClosedCall,
     LedgerError,
@@ -296,6 +297,7 @@ class RemoteTestModel:
         fetch: Callable[[str], Any] = fetch_public,
         clock: Callable[[], float] = time.monotonic,
         background: bool = True,
+        purpose: str = "chat",
     ) -> None:
         code = readiness(settings)
         if code is not None:
@@ -309,6 +311,8 @@ class RemoteTestModel:
         self._fetch = fetch
         self._clock = clock
         self._background = background
+        # D-118: a paid qualification's calls share the session's money, not its chat calls.
+        self._purpose = purpose
         self._ledger_file = ledger_path(remote_settings(settings))
         self._credential = key_sources.identity(key_sources.resolve(environ)[0])
         self._inner = self._build_inner()
@@ -394,10 +398,16 @@ class RemoteTestModel:
                 self._credential, self._checked_at, self._account = marker, None, None
                 forget_provider()  # the shown key limit was another key's
             ledger = BudgetLedger.open(self._ledger_file)
-            # Calls since this model was built (activation or restart), open ones included.
-            calls = len(ledger.closed_calls_after(self._start_call)) + ledger.status().open_calls
-            if calls >= self._settings.local_api_test_max_calls:
+            # D-118: chat calls in the open session, open ones included; they are read from
+            # the ledger, so a restart or re-activation never resets them.
+            session = ledger.session()
+            limit = self._settings.local_api_test_max_calls
+            chat = self._purpose == "chat"
+            if chat and session is not None and session.chat_calls >= limit:
                 raise self._refuse("call limit")
+            if isinstance(self._inner, BudgetedChatModel):
+                self._inner.purpose = self._purpose
+                self._inner.session_call_limit = limit if chat else None
             now = self._clock()
             stale = (
                 self._checked_at is None

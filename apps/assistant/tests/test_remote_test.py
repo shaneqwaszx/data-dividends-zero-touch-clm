@@ -76,6 +76,10 @@ def config(tmp_path: Path, profiles_file: Path | None = None, **extra: Any) -> A
         "model_profiles_file": str(profiles_file or ""),
         "model_admin_db_path": str(tmp_path / "state" / "admin.sqlite3"),
         "budget_ledger_path": str(tmp_path / "budget" / "ledger.sqlite3"),
+        # These tests were written against the D-095/D-102 US$1.00 daily defaults; D-118 moved
+        # the environment defaults to US$5.00 (test_paid_sessions pins those).
+        "budget_daily_cap_micro_usd": 1_000_000,
+        "anthropic_daily_cap_micro_usd": 1_000_000,
         **D094,
     }
     values.update(extra)

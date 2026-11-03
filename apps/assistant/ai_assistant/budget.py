@@ -64,6 +64,36 @@ from .llm import (
 from .model_profiles import ENDPOINT_SLUG, OPENROUTER_PROFILE_ID, ApprovedEndpoint
 
 SCHEMA_VERSION = 1
+# D-118: the ledger format (``PRAGMA user_version``). Format 2 keeps the v1 tables (whose
+# ``schema_version`` column stays 1) and adds sessions, the ledger profile, its own events and
+# two triggers that refuse earlier writers. A format-1 ledger is refused, never migrated here.
+FORMAT_VERSION = 2
+# D-118 S2: a session's money allowance, US$5.00 by default and at most.
+SESSION_MAX_MICRO_USD = 5_000_000
+SESSION_DEFAULT_MICRO_USD = SESSION_MAX_MICRO_USD
+PURPOSES = ("chat", "qualification")
+ORIGINS = ("fresh", "migrated")
+ACCOUNTING_MODES = ("provider_anchored", "provider_capped")
+OPENING_BASES = (
+    "operator_entered",
+    "provider_reported",
+    "new_workspace_confirmed",
+    "console_usage_entered",
+    "migrated",
+)
+LEDGER_EVENTS = (
+    "fresh_init",
+    "migrated",
+    "session_started",
+    "session_allowance_changed",
+    "breaker_resumed",
+    "auto_reconciled",
+    # A trip while the breaker was already open (its code is not overwritten, so the trip is
+    # recorded here and a resume is judged on it: QG F1).
+    "trip_while_open",
+)
+# D-118 S6: the only breaker codes HR may resume, and only on the ledger's own proof.
+RESUMABLE_BREAKER_CODES = ("abandoned_call", "usage_missing")
 # Approved opaque operator identifiers for a key (S3). A label never holds a name or case.
 KEY_ALIASES = ("key-01", "key-02", "key-03", "key-04")
 # D-099 Option B: a separate Anthropic ledger (its own file) for Claude Sonnet 5.5. A ledger
@@ -247,6 +277,88 @@ CALL_COLUMNS = (
     "closed_at",
 )
 EVENT_COLUMNS = ("id", "created_at", "event", "amount_micro_usd", "code")
+# D-118 S1: format 2, applied in one transaction on a new ledger or by the owner's migration.
+# The v1 tables are only extended; every existing row and event is kept unchanged.
+FORMAT_2 = (
+    f"""ALTER TABLE calls ADD COLUMN purpose TEXT CHECK (
+    purpose IS NULL OR {_in("purpose", PURPOSES)}
+)""",
+    f"""ALTER TABLE calls ADD COLUMN session_id TEXT CHECK (
+    session_id IS NULL OR ({_HEX32.format("session_id")})
+)""",
+    """ALTER TABLE ledger_meta ADD COLUMN write_token INTEGER NOT NULL DEFAULT 0
+    CHECK (write_token >= 0)""",
+    f"""CREATE TABLE ledger_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    origin TEXT NOT NULL CHECK ({_in("origin", ORIGINS)}),
+    accounting_mode TEXT NOT NULL CHECK ({_in("accounting_mode", ACCOUNTING_MODES)}),
+    opening_basis TEXT NOT NULL CHECK ({_in("opening_basis", OPENING_BASES)}),
+    created_at INTEGER NOT NULL CHECK (created_at >= 0)
+) STRICT""",
+    f"""CREATE TABLE sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE CHECK ({_HEX32.format("session_id")}),
+    created_at INTEGER NOT NULL CHECK (created_at >= 0),
+    floor_call_id INTEGER NOT NULL CHECK (floor_call_id >= 0),
+    allowance_micro_usd INTEGER NOT NULL
+        CHECK (allowance_micro_usd BETWEEN 1 AND {SESSION_MAX_MICRO_USD}),
+    state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    closed_at INTEGER,
+    close_reason TEXT CHECK (close_reason IS NULL OR close_reason = 'replaced'),
+    CHECK ((state = 'open') = (closed_at IS NULL)),
+    CHECK ((state = 'open') = (close_reason IS NULL))
+) STRICT""",
+    """CREATE UNIQUE INDEX sessions_one_open ON sessions (state) WHERE state = 'open'""",
+    f"""CREATE TABLE ledger_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    event TEXT NOT NULL CHECK ({_in("event", LEDGER_EVENTS)}),
+    session_id TEXT CHECK (session_id IS NULL OR ({_HEX32.format("session_id")})),
+    amount_micro_usd INTEGER CHECK (amount_micro_usd IS NULL OR amount_micro_usd >= 0),
+    code TEXT CHECK (code IS NULL OR {_in("code", BREAKER_CODES)}),
+    call_id INTEGER CHECK (call_id IS NULL OR call_id >= 0)
+) STRICT""",
+    """CREATE TRIGGER calls_format_2_fence BEFORE INSERT ON calls
+    WHEN NEW.purpose IS NULL OR NEW.session_id IS NULL
+    BEGIN SELECT RAISE(ABORT, 'format 2 ledger: a call needs a purpose and a session'); END;""",
+    """CREATE TRIGGER meta_format_2_fence BEFORE UPDATE ON ledger_meta
+    WHEN NEW.write_token IS OLD.write_token
+    BEGIN SELECT RAISE(ABORT, 'format 2 ledger: the header write token must change'); END""",
+)
+FORMAT_2_TABLES = frozenset(
+    {"ledger_meta", "calls", "operator_events", "ledger_profile", "sessions", "ledger_events"}
+)
+FORMAT_2_TRIGGERS = frozenset({"calls_format_2_fence", "meta_format_2_fence"})
+FORMAT_2_COLUMNS = {
+    "ledger_meta": (*META_COLUMNS, "write_token"),
+    "calls": (*CALL_COLUMNS, "purpose", "session_id"),
+    "operator_events": EVENT_COLUMNS,
+    "ledger_profile": ("id", "origin", "accounting_mode", "opening_basis", "created_at"),
+    "sessions": (
+        "id",
+        "session_id",
+        "created_at",
+        "floor_call_id",
+        "allowance_micro_usd",
+        "state",
+        "revision",
+        "closed_at",
+        "close_reason",
+    ),
+    "ledger_events": (
+        "id",
+        "created_at",
+        "event",
+        "session_id",
+        "amount_micro_usd",
+        "code",
+        "call_id",
+    ),
+}
+V1_COLUMNS = {"ledger_meta": META_COLUMNS, "calls": CALL_COLUMNS, "operator_events": EVENT_COLUMNS}
+# Every header update of this module bumps the write token (the fence refuses one that does not).
+_BUMP = "write_token = write_token + 1"
 
 
 # --- the reservation ---------------------------------------------------------------------
@@ -383,8 +495,139 @@ def _daily_committed(connection: sqlite3.Connection, day_start: int) -> tuple[in
     return int(settled), int(reserved), int(open_calls)
 
 
+@dataclass(frozen=True)
+class SessionStatus:
+    """The open session (D-118 S2), content-free. Times are epoch milliseconds."""
+
+    session_id: str
+    revision: int
+    allowance: int
+    settled: int
+    open_reserved: int
+    calls: int
+    chat_calls: int
+    created_at: int
+
+    @property
+    def committed(self) -> int:
+        return self.settled + self.open_reserved
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.allowance - self.committed)
+
+
+@dataclass(frozen=True)
+class LedgerProfile:
+    """Where a format-2 ledger came from and how it is anchored (D-118 S1, S4, S5)."""
+
+    origin: str
+    accounting_mode: str
+    opening_basis: str
+
+
+def _open_session_row(connection: sqlite3.Connection) -> tuple[Any, ...] | None:
+    row: tuple[Any, ...] | None = connection.execute(
+        "SELECT session_id, revision, allowance_micro_usd, created_at FROM sessions"
+        " WHERE state = 'open'"
+    ).fetchone()
+    return row
+
+
+def _session_status(connection: sqlite3.Connection) -> SessionStatus | None:
+    row = _open_session_row(connection)
+    if row is None:
+        return None
+    session_id, revision, allowance, created_at = row
+    settled, reserved, calls, chat_calls = connection.execute(
+        "SELECT"
+        " COALESCE(SUM(CASE WHEN state != 'open' THEN charged_micro_usd END), 0),"
+        " COALESCE(SUM(CASE WHEN state = 'open' THEN reserved_micro_usd END), 0),"
+        " COUNT(*), COALESCE(SUM(purpose = 'chat'), 0)"
+        " FROM calls WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    return SessionStatus(
+        session_id=session_id,
+        revision=int(revision),
+        allowance=int(allowance),
+        settled=int(settled),
+        open_reserved=int(reserved),
+        calls=int(calls),
+        chat_calls=int(chat_calls),
+        created_at=int(created_at),
+    )
+
+
+def accounting_mode_for(profile_id: str) -> str:
+    """D-118: Anthropic ledgers are provider-capped, OpenRouter ledgers provider-anchored."""
+
+    return "provider_capped" if profile_id == ANTHROPIC_LEDGER_PROFILE_ID else "provider_anchored"
+
+
+def _check_allowance(allowance: int) -> None:
+    if type(allowance) is not int or not 1 <= allowance <= SESSION_MAX_MICRO_USD:
+        raise LedgerError("INVALID_INPUT", "a session allowance is 1 to 5,000,000 micro-USD")
+
+
 def _hex32() -> str:
     return secrets.token_hex(16)
+
+
+def _apply_format_2(
+    connection: sqlite3.Connection,
+    *,
+    origin: str,
+    accounting_mode: str,
+    opening_basis: str,
+    now: int,
+) -> None:
+    """Extend a v1 ledger to format 2 inside the caller's transaction (D-118 S1)."""
+
+    for statement in FORMAT_2:
+        connection.execute(statement)
+    connection.execute(
+        "INSERT INTO ledger_profile VALUES (1, ?, ?, ?, ?)",
+        (origin, accounting_mode, opening_basis, now),
+    )
+    event = "fresh_init" if origin == "fresh" else "migrated"
+    connection.execute("INSERT INTO ledger_events (created_at, event) VALUES (?, ?)", (now, event))
+    connection.execute(f"PRAGMA user_version = {FORMAT_VERSION}")
+
+
+def _columns(connection: sqlite3.Connection, table: str) -> tuple[str, ...]:
+    return tuple(row[1] for row in connection.execute(f"PRAGMA table_info({table})"))
+
+
+def _names(connection: sqlite3.Connection, kind: str) -> set[str]:
+    return {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = ? AND name NOT LIKE 'sqlite_%'", (kind,)
+        )
+    }
+
+
+def check_structure(connection: sqlite3.Connection, version: int) -> None:
+    """Refuse a ledger whose tables are not exactly ``version`` (1 or 2). Read-only."""
+
+    found = connection.execute("PRAGMA user_version").fetchone()[0]
+    if found != version:
+        if found == 1:
+            raise LedgerError(
+                "LEDGER_MIGRATION_REQUIRED", "the ledger is format 1; the owner must migrate it"
+            )
+        raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger schema is not supported")
+    expected = V1_COLUMNS if version == 1 else FORMAT_2_COLUMNS
+    for table, columns in expected.items():
+        if _columns(connection, table) != columns:
+            raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger tables are not as expected")
+    if _names(connection, "table") != set(expected):
+        raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger tables are not as expected")
+    if version == 2 and _names(connection, "trigger") != FORMAT_2_TRIGGERS:
+        raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger fence is missing")
+    if version == 1 and _names(connection, "trigger"):
+        raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger tables are not as expected")
 
 
 class BudgetLedger:
@@ -419,14 +662,25 @@ class BudgetLedger:
         key_alias: str,
         profile_id: str = OPENROUTER_PROFILE_ID,
         clock: Callable[[], float] = time.time,
+        accounting_mode: str | None = None,
+        opening_basis: str = "operator_entered",
     ) -> "BudgetLedger":
         """Create a ledger only where none exists. The opening usage is the key's current
-        cumulative usage, so a new ledger never resets what the key already spent."""
+        cumulative usage, so a new ledger never resets what the key already spent.
+        D-118: always format 2; the accounting mode defaults by provider (Anthropic
+        provider-capped, OpenRouter provider-anchored)."""
 
         if key_alias not in KEY_ALIASES:
             raise LedgerError("INVALID_INPUT", "the key alias is not an approved identifier")
         if profile_id not in PROFILES:
             raise LedgerError("INVALID_INPUT", "the profile does not use a budget ledger")
+        expected_mode = accounting_mode_for(profile_id)
+        if accounting_mode is None:
+            accounting_mode = expected_mode
+        if accounting_mode != expected_mode or opening_basis not in OPENING_BASES:
+            raise LedgerError("INVALID_INPUT", "the accounting mode follows the provider")
+        if opening_basis == "migrated":
+            raise LedgerError("INVALID_INPUT", "a new ledger is never a migrated one")
         for value in (cap_micro_usd, opening_usage_micro_usd):
             if type(value) is not int or not 0 <= value <= MAX_MICRO_USD:
                 raise LedgerError("INVALID_INPUT", "amounts must be micro-USD counts")
@@ -444,7 +698,6 @@ class BudgetLedger:
                 for statement in SCHEMA.split(";"):
                     if statement.strip():
                         connection.execute(statement)
-                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 connection.execute(
                     "INSERT INTO ledger_meta VALUES"
                     " (1, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, 0, 0, NULL, NULL, NULL)",
@@ -461,6 +714,13 @@ class BudgetLedger:
                     ),
                 )
                 ledger._event(connection, "init", cap_micro_usd)
+                _apply_format_2(
+                    connection,
+                    origin="fresh",
+                    accounting_mode=accounting_mode,
+                    opening_basis=opening_basis,
+                    now=now,
+                )
                 connection.execute("COMMIT")
             except BaseException:
                 with suppress(sqlite3.Error):
@@ -559,25 +819,14 @@ class BudgetLedger:
         def check(connection: sqlite3.Connection) -> None:
             if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise LedgerError("LEDGER_CORRUPT", "the budget ledger failed its integrity check")
-            if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-                raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger schema is not supported")
-            for table, expected in (
-                ("ledger_meta", META_COLUMNS),
-                ("calls", CALL_COLUMNS),
-                ("operator_events", EVENT_COLUMNS),
-            ):
-                found = tuple(row[1] for row in connection.execute(f"PRAGMA table_info({table})"))
-                if found != expected:
-                    raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger tables are not v1")
-            tables = {
-                row[0]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                    " AND name NOT LIKE 'sqlite_%'"
-                )
-            }
-            if tables != {"ledger_meta", "calls", "operator_events"}:
-                raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger tables are not v1")
+            check_structure(connection, FORMAT_VERSION)
+            profiles = connection.execute("SELECT COUNT(*) FROM ledger_profile").fetchone()[0]
+            orphans = connection.execute(
+                "SELECT COUNT(*) FROM calls WHERE session_id IS NOT NULL"
+                " AND session_id NOT IN (SELECT session_id FROM sessions)"
+            ).fetchone()[0]
+            if profiles != 1 or orphans:
+                raise LedgerError("LEDGER_INCONSISTENT", "the ledger sessions do not match")
             meta = self._meta(connection)
             if meta["schema_version"] != SCHEMA_VERSION:
                 raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger schema is not supported")
@@ -654,9 +903,12 @@ class BudgetLedger:
     def _open_breaker(self, connection: sqlite3.Connection, code: str) -> None:
         meta = self._meta(connection)
         if meta["breaker_open"]:
+            if code != meta["breaker_code"]:
+                self._ledger_event(connection, "trip_while_open", code=code)
             return
         connection.execute(
-            "UPDATE ledger_meta SET breaker_open = 1, breaker_code = ?, breaker_opened_at = ?",
+            "UPDATE ledger_meta SET write_token = write_token + 1,"
+            " breaker_open = 1, breaker_code = ?, breaker_opened_at = ?",
             (code, self._now()),
         )
         self._event(connection, "breaker_opened", None, code)
@@ -678,7 +930,8 @@ class BudgetLedger:
                 (now, call_id),
             )
             connection.execute(
-                "UPDATE ledger_meta SET open_reserved_micro_usd = open_reserved_micro_usd - ?,"
+                "UPDATE ledger_meta SET write_token = write_token + 1,"
+                " open_reserved_micro_usd = open_reserved_micro_usd - ?,"
                 " local_charged_micro_usd = local_charged_micro_usd + ?",
                 (reserved, reserved),
             )
@@ -702,16 +955,28 @@ class BudgetLedger:
         lease_seconds: float,
         daily_cap_micro_usd: int | None = None,
         profile_id: str | None = None,
+        purpose: str = "chat",
+        session_call_limit: int | None = None,
     ) -> str:
         """Admit one call atomically, or raise ``BudgetRefusedError`` with a closed outcome.
         The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` (the default when
         None); a value outside 0..MAX_MICRO_USD refuses. ``profile_id``, when given, must be
-        this ledger's own profile (D-099: one ledger per provider)."""
+        this ledger's own profile (D-099: one ledger per provider).
+
+        D-118 S2/S3: every call belongs to the open session and must fit its allowance; chat
+        calls also fit ``session_call_limit`` (counted in the session, so a restart never
+        resets it). The first session opens here only when the ledger never had one; an
+        exhausted session is never renewed here."""
 
         daily_cap = daily_cap_for(daily_cap_micro_usd)
         if daily_cap is None:
             raise BudgetRefusedError("refused_daily_cap", reservation.micro_usd)
         if not ENDPOINT_SLUG.fullmatch(endpoint_slug) or reservation.micro_usd <= 0:
+            raise BudgetRefusedError("refused_reservation")
+        if purpose not in PURPOSES or (
+            session_call_limit is not None
+            and (type(session_call_limit) is not int or session_call_limit < 0)
+        ):
             raise BudgetRefusedError("refused_reservation")
 
         def admit(connection: sqlite3.Connection) -> str:
@@ -740,16 +1005,33 @@ class BudgetLedger:
                 )
                 if settled + reserved + reservation.micro_usd > daily_cap:
                     refused = "refused_daily_cap"
-            if refused is not None:
+            session = None
+            if refused is None:
+                session = _session_status(connection)
+                if (
+                    session is None
+                    and not connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+                ):
+                    self._start_session(connection, SESSION_DEFAULT_MICRO_USD)
+                    session = _session_status(connection)
+                if session is None or session.committed + reservation.micro_usd > session.allowance:
+                    refused = "refused_session_allowance"
+                elif (
+                    purpose == "chat"
+                    and session_call_limit is not None
+                    and session.chat_calls >= session_call_limit
+                ):
+                    refused = "refused_session_calls"
+            if refused is not None or session is None:
                 # Commit any abandonment above, then refuse.
-                return refused
+                return refused or "refused_session_allowance"
             reservation_id = _hex32()
             now = self._now()
             connection.execute(
                 "INSERT INTO calls (reservation_id, instance_id, created_at, lease_expires_at,"
                 " state, reserved_micro_usd, prompt_bound_tokens, output_bound_tokens,"
-                " requested_endpoint, verification, anomaly_bits)"
-                " VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, 'unverified', 0)",
+                " requested_endpoint, verification, anomaly_bits, purpose, session_id)"
+                " VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, 'unverified', 0, ?, ?)",
                 (
                     reservation_id,
                     self.instance_id,
@@ -759,10 +1041,13 @@ class BudgetLedger:
                     reservation.prompt_bound_tokens,
                     reservation.output_bound_tokens,
                     endpoint_slug,
+                    purpose,
+                    session.session_id,
                 ),
             )
             connection.execute(
-                "UPDATE ledger_meta SET open_reserved_micro_usd = open_reserved_micro_usd + ?",
+                "UPDATE ledger_meta SET write_token = write_token + 1,"
+                " open_reserved_micro_usd = open_reserved_micro_usd + ?",
                 (reservation.micro_usd,),
             )
             return "admitted:" + reservation_id
@@ -848,7 +1133,8 @@ class BudgetLedger:
                 ),
             )
             connection.execute(
-                "UPDATE ledger_meta SET open_reserved_micro_usd = open_reserved_micro_usd - ?,"
+                "UPDATE ledger_meta SET write_token = write_token + 1,"
+                " open_reserved_micro_usd = open_reserved_micro_usd - ?,"
                 " local_charged_micro_usd = local_charged_micro_usd + ?",
                 (reserved, charge),
             )
@@ -917,7 +1203,7 @@ class BudgetLedger:
         opens the breaker with ``breaker_code`` (an existing code, so the schema is unchanged).
         A call is verified at most once; anything else is refused."""
 
-        if breaker_code not in ("routing_anomaly", "reconcile_drift"):
+        if breaker_code not in ("routing_anomaly", "reconcile_drift", "usage_missing"):
             raise LedgerError("INVALID_INPUT", "unknown verification breaker code")
 
         def mark(connection: sqlite3.Connection) -> None:
@@ -961,7 +1247,10 @@ class BudgetLedger:
                     "CAP_RAISE_REFUSED", "raising the cap needs explicit confirmation"
                 )
             if cap_micro_usd != current:
-                connection.execute("UPDATE ledger_meta SET cap_micro_usd = ?", (cap_micro_usd,))
+                connection.execute(
+                    "UPDATE ledger_meta SET write_token = write_token + 1, cap_micro_usd = ?",
+                    (cap_micro_usd,),
+                )
                 event = "cap_raised" if cap_micro_usd > current else "cap_lowered"
                 self._event(connection, event, cap_micro_usd)
 
@@ -973,6 +1262,7 @@ class BudgetLedger:
         *,
         release: bool = False,
         settle_lag_seconds: float = 600,
+        automatic: bool = False,
     ) -> int:
         """Anchor the ledger on the provider's cumulative usage of the key. Returns the drift
         (provider minus ledger). Only when no call is open and the last close is old enough;
@@ -1002,12 +1292,16 @@ class BudgetLedger:
             drift = provider - estimate
             baseline = provider if drift >= 0 or release else estimate
             connection.execute(
-                "UPDATE ledger_meta SET baseline_micro_usd = ?, baseline_high_water_call_id = ?,"
+                "UPDATE ledger_meta SET write_token = write_token + 1,"
+                " baseline_micro_usd = ?, baseline_high_water_call_id = ?,"
                 " local_charged_micro_usd = 0, last_provider_usage_micro_usd = ?,"
                 " last_reconciled_at = ?",
                 (baseline, last_id or meta["baseline_high_water_call_id"], provider, self._now()),
             )
             self._event(connection, "reconciled", provider)
+            if automatic:
+                # D-118 S5: applied by the service from a provider-reported figure.
+                self._ledger_event(connection, "auto_reconciled", amount=provider)
             if drift < 0 and release:
                 self._event(connection, "released", -drift)
             if drift > RECONCILE_TOLERANCE_MICRO_USD:
@@ -1026,12 +1320,189 @@ class BudgetLedger:
             if reconciled is None or opened is None or reconciled <= opened:
                 raise LedgerError("BREAKER_RESET_REFUSED", "reconcile before resetting the breaker")
             connection.execute(
-                "UPDATE ledger_meta SET breaker_open = 0, breaker_code = NULL,"
+                "UPDATE ledger_meta SET write_token = write_token + 1,"
+                " breaker_open = 0, breaker_code = NULL,"
                 " breaker_opened_at = NULL"
             )
             self._event(connection, "breaker_reset", None, code)
 
         self._transaction(reset)
+
+    # -- sessions and recovery (D-118) --
+
+    def _ledger_event(
+        self,
+        connection: sqlite3.Connection,
+        event: str,
+        *,
+        session_id: str | None = None,
+        amount: int | None = None,
+        code: str | None = None,
+        call_id: int | None = None,
+    ) -> None:
+        connection.execute(
+            "INSERT INTO ledger_events (created_at, event, session_id, amount_micro_usd, code,"
+            " call_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (self._now(), event, session_id, amount, code, call_id),
+        )
+
+    def _start_session(self, connection: sqlite3.Connection, allowance: int) -> str:
+        session_id = _hex32()
+        floor = connection.execute("SELECT COALESCE(MAX(id), 0) FROM calls").fetchone()[0]
+        connection.execute(
+            "INSERT INTO sessions (session_id, created_at, floor_call_id, allowance_micro_usd,"
+            " state, revision) VALUES (?, ?, ?, ?, 'open', 1)",
+            (session_id, self._now(), int(floor), allowance),
+        )
+        self._ledger_event(connection, "session_started", session_id=session_id, amount=allowance)
+        return session_id
+
+    def profile(self) -> LedgerProfile:
+        def read(connection: sqlite3.Connection) -> LedgerProfile:
+            row = connection.execute(
+                "SELECT origin, accounting_mode, opening_basis FROM ledger_profile"
+            ).fetchone()
+            if row is None:
+                raise LedgerError("LEDGER_INCONSISTENT", "the ledger has no profile")
+            return LedgerProfile(*row)
+
+        result: LedgerProfile = self._transaction(read)
+        return result
+
+    def session(self) -> SessionStatus | None:
+        """The open session, read-only (None before the first paid action)."""
+
+        result: SessionStatus | None = self._transaction(_session_status)
+        return result
+
+    def start_session(self, allowance_micro_usd: int, *, expected_session_id: str | None) -> str:
+        """HR's explicit new session (D-118 S3): the open one, which must be the one the caller
+        saw (``expected_session_id``; None when none was open), closes as ``replaced``. Spend,
+        calls and earlier sessions are kept. No call may be open."""
+
+        _check_allowance(allowance_micro_usd)
+
+        def start(connection: sqlite3.Connection) -> str:
+            current = _open_session_row(connection)
+            if (current[0] if current else None) != expected_session_id:
+                raise LedgerError("SESSION_CHANGED", "the session changed since it was read")
+            open_calls = connection.execute("SELECT COUNT(*) FROM calls WHERE state = 'open'")
+            if open_calls.fetchone()[0]:
+                raise LedgerError("SESSION_BUSY", "a call is still open")
+            if current is not None:
+                connection.execute(
+                    "UPDATE sessions SET state = 'closed', closed_at = ?,"
+                    " close_reason = 'replaced', revision = revision + 1 WHERE session_id = ?",
+                    (self._now(), current[0]),
+                )
+            return self._start_session(connection, allowance_micro_usd)
+
+        result: str = self._transaction(start)
+        return result
+
+    def set_session_allowance(self, allowance_micro_usd: int, *, expected_revision: int) -> None:
+        """Change the open session's allowance within 1 micro-USD to US$5.00, compare-and-set
+        on the revision the caller saw. A value below what was used just exhausts it."""
+
+        _check_allowance(allowance_micro_usd)
+
+        def change(connection: sqlite3.Connection) -> None:
+            current = _open_session_row(connection)
+            if current is None:
+                raise LedgerError("SESSION_MISSING", "no session is open")
+            if current[1] != expected_revision:
+                raise LedgerError("SESSION_CHANGED", "the session changed since it was read")
+            if current[2] != allowance_micro_usd:
+                connection.execute(
+                    "UPDATE sessions SET allowance_micro_usd = ?, revision = revision + 1"
+                    " WHERE session_id = ?",
+                    (allowance_micro_usd, current[0]),
+                )
+                self._ledger_event(
+                    connection,
+                    "session_allowance_changed",
+                    session_id=current[0],
+                    amount=allowance_micro_usd,
+                )
+
+        self._transaction(change)
+
+    @staticmethod
+    def _last_resume_call(connection: sqlite3.Connection) -> int:
+        value = connection.execute(
+            "SELECT COALESCE(MAX(call_id), 0) FROM ledger_events WHERE event = 'breaker_resumed'"
+        ).fetchone()[0]
+        return int(value)
+
+    def _resume_blocker(self, connection: sqlite3.Connection, code: str) -> str | None:
+        meta = self._meta(connection)
+        if not meta["breaker_open"] or meta["breaker_code"] != code:
+            return "BREAKER_NOT_OPEN_WITH_CODE"
+        if code not in RESUMABLE_BREAKER_CODES:
+            return "BREAKER_NOT_RESUMABLE"
+        if connection.execute("SELECT COUNT(*) FROM calls WHERE state = 'open'").fetchone()[0]:
+            return "CALL_OPEN"
+        # A genuine trip recorded while the breaker was already open (a drift, a routing or
+        # cost anomaly, a provider refusal) since the last resume is never resumable.
+        last_resume_event = connection.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM ledger_events WHERE event = 'breaker_resumed'"
+        ).fetchone()[0]
+        masked = connection.execute(
+            "SELECT COUNT(*) FROM ledger_events WHERE event = 'trip_while_open' AND id > ?"
+            f" AND NOT {_in('code', RESUMABLE_BREAKER_CODES)}",
+            (last_resume_event,),
+        ).fetchone()[0]
+        if masked:
+            return "MASKED_ANOMALY"
+        # A quarantined call counts as proven only where verification is in-band (Claude:
+        # workspace, model and route were checked before any text). On OpenRouter a missing
+        # generation record is a routing-evidence gap, so it stays with the owner.
+        mode = connection.execute("SELECT accounting_mode FROM ledger_profile").fetchone()[0]
+        if (
+            mode != "provider_capped"
+            and connection.execute(
+                "SELECT COUNT(*) FROM calls WHERE id > ? AND verification = 'quarantined'",
+                (self._last_resume_call(connection),),
+            ).fetchone()[0]
+        ):
+            return "UNPROVEN_CHARGES"
+        # Every call not verified since the last resume must be conservatively charged: closed
+        # without usage, at its full reservation, with no anomaly and no provider refusal.
+        trips = tuple(sorted(TRIP_ERROR_CLASSES))
+        unproven = connection.execute(
+            "SELECT COUNT(*) FROM calls WHERE id > ? AND verification != 'verified' AND NOT ("
+            " state IN ('unsettled', 'abandoned') AND charged_micro_usd = reserved_micro_usd"
+            f" AND anomaly_bits = 0 AND (error_class IS NULL OR NOT {_in('error_class', trips)}))",
+            (self._last_resume_call(connection),),
+        ).fetchone()[0]
+        return "UNPROVEN_CHARGES" if unproven else None
+
+    def resume_blocker(self, code: str) -> str | None:
+        """Why a breaker cannot be resumed (None: it can). Read-only."""
+
+        result: str | None = self._transaction(lambda c: self._resume_blocker(c, code))
+        return result
+
+    def resume_breaker(self, code: str) -> int:
+        """D-118 S6: close a breaker opened as ``abandoned_call`` or ``usage_missing`` only on
+        the ledger's own proof that every unverified or quarantined call is conservatively
+        charged. Charges, call states and verification states stay as they are. Returns the
+        call id the proof covers. Never used automatically."""
+
+        def resume(connection: sqlite3.Connection) -> int:
+            blocker = self._resume_blocker(connection, code)
+            if blocker is not None:
+                raise LedgerError("BREAKER_RESUME_REFUSED", blocker)
+            high = int(connection.execute("SELECT COALESCE(MAX(id), 0) FROM calls").fetchone()[0])
+            connection.execute(
+                f"UPDATE ledger_meta SET {_BUMP}, breaker_open = 0, breaker_code = NULL,"
+                " breaker_opened_at = NULL"
+            )
+            self._ledger_event(connection, "breaker_resumed", code=code, call_id=high)
+            return high
+
+        result: int = self._transaction(resume)
+        return result
 
 
 # --- the guarded model -------------------------------------------------------------------
@@ -1048,12 +1519,17 @@ class BudgetedChatModel:
         max_in_flight: int,
         lease_seconds: float,
         daily_cap_micro_usd: int | None = None,
+        purpose: str = "chat",
+        session_call_limit: int | None = None,
     ) -> None:
         self._inner = inner
         self._ledger = ledger
         self._max_in_flight = max_in_flight
         self._lease_seconds = lease_seconds
         self._daily_cap = daily_cap_micro_usd
+        # D-118: what the call is for, and the chat-call limit of the session.
+        self.purpose = purpose
+        self.session_call_limit = session_call_limit
 
     def __repr__(self) -> str:
         return f"BudgetedChatModel({self._inner!r})"
@@ -1085,6 +1561,8 @@ class BudgetedChatModel:
             lease_seconds=self._lease_seconds,
             daily_cap_micro_usd=self._daily_cap,
             profile_id=self.profile_id,
+            purpose=self.purpose,
+            session_call_limit=self.session_call_limit,
         )
         return reservation_id, reservation
 

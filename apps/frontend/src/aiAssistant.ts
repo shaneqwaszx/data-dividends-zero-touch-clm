@@ -269,6 +269,15 @@ const SAFE_ERROR_MESSAGES = new Set([
   "That is not a valid way to close a request.",
   "The note must be plain text without keys or secrets.",
   "This chat has ended. Start a new chat to continue.",
+  // D-118: a fresh Claude ledger, paid sessions and the conservative-only resume.
+  "This is the first set-up on this machine: say whether the workspace is new with no earlier usage, or enter its cumulative cost from the Anthropic Console. Nothing changed.",
+  "The opening usage must be a whole amount from US$0.00 up to below the ledger cap. Nothing changed.",
+  "Claude's spending ledger already exists here, so it keeps its own figures. Leave the opening out. Nothing changed.",
+  "The paid session changed since this view. Refresh and try again.",
+  "A paid call is still in progress. Wait for it to finish, then try again.",
+  "No paid session is open yet. Nothing changed.",
+  "The ledger cannot prove every recent charge was a full, conservative charge, so paid calls stay stopped for the owner. Nothing changed.",
+  "This spending ledger is in the earlier format; the owner must migrate it first. Nothing changed.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -1351,7 +1360,72 @@ export const saveAnthropicEnablement = (body: {
   workspace_id?: string;
   workspace_limit_micro_usd?: number;
   confirmations?: string[];
+  /** D-118: how a fresh Claude ledger opens (only when none exists). Never zero by default. */
+  opening?: "new_workspace" | "console_usage";
+  opening_usage_micro_usd?: number;
 }) => request<AnthropicSetup>("/admin/models/provider/anthropic", body, undefined, "PUT");
+
+// --- D-118: paid-model sessions (US$5.00 by default and at most) and the guided setup ---------
+
+export type PaidProvider = "anthropic" | "openrouter";
+
+export interface PaidSession {
+  session_id: string;
+  revision: number;
+  allowance_micro_usd: number;
+  settled_micro_usd: number;
+  held_micro_usd: number;
+  committed_micro_usd: number;
+  remaining_micro_usd: number;
+  calls: number;
+  chat_calls: number;
+  started_at: string;
+}
+
+export interface SetupBlocker {
+  /** A closed code; never a reconciliation or P1 step on the routine path (D-118). */
+  code: string;
+  who: "hr" | "owner";
+  action: "ENABLE_CLAUDE" | "TEST_CONNECTION" | "RESUME" | "NEW_SESSION" | "OWNER";
+}
+
+export interface ProviderSetup {
+  provider: PaidProvider;
+  ledger: "missing" | "ready" | "migration_required" | "unavailable";
+  code: string | null;
+  accounting_mode: "provider_anchored" | "provider_capped" | null;
+  origin: "fresh" | "migrated" | null;
+  opening_basis: string | null;
+  allowance_default_micro_usd: number;
+  allowance_max_micro_usd: number;
+  session: PaidSession | null;
+  breaker_open: boolean;
+  breaker_code: string | null;
+  resumable: boolean;
+  resume_blocker: string | null;
+  blockers: SetupBlocker[];
+}
+
+export interface SetupView {
+  providers: Record<PaidProvider, ProviderSetup>;
+}
+
+export const fetchSetup = (signal?: AbortSignal) => request<SetupView>("/admin/models/setup", undefined, signal);
+export const startPaidSession = (provider: PaidProvider, allowanceMicroUsd: number, expectedSessionId: string | null) =>
+  request<ProviderSetup>("/admin/models/session/start", {
+    provider,
+    allowance_micro_usd: allowanceMicroUsd,
+    expected_session_id: expectedSessionId,
+  });
+export const savePaidSessionAllowance = (provider: PaidProvider, allowanceMicroUsd: number, expectedRevision: number) =>
+  request<ProviderSetup>(
+    "/admin/models/session/allowance",
+    { provider, allowance_micro_usd: allowanceMicroUsd, expected_revision: expectedRevision },
+    undefined,
+    "PUT",
+  );
+export const resumeBreaker = (provider: PaidProvider, code: "abandoned_call" | "usage_missing") =>
+  request<ProviderSetup>("/admin/models/budget/resume", { provider, code });
 export const saveDataAccessPolicy = (expectedRevision: number, restrictLocal: boolean, confirmWiden: boolean) =>
   request<ModelDataAccess>("/admin/models/data-access", {
     expected_revision: expectedRevision,
@@ -1447,14 +1521,16 @@ export const refreshProviderLimits = () =>
  *  decides every value; `permitted` is false when HR may not act (or another problem must clear first). */
 export type RecoveryActionKind =
   | "RECONCILE" | "RESOLVE_RUN" | "ENTER_KEY" | "TEST_CONNECTION" | "EDIT_DAILY_LIMIT"
-  | "EDIT_LIFETIME_LIMIT" | "QUALIFY" | "ACTIVATE" | "ROLLBACK" | "SIGN_IN_AGAIN" | "WAIT" | "OWNER_REQUEST";
+  | "EDIT_LIFETIME_LIMIT" | "QUALIFY" | "ACTIVATE" | "ROLLBACK" | "SIGN_IN_AGAIN" | "WAIT" | "OWNER_REQUEST"
+  // D-118: resume a conservative-only breaker (on the guided setup page; the ledger's proof decides).
+  | "RESUME_BREAKER";
 
 export interface RecoveryAction {
   kind: RecoveryActionKind;
   label: string;
   authority: "HR" | "OWNER" | "IT" | "NONE";
   permitted: boolean;
-  section: "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
+  section: "setup" | "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
   verify: string;
   profile_id: string | null;
   run_id: string | null;

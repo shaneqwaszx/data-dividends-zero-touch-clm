@@ -1169,7 +1169,10 @@ def test_an_unexpected_ledger_write_is_rolled_back_and_failed(
 
     def stepped(self: BudgetLedger, connection: Any, code: str) -> None:
         original(self, connection, code)
-        connection.execute("UPDATE ledger_meta SET breaker_opened_at = last_reconciled_at - 1")
+        connection.execute(
+            "UPDATE ledger_meta SET write_token = write_token + 1,"
+            " breaker_opened_at = last_reconciled_at - 1"
+        )
 
     monkeypatch.setattr(BudgetLedger, "_open_breaker", stepped)
     with _refused("CONTROLS_CONFLICT"):

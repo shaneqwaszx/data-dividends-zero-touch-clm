@@ -33,6 +33,8 @@ ActionKind = Literal[
     "SIGN_IN_AGAIN",
     "WAIT",
     "OWNER_REQUEST",
+    # D-118 S6: HR's resume of a conservative-only breaker (the ledger's own proof decides).
+    "RESUME_BREAKER",
 ]
 
 # The console section where each HR action's existing, guarded control lives.
@@ -49,7 +51,10 @@ ACTION_SECTION: dict[str, str] = {
     "SIGN_IN_AGAIN": "providers",
     "WAIT": "overview",
     "OWNER_REQUEST": "overview",
+    "RESUME_BREAKER": "setup",
 }
+# D-118 S6: the breaker codes HR may ask the ledger to resume (budget.RESUMABLE_BREAKER_CODES).
+RESUMABLE_BREAKER_CODES = ("abandoned_call", "usage_missing")
 
 # Problems an owner recovery request may name: only those the owner or IT must act on.
 OWNER_PROBLEMS = frozenset(
@@ -149,6 +154,18 @@ def _int(value: object) -> int:
 
 def _owner(label: str, verify: str) -> Action:
     return Action("OWNER_REQUEST", label, "OWNER", verify)
+
+
+def _resume(provider: str, code: str) -> Action:
+    # ``run_id`` carries the breaker code the resume names; the server re-checks the proof.
+    return Action(
+        "RESUME_BREAKER",
+        "Resume, keeping the full charge",
+        "HR",
+        "the breaker shows closed",
+        profile_id=provider,
+        run_id=code,
+    )
 
 
 def _credential(
@@ -274,11 +291,34 @@ def _claude(
         )
         return problems, expiries
     calls = _map(recon.get("calls"))
-    expiries["claude_chat_deadline_at"] = recon.get("chat_deadline_at")
-    expiries["claude_paid_deadline_at"] = recon.get("paid_deadline_at")
+    # D-118 S4: a provider-capped ledger has no routine reconciliation, P1 or windows.
+    capped = ledger.get("accounting_mode") == "provider_capped"
+    if not capped:
+        expiries["claude_chat_deadline_at"] = recon.get("chat_deadline_at")
+        expiries["claude_paid_deadline_at"] = recon.get("paid_deadline_at")
 
     blockers: list[str] = []
-    if ledger.get("breaker_open"):
+    code = str(ledger.get("breaker_code") or "")
+    if ledger.get("breaker_open") and capped and code in RESUMABLE_BREAKER_CODES:
+        blockers.append("CLAUDE_BREAKER_OPEN")
+        problems.append(
+            Problem(
+                "CLAUDE_BREAKER_OPEN",
+                "blocking",
+                "anthropic",
+                "Claude: paid calls paused after an interrupted or incomplete call",
+                "A call ended without a usage report and was charged its full reservation."
+                " HR may resume once the ledger proves every unverified call was charged in full"
+                " with no anomaly (D-118 S6); the charge is kept. Anything else stays with the"
+                " owner.",
+                (
+                    _resume("anthropic", code),
+                    _owner("Request owner review", "the breaker shows closed"),
+                ),
+                (("Breaker code", code),),
+            )
+        )
+    elif ledger.get("breaker_open"):
         blockers.append("CLAUDE_BREAKER_OPEN")
         problems.append(
             Problem(
@@ -296,7 +336,9 @@ def _claude(
             )
         )
     quarantined = _int(calls.get("quarantined"))
-    if quarantined:
+    # A quarantine always opens the breaker; on a provider-capped ledger whose breaker is closed
+    # again (by a proven resume) the quarantined rows are history.
+    if quarantined and not (capped and not ledger.get("breaker_open")):
         blockers.append("CLAUDE_QUARANTINED_CALLS")
         problems.append(
             Problem(
@@ -365,7 +407,7 @@ def _claude(
         blockers.append("CLAUDE_RECONCILIATION_UNAVAILABLE")
     elif listing is not None:
         runs = [run for run in listing.get("runs") or [] if isinstance(run, Mapping)]
-        if not listing.get("prerequisite_recorded"):
+        if not listing.get("prerequisite_recorded") and not capped:
             blockers.append("CLAUDE_RECONCILIATION_PREREQUISITE")
             problems.append(
                 Problem(
@@ -457,7 +499,9 @@ def _claude(
         ("Chat allowed until", str(recon.get("chat_deadline_at") or "not set")),
         ("Paid operations allowed until", str(recon.get("paid_deadline_at") or "not set")),
     )
-    if reconciled_at is None:
+    if capped:
+        pass  # D-118 S4: reconciliation is optional; nothing routine waits for it.
+    elif reconciled_at is None:
         problems.append(
             Problem(
                 "CLAUDE_NEVER_RECONCILED",
@@ -568,16 +612,25 @@ def _gpt_oss(budget: Mapping[str, Any], profile_id: str | None, now: datetime) -
     problems: list[Problem] = []
     ledger = budget.get("ledger")
     if isinstance(ledger, Mapping) and ledger.get("breaker_open"):
+        code = str(ledger.get("breaker_code") or "")
+        resumable = code in RESUMABLE_BREAKER_CODES
         problems.append(
             Problem(
                 "GPT_OSS_BREAKER_OPEN",
                 "blocking",
                 "openrouter",
                 "GPT-OSS: the spending breaker is open",
-                f"The ledger stopped paid calls ({ledger.get('breaker_code') or 'no code'}). The"
-                " operator reconciles and resets it with the script; HR cannot.",
-                (_owner("Request operator reconciliation", "the breaker shows closed"),),
-                (("Breaker code", str(ledger.get("breaker_code") or "none")),),
+                f"The ledger stopped paid calls ({code or 'no code'}). "
+                + (
+                    "HR may resume once the ledger proves the call was charged in full and not"
+                    " yet judged by its generation record (D-118 S6); otherwise the operator"
+                    " reconciles and resets it with the script."
+                    if resumable
+                    else "The operator reconciles and resets it with the script; HR cannot."
+                ),
+                ((_resume("openrouter", code),) if resumable else ())
+                + (_owner("Request operator reconciliation", "the breaker shows closed"),),
+                (("Breaker code", code or "none"),),
             )
         )
     daily = budget.get("daily")

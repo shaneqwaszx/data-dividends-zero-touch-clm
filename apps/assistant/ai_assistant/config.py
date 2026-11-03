@@ -72,8 +72,9 @@ class AiAssistantSettings(BaseSettings):
     # micro-USD. It applies to every remote call: qualification and chat. D-096: the default
     # until an HR administrator sets the daily limit on AI Models. D-098: US$1.00 by default,
     # with no US$1 ceiling (budget.MAX_MICRO_USD is only a technical bound); the lifetime cap
-    # and the key's own verified limit still apply, and the strictest wins.
-    budget_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=10**12)
+    # and the key's own verified limit still apply, and the strictest wins. D-118: US$5.00 by
+    # default, so one US$5.00 paid session fits in a day (a stored HR value still wins).
+    budget_daily_cap_micro_usd: int = Field(default=5_000_000, ge=0, le=10**12)
 
     # D-094 local synthetic test mode (off unless named): an HR administrator may then select
     # the remote profile in model management, and the chat uses it only on the approved
@@ -116,9 +117,9 @@ class AiAssistantSettings(BaseSettings):
     anthropic_workspace_limit_micro_usd: int = Field(default=0, ge=0, le=30_000_000)
     # The separate Anthropic ledger (relative to apps/assistant; git-ignored data/).
     anthropic_ledger_path: str = "data/budget/anthropic_ledger.sqlite3"
-    # Defaults until an HR administrator sets them (D-102): US$1.00 a Singapore day (ceiling
-    # US$5.00) and 20 calls per activation or restart (ceiling 20).
-    anthropic_daily_cap_micro_usd: int = Field(default=1_000_000, ge=0, le=5_000_000)
+    # Defaults until an HR administrator sets them (D-102): US$5.00 a Singapore day (D-118;
+    # the ceiling) and 20 chat calls per paid session (ceiling 20; D-118: counted per session).
+    anthropic_daily_cap_micro_usd: int = Field(default=5_000_000, ge=0, le=5_000_000)
     anthropic_max_calls: int = Field(default=20, ge=1, le=20)
 
     # Model management (D-093, local loopback models only): off unless IT names a profiles file

@@ -51,7 +51,8 @@ def test_init_and_status_show_amounts_and_codes_only(
     assert "committed: 3.000000" in out and "headroom: 4.000000" in out
     assert "breaker: closed" in out and "key alias: key-01" in out
     # D-095: today's allowance, from the same ledger (nothing spent yet).
-    assert "daily cap: 1.000000" in out and "remaining today: 1.000000" in out
+    # D-118: US$5.00 by default.
+    assert "daily cap: 5.000000" in out and "remaining today: 5.000000" in out
     assert "next daily reset: " in out and "+08:00" in out
 
 
@@ -209,3 +210,25 @@ def test_the_cli_reads_no_key_and_makes_no_request(
 
     assert no_remote_connections == before
     assert "OPENROUTER_API_KEY" not in SCRIPT.read_text(encoding="utf-8")
+
+
+def test_migrate_v2_needs_the_service_stopped_and_keeps_every_v1_row(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # D-118 S7: the owner's migration of a format-1 ledger (never the service's).
+    from tests.test_paid_sessions import _v1_ledger
+
+    path = tmp_path / "ledger.sqlite3"
+    _v1_ledger(path)
+    backup = tmp_path / "backup.sqlite3"
+    snapshot = path.read_bytes()
+
+    assert _run(path, "migrate-v2", "--backup", str(backup)) == 2
+    assert "MIGRATION_REFUSED" in capsys.readouterr().err
+    assert path.read_bytes() == snapshot and not backup.exists()
+
+    assert _run(path, "migrate-v2", "--backup", str(backup), "--confirm-service-stopped") == 0
+    out = capsys.readouterr().out
+    assert "v1 rows unchanged: 3 calls, 1 operator events" in out
+    assert BudgetLedger.open(path).profile().origin == "migrated"
+    assert backup.exists()

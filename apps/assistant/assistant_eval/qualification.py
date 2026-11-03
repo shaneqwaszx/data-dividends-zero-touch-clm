@@ -440,9 +440,11 @@ def _run_remote(
         # D-099: a Claude configuration (``claude``, its profile id) under its own safeguards,
         # with a reconciliation no older than 24 hours for this paid run.
         model = (
-            anthropic_runtime.ClaudeTestModel(settings, claude, within_seconds=paid, **options)
+            anthropic_runtime.ClaudeTestModel(
+                settings, claude, within_seconds=paid, purpose="qualification", **options
+            )
             if claude is not None
-            else RemoteTestModel(settings, background=False, **options)
+            else RemoteTestModel(settings, background=False, purpose="qualification", **options)
         )
     except ProfileConfigError as exc:
         store.finish_qualification(qualification_id, "error", exc.code, None)

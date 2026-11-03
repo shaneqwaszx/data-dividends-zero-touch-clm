@@ -513,9 +513,14 @@ class CheckedLedger(BudgetLedger):
         return self.work_ran and not self.work_returned
 
     def reconcile(
-        self, provider_usage_micro_usd: int, *, release: bool = False, settle_lag_seconds: float = 0
+        self,
+        provider_usage_micro_usd: int,
+        *,
+        release: bool = False,
+        settle_lag_seconds: float = 0,
+        automatic: bool = False,
     ) -> int:
-        if release:
+        if release or automatic:
             raise LedgerError("INVALID_INPUT", "no release here")
         self._armed = True
         self._transactions = 0

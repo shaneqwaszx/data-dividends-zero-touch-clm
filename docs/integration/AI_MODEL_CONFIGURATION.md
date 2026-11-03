@@ -660,3 +660,55 @@ AI Assistant server enforces it:
 - **Requalification.** This release changes the qualification basis (`598cfe14753d…`). After the
   upgrade, a stored GPT-OSS or Claude activation becomes *AI unavailable* until HR runs a new,
   separately approved paid qualification and activates again.
+
+## 15. Paid-model sessions and the guided setup (D-118)
+
+AI Models opens on **Set up AI**. HR selects a model, saves and tests its key, runs Test &
+qualify, then activates it. The earlier sections are listed under **Administration**, unchanged.
+Teammates follow `docs/integration/AI_TEAMMATE_SETUP.md`.
+
+- **Session allowance.**
+  - Every paid call on a provider's ledger belongs to that ledger's one open session.
+  - The allowance is US$5.00 by default and at most (1 to 5,000,000 micro-USD).
+  - Qualification and chat share the money; only chat calls count toward the chat-call limit,
+    which is now counted per session.
+  - Admission is checked in the ledger's own write transaction, after the lifetime and daily
+    caps.
+  - An exhausted session is never renewed automatically. HR starts a new one explicitly
+    (`POST /assistant/admin/models/session/start`, compare-and-set on the session id) or lowers
+    the allowance (`PUT .../session/allowance`, compare-and-set on its revision).
+  - Both changes are audited (`PAID_SESSION_STARTED`, `PAID_SESSION_ALLOWANCE_CHANGED`).
+- **Daily defaults.** `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` and
+  `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` now default to 5,000,000 (US$5.00). Stored HR
+  values still win.
+- **Ledger format 2.** New ledgers are format 2; a format-1 ledger is refused with
+  `LEDGER_MIGRATION_REQUIRED` and is never migrated by the service. The owner migrates it once
+  with `scripts/budget_ledger.py migrate-v2` on a stopped service (verified backup, quiet period,
+  every v1 row and event proven unchanged). Triggers stop an earlier process from admitting a call
+  or changing the ledger header.
+- **Claude: provider-capped.**
+  - A fresh Claude ledger is created when HR enables Claude. It opens at zero only when the owner
+    confirms a new, dedicated, non-default workspace with no earlier usage; otherwise it opens at
+    the cumulative cost HR enters from the Console.
+  - The 24-hour and 7-day reconciliation windows no longer gate chat, qualification or
+    activation.
+  - Billing drift and spend outside the app are bounded only by Anthropic's monthly workspace
+    limit. That limit resets monthly, so it never bounds a session.
+  - HR reconciliation (section 13 and D-110) stays available as an optional tool.
+- **GPT-OSS: provider-anchored, reconciled automatically.**
+  - The first connection test creates the ledger from the key's reported usage. The key must
+    have a finite limit that never resets.
+  - Each later free preflight adopts the key's reported usage when it is within US$0.05 of the
+    ledger and no call is open (audited as `auto_reconciled`).
+  - Anything outside that range still fails the check or opens the breaker.
+- **Breaker recovery.**
+  - HR may resume only an `abandoned_call` or `usage_missing` breaker, and only on the ledger's
+    proof that every unverified call (and, on Claude, every quarantined call) since the last
+    resume was charged its full reservation with no anomaly and no provider refusal, and no genuine
+    trip was recorded while the breaker was already open. The charge is kept.
+  - Everything else stays with the owner.
+- **Setup view.** `GET /assistant/admin/models/setup` returns, for each provider, the ledger
+  state, accounting mode, open session, breaker and the exceptions to show. Routine use has none,
+  and reconciliation and P1 are never among them.
+- **Basis.** The qualification basis moves `77e50313a62c…` → `baf8461cb8ec…`. External models need
+  a separately approved paid requalification after the upgrade.

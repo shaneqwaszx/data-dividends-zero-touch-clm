@@ -7,9 +7,12 @@ import "./aiModelConsole.css";
 // (`?section=`) on the existing capability-checked AI Models route; it carries no data, and
 // changing section never sends a request or starts an action.
 
-export type ConsoleSection = "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
+// D-118: "Set up AI" (the guided setup) is the landing section; the earlier sections are kept,
+// unchanged, under Administration.
+export type ConsoleSection = "setup" | "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
 
 export const CONSOLE_SECTIONS: ReadonlyArray<{ id: ConsoleSection; label: string }> = [
+  { id: "setup", label: "Set up AI" },
   { id: "overview", label: "Models & Overview" },
   { id: "providers", label: "Providers" },
   { id: "spending", label: "Spending & Limits" },
@@ -18,16 +21,17 @@ export const CONSOLE_SECTIONS: ReadonlyArray<{ id: ConsoleSection; label: string
   { id: "audit", label: "Audit History" },
 ];
 
-/** An unknown or missing value shows the overview, so a bad link never hides the page. */
+/** An unknown or missing value shows the guided setup, so a bad link never hides the page. */
 export function consoleSection(value: string | null): ConsoleSection {
-  return CONSOLE_SECTIONS.find((item) => item.id === value)?.id ?? "overview";
+  return CONSOLE_SECTIONS.find((item) => item.id === value)?.id ?? "setup";
 }
 
 export interface ConsoleBadge { text: string; label: string; tone: "warn" | "info" | "neutral" }
 
-export const sectionSearch = (section: ConsoleSection) => (section === "overview" ? "" : `?section=${section}`);
+export const sectionSearch = (section: ConsoleSection) => (section === "setup" ? "" : `?section=${section}`);
 
 const ICON_PATHS: Record<ConsoleSection, ReactNode> = {
+  setup: <><circle cx="12" cy="12" r="8" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></>,
   overview: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
   providers: <><rect x="4" y="4" width="16" height="6" rx="1.5" /><rect x="4" y="14" width="16" height="6" rx="1.5" /><path d="M8 7h.01M8 17h.01" /></>,
   spending: <><path d="M4 16a8 8 0 0 1 16 0" /><path d="M12 16l4-5" /></>,
@@ -75,6 +79,7 @@ export function ConsoleShell({ section, badges, children }: {
             const badge = badges[item.id];
             return (
               <li key={item.id}>
+                {item.id === "overview" && <p className="console-nav__group">Administration</p>}
                 <Link className="console-nav__link" to={{ search: sectionSearch(item.id) }}
                   aria-current={item.id === section ? "page" : undefined} onClick={() => setOpen(false)}>
                   <SectionIcon section={item.id} />

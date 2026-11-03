@@ -394,10 +394,11 @@ def test_resolved_is_accepted_once_the_problem_has_cleared_and_never_from_a_part
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ai_assistant import claude_reconciliation as rc
-    from tests.test_claude_runtime import ClaudeJourney
+    from tests.test_claude_runtime import ClaudeJourney, anchored_on_the_console
     from tests.test_model_management import API
 
     journey = ClaudeJourney(tmp_path, monkeypatch)  # no P1 attestation recorded yet
+    anchored_on_the_console(journey.settings)  # D-118: P1 applies to an anchored ledger only
     created = journey.client.post(
         f"{API}/recovery/requests", json={"problem_code": "CLAUDE_RECONCILIATION_PREREQUISITE"}
     )

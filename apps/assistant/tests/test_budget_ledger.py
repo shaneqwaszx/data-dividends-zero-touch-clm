@@ -497,18 +497,26 @@ def _corrupt(path: Path, how: str) -> None:
     else:
         with closing(sqlite3.connect(path, isolation_level=None)) as connection:
             if how == "newer":
-                connection.execute("PRAGMA user_version = 2")
+                connection.execute("PRAGMA user_version = 3")
+            elif how == "format_1":
+                connection.execute("PRAGMA user_version = 1")
+            elif how == "dropped_fence":
+                connection.execute("DROP TRIGGER calls_format_2_fence")
             elif how == "dropped_table":
                 connection.execute("DROP TABLE operator_events")
             elif how == "deleted_call":
                 connection.execute("DELETE FROM calls")
             elif how == "lowered_total":
-                connection.execute("UPDATE ledger_meta SET local_charged_micro_usd = 0")
+                connection.execute(
+                    "UPDATE ledger_meta SET local_charged_micro_usd = 0,"
+                    " write_token = write_token + 1"
+                )
             elif how == "extra_table":
                 connection.execute("CREATE TABLE notes (text TEXT)")
             elif how == "baseline_below_provider":
                 connection.execute(
-                    "UPDATE ledger_meta SET last_provider_usage_micro_usd = baseline_micro_usd + 1"
+                    "UPDATE ledger_meta SET last_provider_usage_micro_usd = baseline_micro_usd + 1,"
+                    " write_token = write_token + 1"
                 )
 
 
@@ -518,6 +526,8 @@ def _corrupt(path: Path, how: str) -> None:
         ("garbage", "LEDGER_CORRUPT"),
         ("truncated", "LEDGER_CORRUPT"),
         ("newer", "LEDGER_SCHEMA_UNSUPPORTED"),
+        ("format_1", "LEDGER_MIGRATION_REQUIRED"),
+        ("dropped_fence", "LEDGER_SCHEMA_UNSUPPORTED"),
         ("dropped_table", "LEDGER_SCHEMA_UNSUPPORTED"),
         ("extra_table", "LEDGER_SCHEMA_UNSUPPORTED"),
         ("deleted_call", "LEDGER_INCONSISTENT"),
@@ -630,8 +640,14 @@ def test_every_text_column_is_a_closed_code_or_an_opaque_identifier(tmp_path: Pa
             "generation_ref",
             "verification",
             "error_class",
+            "purpose",
+            "session_id",
         ],
         "operator_events": ["event", "code"],
+        # D-118 format 2.
+        "ledger_profile": ["origin", "accounting_mode", "opening_basis"],
+        "sessions": ["session_id", "state", "close_reason"],
+        "ledger_events": ["event", "session_id", "code"],
     }
     with closing(sqlite3.connect(path, isolation_level=None)) as connection:
         for table, columns in probes.items():
@@ -824,6 +840,13 @@ def test_the_ledger_has_no_way_to_set_the_baseline_directly() -> None:
         "daily_status",
         # D-099 Option B: when the operator last reconciled, read-only.
         "last_reconciled_ms",
+        # D-118: the ledger profile, sessions and the conservative-only resume.
+        "profile",
+        "session",
+        "start_session",
+        "set_session_allowance",
+        "resume_blocker",
+        "resume_breaker",
     }
     assert MAX_MICRO_USD == 10**12
 
