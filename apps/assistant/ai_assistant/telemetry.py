@@ -57,6 +57,8 @@ FallbackReason = Literal[
     # D-094: the remote test model was active, but the question was outside the synthetic
     # boundary, so nothing was sent.
     "remote_boundary",
+    # D-115 copilot mode: a question outside corporate onboarding; the model is not called.
+    "off_domain",
 ]
 Confidence = Literal["high", "low", "none"]
 Kind = Literal["guidance", "resolution"]

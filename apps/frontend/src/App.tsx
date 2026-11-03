@@ -2416,6 +2416,7 @@ export default function App({
           onOpenCases={() => navigate(paths.cases)}
           onOpenCase={(id) => navigate(paths.caseDetail(id))}
           canChatWithoutCase={actor.capabilities.includes("KNOWLEDGE_REVIEW") && !actor.capabilities.includes("CASE_ACCESS")}
+          canGeneralChat={actor.capabilities.includes("CASE_ACCESS")}
         />
       )}
     </main>

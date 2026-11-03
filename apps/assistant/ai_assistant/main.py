@@ -22,15 +22,17 @@ import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing
 from dataclasses import dataclass, field
+from dataclasses import replace as replaced
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import copilot
 from .answer_records import (
     ANSWER_ID,
     AnswerRecorder,
@@ -44,6 +46,7 @@ from .answer_records import FallbackReason as RecordReason
 from .anthropic_runtime import NOTICES as CLAUDE_NOTICES
 from .anthropic_runtime import Notices
 from .briefing import fallback_answer, opening_message, suggested_questions
+from .case_contexts import CONTEXT_ID, ContextRefused, ContextStore, Ticket
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
@@ -131,6 +134,34 @@ class ChatRequest(BaseModel):
     # The conversation this question continues (D-105). Kept only when it is this user's open
     # conversation on this case; otherwise the answer starts a new one.
     conversation_id: str | None = Field(default=None, pattern=ANSWER_ID)
+    # D-115: the chat context this question belongs to. When given, its server-held turns are
+    # the only history used (the browser's history text is ignored), and it must be this
+    # user's context on this case.
+    context_id: str | None = Field(default=None, pattern=CONTEXT_ID)
+
+
+class ContextOpenRequest(BaseModel):
+    """D-115: open a chat context on a case, or (case_id left out) the general chat."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: UUID | None = None
+
+
+class ContextResponse(BaseModel):
+    context_id: str
+    scope: Literal["case", "general"]
+    case_id: str | None
+    idle_seconds: int
+
+
+class GeneralChatRequest(BaseModel):
+    """D-115: a question in the general onboarding chat (no case), within its context."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=4000)
+    context_id: str = Field(pattern=CONTEXT_ID)
 
 
 class SupportChatRequest(BaseModel):
@@ -232,6 +263,9 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     llm_enabled: bool
     model: str | None
+    # D-115: how answers are written, and whether the general (no case) chat is offered.
+    answer_mode: Literal["exact_lines", "copilot"] = "exact_lines"
+    general_chat: bool = False
 
 
 FALLBACK_NOTICE = "The AI model is not available, so this answer comes straight from the case data."
@@ -488,6 +522,14 @@ def create_app(
 
     app = FastAPI(title="AI Assistant", version="0.1.0")
     app.state.model_selector = selector
+    # D-115: chat memory, per user and case, in this process only.
+    contexts = ContextStore(
+        idle_seconds=config.context_idle_seconds,
+        max_seconds=config.context_max_seconds,
+        max_turns=config.context_max_turns,
+        max_per_user=config.context_max_per_user,
+    )
+    app.state.contexts = contexts
 
     allowed_origins = {origin.rstrip("/") for origin in config.allowed_origins}
 
@@ -629,6 +671,7 @@ def create_app(
         *,
         remote: bool = False,
         trial: Entry | None = None,
+        history: list[dict[str, str]] | None = None,
     ) -> Prepared:
         """``remote``: the active model is the D-094 remote test model, so only repository
         guidance and the synthetic seed, unchanged, may be used (synthetic_boundary.py)."""
@@ -676,7 +719,10 @@ def create_app(
         prepared = Prepared(
             facts=facts,
             messages=build_messages(
-                facts, history_of(body), question, knowledge=knowledge_message(tagged, shown)
+                facts,
+                history_of(body) if history is None else history,
+                question,
+                knowledge=knowledge_message(tagged, shown),
             ),
             fallback=fallback,
             suggestions=suggestions[:6],
@@ -958,6 +1004,331 @@ def create_app(
             outcome.cancelled = not delivered
             emit("stream", started, outcome, prep)
 
+    # --- D-115 copilot answers and chat contexts ---------------------------------------------
+
+    def copilot_for(active: Active) -> bool:
+        """Copilot mode answers with an unrestricted local model only. An external model, or a
+        model the data access policy restricts, keeps exact lines and its synthetic gates."""
+
+        return (
+            config.answer_mode == "copilot"
+            and active.model is not None
+            and not is_remote_test_model(active.model)
+        )
+
+    def context_refused(refused: ContextRefused) -> HTTPException:
+        return HTTPException(
+            409,
+            detail={
+                "code": refused.code,
+                "message": "This chat has ended. Start a new chat to continue.",
+            },
+        )
+
+    def ticket_for(context_id: str | None, user: str, case_id: str | None) -> Ticket | None:
+        if context_id is None:
+            return None
+        try:
+            return contexts.ticket(context_id, user, case_id)
+        except ContextRefused as refused:
+            raise context_refused(refused) from None
+
+    def user_of(snapshot: CaseSnapshot) -> str:
+        return str((snapshot.actor.get("profile") or {}).get("user_id") or "")
+
+    def history_for(body: ChatRequest, ticket: Ticket | None) -> list[dict[str, str]]:
+        if ticket is None:
+            return history_of(body)
+        limit = config.max_history_messages
+        return [dict(turn) for turn in ticket.history][-limit:] if limit else []
+
+    def off_domain(suggestions: list[str]) -> ChatResponse:
+        return ChatResponse(
+            answer=copilot.OFF_DOMAIN_REPLY,
+            answered_by="case_data",
+            model=None,
+            notice=None,
+            suggested_questions=suggestions,
+        )
+
+    def copilot_prep(prep: Prepared, history: list[dict[str, str]]) -> tuple[Prepared, list[str]]:
+        messages = copilot.build_messages(
+            prep.facts,
+            history,
+            prep.question,
+            knowledge=copilot.knowledge_message(prep.tagged, prep.shown),
+        )
+        line = copilot.read_only_line(prep.question)
+        return replaced(prep, messages=messages, plan=None), [line] if line else []
+
+    def copilot_reply(
+        check: copilot.CopilotCheck,
+        prep: Prepared,
+        outcome: _Outcome,
+        *,
+        model_name: str,
+        cut_short: bool,
+        required: list[str],
+    ) -> ChatResponse:
+        outcome.kept_lines = check.kept
+        outcome.left_out_lines = len(check.left_out)
+        outcome.cut_short = cut_short
+        notices = [
+            copilot.REMOVED_NOTICE.format(count=len(check.left_out)) if check.left_out else None,
+            CUT_SHORT_NOTICE if cut_short else None,
+        ]
+        return outcome.answered(
+            ChatResponse(
+                answer=check.text,
+                answered_by="model",
+                model=model_name,
+                notice=" ".join(n for n in notices if n) or None,
+                suggested_questions=prep.suggestions,
+                checks=AnswerChecks(removed=sorted(set(check.left_out)), disclosures=[]),
+                sources=prep.sources(check.text),
+                knowledge=prep.knowledge,
+                added_lines=[0] if required else [],
+            )
+        )
+
+    def copilot_fallback(
+        prep: Prepared, outcome: _Outcome, required: list[str], notice: str
+    ) -> ChatResponse:
+        reply = _fallback_reply(prep, notice=notice)
+        if required:
+            reply = reply.model_copy(
+                update={"answer": "\n\n".join([*required, reply.answer]), "added_lines": [0]}
+            )
+        return outcome.answered(reply)
+
+    def copilot_complete(
+        prep: Prepared, model: ChatModel, required: list[str], outcome: _Outcome
+    ) -> ChatResponse:
+        try:
+            reply = model.complete(prep.messages)
+            outcome.reported(reply)
+            check = copilot.check_answer(
+                reply.text,
+                prep.facts,
+                knowledge_tags=[item.tag for item in prep.tagged],
+                required=required,
+            )
+            if check.kept:
+                return copilot_reply(
+                    check,
+                    prep,
+                    outcome,
+                    model_name=model.name,
+                    cut_short=reply.cut_short,
+                    required=required,
+                )
+            outcome.left_out_lines = len(check.left_out)
+            outcome.fallback_reason = "policy_no_allowed_line"
+            return copilot_fallback(prep, outcome, required, POLICY_NOTICE)
+        except LlmUnavailableError as error:
+            outcome.failed(error)
+            if outcome.fallback_reason == "none":
+                outcome.fallback_reason = "model_unavailable"
+            return copilot_fallback(prep, outcome, required, FALLBACK_NOTICE)
+
+    async def copilot_stream(
+        prep: Prepared,
+        started: float,
+        finish: Callable[[ChatResponse, _Outcome], ChatResponse],
+        model: ChatModel,
+        required: list[str],
+    ) -> AsyncIterator[str]:
+        """Like stream_answer, with each sentence checked as soon as it is complete."""
+
+        def line(event: dict[str, object]) -> str:
+            return json.dumps(event, ensure_ascii=False) + "\n"
+
+        outcome = _Outcome(model=model)
+        delivered = False
+        guard = copilot.CopilotGuard(
+            prep.facts, knowledge_tags=[item.tag for item in prep.tagged], required=required
+        )
+        cut_short = False
+        try:
+            try:
+                async with aclosing(model.stream(prep.messages)) as source:
+                    async for piece in source:
+                        if piece.text and outcome.first_piece_at is None:
+                            outcome.first_piece_at = time.monotonic()
+                        cut_short = cut_short or piece.cut_short
+                        outcome.reported(piece)
+                        shown = guard.feed(piece.text) if piece.text else None
+                        if shown is not None:
+                            if outcome.first_line_at is None:
+                                outcome.first_line_at = time.monotonic()
+                            yield line({"type": "text", "text": shown})
+                check = guard.finish()
+                if check.kept:
+                    response = copilot_reply(
+                        check,
+                        prep,
+                        outcome,
+                        model_name=model.name,
+                        cut_short=cut_short,
+                        required=required,
+                    )
+                else:
+                    outcome.fallback_reason = "policy_no_allowed_line"
+                    response = copilot_fallback(prep, outcome, required, POLICY_NOTICE)
+            except LlmUnavailableError as error:
+                outcome.failed(error)
+                check = guard.finish()
+                if check.kept:
+                    outcome.fallback_reason = "stream_partial"
+                    response = copilot_reply(
+                        check,
+                        prep,
+                        outcome,
+                        model_name=model.name,
+                        cut_short=True,
+                        required=required,
+                    )
+                else:
+                    if outcome.fallback_reason == "none":
+                        outcome.fallback_reason = "model_unavailable"
+                    response = copilot_fallback(prep, outcome, required, FALLBACK_NOTICE)
+            if outcome.first_line_at is None:
+                outcome.first_line_at = time.monotonic()
+            yield line({"type": "done", **finish(response, outcome).model_dump()})
+            delivered = True
+        finally:
+            outcome.cancelled = not delivered
+            emit("stream", started, outcome, prep)
+
+    def single(response: ChatResponse) -> Iterator[str]:
+        event = json.dumps({"type": "done", **response.model_dump()}, ensure_ascii=False)
+        return iter([event + "\n"])
+
+    def stream_of(events: Iterator[str] | AsyncIterator[str]) -> StreamingResponse:
+        return StreamingResponse(
+            events,
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    def general_profile(request: Request) -> dict[str, Any]:
+        try:
+            profile = backend.load_actor(request.cookies.get(SESSION_COOKIE_NAME))["profile"]
+        except ClmBackendError as exc:
+            raise backend_error(exc) from None
+        capabilities = profile.get("capabilities") or []
+        if "CASE_ACCESS" not in capabilities and SUPPORT_CHAT_CAPABILITY not in capabilities:
+            raise HTTPException(
+                403, detail={"code": "FORBIDDEN", "message": "You are not allowed to do this."}
+            )
+        return dict(profile)
+
+    def general_chat_off() -> HTTPException:
+        return HTTPException(404, detail={"code": "GENERAL_CHAT_OFF", "message": "Not available."})
+
+    @app.post("/assistant/contexts", response_model=ContextResponse)
+    def open_context(body: ContextOpenRequest, request: Request) -> ContextResponse:
+        """Open a chat context: on a case the user may read now (the backend decides, with
+        their own session), or the general chat. Nothing of any earlier chat is carried in."""
+
+        check_origin(request)
+        if body.case_id is not None:
+            profile = load_case(body.case_id, request).actor.get("profile") or {}
+        else:
+            if config.answer_mode != "copilot":
+                raise general_chat_off()
+            profile = general_profile(request)
+        user = profile.get("user_id")
+        if not user:
+            raise HTTPException(
+                401, detail={"code": "UNAUTHENTICATED", "message": "Please sign in again."}
+            )
+        case = str(body.case_id) if body.case_id is not None else None
+        return ContextResponse(
+            context_id=contexts.open(str(user), case),
+            scope="case" if case else "general",
+            case_id=case,
+            idle_seconds=config.context_idle_seconds,
+        )
+
+    @app.post("/assistant/contexts/{context_id}/close", status_code=204)
+    def close_context(context_id: str, request: Request) -> Response:
+        """Close a chat context and drop its turns (leaving a case, closing the tab, signing
+        out). Always 204: nothing tells a caller whether an id existed. A signed-in caller
+        closes only their own; after sign-out the 128-bit id alone closes it."""
+
+        check_origin(request)
+        if re.fullmatch(CONTEXT_ID, context_id):
+            owner: str | None
+            try:
+                actor = backend.load_actor(request.cookies.get(SESSION_COOKIE_NAME))
+                owner = str(actor["profile"].get("user_id") or "") or None
+            except ClmBackendError:
+                owner = None
+            contexts.close(context_id, owner)
+        return Response(status_code=204)
+
+    @app.post("/assistant/general/chat/stream")
+    def general_chat_stream(body: GeneralChatRequest, request: Request) -> StreamingResponse:
+        """D-115: the general onboarding chat. No case is read and none is remembered: the
+        answer uses approved knowledge and the model's general reasoning, with the local model
+        only. Nothing is recorded as an answer record."""
+
+        started = time.monotonic()
+        check_origin(request)
+        if config.answer_mode != "copilot":
+            raise general_chat_off()
+        profile = general_profile(request)
+        role, team = profile.get("role"), profile.get("team_id")
+        try:
+            ticket = contexts.ticket(body.context_id, str(profile.get("user_id") or ""), None)
+        except ContextRefused as refused:
+            raise context_refused(refused) from None
+        question = body.message.strip()[: config.max_question_chars]
+        limit = config.max_history_messages
+        history = [dict(turn) for turn in ticket.history][-limit:] if limit else []
+        active = selector.current()
+
+        def remember(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
+            contexts.add(ticket, question, response.answer)
+            return response
+
+        if not copilot.in_domain(question, ongoing=bool(history)):
+            emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
+            # An unrelated question is not kept in the chat (as in a case chat).
+            return stream_of(single(off_domain([])))
+        tagged: list[TaggedHit] = []
+        use: KnowledgeUse | None = None
+        if retriever is not None:
+            try:
+                retrieval = retriever.retrieve(question, case_context({}), role=role, team=team)
+                tagged = approved_knowledge(tag_hits(retrieval), role=role, team=team)
+                use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
+            except Exception:  # knowledge is optional: never let it break an answer
+                log.exception("knowledge retrieval failed")
+        shown = shown_knowledge(tagged, {})
+        prep = Prepared(
+            facts={},
+            messages=copilot.build_messages(
+                None, history, question, knowledge=copilot.knowledge_message(tagged, shown)
+            ),
+            fallback=guidance_summary(tagged, shown) or copilot.GENERAL_FALLBACK,
+            suggestions=[],
+            tagged=tagged,
+            knowledge=use,
+            shown=shown,
+            question=question,
+            started=started,
+        )
+        line = copilot.read_only_line(question)
+        required = [line] if line else []
+        if copilot_for(active) and active.model is not None:
+            return stream_of(copilot_stream(prep, started, remember, active.model, required))
+        outcome = _Outcome(fallback_reason="model_disabled")
+        reply = copilot_fallback(prep, outcome, required, copilot.GENERAL_LOCAL_ONLY_NOTICE)
+        emit("stream", started, outcome, prep)
+        return stream_of(single(remember(reply, outcome)))
+
     @app.post("/assistant/knowledge/conversations/{conversation_id}/try")
     def try_change(
         conversation_id: str, body: TryChangeRequest, request: Request
@@ -1094,6 +1465,8 @@ def create_app(
             status="ok",
             llm_enabled=model is not None,
             model=model.name if model is not None else None,
+            answer_mode=config.answer_mode,
+            general_chat=config.answer_mode == "copilot",
         )
 
     @app.get("/assistant/cases/{case_id}/brief", response_model=BriefResponse)
@@ -1117,6 +1490,8 @@ def create_app(
         active = selector.current()
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
+        ticket = ticket_for(body.context_id, user_of(snapshot), str(case_id))
+        history = history_for(body, ticket)
         quick = small_talk_reply(question, facts)
         if quick is not None:
             # Greetings and thanks get an instant reply; the model is not called.
@@ -1129,14 +1504,41 @@ def create_app(
                 suggested_questions=suggested_questions(facts),
                 small_talk=True,
             )
-        prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
-        model, lead = remote_gate(
-            active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
-        )
-        outcome = _Outcome(model=model)
-        response = record(
-            case_id, snapshot, body, prep, answer_with_model(prep, outcome, lead), outcome
-        )
+        if copilot_for(active) and active.model is not None:
+            if not copilot.in_domain(
+                question, ongoing=bool(ticket and ticket.history), case_open=True
+            ):
+                emit("chat", started, _Outcome(fallback_reason="off_domain"), None)
+                return off_domain(suggested_questions(facts))
+            prep, required = copilot_prep(
+                prepare(body, snapshot, question, history=history), history
+            )
+            outcome = _Outcome(model=active.model)
+            response = record(
+                case_id,
+                snapshot,
+                body,
+                prep,
+                copilot_complete(prep, active.model, required, outcome),
+                outcome,
+            )
+        else:
+            prep = prepare(
+                body,
+                snapshot,
+                question,
+                remote=is_remote_test_model(active.model),
+                history=history,
+            )
+            model, lead = remote_gate(
+                active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
+            )
+            outcome = _Outcome(model=model)
+            response = record(
+                case_id, snapshot, body, prep, answer_with_model(prep, outcome, lead), outcome
+            )
+        if ticket is not None:
+            contexts.add(ticket, question, response.answer)
         emit("chat", started, outcome, prep)
         return response
 
@@ -1151,37 +1553,51 @@ def create_app(
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
         suggestions = suggested_questions(facts)
+        ticket = ticket_for(body.context_id, user_of(snapshot), str(case_id))
+        history = history_for(body, ticket)
+
+        def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
+            # Recorded, and added to the chat context only while it is still open (a late
+            # answer never lands in a context that was closed when its case was left).
+            response = record(case_id, snapshot, body, prep, response, outcome)
+            if ticket is not None:
+                contexts.add(ticket, question, response.answer)
+            return response
+
         quick = small_talk_reply(question, facts)
         if quick is not None:
             emit(
                 "stream", started, _Outcome(fallback_reason="small_talk", model=active.model), None
             )
-            reply = ChatResponse(
-                answer=quick,
-                answered_by="case_data",
-                model=None,
-                notice=None,
-                suggested_questions=suggestions,
-                small_talk=True,
+            return stream_of(
+                single(
+                    ChatResponse(
+                        answer=quick,
+                        answered_by="case_data",
+                        model=None,
+                        notice=None,
+                        suggested_questions=suggestions,
+                        small_talk=True,
+                    )
+                )
             )
-            events: Iterator[str] | AsyncIterator[str] = iter(
-                [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]
+        if copilot_for(active) and active.model is not None:
+            if not copilot.in_domain(
+                question, ongoing=bool(ticket and ticket.history), case_open=True
+            ):
+                emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
+                return stream_of(single(off_domain(suggestions)))
+            prep, required = copilot_prep(
+                prepare(body, snapshot, question, history=history), history
             )
-        else:
-            prep = prepare(body, snapshot, question, remote=is_remote_test_model(active.model))
-            model, lead = remote_gate(
-                active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
-            )
-
-            def finish(response: ChatResponse, outcome: _Outcome) -> ChatResponse:
-                return record(case_id, snapshot, body, prep, response, outcome)
-
-            events = stream_answer(prep, started, finish, model, lead)
-        return StreamingResponse(
-            events,
-            media_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            return stream_of(copilot_stream(prep, started, finish, active.model, required))
+        prep = prepare(
+            body, snapshot, question, remote=is_remote_test_model(active.model), history=history
         )
+        model, lead = remote_gate(
+            active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
+        )
+        return stream_of(stream_answer(prep, started, finish, model, lead))
 
     return app
 
