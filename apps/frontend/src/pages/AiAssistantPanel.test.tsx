@@ -337,6 +337,8 @@ describe("AiAssistantPanel", () => {
     let chat: { resolve: (response: Response) => void; signal: AbortSignal } | undefined;
     let briefCount = 0;
     stubFetch(vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      // D-115: a service without chat contexts; the chat then sends its history as before.
+      if (String(input).endsWith("/contexts")) return Promise.resolve(json({}, 404));
       if (String(input).endsWith("/brief")) {
         briefCount += 1;
         if (briefCount === 1) return Promise.resolve(json(brief("OLD CASE", "Previously accessible summary.")));
@@ -689,5 +691,139 @@ describe("AiAssistantPanel answer progress and summary", () => {
     const showing = shown(<AnswerActivity activity={{ startedAt: 0, connected: true }} writing now={13_000} />);
     expect(showing).toContain("✓ Checking model readiness and waiting for the answer");
     expect(showing).toContain("… Showing lines that passed the check");
+  });
+});
+
+describe("AiAssistantPanel case memory (D-115)", () => {
+  const CONTEXT_A = "a".repeat(32);
+  const CONTEXT_B = "b".repeat(32);
+  const done = (answer: string) => new Response(
+    `${JSON.stringify({ type: "done", answer, answered_by: "model", model: "m", notice: null, suggested_questions: ["Next?"] })}\n`,
+    { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+  );
+
+  function server(log: { url: string; body: Record<string, unknown> | null; keepalive?: boolean }[]) {
+    let opened = 0;
+    return async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      log.push({ url, body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null, keepalive: init?.keepalive });
+      if (url.endsWith("/brief")) return json(brief(url.includes("case-2") ? "MERLION" : "GARDEN BUSINESS", "Summary."));
+      if (url.endsWith("/api/assistant/contexts")) {
+        opened += 1;
+        return json({ context_id: opened === 1 ? CONTEXT_A : CONTEXT_B, scope: "case", case_id: null, idle_seconds: 1800 });
+      }
+      if (url.includes("/contexts/") && url.endsWith("/close")) return new Response(null, { status: 204 });
+      if (url.endsWith("/chat/stream")) return done("Answer.");
+      return json({}, 404);
+    };
+  }
+
+  it("opens a context on the first question, sends no history text, and closes it when the case is left", async () => {
+    const log: { url: string; body: Record<string, unknown> | null; keepalive?: boolean }[] = [];
+    stubFetch(server(log));
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expect(log.some((item) => item.url.endsWith("/contexts"))).toBe(false);  // nothing until a question
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    const asks = log.filter((item) => item.url.endsWith("/chat/stream"));
+    expect(asks.map((item) => item.body?.context_id)).toEqual([CONTEXT_A, CONTEXT_A]);
+    expect(asks[1].body?.history).toEqual([]);
+    expect(log.filter((item) => item.url.endsWith("/api/assistant/contexts"))).toHaveLength(1);
+    expect(log.find((item) => item.url.endsWith("/api/assistant/contexts"))?.body).toEqual({ case_id: "case-1" });
+
+    rerender("case-2");
+    await flush();
+    const close = log.find((item) => item.url.endsWith(`/contexts/${CONTEXT_A}/close`));
+    expect(close?.keepalive).toBe(true);
+    expect(view.textContent).not.toContain("Answer.");  // case-1's chat is gone here
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    const later = log.filter((item) => item.url.endsWith("/chat/stream")).at(-1);
+    expect(later?.url).toContain("/cases/case-2/");
+    expect(later?.body?.context_id).toBe(CONTEXT_B);
+
+    rerender("case-1");  // coming back starts afresh
+    await flush();
+    expect(view.textContent).not.toContain("Answer.");
+  });
+
+  it("closes every open context when the panel unmounts (sign-out, user change) or the page is hidden", async () => {
+    const log: { url: string; body: Record<string, unknown> | null; keepalive?: boolean }[] = [];
+    stubFetch(server(log));
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(log.some((item) => item.url.endsWith(`/contexts/${CONTEXT_A}/close`))).toBe(true);
+  });
+
+  it("ignores a late answer for a case that was left", async () => {
+    let finish: ((response: Response) => void) | undefined;
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary."));
+      if (url.endsWith("/api/assistant/contexts")) return json({ context_id: CONTEXT_A, scope: "case", case_id: "case-1", idle_seconds: 1800 });
+      if (url.endsWith("/close")) return new Response(null, { status: 204 });
+      if (url.endsWith("/chat/stream")) return await new Promise<Response>((resolve) => { finish = resolve; });
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    rerender("case-2");
+    await flush();
+    finish?.(done("LATE CASE-1 ANSWER."));
+    await flush();
+    expect(view.textContent).not.toContain("LATE CASE-1 ANSWER.");
+  });
+
+  it("starts a new chat when the service says the context ended", async () => {
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary."));
+      if (url.endsWith("/api/assistant/contexts")) return json({ context_id: CONTEXT_A, scope: "case", case_id: "case-1", idle_seconds: 1800 });
+      if (url.endsWith("/close")) return new Response(null, { status: 204 });
+      if (url.endsWith("/chat/stream")) return json({ detail: { code: "CONTEXT_UNKNOWN", message: "This chat has ended." } }, 409);
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    expect(view.querySelector("[role=alert]")?.textContent).toContain("its memory was cleared");
+  });
+
+  it("offers the general onboarding chat to a case user with no case open, when the service does", async () => {
+    const log: { url: string; body: Record<string, unknown> | null }[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      log.push({ url, body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null });
+      if (url.endsWith("/health")) return json({ status: "ok", llm_enabled: true, model: "local", answer_mode: "copilot", general_chat: true });
+      if (url.endsWith("/api/assistant/contexts")) return json({ context_id: CONTEXT_A, scope: "general", case_id: null, idle_seconds: 1800 });
+      if (url.endsWith("/general/chat/stream")) return done("A UBO is a natural person.");
+      return json({}, 404);
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<AiAssistantPanel caseId={null} onOpenCases={noop} canGeneralChat />));
+    click(container.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expect(container.textContent).toContain("General onboarding help");
+    typeInto(container.querySelector("textarea"), "What is a UBO?");
+    act(() => (container?.querySelector(".ai-assistant-send") as HTMLButtonElement).click());
+    await flush();
+    expect(container.textContent).toContain("A UBO is a natural person.");
+    expect(log.find((item) => item.url.endsWith("/api/assistant/contexts"))?.body).toEqual({});
+    expect(log.find((item) => item.url.endsWith("/general/chat/stream"))?.body).toEqual({ message: "What is a UBO?", context_id: CONTEXT_A });
   });
 });

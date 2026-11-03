@@ -17,8 +17,13 @@ import {
   type ConversationDetail,
   type AiAssistantTurn,
   askAiAssistantStreaming,
+  askGeneralAssistantStreaming,
   askSupportAssistant,
+  closeAssistantContext,
+  CONTEXT_ENDED_CODES,
   fetchAiAssistantBrief,
+  fetchAssistantHealth,
+  openAssistantContext,
 } from "../aiAssistant";
 
 interface ChatMessage extends AiAssistantTurn {
@@ -69,11 +74,19 @@ interface AiAssistantPanelProps {
   /** D-105: Support asked about this case from a Knowledge Review page: open on it, with the
    * user's question offered first. A new ``nonce`` opens it again. */
   askAbout?: { caseId: string; question: string; nonce: number } | null;
+  /** D-115: a case user may use the general onboarding chat when no case is open (when the
+   * service offers it). */
+  canGeneralChat?: boolean;
 }
 
 const EMPTY_THREAD: Thread = { company: null, messages: [], suggestions: [], badge: 0, conversationId: null };
 // Support's chat without a case has its own thread.
 const SUPPORT_THREAD = "support";
+// D-115: the general onboarding chat (no case) has its own thread and chat context.
+const GENERAL_THREAD = "general";
+const GENERAL_WELCOME =
+  "Ask me about corporate onboarding: KYC, ACRA records, entity types, ownership and UBOs, documents, blockers or GoldTier. No case is open, so I answer in general terms.";
+const CONTEXT_ENDED = "This chat ended, so its memory was cleared. Ask again to start a new chat.";
 const SUPPORT_WELCOME =
   "Ask me about the approved rules (official guidance and past resolutions) or the active policy settings.";
 
@@ -212,8 +225,10 @@ function BookIcon() {
 /**
  * The AI assistant only discusses a case the system has already replied on: a case page under
  * Cases, or the case being onboarded on New onboarding. The button is on every page so it is
- * always within reach; elsewhere it explains what to do first. Conversations are kept per case
- * (coming back to a case shows its chat again). It only reads and requests nothing while closed.
+ * always within reach; elsewhere it explains what to do first (or, D-115, offers the general
+ * onboarding chat). A chat lives only while its case is open: leaving the case clears its
+ * memory here and on the service, and coming back starts afresh (D-115). It only reads and
+ * requests nothing while closed.
  *
  * The chat window is built from assistant-ui primitives over this component's own state
  * (an external store), so per-case threads, cancellation and access handling stay here.
@@ -225,11 +240,15 @@ export default function AiAssistantPanel({
   canChatWithoutCase = false,
   onOpenCase,
   askAbout = null,
+  canGeneralChat = false,
 }: AiAssistantPanelProps) {
   const activeCaseId = caseId;
   // Support's chat without a case (D-105), when no case is open.
   const supportChat = !activeCaseId && canChatWithoutCase;
-  const threadKey = activeCaseId ?? (supportChat ? SUPPORT_THREAD : null);
+  // D-115: the service says whether it offers the general chat (copilot mode only).
+  const [generalOffered, setGeneralOffered] = useState(false);
+  const generalChat = !activeCaseId && !supportChat && canGeneralChat && generalOffered;
+  const threadKey = activeCaseId ?? (supportChat ? SUPPORT_THREAD : generalChat ? GENERAL_THREAD : null);
   const [open, setOpen] = useState(false);
   const [threads, setThreads] = useState<Record<string, Thread>>({});
   const [busy, setBusy] = useState(false);
@@ -242,6 +261,12 @@ export default function AiAssistantPanel({
   const [activity, setActivity] = useState<Activity | null>(null);
   const [now, setNow] = useState(() => performance.now());
   const briefRequest = useRef<AbortController | null>(null);
+  // D-115 case memory: one server-held chat context per thread, opened on the first question
+  // and closed (its turns dropped) when the chat is left, the panel unmounts (sign-out, user
+  // change) or the page is hidden for good. Never shared between threads.
+  const contextIds = useRef<Record<string, string>>({});
+  const contextRequests = useRef<Record<string, Promise<string | null>>>({});
+  const liveKey = useRef<string | null>(threadKey);
 
   const thread = (threadKey && threads[threadKey]) || EMPTY_THREAD;
   // The question Support asked about, offered first while the panel is on its case.
@@ -261,6 +286,75 @@ export default function AiAssistantPanel({
   function updateThread(key: string, change: (current: Thread) => Thread): void {
     setThreads((all) => ({ ...all, [key]: change(all[key] ?? EMPTY_THREAD) }));
   }
+
+  /** Only for the chat on screen: a late reply for a chat that was left changes nothing. */
+  function updateLive(key: string, change: (current: Thread) => Thread): void {
+    if (liveKey.current === key) updateThread(key, change);
+  }
+
+  function closeContext(key: string): void {
+    const id = contextIds.current[key];
+    if (id) closeAssistantContext(id);
+    delete contextIds.current[key];
+    delete contextRequests.current[key];
+  }
+
+  /** The chat's context, opened once; null when the service has none (an older service). */
+  function contextFor(key: string): Promise<string | null> {
+    if (key === SUPPORT_THREAD) return Promise.resolve(null);
+    const known = contextIds.current[key];
+    if (known) return Promise.resolve(known);
+    const pendingOpen = contextRequests.current[key];
+    if (pendingOpen) return pendingOpen;
+    const opening = openAssistantContext(key === GENERAL_THREAD ? null : key)
+      .then((handle) => {
+        if (liveKey.current !== key || contextRequests.current[key] !== opening) {
+          closeAssistantContext(handle.context_id);  // the chat was left while it opened
+          return null;
+        }
+        contextIds.current[key] = handle.context_id;
+        return handle.context_id;
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (contextRequests.current[key] === opening) delete contextRequests.current[key];
+      });
+    contextRequests.current[key] = opening;
+    return opening;
+  }
+
+  // Leaving a chat (another case, no case, the general chat) clears its memory: the service
+  // drops the context's turns and this page forgets the thread. Coming back starts afresh.
+  useEffect(() => {
+    const previous = liveKey.current;
+    liveKey.current = threadKey;
+    if (previous && previous !== threadKey && previous !== SUPPORT_THREAD) {
+      closeContext(previous);
+      setThreads((all) => {
+        const { [previous]: _left, ...rest } = all;
+        return rest;
+      });
+    }
+  }, [threadKey]);
+
+  useEffect(() => {
+    const closeAll = () => Object.keys(contextIds.current).forEach(closeContext);
+    window.addEventListener("pagehide", closeAll);
+    return () => {
+      window.removeEventListener("pagehide", closeAll);
+      closeAll();
+    };
+  }, []);
+
+  // Whether the service offers the general chat: asked once, only for case users with no case open.
+  useEffect(() => {
+    if (!open || activeCaseId || supportChat || !canGeneralChat) return undefined;
+    const controller = new AbortController();
+    fetchAssistantHealth(controller.signal)
+      .then((health) => setGeneralOffered(Boolean(health.general_chat)))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [open, activeCaseId, supportChat, canGeneralChat]);
 
   function clearInaccessibleThread(key: string): void {
     pending.current?.abort();
@@ -355,30 +449,33 @@ export default function AiAssistantPanel({
     const controller = new AbortController();
     pending.current = controller;
     const withoutDraft = (messages: ChatMessage[]) => messages.filter((item) => !item.streaming);
+    const onText = (soFar: string) => {
+      if (controller.signal.aborted) return;
+      updateLive(key, (current) => ({
+        ...current,
+        messages: current.messages.map((item) => (item.streaming ? { ...item, content: soFar } : item)),
+      }));
+    };
+    const onConnected = () => {
+      if (!controller.signal.aborted) setActivity((current) => current && { ...current, connected: true });
+    };
     const answer = supportChat
       ? askSupportAssistant(text, history, controller.signal)
-      : askAiAssistantStreaming(
-        key,
-        text,
-        history,
-        (soFar) => {
-          if (controller.signal.aborted) return;
-          updateThread(key, (current) => ({
-            ...current,
-            messages: current.messages.map((item) => (item.streaming ? { ...item, content: soFar } : item)),
-          }));
-        },
-        controller.signal,
-        earlierAnswerIds,
-        () => {
-          if (!controller.signal.aborted) setActivity((current) => current && { ...current, connected: true });
-        },
-        thread.conversationId,
-      );
+      : contextFor(key).then((contextId) => {
+        controller.signal.throwIfAborted();
+        if (key === GENERAL_THREAD) {
+          if (!contextId) throw new AiAssistantError("The general chat is not available right now.");
+          return askGeneralAssistantStreaming(text, contextId, onText, controller.signal, onConnected);
+        }
+        return askAiAssistantStreaming(
+          key, text, history, onText, controller.signal, earlierAnswerIds, onConnected,
+          thread.conversationId, contextId,
+        );
+      });
     answer
       .then((reply) => {
         if (controller.signal.aborted) return;
-        updateThread(key, (current) => ({
+        updateLive(key, (current) => ({
           ...current,
           messages: [
             ...withoutDraft(current.messages),
@@ -398,9 +495,17 @@ export default function AiAssistantPanel({
         }));
       })
       .catch((reason: unknown) => {
-        updateThread(key, (current) => ({ ...current, messages: withoutDraft(current.messages) }));
+        updateLive(key, (current) => ({ ...current, messages: withoutDraft(current.messages) }));
         if (controller.signal.aborted || isAbort(reason)) return;
+        if (reason instanceof AiAssistantError && reason.code && CONTEXT_ENDED_CODES.has(reason.code)) {
+          // The service ended this chat (timed out or closed): start again with an empty memory.
+          closeContext(key);
+          updateLive(key, () => EMPTY_THREAD);
+          setError(CONTEXT_ENDED);
+          return;
+        }
         if (reason instanceof AiAssistantError && reason.status === 404) {
+          closeContext(key);
           clearInaccessibleThread(key);
         }
         setError(errorText(reason));
@@ -510,9 +615,11 @@ export default function AiAssistantPanel({
     );
   }
 
-  const subtitle = supportChat ? "Approved rules and policy · read-only" : `${thread.company ?? "This case"} · read-only`;
+  const subtitle = supportChat
+    ? "Approved rules and policy · read-only"
+    : generalChat ? "General onboarding help · read-only" : `${thread.company ?? "This case"} · read-only`;
   // Ending rates the conversation: only a case chat with at least one recorded answer.
-  const canEnd = !supportChat && thread.conversationId !== null && !busy;
+  const canEnd = !supportChat && !generalChat && thread.conversationId !== null && !busy;
   const writing = thread.messages.some((item) => item.streaming && item.content);
 
   return (
@@ -528,7 +635,7 @@ export default function AiAssistantPanel({
               End conversation
             </button>
           )}
-          {!supportChat && !canChatWithoutCase && (
+          {!supportChat && !generalChat && !canChatWithoutCase && (
             <button
               type="button"
               className="btn btn-ghost ai-assistant-history-open"
@@ -538,7 +645,7 @@ export default function AiAssistantPanel({
               History
             </button>
           )}
-          {!supportChat && (
+          {!supportChat && !generalChat && (
             <button
               type="button"
               className="btn btn-ghost"
@@ -566,7 +673,7 @@ export default function AiAssistantPanel({
             {endedNotice && <p className="ai-assistant-feedback-done" role="status">{endedNotice}</p>}
             {thread.resumedNote && <p className="ai-assistant-hint" role="note">{thread.resumedNote}</p>}
             {thread.messages.length === 0 && !error && (
-              <p className="ai-assistant-hint">{supportChat ? SUPPORT_WELCOME : "Reading this case…"}</p>
+              <p className="ai-assistant-hint">{supportChat ? SUPPORT_WELCOME : generalChat ? GENERAL_WELCOME : "Reading this case…"}</p>
             )}
             <ThreadPrimitive.Messages>
               {({ message }) => {
@@ -622,8 +729,8 @@ export default function AiAssistantPanel({
               rows={1}
               maxRows={5}
               maxLength={600}
-              placeholder={supportChat ? "Ask about the rules or the policy…" : "Ask about this case…"}
-              aria-label={supportChat ? "Ask the AI assistant about the rules or the policy" : "Ask the AI assistant about this case"}
+              placeholder={supportChat ? "Ask about the rules or the policy…" : generalChat ? "Ask about corporate onboarding…" : "Ask about this case…"}
+              aria-label={supportChat ? "Ask the AI assistant about the rules or the policy" : generalChat ? "Ask the AI assistant about corporate onboarding" : "Ask the AI assistant about this case"}
               submitMode="enter"
             />
             <ComposerPrimitive.Send className="ai-assistant-send" disabled={busy} aria-label="Send" title="Send (Enter)">

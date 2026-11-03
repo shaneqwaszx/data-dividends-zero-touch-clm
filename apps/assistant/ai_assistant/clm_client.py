@@ -121,6 +121,20 @@ class ClmBackendClient:
             return None
         return digests
 
+    def load_ownership(self, case_id: UUID, session_token: str | None) -> dict[str, Any] | None:
+        """D-115: the application's ownership analysis of this case, through the backend's
+        case-scoped ownership route with this user's session (GET only), or None when there is
+        none or it cannot be read. Read for copilot answers with a local model only."""
+
+        try:
+            with self._client(session_token) as client:
+                analysis = self._get(client, f"/api/onboarding/cases/{case_id}/ownership")
+        except ClmBackendError as exc:
+            if exc.code == "AUTHENTICATION_REQUIRED":
+                raise
+            return None
+        return analysis if isinstance(analysis, dict) else None
+
     def load_case(self, case_id: UUID, session_token: str | None) -> CaseSnapshot:
         with self._client(session_token) as client:
             actor = self._get(client, "/api/auth/me")

@@ -174,6 +174,19 @@ class AiAssistantSettings(BaseSettings):
     max_history_messages: int = Field(default=8, ge=0, le=20)
     max_question_chars: int = Field(default=600, ge=20, le=4000)
 
+    # How a model answer is written. "exact_lines" (default, unchanged): the model may only
+    # repeat approved catalog lines (ADR-012 section C). "copilot" (proposed D-115, needs the
+    # owner's approval): free-form reasoning, every sentence checked by the same grounding and
+    # action checks, a local model only; an external model keeps exact lines.
+    answer_mode: Literal["exact_lines", "copilot"] = "exact_lines"
+    # Chat contexts (D-115 case memory): the turns of one chat are held in memory only, for
+    # one user and one case (or the general chat), and dropped when the chat is left, after
+    # this idle time, or at the latest after the absolute time (the backend's session lifetime).
+    context_idle_seconds: int = Field(default=1800, ge=60, le=28800)
+    context_max_seconds: int = Field(default=28800, ge=300, le=28800)
+    context_max_turns: int = Field(default=16, ge=2, le=40)
+    context_max_per_user: int = Field(default=8, ge=1, le=32)
+
     # Content-free metrics for each explicit question (telemetry.py): off by default; "log"
     # writes one JSON line per answer with counts, sizes, timings and codes only.
     telemetry: Literal["off", "log"] = "off"

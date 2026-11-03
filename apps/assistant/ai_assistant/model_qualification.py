@@ -84,6 +84,12 @@ BASIS_FILES = (
     "anthropic_runtime.py",
     # D-104: the data access policy's gate for local and IT-configured models.
     "data_access.py",
+    # D-115 (proposed): copilot answers and the chat contexts whose turns are the history.
+    "copilot.py",
+    "case_contexts.py",
+    # D-115 refinement 2: copilot evidence and structured claim checks (local model only).
+    "claims.py",
+    "evidence.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = (

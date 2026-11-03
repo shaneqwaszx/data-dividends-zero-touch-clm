@@ -79,6 +79,9 @@ SEEDED_USERS = (
     BACKEND / "app" / "services" / "admin_repository.py",
 )
 QUESTION_FILES = ("scenarios.json", "phase_b_questions.json")
+# D-115: modules whose text reaches only a local model (copilot mode never runs with an
+# external model), so their words never widen what an external model's system message may use.
+LOCAL_ONLY_MODULES = ("copilot.py", "claims.py", "evidence.py")
 # Reviewed everyday words an RM uses in a question (no names, places or identifiers).
 EVERYDAY_WORDS = [
     "block",
@@ -331,7 +334,11 @@ def build() -> str:
     prompt = prompt_words - conversation
     # System messages may also use the application's own strings, alphabetic words only (no
     # identifier-shaped constants). Never the question or assistant history.
-    code = sorted((HERE / "ai_assistant").rglob("*.py")) + sorted((BACKEND / "app").rglob("*.py"))
+    code = [
+        path
+        for path in sorted((HERE / "ai_assistant").rglob("*.py"))
+        if path.relative_to(HERE / "ai_assistant").as_posix() not in LOCAL_ONLY_MODULES
+    ] + sorted((BACKEND / "app").rglob("*.py"))
     code_words = {word for word in _string_constants(code) if word.isalpha()}
     code_only = code_words - conversation - prompt_words
     data = {

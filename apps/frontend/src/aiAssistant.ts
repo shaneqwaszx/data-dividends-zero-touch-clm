@@ -60,12 +60,34 @@ const chatBody = (
   history: AiAssistantTurn[],
   earlierAnswerIds: string[],
   conversationId: string | null = null,
+  contextId: string | null = null,
 ) => ({
   message,
-  history,
+  // D-115: with a chat context the service keeps the chat's turns itself; no history text is sent.
+  history: contextId ? [] : history,
   ...(earlierAnswerIds.length ? { earlier_answer_ids: earlierAnswerIds } : {}),
   ...(conversationId ? { conversation_id: conversationId } : {}),
+  ...(contextId ? { context_id: contextId } : {}),
 });
+
+/** D-115: one chat's server-held memory, bound to the signed-in user and one case (or none). */
+export interface AiAssistantContextHandle {
+  context_id: string;
+  scope: "case" | "general";
+  case_id: string | null;
+  idle_seconds: number;
+}
+
+export interface AiAssistantHealth {
+  status: "ok";
+  llm_enabled: boolean;
+  model: string | null;
+  answer_mode?: "exact_lines" | "copilot";
+  general_chat?: boolean;
+}
+
+/** The service refuses a chat context that ended (left case, timed out, another user's). */
+export const CONTEXT_ENDED_CODES: ReadonlySet<string> = new Set(["CONTEXT_UNKNOWN", "CONTEXT_SCOPE_MISMATCH"]);
 
 export class AiAssistantError extends Error {
   constructor(
@@ -246,6 +268,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   "This recovery request is already closed.",
   "That is not a valid way to close a request.",
   "The note must be plain text without keys or secrets.",
+  "This chat has ended. Start a new chat to continue.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -343,12 +366,58 @@ export async function askAiAssistantStreaming(
   earlierAnswerIds: string[] = [],
   onConnected?: () => void,
   conversationId: string | null = null,
+  contextId: string | null = null,
 ): Promise<AiAssistantAnswer> {
   const response = await send(
     `/cases/${encodeURIComponent(caseId)}/chat/stream`,
-    chatBody(message, history, earlierAnswerIds, conversationId),
+    chatBody(message, history, earlierAnswerIds, conversationId, contextId),
     signal,
   );
+  return await readStreamedAnswer(response, onText, signal, onConnected);
+}
+
+/** D-115: a question in the general onboarding chat (no case), within its chat context. */
+export async function askGeneralAssistantStreaming(
+  message: string,
+  contextId: string,
+  onText: (textSoFar: string) => void,
+  signal?: AbortSignal,
+  onConnected?: () => void,
+): Promise<AiAssistantAnswer> {
+  const response = await send("/general/chat/stream", { message, context_id: contextId }, signal);
+  return await readStreamedAnswer(response, onText, signal, onConnected);
+}
+
+export const fetchAssistantHealth = (signal?: AbortSignal) =>
+  request<AiAssistantHealth>("/health", undefined, signal);
+
+/** Open a chat context on a case (the service checks access with this user's session), or the general chat. */
+export const openAssistantContext = (caseId: string | null, signal?: AbortSignal) =>
+  request<AiAssistantContextHandle>("/contexts", caseId ? { case_id: caseId } : {}, signal);
+
+/**
+ * Close a chat context: the service drops its turns. `keepalive` lets it finish while the page
+ * unloads (tab closed, sign-out); failures are ignored because the service also expires an idle
+ * context on its own.
+ */
+export function closeAssistantContext(contextId: string): void {
+  try {
+    void fetch(`${AI_ASSISTANT_BASE_URL}/api/assistant/contexts/${encodeURIComponent(contextId)}/close`, {
+      method: "POST",
+      credentials: "include",
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    // A page that is already gone cannot send; the idle expiry closes it.
+  }
+}
+
+async function readStreamedAnswer(
+  response: Response,
+  onText: (textSoFar: string) => void,
+  signal?: AbortSignal,
+  onConnected?: () => void,
+): Promise<AiAssistantAnswer> {
   const isStream = (response.headers.get("Content-Type") ?? "").includes("ndjson");
   if (!response.body) throw new AiAssistantError("The AI assistant could not answer right now.");
   // Additional browser containment above the service's 64 KiB model text cap.
