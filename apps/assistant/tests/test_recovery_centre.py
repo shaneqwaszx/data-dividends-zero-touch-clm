@@ -380,6 +380,54 @@ def test_routes_need_the_capability_origin_and_strict_json(
         ("post", "/recovery/requests"),
         ("post", f"/recovery/requests/{'a' * 32}/close"),
     ):
-        kwargs = {"json": {"problem_code": "CLAUDE_BREAKER_OPEN"}} if method == "post" else {}
+        # QG F6: valid bodies, so only the missing capability can refuse them.
+        body = {"status": "withdrawn"} if path.endswith("/close") else {
+            "problem_code": "CLAUDE_BREAKER_OPEN"
+        }
+        kwargs = {"json": body} if method == "post" else {}
         response = getattr(journey.client, method)(f"{API}{path}", **kwargs)
-        assert response.status_code in (403, 422), (path, response.status_code)
+        assert response.status_code == 403, (path, response.status_code)
+
+
+
+def test_resolved_is_accepted_once_the_problem_has_cleared_and_never_from_a_partial_view(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_assistant import claude_reconciliation as rc
+    from tests.test_claude_runtime import ClaudeJourney
+    from tests.test_model_management import API
+
+    journey = ClaudeJourney(tmp_path, monkeypatch)  # no P1 attestation recorded yet
+    created = journey.client.post(
+        f"{API}/recovery/requests", json={"problem_code": "CLAUDE_RECONCILIATION_PREREQUISITE"}
+    )
+    assert created.status_code == 200, created.text
+    request_id = created.json()["requests"][0]["request_id"]
+    # The owner records the attestation with the script (simulated here).
+    journey.selector.reconciler.runs.record_prerequisite("owner", "retired")
+    # A partial diagnosis (the run store unreadable) proves nothing.
+    original = rc.Reconciler.listing
+
+    def broken(self: object) -> dict[str, object]:
+        raise rc.ReconcileRefused("RUN_STORE_UNAVAILABLE")
+
+    monkeypatch.setattr(rc.Reconciler, "listing", broken)
+    refused = journey.client.post(
+        f"{API}/recovery/requests/{request_id}/close", json={"status": "resolved"}
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "RECOVERY_PROBLEM_STILL_PRESENT"
+    monkeypatch.setattr(rc.Reconciler, "listing", original)
+    resolved = journey.client.post(
+        f"{API}/recovery/requests/{request_id}/close", json={"status": "resolved"}
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["requests"][0]["status"] == "resolved"
+
+
+def test_problem_coverage() -> None:
+    view = {"covered": ["MODEL", "CLAUDE"]}
+    assert recovery.problem_covered(view, "CLAUDE_BREAKER_OPEN")
+    assert not recovery.problem_covered(view, "CLAUDE_RECONCILIATION_MARKER")
+    assert not recovery.problem_covered(view, "GPT_OSS_BREAKER_OPEN")
+    assert recovery.problem_covered(view, "MODEL_UNAVAILABLE")

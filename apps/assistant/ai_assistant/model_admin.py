@@ -3274,10 +3274,15 @@ def model_admin_router(
             existing = store.recovery_request(request_id)
             if existing is None:
                 raise recovery_refused(profile, action, "RECOVERY_REQUEST_UNKNOWN", 404)
-            if body.status == "resolved" and existing["problem_code"] in recovery.present_codes(
-                recovery_view(profile)
-            ):
-                raise recovery_refused(profile, action, "RECOVERY_PROBLEM_STILL_PRESENT")
+            if body.status == "resolved":
+                view = recovery_view(profile)
+                code = existing["problem_code"]
+                # Resolved only when a full diagnosis no longer reports it: a part that could
+                # not be read (an unreadable ledger or run store) proves nothing (QG F4).
+                if code in recovery.present_codes(view) or not recovery.problem_covered(
+                    view, code
+                ):
+                    raise recovery_refused(profile, action, "RECOVERY_PROBLEM_STILL_PRESENT")
             try:
                 store.close_recovery_request(
                     request_id,

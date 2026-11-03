@@ -822,7 +822,41 @@ def diagnose(
         "healthy": not any(p.severity == "blocking" for p in problems),
         "problems": [problem.view(hr_allowed) for problem in problems],
         "expiries": expiries,
+        # Which parts were fully diagnosed: a problem missing from a part that was not cannot
+        # be taken as cleared (QG F4).
+        "covered": sorted(_covered(overview, listing, listing_error)),
     }
+
+
+def _covered(
+    overview: Mapping[str, Any], listing: Mapping[str, Any] | None, listing_error: str | None
+) -> set[str]:
+    budget = _map(overview.get("budget"))
+    claude = _map(budget.get("claude"))
+    parts = {"MODEL", "QUALIFICATION", "CONNECTION"}
+    if claude.get("configured") and isinstance(claude.get("ledger"), Mapping) and isinstance(
+        claude.get("reconciliation"), Mapping
+    ):
+        parts.add("CLAUDE")
+        if listing is not None and listing_error is None:
+            parts.add("CLAUDE_RECONCILIATION")
+    if budget.get("configured"):
+        parts.add("GPT_OSS")
+    return parts
+
+
+def problem_covered(view: Mapping[str, Any], code: str) -> bool:
+    """True when the diagnosis that produced ``view`` looked at the part ``code`` belongs to."""
+
+    covered = set(view.get("covered") or [])
+    if code.startswith("CLAUDE_RECONCILIATION") or code in {
+        "CLAUDE_NEVER_RECONCILED",
+    }:
+        return "CLAUDE_RECONCILIATION" in covered and "CLAUDE" in covered
+    for part in ("CLAUDE", "GPT_OSS"):
+        if code.startswith(part + "_"):
+            return part in covered
+    return True
 
 
 def present_codes(view: Mapping[str, Any]) -> set[str]:

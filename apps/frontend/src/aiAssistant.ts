@@ -236,6 +236,16 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Claude's ledger must be reconciled with the Anthropic Console's usage within the last day (no open call, no stop) before a Claude limit can be raised. Nothing changed.",
   "Claude is not fully configured on this server, so its limits can only be lowered. Nothing changed.",
   "Confirm the new call limit to raise it. Nothing changed.",
+  "Too many recovery requests. Wait a few minutes and try again.",
+  "That problem is not reported now; check the page again.",
+  "HR can fix that problem on this page; no request is needed.",
+  "The problem is still reported, so it stays open.",
+  "An open request for this problem already exists.",
+  "Too many open recovery requests. Close some first.",
+  "No such recovery request.",
+  "This recovery request is already closed.",
+  "That is not a valid way to close a request.",
+  "The note must be plain text without keys or secrets.",
 ]);
 
 function httpErrorMessage(status: number): string {
