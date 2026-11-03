@@ -82,7 +82,9 @@ review of that change (`c00023b`) was FAIL on one finding: a negative subject in
 ("No UBO status has not been officially verified." asserts the opposite). Negative subjects
 were removed from that form; the reproductions, the possessive "X's N% stake in Y belongs to Z"
 and "X's stake belongs to Y" forms, "Neither X nor Y is below the threshold" and claims inside
-an "Unlike X who ..." phrase are now judged and tested. The review's
+an "Unlike X who ..." phrase are now judged and tested. A third fresh review (`5b7b6a3`)
+was PASS WITH NOTES: no blocking finding, P3 confirmed safe (no closed form can be inverted;
+only authority and Live reasons are lifted); its two grounding notes are listed in section 5. The review's
 grounding notes (possessive names, "owned 60% by", "X, like Y, meets", "Unlike X, ...",
 "Neither X nor Y ...") are fixed and tested; a false removal found afterwards in a real answer
 (an elided subject: "... of Garden Business and indirectly holds 10% via Beta") is fixed too.
@@ -137,7 +139,7 @@ list form, met persons called below, "verified/confirmed/approved/settled" UBO c
 earlier negation bypass ("had not been officially verified until today", "by anyone but
 compliance"), and every claim written around a negated or conditional form (section 4.1a).
 
-Known false negatives (kept though wrong): holdings with the object first ("Of KESTREL, AISHA
+Known false negatives (kept though wrong): holdings stated with no figure other than "X's stake belongs to Y" with the names side by side ("KESTREL's stake in GARDEN belongs to DANIEL", "... stake ultimately belongs to DANIEL", "KESTREL is owned by DANIEL"; the PR head removed the possessive ones only because it could not read a possessive name), "Neither X nor Y is a candidate because they fall below the threshold" (as on the head), holdings with the object first ("Of KESTREL, AISHA
 holds 40%") or with percentages in parentheses after names, a reversed causal phrasing
 ("MERIDIAN holds its 20% through DANIEL KOH's 100% ownership"), a surname alone, pronouns,
 figures in words, lower-case company names, wrong descriptions without a figure or a
