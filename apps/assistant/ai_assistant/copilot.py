@@ -472,25 +472,24 @@ _UBO_CLAUSE = re.compile(r";|:(?!\s)|,? \b(?:but|however|whereas|while|although)
 # the phrase (not "the UBO check is ...", "the UBO is not yet known").
 _UBO_LIST = re.compile(
     r"\b(?:ubos?|ultimate beneficial owners?|beneficial owners?)(?: candidates?)?"
-    r"(?:\s*:|\s+(?:is|are|include|includes|would be|will be)\b:?)\s+"
-    r"(?!not\b|never\b|none\b|nobody\b|unknown\b|yet\b|still\b)",
+    # up to five words before the verb: "The UBOs, per the calculation, are ..."
+    r"(?:\s*:|(?:[\s,]+[\w'.-]+){0,5}?[\s,]+(?:is|are|include|includes|would be|will be)\b:?)"
+    r"\s+(?!not\b(?! only)|never\b|none\b|nobody\b|unknown\b|yet\b|still\b)",
     re.I,
 )
-# "has not been verified" written as "not be verified", which the shared negation check reads
-# as a negated claim (it is kept); only for the copilot's own UBO authority checks.
-_NOT_BEEN = re.compile(r"\b(?:has|have|had)(?: not|n't) been\b|\bnever been\b", re.I)
-
-
 def _authority_claim(pattern: re.Pattern[str], lowered: str) -> bool:
-    return any(
-        _asserted(pattern, _NOT_BEEN.sub("not be", clause), claim=True)
-        for clause in _CLAUSE.split(lowered)
-    )
+    """A claim only people or other systems can make, not negated in its clause. A negation
+    the shared check does not recognise ("has not been verified") is left out (fail closed):
+    rewriting it would also keep "had not been verified until today"."""
+
+    return any(_asserted(pattern, clause, claim=True) for clause in _CLAUSE.split(lowered))
 
 
-# Words after which the names that follow are contrasted with the UBOs, not listed as UBOs.
+# Words after which the names that follow are contrasted with the UBOs, not listed as UBOs
+# ("not only ... but also ..." lists them).
 _CONTRAST = re.compile(
-    r"\b(?:unlike|except|excluding|not|rather than|below|under|whereas|but)\b", re.I
+    r"\b(?:unlike|except|excluding|not(?! only)|rather than|below|under|whereas|but(?! also))\b",
+    re.I,
 )
 # A UBO result presented as settled or confirmed by someone ("Compliance confirmed that X is
 # the UBO", "the UBO status is final"): only people and other systems settle it.
@@ -646,7 +645,7 @@ class CopilotGuard:
             if any(not self._known_name(name) for name in self._names_in(part)):
                 self._left_out.append("unsupported_name")
                 return None
-        reason = _check(_NOT_BEEN.sub("not be", probe), self._ctx)
+        reason = _check(probe, self._ctx)
         if reason is not None:
             self._left_out.append(reason)
             return None
@@ -678,7 +677,7 @@ class CopilotGuard:
             if listed:
                 after = _CONTRAST.split(clause[listed.end() :], maxsplit=1)[0]
                 named += " " + after
-                settled_list = bool(re.match(r"\s*[A-Z0-9]", after))
+                settled_list = bool(re.match(r"\s*(?:not only\s+)?[A-Z]", after))
             subject = f" {canonical_name(named)} "
             if any(name and f" {name} " in subject for name in self._below):
                 return "ubo_contradicts_calculation"

@@ -880,10 +880,6 @@ def test_refinement_qg_reproductions_are_removed(sentence: str, reason: str) -> 
         "The UBO is not yet known: a person must review the analysis.",
         "Beneficial owners are natural persons who hold at least 25%.",
         "LIM CHOON HUAT is a provisional UBO candidate; this has not been confirmed.",
-        # Correct negations (seen in real model answers) are kept.
-        "No, the UBO has not been officially verified.",
-        "LIM CHOON HUAT has not been verified as a UBO.",
-        "The UBO has never been approved.",
     ],
 )
 def test_qualified_ubo_lists_and_plain_statements_are_kept(sentence: str) -> None:
@@ -894,3 +890,34 @@ def test_qualified_ubo_lists_and_plain_statements_are_kept(sentence: str) -> Non
 def test_holds_places_a_question_in_scope_only_with_a_case_open() -> None:
     assert copilot.in_domain("Who holds the other half?", ongoing=False, case_open=True)
     assert not copilot.in_domain("Who holds the world record for the marathon?", ongoing=False)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # Re-QG F1: a claim that is true now, written with "had not been ... until".
+        "The UBO had not been officially verified until today.",
+        "The UBO had never been officially verified before this week.",
+        "Ownership had not been legally confirmed until compliance signed off yesterday.",
+        "The UBO has not been officially verified by anyone but compliance.",
+        "The record had never been officially approved before today.",
+        # Re-QG F2: below-threshold names listed after a longer subject.
+        "The UBOs, per the calculation, are LIM CHOON HUAT and TAN WEI LING.",
+        "The UBOs here are LIM CHOON HUAT and TAN WEI LING.",
+        "The UBO candidates under the calculation are LIM CHOON HUAT and TAN WEI LING.",
+        "The UBOs are not only LIM CHOON HUAT but also TAN WEI LING.",
+        # Known limit, fail closed: a correct "has not been" negation the shared check
+        # reads as a claim is left out too.
+        "No, the UBO has not been officially verified.",
+    ],
+)
+def test_temporal_negations_and_longer_ubo_lists_are_left_out(sentence: str) -> None:
+    assert copilot.check_answer(sentence, OWNED).kept == 0
+
+
+def test_a_longer_subject_does_not_turn_a_figure_into_a_ubo_list() -> None:
+    for sentence in (
+        "The UBO threshold set by the application is 25%.",
+        "The UBO check for this case is blocked until ownership evidence is added.",
+    ):
+        assert copilot.check_answer(sentence, OWNED).kept == 1, sentence

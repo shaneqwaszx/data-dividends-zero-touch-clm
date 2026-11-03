@@ -122,7 +122,7 @@ any external model (copilot never runs with one).
   `e2e/assistant-case-memory.e2e.ts` covers case A to B, B to the general chat, back to A, a
   late reply during a switch, and sign-out, against the real panel in Chromium.
 - External data: no relaxation. C4 narrows the external system-message vocabulary.
-- Qualification basis: moves from main's `1cb45edc5939…` to `da1b815d16c3…`. Claude needs a
+- Qualification basis: moves from main's `1cb45edc5939…` to `0b21c4be19fa…`. Claude needs a
   separately approved requalification after merge and restart (D-115 Q1); Q2 proposes how
   future copilot-only changes could avoid this.
 
@@ -139,7 +139,9 @@ gaps in the grounding claims, all fixed in the remediation commit except where s
 | 4.2 strengthened or settled conclusions kept ("definitively the UBO", "Compliance confirmed that ...", "... and this is final") | adverbs added to `_UBO_DETERMINATION`; `_UBO_SETTLED` removes confirmed/verified/approved/certified-that, has-been-confirmed-as and settled/final UBO results (`authority_claim`) |
 | 4.3 an illustration in one part exempted an invented figure in another; "LLC" not a suffix | the illustration exemption now covers only its own `;` part; LLC is a recognised suffix. Lower-case company names and percentages in words stay known limits |
 | 5.1 "holds" made "Who holds the world record?" in scope with no case | "holds", "held", "holder" count only with a case open. Remaining scope limits are listed in D-115 C1 |
-| (found while fixing) correct negations "has not been verified" were removed by the shared check | the copilot reads "has not been" as "not be" for its own and the shared checks; the shown text and exact-line mode are unchanged |
+| (found while fixing) correct negations "has not been verified" are removed by the shared check | a rewrite to "not be" was tried in `888e807` and withdrawn: the fresh re-QG (FAIL, F1, blocking) showed it also kept claims that are now true ("had not been officially verified until today", "by anyone but compliance", and outside UBOs "had never been officially approved before today"). The rewrite is removed; these negations stay left out (fail closed) |
+| re-QG F2: below-threshold names after a longer subject ("The UBOs, per the calculation, are LIM and TAN", "not only ... but also TAN") | `_UBO_LIST` allows up to five words before the verb and reads "not only ... but also" as a list |
+| re-QG F3: "The UBO status is final only after a human reviewer confirms it" and unhedged contrast lists are left out | kept as known fail-closed limits (usability cost) |
 
 A third real-model run after the remediation (r3, same settings) answered the same 17
 questions with the model (weather redirected), median 4.7 s, max 8.7 s. It removed 9 sentences
@@ -152,7 +154,7 @@ guardrails, used unchanged by exact-line mode. They cost usefulness (the user se
 sentence(s) were left out"), never safety. Improving them changes the shared checks and should
 be a separate, reviewed change before copilot is activated.
 
-A fresh independent review of the remediation is recorded in the PR.
+The first remediation (`888e807`) failed its fresh review on F1; the corrected remediation is reviewed again before publication, and the result is recorded in the PR.
 
 ## 6. Owner decisions
 
