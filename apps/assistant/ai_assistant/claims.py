@@ -8,22 +8,19 @@ the answer. Used by the copilot guard (copilot.py), which runs with a local mode
                      named with "via"/"through" must run through that party
     classifications  a person said to be a UBO (candidate) or to meet the threshold, or said
                      not to be one or to be below it, must agree with the application's result
-    negations        a clause that only says something has NOT been verified, confirmed or
-                     approved (present tense, nothing after it), "neither source automatically
-                     wins", or a condition still to be met ("blocked until ownership is
-                     confirmed") asserts no authority; the rest of the sentence is checked whole
+    negations        a whole sentence of a closed form ("The UBO has not been officially
+                     verified.", "Neither source automatically wins.", "The case remains
+                     blocked until ownership is confirmed.") asserts no authority
 
-Every check here only removes a sentence, except ``negated_clauses_only``: it lets the guard
-keep a sentence the shared checks removed for an authority or Live claim, and only when every
-such claim sits in a clause proven to be one of those forms, no time or exception word
-appears anywhere ("until today", "now", "anyone but"), and the sentence without those clauses
-passes every check. Nothing here recalculates a figure.
+Every check here only removes a sentence, except ``negated_sentence``: it lets the guard keep a
+sentence the shared checks removed for an authority or Live claim, only when the whole sentence
+is one of a few fixed forms with a fixed subject and nothing else. Nothing here recalculates a
+figure.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -55,7 +52,7 @@ def canonical_name(text: str) -> str:
     """A name with capitals, punctuation, spacing and suffix spelling set aside, for an exact
     comparison of the words that remain (never a similarity score)."""
 
-    words = [re.sub(r"'S$", "", word) for word in re.findall(r"[A-Z0-9&']+", text.upper())]
+    words = [re.sub(r"'S?$", "", word) for word in re.findall(r"[A-Z0-9&']+", text.upper())]
     return " ".join(SUFFIX_FORMS.get(word, word) for word in words if word)
 
 
@@ -64,7 +61,8 @@ def _alias_pattern(alias: str) -> str:
     for word in alias.split():
         spellings = [word, *(long for long, short in SUFFIX_FORMS.items() if short == word)]
         parts.append("(?:" + "|".join(re.escape(s) for s in spellings) + r")\.?")
-    return r"(?<![\w'])" + r"[\s,]+".join(parts) + r"(?![\w'])"
+    # A possessive ("PRIYA NAIR's") is the same party.
+    return r"(?<![\w'])" + r"[\s,]+".join(parts) + r"(?!\w)(?!['’](?![sS]\b))"
 
 
 # --- the ownership graph ----------------------------------------------------------------------
@@ -185,6 +183,14 @@ _HOLDING_VERB = re.compile(
 )
 _OF_IN = re.compile(r"\b(?:of|in)\b", re.I)
 _PASSIVE_BY = re.compile(r"\b(?:owned|held|controlled)\s+by\s*$", re.I)
+_BY = re.compile(r"\s*by\s*", re.I)
+# A second clause with its subject left out ("... of GARDEN and indirectly holds 10% ...").
+_ELIDED = re.compile(r"\s*,?\s*(?:and|but|while|whereas)\b", re.I)
+_BELONGS = re.compile(
+    r"\s*(?:stake|interest|holding|shareholding)?\s*(?:belongs to|is held by|is owned by)\s*",
+    re.I,
+)
+_PASSIVE_VERB = re.compile(r"\b(?:owned|held|controlled)\b", re.I)
 _PASSIVE_AFTER = re.compile(r"^\s*(?:is|are|was|were)?\s*(?:owned|held|controlled)\s+by\s+", re.I)
 _VIA = re.compile(r"\b(?:via|through)\s+$", re.I)
 _VIA_GAP = re.compile(r"\s*(?:\w+ly\s+)?(?:via|through)\s+", re.I)
@@ -212,7 +218,23 @@ def relationship_problem(sentence: str, graph: OwnershipGraph) -> str | None:
             if _PERCENT.search(gap) or len(gap.split()) > 6:
                 continue
             holder = held = None
-            if _PASSIVE_BY.search(gap):  # "GARDEN is 50% owned by ALPHA"
+            subject = before[-1] if before else None
+            if (
+                subject is not None
+                and len(before) > 1
+                and _ELIDED.match(part[subject.end : match.start()])
+            ):
+                subject = before[-2]  # "NG holds 15% of GARDEN and holds 10% via BETA"
+            passive_before = (
+                bool(before)
+                and _BY.fullmatch(gap) is not None
+                and _PASSIVE_VERB.search(part[before[-1].end : match.start()]) is not None
+            )
+            if before and _BELONGS.fullmatch(gap):
+                # "MERIDIAN's 100% stake belongs to PRIYA": PRIYA holds 100% of MERIDIAN.
+                holder, held = first_after.key, before[-1].key
+            elif _PASSIVE_BY.search(gap) or passive_before:
+                # "GARDEN is 50% owned by ALPHA", "GARDEN is owned 50% by ALPHA"
                 holder = first_after.key
                 held = before[-1].key if before else None
             elif _OF_IN.search(gap):
@@ -220,15 +242,15 @@ def relationship_problem(sentence: str, graph: OwnershipGraph) -> str | None:
                 passive = _PASSIVE_AFTER.match(tail)
                 if passive and len(after) > 1:  # "50% of GARDEN is held by ALPHA"
                     holder, held = after[1].key, first_after.key
-                elif before:  # "ALPHA holds 50% of GARDEN"
-                    between = part[before[-1].end : match.start()]
+                elif subject is not None:  # "ALPHA holds 50% of GARDEN"
+                    between = part[subject.end : match.start()]
                     if _HOLDING_VERB.search(between) and not _CONTRASTED.search(between):
-                        holder, held = before[-1].key, first_after.key
-            elif before and _VIA_GAP.fullmatch(gap):
+                        holder, held = subject.key, first_after.key
+            elif subject is not None and _VIA_GAP.fullmatch(gap):
                 # "PRIYA holds 20% through MERIDIAN": an interest in the company, by that path.
-                between = part[before[-1].end : match.start()]
+                between = part[subject.end : match.start()]
                 if _HOLDING_VERB.search(between) and not _CONTRASTED.search(between):
-                    holder, held = before[-1].key, graph.root
+                    holder, held = subject.key, graph.root
                     if holder in graph.persons and first_after.key not in graph.paths.get(
                         holder, set()
                     ):
@@ -300,14 +322,23 @@ _SEGMENT = re.compile(
 
 _OPEN_QUESTION = re.compile(r"\b(?:whether|if)\b(?:\W+\w+){0,3}\W*$", re.I)
 # Only a conjunction between two people: they share one claim.
-_JOINED = re.compile(r"\s*(?:,|and|or|as well as|&)?\s*(?:,\s*)?(?:and|or)?\s*", re.I)
+_JOINED = re.compile(
+    r"\s*,?\s*(?:and|or|as well as|&|like|just like|along with|together with)?\s*,?\s*"
+    r"(?:and|or)?\s*",
+    re.I,
+)
+# "Unlike TAN, LIM is ...", "LIM and NG, except TAN, ...": the contrasted name is left out.
+_CONTRASTED_PHRASE = re.compile(
+    r"\b(?:unlike|except(?: for)?|excluding|rather than|other than)\b[^,;]*", re.I
+)
+_NEITHER_NOR = re.compile(r"^\W*neither\b.*\bnor\b", re.I)
 
 
 def _segments(clause: str) -> list[str]:
     # "not only/just X but (also) Y" lists both: no split at that "but".
     if re.search(r"\bnot (?:only|just)\b", clause, re.I):
         clause = re.sub(r"\bbut( also)?\b", "and", clause, flags=re.I)
-    return _SEGMENT.split(clause)
+    return _SEGMENT.split(_CONTRASTED_PHRASE.sub("", clause))
 
 
 def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
@@ -337,7 +368,9 @@ def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
                     )
                     if match
                 ]
-                if _OPEN_QUESTION.search(segment[: person.start][-40:]):
+                if _NEITHER_NOR.match(segment):
+                    claims[index] = "not_a_ubo"  # "Neither PRIYA nor OMAR is a UBO candidate"
+                elif _OPEN_QUESTION.search(segment[: person.start][-40:]):
                     claims[index] = None  # "whether OMAR is a UBO" asks; it claims nothing
                 elif found:
                     # The first claim after the person; a negation before a positive phrase
@@ -360,101 +393,60 @@ def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
 
 # --- P3: negations and conditions --------------------------------------------------------------
 
-_AUTHORITY_WORD = r"(?:verified|confirmed|approved|certified|cleared)"
-_NEGATED_FORMS = (
-    # "The UBO has not been officially verified." (present tense; nothing after it)
-    re.compile(
-        r"^(?:[\w'.&-]+ ){0,8}?(?:has|have|is|are)(?: not|n't)(?: yet)?(?: been)?"
-        rf"(?: (?:officially|legally|formally|independently))? {_AUTHORITY_WORD}(?: yet)?$"
-    ),
-    # "It does not mean she is officially verified or approved."
-    re.compile(
-        r"^(?:it |this |that )?(?:does not|doesn't) (?:mean|imply|show) (?:that )?"
-        r"(?:[\w'-]+ ){0,4}?(?:is|are|has been|have been) (?:officially |legally |formally )?"
-        rf"{_AUTHORITY_WORD}(?: or {_AUTHORITY_WORD})?$"
-    ),
-    # "It is not a final KYC or regulatory approval."
-    re.compile(
-        r"^(?:it |this |that |the result |the analysis )?(?:is|are) not (?:a |an )?"
-        r"(?:final |formal |official |legal )?(?:kyc|regulatory|compliance|legal)"
-        r"(?: or (?:kyc|regulatory|compliance|legal))? (?:approval|clearance|verification)$"
-    ),
-    # "Neither source automatically wins."
-    re.compile(
-        r"^(?:neither|no) (?:source|value|record|side|one|of them|[\w-]+ nor (?:the )?[\w-]+)? ?"
-        r"(?:automatically |simply )?(?:wins|overrides|takes precedence|replaces)"
-        r"(?: the other)?$"
-    ),
-    # "Neither is officially verified."
-    re.compile(
-        r"^neither(?: of them| candidate| one| result)? (?:is|are) (?:yet )?"
-        rf"(?:officially |formally |legally )?{_AUTHORITY_WORD}(?: yet)?$"
-    ),
-    # "The check has not run in a live environment." / "This is not live data."
-    re.compile(
-        r"^(?:[\w'.-]+ ){0,8}?(?:is|are|has|have|does|do)(?: not|n't)(?: been)?"
-        r"(?: (?:run|connected|used|tested|sent|submitted))?(?: (?:in|to|on|with|against))?"
-        r" (?:a |an |the )?(?:live|production|real) (?:acra|registry|goldtier|system"
-        r"|environment|integration|connection|api|data)$"
-    ),
+# Whole sentences only, from a closed vocabulary: a fixed subject, a negated or conditional
+# authority phrase, nothing else. No clause is split off, nothing is rewritten and no remainder
+# is judged on its own (two earlier designs that did so let a current claim through: "had not
+# been verified until today", "Compliance has verified the UBO so the case cannot proceed until
+# the address is confirmed"). Anything else stays left out (fail closed).
+_SUBJECT = (
+    r"(?:the |this |that |its |their |his |her )?(?:ubo|ubos|ubo status|ubo result|ubo check"
+    r"|beneficial ownership|ownership|ownership result|ownership analysis|analysis|result"
+    r"|calculation|case|record|registry record|document|address|registered address"
+    r"|candidate|candidates|anyone's ubo status|no ubo status)"
 )
-# "The case remains blocked until ownership is confirmed." The condition ends the clause.
-_CONDITION = re.compile(
-    r"^.*?\b(?:blocked|cannot|can't|remains?|stays?|must|needs?|requires?|will not|won't"
-    r"|pending|waiting|paused|on hold)\b.*? (?:until|unless|before|once|if|when) "
-    rf"(?:[\w'.-]+ ){{1,6}}?(?:is|are|has been|have been|gets?) (?:officially |formally "
-    rf"|legally |properly )?{_AUTHORITY_WORD}$"
+_AUTHORITY_WORD = r"(?:verified|confirmed|approved|certified)"
+_OFFICIALLY = r"(?: (?:officially|legally|formally|independently))?"
+_NEGATED_SENTENCES = tuple(
+    re.compile(pattern)
+    for pattern in (
+        # "No, the UBO has not been officially verified (yet)."
+        rf"^{_SUBJECT} (?:has not|hasn't|have not|haven't|is not|isn't|are not|aren't)"
+        rf"(?: yet)?(?: been)?{_OFFICIALLY} {_AUTHORITY_WORD}(?: yet)?$",
+        # "No UBO status is verified yet."
+        rf"^(?:no ubo status|no ubo|none of them|neither of them|neither candidate) (?:is|are)"
+        rf"(?: yet)?{_OFFICIALLY} {_AUTHORITY_WORD}(?: yet)?$",
+        # "Neither source automatically wins (over the other)."
+        r"^neither (?:source|value|record|the registry nor the document|the document nor the "
+        r"registry|the acra record nor the document) (?:automatically |simply )?(?:wins|overrides"
+        r"|takes precedence)(?: over the other| the other)?$",
+        # "It does not mean she is officially verified (or approved)."
+        r"^(?:it|this|that) (?:does not|doesn't) (?:mean|imply) (?:that )?(?:she|he|they|it"
+        rf"|the ubo|the person|the candidate|anyone) (?:is|are){_OFFICIALLY} {_AUTHORITY_WORD}"
+        rf"(?: or {_AUTHORITY_WORD})?$",
+        # "It is not a final KYC or regulatory approval."
+        r"^(?:it|this|that|the result|the analysis) is not (?:a |an )?(?:final |formal "
+        r"|official )?(?:kyc|regulatory|compliance)(?: or (?:kyc|regulatory|compliance))? "
+        r"(?:approval|clearance)$",
+        # "The case remains blocked until ownership is confirmed."
+        r"^(?:the case|this case|it|the ubo check|the review|the submission|onboarding) (?:remains"
+        r"|stays|is|will remain|cannot proceed|cannot move forward|cannot be acted on|cannot be"
+        r" submitted)(?: blocked| paused| pending| on hold)? until (?:the )?(?:ownership"
+        r"|ownership evidence|ubo|ubo check|address|registered address|document|documents"
+        r"|ownership declaration) (?:is|are|has been|have been) (?:confirmed|verified|reviewed)$",
+        # "The check has not run in a live environment."
+        r"^(?:the check|the analysis|the case|the data|this data|the registry data|the result)"
+        r" (?:has not|hasn't|is not|isn't|was not|wasn't) (?:run in|connected to|from|tested in)"
+        r" (?:a |an |the )?(?:live|production) (?:environment|system|registry|acra registry"
+        r"|connection|service)$",
+    )
 )
-# Time and exception words: a "not ... until today" or "by anyone but X" says the opposite.
-_VETO = re.compile(
-    r"\b(?:now|today|yesterday|tomorrow|tonight|currently|anymore|any longer|no longer"
-    r"|already|since|previously|earlier|recently|finally|later|then|again|just|only"
-    r"|except|other than|apart from|anyone but|anybody but|no one but|nobody but|someone)\b",
-    re.I,
-)
-_CLAUSE_BREAK = re.compile(r"\s*(?:[;,:—–]|\s-\s|\bbut\b|\band\b)\s*", re.I)
-_LEAD = re.compile(r"^(?:no|yes|so|and|but|also),?\s+", re.I)
-_NEUTRAL = (
-    (re.compile(r"\b(?:officially|legally|formally|independently)\s+", re.I), ""),
-    (re.compile(rf"\b{_AUTHORITY_WORD}\b", re.I), "reviewed"),
-    (re.compile(r"\b(?:automatically|simply) (?:wins|overrides|takes precedence|replaces)", re.I),
-     "applies"),
-    (re.compile(r"\b(?:live|production|real)\b", re.I), "test"),
-    (re.compile(r"\b(?:kyc|regulatory|compliance|legal) (?:approval|clearance)\b", re.I),
-     "review"),
-)
+_LEAD = re.compile(r"^(?:no|so),\s+", re.I)
 
 
-def _form(clause: str) -> bool:
-    lowered = _LEAD.sub("", " ".join(clause.lower().split()).strip(" .!"))
-    return any(form.match(lowered) for form in _NEGATED_FORMS) or bool(_CONDITION.match(lowered))
+def negated_sentence(sentence: str) -> bool:
+    """True when the whole sentence is one of the closed negated or conditional forms above,
+    and so asserts no authority, verification, approval or Live claim."""
 
-
-def negated_clauses_only(sentence: str, check: Callable[[str], str | None]) -> bool:
-    """True when every authority or Live claim the checks found sits in a clause proven to
-    assert none (see the module notes): the sentence then stays. ``check`` is the guard's own
-    full check of a text (None: it passes)."""
-
-    if _VETO.search(sentence):
-        return False
-    body = sentence.strip()
-    spans = []
-    start = 0
-    for brk in [*_CLAUSE_BREAK.finditer(body), None]:
-        end = brk.start() if brk else len(body)
-        spans.append((start, end))
-        start = brk.end() if brk else len(body)
-    proven = [(a, b) for a, b in spans if body[a:b].strip() and _form(body[a:b])]
-    if not proven:
-        return False
-    for a, b in proven:  # the clause's other content (values, labels, contacts) still passes
-        neutral = body[a:b]
-        for pattern, replacement in _NEUTRAL:
-            neutral = pattern.sub(replacement, neutral)
-        if check(neutral) is not None:
-            return False
-    remainder = body
-    for a, b in reversed(proven):
-        remainder = remainder[:a] + remainder[b:]
-    remainder = remainder.strip(" ,;:.—–-")
-    return not remainder or check(remainder) is None
+    text = _LEAD.sub("", " ".join(sentence.lower().replace("\u2019", "'").split()))
+    text = text.strip().rstrip(".!")
+    return any(form.fullmatch(text) for form in _NEGATED_SENTENCES)

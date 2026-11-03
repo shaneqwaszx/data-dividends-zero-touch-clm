@@ -35,7 +35,7 @@ from .claims import (
     OwnershipGraph,
     canonical_name,
     classification_problem,
-    negated_clauses_only,
+    negated_sentence,
     relationship_problem,
 )
 from .evidence import evidence_message
@@ -561,7 +561,7 @@ def _percentages(value: Any, key: str = "") -> set[Decimal]:
             with suppress(InvalidOperation):
                 found.add(Decimal(text).normalize())
     return found
-# Reasons a negated or conditional clause may have caused (claims.negated_clauses_only).
+# Reasons a negated or conditional sentence may have caused (claims.negated_sentence).
 _AUTHORITY_REASONS = frozenset({"authority_claim", "live_claim"})
 REMOVED_NOTICE = (
     "{count} sentence(s) were left out because they could not be checked against the case "
@@ -621,9 +621,7 @@ class CopilotGuard:
         if _SELF_ACTION.search(lowered):
             self._left_out.append("assistant_action_claim")
             return None
-        if _authority_claim(_VERIFIED_UBO, lowered) and not negated_clauses_only(
-            probe, self._final
-        ):
+        if _authority_claim(_VERIFIED_UBO, lowered) and not negated_sentence(probe):
             self._left_out.append("authority_claim")
             return None
         graph = self._graph
@@ -646,8 +644,8 @@ class CopilotGuard:
                 self._left_out.append("unsupported_name")
                 return None
         reason = self._final(probe)
-        if reason in _AUTHORITY_REASONS and negated_clauses_only(probe, self._final):
-            reason = None  # only negated or conditional clauses made the claim (claims.py)
+        if reason in _AUTHORITY_REASONS and negated_sentence(probe):
+            reason = None  # a closed negated or conditional sentence (claims.py)
         if reason is not None:
             self._left_out.append(reason)
             return None

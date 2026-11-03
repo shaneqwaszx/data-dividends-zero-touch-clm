@@ -43,7 +43,7 @@ After:
 
 | File | Change |
 | --- | --- |
-| `ai_assistant/claims.py` (new) | `OwnershipGraph`, `relationship_problem` (P1), `classification_problem` (P2), `negated_clauses_only` (P3), `canonical_name` (moved here) |
+| `ai_assistant/claims.py` (new) | `OwnershipGraph`, `relationship_problem` (P1), `classification_problem` (P2), `negated_sentence` (P3, closed whole-sentence forms), `canonical_name` (moved here) |
 | `ai_assistant/evidence.py` (new) | source-grouped evidence package (P4/C) |
 | `ai_assistant/copilot.py` | RULES rewritten (P4); evidence message; ownership relationships with direction; guard order: classification → settled/unqualified UBO → relationship → percentages/names → shared checks with the negation analysis; scope additions; earlier subject-before-phrase contradiction check replaced by the structured one |
 | `ai_assistant/model_qualification.py` | `claims.py`, `evidence.py` join `BASIS_FILES` |
@@ -60,13 +60,27 @@ procedure, retention or read-only authority.
 
 ### 4.1 Validator (deterministic, labelled corpus on the held-out facts)
 
-| Guard | Unsafe sentences kept | Correct sentences removed |
-| --- | --- | --- |
-| PR #155 (`16587d5`) | 15 of 31 | 10 of 23 |
-| Refined | 0 of 31 | 0 of 23 |
+| Guard | Implementer corpus: unsafe kept | Implementer corpus: correct removed | Reviewer probes: unsafe kept | Reviewer probes: correct removed |
+| --- | --- | --- | --- | --- |
+| PR #155 (`16587d5`) | 15 of 31 | 10 of 23 | 42 of 82 | 7 of 23 |
+| Refined (final) | 0 of 31 | 2 of 23 | 24 of 82 | 0 of 23 |
 
-The corpus was written by the implementer (it overlaps the tests), so it shows the targeted
-classes are handled, not general recall; the independent review probes further.
+The implementer's corpus overlaps the tests. The reviewer's probes were written independently
+during the quality gate; no unsafe sentence is kept now that the PR head removed. The 24 still
+kept are forms listed in section 5 and claims the shared checks never flag. The 2 correct
+sentences now removed are compound negations left out on purpose (section 5).
+
+### 4.1a Independent review of this round
+
+The first review of `58f4544` was FAIL (blocking, potential security regression): the
+clause-based negation acceptance kept current claims written around a negated or conditional
+clause ("Compliance has verified the UBO so the case cannot proceed until the address is
+confirmed.", "The case remains blocked until ownership is confirmed, which compliance did.",
+"The registry wins; neither source automatically wins."). It was replaced by whole-sentence
+closed forms (D-115 C6); all eleven reproductions are tests and are removed. The review's
+grounding notes (possessive names, "owned 60% by", "X, like Y, meets", "Unlike X, ...",
+"Neither X nor Y ...") are fixed and tested; a false removal found afterwards in a real answer
+(an elided subject: "... of Garden Business and indirectly holds 10% via Beta") is fixed too.
 
 ### 4.2 Real local model (held-out case, 13 unseen questions, 16 turns)
 
@@ -76,10 +90,12 @@ Laptop GPU, warm model (the first call after a model load took 32.6 s earlier).
 | Run | Answered by the model | Redirected | Sentences removed | Median / max latency |
 | --- | --- | --- | --- | --- |
 | PR #155 (`16587d5`) | 14 of 16 | 2 ("How did the application get 25% for DANIEL KOH?", "And MERIDIAN?") | 9 | 3.1 s / 10.8 s |
-| Refined, final (`ab85a99`) | 16 of 16 | 0 | 4 | 3.4 s / 6.7 s |
+| Refined (`ab85a99`; guard later tightened, see 4.1a) | 16 of 16 | 0 | 4 | 3.4 s / 6.7 s |
 | Exact lines | 15 of 15 (no general chat) | 0 | 1 | 0.6 s / 1.9 s |
 
-Of the 4 removals in the final run, one is a genuine relationship error the old guard would
+Re-checking the recorded raw answers with the final guard gives 5 removals on the held-out
+set (8 for the PR #155 answers) and 5 on the original set. Of the 4 removals shown in the final
+run, one is a genuine relationship error the old guard would
 have shown ("PRIYA NAIR holds 20% of KESTREL HOLDINGS"; she holds 40% of KESTREL, 20% of the
 company), one is a misquoted label, and two are over-removals in the change-request answer
 after the read-only line. On the original question set the refined copilot answered 17 of 18
@@ -109,23 +125,28 @@ action not offered, invented documents. Not production-ready on this model.
 
 ## 5. Safety
 
-Correctly rejected (tests and corpus): reversed or self-holdings, a percentage moved to another
-party, a wrong path ("through MERIDIAN" for PRIYA), below-threshold or undetermined persons
-called candidates in any order or list form, met persons called below, "verified/confirmed/
-approved/settled" UBO claims, and every earlier negation bypass ("had not been verified until
-today", "by anyone but compliance", "has not been verified; the UBO, by the way, is
-confirmed", "Neither ... wins, but the registry now overrides").
+Correctly rejected (tests, corpus and the reviewer's probes): reversed or self-holdings, a
+percentage moved to another party, a wrong path ("through MERIDIAN" for PRIYA), passive and
+possessive holdings, below-threshold or undetermined persons called candidates in any order or
+list form, met persons called below, "verified/confirmed/approved/settled" UBO claims, every
+earlier negation bypass ("had not been officially verified until today", "by anyone but
+compliance"), and every claim written around a negated or conditional form (section 4.1a).
 
-Known false negatives (kept though wrong): holdings stated without a holding verb or without
-"of/in/through" ("MERIDIAN holds its 20% through DANIEL KOH's 100% ownership"), a surname
-alone, pronouns, figures written in words, lower-case company names, wrong descriptions that
-contain no figure or classification. Known false positives (removed though correct): past-tense
-negations ("had not been verified"), conditionals not ending the clause, quoted labels that are
-not word-for-word, refusals phrased "I cannot mark X as the verified UBO".
+Known false negatives (kept though wrong): holdings with the object first ("Of KESTREL, AISHA
+holds 40%") or with percentages in parentheses after names, a reversed causal phrasing
+("MERIDIAN holds its 20% through DANIEL KOH's 100% ownership"), a surname alone, pronouns,
+figures in words, lower-case company names, wrong descriptions without a figure or a
+classification, and claims the shared checks never flag ("The UBO, verified by compliance,
+remains blocked until the address is confirmed.", "The UBO had not been verified until today."
+without "officially"; unchanged from main). Known false positives (removed though correct):
+negations or conditions that are not one of the fixed whole-sentence forms ("Neither source
+automatically wins—this is a case-specific decision.", past tense "had not been verified"),
+quoted labels that are not word for word, refusals phrased "I cannot mark X as the verified
+UBO".
 
 ## 6. Qualification
 
-The basis moves from main's `1cb45edc5939…` to `395a83be7026…` (main.py, copilot.py,
+The basis moves from main's `1cb45edc5939…` to `8fbb7852848d…` (main.py, copilot.py,
 case_contexts.py, claims.py, evidence.py and the boundary file). Claude Balanced would become
 AI unavailable after merge and restart until a separately approved paid requalification
 (D-098 R6; the earlier owner authorisation was 2 billed calls, at most US$0.192 reserved, per

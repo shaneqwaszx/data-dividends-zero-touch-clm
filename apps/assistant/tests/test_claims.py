@@ -146,11 +146,10 @@ def test_wrong_relationships_and_classifications_are_removed(sentence: str, reas
         "No, the UBO has not been officially verified.",
         "The UBO has not been officially verified yet.",
         "Neither source automatically wins.",
-        "Neither source automatically wins—this is a case-specific decision.",
         "The case remains blocked until ownership is confirmed.",
         "It cannot be acted on until ownership evidence is confirmed.",
         "It does not mean she is officially verified or approved.",
-        "This is provisional; it is not a final KYC or regulatory approval.",
+        "It is not a final KYC or regulatory approval.",
         "The check has not run in a live environment.",
     ],
 )
@@ -256,3 +255,85 @@ def test_second_real_model_round_sentences_are_kept(sentence: str) -> None:
 
 def test_a_relative_clause_does_not_hedge_a_ubo_conclusion() -> None:
     assert copilot.check_answer("AISHA RAHMAN, who is the UBO, holds 30%.", FACTS).kept == 0
+
+
+# Refinement-2 QG (FAIL, P3): a negated or conditional form must be the whole sentence. These
+# were kept by the earlier clause-based design and must stay out.
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Compliance has verified the UBO so the case cannot proceed until the address is "
+        "confirmed.",
+        "Compliance approved the UBO so GoldTier stays paused until the UEN is confirmed.",
+        "The UBO is officially verified so the case needs nothing until the address is confirmed.",
+        "The UBO has been verified by MAS so the case must wait until the address is confirmed.",
+        "The ACRA connection is live so the case must wait until the address is confirmed.",
+        "GoldTier is connected to production so the case is pending until the UBO is confirmed.",
+        "The case cannot proceed until the UBO is confirmed and it has been confirmed.",
+        "The case cannot proceed until the UBO is confirmed, which happened this morning.",
+        "The case remains blocked until ownership is confirmed, which compliance did.",
+        "The case remains blocked until ownership is confirmed \u2013 done by compliance this "
+        "morning.",
+        "The registry wins; neither source automatically wins.",
+    ],
+)
+def test_claims_wrapped_around_a_negated_form_are_removed(sentence: str) -> None:
+    assert copilot.check_answer(sentence, FACTS).kept == 0, sentence
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # Correct, but not a whole closed form: left out (fail closed, a known limit).
+        "Neither source automatically wins\u2014this is a case-specific decision.",
+        "This is provisional; it is not a final KYC or regulatory approval.",
+        "The UBO had not been officially verified.",
+    ],
+)
+def test_compound_or_past_tense_negations_stay_out(sentence: str) -> None:
+    assert copilot.check_answer(sentence, FACTS).kept == 0, sentence
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "MERIDIAN CAPITAL is owned 60% by AISHA RAHMAN.",
+        "PRIYA NAIR, like AISHA RAHMAN, meets the threshold.",
+    ],
+)
+def test_refinement_qg_grounding_false_negatives_are_removed(sentence: str) -> None:
+    assert copilot.check_answer(sentence, FACTS).kept == 0, sentence
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "PRIYA NAIR's indirect interest of 20% is below the 25% threshold.",
+        "OMAR SAID's result could not be determined, so a person must review it.",
+        "Unlike PRIYA NAIR, AISHA RAHMAN is a provisional UBO candidate.",
+        "Neither PRIYA NAIR nor OMAR SAID is a provisional UBO candidate.",
+        "MERIDIAN CAPITAL is owned 100% by DANIEL KOH.",
+    ],
+)
+def test_refinement_qg_grounding_false_positives_are_kept(sentence: str) -> None:
+    check = copilot.check_answer(sentence, FACTS)
+    assert (check.kept, check.left_out) == (1, []), check
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "MERIDIAN CAPITAL's 100% stake belongs to PRIYA NAIR.",
+        "PRIYA NAIR's 60% stake in KESTREL HOLDINGS gives her 30% of the company.",
+        "PRIYA NAIR's interest meets the threshold.",
+    ],
+)
+def test_possessive_names_are_judged_like_the_name(sentence: str) -> None:
+    assert copilot.check_answer(sentence, FACTS).kept == 0, sentence
+
+
+def test_an_elided_subject_is_the_holder_of_the_previous_clause() -> None:
+    kept = "DANIEL KOH directly holds 5% of GARDEN BUSINESS and indirectly holds 20% via MERIDIAN."
+    assert copilot.check_answer(kept, FACTS).kept == 1
+    wrong = "DANIEL KOH holds 5% of GARDEN BUSINESS and indirectly holds 20% via KESTREL."
+    assert copilot.check_answer(wrong, FACTS).left_out == ["unsupported_relationship"]
