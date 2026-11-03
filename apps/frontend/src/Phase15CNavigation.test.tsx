@@ -361,6 +361,8 @@ function RouteFixture({ profile = allCapabilitiesActor }: { profile?: Authentica
         actor={profile}
         retainedIntakeCaseId={null}
         dashboard={<Screen>dashboard</Screen>}
+        gtcDashboard={<Screen>gtc dashboard</Screen>}
+        periodicReviewDashboard={<Screen>periodic review dashboard</Screen>}
         newOnboarding={(caseId) => <Screen>{caseId ? `intake:${caseId}` : "new-onboarding"}</Screen>}
         cases={<Screen>cases</Screen>}
         caseDetail={(caseId) => <Screen>{`case:${caseId}`}</Screen>}

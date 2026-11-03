@@ -169,7 +169,11 @@ describe("historical RBAC dashboard", () => {
     const markup = renderToStaticMarkup(<MemoryRouter><DashboardCategoryPicker dashboard={snapshot(maya)} onSelectOnboarding={() => undefined} /></MemoryRouter>);
     expect(markup).toContain("Onboarding");
     expect(markup).toContain("View dashboard");
-    expect(markup).toContain("Not set up");
+    expect(markup).not.toContain("Not set up");
+    expect(markup).toContain("Global Tax Compliance (GTC)");
+    expect(markup).toContain("Periodic Review / KYC Refresh");
+    expect(markup.match(/category-card--live/g)).toHaveLength(1);
+    expect(markup.match(/class="card category-card/g)).toHaveLength(3);
   });
 
   it("renders exact backend totals, zero-touch rate, timing, and scoped cases", () => {
@@ -273,7 +277,7 @@ it("Dashboard v2 explicitly requests its 30-day initial cohort", async () => {
 });
 
 
-it("renders the authorized weekly response instead of illustrative jurisdiction data", () => {
+it("renders the fixed mock weekly chart, labelled as mock data, regardless of the backend response", () => {
   const value = snapshot(maya);
   value.weekly_onboarded = [{
     week_start: "2026-10-12", by_jurisdiction: { SG: 3 }, unresolved_count: 0,
@@ -283,10 +287,12 @@ it("renders the authorized weekly response instead of illustrative jurisdiction 
     dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
     onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
   /></MemoryRouter>);
-  expect(markup).toContain('title="Singapore: 3"');
-  expect(markup).toContain("10-12");
+  expect(markup).not.toContain('title="Singapore: 3"');
+  expect(markup).toContain('title="Singapore: 9"');
+  expect(markup).toContain("10-26");
+  expect(markup).toContain("Fixed sample figures for demonstration");
   expect(markup).not.toContain("Illustrative mix");
-  expect(markup).not.toContain("Australia");
+  expect(markup).toContain('title="Australia: 4"');
 });
 
 
