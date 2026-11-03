@@ -93,7 +93,7 @@ models keep exact lines and their D-094/D-095 gates.
 - Preserved: ADR-012 exact lines (default), D-094/D-095 gates, D-104 data access, D-110 R4-R13,
   ledgers, limits, credentials, RBAC, redaction.
 - Replaced only in copilot mode, and only if approved: the exact-line rule.
-- Awaiting approval: D-115 A1-A4, R1, Q1 (basis `5dc26b296026…` to `f7df76e56ee2…`, a paid
+- Awaiting approval: D-115 A1-A4, R1, Q1 (basis: main `d5d882f12e93…`, then #153 `bcd6afc2b454…` and #154 `1cb45edc5939…`, then `f7df76e56ee2…`, a paid
   requalification) and review of the `code_vocabulary` widening (+176/-4; 57/4 of these were
   already stale on main).
 
