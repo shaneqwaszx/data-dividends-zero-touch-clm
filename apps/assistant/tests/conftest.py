@@ -18,6 +18,7 @@ import sqlite3
 import tempfile
 import threading
 import urllib.parse
+import warnings
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -128,7 +129,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     shutil.rmtree(TEST_DATA_ROOT, ignore_errors=True)
 
 
-from ai_assistant import key_sources, remote_test, synthetic_eligibility  # noqa: E402
+from ai_assistant import (  # noqa: E402
+    anthropic_runtime,
+    key_sources,
+    remote_test,
+    synthetic_eligibility,
+)
 from ai_assistant.config import AiAssistantSettings  # noqa: E402
 
 AiAssistantSettings.model_config = {**AiAssistantSettings.model_config, "env_file": None}
@@ -156,16 +162,23 @@ def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
 def no_carried_over_runs() -> None:
     """A qualification an earlier test started and did not wait for must not touch this one.
 
-    Its background thread can finish during the next test and record a provider key-limit
-    reading in the process-wide cache (remote_test._provider), so a test that expects that
-    reading to be missing saw it present (hosted CI, intermittently). Wait for such threads,
-    bounded, then start from an empty reading, as a fresh process would.
+    Its background thread can finish during the next test and change a process-wide provider
+    reading (OpenRouter's remote_test._provider, Claude's anthropic_runtime._last), so a test
+    saw a reading present or cleared that it did not make (hosted CI, intermittently). Wait for
+    such threads, bounded, then start from empty readings, as a fresh process would.
     """
 
     for thread in threading.enumerate():
         if thread.name == "model-qualification":
             thread.join(30)
+            if thread.is_alive():
+                warnings.warn(
+                    "a model-qualification thread from an earlier test is still running",
+                    stacklevel=1,
+                )
     remote_test.forget_provider()
+    with anthropic_runtime._last_lock:
+        anthropic_runtime._last.clear()
 
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
