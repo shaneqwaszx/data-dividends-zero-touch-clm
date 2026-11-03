@@ -93,6 +93,16 @@ decisions, supersession and final-target freezes remain in force.
 | `policy=Singapore` and `bookingEntity=ANZBGL (Singapore Branch)` are accepted POC values | Bounded Singapore POC, not universal/Production value authority |
 | GoldTier owns downstream four-eye/KYC; this application automates Maker preparation | Review & Send remains final local approval; no achieved KYC/RFA/regulatory approval claim |
 
+D-117 correction (sponsor response document recorded in
+[D-117](../decisions/DECISION_LOG.md)): the Amend Policy identifier is a GoldTier-generated
+Policy ID, not `Singapore`, so the Amend half of the `policy` alias row above is superseded.
+For existing customers the sponsor names prior onboarding records, customer search results or
+other approved GoldTier retrieval as sources; no current case retains a Policy ID, so the
+existing-customer path stays `AMEND_NOT_REQUIRED` and any locally collected enrichment is
+retained, not transmitted. The current XPI Amend supports `rmUserLogin`, `anzsic`,
+`groupCompanyName` and External System / External System Key; request schema, Policy-ID
+binding and provider acceptance remain open. No Policy ID is invented and no Amend is replayed.
+
 Garden remains an existing-customer scenario: retained candidate143878 may be confirmed,
 ACRA official Marketplace Mock and actual LOCAL OCR evidence stay distinct, partnership
 quantitative ownership remains partial. The post-UAT normal composition automatically
