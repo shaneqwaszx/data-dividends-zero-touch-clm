@@ -121,8 +121,10 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     # Each isolated lifecycle's runner deadline (180 s) covers server readiness plus
-    # Playwright's own 120 s per-test timeout, so Playwright, not the runner, times out a slow
-    # test and names the failing step; the runner deadline still stops a hung process.
+    # Playwright's default 120 s per-test timeout, so Playwright, not the runner, times out a
+    # slow test and names the failing step; the runner deadline still stops a hung process.
+    # Six tests set a longer test.setTimeout (180-240 s); for them the runner bound fires first
+    # (they currently finish in under 50 s).
     # 119 discovered lifecycles partition into at most 40 per shard, with all tests retained.
     # Largest shard: 40 * (180s execution + 120s cleanup) + 60s = 201 minutes.
     # Keep the existing job deadline and 14-minute installation allowance.
