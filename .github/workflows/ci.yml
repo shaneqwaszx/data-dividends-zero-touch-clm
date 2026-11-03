@@ -119,9 +119,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    # 92 discovered lifecycles partition into 46/46, with all tests retained.
-    # Largest shard: 46 * (60s execution + 120s cleanup) + 60s = 139 minutes.
+        shard: [1, 2, 3]
+    # Each isolated lifecycle's runner deadline (180 s) covers server readiness plus
+    # Playwright's own 120 s per-test timeout, so Playwright, not the runner, times out a slow
+    # test and names the failing step; the runner deadline still stops a hung process.
+    # 119 discovered lifecycles partition into at most 40 per shard, with all tests retained.
+    # Largest shard: 40 * (180s execution + 120s cleanup) + 60s = 201 minutes.
     # Keep the existing job deadline and 14-minute installation allowance.
     timeout-minutes: 234
     services:
@@ -152,7 +155,7 @@ jobs:
         working-directory: apps/frontend
       - run: npx playwright install --with-deps chromium
         working-directory: apps/frontend
-      - run: python scripts/run_e2e.py --timeout-seconds 60 --shard ${{ matrix.shard }}/2
+      - run: python scripts/run_e2e.py --timeout-seconds 180 --shard ${{ matrix.shard }}/3
 
   e2e:
     runs-on: ubuntu-24.04
