@@ -80,23 +80,26 @@ Outcome per question (A = answered by the model; R = redirected; n/a = no genera
 Provisional scores, 0 to 2 per dimension, by the implementer (to be re-scored independently;
 not owner-scored):
 
-| Dimension | Exact lines | Copilot before | Copilot after |
+| Dimension | Exact lines | Copilot before | Copilot after (implementer / independent QG) |
 | --- | --- | --- | --- |
-| Factual correctness | 2 | 2 | 1.5 |
-| Completeness | 0.5 | 1 | 2 |
-| Grounding (no invented case fact shown) | 2 | 2 | 2 |
-| Reasoning, incl. multi-step ownership | 0 | 0.5 | 2 |
-| Flexibility (not fixed sentences) | 0 | 1 | 2 |
-| Domain relevance | 1 | 1.5 | 2 |
-| Data protection | 2 | 2 | 2 |
-| Read-only behaviour | 2 | 2 | 2 |
+| Factual correctness | 2 | 2 | 1.5 / **1** |
+| Completeness | 0.5 | 1 | 2 / 2 |
+| Grounding (no invented case fact shown) | 2 | 2 | 2 / **1.5** |
+| Reasoning, incl. multi-step ownership | 0 | 0.5 | 2 / **1.5** |
+| Flexibility (not fixed sentences) | 0 | 1 | 2 / 2 |
+| Domain relevance | 1 | 1.5 | 2 / 2 |
+| Data protection | 2 | 2 | 2 / 2 |
+| Read-only behaviour | 2 | 2 | 2 / 2 |
 | Latency, median per model answer | 0.8 s | 4.0 s | 4.7 s / 4.3 s (max 10.6 s) |
 
-Why "after" loses half a point on correctness: in one run the model wrote "via ALPHA HOLDINGS
-PTE. LTD. holding 80% of ALPHA" (the person holds 80% of ALPHA), and once presented two possible
-causes of the address difference as facts. Every figure shown was the application's; the
-checks do not judge relations between grounded values (a known limit). The first call after the
-model loads took 32.6 s (cold start).
+The independent reviewer scored the exact-line and before columns the same and marked the
+after column lower on correctness, grounding and reasoning. The reason is relational errors
+the checks cannot catch because every figure in them is the application's: "via ALPHA
+HOLDINGS PTE. LTD. holding 80% of ALPHA" (the person holds 80% of ALPHA), "meets the 25%
+threshold directly (15%)", "two discrepancies ... the only discrepancy", two possible causes of
+the address difference stated as facts, and "Certificate of Incorporation" for a business
+profile. The multi-step arithmetic itself was right every time. Use the independent scores.
+The first call after the model loads took 32.6 s (cold start).
 
 Removed sentences in the refined runs (0 to 2 per answer) were mostly correct negations the
 shared checks over-remove: "No, the UBO has not been officially verified.", "has not run in a
@@ -119,11 +122,39 @@ any external model (copilot never runs with one).
   `e2e/assistant-case-memory.e2e.ts` covers case A to B, B to the general chat, back to A, a
   late reply during a switch, and sign-out, against the real panel in Chromium.
 - External data: no relaxation. C4 narrows the external system-message vocabulary.
-- Qualification basis: moves from main's `1cb45edc5939…` to `809ec5157381…`. Claude needs a
+- Qualification basis: moves from main's `1cb45edc5939…` to `da1b815d16c3…`. Claude needs a
   separately approved requalification after merge and restart (D-115 Q1); Q2 proposes how
   future copilot-only changes could avoid this.
 
-## 5. Owner decisions
+## 5. Independent quality gate and remediation
+
+The first independent review of `a1b6283` was PASS WITH NOTES, with no security regression. It
+confirmed the restack identity, #153/#154 preservation, read-only, case isolation,
+external-provider privacy (C4 narrows only) and the basis (`1cb45edc5939…` on main). It found
+gaps in the grounding claims, all fixed in the remediation commit except where stated:
+
+| QG finding | Remediation |
+| --- | --- |
+| 4.1 UBO conclusions written subject-last passed both checks ("The UBOs are LIM, NG and TAN", "The UBO is LIM") | `_UBO_LIST` reads names after the phrase (up to "not", "unlike", "below" and similar); a below-threshold name there is `ubo_contradicts_calculation`; an unqualified list is `ubo_determination` |
+| 4.2 strengthened or settled conclusions kept ("definitively the UBO", "Compliance confirmed that ...", "... and this is final") | adverbs added to `_UBO_DETERMINATION`; `_UBO_SETTLED` removes confirmed/verified/approved/certified-that, has-been-confirmed-as and settled/final UBO results (`authority_claim`) |
+| 4.3 an illustration in one part exempted an invented figure in another; "LLC" not a suffix | the illustration exemption now covers only its own `;` part; LLC is a recognised suffix. Lower-case company names and percentages in words stay known limits |
+| 5.1 "holds" made "Who holds the world record?" in scope with no case | "holds", "held", "holder" count only with a case open. Remaining scope limits are listed in D-115 C1 |
+| (found while fixing) correct negations "has not been verified" were removed by the shared check | the copilot reads "has not been" as "not be" for its own and the shared checks; the shown text and exact-line mode are unchanged |
+
+A third real-model run after the remediation (r3, same settings) answered the same 17
+questions with the model (weather redirected), median 4.7 s, max 8.7 s. It removed 9 sentences
+across 17 answers. Eight were correct statements the shared checks read as claims: negations
+("neither source automatically wins", "it does not mean she is officially verified", "not a
+final KYC or regulatory approval") and conditionals ("blocked until ownership is verified",
+"cannot be acted on until ownership evidence is confirmed"). The ninth was a redundant
+refusal after the read-only line. These are inherited fail-closed limits of the shared
+guardrails, used unchanged by exact-line mode. They cost usefulness (the user sees "1
+sentence(s) were left out"), never safety. Improving them changes the shared checks and should
+be a separate, reviewed change before copilot is activated.
+
+A fresh independent review of the remediation is recorded in the PR.
+
+## 6. Owner decisions
 
 A1 to A4 and C1 to C4 (copilot mode and its refinements), R1 (retention option), Q1 (basis move
 and requalification spend), Q2 (separate the basis by provider or not). Activation of copilot

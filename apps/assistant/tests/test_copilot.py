@@ -839,3 +839,58 @@ def test_emphasis_marks_are_dropped_but_list_markers_and_arithmetic_are_not() ->
         "These are provisional candidates.\n- LIM CHOON HUAT: 80%*50% = 40%."
     )
     assert copilot.in_domain("What about the weather?", ongoing=True, case_open=True) is False
+
+
+# --- QG of the refinement (4.1 to 4.3, 5.1): its reproductions ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("sentence", "reason"),
+    [
+        (
+            "The UBOs are LIM CHOON HUAT, NG MEI LING and TAN WEI LING.",
+            "ubo_contradicts_calculation",
+        ),
+        ("UBOs: LIM CHOON HUAT and TAN WEI LING.", "ubo_contradicts_calculation"),
+        ("The provisional UBO candidates are LIM CHOON HUAT and TAN WEI LING.",
+         "ubo_contradicts_calculation"),
+        ("The UBO is LIM CHOON HUAT.", "ubo_determination"),
+        ("LIM CHOON HUAT is definitively the UBO.", "ubo_determination"),
+        ("LIM CHOON HUAT is ultimately the UBO.", "ubo_determination"),
+        ("Compliance confirmed that LIM CHOON HUAT is the provisional UBO.", "authority_claim"),
+        ("The UBO status of LIM CHOON HUAT is settled.", "authority_claim"),
+        ("LIM CHOON HUAT is the UBO based on the records, and this is final.", "authority_claim"),
+        ("Compliance has confirmed LIM CHOON HUAT as the UBO.", "authority_claim"),
+        ("The UBO has been officially verified.", "authority_claim"),
+        ("If a person holds 99%, they qualify; LIM CHOON HUAT holds 99%.", "unsupported_value"),
+        ("LIM CHOON HUAT holds 80% via Gamma Holdings LLC.", "unsupported_name"),
+    ],
+)
+def test_refinement_qg_reproductions_are_removed(sentence: str, reason: str) -> None:
+    check = copilot.check_answer(sentence, OWNED)
+    assert (check.kept, check.left_out) == (0, [reason]), check
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The provisional UBO candidates are LIM CHOON HUAT and NG MEI LING, not TAN WEI LING.",
+        "Based on the available records, the UBOs appear to be LIM CHOON HUAT and NG MEI LING.",
+        "The UBO check is not finished.",
+        "The UBO is not yet known: a person must review the analysis.",
+        "Beneficial owners are natural persons who hold at least 25%.",
+        "LIM CHOON HUAT is a provisional UBO candidate; this has not been confirmed.",
+        # Correct negations (seen in real model answers) are kept.
+        "No, the UBO has not been officially verified.",
+        "LIM CHOON HUAT has not been verified as a UBO.",
+        "The UBO has never been approved.",
+    ],
+)
+def test_qualified_ubo_lists_and_plain_statements_are_kept(sentence: str) -> None:
+    check = copilot.check_answer(sentence, OWNED)
+    assert (check.kept, check.left_out) == (1, []), check
+
+
+def test_holds_places_a_question_in_scope_only_with_a_case_open() -> None:
+    assert copilot.in_domain("Who holds the other half?", ongoing=False, case_open=True)
+    assert not copilot.in_domain("Who holds the world record for the marathon?", ongoing=False)

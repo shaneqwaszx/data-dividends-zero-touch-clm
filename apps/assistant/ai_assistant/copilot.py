@@ -42,8 +42,7 @@ _DOMAIN = re.compile(
     r"\b(?:onboard\w*|kyc|cdd|edd|aml|due diligence|acra|registry|register\w*|uen|entity|entities"
     r"|compan(?:y|ies)|partner\w*|government|statutory|ministry|director\w*|officer\w*|secretary"
     r"|shareholder\w*|shares?|owner\w*|ubo\w*|beneficial|control\w*|threshold\w*|indirect|direct"
-    r"|aggregat\w*|percent\w*|stake|holding\w*|holds?|held|holders?|subsidiar\w*|parent|trust\w*"
-    r"|nominee\w*|document\w*"
+    r"|aggregat\w*|percent\w*|stake|holding\w*|subsidiar\w*|parent|trust\w*|nominee\w*|document\w*"
     r"|address\w*|identity|identification|passport|nric|fin|certificate\w*|constitution|bizfile"
     r"|discrepanc\w*|mismatch\w*|difference\w*|conflict\w*|reconcil\w*|extract\w*|ocr|confidence"
     r"|evidence|blocker\w*|blocked|exception\w*|review\w*|approv\w*|reject\w*|verif\w*|valid\w*"
@@ -70,6 +69,9 @@ _ABOUT_THE_CASE = re.compile(
     r"|\bwhat (?:should|do|can) (?:i|we) do\b"
     # "What about NG MEI LING?": a party or item of the case named on its own.
     r"|^(?:and |so |ok )?(?:what|how) about\b"
+    # "Who holds the other half?": holdings of the open case ("holds" alone is not onboarding:
+    # "who holds the world record?").
+    r"|\b(?:holds?|held|holders?)\b"
 )
 # A follow-up refers back to the chat ("and the second one?", "what about them?").
 _FOLLOW_UP = re.compile(
@@ -429,7 +431,8 @@ _ILLUSTRATION = re.compile(
 # Only the application determines a UBO. The model may explain one as what the evidence or
 # the application's calculation shows (provisional), never as a settled determination.
 _UBO_DETERMINATION = re.compile(
-    r"\b(?:is|are) (?:therefore |thus |clearly |definitely |so |hence )?"
+    r"\b(?:is|are) (?:therefore |thus |clearly |definitely |definitively |ultimately |certainly "
+    r"|undoubtedly |indeed |actually |really |finally |officially |so |hence )?"
     r"(?:a |the |an )?(?:ubos?|ultimate beneficial owners?|beneficial owners?)\b"
     r"|\bqualif(?:y|ies) as (?:a |the |an )?(?:ubo|ultimate beneficial owner|beneficial owner)\b"
 )
@@ -464,7 +467,43 @@ _UBO_POSITIVE = re.compile(
     r"|\bqualif(?:y|ies) as\b"
 )
 # Where one clause of a sentence ends and the next begins, for the UBO checks.
-_UBO_CLAUSE = re.compile(r"[;:]|,? \b(?:but|however|whereas|while|although)\b")
+_UBO_CLAUSE = re.compile(r";|:(?!\s)|,? \b(?:but|however|whereas|while|although)\b", re.I)
+# "The UBO is ...", "The UBOs are ...", "UBOs: ...": a statement naming who the UBOs are after
+# the phrase (not "the UBO check is ...", "the UBO is not yet known").
+_UBO_LIST = re.compile(
+    r"\b(?:ubos?|ultimate beneficial owners?|beneficial owners?)(?: candidates?)?"
+    r"(?:\s*:|\s+(?:is|are|include|includes|would be|will be)\b:?)\s+"
+    r"(?!not\b|never\b|none\b|nobody\b|unknown\b|yet\b|still\b)",
+    re.I,
+)
+# "has not been verified" written as "not be verified", which the shared negation check reads
+# as a negated claim (it is kept); only for the copilot's own UBO authority checks.
+_NOT_BEEN = re.compile(r"\b(?:has|have|had)(?: not|n't) been\b|\bnever been\b", re.I)
+
+
+def _authority_claim(pattern: re.Pattern[str], lowered: str) -> bool:
+    return any(
+        _asserted(pattern, _NOT_BEEN.sub("not be", clause), claim=True)
+        for clause in _CLAUSE.split(lowered)
+    )
+
+
+# Words after which the names that follow are contrasted with the UBOs, not listed as UBOs.
+_CONTRAST = re.compile(
+    r"\b(?:unlike|except|excluding|not|rather than|below|under|whereas|but)\b", re.I
+)
+# A UBO result presented as settled or confirmed by someone ("Compliance confirmed that X is
+# the UBO", "the UBO status is final"): only people and other systems settle it.
+_UBO_SETTLED = re.compile(
+    r"\b(?:confirmed|verified|approved|certified) that\b[^.;]{0,60}\b(?:ubos?|beneficial "
+    r"owners?)\b"
+    r"|\b(?:has|have|had) (?:been )?(?:confirmed|verified|approved|certified)\b[^.;]{0,40}"
+    r"\bas (?:the |a |an )?(?:ubos?|beneficial owners?)\b"
+    r"|\b(?:ubos?|beneficial owners?|ubo status|beneficial ownership)\b[^.;]{0,40}\b(?:is|are) "
+    r"(?:now )?(?:settled|final|definitive|conclusive|certain)\b"
+    r"|\b(?:ubos?|beneficial owners?)\b[^.;]{0,80}\b(?:this|that|it) is (?:final|settled"
+    r"|definitive|conclusive)\b"
+)
 # A UBO or ownership result presented as verified, confirmed or approved: only people and
 # other systems can do that (a negated claim, "has not been verified", is kept).
 _VERIFIED_UBO = re.compile(
@@ -478,7 +517,9 @@ _VERIFIED_UBO = re.compile(
 # are quantities, not percentages, and never ground one.
 _PERCENT_KEY = re.compile(r"percent|threshold|effective_interest|ownership_interest|stake")
 # Company suffixes: a run holding one is a company name, checked as a whole name (QG A1).
-_COMPANY_SUFFIX = frozenset({"PTE", "PTE.", "LTD", "LTD.", "LLP", "INC", "INC.", "BHD", "LIMITED"})
+_COMPANY_SUFFIX = frozenset(
+    {"PTE", "PTE.", "LTD", "LTD.", "LLP", "LLC", "INC", "INC.", "BHD", "LIMITED"}
+)
 # Spellings of the same recognised suffix. Only these, punctuation, spacing and capitals are
 # treated as presentation: "Example Pte. Ltd." and "EXAMPLE PRIVATE LIMITED" are one name;
 # "ACME HOLDING" and "ACME HOLDINGS" are not. No fuzzy matching.
@@ -492,7 +533,7 @@ _SUFFIX_FORMS = {
 # A company name written in capitalised or title-case words that ends in a recognised suffix
 # ("Acme Holdings Pte Ltd"): checked like a name in capitals.
 _TITLE_COMPANY = re.compile(
-    r"(?:\b[A-Z][\w&'-]*\.? ){1,8}(?i:pte\.? ltd\.?|private limited|ltd\.?|limited|llp|inc\.?"
+    r"(?:\b[A-Z][\w&'-]*\.? ){1,8}(?i:pte\.? ltd\.?|private limited|ltd\.?|limited|llp|llc|inc\.?"
     r"|bhd\.?|berhad|corp\.?|corporation)(?![\w])"
 )
 # Capitalised words that start a sentence or clause, not a name: dropped from the front.
@@ -588,50 +629,64 @@ class CopilotGuard:
         if _SELF_ACTION.search(lowered):
             self._left_out.append("assistant_action_claim")
             return None
-        if any(_asserted(_VERIFIED_UBO, clause, claim=True) for clause in _CLAUSE.split(lowered)):
+        if _authority_claim(_VERIFIED_UBO, lowered):
             self._left_out.append("authority_claim")
             return None
-        problem = self._ubo_problem(lowered)
+        problem = self._ubo_problem(probe.replace("’", "'"))
         if problem:
             self._left_out.append(problem)
             return None
-        if self._grounded and not _ILLUSTRATION.search(lowered):
-            for number in _PERCENT.findall(probe):
-                if Decimal(number).normalize() not in self._percentages:
-                    self._left_out.append("unsupported_value")
-                    return None
-            if any(not self._known_name(name) for name in self._names_in(probe)):
+        # An illustration ("for example ...") exempts only its own part of the sentence.
+        for part in probe.split(";") if self._grounded else ():
+            if _ILLUSTRATION.search(part.lower()):
+                continue
+            if any(Decimal(n).normalize() not in self._percentages for n in _PERCENT.findall(part)):
+                self._left_out.append("unsupported_value")
+                return None
+            if any(not self._known_name(name) for name in self._names_in(part)):
                 self._left_out.append("unsupported_name")
                 return None
-        reason = _check(probe, self._ctx)
+        reason = _check(_NOT_BEEN.sub("not be", probe), self._ctx)
         if reason is not None:
             self._left_out.append(reason)
             return None
         self._kept += 1
         return text
 
-    def _ubo_problem(self, lowered: str) -> str | None:
+    def _ubo_problem(self, text: str) -> str | None:
         """Why a UBO conclusion in this sentence must be left out, if it has one. It is kept
         when hedged just before ("may be the UBO") or, in its own clause, presented as
         provisional or as what the records or the application show; on a case, never about a
-        person the application's calculation found below the threshold."""
+        person the application's calculation found below the threshold, whichever way round
+        the sentence names them ("TAN is a UBO", "The UBOs are LIM and TAN")."""
 
+        lowered_all = text.lower()
+        if _authority_claim(_UBO_SETTLED, lowered_all):
+            return "authority_claim"
         start = 0
-        for clause in _UBO_CLAUSE.split(lowered):
-            offset = lowered.find(clause, start)
+        for clause in _UBO_CLAUSE.split(text):
+            offset = text.find(clause, start)
             start = max(start, offset)
-            positive = _UBO_POSITIVE.search(clause)
+            lowered = clause.lower()
+            named = ""  # the words naming who this clause says is a UBO
+            positive = _UBO_POSITIVE.search(lowered)
             if positive:
-                # The person the clause says is a UBO is named before that phrase.
-                subject = f" {canonical_name(clause[: positive.start()])} "
-                if any(name and f" {name} " in subject for name in self._below):
-                    return "ubo_contradicts_calculation"
-            found = _UBO_DETERMINATION.search(clause)
-            if (
-                found
-                and not _UBO_HEDGE.search(lowered[: offset + found.start()])
-                and not _UBO_PROVISIONAL.search(clause)
-            ):
+                named += clause[: positive.start()]
+            listed = _UBO_LIST.search(clause)
+            # "The UBO is LIM CHOON HUAT", "UBOs: Lim and Ng": names follow the phrase.
+            settled_list = False
+            if listed:
+                after = _CONTRAST.split(clause[listed.end() :], maxsplit=1)[0]
+                named += " " + after
+                settled_list = bool(re.match(r"\s*[A-Z0-9]", after))
+            subject = f" {canonical_name(named)} "
+            if any(name and f" {name} " in subject for name in self._below):
+                return "ubo_contradicts_calculation"
+            found = _UBO_DETERMINATION.search(lowered)
+            determined = settled_list or bool(
+                found and not _UBO_HEDGE.search(lowered_all[: offset + found.start()])
+            )
+            if determined and not _UBO_PROVISIONAL.search(lowered):
                 return "ubo_determination"
         return None
 
