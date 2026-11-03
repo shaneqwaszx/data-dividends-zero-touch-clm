@@ -16,6 +16,7 @@ import shutil
 import socket
 import sqlite3
 import tempfile
+import threading
 import urllib.parse
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -127,7 +128,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     shutil.rmtree(TEST_DATA_ROOT, ignore_errors=True)
 
 
-from ai_assistant import key_sources, synthetic_eligibility  # noqa: E402
+from ai_assistant import key_sources, remote_test, synthetic_eligibility  # noqa: E402
 from ai_assistant.config import AiAssistantSettings  # noqa: E402
 
 AiAssistantSettings.model_config = {**AiAssistantSettings.model_config, "env_file": None}
@@ -149,6 +150,22 @@ def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     monkeypatch.setattr(key_sources, "_SESSION_CHECK", None)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     synthetic_eligibility._tickets.clear()  # D-095 tickets never carry over between tests
+
+
+@pytest.fixture(autouse=True)
+def no_carried_over_runs() -> None:
+    """A qualification an earlier test started and did not wait for must not touch this one.
+
+    Its background thread can finish during the next test and record a provider key-limit
+    reading in the process-wide cache (remote_test._provider), so a test that expects that
+    reading to be missing saw it present (hosted CI, intermittently). Wait for such threads,
+    bounded, then start from an empty reading, as a fresh process would.
+    """
+
+    for thread in threading.enumerate():
+        if thread.name == "model-qualification":
+            thread.join(30)
+    remote_test.forget_provider()
 
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
