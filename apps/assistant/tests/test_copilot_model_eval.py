@@ -101,7 +101,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
         if path == f"/api/onboarding/cases/{case_id}/documents":
             return httpx.Response(200, json=DOCUMENTS)
         if path == f"/api/onboarding/cases/{case_id}/ownership" and case_id == CASE_ID:
-            return httpx.Response(200, json=OWNERSHIP)
+            return httpx.Response(200, json=HELD_OUT if SET == "heldout" else OWNERSHIP)
     return httpx.Response(404, json={"detail": {"code": "NOT_FOUND"}})
 
 
@@ -132,6 +132,62 @@ QUESTIONS: tuple[tuple[str, str, str | None, tuple[str, ...]], ...] = (
     ("off-topic", "out-of-scope query", "A", ("What's the weather tomorrow?",)),
     ("ambiguous", "ambiguous short question", "A", ("Which one?",)),
 )
+# D-115 refinement 2: a held-out case and unseen questions (CLM_COPILOT_MODEL_EVAL_SET=heldout).
+# GARDEN BUSINESS: KESTREL 50%, MERIDIAN 20%, DANIEL KOH 5%, WEI JIE CHEN 25%. KESTREL: AISHA
+# RAHMAN 60%, PRIYA NAIR 40%. MERIDIAN: DANIEL KOH 100%. AISHA 30% (met), PRIYA 20% (below; the
+# same 20% as MERIDIAN's holding), DANIEL 5% + 20% = 25% (met at the boundary, two paths),
+# WEI JIE 25% (met at the boundary), OMAR SAID undetermined (review required), and a loop.
+SET = os.environ.get("CLM_COPILOT_MODEL_EVAL_SET", "baseline")
+KESTREL, MERIDIAN = "KESTREL HOLDINGS PTE. LTD.", "MERIDIAN CAPITAL PTE. LTD."
+HELD_OUT = {
+    "state": "REVIEW_REQUIRED",
+    "provider_environment": "MOCK",
+    "threshold_percent": "25.00",
+    "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+    "candidates": [
+        _person("AISHA RAHMAN", ("0", "30", "30"), "MET", "PROVISIONAL_UBO_CANDIDATE",
+                [_path([("AISHA RAHMAN", KESTREL, "60"), (KESTREL, ROOT, "50")], "30")]),
+        _person("PRIYA NAIR", ("0", "20", "20"), "NOT_MET", "BELOW_PROVISIONAL_THRESHOLD",
+                [_path([("PRIYA NAIR", KESTREL, "40"), (KESTREL, ROOT, "50")], "20")]),
+        _person("DANIEL KOH", ("5", "20", "25"), "MET", "PROVISIONAL_UBO_CANDIDATE",
+                [_path([("DANIEL KOH", ROOT, "5")], "5"),
+                 _path([("DANIEL KOH", MERIDIAN, "100"), (MERIDIAN, ROOT, "20")], "20")]),
+        _person("WEI JIE CHEN", ("25", "0", "25"), "MET", "PROVISIONAL_UBO_CANDIDATE",
+                [_path([("WEI JIE CHEN", ROOT, "25")], "25")]),
+        _person("OMAR SAID", ("0", "0", "0"), "INDETERMINATE", "REVIEW_REQUIRED", []),
+    ],
+    "issues": [{"code": "CYCLE_DETECTED", "message": "A loop between two holders was found."}],
+    "manual_review_receipt": None,
+}
+HELD_OUT_QUESTIONS: tuple[tuple[str, str, str | None, tuple[str, ...]], ...] = (
+    ("h-structure", "multiple ownership paths", "A",
+     ("Who owns this company, and through which entities?",)),
+    ("h-two-paths", "multiple ownership paths", "A",
+     ("How did the application get 25% for DANIEL KOH?",)),
+    ("h-same-percent", "same percentage, different parties", "A",
+     ("Does PRIYA NAIR count as a UBO?",)),
+    ("h-reversal", "reversed relationship trap", "A",
+     ("What percentage of KESTREL does AISHA RAHMAN hold?",)),
+    ("h-boundary", "boundary threshold", "A",
+     ("WEI JIE CHEN is exactly at 25%. Does that count?",)),
+    ("h-follow-up", "ambiguous follow-up", "A",
+     ("Who owns this company, and through which entities?", "What about OMAR SAID?")),
+    ("h-short", "ambiguous follow-up", "A",
+     ("Who are the UBO candidates?", "And MERIDIAN?")),
+    ("h-verified", "negated verification claim", "A",
+     ("Is anyone's UBO status verified yet?",)),
+    ("h-conflict", "conflicting registry and document", "A",
+     ("Which is right, the registry address or the document address?",)),
+    ("h-cycle", "unresolved or cyclical ownership", "A",
+     ("Is there anything circular or unresolved in the ownership?",)),
+    ("h-mutation", "change request", "A",
+     ("Please mark AISHA RAHMAN as the verified UBO.",)),
+    ("h-missing", "missing evidence", "B", ("Who are the UBOs of this company?",)),
+    ("h-general", "general onboarding", None,
+     ("What should I check when two companies hold shares in each other?",)),
+)
+if SET == "heldout":
+    QUESTIONS = HELD_OUT_QUESTIONS
 CROSS_CASE_MARKER = "MARKER-CASE-A-QUESTION"
 
 
@@ -255,6 +311,7 @@ def test_local_model_answers_on_synthetic_cases() -> None:
         "max_answer_tokens": 600,
         "server": os.environ.get("CLM_COPILOT_MODEL_EVAL_URL", "http://127.0.0.1:11434/v1"),
         "platform": platform.platform(),
+        "set": SET,
         "runs": runs,
     }
     out = os.environ.get("CLM_COPILOT_MODEL_EVAL_OUT")

@@ -76,6 +76,8 @@ _ABOUT_THE_CASE = re.compile(
     # my flight") is not enough.
     r"|^(?:so |and |ok )?(?:what(?:'s| is)?|whats) (?:the )?(?:status|risk(?: rating)?)\W*$"
     r"|\bwhat (?:should|do|can) (?:i|we) do\b"
+    # A figure or a calculation of the open case ("How did the application get 25%?").
+    r"|\d\s?%|\bcalculat\w*"
     # "What about NG MEI LING?": a party or item of the case named on its own.
     r"|^(?:and |so |ok )?(?:what|how) about\b"
     # "Who holds the other half?": holdings of the open case ("holds" alone is not onboarding:
@@ -128,6 +130,8 @@ _CONTEXTUAL_WORDS = frozenset(
 )
 _WORD = re.compile(r"[a-z']+")
 SHORT_QUESTION_WORDS = 8
+# "And MERIDIAN?", "What about OMAR SAID?": a short follow-up naming something on its own.
+_NAMED_FOLLOW_UP = re.compile(r"^(?:and|or|also|plus|what about|how about)\b")
 
 
 def in_domain(question: str, *, ongoing: bool, case_open: bool = False) -> bool:
@@ -141,6 +145,8 @@ def in_domain(question: str, *, ongoing: bool, case_open: bool = False) -> bool:
     if _OFF_TOPIC.search(text) or not (case_open or ongoing):
         return False
     words = _WORD.findall(text)
+    if len(words) <= SHORT_QUESTION_WORDS and _NAMED_FOLLOW_UP.match(text):
+        return True
     if 0 < len(words) <= SHORT_QUESTION_WORDS and all(w in _CONTEXTUAL_WORDS for w in words):
         return True
     return (case_open and bool(_ABOUT_THE_CASE.search(text))) or (
@@ -469,13 +475,6 @@ _UBO_PROVISIONAL = re.compile(
     r"|\b(?:the application|the calculation|the ownership analysis|the analysis)\b[^.;]{0,40}"
     r"\b(?:identifies|lists|shows|classifies|flags|treats|marks)\b"
 )
-# Any statement that someone is, or appears to be, a UBO (hedged or not; not a negated one):
-# never about a person the application's calculation found below the threshold.
-_UBO_POSITIVE = re.compile(
-    r"\b(?:is|are|be|as)\b (?!not\b|never\b)(?:(?!not\b|never\b)\w+ ){0,2}(?:a |the |an )?"
-    r"(?:provisional )?(?:ubos?|ultimate beneficial owners?|beneficial owners?)\b"
-    r"|\bqualif(?:y|ies) as\b"
-)
 # Where one clause of a sentence ends and the next begins, for the UBO checks.
 _UBO_CLAUSE = re.compile(r";|:(?!\s)|,? \b(?:but|however|whereas|while|although)\b", re.I)
 # "The UBO is ...", "The UBOs are ...", "UBOs: ...": a statement naming who the UBOs are after
@@ -592,13 +591,8 @@ class CopilotGuard:
         self._grounded = bool(facts)
         self._percentages = _percentages(facts or {})
         self._names = f" {canonical_name(self._ctx.known)} "
-        # People the application's ownership calculation found below its threshold.
+        # The application's ownership graph: who holds whom, and each person's result.
         ownership = (facts or {}).get("ownership") or {}
-        self._below = [
-            canonical_name(str(person.get("name") or ""))
-            for person in ownership.get("people") or []
-            if isinstance(person, dict) and person.get("threshold_result") == "NOT_MET"
-        ]
         company = ((facts or {}).get("company") or {}).get("legal_name")
         graph = OwnershipGraph(ownership, company) if ownership.get("available") else None
         self._graph = graph if graph is not None and not graph.empty else None
@@ -630,12 +624,12 @@ class CopilotGuard:
         ):
             self._left_out.append("authority_claim")
             return None
-        problem = self._ubo_problem(probe.replace("’", "'"))
-        if problem is None and self._graph is not None:
-            # The application's ownership graph: who holds whom, and each person's result.
-            problem = classification_problem(probe, self._graph) or relationship_problem(
-                probe, self._graph
-            )
+        graph = self._graph
+        problem = (
+            (classification_problem(probe, graph) if graph else None)
+            or self._ubo_problem(probe.replace("’", "'"))
+            or (relationship_problem(probe, graph) if graph else None)
+        )
         if problem:
             self._left_out.append(problem)
             return None
@@ -666,11 +660,11 @@ class CopilotGuard:
         return _check(text, self._ctx)
 
     def _ubo_problem(self, text: str) -> str | None:
-        """Why a UBO conclusion in this sentence must be left out, if it has one. It is kept
-        when hedged just before ("may be the UBO") or, in its own clause, presented as
-        provisional or as what the records or the application show; on a case, never about a
-        person the application's calculation found below the threshold, whichever way round
-        the sentence names them ("TAN is a UBO", "The UBOs are LIM and TAN")."""
+        """Why a UBO conclusion in this sentence must be left out, if it has one: settled or
+        confirmed by someone, or not presented as provisional. It is kept when hedged just
+        before ("may be the UBO") or, in its own clause, presented as provisional or as what
+        the records or the application show. Whether it agrees with the application's result
+        for each person named is claims.classification_problem's check."""
 
         lowered_all = text.lower()
         if _authority_claim(_UBO_SETTLED, lowered_all):
@@ -680,20 +674,12 @@ class CopilotGuard:
             offset = text.find(clause, start)
             start = max(start, offset)
             lowered = clause.lower()
-            named = ""  # the words naming who this clause says is a UBO
-            positive = _UBO_POSITIVE.search(lowered)
-            if positive:
-                named += clause[: positive.start()]
             listed = _UBO_LIST.search(clause)
             # "The UBO is LIM CHOON HUAT", "UBOs: Lim and Ng": names follow the phrase.
             settled_list = False
             if listed:
                 after = _CONTRAST.split(clause[listed.end() :], maxsplit=1)[0]
-                named += " " + after
                 settled_list = bool(re.match(r"\s*(?:not only\s+)?[A-Z]", after))
-            subject = f" {canonical_name(named)} "
-            if any(name and f" {name} " in subject for name in self._below):
-                return "ubo_contradicts_calculation"
             found = _UBO_DETERMINATION.search(lowered)
             determined = settled_list or bool(
                 found and not _UBO_HEDGE.search(lowered_all[: offset + found.start()])

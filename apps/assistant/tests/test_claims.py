@@ -200,3 +200,39 @@ def test_names_are_matched_exactly_after_presentation_is_set_aside() -> None:
     check = copilot.check_answer("KESTREL HOLDING PTE LTD holds 50% of GARDEN BUSINESS.", FACTS)
     assert check.left_out == ["unsupported_name"]
     assert claims.canonical_name("Lim Choon Huat's") == "LIM CHOON HUAT"
+
+
+# Found in real ministral-3:8b answers on the held-out case (refinement 2 evaluation).
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "No, Priya Nair does not count as a provisional UBO in this case.",
+        "Omar Said is not a UBO candidate because the application could not determine his "
+        "ownership.",
+        "Aisha Rahman holds 30% indirectly (60% of Kestrel Holdings Pte. Ltd., which holds 50% of "
+        "Garden Business), Daniel Koh holds 25% in total (5% directly + 20% indirectly via "
+        "Meridian Capital Pte. Ltd.), and Wei Jie Chen holds 25% directly.",
+    ],
+)
+def test_real_model_sentences_that_are_correct_are_kept(sentence: str) -> None:
+    check = copilot.check_answer(sentence, FACTS)
+    assert (check.kept, check.left_out) == (1, []), check
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "OMAR SAID is below the threshold.",  # undetermined: no threshold result to state
+        "DANIEL KOH does not count as a UBO.",
+        "AISHA RAHMAN holds 60% of KESTREL, and PRIYA NAIR holds 20% through MERIDIAN CAPITAL.",
+    ],
+)
+def test_contradictions_in_real_model_style_are_removed(sentence: str) -> None:
+    assert copilot.check_answer(sentence, FACTS).kept == 0, sentence
+
+
+def test_short_follow_ups_and_figures_of_the_case_are_in_scope() -> None:
+    assert copilot.in_domain("How did the application get 25% for DANIEL KOH?", ongoing=False,
+                             case_open=True)
+    assert copilot.in_domain("And MERIDIAN?", ongoing=True)
+    assert not copilot.in_domain("And the weather tomorrow?", ongoing=True, case_open=True)

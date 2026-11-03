@@ -187,6 +187,7 @@ _OF_IN = re.compile(r"\b(?:of|in)\b", re.I)
 _PASSIVE_BY = re.compile(r"\b(?:owned|held|controlled)\s+by\s*$", re.I)
 _PASSIVE_AFTER = re.compile(r"^\s*(?:is|are|was|were)?\s*(?:owned|held|controlled)\s+by\s+", re.I)
 _VIA = re.compile(r"\b(?:via|through)\s+$", re.I)
+_VIA_GAP = re.compile(r"\s*(?:\w+ly\s+)?(?:via|through)\s+", re.I)
 _CONTRASTED = re.compile(r"\b(?:unlike|except|not|rather than|whereas|instead of)\b", re.I)
 
 
@@ -223,12 +224,24 @@ def relationship_problem(sentence: str, graph: OwnershipGraph) -> str | None:
                     between = part[before[-1].end : match.start()]
                     if _HOLDING_VERB.search(between) and not _CONTRASTED.search(between):
                         holder, held = before[-1].key, first_after.key
+            elif before and _VIA_GAP.fullmatch(gap):
+                # "PRIYA holds 20% through MERIDIAN": an interest in the company, by that path.
+                between = part[before[-1].end : match.start()]
+                if _HOLDING_VERB.search(between) and not _CONTRASTED.search(between):
+                    holder, held = before[-1].key, graph.root
+                    if holder in graph.persons and first_after.key not in graph.paths.get(
+                        holder, set()
+                    ):
+                        return "unsupported_relationship"
             if holder is None or held is None:
                 continue
             if holder == held or value not in graph.allowed(holder, held):
                 return "unsupported_relationship"
-            # "... through ALPHA": the named party must be on the holder's paths.
+            # "... through ALPHA": the named party must be on the holder's paths (up to the
+            # next person named, who starts a statement of their own).
             for mention in after[1:]:
+                if mention.key in graph.persons:
+                    break
                 if (
                     _VIA.search(part[: mention.start])
                     and holder in graph.persons
@@ -251,20 +264,29 @@ _POSITIVE = re.compile(
     r"|\bqualif(?:y|ies|ying)\b|\bprovisional (?:ubo )?candidates?\b|\bubo candidates?\b",
     re.I,
 )
-_NEGATIVE = re.compile(
+# Said not to be a UBO (candidate). For a person whose result could not be determined this is
+# true, not a contradiction; only a threshold claim (_BELOW) contradicts that result.
+_NOT_A_UBO = re.compile(
     r"\bnot (?:a |an |the |one of the )?(?:provisional )?(?:ubos?|ultimate beneficial owners?"
     r"|beneficial owners?|candidates?)\b"
     r"|\b(?:isn't|aren't|is not|are not) (?:considered |treated as |classified as |counted as )?"
     r"(?:a |an |the )?(?:provisional )?(?:ubo|beneficial owner|candidate)"
-    r"|\b(?:below|under|less than|short of|beneath)\b(?: the)?(?: \d+(?:\.\d+)?\s?%)?"
+    r"|\b(?:does not|doesn't|do not|don't|did not|would not|wouldn't|cannot|can't|never)"
+    r" (?:count|counts|qualify|rank|serve)\b"
+    r"|\bnot (?:counted|considered|treated|classified|regarded)\b",
+    re.I,
+)
+_BELOW = re.compile(
+    r"\b(?:below|under|less than|short of|beneath)\b(?: the)?(?: \d+(?:\.\d+)?\s?%)?"
     r"(?: provisional| configured| inclusive| ubo)? threshold\b"
     r"|\b(?:does not|doesn't|do not|don't|did not|fails? to|falls? short of) "
     r"(?:meet|reach|exceed|satisfy)\b|\bfalls? below\b",
     re.I,
 )
 _LIST = re.compile(
-    r"\b(?:ubos?|ultimate beneficial owners?|beneficial owners?)(?: candidates?)?\b[^.;]{0,60}?"
-    r"\b(?:are|is|include|includes|would be|(?:appear|appears|seem|seems) to be)\b",
+    r"\b(?:ubos?|ultimate beneficial owners?|beneficial owners?)(?: candidates?)?"
+    r"(?:\s*:|\b[^.;]{0,60}?\b(?:are|is|include|includes|would be"
+    r"|(?:appear|appears|seem|seems) to be)\b)",
     re.I,
 )
 _SEGMENT = re.compile(
@@ -303,11 +325,19 @@ def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
                 person = people[index]
                 following = people[index + 1] if index + 1 < len(people) else None
                 rest = segment[person.end : following.start if following else len(segment)]
-                positive, negative = _POSITIVE.search(rest), _NEGATIVE.search(rest)
-                if positive and (not negative or positive.start() < negative.start()):
-                    claims[index] = "positive"
-                elif negative:
-                    claims[index] = "negative"
+                found = [
+                    (match.start(), claim)
+                    for claim, match in (
+                        ("positive", _POSITIVE.search(rest)),
+                        ("below", _BELOW.search(rest)),
+                        ("not_a_ubo", _NOT_A_UBO.search(rest)),
+                    )
+                    if match
+                ]
+                if found:
+                    # The first claim after the person; a negation before a positive phrase
+                    # ("does not count as a provisional UBO") is the claim.
+                    claims[index] = min(found)[1]
                 elif following is not None and _JOINED.fullmatch(rest):
                     claims[index] = claims[index + 1]
                 elif listed and listed.end() <= person.start:
@@ -316,7 +346,9 @@ def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
                 result = graph.results.get(person.key)
                 if claim == "positive" and result in ("NOT_MET", "UNDETERMINED"):
                     return "ubo_contradicts_calculation"
-                if claim == "negative" and result in ("MET", "UNDETERMINED"):
+                if claim == "below" and result in ("MET", "UNDETERMINED"):
+                    return "ubo_contradicts_calculation"
+                if claim == "not_a_ubo" and result == "MET":
                     return "ubo_contradicts_calculation"
     return None
 
