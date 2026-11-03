@@ -180,7 +180,7 @@ class OwnershipGraph:
 _PERCENT = re.compile(r"(\d{1,3}(?:\.\d+)?)\s?(?:%|per ?cent\b)", re.I)
 _HOLDING_VERB = re.compile(
     r"\b(?:hold|holds|holding|held|own|owns|owning|has|have|having|with|controls?|controlling"
-    r"|stake|interest)\b|'s?\b|[(:]",
+    r"|stake|interest)\b|'s?\b",
     re.I,
 )
 _OF_IN = re.compile(r"\b(?:of|in)\b", re.I)
@@ -285,6 +285,8 @@ _BELOW = re.compile(
 )
 _LIST = re.compile(
     r"\b(?:ubos?|ultimate beneficial owners?|beneficial owners?)(?: candidates?)?"
+    # not "the UBO status is ...", "the UBO check is ...": those are about the check
+    r"(?!\s+(?:status|check|checks|threshold|analysis|result|section|review|rules?)\b)"
     r"(?:\s*:|\b[^.;]{0,60}?\b(?:are|is|include|includes|would be"
     r"|(?:appear|appears|seem|seems) to be)\b)",
     re.I,
@@ -296,6 +298,7 @@ _SEGMENT = re.compile(
 )
 
 
+_OPEN_QUESTION = re.compile(r"\b(?:whether|if)\b(?:\W+\w+){0,3}\W*$", re.I)
 # Only a conjunction between two people: they share one claim.
 _JOINED = re.compile(r"\s*(?:,|and|or|as well as|&)?\s*(?:,\s*)?(?:and|or)?\s*", re.I)
 
@@ -334,7 +337,9 @@ def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
                     )
                     if match
                 ]
-                if found:
+                if _OPEN_QUESTION.search(segment[: person.start][-40:]):
+                    claims[index] = None  # "whether OMAR is a UBO" asks; it claims nothing
+                elif found:
                     # The first claim after the person; a negation before a positive phrase
                     # ("does not count as a provisional UBO") is the claim.
                     claims[index] = min(found)[1]

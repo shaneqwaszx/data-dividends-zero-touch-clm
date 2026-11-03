@@ -457,14 +457,16 @@ _NOT_NAMES = frozenset(
     {
         "ACRA", "UEN", "UBO", "UBOS", "KYC", "GOLDTIER", "RM", "HR", "NRIC", "FIN", "CDD",
         "EDD", "AML", "CFT", "MAS", "PEP", "PEPS", "PTE", "PTE.", "LTD", "LTD.", "LLP", "SG",
-        "OCR", "ID", "CLM", "API", "UAT", "POC",
+        "OCR", "ID", "CLM", "API", "UAT", "POC", "OWNERSHIP", "FACTS", "EVIDENCE",
     }
 )
 # A hedge or negation within a few words before the UBO phrase (QG N3).
 _UBO_HEDGE = re.compile(
     # Only a modal hedge right before the conclusion ("may be the UBO", "whether X is the
     # UBO"); a negation elsewhere ("no doubt that X is the UBO") does not soften it.
-    r"\b(?:may|might|could|whether|possibly|if)\b(?:\W+\w+){0,2}\W*$"
+    # "determine who qualifies as a UBO" asks the question; it concludes nothing.
+    r"\b(?:may|might|could|whether|possibly|if|determine|decide|assess|identify)\b"
+    r"(?:\W+\w+){0,2}\W*$"
 )
 # Wording that presents a UBO conclusion as provisional or as what the records or the
 # application show, in the same clause as the conclusion.

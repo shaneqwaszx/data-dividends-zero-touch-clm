@@ -236,3 +236,23 @@ def test_short_follow_ups_and_figures_of_the_case_are_in_scope() -> None:
                              case_open=True)
     assert copilot.in_domain("And MERIDIAN?", ongoing=True)
     assert not copilot.in_domain("And the weather tomorrow?", ongoing=True, case_open=True)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "PRIYA NAIR holds 20% of GARDEN BUSINESS indirectly (40% of KESTREL HOLDINGS PTE. LTD. x "
+        "50% of GARDEN BUSINESS).",
+        "This is based on the direct ownership fact in the OWNERSHIP FACTS.",
+        "This means the application cannot confirm whether OMAR SAID is a UBO or not.",
+        "The system needs the shareholders before it can determine who qualifies as a UBO.",
+        "No UBO status is verified yet, and OMAR SAID needs a person's review.",
+    ],
+)
+def test_second_real_model_round_sentences_are_kept(sentence: str) -> None:
+    check = copilot.check_answer(sentence, FACTS)
+    assert (check.kept, check.left_out) == (1, []), check
+
+
+def test_a_relative_clause_does_not_hedge_a_ubo_conclusion() -> None:
+    assert copilot.check_answer("AISHA RAHMAN, who is the UBO, holds 30%.", FACTS).kept == 0
