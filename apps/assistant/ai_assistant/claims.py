@@ -184,6 +184,11 @@ _HOLDING_VERB = re.compile(
 _OF_IN = re.compile(r"\b(?:of|in)\b", re.I)
 _PASSIVE_BY = re.compile(r"\b(?:owned|held|controlled)\s+by\s*$", re.I)
 _BY = re.compile(r"\s*by\s*", re.I)
+_OWNED_BY_NO_FIGURE = re.compile(
+    r"['’]s?\s+(?:whole\s+|entire\s+)?(?:stake|interest|holding|shareholding|shares)\s+"
+    r"(?:belongs?\s+to|(?:is|are)\s+(?:held|owned)\s+by)\s+",
+    re.I,
+)
 # A second clause with its subject left out ("... of GARDEN and indirectly holds 10% ...").
 _ELIDED = re.compile(r"\s*,?\s*(?:and|but|while|whereas)\b", re.I)
 _BELONGS = re.compile(
@@ -191,7 +196,11 @@ _BELONGS = re.compile(
     re.I,
 )
 _PASSIVE_VERB = re.compile(r"\b(?:owned|held|controlled)\b", re.I)
-_PASSIVE_AFTER = re.compile(r"^\s*(?:is|are|was|were)?\s*(?:owned|held|controlled)\s+by\s+", re.I)
+_PASSIVE_AFTER = re.compile(
+    # "50% of GARDEN is held by ALPHA", "KESTREL's 50% stake in GARDEN belongs to DANIEL"
+    r"^\s*(?:(?:is|are|was|were)?\s*(?:owned|held|controlled)\s+by|belongs?\s+to)\s+",
+    re.I,
+)
 _VIA = re.compile(r"\b(?:via|through)\s+$", re.I)
 _VIA_GAP = re.compile(r"\s*(?:\w+ly\s+)?(?:via|through)\s+", re.I)
 _CONTRASTED = re.compile(r"\b(?:unlike|except|not|rather than|whereas|instead of)\b", re.I)
@@ -206,6 +215,13 @@ def relationship_problem(sentence: str, graph: OwnershipGraph) -> str | None:
         mentions = graph.mentions(part)
         if not mentions:
             continue
+        # "PRIYA's stake belongs to AISHA" (no figure): that holding must exist, that way round.
+        for first, second in zip(mentions, mentions[1:], strict=False):
+            if _OWNED_BY_NO_FIGURE.fullmatch(part[first.end : second.start]) and not (
+                graph.edges.get((second.key, first.key))
+                or graph.allowed(second.key, first.key)
+            ):
+                return "unsupported_relationship"
         percents = list(_PERCENT.finditer(part))
         for match in percents:
             value = _number(match.group(1))
@@ -329,7 +345,7 @@ _JOINED = re.compile(
 )
 # "Unlike TAN, LIM is ...", "LIM and NG, except TAN, ...": the contrasted name is left out.
 _CONTRASTED_PHRASE = re.compile(
-    r"\b(?:unlike|except(?: for)?|excluding|rather than|other than)\b[^,;]*", re.I
+    r"\b(?:unlike|except(?: for)?|excluding|rather than|other than)\b([^,;]*)", re.I
 )
 _NEITHER_NOR = re.compile(r"^\W*neither\b.*\bnor\b", re.I)
 
@@ -338,7 +354,10 @@ def _segments(clause: str) -> list[str]:
     # "not only/just X but (also) Y" lists both: no split at that "but".
     if re.search(r"\bnot (?:only|just)\b", clause, re.I):
         clause = re.sub(r"\bbut( also)?\b", "and", clause, flags=re.I)
-    return _SEGMENT.split(_CONTRASTED_PHRASE.sub("", clause))
+    # A contrasted phrase is a segment of its own: a claim inside it is still judged, and the
+    # name in it is not joined to the next ("Unlike TAN, LIM is ...").
+    chunks = _CONTRASTED_PHRASE.sub(lambda m: "\x00" + m.group(1) + "\x00", clause).split("\x00")
+    return [segment for chunk in chunks for segment in _SEGMENT.split(chunk)]
 
 
 def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
@@ -369,7 +388,12 @@ def classification_problem(sentence: str, graph: OwnershipGraph) -> str | None:
                     if match
                 ]
                 if _NEITHER_NOR.match(segment):
-                    claims[index] = "not_a_ubo"  # "Neither PRIYA nor OMAR is a UBO candidate"
+                    # "Neither X nor Y is a UBO candidate": not a UBO; "Neither X nor Y is
+                    # below the threshold" (or "fails to meet it"): both meet it.
+                    if _BELOW.search(segment):
+                        claims[index] = "positive"
+                    elif _POSITIVE.search(segment):
+                        claims[index] = "not_a_ubo"
                 elif _OPEN_QUESTION.search(segment[: person.start][-40:]):
                     claims[index] = None  # "whether OMAR is a UBO" asks; it claims nothing
                 elif found:
@@ -402,7 +426,9 @@ _SUBJECT = (
     r"(?:the |this |that |its |their |his |her )?(?:ubo|ubos|ubo status|ubo result|ubo check"
     r"|beneficial ownership|ownership|ownership result|ownership analysis|analysis|result"
     r"|calculation|case|record|registry record|document|address|registered address"
-    r"|candidate|candidates|anyone's ubo status|no ubo status)"
+    # No negative subject ("no UBO status"): with the form's own "not" it would say the
+    # opposite ("No UBO status has not been verified" claims every one is verified).
+    r"|candidate|candidates)"
 )
 _AUTHORITY_WORD = r"(?:verified|confirmed|approved|certified)"
 _OFFICIALLY = r"(?: (?:officially|legally|formally|independently))?"

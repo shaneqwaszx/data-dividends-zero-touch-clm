@@ -66,7 +66,7 @@ procedure, retention or read-only authority.
 | Refined (final) | 0 of 31 | 2 of 23 | 24 of 82 | 0 of 23 |
 
 The implementer's corpus overlaps the tests. The reviewer's probes were written independently
-during the quality gate; no unsafe sentence is kept now that the PR head removed. The 24 still
+during the quality gates; across both reviews' probe sets, every sentence kept now that the PR head removed is correct (intended negation forms, or true holdings the head removed only because it could not read a possessive name). The 24 still
 kept are forms listed in section 5 and claims the shared checks never flag. The 2 correct
 sentences now removed are compound negations left out on purpose (section 5).
 
@@ -77,7 +77,12 @@ clause-based negation acceptance kept current claims written around a negated or
 clause ("Compliance has verified the UBO so the case cannot proceed until the address is
 confirmed.", "The case remains blocked until ownership is confirmed, which compliance did.",
 "The registry wins; neither source automatically wins."). It was replaced by whole-sentence
-closed forms (D-115 C6); all eleven reproductions are tests and are removed. The review's
+closed forms (D-115 C6); all eleven reproductions are tests and are removed. A second fresh
+review of that change (`c00023b`) was FAIL on one finding: a negative subject in the closed list
+("No UBO status has not been officially verified." asserts the opposite). Negative subjects
+were removed from that form; the reproductions, the possessive "X's N% stake in Y belongs to Z"
+and "X's stake belongs to Y" forms, "Neither X nor Y is below the threshold" and claims inside
+an "Unlike X who ..." phrase are now judged and tested. The review's
 grounding notes (possessive names, "owned 60% by", "X, like Y, meets", "Unlike X, ...",
 "Neither X nor Y ...") are fixed and tested; a false removal found afterwards in a real answer
 (an elided subject: "... of Garden Business and indirectly holds 10% via Beta") is fixed too.
@@ -146,7 +151,7 @@ UBO".
 
 ## 6. Qualification
 
-The basis moves from main's `1cb45edc5939…` to `8fbb7852848d…` (main.py, copilot.py,
+The basis moves from main's `1cb45edc5939…` to `77e50313a62c…` (main.py, copilot.py,
 case_contexts.py, claims.py, evidence.py and the boundary file). Claude Balanced would become
 AI unavailable after merge and restart until a separately approved paid requalification
 (D-098 R6; the earlier owner authorisation was 2 billed calls, at most US$0.192 reserved, per

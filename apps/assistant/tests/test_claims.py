@@ -337,3 +337,40 @@ def test_an_elided_subject_is_the_holder_of_the_previous_clause() -> None:
     assert copilot.check_answer(kept, FACTS).kept == 1
     wrong = "DANIEL KOH holds 5% of GARDEN BUSINESS and indirectly holds 20% via KESTREL."
     assert copilot.check_answer(wrong, FACTS).left_out == ["unsupported_relationship"]
+
+
+# Re-QG of c00023b (FAIL): a negative subject with the form's own negation says the opposite.
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "No UBO status has not been officially verified.",
+        "No ubo status is not officially verified.",
+        "Anyone's UBO status has not been officially verified.",
+        "KESTREL HOLDINGS's 50% stake in GARDEN BUSINESS belongs to DANIEL KOH.",
+        "MERIDIAN CAPITAL's 20% stake in GARDEN BUSINESS belongs to AISHA RAHMAN.",
+        "Neither PRIYA NAIR nor OMAR SAID is below the threshold.",
+        "Neither PRIYA NAIR nor OMAR SAID fails to meet the threshold.",
+        "Unlike AISHA RAHMAN who is below the threshold, DANIEL KOH meets it.",
+        "Except PRIYA NAIR who meets the threshold, the others are below it.",
+    ],
+)
+def test_second_review_reproductions_are_removed(sentence: str) -> None:
+    assert copilot.check_answer(sentence, FACTS).kept == 0, sentence
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "No UBO status is verified yet.",
+        "Neither AISHA RAHMAN nor DANIEL KOH is below the threshold.",
+        "MERIDIAN CAPITAL's 20% stake in GARDEN BUSINESS belongs to MERIDIAN CAPITAL.",
+    ],
+)
+def test_second_review_correct_forms_are_kept(sentence: str) -> None:
+    check = copilot.check_answer(sentence, FACTS)
+    assert (check.kept, check.left_out) == (1, []), check
+
+
+def test_a_possessive_holding_without_a_figure_must_exist_that_way_round() -> None:
+    assert copilot.check_answer("PRIYA NAIR's stake belongs to AISHA RAHMAN.", FACTS).kept == 0
+    assert copilot.check_answer("KESTREL HOLDINGS's stake belongs to AISHA RAHMAN.", FACTS).kept
