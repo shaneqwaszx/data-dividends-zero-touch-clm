@@ -53,6 +53,7 @@ import { aiAssistantContextFor } from "./pages/aiAssistantContext";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
 import type { CaseQueuePresentationState } from "./pages/CaseQueue";
 import Dashboard from "./pages/Dashboard";
+import { GtcDashboard, PeriodicReviewDashboard } from "./pages/mockDashboards/MockDashboards";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import DeleteCaseDialog from "./pages/DeleteCaseDialog";
 import GoldTierRequestPreview from "./pages/GoldTierRequestPreview";
@@ -2357,6 +2358,8 @@ export default function App({
           actor={actor}
           retainedIntakeCaseId={retainedIntakeCaseId}
           dashboard={<Dashboard actor={actor} />}
+          gtcDashboard={<GtcDashboard />}
+          periodicReviewDashboard={<PeriodicReviewDashboard />}
           newOnboarding={(routeCaseId) => (
             routeCaseId && routeCaseId !== retainedIntakeCaseId
               ? <RetainedIntakeRecovery actor={actor} caseId={routeCaseId} onStartFresh={handleStartNewCase} />

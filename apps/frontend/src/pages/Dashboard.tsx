@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import DirectorTeamFilter from "./DirectorTeamFilter";
+import { MockCategoryCards } from "./mockDashboards/MockDashboards";
+import { MOCK_WEEKLY_ONBOARDED } from "./mockDashboards/mockDashboardData";
 import type { DashboardDateRange } from "../api";
 import { activityQueryOptions, dashboardQueryOptions } from "../caseQueries";
 import { paths } from "../navigation";
@@ -154,14 +156,6 @@ function Pagination({ page, setPage, pageCount, total, pageSize }: {
   );
 }
 
-const PLACEHOLDER_CATEGORIES = [
-  { n: "01", label: "Category 1", note: "Placeholder for a stage before onboarding" },
-  { n: "03", label: "Category 3", note: "Placeholder" },
-  { n: "04", label: "Category 4", note: "Placeholder" },
-  { n: "05", label: "Category 5", note: "Placeholder" },
-  { n: "06", label: "Category 6", note: "Placeholder" },
-];
-
 export function DashboardCategoryPicker({
   dashboard,
   onSelectOnboarding,
@@ -183,7 +177,6 @@ export function DashboardCategoryPicker({
       </header>
 
       <div className="category-grid">
-        {PLACEHOLDER_CATEGORIES.slice(0, 1).map((category) => <CategoryCard key={category.n} {...category} />)}
         <article
           className="card category-card category-card--live"
           role="button"
@@ -191,7 +184,7 @@ export function DashboardCategoryPicker({
           onClick={onSelectOnboarding}
           onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectOnboarding(); } }}
         >
-          <div className="category-card-top"><span className="dashboard-kicker">02</span><span className="tag tag-accent">Available</span></div>
+          <div className="category-card-top"><span className="dashboard-kicker">01</span><span className="tag tag-accent">Available</span></div>
           <h2>Onboarding</h2>
           <p className="text-muted">Registry extract, automatic checks, blockers and time per pipeline step</p>
           <div className="category-card-foot">
@@ -199,20 +192,9 @@ export function DashboardCategoryPicker({
             <span className="category-card-cta">View dashboard →</span>
           </div>
         </article>
-        {PLACEHOLDER_CATEGORIES.slice(1).map((category) => <CategoryCard key={category.n} {...category} />)}
+        <MockCategoryCards />
       </div>
     </section>
-  );
-}
-
-function CategoryCard({ n, label, note }: { n: string; label: string; note: string }) {
-  return (
-    <article className="card category-card category-card--inert">
-      <div className="category-card-top"><span className="dashboard-kicker">{n}</span><span className="tag tag-neutral">Not set up</span></div>
-      <h2 className="text-muted">{label}</h2>
-      <p className="text-muted">{note}</p>
-      <div className="category-card-foot"><span className="text-muted">No dashboard yet</span></div>
-    </article>
   );
 }
 
@@ -290,7 +272,7 @@ function WeeklyOnboardedChart({ weeks }: { weeks: DashboardSnapshot["weekly_onbo
   return (
     <article className="card" style={{ flex: 1.25 }}>
       <div className="row-between">
-        <h2>Onboarded per week</h2>
+        <h2>Onboarded per week <span className="tag tag-neutral" style={{ marginLeft: 8, verticalAlign: "middle" }}>Mock data</span></h2>
         <span className="weekly-chart-legend">
           {jurisdictionsPresent.map((code) => <span key={code}><span className="weekly-chart-swatch" style={{ background: JURISDICTION_COLORS[code] }} />{JURISDICTION_LABELS[code]}</span>)}
           {anyUnresolved && <span><span className="weekly-chart-swatch" style={{ background: "var(--color-neutral-300)" }} />Unresolved</span>}
@@ -311,7 +293,7 @@ function WeeklyOnboardedChart({ weeks }: { weeks: DashboardSnapshot["weekly_onbo
         })}
       </div>
       <div className="weekly-chart-axis">{weeks.map((week) => <span key={week.week_start} className="weekly-chart-label">{week.week_start.slice(5)}</span>)}</div>
-      <p className="text-muted" style={{ fontSize: 10.5, margin: "8px 0 0" }}>Recorded completions in the selected case cohort · UTC weeks starting Monday.</p>
+      <p className="text-muted" style={{ fontSize: 10.5, margin: "8px 0 0" }}>Fixed sample figures for demonstration; not affected by the team or date-range filters · weeks starting Monday.</p>
     </article>
   );
 }
@@ -651,7 +633,7 @@ function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; act
       <StageTimingTable stageTiming={dashboard.stage_timing} />
 
       <div className="dashboard-grid dashboard-grid--distributions">
-        <WeeklyOnboardedChart weeks={dashboard.weekly_onboarded} />
+        <WeeklyOnboardedChart weeks={MOCK_WEEKLY_ONBOARDED} />
         <ExceptionBreakdown exceptions={dashboard.exception_breakdown} />
       </div>
 
