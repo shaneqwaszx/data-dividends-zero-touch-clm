@@ -2132,3 +2132,98 @@ strict schema-17 reads, upgrade without rewrite, stable dumps) and `src/pages/Ue
 Synthetic manifests: the D-094 boundary vocabulary is already stale on main and is not
 regenerated here. `synthetic_eligibility.json` lists the Demo Parks PDF by SHA-256 and is a
 qualification-basis file, so its regeneration is a separate commit for Shane to accept or drop.
+
+## D-117 - Optional GoldTier enrichment: Group Company Name in GoldTier Details & Status (candidate, nothing implemented)
+
+Status: candidate. The owner approved the UX direction (Option B) and the revised plan in principle on
+2026-11-03 and assigned this decision and contract-correction record (PR0) only. Authority for the
+design: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Sponsor statements quoted below are
+`SPONSOR_CONFIRMED` only to the extent written. Not Live, not provider-verified, not production policy.
+Numbered D-117 because D-115 and D-116 are reserved on `feat/hr-rectification-assistant-copilot`.
+Nothing in this entry is implemented: no code, model, schema, API, mapping, configuration or
+provider call changes with it.
+
+**Sponsor source.** The owner-supplied private sponsor response document
+`DC&Data_Dividends_Queries_Responses.docx`, SHA-256
+`74b6c7cdc22da4d2fb128ecc06cb0976fc99f830eb588c36aa9b8178364ba72e`. Its document properties
+record creation 2026-10-15T10:07Z and last modification 2026-10-22T02:02Z (revision 2); no
+separate publication or delivery date is established. It stays outside the repository; only the
+bounded facts below are recorded. Its EDS statements are context only: EDS is out of scope (a
+sponsor-described in-design enhancement of XPI with no current endpoints or field specifications).
+A second round of sponsor answers was relayed by the owner on 2026-11-03 (O1 to O4 below); several
+of them restate answers already recorded in D-068.
+
+**Sponsor facts recorded (enrichment scope only).**
+
+| # | Sponsor statement | Effect on this project |
+| --- | --- | --- |
+| S1 | `groupCompanyName` is free text. If the supplied name does not exist in GoldTier, GoldTier creates a new Group Company Name (GCN) record; if it matches an existing one, GoldTier associates the customer with it. | The create-or-associate consequence is known and must be shown to the RM. Open: the matching rule (exact, case or whitespace handling, scope) is not stated. |
+| S2 | The current XPI Amend supports only `rmUserLogin`, `anzsic`, `groupCompanyName` and External System / External System Key details. Contact, RM email, address and similar fields belong to the in-design EDS enhancement. | Amend field categories are confirmed. Open: our `XpiAmendCustomerRequest` has no `rmUserLogin` and no External System/Key fields, and the supplied contract artefacts give no request alias, type or format for them. |
+| S3 | Amend requires a valid GoldTier ID and a GoldTier-generated Policy ID. `Singapore` in sample payloads is not a Policy ID. Existing customers should obtain the Policy ID from prior onboarding records, customer search results or other approved GoldTier retrieval mechanisms. | The current Amend shape (`goldTierId` + `policy=Singapore`, `mappers/goldtier_xpi.py` `build_amend_request`) does not conform. Open: no current case retains a Policy ID (S3 Policy create returned none), and the XPI Search response field carrying a Policy ID is not established. |
+| S4 | Expected flow: Search; if a match exists, Amend; otherwise Shell, then Policy, then Amend for additional information not captured during Shell creation. | The sponsor-described route for additional fields is a post-Policy Amend. The sponsor did not answer whether Shell may carry `groupCompanyName`; Shell carriage rests only on the supplied collection example. |
+| S5 | Product type, account entity type, contact and RM email specifications belong to the EDS enhancement and are not finalized. | No non-empty `productType` / `accountEntityType` vocabulary exists; current empty-string serialization is unchanged. |
+| S6 | Unprocessed additional fields are listed in the response; persisted values can be checked with the Search API. The verification mechanism is also stated as not finalized. | Search-based readback is a candidate check, not an established acceptance proof. |
+
+**Owner-relayed sponsor answers (2026-11-03).**
+
+| # | Answer | Effect on this project |
+| --- | --- | --- |
+| O1 | `Singapore` is a Policy selection value, not the generated Policy ID required for Amend; Amend needs both the GoldTier ID and a genuine GoldTier-generated Policy ID. | Confirms S3. See the D-056 note below. |
+| O2 | Group Company Name and ANZSIC are optional Amend fields. GoldTier supports Singapore SSIC, but the current Amend does not support SSIC updates. | No SSIC value is sent through Amend and no SSIC-to-ANZSIC conversion is made. |
+| O3 | Restated from D-068: GTAPICONNECTUSER is the API service user; Requested/Active policies may be amended subject to workflow validation; a Validation Failed amendment does not update customer records; GoldTier has no API-level idempotency or retry; the External System Key is not a unique GoldTier customer identifier. | Existing ledger, no-replay and correlation-only key handling are unchanged. |
+| O4 | Contact and address enhancements and other EDS capabilities are outside current XPI scope; non-empty `productType` / `accountEntityType` vocabularies are not established for the current XPI implementation. | Current empty-string serialization of `accountEntityType` and `productType` is unchanged. |
+
+None of these answers is to be asked of the sponsor again. ANZSIC: no code list was supplied and
+none is inferred. RM identity: no mapping from a local user to a GoldTier login was supplied (Q-016).
+
+**D-056 note.** D-056 `policy=Singapore` remains valid for Create Customer Policy. For Amend it is
+superseded by S3/O1: Amend requires a genuine GoldTier-generated Policy ID. No such identifier is
+retained today and none may be generated, guessed or derived locally; no retrieval mechanism is
+invented. Until a genuine Policy ID can be bound, XPI Amend stays disabled.
+
+**Design decisions (candidate; each later PR needs its own review).**
+
+| # | Decision |
+| --- | --- |
+| E1 | **Placement (Option B).** A collapsed "Additional GoldTier details (optional)" disclosure inside the existing GoldTier Details & Status stage, directly below Target classification. No new stage, pipeline node, rail entry, exception, intervention or readiness blocker. |
+| E2 | **v1 scope.** Group Company Name is the only editable field. ANZSIC, product type, account entity type and RM login stay out of the editable scope until their values or identity semantics are established. External system, external key, RM login status, `accountEntityType` and `productType` (both keep their current empty values) may appear read-only. No dropdown values are introduced. |
+| E3 | **Entry.** The RM may leave it empty, type a value, or review an explicit document suggestion and accept, correct or reject it. Saving requires an explicit acknowledgement that GoldTier will associate an existing GCN on a match or create a new one, and that the matching rule is not yet confirmed. The name is never inferred from ownership, shareholders or unrelated text. |
+| E4 | **Document suggestions.** Only an explicit labelled line (for example `Group Company Name:`) captured during normal document processing, in the same page pass as the existing classification labels. No OCR re-run; documents processed before the feature show no suggestion. Provenance: document, version, event count, page, `PAGE_n_LINE_m` reference, method, quality and evidence score (not a probability). The exact label set is fixed in the implementing PR and tested on synthetic fixtures only. |
+| E5 | **Currency.** Accepting a suggestion requires current evidence (document not superseded or deleted, unchanged event count, exact value); otherwise `DOCUMENT_REVIEW_STALE`. After replacement or deletion a saved document-sourced value is retained, marked "evidence no longer current, re-confirm", is ineligible for transmission and is not a blocker. |
+| E6 | **Statuses.** Collected locally, Prepared for XPI, Eligible for submission, Transmitted, Provider-confirmed. A later status is never shown before it is reached; provider-confirmed requires an exact readback of the same value. |
+| E7 | **Transmission, default disabled.** Any later mapping is Shell-only for new customers and must not set an Amend field, so it cannot trigger Customer Amend. Eligibility is a composition-root allowlist that is empty by default (no HR-editable policy, no environment flag); opening it is a separately reviewed `EXTERNAL_PROVIDER` change. Given S4, opening it also needs provider qualification of Shell carriage (a verified contract detail or separately authorized Sandbox evidence); Shell acceptance is not asserted before then. The exact GCN matching algorithm is provider behaviour shown to the RM as a consequence; it is not needed to build the feature. No Sandbox write is authorized by this decision. |
+| E8 | **Existing customers.** The value is retained in the case and shown as not transmitted until Amend is qualified (S3 Policy ID retrieval and binding, request schema, provider acceptance). Enrichment never turns `AMEND_NOT_REQUIRED` into an Amend and no Policy ID is invented. |
+| E9 | **Review & Send.** A populated value appears in an "Optional GoldTier details" card with source, provenance and status; the card is omitted when empty. A value appears in "What will be sent" only when eligible; otherwise it is listed as saved in the case and not transmitted. |
+| E10 | **Persistence plan.** One case snapshot schema bump (19) declares both the optional case field and the optional document observation field, so the later suggestion work needs no second revision. Strict schema-18 readers reject either key even when null or empty; schema-18 records read without rewrite. Both fields are omitted from `model_dump` while unset. The Mongo document stores every declared field (`_persistence_value`), so newly saved documents gain the null or empty keys and `schema_version: 19`. |
+| E11 | **Unchanged onboarding when unused.** For a case with no enrichment, business fingerprints and review digests stay byte-identical: case dumps, document evidence fingerprints, `_target_review_digest` (enrichment added only when present), `GoldTierSubmissionInput` and its submission/idempotency fingerprints (enrichment populated only when eligible), XPI and Mock payloads, and `requires_amend`. Golden tests captured from the base revision prove this in the implementing PRs, including a direct check of the Mongo encoding rather than relying on `exclude_if`. |
+
+**Verified documentation inconsistencies.**
+- `GOLDTIER_XPI_MAPPING_MATRIX.md` described the Shell and Policy `customerExternalSystemKey`
+  source as the registration number. Current XPI code uses `FYP-<case id hex>` in Sandbox mode and
+  none otherwise (`services/onboarding.py` `build_submission_input`); only the Mock mapper uses the
+  UEN with `ACRA`. Corrected there.
+- The XPI preview labels the Amend industry field `ANZSIC` while the request alias is `anzsic`
+  (`mappers/goldtier_xpi.py` preview). Recorded only; a code fix belongs to a later PR.
+- `GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md`, `GOLDTIER_CURRENT_CONTRACT_AND_SCREENING_RECONCILIATION.md`
+  (fresh synthetic customer plan, Amend row) and the matrix Amend `policy` row treat `Singapore`
+  as the Amend policy value. The reconciliation plan's Amend row is corrected in place to require a
+  genuine GoldTier-generated Policy ID; the other two carry dated D-117 notes and their historical
+  rows are not rewritten. Create Customer Policy keeps `policy=Singapore` everywhere.
+
+**Dependency classification.** None of these is a blocker for the optional frontend feature, and
+none is a new sponsor question.
+
+| Item | Class | Treatment |
+| --- | --- | --- |
+| GCN free text, associate-or-create; Amend field categories; Policy ID required for Amend; `Singapore` is a selection value; SSIC not updatable through Amend; O3 restatements; empty `accountEntityType` / `productType` | `CONFIRMED_BY_SPONSOR` | Available for implementation decisions now. |
+| Group Company Name capture, manual correction, explicit-label document suggestion, acknowledgement, persistence (schema 19), Review & Send card; Shell mapping behind the empty allowlist; XPI Amend fail-closed Policy-ID safeguard | `IMPLEMENTATION_READY_LOCAL` | Built and tested with local and Mock behaviour; no further sponsor reply needed. |
+| Shell acceptance of `groupCompanyName`; GCN matching outcome and readback evidence; Policy-ID retrieval and Amend request binding; Amend request schema for `rmUserLogin` and External System / Key; RM-to-`rmUserLogin` identity mapping; ANZSIC values; non-empty `accountEntityType` / `productType` | `PROVIDER_QUALIFICATION_PENDING` | Transmission stays disabled and current behaviour is preserved until a verified API contract detail, approved readback evidence or a separately authorized Sandbox operation exists. No speculative enum, identifier, request field or identity mapping. |
+
+**Planned implementation sequence (each a separate assignment, independent QG and owner merge).**
+PR1 optional model, schema 19, API, RBAC and CAS; PR2 frontend section and Review & Send card;
+PR3 document-assisted suggestion; PR4 gated Shell-only mapping (allowlist empty); PR5 Amend Policy-ID
+safeguard (XPI Amend fails closed without a bound provider-generated Policy ID). PR4 does not
+depend on PR5; PR5 may land independently.
+
+The deferred provider-qualification dependencies are listed in
+`docs/sponsor-questions/OPEN_QUESTIONS.md` under "XPI optional enrichment (D-117)".
