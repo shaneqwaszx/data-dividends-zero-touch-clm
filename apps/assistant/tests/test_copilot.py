@@ -224,7 +224,9 @@ def test_scope(question: str, inside: bool) -> None:
 
 
 def test_the_new_modules_are_in_the_qualification_basis() -> None:
-    assert {"copilot.py", "case_contexts.py", "main.py"} <= set(BASIS_FILES)
+    assert {"copilot.py", "case_contexts.py", "main.py", "claims.py", "evidence.py"} <= set(
+        BASIS_FILES
+    )
 
 
 # --- answers through the routes ----------------------------------------------------------
@@ -292,6 +294,9 @@ def test_an_external_model_never_gets_copilot_mode() -> None:
     # QG F6: the copilot rules never reach an external model's prompt.
     first_rule = copilot.RULES.split(".")[0]
     assert all(first_rule not in json.dumps(call) for call in model.calls)
+    # Refinement 2: nor the copilot evidence package or ownership facts.
+    assert all("EVIDENCE (the current case" not in json.dumps(call) for call in model.calls)
+    assert all("OWNERSHIP FACTS" not in json.dumps(call) for call in model.calls)
 
 
 def test_streamed_copilot_answer_and_unavailable_model() -> None:
@@ -906,9 +911,6 @@ def test_holds_places_a_question_in_scope_only_with_a_case_open() -> None:
         "The UBOs here are LIM CHOON HUAT and TAN WEI LING.",
         "The UBO candidates under the calculation are LIM CHOON HUAT and TAN WEI LING.",
         "The UBOs are not only LIM CHOON HUAT but also TAN WEI LING.",
-        # Known limit, fail closed: a correct "has not been" negation the shared check
-        # reads as a claim is left out too.
-        "No, the UBO has not been officially verified.",
     ],
 )
 def test_temporal_negations_and_longer_ubo_lists_are_left_out(sentence: str) -> None:

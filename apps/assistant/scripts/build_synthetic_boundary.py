@@ -81,7 +81,7 @@ SEEDED_USERS = (
 QUESTION_FILES = ("scenarios.json", "phase_b_questions.json")
 # D-115: modules whose text reaches only a local model (copilot mode never runs with an
 # external model), so their words never widen what an external model's system message may use.
-LOCAL_ONLY_MODULES = ("copilot.py",)
+LOCAL_ONLY_MODULES = ("copilot.py", "claims.py", "evidence.py")
 # Reviewed everyday words an RM uses in a question (no names, places or identifiers).
 EVERYDAY_WORDS = [
     "block",
