@@ -1,3 +1,4 @@
+import ast
 import unittest
 from pathlib import Path
 
@@ -60,8 +61,21 @@ class Phase04OwnershipContractTests(unittest.TestCase):
             "Number(value)",
             (ROOT / "apps/frontend/src/App.tsx").read_text(encoding="utf-8"),
         )
-        browser_ownership = api_models.split("class BrowserOwnershipProvenance", maxsplit=1)[1]
-        self.assertNotIn("source_reference", browser_ownership)
+        # The browser provenance model declares no internal source reference. (It may read one
+        # server-side to derive a boolean; only its own declared fields reach the browser.)
+        browser_ownership = next(
+            node
+            for node in ast.parse(api_models).body
+            if isinstance(node, ast.ClassDef) and node.name == "BrowserOwnershipProvenance"
+        )
+        fields = {
+            item.target.id
+            for item in browser_ownership.body
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
+        }
+        self.assertIn("provider", fields)
+        self.assertNotIn("source_reference", fields)
+        self.assertNotIn("extra=\"allow\"", ast.get_source_segment(api_models, browser_ownership))
 
     def test_configuration_defaults_are_bounded_and_provisional(self) -> None:
         config = (ROOT / "apps/backend/app/config.py").read_text(encoding="utf-8")

@@ -94,12 +94,14 @@ class ToolingConfigTests(unittest.TestCase):
         self.assertEqual(
             jobs,
             {
-                "backend", "local-ocr", "frontend", "phase12-mongo", "e2e", "e2e-shards",
-                "demo-lifecycle-windows", "security",
+                "backend", "assistant", "local-ocr", "frontend", "phase12-mongo", "e2e",
+                "e2e-shards", "demo-lifecycle-windows", "security",
             },
         )
         for command in (
             "npm run e2e:list",
+            'python -m pip install -e ".[dev]" -e "../assistant"',
+            "python -m mypy ai_assistant assistant_eval",
             "python ../../scripts/run_physical_mongo_tests.py",
             "python scripts/run_e2e.py",
             "python scripts/check_tooling_config.py",

@@ -12,6 +12,9 @@ dependencies = [
     "fastapi==0.141.1",
     "httpx==0.28.1",
     "pydantic-settings==2.15.0",
+    # FastAPI accepts any Starlette >=0.46; pinned to the version every suite is validated on
+    # (a fresh resolve took 1.10.0, whose TestClient changes how an interrupted request ends).
+    "starlette==1.6.0",
     "uvicorn[standard]==0.52.1",
 ]
 

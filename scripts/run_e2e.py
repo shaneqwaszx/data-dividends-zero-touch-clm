@@ -683,6 +683,7 @@ def run(
             env=backend_environment,
         )
         processes.append(backend)
+        record["phase"] = "backend_ready"
         _wait_for_http(f"{backend_origin}/health", backend, deadline, expected_text='"status":"ok"')
         finish_phase("backend_ready_seconds")
 
@@ -701,6 +702,7 @@ def run(
             env=frontend_environment,
         )
         processes.append(frontend)
+        record["phase"] = "frontend_ready"
         _wait_for_http(frontend_origin, frontend, deadline, expected_text="Zero-Touch CLM")
         finish_phase("frontend_ready_seconds")
 
@@ -717,6 +719,7 @@ def run(
             playwright_command.extend(("--grep", grep))
         if selection:
             playwright_command.append(selection)
+        record["phase"] = "playwright"
         tests = OwnedProcess(
             "playwright",
             playwright_command,
@@ -755,6 +758,12 @@ def run(
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         if failure_kind == "ASSERTION_FAILURE" and isinstance(exc, TimeoutError):
             failure_kind = "INDIVIDUAL_SELECTION_TIMEOUT"
+        if isinstance(exc, TimeoutError):
+            # The runner's lifecycle deadline fired (not Playwright's own per-test timeout).
+            record["timeout_owner"] = f"runner_lifecycle_{timeout_seconds:g}s"
+        active = f"{record.get('phase')}_seconds"
+        if active in phases and phases[active] is None:
+            phases[active] = round(time.monotonic() - phase_started, 3)
         record["result"] = failure_kind
         print(
             f"E2E FAILED [{failure_kind}]: {_sanitize(str(exc), (ephemeral_credential,))}",
@@ -1070,6 +1079,17 @@ def run_isolated_suite(
         if elapsed > slowest_seconds:
             slowest_seconds, slowest_selection = elapsed, selection
         if result != 0:
+            # Codes and durations only: which phase was running, how long each took, and
+            # which deadline ended it.
+            timings = "; ".join(
+                f"{name}={value:.3f}" if isinstance(value, float) else f"{name}=none"
+                for name, value in (outcome.get("phases") or {}).items()
+            )
+            print(
+                f"E2E SELECTION DIAGNOSTIC: selection={index}/{len(selectors)}; result={kind}; "
+                f"phase={outcome.get('phase', 'none')}; "
+                f"timeout_owner={outcome.get('timeout_owner', 'none')}; {timings}"
+            )
             print(
                 f"E2E SUITE FAILED: isolated selection {index}/{len(selectors)} failed.",
                 file=sys.stderr,

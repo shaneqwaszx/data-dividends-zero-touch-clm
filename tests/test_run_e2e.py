@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import io
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -1020,7 +1021,7 @@ console.log(JSON.stringify({
         run.assert_not_called()
 
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
-        lifecycle_seconds = 60
+        lifecycle_seconds = 180
         installation_minutes = 14
         job_minutes = 234
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -1030,12 +1031,21 @@ console.log(JSON.stringify({
         # The count is revision-specific; the bound below is the durable contract.
         selectors = RUN_E2E._list_test_selectors(RUN_E2E.DEFAULT_FRONTEND_PORT)
         self.assertGreaterEqual(len(selectors), 2)
-        self.assertIn("shard: [1, 2]", e2e)
+        self.assertIn("shard: [1, 2, 3]", e2e)
         self.assertIn("fail-fast: false", e2e)
-        self.assertIn("--shard ${{ matrix.shard }}/2", e2e)
-        shards = [RUN_E2E._shard_selectors(selectors, (index, 2)) for index in (1, 2)]
-        self.assertEqual(sorted(shards[0] + shards[1]), sorted(selectors))
-        self.assertFalse(set(shards[0]) & set(shards[1]))
+        self.assertIn("--shard ${{ matrix.shard }}/3", e2e)
+        shards = [RUN_E2E._shard_selectors(selectors, (index, 3)) for index in (1, 2, 3)]
+        self.assertEqual(sorted(shards[0] + shards[1] + shards[2]), sorted(selectors))
+        for first in range(3):
+            for second in range(first + 1, 3):
+                self.assertFalse(set(shards[first]) & set(shards[second]))
+        # The runner deadline must exceed Playwright's own per-test timeout plus server
+        # readiness, so a slow test is timed out and reported by Playwright, not the runner.
+        config = (ROOT / "apps/frontend/playwright.config.ts").read_text(encoding="utf-8")
+        found = re.search(r"^  timeout: ([\d_]+),", config, re.MULTILINE)
+        assert found is not None
+        test_timeout = int(found[1].replace("_", ""))
+        self.assertGreaterEqual(lifecycle_seconds, test_timeout // 1000 + 60)
         self.assertEqual(RUN_E2E.DISCOVERY_TIMEOUT_SECONDS, 60)
         self.assertEqual(RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS, 120)
         launcher_seconds = RUN_E2E.DISCOVERY_TIMEOUT_SECONDS + max(map(len, shards)) * (
@@ -1073,7 +1083,7 @@ console.log(JSON.stringify({
                 frontend_port=RUN_E2E.DEFAULT_FRONTEND_PORT,
                 timeout_seconds=lifecycle_seconds,
                 headed=False,
-                shard=(1, 2),
+                shard=(1, 3),
             )
 
         self.assertEqual(result, 0)
@@ -1280,6 +1290,38 @@ class E2EDiagnosticsTests(unittest.TestCase):
     def read_results(self) -> dict[str, Any]:
         return cast(dict[str, Any], json.loads(self.results.read_text(encoding="utf-8")))
 
+    def test_a_failed_lifecycle_reports_its_phase_durations_and_timeout_owner(self) -> None:
+        def timed_out(**kwargs: Any) -> int:
+            kwargs["outcome"].update(
+                result="INDIVIDUAL_SELECTION_TIMEOUT",
+                phase="playwright",
+                timeout_owner="runner_lifecycle_60s",
+                phases={
+                    "backend_ready_seconds": 2.5,
+                    "frontend_ready_seconds": 1.25,
+                    "playwright_seconds": 56.25,
+                    "cleanup_seconds": 0.5,
+                },
+            )
+            return 1
+
+        output = io.StringIO()
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", return_value=["e2e/s.e2e.ts:1"]),
+            patch.object(RUN_E2E, "run", side_effect=timed_out),
+            redirect_stdout(output), redirect_stderr(output),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765, frontend_port=4173, timeout_seconds=60, headed=False,
+            )
+        self.assertEqual(result, 1)
+        self.assertIn(
+            "E2E SELECTION DIAGNOSTIC: selection=1/1; result=INDIVIDUAL_SELECTION_TIMEOUT; "
+            "phase=playwright; timeout_owner=runner_lifecycle_60s; backend_ready_seconds=2.500; "
+            "frontend_ready_seconds=1.250; playwright_seconds=56.250; cleanup_seconds=0.500",
+            output.getvalue(),
+        )
+
     def test_run_records_result_kind_and_phase_durations(self) -> None:
         class StopFailingProcess(_FakeOwnedProcess):
             def stop(self) -> None:
@@ -1289,8 +1331,9 @@ class E2EDiagnosticsTests(unittest.TestCase):
         for wait_http, wait_test, process, expected, measured in (
             (None, 0, _FakeOwnedProcess, "PASS", 4),
             (None, 1, _FakeOwnedProcess, "ASSERTION_FAILURE", 4),
-            (TimeoutError("ready"), 0, _FakeOwnedProcess, "READINESS_FAILURE", 1),
-            (None, TimeoutError("hung"), _FakeOwnedProcess, "INDIVIDUAL_SELECTION_TIMEOUT", 3),
+            # A timed-out phase also records how long it ran before the deadline.
+            (TimeoutError("ready"), 0, _FakeOwnedProcess, "READINESS_FAILURE", 2),
+            (None, TimeoutError("hung"), _FakeOwnedProcess, "INDIVIDUAL_SELECTION_TIMEOUT", 4),
             (None, KeyboardInterrupt(), _FakeOwnedProcess, "INTERRUPTED", 3),
             (None, 0, StopFailingProcess, "CLEANUP_FAILURE", 4),
         ):
@@ -1319,6 +1362,14 @@ class E2EDiagnosticsTests(unittest.TestCase):
             )
             self.assertEqual(sum(value is not None for value in phases.values()), measured)
             self.assertIsNotNone(phases["cleanup_seconds"])
+            if expected == "INDIVIDUAL_SELECTION_TIMEOUT":
+                self.assertEqual(outcome["phase"], "playwright")
+                self.assertEqual(outcome["timeout_owner"], "runner_lifecycle_60s")
+            elif expected == "READINESS_FAILURE":
+                self.assertEqual(outcome["phase"], "backend_ready")
+                self.assertEqual(outcome["timeout_owner"], "runner_lifecycle_60s")
+            else:
+                self.assertNotIn("timeout_owner", outcome)
 
     def test_keep_going_runs_every_selection_and_never_reports_pass(self) -> None:
         selectors = [f"e2e/s.e2e.ts:{line}" for line in range(1, 6)]
