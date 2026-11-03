@@ -236,6 +236,16 @@ const SAFE_ERROR_MESSAGES = new Set([
   "Claude's ledger must be reconciled with the Anthropic Console's usage within the last day (no open call, no stop) before a Claude limit can be raised. Nothing changed.",
   "Claude is not fully configured on this server, so its limits can only be lowered. Nothing changed.",
   "Confirm the new call limit to raise it. Nothing changed.",
+  "Too many recovery requests. Wait a few minutes and try again.",
+  "That problem is not reported now; check the page again.",
+  "HR can fix that problem on this page; no request is needed.",
+  "The problem is still reported, so it stays open.",
+  "An open request for this problem already exists.",
+  "Too many open recovery requests. Close some first.",
+  "No such recovery request.",
+  "This recovery request is already closed.",
+  "That is not a valid way to close a request.",
+  "The note must be plain text without keys or secrets.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -1363,3 +1373,69 @@ export const resolveClaudeReconciliationRun = (runId: string) =>
 // Read-only: the free preflight reads the key's OpenRouter limit; nothing is changed.
 export const refreshProviderLimits = () =>
   request<ModelBudgetStatus>("/admin/models/budget/provider-refresh", {});
+
+/** Recovery centre: one current problem, its cause, evidence and permitted actions. The server
+ *  decides every value; `permitted` is false when HR may not act (or another problem must clear first). */
+export type RecoveryActionKind =
+  | "RECONCILE" | "RESOLVE_RUN" | "ENTER_KEY" | "TEST_CONNECTION" | "EDIT_DAILY_LIMIT"
+  | "EDIT_LIFETIME_LIMIT" | "QUALIFY" | "ACTIVATE" | "ROLLBACK" | "SIGN_IN_AGAIN" | "WAIT" | "OWNER_REQUEST";
+
+export interface RecoveryAction {
+  kind: RecoveryActionKind;
+  label: string;
+  authority: "HR" | "OWNER" | "IT" | "NONE";
+  permitted: boolean;
+  section: "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
+  verify: string;
+  profile_id: string | null;
+  run_id: string | null;
+  blocked_by: string[];
+}
+
+export interface RecoveryProblem {
+  code: string;
+  severity: "blocking" | "warning" | "info";
+  provider: "anthropic" | "openrouter" | "local" | "service";
+  title: string;
+  cause: string;
+  evidence: { label: string; value: string }[];
+  actions: RecoveryAction[];
+  owner_request_allowed: boolean;
+}
+
+export interface RecoveryRequest {
+  request_id: string;
+  problem_code: string;
+  evidence: { label: string; value: string }[];
+  note: string | null;
+  status: "open" | "resolved" | "withdrawn";
+  created_at: string;
+  created_by: string;
+  closed_at: string | null;
+  closed_by: string | null;
+  /** The server still reports this problem now. */
+  problem_present: boolean;
+}
+
+export interface RecoveryView {
+  generated_at: string;
+  healthy: boolean;
+  problems: RecoveryProblem[];
+  /** Separate deadlines: never one interchangeable expiry. */
+  expiries: {
+    claude_chat_deadline_at?: string | null;
+    claude_paid_deadline_at?: string | null;
+    claude_hr_key_ends_at?: string | null;
+    claude_daily_reset_at?: string | null;
+    gpt_oss_hr_key_ends_at?: string | null;
+    qualifications: { profile_id: string; display_name: string; active: boolean; status: string; finished_at: string | null; current: boolean }[];
+  };
+  requests: RecoveryRequest[];
+}
+
+export const fetchRecovery = (signal?: AbortSignal) =>
+  request<RecoveryView>("/admin/models/recovery", undefined, signal);
+export const openRecoveryRequest = (problemCode: string, note: string | null) =>
+  request<RecoveryView>("/admin/models/recovery/requests", { problem_code: problemCode, note });
+export const closeRecoveryRequest = (requestId: string, status: "resolved" | "withdrawn") =>
+  request<RecoveryView>(`/admin/models/recovery/requests/${encodeURIComponent(requestId)}/close`, { status });

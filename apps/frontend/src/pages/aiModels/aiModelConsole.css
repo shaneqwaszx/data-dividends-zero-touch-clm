@@ -352,3 +352,12 @@ a.console-stat:hover { border-color: var(--color-accent); }
   }
   .console-filters .btn { width: 100%; min-height: 44px; }
 }
+
+/* Recovery centre: one list of current problems with their permitted fixes. */
+.console-recovery__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; justify-content: space-between; }
+.console-recovery__head h2, .console-recovery__head h3, .console-recovery__head h4 { margin: 0; flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+.console-recovery__list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
+.console-recovery__item { border: 1px solid var(--console-line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.console-recovery__item p { overflow-wrap: anywhere; }
+.console-recovery__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.console-recovery textarea { width: 100%; box-sizing: border-box; }

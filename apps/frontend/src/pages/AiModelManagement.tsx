@@ -13,6 +13,7 @@ import {
   clearModelCredential,
   fetchModelAudit,
   fetchModelOverview,
+  fetchRecovery,
   readAnthropicWorkspace,
   MODEL_AUDIT_LIMIT,
   refreshProviderLimits,
@@ -40,10 +41,12 @@ import {
   type ModelOverview,
   type ModelProfileView,
   type ModelQualification,
+  type RecoveryView,
 } from "../aiAssistant";
 import { formatTimestamp } from "../shared";
 import type { AuthenticatedProfile } from "../types";
 import { CONSOLE_SECTIONS, ConsoleDialog, ConsoleShell, consoleSection, sectionSearch, type ConsoleBadge, type ConsoleSection } from "./aiModels/ConsoleShell";
+import { RecoveryCentre, recoveryQueryKey } from "./aiModels/RecoveryCentre";
 
 // AI model management (D-093): HR (MODEL_CONFIG_MANAGE) chooses the application-wide model
 // from IT's local loopback profiles. The server decides everything; this page only shows it.
@@ -2346,7 +2349,17 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
     return run.diagnosis ? run.diagnosis.action !== "NONE" && run.diagnosis.action !== "WAIT" : run.status !== "passed" || !run.current;
   }).length ?? 0;
   const credential = overview?.budget?.configured ? overview.budget.credential : null;
+  // The recovery centre's own query (under root, so every page action re-reads it).
+  const recovery: RecoveryView | undefined = useQuery({
+    queryKey: recoveryQueryKey(actor.user_id),
+    queryFn: ({ signal }) => fetchRecovery(signal),
+    retry: false,
+    // Read on the overview only; other sections show the badge from the last reading.
+    enabled: section === "overview",
+  }).data;
+  const blocking = recovery?.problems.filter((item) => item.severity === "blocking").length ?? 0;
   const badges: Partial<Record<ConsoleSection, ConsoleBadge>> = {
+    ...(blocking > 0 ? { overview: { text: String(blocking), label: `${blocking} blocking ${blocking === 1 ? "problem" : "problems"} in the recovery centre`, tone: "warn" as const } } : {}),
     ...(credential && credential.status !== "configured" ? { providers: credential.status === "invalid"
       ? { text: "Key invalid", label: "the OpenRouter key is not valid", tone: "warn" as const }
       : { text: "No key", label: "no OpenRouter key is set", tone: "warn" as const } } : {}),
@@ -2401,6 +2414,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
               {overview.active.reverted && !overview.active.unavailable && <p className="ds-banner ds-banner-warn" role="alert">The saved model could not be used at start-up ({readable(overview.active.reverted, ANY_PROVIDER)}), so the environment baseline is active.</p>}
               {overview.active.config_changed && <p className="ds-banner ds-banner-warn" role="status">IT changed this model's settings since it was activated. It keeps its activated settings until the service restarts, then the baseline is used until it is qualified again.</p>}
 
+              <RecoveryCentre userId={actor.user_id} onChanged={refresh} />
               <ActiveModelBand overview={overview} busy={busy} nameOf={nameOf}
                 onRollback={() => overview.last_good && setConfirming({ kind: "rollback", profileId: overview.last_good.profile_id, name: nameOf(overview.last_good.profile_id, overview.last_good.display_name) })} />
               <OverviewSummary overview={overview} />
