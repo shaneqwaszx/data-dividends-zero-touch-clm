@@ -519,8 +519,9 @@ _UNBLOCKED = re.compile(
     r"|\beverything is (?:done|complete|completed|finished)\b"
 )
 _READY = re.compile(
-    r"\b(?:is|are) (?:now |fully |already )*ready (?:for|to) (?:gold ?tier|submission|submit"
-    r"|be submitted|approval|final review|send|be sent)\b"
+    # "was ready" too: "The case moved on once it was ready for GoldTier." (delta QG note 2).
+    r"\b(?:is|are|was|were) (?:now |fully |already )*ready (?:for|to) (?:gold ?tier|submission"
+    r"|submit|be submitted|approval|final review|send|be sent)\b"
 )
 _COMPLETED = re.compile(
     r"\b(?:the )?(?:case|onboarding|application|workflow|automation)\b[^.;]{0,25}"
@@ -599,15 +600,28 @@ _LEADING_CONDITION = re.compile(r"\s*(?:and |but |so |then )?" + _HYPOTHETICAL +
 _NEAR_CONDITION = re.compile(r"\b" + _HYPOTHETICAL + r"\b((?:\s+[\w'-]+){0,3})\s*$")
 
 
+# A claim in the past tense says it happened ("once it was ready", "after the blockers were
+# resolved"), unless the condition is an "if" or "unless" ("If it were ready, ...").
+_PAST = re.compile(r"\b(?:was|were|had been)\b")
+_SUPPOSING = re.compile(r"\b(?:if|unless)\b")
+
+
 def _hypothetical(text: str, found: re.Match[str]) -> bool:
     start = 0
     for mark in _CLAUSE_MARK.finditer(text, 0, found.start()):
         start = mark.end()
     before = text[start : found.start()]
+    # The condition word must introduce the claim's own clause: at most three words before it
+    # ("When you open the case you will see it is ready for GoldTier, so submit it." is a claim;
+    # delta QG note 1).
+    near = _NEAR_CONDITION.search(before)
+    if near is None:
+        return False
+    if _PAST.search(found.group(0)) and not _SUPPOSING.match(text, near.start()):
+        return False
     if _LEADING_CONDITION.match(before):
         return _CLAUSE_MARK.search(text, found.end()) is not None
-    near = _NEAR_CONDITION.search(before)
-    return near is not None and bool(before[: near.start()].strip())
+    return bool(before[: near.start()].strip())
 
 
 def goldtier_status(sentence: str, facts: dict[str, Any] | None) -> bool | None:

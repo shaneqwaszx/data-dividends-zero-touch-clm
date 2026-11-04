@@ -3,8 +3,8 @@
 Owner direction: "PRIORITY CORRECTION — Deliver Conversational AI, Not More Planning"
 (2026-11-04). Decision rows: D-115 X2, X3, C8 in `docs/decisions/DECISION_LOG.md`.
 
-Status: implemented in worktree `d115-conversational-20261105` (detached on main `92516a5`).
-It is uncommitted, unpublished and not activated. Conversational answers stay OFF until the owner records
+Status: owner-approved for PR publication (D-115 X4, 2026-11-05), branch
+`feat/d115-conversational-external` on main `92516a5`; draft PR, not activated. Conversational answers stay OFF until the owner records
 approval (`config.CONVERSATIONAL_DECISION`, a reviewed constant, `None` here). Evidence class:
 Local (mock Anthropic and OpenRouter APIs, synthetic fixtures, disposable stores, no paid call,
 US$0 spent).
@@ -44,7 +44,7 @@ candidate (`d115-copilot-scope-20261104`) and the D-118 PR #157 worktree are unt
 
 ## 3. Requalification
 
-Basis: main `17a3172e1607…` → `6f94231ca3cf…`. Every qualification on main's basis becomes
+Basis: main `17a3172e1607…` → `763e3014a36d…`. Every qualification on main's basis becomes
 stale. Once approved, each external configuration to be used needs a conversational
 requalification (2 approved questions each, ~2 paid calls): Claude Sonnet 5.5 Balanced and Fast,
 GPT-OSS 120B Balanced and Fast; plus the local model (free).
@@ -75,9 +75,9 @@ GPT-OSS 120B Balanced and Fast; plus the local model (free).
 - Claude is streaming-only, as before. Non-streamed `/chat` gives the case-data answer.
 - Mocked answers prove the pipeline, not real answer quality; that is measured only by the
   paid requalification.
-- Known residual (delta QG notes, not blocking), where the status check is too lenient:
-  - "When you open the case you will see it is ready for GoldTier, so submit it."
-  - "The case moved on once it was ready for GoldTier."
+- The two readiness phrasings from the delta review were corrected after owner approval (C9).
+  The sentence checks are pattern-based. Other unusual phrasings of an invented status can still
+  pass; real-provider answers have not been measured.
 - Hosted CI has been billing-blocked on recent PRs; local evidence only.
 
 ## 6. Shortest path to a demo

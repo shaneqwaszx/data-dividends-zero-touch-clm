@@ -72,6 +72,12 @@ FAILED = {**FACTS, "goldtier": {"state": "SUBMISSION_FAILED", "goldtier_id": Non
         "If you ask me the case is ready for GoldTier.",
         "When you open the case you will see it is ready for GoldTier.",
         "Before lunch the blockers were all resolved.",
+        # Owner-blocking delta QG notes: a condition far from the claim, and a past-tense claim.
+        "When you open the case you will see it is ready for GoldTier, so submit it.",
+        "The case moved on once it was ready for GoldTier.",
+        "The case was ready for GoldTier.",
+        "The case moved on after the blockers were resolved.",
+        "Once the blockers were resolved, the case moved on.",
     ],
 )
 def test_status_claims_the_facts_do_not_show_are_removed(sentence: str) -> None:
@@ -95,6 +101,11 @@ def test_status_claims_the_facts_do_not_show_are_removed(sentence: str) -> None:
         "It can move on when the case is ready for GoldTier.",
         "Until the discrepancy is resolved, GoldTier stays blocked.",
         "The blockers have not yet been resolved.",
+        # Still hypothetical: a perfect-tense condition and a supposition.
+        "Once the blockers have been resolved, the case can go to GoldTier.",
+        "If the blockers were resolved, the case could go to GoldTier.",
+        "If it were ready for GoldTier, the RM could submit it.",
+        "The case was not ready for GoldTier.",
         # QG9: another stage named as the next one.
         "The next stage is ownership review.",
     ],
