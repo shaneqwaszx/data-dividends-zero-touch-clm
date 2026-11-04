@@ -151,7 +151,8 @@ def test_the_default_ledger_path_is_package_relative_and_git_ignored() -> None:
     from ai_assistant.model_factory import ASSISTANT_DIR, ledger_path
 
     path = ledger_path(remote_settings())
-    assert path == ASSISTANT_DIR / "data" / "budget" / "ledger.sqlite3"
+    # D-118 amendment P2: a fresh session store by default, never the earlier design's ledger.
+    assert path == ASSISTANT_DIR / "data" / "budget" / "sessions" / "openrouter.sqlite3"
     assert not path.exists()
 
 

@@ -55,7 +55,7 @@ $env:AI_ASSISTANT_REMOTE_LIVE_DECISION = 'D-092'
 $env:AI_ASSISTANT_OPENROUTER_ENDPOINT = 'deepinfra/bf16'
 $env:AI_ASSISTANT_LLM_REASONING_EFFORT = 'medium'
 $env:AI_ASSISTANT_LLM_REASONING_ALLOWANCE_TOKENS = '1400'
-$env:AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD = '1000000'
+$env:AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD = '5000000'
 $env:AI_ASSISTANT_LOCAL_API_TEST_DECISION = 'D-094'
 $env:AI_ASSISTANT_SYNTHETIC_DEV_DECISION = 'D-095'
 $env:AI_ASSISTANT_LOCAL_API_TEST_OWNER_ATTESTS = $(if ($OpenRouterOwnerAttests) { 'auto_topup_off,prompt_logging_off' } else { '' })
@@ -69,15 +69,18 @@ $env:AI_ASSISTANT_ANTHROPIC_DECISION = ''
 $env:AI_ASSISTANT_ANTHROPIC_OWNER_ATTESTS = ''
 $env:AI_ASSISTANT_ANTHROPIC_WORKSPACE_ID = $WorkspaceId
 Remove-Item Env:AI_ASSISTANT_ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
-$env:AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD = '1000000'
+$env:AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD = '5000000'
 $env:AI_ASSISTANT_ANTHROPIC_MAX_CALLS = '20'
 
 # Stores (D-108): one root, relative names, all set explicitly (process env beats .env).
 $env:AI_ASSISTANT_DATA_DIR = $root
 $env:AI_ASSISTANT_MODEL_ADMIN_DB_PATH   = 'data/models/model_admin.sqlite3'
 $env:AI_ASSISTANT_MODEL_PROFILES_FILE   = 'data/models/profiles.json'
-$env:AI_ASSISTANT_ANTHROPIC_LEDGER_PATH = 'data/budget/anthropic_fyp_ledger.sqlite3'
-$env:AI_ASSISTANT_BUDGET_LEDGER_PATH    = 'data/budget/ledger.sqlite3'
+# D-118 amendment P2: the POC session stores (created from AI Models on first use). The earlier
+# design's ledgers (budget/ledger.sqlite3, budget/anthropic_fyp_ledger.sqlite3) are not used;
+# archive them first with scripts/storage/archive_accounting_stores.py (non-destructive).
+$env:AI_ASSISTANT_ANTHROPIC_LEDGER_PATH = 'data/budget/sessions/anthropic.sqlite3'
+$env:AI_ASSISTANT_BUDGET_LEDGER_PATH    = 'data/budget/sessions/openrouter.sqlite3'
 $env:AI_ASSISTANT_KNOWLEDGE_DATA_DIR    = 'data/knowledge'
 
 $env:PYTHONPATH = "$repo\apps\assistant"

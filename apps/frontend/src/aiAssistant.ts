@@ -222,7 +222,6 @@ const SAFE_ERROR_MESSAGES = new Set([
   // D-098: paid qualification confirmation, budget and escalation.
   "Confirm the number of paid calls this qualification may make. Nothing started.",
   "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
-  "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
   "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
   "Run Test connection first so the Anthropic workspace and model are checked (a free model read). Nothing started.",
   "The OpenRouter key's own spending limit has no room. Only the key's owner can raise it at OpenRouter; it is not an HR setting. Nothing started.",
@@ -269,6 +268,13 @@ const SAFE_ERROR_MESSAGES = new Set([
   "That is not a valid way to close a request.",
   "The note must be plain text without keys or secrets.",
   "This chat has ended. Start a new chat to continue.",
+  // D-118: paid sessions, legacy stores and stops resumed in the console.
+  "The paid session changed since this view. Refresh and try again.",
+  "A paid call is still in progress. Wait for it to finish, then try again.",
+  "No paid session is open yet. Nothing changed.",
+  "This stop involves a routing or ledger-integrity problem, so paid calls stay stopped until the owner reviews it. Nothing changed.",
+  "The launcher names a spending store from the earlier design. The owner archives it and points the launcher at a session store. Nothing changed.",
+  "Paid calls are paused for this provider. See Set up AI for the reason and the next step. Nothing started.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -1144,6 +1150,8 @@ export interface ModelClaudeBudget {
     breaker_open: boolean;
     breaker_code: string | null;
     reconciled_at: string | null;
+    /** D-118: a session store is provider-capped (no reconciliation is ever required). */
+    accounting_mode?: "provider_anchored" | "provider_capped";
   } | null;
   daily: {
     cap_micro_usd: number;
@@ -1352,6 +1360,77 @@ export const saveAnthropicEnablement = (body: {
   workspace_limit_micro_usd?: number;
   confirmations?: string[];
 }) => request<AnthropicSetup>("/admin/models/provider/anthropic", body, undefined, "PUT");
+
+// --- D-118: paid-model sessions (US$5.00 by default and at most) and the guided setup ---------
+
+export type PaidProvider = "anthropic" | "openrouter";
+
+export interface PaidSession {
+  session_id: string;
+  revision: number;
+  allowance_micro_usd: number;
+  settled_micro_usd: number;
+  held_micro_usd: number;
+  committed_micro_usd: number;
+  remaining_micro_usd: number;
+  calls: number;
+  chat_calls: number;
+  started_at: string;
+}
+
+export interface SetupBlocker {
+  /** A closed code; never a reconciliation or P1 step on the routine path (D-118). */
+  code: string;
+  who: "hr" | "owner";
+  action: "ENABLE_CLAUDE" | "TEST_CONNECTION" | "RESUME" | "NEW_SESSION" | "OWNER";
+}
+
+export interface ProviderSetup {
+  provider: PaidProvider;
+  /** legacy: the launcher names an earlier-design store, which is never used (D-118 P2). */
+  ledger: "missing" | "ready" | "legacy" | "unavailable";
+  code: string | null;
+  accounting_mode: "provider_anchored" | "provider_capped" | null;
+  origin: "fresh" | "migrated" | null;
+  opening_basis: string | null;
+  allowance_default_micro_usd: number;
+  allowance_max_micro_usd: number;
+  session: PaidSession | null;
+  breaker_open: boolean;
+  breaker_code: string | null;
+  resumable: boolean;
+  resume_blocker: string | null;
+  blockers: SetupBlocker[];
+}
+
+export interface SetupView {
+  providers: Record<PaidProvider, ProviderSetup>;
+}
+
+export const fetchSetup = (signal?: AbortSignal) => request<SetupView>("/admin/models/setup", undefined, signal);
+export const startPaidSession = (provider: PaidProvider, allowanceMicroUsd: number, expectedSessionId: string | null) =>
+  request<ProviderSetup>("/admin/models/session/start", {
+    provider,
+    allowance_micro_usd: allowanceMicroUsd,
+    expected_session_id: expectedSessionId,
+  });
+export const savePaidSessionAllowance = (provider: PaidProvider, allowanceMicroUsd: number, expectedRevision: number) =>
+  request<ProviderSetup>(
+    "/admin/models/session/allowance",
+    { provider, allowance_micro_usd: allowanceMicroUsd, expected_revision: expectedRevision },
+    undefined,
+    "PUT",
+  );
+/** D-118 amendment P6: the financial stops HR may resume (the server decides again). */
+export type ResumableStop =
+  | "abandoned_call" | "usage_missing" | "provider_error" | "cost_above_reservation"
+  | "token_bound_exceeded" | "reconcile_drift";
+export const RESUMABLE_STOPS: readonly ResumableStop[] = [
+  "abandoned_call", "usage_missing", "provider_error", "cost_above_reservation",
+  "token_bound_exceeded", "reconcile_drift",
+];
+export const resumeBreaker = (provider: PaidProvider, code: ResumableStop) =>
+  request<ProviderSetup>("/admin/models/budget/resume", { provider, code });
 export const saveDataAccessPolicy = (expectedRevision: number, restrictLocal: boolean, confirmWiden: boolean) =>
   request<ModelDataAccess>("/admin/models/data-access", {
     expected_revision: expectedRevision,
@@ -1447,14 +1526,16 @@ export const refreshProviderLimits = () =>
  *  decides every value; `permitted` is false when HR may not act (or another problem must clear first). */
 export type RecoveryActionKind =
   | "RECONCILE" | "RESOLVE_RUN" | "ENTER_KEY" | "TEST_CONNECTION" | "EDIT_DAILY_LIMIT"
-  | "EDIT_LIFETIME_LIMIT" | "QUALIFY" | "ACTIVATE" | "ROLLBACK" | "SIGN_IN_AGAIN" | "WAIT" | "OWNER_REQUEST";
+  | "EDIT_LIFETIME_LIMIT" | "QUALIFY" | "ACTIVATE" | "ROLLBACK" | "SIGN_IN_AGAIN" | "WAIT" | "OWNER_REQUEST"
+  // D-118: resume a conservative-only breaker (on the guided setup page; the ledger's proof decides).
+  | "RESUME_BREAKER";
 
 export interface RecoveryAction {
   kind: RecoveryActionKind;
   label: string;
   authority: "HR" | "OWNER" | "IT" | "NONE";
   permitted: boolean;
-  section: "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
+  section: "setup" | "overview" | "providers" | "spending" | "privacy" | "qualifications" | "audit";
   verify: string;
   profile_id: string | null;
   run_id: string | null;

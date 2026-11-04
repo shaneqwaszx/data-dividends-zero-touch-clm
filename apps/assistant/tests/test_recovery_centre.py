@@ -314,7 +314,7 @@ def test_routes_report_the_breaker_and_record_an_owner_request(
     assert absent.status_code == 409
     assert absent.json()["detail"]["code"] == "RECOVERY_PROBLEM_NOT_PRESENT"
 
-    BudgetLedger(ledger_path).open_breaker("reconcile_drift")
+    BudgetLedger(ledger_path).open_breaker("routing_anomaly")
     view = journey.client.get(f"{API}/recovery").json()
     breaker = problem(view, "CLAUDE_BREAKER_OPEN")
     assert breaker["actions"][0]["kind"] == "OWNER_REQUEST"
@@ -333,7 +333,7 @@ def test_routes_report_the_breaker_and_record_an_owner_request(
     assert created.status_code == 200, created.text
     requests = created.json()["requests"]
     assert len(requests) == 1 and requests[0]["problem_present"] is True
-    assert {"label": "Breaker code", "value": "reconcile_drift"} in requests[0]["evidence"]
+    assert {"label": "Breaker code", "value": "routing_anomaly"} in requests[0]["evidence"]
 
     # Resolved is refused while the server still reports the problem.
     request_id = requests[0]["request_id"]
@@ -352,7 +352,7 @@ def test_routes_report_the_breaker_and_record_an_owner_request(
         before.committed,
         before.baseline,
         before.open_calls,
-        "reconcile_drift",
+        "routing_anomaly",
     )
     audit = [e["action"] for e in journey.client.get(f"{API}/audit").json()["events"]]
     assert "RECOVERY_REQUESTED" in audit and "RECOVERY_WITHDRAWN" in audit
@@ -394,10 +394,11 @@ def test_resolved_is_accepted_once_the_problem_has_cleared_and_never_from_a_part
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ai_assistant import claude_reconciliation as rc
-    from tests.test_claude_runtime import ClaudeJourney
+    from tests.test_claude_runtime import ClaudeJourney, anchored_on_the_console
     from tests.test_model_management import API
 
     journey = ClaudeJourney(tmp_path, monkeypatch)  # no P1 attestation recorded yet
+    anchored_on_the_console(journey.settings)  # D-118: P1 applies to an anchored ledger only
     created = journey.client.post(
         f"{API}/recovery/requests", json={"problem_code": "CLAUDE_RECONCILIATION_PREREQUISITE"}
     )

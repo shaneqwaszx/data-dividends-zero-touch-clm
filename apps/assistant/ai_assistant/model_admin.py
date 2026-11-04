@@ -70,7 +70,7 @@ from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -82,6 +82,8 @@ from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
     MAX_MICRO_USD,
     RECONCILE_TOLERANCE_MICRO_USD,
+    SESSION_DEFAULT_MICRO_USD,
+    SESSION_MAX_MICRO_USD,
     BudgetedChatModel,
     BudgetLedger,
     LedgerError,
@@ -218,6 +220,18 @@ MESSAGES = {
     ),
     "ENABLEMENT_CONFLICT": "Claude's setup changed since this view. Refresh and try again.",
     "ENABLEMENT_UNAVAILABLE": "Claude's setup could not be read. Nothing changed.",
+    # D-118: a fresh Claude ledger, paid sessions and the conservative-only resume.
+    "SESSION_CHANGED": "The paid session changed since this view. Refresh and try again.",
+    "SESSION_BUSY": "A paid call is still in progress. Wait for it to finish, then try again.",
+    "SESSION_MISSING": "No paid session is open yet. Nothing changed.",
+    "BREAKER_RESUME_REFUSED": (
+        "This stop involves a routing or ledger-integrity problem, so paid calls stay stopped"
+        " until the owner reviews it. Nothing changed."
+    ),
+    "LEGACY_STORE": (
+        "The launcher names a spending store from the earlier design. The owner archives it and"
+        " points the launcher at a session store. Nothing changed."
+    ),
     "NOT_ENABLED": "Claude is not enabled, so there is nothing to disable.",
     "CREDENTIAL_SESSION_UNVERIFIED": (
         "The session key cannot be used now: the HR session that entered it cannot be checked."
@@ -266,7 +280,8 @@ MESSAGES = {
         " make. Nothing started."
     ),
     "QUALIFICATION_BILLING_UNRECONCILED": (
-        "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started."
+        "Paid calls are paused for this provider. See Set up AI for the reason and the next step."
+        " Nothing started."
     ),
     "PROVIDER_LIMIT_NOT_CHECKED": (
         "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started."
@@ -670,8 +685,9 @@ class ModelSelector:
             return None
         ledger = BudgetLedger(model._ledger_file)  # noqa: SLF001 - see sync_controls
         ledger.verify()
-        start = model._start_call  # noqa: SLF001
-        return len(ledger.closed_calls_after(start)) + ledger.status().open_calls
+        # D-118: the chat calls of the open session, as the call limit counts them.
+        session = ledger.session()
+        return 0 if session is None else session.chat_calls
 
     def revalidate(self) -> None:
         """D-098 decision 6a: after a run finishes, an active configuration whose pass a
@@ -1342,6 +1358,39 @@ class AnthropicEnablementRequest(BaseModel):
     workspace_id: str = Field(default="", max_length=80)
     workspace_limit_micro_usd: StrictInt | None = None
     confirmations: list[str] = Field(default_factory=list, max_length=8)
+
+
+class SessionStartRequest(BaseModel):
+    # D-118 S3: HR's explicit new session on one provider's ledger.
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["anthropic", "openrouter"]
+    allowance_micro_usd: StrictInt = Field(ge=1, le=SESSION_MAX_MICRO_USD)
+    expected_session_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+
+
+class SessionAllowanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["anthropic", "openrouter"]
+    allowance_micro_usd: StrictInt = Field(ge=1, le=SESSION_MAX_MICRO_USD)
+    expected_revision: StrictInt = Field(ge=1)
+
+
+class BreakerResumeRequest(BaseModel):
+    # D-118 amendment P6: a financial stop only; routing and integrity stops stay with the
+    # owner (the ledger refuses them here whatever is sent).
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["anthropic", "openrouter"]
+    code: Literal[
+        "abandoned_call",
+        "usage_missing",
+        "provider_error",
+        "cost_above_reservation",
+        "token_bound_exceeded",
+        "reconcile_drift",
+    ]
 
 
 class ChangeRequest(BaseModel):
@@ -2396,11 +2445,13 @@ def model_admin_router(
         limit = effective.anthropic_max_calls
         lifetime = None
         reconciliation = None
+        capped = False
         try:
             ledger = BudgetLedger(anthropic_runtime.ledger_file(settings))
             ledger.verify()
             status = ledger.status()
             if status.profile_id == anthropic_profiles.LEDGER_PROFILE_ID:
+                capped = anthropic_runtime.provider_capped(ledger)
                 lifetime = {
                     "opening_usage_micro_usd": status.opening_usage,
                     "cap_micro_usd": status.cap,
@@ -2417,7 +2468,11 @@ def model_admin_router(
             "daily_cap_micro_usd": effective.anthropic_daily_cap_micro_usd,
             "daily_cap_range": list(CLAUDE_DAILY_CAP_RANGE),
             "daily_cap_default_micro_usd": settings.anthropic_daily_cap_micro_usd,
-            "raise_requires": ["confirmation", "reconciled_within_one_day"],
+            # What require_claude_raise checks: on a session store (provider-capped, D-118
+            # amendment P4) the confirmation and a quiet ledger, never a reconciliation.
+            "raise_requires": ["confirmation", "breaker_closed_no_open_call"]
+            if capped
+            else ["confirmation", "reconciled_within_one_day"],
             "daily_cap_source": "hr"
             if controls is not None and controls.daily_cap_micro_usd is not None
             else "environment",
@@ -2697,7 +2752,10 @@ def model_admin_router(
             status = ledger.status()
             if status.profile_id != anthropic_profiles.LEDGER_PROFILE_ID:
                 raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the Anthropic ledger")
-            fresh = anthropic_runtime.reconciled_within(
+            # D-118 amendment P4: a session store needs no reconciliation to raise a limit.
+            fresh = anthropic_runtime.provider_capped(
+                ledger
+            ) or anthropic_runtime.reconciled_within(
                 ledger, anthropic_runtime.PAID_RECONCILE_SECONDS, clock=time.time
             )
         except LedgerError:
@@ -3053,6 +3111,14 @@ def model_admin_router(
             "setup": anthropic_setup_view(),
         }
 
+    def fresh_claude_cap(limit: int) -> int | None:
+        # D-118 amendment P5: the Claude session store to create once the setup record is
+        # stored (QG F4), only where none exists. It counts only this deployment's calls and
+        # opens at zero; earlier workspace spend is bounded by Anthropic's own workspace limit.
+        if anthropic_runtime.ledger_file(settings).exists():
+            return None
+        return min(anthropic_runtime.LIFETIME_CEILING_MICRO_USD, limit)
+
     @router.put("/provider/anthropic")
     def put_anthropic_enablement(
         body: AnthropicEnablementRequest, profile: Admin, request: Request
@@ -3079,6 +3145,7 @@ def model_admin_router(
             current = record.revision if record is not None else 0
             if current != body.expected_revision:
                 raise refuse("ENABLEMENT_CONFLICT")
+            fresh: int | None = None
             if body.enabled:
                 if not anthropic_runtime.local_deployment(settings):
                     raise refuse("NOT_DEVELOPMENT_ENVIRONMENT")
@@ -3099,6 +3166,7 @@ def model_admin_router(
                 if environment and environment != body.workspace_id:
                     raise refuse("WORKSPACE_MISMATCH")
                 workspace, confirmations = body.workspace_id, anthropic_runtime.OWNER_ATTESTATIONS
+                fresh = fresh_claude_cap(limit)
             elif record is not None:
                 if not record.enabled:
                     raise refuse("NOT_ENABLED")
@@ -3128,6 +3196,21 @@ def model_admin_router(
                 )
             except RevisionConflict:
                 raise refuse("ENABLEMENT_CONFLICT") from None
+            if body.enabled and fresh is not None:
+                # After the record is stored, so a refused change never leaves a store behind.
+                # If this fails the record stays enabled with no store: enabling again creates
+                # it (nothing paid can run without one).
+                try:
+                    BudgetLedger.initialise(
+                        anthropic_runtime.ledger_file(settings),
+                        cap_micro_usd=fresh,
+                        opening_usage_micro_usd=0,
+                        key_alias="key-01",
+                        profile_id=anthropic_profiles.LEDGER_PROFILE_ID,
+                        opening_basis="session_store",
+                    )
+                except LedgerError as error:
+                    raise refuse(error.code) from None
         return anthropic_setup_view()
 
     @router.get("/data-access")
@@ -3293,5 +3376,184 @@ def model_admin_router(
             except RecoveryRequestRefused as refused:
                 raise recovery_refused(profile, action, refused.code) from None
             return recovery_view(profile)
+
+    # --- D-118: paid-model sessions, the conservative-only resume and the setup view --------
+
+    def provider_ledger(provider: str) -> Path:
+        if provider == "anthropic":
+            return anthropic_runtime.ledger_file(settings)
+        return ledger_file(settings)
+
+    def ledger_profile_of(path: Path) -> str:
+        probe = BudgetLedger(path)
+        probe.verify()
+        return probe.status().profile_id
+
+    def session_view(provider: str) -> dict[str, Any]:
+        """One provider's ledger state, open session and breaker, read-only (never recovered,
+        never changed). Amounts are micro-USD integers."""
+
+        expected = (
+            anthropic_profiles.LEDGER_PROFILE_ID
+            if provider == "anthropic"
+            else OPENROUTER_PROFILE_ID
+        )
+        view: dict[str, Any] = {
+            "provider": provider,
+            "ledger": "missing",
+            "code": None,
+            "accounting_mode": None,
+            "origin": None,
+            "opening_basis": None,
+            "allowance_default_micro_usd": SESSION_DEFAULT_MICRO_USD,
+            "allowance_max_micro_usd": SESSION_MAX_MICRO_USD,
+            "session": None,
+            "breaker_open": False,
+            "breaker_code": None,
+            "resumable": False,
+            "resume_blocker": None,
+        }
+        path = provider_ledger(provider)
+        if not path.exists():
+            return view
+        try:
+            ledger = BudgetLedger(path)
+            ledger.verify()
+            status = ledger.status()
+            if status.profile_id != expected:
+                raise LedgerError("LEDGER_PROFILE_MISMATCH", "not this provider's ledger")
+            profile = ledger.profile()
+            session = ledger.session()
+            blocker = (
+                ledger.resume_blocker(status.breaker_code)
+                if status.breaker_open and status.breaker_code
+                else None
+            )
+        except LedgerError as error:
+            view["ledger"] = "legacy" if error.code == "LEGACY_STORE" else "unavailable"
+            view["code"] = error.code
+            return view
+        view.update(
+            ledger="ready",
+            accounting_mode=profile.accounting_mode,
+            origin=profile.origin,
+            opening_basis=profile.opening_basis,
+            breaker_open=status.breaker_open,
+            breaker_code=status.breaker_code,
+            resumable=status.breaker_open and blocker is None,
+            resume_blocker=blocker,
+        )
+        if session is not None:
+            started = datetime.fromtimestamp(session.created_at / 1000, UTC)
+            view["session"] = {
+                "session_id": session.session_id,
+                "revision": session.revision,
+                "allowance_micro_usd": session.allowance,
+                "settled_micro_usd": session.settled,
+                "held_micro_usd": session.open_reserved,
+                "committed_micro_usd": session.committed,
+                "remaining_micro_usd": session.remaining,
+                "calls": session.calls,
+                "chat_calls": session.chat_calls,
+                "started_at": started.isoformat().replace("+00:00", "Z"),
+            }
+        return view
+
+    def setup_blockers(view: dict[str, Any]) -> list[dict[str, str]]:
+        """The exceptions a guided setup shows: one closed code and who acts. Routine use has
+        none; reconciliation and the P1 record are never among them (D-118)."""
+
+        found: list[dict[str, str]] = []
+        anthropic = view["provider"] == "anthropic"
+        if view["ledger"] == "missing":
+            action = "ENABLE_CLAUDE" if anthropic else "TEST_CONNECTION"
+            found.append({"code": "LEDGER_CREATED_AT_SETUP", "who": "hr", "action": action})
+        elif view["ledger"] == "legacy":
+            found.append({"code": "LEGACY_STORE", "who": "owner", "action": "OWNER"})
+        elif view["ledger"] == "unavailable":
+            code = view["code"] or "LEDGER_UNAVAILABLE"
+            found.append({"code": code, "who": "owner", "action": "OWNER"})
+        if view["breaker_open"]:
+            found.append(
+                {
+                    "code": f"BREAKER_OPEN:{view['breaker_code']}",
+                    "who": "hr" if view["resumable"] else "owner",
+                    "action": "RESUME" if view["resumable"] else "OWNER",
+                }
+            )
+        session = view["session"]
+        if session is not None and session["remaining_micro_usd"] <= 0:
+            found.append({"code": "SESSION_ALLOWANCE_USED", "who": "hr", "action": "NEW_SESSION"})
+        return found
+
+    def provider_setup(provider: str) -> dict[str, Any]:
+        view = session_view(provider)
+        view["blockers"] = setup_blockers(view)
+        return view
+
+    @router.get("/setup")
+    def get_setup(profile: Admin) -> dict[str, Any]:
+        return {"providers": {p: provider_setup(p) for p in ("anthropic", "openrouter")}}
+
+    def session_change(
+        provider: str,
+        profile: dict[str, Any],
+        request: Request,
+        action: str,
+        change: Callable[[BudgetLedger], Any],
+    ) -> dict[str, Any]:
+        guard_budget(request, profile, action)
+        with selector.change_lock:
+            recheck(request, profile, action)
+            path = provider_ledger(provider)
+            try:
+                if provider == "anthropic":
+                    ledger = anthropic_runtime.open_own(path)
+                else:
+                    if ledger_profile_of(path) != OPENROUTER_PROFILE_ID:
+                        raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the OpenRouter ledger")
+                    ledger = BudgetLedger.open(path)
+                change(ledger)
+            except LedgerError as error:
+                audit(profile, action, "refused", profile_id=provider, code=error.code)
+                raise _refusal(409, error.code) from None
+        audit(profile, action, "succeeded", profile_id=provider)
+        return provider_setup(provider)
+
+    @router.post("/session/start")
+    def start_session(
+        body: SessionStartRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        def start(ledger: BudgetLedger) -> None:
+            ledger.start_session(
+                body.allowance_micro_usd, expected_session_id=body.expected_session_id
+            )
+
+        return session_change(body.provider, profile, request, "PAID_SESSION_STARTED", start)
+
+    @router.put("/session/allowance")
+    def put_session_allowance(
+        body: SessionAllowanceRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        def change(ledger: BudgetLedger) -> None:
+            ledger.set_session_allowance(
+                body.allowance_micro_usd, expected_revision=body.expected_revision
+            )
+
+        action = "PAID_SESSION_ALLOWANCE_CHANGED"
+        return session_change(body.provider, profile, request, action, change)
+
+    @router.post("/budget/resume")
+    def resume_breaker(
+        body: BreakerResumeRequest, profile: Admin, request: Request
+    ) -> dict[str, Any]:
+        def resume(ledger: BudgetLedger) -> None:
+            if body.provider == "anthropic":
+                # In-band verification first (free, no request), so every closed call is
+                # either verified or judged by the proof.
+                anthropic_runtime.verify_calls(ledger)
+            ledger.resume_breaker(body.code)
+
+        return session_change(body.provider, profile, request, "BREAKER_RESUMED", resume)
 
     return router

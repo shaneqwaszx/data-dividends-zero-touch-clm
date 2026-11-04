@@ -127,6 +127,9 @@ BUDGET_OUTCOMES = frozenset(
         "refused_busy",
         "refused_ledger",
         "refused_reservation",
+        # D-118: the session's money allowance or its chat-call limit.
+        "refused_session_allowance",
+        "refused_session_calls",
     }
 )
 # Anomalies that mean a call may have run somewhere other than the pinned endpoint.

@@ -361,3 +361,26 @@ a.console-stat:hover { border-color: var(--color-accent); }
 .console-recovery__item p { overflow-wrap: anywhere; }
 .console-recovery__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .console-recovery textarea { width: 100%; box-sizing: border-box; }
+
+/* D-118: the guided setup ("Set up AI"). */
+.console-nav__group { margin: 0.75rem 0 0.25rem; padding: 0 0.75rem; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted, #5b6472); }
+.guided-setup { display: grid; gap: 1rem; }
+.guided-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.guided-step { border: 1px solid var(--color-border, #d8dde6); border-radius: 0.75rem; padding: 0.875rem 1rem; display: grid; gap: 0.625rem; }
+.guided-step--current { border-color: var(--color-accent, #2f5bd3); }
+.guided-step--waiting { opacity: 0.7; }
+.guided-step__head { display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap; }
+.guided-step__head h3 { margin: 0; font-size: 1rem; flex: 1 1 auto; }
+.guided-step__number { display: inline-grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; background: var(--color-surface-2, #eef1f6); font-weight: 600; }
+.guided-choices { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
+.guided-choice { display: grid; grid-template-columns: auto 1fr; column-gap: 0.5rem; align-items: start; border: 1px solid var(--color-border, #d8dde6); border-radius: 0.625rem; padding: 0.625rem 0.75rem; cursor: pointer; }
+.guided-choice.is-selected { border-color: var(--color-accent, #2f5bd3); }
+.guided-choice__name { font-weight: 600; }
+.guided-choice__meta { grid-column: 2; font-size: 0.85rem; color: var(--color-text-muted, #5b6472); }
+.guided-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.guided-row input { flex: 1 1 14rem; min-width: 0; }
+.guided-inline { display: inline-flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
+.guided-claude-setup { display: grid; gap: 0.5rem; border: 1px solid var(--color-border, #d8dde6); border-radius: 0.625rem; padding: 0.75rem; }
+.guided-strip { display: grid; gap: 0.5rem; padding: 0.75rem 1rem; border-radius: 0.75rem; background: var(--color-surface-2, #eef1f6); }
+.guided-strip p { margin: 0; }
+.guided-strip .console-label { display: block; }

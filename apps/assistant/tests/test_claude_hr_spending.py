@@ -24,7 +24,13 @@ from ai_assistant.model_admin_store import (
     RevisionConflict,
     apply_claude_controls,
 )
-from tests.test_claude_runtime import KEY, ClaudeJourney, claude_config, reconciled_ago
+from tests.test_claude_runtime import (
+    KEY,
+    ClaudeJourney,
+    anchored_on_the_console,
+    claude_config,
+    reconciled_ago,
+)
 from tests.test_model_management import API
 from tests.test_remote_test import config
 
@@ -150,6 +156,7 @@ def test_raising_claude_daily_allowance_needs_confirmation_and_a_recent_reconcil
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     journey = ClaudeJourney(tmp_path, monkeypatch)
+    anchored_on_the_console(journey.settings)  # D-118: the gating applies to such a store
     unconfirmed = _save(journey, 5_000_000, 20)
     assert unconfirmed.status_code == 400 and _code(unconfirmed) == "DAILY_CONFIRMATION_REQUIRED"
     reconciled_ago(journey.settings, 2 * 86_400)
@@ -200,6 +207,7 @@ def test_hr_raises_claude_lifetime_cap_up_to_us30_with_confirmation_and_reconcil
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     journey = ClaudeJourney(tmp_path, monkeypatch, anthropic_workspace_limit_micro_usd=30_000_000)
+    anchored_on_the_console(journey.settings)  # D-118: the gating applies to such a store
     gpt_oss = BudgetLedger(Path(journey.settings.budget_ledger_path)).status().cap
     lifetime = _claude(journey)["controls"]["lifetime"]
     assert lifetime["cap_micro_usd"] == 5_000_000 and lifetime["max_cap_micro_usd"] == 30_000_000
@@ -272,6 +280,7 @@ def test_raising_claude_calls_needs_confirmation_and_a_recent_reconciliation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     journey = ClaudeJourney(tmp_path, monkeypatch)
+    anchored_on_the_console(journey.settings)  # D-118: the gating applies to such a store
     assert _save(journey, 1_000_000, 5).status_code == 200  # lowering: no confirmation
     unconfirmed = _save(journey, 1_000_000, 10)
     assert unconfirmed.status_code == 400 and _code(unconfirmed) == "CALLS_CONFIRMATION_REQUIRED"
@@ -366,3 +375,37 @@ def test_each_provider_view_counts_only_its_own_calls(
     assert view["controls"]["calls_remaining"] is None
     assert view["claude"]["controls"]["calls_used"] == 1
     assert view["claude"]["controls"]["calls_remaining"] == 19
+
+
+def test_on_a_session_store_a_raise_needs_only_its_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # D-118 amendment P4: no reconciliation (never reconciled, or long ago) gates a raise.
+    journey = ClaudeJourney(tmp_path, monkeypatch)
+    reconciled_ago(journey.settings, 9 * 86_400)
+    assert _save(journey, 1_000_000, 5).status_code == 200
+    unconfirmed = _save(journey, 5_000_000, 20)
+    assert unconfirmed.status_code == 400 and _code(unconfirmed) == "DAILY_CONFIRMATION_REQUIRED"
+    raised = _save(
+        journey, 5_000_000, 20, confirm_daily_cap_micro_usd=5_000_000, confirm_max_calls=20
+    )
+    assert raised.status_code == 200, raised.text
+
+
+def test_the_raise_requirements_shown_follow_the_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PR #156 QG note 1: a session store (provider-capped) advertises what require_claude_raise
+    # checks there (no reconciliation); an anchored store keeps the reconciliation requirement.
+    journey = ClaudeJourney(tmp_path, monkeypatch)
+    shown = _claude(journey)["controls"]["raise_requires"]
+    assert shown == ["confirmation", "breaker_closed_no_open_call"]
+    reconciled_ago(journey.settings, 9 * 86_400)  # stale, and still not needed
+    assert _save(journey, 1_000_000, 5).status_code == 200
+    raised = _save(
+        journey, 5_000_000, 20, confirm_daily_cap_micro_usd=5_000_000, confirm_max_calls=20
+    )
+    assert raised.status_code == 200, raised.text
+    anchored_on_the_console(journey.settings)
+    shown = _claude(journey)["controls"]["raise_requires"]
+    assert shown == ["confirmation", "reconciled_within_one_day"]

@@ -99,7 +99,8 @@ def test_an_open_paid_call_marks_the_interruption_billing_uncertain(
     qualification_id = _orphan(journey)
     with sqlite3.connect(ledger_file(journey.settings)) as db:
         db.execute(
-            "UPDATE ledger_meta SET breaker_open = 1, breaker_code = 'abandoned_call',"
+            "UPDATE ledger_meta SET write_token = write_token + 1,"
+            " breaker_open = 1, breaker_code = 'abandoned_call',"
             " breaker_opened_at = 1"
         )
     item = journey.client.get(f"{API}/qualifications/{qualification_id}").json()
@@ -337,7 +338,8 @@ def test_a_paid_run_waits_for_the_key_limit_check_and_an_unreconciled_ledger(
     journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
     with sqlite3.connect(ledger_file(journey.settings)) as db:
         db.execute(
-            "UPDATE ledger_meta SET breaker_open = 1, breaker_code = 'reconcile_drift',"
+            "UPDATE ledger_meta SET write_token = write_token + 1,"
+            " breaker_open = 1, breaker_code = 'reconcile_drift',"
             " breaker_opened_at = 1"
         )
     refused = journey.start_qualification()
@@ -1351,7 +1353,8 @@ def test_requalifying_an_out_of_date_pass_keeps_every_spending_refusal(
     journey.client.post(f"{API}/{OPENROUTER_PROFILE_ID}/connection-test")
     with sqlite3.connect(ledger_file(journey.settings)) as db:
         db.execute(
-            "UPDATE ledger_meta SET breaker_open = 1, breaker_code = 'reconcile_drift',"
+            "UPDATE ledger_meta SET write_token = write_token + 1,"
+            " breaker_open = 1, breaker_code = 'reconcile_drift',"
             " breaker_opened_at = 1"
         )
     refused = journey.start_qualification()

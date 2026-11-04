@@ -568,7 +568,7 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
     const view = mount(controlsServer(data, calls), "spending");
-    await waitFor(() => expect(view.textContent).toContain("Calls this activation"));
+    await waitFor(() => expect(view.textContent).toContain("Chat calls this session"));
     expect(view.textContent).toContain("20 used, 0 remaining of 20");
     expect(view.textContent).toContain("the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit");
     expect(view.textContent).toContain("Set by hr-admin");
@@ -1064,10 +1064,11 @@ describe("AiModelManagement D-100 console", () => {
   const changes = (fetchMock: ReturnType<typeof vi.fn>) =>
     fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method && (init as RequestInit).method !== "GET");
 
-  it("reads the section from the location and falls back to the overview", async () => {
+  it("reads the section from the location and falls back to the guided setup (D-118)", async () => {
     expect(consoleSection("audit")).toBe("audit");
-    expect(consoleSection("unknown")).toBe("overview");
-    expect(consoleSection(null)).toBe("overview");
+    expect(consoleSection("overview")).toBe("overview");
+    expect(consoleSection("unknown")).toBe("setup");
+    expect(consoleSection(null)).toBe("setup");
     const view = mount(server(overview), "audit");
     await waitFor(() => expect(view.textContent).toContain("Access refused"));
     expect(view.querySelector("h1")?.textContent).toBe("Audit History");
@@ -1219,7 +1220,7 @@ describe("AiModelManagement D-100 console", () => {
     view = mount(server({ ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() }));
     await waitFor(() => expect(view.textContent).toContain("Available now"));
     expect(view.textContent).toContain("US$0.098924");
-    expect(view.textContent).toContain("Calls this activation");
+    expect(view.textContent).toContain("Chat calls this session");
     expect(view.querySelector('a.console-stat[href="/admin/ai-models?section=spending"]')).not.toBeNull();
   });
 });
@@ -1714,6 +1715,20 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     });
   });
 
+  it("names the checks a session store's raise needs, never a reconciliation (D-118)", async () => {
+    const claude = claudeView({ raise_requires: ["confirmation", "breaker_closed_no_open_call"] });
+    claude.ledger = { ...claude.ledger!, accounting_mode: "provider_capped", reconciled_at: null };
+    const view = mount(controlsServer(withClaudeBudget(claude), []), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-daily-limit-input")).not.toBeNull());
+    typeInto(input(view, "claude-daily-limit-input"), "5");
+    typeInto(input(view, "claude-call-limit-input"), "20");
+    const label = view.querySelector("[data-testid=claude-daily-raise-confirm]")!.closest("label")!.textContent ?? "";
+    expect(label).toContain("no paid call is open and paid calls are not paused");
+    expect(label).not.toMatch(/reconcil/i);
+    expect(view.textContent).toContain("Never (not needed: a session store is bounded by the Anthropic workspace limit)");
+    expect(view.textContent).not.toContain("Raising it needs your confirmation and a reconciliation");
+  });
+
   it("raises Claude's lifetime limit up to US$30.00 with the shown cap and a confirmation", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const view = mount(controlsServer(withClaudeBudget(), calls), "spending");
@@ -1791,7 +1806,7 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     };
     const view = mount(controlsServer(data, []));
     await waitFor(() => expect(view.textContent).toContain("Available now (Claude)"));
-    expect(view.textContent).toContain("Calls this activation (Claude)");
+    expect(view.textContent).toContain("Chat calls this session (Claude)");
     expect(view.textContent).toContain("17 remaining");
     expect(view.textContent).not.toContain("Available now (GPT-OSS)");
     expect(view.textContent).not.toContain("GPT-OSS is not the active model");
@@ -1954,7 +1969,7 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     await waitFor(() => expect(reconciliationPanel(view)).not.toBeNull());
     const text = panel(view).textContent ?? "";
     expect(text).toContain("The Claude ledger was changing while this page read it, so its figures are not shown. Refresh in a moment.");
-    expect(text).toMatch(/Calls this activationUnavailable: the ledger could not be read \(limit 20 per activation\)/);
+    expect(text).toMatch(/Chat calls this sessionUnavailable: the ledger could not be read \(limit 20 per session\)/);
     expect(text).not.toContain("No Claude configuration is active");
     expect(reconciliationPanel(view)!.textContent).not.toContain("US$");
   });

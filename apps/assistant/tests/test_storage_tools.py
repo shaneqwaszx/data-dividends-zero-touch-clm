@@ -294,8 +294,9 @@ def test_launcher_template_sets_every_store_relatively_under_the_data_root():
     assert stores == {
         "AI_ASSISTANT_MODEL_ADMIN_DB_PATH": "data/models/model_admin.sqlite3",
         "AI_ASSISTANT_MODEL_PROFILES_FILE": "data/models/profiles.json",
-        "AI_ASSISTANT_ANTHROPIC_LEDGER_PATH": "data/budget/anthropic_fyp_ledger.sqlite3",
-        "AI_ASSISTANT_BUDGET_LEDGER_PATH": "data/budget/ledger.sqlite3",
+        # D-118 amendment P2: the POC session stores.
+        "AI_ASSISTANT_ANTHROPIC_LEDGER_PATH": "data/budget/sessions/anthropic.sqlite3",
+        "AI_ASSISTANT_BUDGET_LEDGER_PATH": "data/budget/sessions/openrouter.sqlite3",
         "AI_ASSISTANT_KNOWLEDGE_DATA_DIR": "data/knowledge",
     }
     assert "$env:AI_ASSISTANT_DATA_DIR = $root" in text

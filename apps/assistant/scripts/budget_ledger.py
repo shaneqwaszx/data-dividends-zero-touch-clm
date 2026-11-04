@@ -22,7 +22,12 @@ reconcile      anchor the ledger on the key's cumulative usage from the dashboar
                never shorten it), or if usage would fall.
                An undercount is adopted (and opens the breaker above US$0.05); an over-count
                is kept unless --release is given.
-reset-breaker  only after a reconcile that is newer than the breaker, and naming its code.
+reset-breaker  only after a reconcile that is newer than the breaker, and naming its code. The
+               earlier design's command: refused on a D-118 session store (use
+               resume-after-review there, which records the review).
+resume-after-review  D-118 amendment P7, owner only, after reviewing a routing or ledger-integrity
+               stop on a session store: closes the breaker (every charge kept), with
+               --confirm-reviewed. Financial stops are resumed by HR in AI Models instead.
 
 D-110 (HR reconciliation in AI Models): on the Anthropic ledger, reconcile, reset-breaker,
 set-cap and verify take the reconcile lock beside the ledger and refuse while an HR run's
@@ -274,6 +279,17 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
 def cmd_reset_breaker(args: argparse.Namespace) -> int:
     path = _path(args)
     with _guarded(path):
+        # Read-only first (never recovered here), so a refusal writes nothing at all.
+        probe = BudgetLedger(path)
+        probe.verify()
+        if probe.profile().accounting_mode == "provider_capped":
+            # D-118: on a session store the owner's review is recorded by resume-after-review;
+            # reset-breaker would close the stop without that record, so later HR resumes
+            # would stay blocked.
+            raise LedgerError(
+                "USE_RESUME_AFTER_REVIEW",
+                "a session store: run resume-after-review --code CODE --confirm-reviewed",
+            )
         BudgetLedger.open(path).reset_breaker(args.code)
     print("breaker reset")
     return 0
@@ -345,6 +361,16 @@ def cmd_attest_legacy_retired(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_resume_after_review(args: argparse.Namespace) -> int:
+    if not args.confirm_reviewed:
+        raise LedgerError("BREAKER_RESUME_REFUSED", "review the stop, then pass --confirm-reviewed")
+    path = _path(args)
+    with _guarded(path):
+        covered = BudgetLedger.open(path).resume_breaker(args.code, owner_reviewed=True)
+    print(f"breaker resumed after review (calls up to {covered}; every charge kept)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--ledger", help="ledger file (default: the configured path)")
@@ -398,6 +424,11 @@ def main(argv: list[str] | None = None) -> int:
     attest.add_argument("--reference", required=True)
     attest.add_argument("--by", default="owner")
     attest.set_defaults(run=cmd_attest_legacy_retired)
+
+    review = commands.add_parser("resume-after-review")
+    review.add_argument("--code", required=True)
+    review.add_argument("--confirm-reviewed", action="store_true")
+    review.set_defaults(run=cmd_resume_after_review)
 
     args = parser.parse_args(argv)
     try:

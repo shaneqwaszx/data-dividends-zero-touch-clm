@@ -241,6 +241,8 @@ def check_ledger(
     has_calls: bool,
     reservation_micro: int,
     allocation: Decimal | None = ALLOCATION_LIMIT_USD,
+    *,
+    reconciled: bool = True,
 ) -> None:
     report.add(
         "ledger.breaker_closed_no_open_calls",
@@ -265,7 +267,10 @@ def check_ledger(
         )
     usage = micro_usd(key.usage_usd)
     accounted = status.baseline + status.local_charged
-    if has_calls:
+    if not reconciled:
+        ok = True
+        detail = "session store: bounded by the key's own limit, not reconciled with its usage"
+    elif has_calls:
         ok = status.last_provider_usage <= usage <= accounted + RECONCILE_TOLERANCE_MICRO_USD
         detail = (
             f"provider usage {_usd(usage)} within ledger {_usd(accounted)}"
@@ -489,6 +494,8 @@ def run_preflight(
     report.key_usage_micro_usd = micro_usd(key.usage_usd)
     report.key_limit_reset = key.limit_reset
     check_owner(report, owner_attests_auto_topup_off, owner_attests_prompt_logging_off)
+    if allocation is None and report.passed and not ledger_file.exists():
+        initialise_fresh(report, ledger_file, key)
     try:
         # D-099 (QG M-1/L-4): the profile is read without recovering, so another provider's
         # ledger is never recovered or verified here.
@@ -506,12 +513,51 @@ def run_preflight(
     try:
         verify_earlier_calls(report, ledger, account, endpoint)
         status = ledger.status()
+        # D-118 amendment P4: a session store is bounded by the key's own limit; its figures
+        # are never required to match the provider's usage (no reconciliation dependency).
+        capped = ledger.profile().accounting_mode == "provider_capped"
     except LedgerError as error:
         report.add("ledger.earlier_calls_verified", False, f"refused: {error.code}")
         return report, None, account
-    check_ledger(report, key, status, ledger.last_call_id() > 0, reservation, allocation)
+    has_calls = ledger.last_call_id() > 0
+    check_ledger(report, key, status, has_calls, reservation, allocation, reconciled=not capped)
     check_daily(report, ledger, settings.budget_daily_cap_micro_usd, reservation)
     return report, ledger, account
+
+
+# D-118: a fresh deployment's session store, from the key's own provider-reported figures
+# (read with the inference key; free). Never a paid call.
+FRESH_CAP_ABOVE_OPENING_MICRO_USD = 30_000_000
+FRESH_KEY_ALIAS = "key-01"
+
+
+def initialise_fresh(report: Preflight, ledger_file: Path, key: KeyStatus) -> None:
+    """Create the OpenRouter ledger where none exists, only for a key whose provider limit is
+    set, finite and never resets; its opening usage is the key's reported usage."""
+
+    if key.limit_usd is None or key.limit_remaining_usd is None or key.limit_reset is not None:
+        report.add("ledger.fresh_initialised", False, "the key has no fixed provider limit")
+        return
+    opening = micro_usd(key.usage_usd)
+    room = min(micro_usd(key.limit_remaining_usd), FRESH_CAP_ABOVE_OPENING_MICRO_USD)
+    try:
+        BudgetLedger.initialise(
+            ledger_file,
+            cap_micro_usd=min(opening + max(room, 0), MAX_MICRO_USD),
+            opening_usage_micro_usd=opening,
+            key_alias=FRESH_KEY_ALIAS,
+            profile_id=OPENROUTER_PROFILE_ID,
+            accounting_mode="provider_capped",
+            opening_basis="provider_reported",
+        )
+    except LedgerError as error:
+        report.add("ledger.fresh_initialised", False, f"refused: {error.code}")
+        return
+    report.add(
+        "ledger.fresh_initialised",
+        True,
+        f"new ledger from provider-reported usage {_usd(opening)}",
+    )
 
 
 def check_daily(
