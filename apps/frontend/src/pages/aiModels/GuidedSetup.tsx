@@ -7,6 +7,7 @@ import {
   activateModel,
   fetchSetup,
   readAnthropicWorkspace,
+  RESUMABLE_STOPS,
   resumeBreaker,
   saveAnthropicEnablement,
   saveModelCredential,
@@ -18,6 +19,7 @@ import {
   type ModelProfileView,
   type PaidProvider,
   type ProviderSetup,
+  type ResumableStop,
   type SetupBlocker,
 } from "../../aiAssistant";
 import { ConsoleDialog } from "./ConsoleShell";
@@ -51,15 +53,15 @@ const ALL_CONFIRMATIONS = ["dedicated_workspace", "workspace_limit_set", "infere
 
 const BLOCKER_TEXT: Record<string, string> = {
   LEDGER_CREATED_AT_SETUP: "Its spending ledger is created when you finish step 2 (no script needed).",
-  LEDGER_MIGRATION_REQUIRED: "This machine's spending ledger is in the earlier format. The owner migrates it once; until then paid calls stay off.",
+  LEGACY_STORE: "The launcher still names a spending store from the earlier design, which this console never uses. The owner archives it and points the launcher at a session store.",
   SESSION_ALLOWANCE_USED: "This session's allowance is used up, so paid calls have stopped. Nothing renews it by itself.",
 };
 
 function blockerText(blocker: SetupBlocker, setup: ProviderSetup): string {
   if (blocker.code.startsWith("BREAKER_OPEN")) {
     return blocker.action === "RESUME"
-      ? "Paid calls paused after a call ended without a usage report. It was charged its full worst case; you may resume, keeping that charge."
-      : `Paid calls are stopped for the owner (${setup.breaker_code ?? "unknown"}): a charge could not be proven conservative. Ask the owner to review it.`;
+      ? `Paid calls are paused (${setup.breaker_code ?? "unknown"}): a call was interrupted, refused by the provider or cost more than its estimate. Every charge is kept and nothing is retried. Fix the cause (for example the key or the provider limit), then resume.`
+      : `Paid calls are stopped for the owner (${setup.breaker_code ?? "unknown"}): a model, provider or workspace mismatch, or a ledger problem. Ask the owner to review it.`;
   }
   return BLOCKER_TEXT[blocker.code] ?? `The owner must act (${blocker.code}).`;
 }
@@ -108,8 +110,6 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
   const [limitText, setLimitText] = useState("5.00");
   const [workspaceOwned, setWorkspaceOwned] = useState(false);
   const [revokeAtEnd, setRevokeAtEnd] = useState(false);
-  const [opening, setOpening] = useState<"new_workspace" | "console_usage" | null>(null);
-  const [openingText, setOpeningText] = useState("");
   const [allowanceText, setAllowanceText] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"qualify" | "activate" | "new-session" | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -155,8 +155,6 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
   function enableClaude(): void {
     if (!item || !claude?.workspace_read) return;
     const limit = micro(limitText);
-    const fresh = providerSetup?.ledger === "missing";
-    const usage = opening === "console_usage" ? micro(openingText) : null;
     void run(async () => {
       await saveAnthropicEnablement({
         expected_revision: claude.record?.revision ?? 0,
@@ -164,8 +162,6 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
         workspace_id: claude.workspace_read!.workspace_id,
         workspace_limit_micro_usd: limit ?? -1,
         confirmations: ALL_CONFIRMATIONS,
-        ...(fresh && opening ? { opening } : {}),
-        ...(fresh && opening === "console_usage" && usage !== null ? { opening_usage_micro_usd: usage } : {}),
       });
       await testModelConnection(item.profile_id);
     }, "Claude is set up for verified synthetic cases and its connection was tested.");
@@ -184,9 +180,7 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
     ).then(() => setAllowanceText(null));
   }
 
-  // The ledger's state must be known: a fresh ledger needs its opening stated (never zero by default).
-  const claudeReady = providerSetup !== null && workspaceOwned && revokeAtEnd && micro(limitText) !== null
-    && (providerSetup.ledger !== "missing" || opening === "new_workspace" || (opening === "console_usage" && micro(openingText) !== null));
+  const claudeReady = workspaceOwned && revokeAtEnd && micro(limitText) !== null;
 
   return (
     <section className="card guided-setup" aria-labelledby="guided-setup-heading">
@@ -200,7 +194,9 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
       <SessionStrip overview={overview} setup={setupQuery.data?.providers ?? null} nameOf={nameOf} working={working}
         onResume={(target) => {
           const code = setupQuery.data?.providers[target].breaker_code;
-          if (code === "abandoned_call" || code === "usage_missing") void run(() => resumeBreaker(target, code), "Paid calls resumed; the full charge was kept.");
+          if (code && (RESUMABLE_STOPS as readonly string[]).includes(code)) {
+            void run(() => resumeBreaker(target, code as ResumableStop), "Paid calls resumed; every charge was kept.");
+          }
         }}
         onNewSession={() => setDialog("new-session")} focus={provider} />
 
@@ -249,16 +245,6 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
                   <input id="guided-limit" inputMode="decimal" value={limitText} onChange={(event) => setLimitText(event.target.value)} />
                   <label><input type="checkbox" checked={revokeAtEnd} onChange={(event) => setRevokeAtEnd(event.target.checked)} />{" "}
                     The key will be revoked when the FYP ends.</label>
-                  {providerSetup?.ledger === "missing" && (
-                    <div role="radiogroup" aria-label="Earlier usage of this workspace">
-                      <label><input type="radio" name="guided-opening" checked={opening === "new_workspace"} onChange={() => setOpening("new_workspace")} />{" "}
-                        This workspace is new and has no earlier usage.</label>
-                      <label><input type="radio" name="guided-opening" checked={opening === "console_usage"} onChange={() => setOpening("console_usage")} />{" "}
-                        It has earlier usage; its cumulative cost in the Anthropic Console is US$</label>
-                      <input aria-label="Cumulative cost in US$" inputMode="decimal" value={openingText} disabled={opening !== "console_usage"}
-                        onChange={(event) => setOpeningText(event.target.value)} />
-                    </div>
-                  )}
                   <button type="button" className="btn btn-primary" disabled={working || !claudeReady} onClick={enableClaude}>Enable Claude</button>
                 </fieldset>
               )}
@@ -269,7 +255,7 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
           )}
         </Step>
 
-        <Step number={3} title="Test & qualify" state={!connected ? "waiting" : qualified ? "done" : "current"}>
+        <Step number={3} title="Run qualification" state={!connected ? "waiting" : qualified ? "done" : "current"}>
           {paid && (
             <p className="control-help">
               Session allowance {usd(session?.allowance_micro_usd ?? providerSetup?.allowance_default_micro_usd ?? 5_000_000)}
@@ -287,8 +273,11 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
             </p>
           )}
           <button type="button" className="btn btn-primary" disabled={working || !item}
-            onClick={() => (paid ? setDialog("qualify") : void run(() => startModelQualification(item!.profile_id), "Qualification started."))}>
-            {paid ? "Test & qualify…" : "Qualify"}
+            onClick={() => (paid
+              // The free connection check first (after a restart too), then the one paid consent.
+              ? void run(() => testModelConnection(item!.profile_id), "Connection checked.").then(() => setDialog("qualify"))
+              : void run(() => startModelQualification(item!.profile_id), "Qualification started."))}>
+            {paid ? "Run qualification…" : "Run qualification"}
           </button>
           {overview.running && <p className="control-help" role="status">Qualifying {nameOf(overview.running.profile_id, overview.running.profile_id)}: {overview.running.done_turns} of {overview.running.total_turns || "?"} questions.</p>}
         </Step>

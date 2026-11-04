@@ -212,23 +212,20 @@ def test_the_cli_reads_no_key_and_makes_no_request(
     assert "OPENROUTER_API_KEY" not in SCRIPT.read_text(encoding="utf-8")
 
 
-def test_migrate_v2_needs_the_service_stopped_and_keeps_every_v1_row(
+def test_resume_after_review_needs_the_owner_confirmation_and_keeps_the_charges(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # D-118 S7: the owner's migration of a format-1 ledger (never the service's).
-    from tests.test_paid_sessions import _v1_ledger
-
+    # D-118 amendment P7: the owner clears a routing or integrity stop after review.
     path = tmp_path / "ledger.sqlite3"
-    _v1_ledger(path)
-    backup = tmp_path / "backup.sqlite3"
-    snapshot = path.read_bytes()
+    _init(path)
+    ledger = BudgetLedger.open(path)
+    ledger.open_breaker("routing_anomaly")
+    charged = ledger.status().local_charged
+    capsys.readouterr()
 
-    assert _run(path, "migrate-v2", "--backup", str(backup)) == 2
-    assert "MIGRATION_REFUSED" in capsys.readouterr().err
-    assert path.read_bytes() == snapshot and not backup.exists()
-
-    assert _run(path, "migrate-v2", "--backup", str(backup), "--confirm-service-stopped") == 0
-    out = capsys.readouterr().out
-    assert "v1 rows unchanged: 3 calls, 1 operator events" in out
-    assert BudgetLedger.open(path).profile().origin == "migrated"
-    assert backup.exists()
+    assert _run(path, "resume-after-review", "--code", "routing_anomaly") == 2
+    assert "BREAKER_RESUME_REFUSED" in capsys.readouterr().err
+    assert BudgetLedger(path).status().breaker_open
+    assert _run(path, "resume-after-review", "--code", "routing_anomaly", "--confirm-reviewed") == 0
+    status = BudgetLedger(path).status()
+    assert not status.breaker_open and status.local_charged == charged

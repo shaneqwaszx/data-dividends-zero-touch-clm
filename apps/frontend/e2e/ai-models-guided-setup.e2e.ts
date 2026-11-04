@@ -137,13 +137,12 @@ test("D-118 a fresh teammate sets up Claude in four steps with two confirmations
     await expect(setup.getByText("One-time Claude setup")).toBeVisible();
     await setup.getByLabel(/used only for this FYP project/).check();
     await setup.getByLabel("The key will be revoked when the FYP ends.").check();
-    await expect(setup.getByRole("button", { name: "Enable Claude" })).toBeDisabled();
-    await setup.getByLabel("This workspace is new and has no earlier usage.").check();
+    await expect(setup.getByText("earlier usage")).toHaveCount(0); // no opening question (P5)
     await setup.getByRole("button", { name: "Enable Claude" }).click();
-    await expect(setup.getByRole("button", { name: "Test & qualify…" })).toBeEnabled();
+    await expect(setup.getByRole("button", { name: "Run qualification…" })).toBeEnabled();
 
-    // 3. One confirmation for the paid test calls. 4. One confirmation to activate.
-    await setup.getByRole("button", { name: "Test & qualify…" }).click();
+    // 3. The free check, then one confirmation for the paid test calls. 4. One to activate.
+    await setup.getByRole("button", { name: "Run qualification…" }).click();
     await expect(page.getByTestId("guided-qualify")).toContainText("US$0.19");
     dialogs += 1;
     await page.getByTestId("guided-qualify").getByRole("button", { name: "Run paid test calls" }).click();
@@ -161,11 +160,13 @@ test("D-118 a fresh teammate sets up Claude in four steps with two confirmations
       "POST /provider/anthropic/workspace-read",
       "PUT /provider/anthropic",
       "POST /anthropic_claude_sonnet_5_5_medium/connection-test",
+      "POST /anthropic_claude_sonnet_5_5_medium/connection-test",
       "POST /anthropic_claude_sonnet_5_5_medium/qualifications",
       "POST /anthropic_claude_sonnet_5_5_medium/activate",
     ]);
-    expect(sent[2].body).toMatchObject({ opening: "new_workspace", workspace_limit_micro_usd: 5_000_000 });
-    expect(sent[4].body).toEqual({ confirm_paid_calls: 2 });
+    expect(sent[2].body).toMatchObject({ workspace_limit_micro_usd: 5_000_000 });
+    expect(sent[2].body).not.toHaveProperty("opening");
+    expect(sent[5].body).toEqual({ confirm_paid_calls: 2 });
 
     // Phone width: no horizontal page scroll.
     await page.setViewportSize({ width: 375, height: 812 });

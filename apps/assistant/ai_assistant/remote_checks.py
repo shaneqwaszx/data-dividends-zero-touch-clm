@@ -241,6 +241,8 @@ def check_ledger(
     has_calls: bool,
     reservation_micro: int,
     allocation: Decimal | None = ALLOCATION_LIMIT_USD,
+    *,
+    reconciled: bool = True,
 ) -> None:
     report.add(
         "ledger.breaker_closed_no_open_calls",
@@ -265,7 +267,10 @@ def check_ledger(
         )
     usage = micro_usd(key.usage_usd)
     accounted = status.baseline + status.local_charged
-    if has_calls:
+    if not reconciled:
+        ok = True
+        detail = "session store: bounded by the key's own limit, not reconciled with its usage"
+    elif has_calls:
         ok = status.last_provider_usage <= usage <= accounted + RECONCILE_TOLERANCE_MICRO_USD
         detail = (
             f"provider usage {_usd(usage)} within ledger {_usd(accounted)}"
@@ -507,22 +512,23 @@ def run_preflight(
     report.add("ledger.healthy", True, f"profile {status.profile_id}, alias {status.key_alias}")
     try:
         verify_earlier_calls(report, ledger, account, endpoint)
-        if allocation is None:
-            auto_reconcile(report, ledger, key)
         status = ledger.status()
+        # D-118 amendment P4: a session store is bounded by the key's own limit; its figures
+        # are never required to match the provider's usage (no reconciliation dependency).
+        capped = ledger.profile().accounting_mode == "provider_capped"
     except LedgerError as error:
         report.add("ledger.earlier_calls_verified", False, f"refused: {error.code}")
         return report, None, account
-    check_ledger(report, key, status, ledger.last_call_id() > 0, reservation, allocation)
+    has_calls = ledger.last_call_id() > 0
+    check_ledger(report, key, status, has_calls, reservation, allocation, reconciled=not capped)
     check_daily(report, ledger, settings.budget_daily_cap_micro_usd, reservation)
     return report, ledger, account
 
 
-# D-118 S5: a fresh deployment's ledger, and routine reconciliation, from the key's own
-# provider-reported figures (read with the inference key; free). Never a paid call.
+# D-118: a fresh deployment's session store, from the key's own provider-reported figures
+# (read with the inference key; free). Never a paid call.
 FRESH_CAP_ABOVE_OPENING_MICRO_USD = 30_000_000
 FRESH_KEY_ALIAS = "key-01"
-AUTO_RECONCILE_SETTLE_SECONDS = 600
 
 
 def initialise_fresh(report: Preflight, ledger_file: Path, key: KeyStatus) -> None:
@@ -541,7 +547,7 @@ def initialise_fresh(report: Preflight, ledger_file: Path, key: KeyStatus) -> No
             opening_usage_micro_usd=opening,
             key_alias=FRESH_KEY_ALIAS,
             profile_id=OPENROUTER_PROFILE_ID,
-            accounting_mode="provider_anchored",
+            accounting_mode="provider_capped",
             opening_basis="provider_reported",
         )
     except LedgerError as error:
@@ -552,32 +558,6 @@ def initialise_fresh(report: Preflight, ledger_file: Path, key: KeyStatus) -> No
         True,
         f"new ledger from provider-reported usage {_usd(opening)}",
     )
-
-
-def auto_reconcile(report: Preflight, ledger: BudgetLedger, key: KeyStatus) -> None:
-    """Adopt the key's reported usage when it is within the existing tolerance of the ledger
-    (never a release, never above tolerance: that stays a failed check and the breaker)."""
-
-    if ledger.profile().accounting_mode != "provider_anchored":
-        return
-    status = ledger.status()
-    usage = micro_usd(key.usage_usd)
-    accounted = status.baseline + status.local_charged
-    if (
-        status.breaker_open
-        or status.open_calls
-        or usage == status.last_provider_usage
-        or not status.last_provider_usage <= usage <= accounted + RECONCILE_TOLERANCE_MICRO_USD
-    ):
-        return
-    try:
-        drift = ledger.reconcile(
-            usage, settle_lag_seconds=AUTO_RECONCILE_SETTLE_SECONDS, automatic=True
-        )
-    except LedgerError as error:
-        report.add("ledger.auto_reconciled", True, f"not yet: {error.code}")
-        return
-    report.add("ledger.auto_reconciled", True, f"provider usage adopted (drift {_usd(drift)})")
 
 
 def check_daily(

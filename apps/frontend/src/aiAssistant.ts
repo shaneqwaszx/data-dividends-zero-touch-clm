@@ -222,7 +222,6 @@ const SAFE_ERROR_MESSAGES = new Set([
   // D-098: paid qualification confirmation, budget and escalation.
   "Confirm the number of paid calls this qualification may make. Nothing started.",
   "The spending limits do not leave room for every paid call this qualification may make. Nothing started.",
-  "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started.",
   "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started.",
   "Run Test connection first so the Anthropic workspace and model are checked (a free model read). Nothing started.",
   "The OpenRouter key's own spending limit has no room. Only the key's owner can raise it at OpenRouter; it is not an HR setting. Nothing started.",
@@ -269,15 +268,13 @@ const SAFE_ERROR_MESSAGES = new Set([
   "That is not a valid way to close a request.",
   "The note must be plain text without keys or secrets.",
   "This chat has ended. Start a new chat to continue.",
-  // D-118: a fresh Claude ledger, paid sessions and the conservative-only resume.
-  "This is the first set-up on this machine: say whether the workspace is new with no earlier usage, or enter its cumulative cost from the Anthropic Console. Nothing changed.",
-  "The opening usage must be a whole amount from US$0.00 up to below the ledger cap. Nothing changed.",
-  "Claude's spending ledger already exists here, so it keeps its own figures. Leave the opening out. Nothing changed.",
+  // D-118: paid sessions, legacy stores and stops resumed in the console.
   "The paid session changed since this view. Refresh and try again.",
   "A paid call is still in progress. Wait for it to finish, then try again.",
   "No paid session is open yet. Nothing changed.",
-  "The ledger cannot prove every recent charge was a full, conservative charge, so paid calls stay stopped for the owner. Nothing changed.",
-  "This spending ledger is in the earlier format; the owner must migrate it first. Nothing changed.",
+  "This stop involves a routing or ledger-integrity problem, so paid calls stay stopped until the owner reviews it. Nothing changed.",
+  "The launcher names a spending store from the earlier design. The owner archives it and points the launcher at a session store. Nothing changed.",
+  "Paid calls are paused for this provider. See Set up AI for the reason and the next step. Nothing started.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -1360,9 +1357,6 @@ export const saveAnthropicEnablement = (body: {
   workspace_id?: string;
   workspace_limit_micro_usd?: number;
   confirmations?: string[];
-  /** D-118: how a fresh Claude ledger opens (only when none exists). Never zero by default. */
-  opening?: "new_workspace" | "console_usage";
-  opening_usage_micro_usd?: number;
 }) => request<AnthropicSetup>("/admin/models/provider/anthropic", body, undefined, "PUT");
 
 // --- D-118: paid-model sessions (US$5.00 by default and at most) and the guided setup ---------
@@ -1391,7 +1385,8 @@ export interface SetupBlocker {
 
 export interface ProviderSetup {
   provider: PaidProvider;
-  ledger: "missing" | "ready" | "migration_required" | "unavailable";
+  /** legacy: the launcher names an earlier-design store, which is never used (D-118 P2). */
+  ledger: "missing" | "ready" | "legacy" | "unavailable";
   code: string | null;
   accounting_mode: "provider_anchored" | "provider_capped" | null;
   origin: "fresh" | "migrated" | null;
@@ -1424,7 +1419,15 @@ export const savePaidSessionAllowance = (provider: PaidProvider, allowanceMicroU
     undefined,
     "PUT",
   );
-export const resumeBreaker = (provider: PaidProvider, code: "abandoned_call" | "usage_missing") =>
+/** D-118 amendment P6: the financial stops HR may resume (the server decides again). */
+export type ResumableStop =
+  | "abandoned_call" | "usage_missing" | "provider_error" | "cost_above_reservation"
+  | "token_bound_exceeded" | "reconcile_drift";
+export const RESUMABLE_STOPS: readonly ResumableStop[] = [
+  "abandoned_call", "usage_missing", "provider_error", "cost_above_reservation",
+  "token_bound_exceeded", "reconcile_drift",
+];
+export const resumeBreaker = (provider: PaidProvider, code: ResumableStop) =>
   request<ProviderSetup>("/admin/models/budget/resume", { provider, code });
 export const saveDataAccessPolicy = (expectedRevision: number, restrictLocal: boolean, confirmWiden: boolean) =>
   request<ModelDataAccess>("/admin/models/data-access", {

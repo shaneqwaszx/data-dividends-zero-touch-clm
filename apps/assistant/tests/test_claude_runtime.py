@@ -1018,8 +1018,7 @@ def test_the_anthropic_ledger_commands_keep_the_ceiling_and_the_24_hour_rule(
     ledger = BudgetLedger.open(Path(path))
     assert ledger.status().profile_id == LEDGER_PROFILE_ID
     raise_to = ["set-cap", "--usd", "3.00", "--raise", "--confirm-new-cap", "3.00"]
-    assert budget_ledger.main(["--ledger", path, *raise_to]) == 2  # never reconciled
-    assert budget_ledger.main([*base, "reconcile", "--provider-usage", "0"]) == 0
+    # D-118 amendment P4: a session store (provider-capped) needs no reconciliation to raise.
     assert budget_ledger.main(["--ledger", path, *raise_to]) == 0
     above = ["set-cap", "--usd", "30.50", "--raise", "--confirm-new-cap", "30.50"]
     assert budget_ledger.main(["--ledger", path, *above]) == 2

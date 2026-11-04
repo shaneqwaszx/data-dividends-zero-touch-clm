@@ -429,7 +429,12 @@ def check_cap_change(
         raise LedgerError("INVALID_INPUT", "not the Anthropic ledger")
     if cap_micro_usd > LIFETIME_CEILING_MICRO_USD:
         raise LedgerError("CAP_RAISE_REFUSED", "above the Anthropic lifetime ceiling")
-    if raising and not reconciled_within(ledger, PAID_RECONCILE_SECONDS, clock=clock):
+    # D-118 amendment P4: a session store (provider-capped) needs no reconciliation to raise.
+    if (
+        raising
+        and not provider_capped(ledger)
+        and not reconciled_within(ledger, PAID_RECONCILE_SECONDS, clock=clock)
+    ):
         raise LedgerError("CAP_RAISE_REFUSED", "reconcile within the last day before raising")
 
 

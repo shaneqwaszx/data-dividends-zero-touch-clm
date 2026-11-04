@@ -661,54 +661,64 @@ AI Assistant server enforces it:
   upgrade, a stored GPT-OSS or Claude activation becomes *AI unavailable* until HR runs a new,
   separately approved paid qualification and activates again.
 
-## 15. Paid-model sessions and the guided setup (D-118)
+## 15. Paid-model sessions and the guided setup (D-118, simplified for the POC)
 
-AI Models opens on **Set up AI**. HR selects a model, saves and tests its key, runs Test &
-qualify, then activates it. The earlier sections are listed under **Administration**, unchanged.
-Teammates follow `docs/integration/AI_TEAMMATE_SETUP.md`.
+AI Models opens on **Set up AI**:
 
+1. Select Claude or GPT-OSS.
+2. Enter the API key (*Save & test*).
+3. Run qualification.
+4. Activate and chat.
+
+The earlier sections are under **Administration**, unchanged. Teammates follow
+`docs/integration/AI_TEAMMATE_SETUP.md`. The provider's own spending limit is the primary
+financial backstop. Inside the app, the US$5.00 session allowance is the only accounting, and it
+is not a billing guarantee.
+
+- **Session stores, not the old ledgers.** The defaults are
+  `data/budget/sessions/anthropic.sqlite3` and `data/budget/sessions/openrouter.sqlite3`,
+  created from the console on first use:
+  - Claude's when HR enables Claude. It opens at zero and counts only this deployment's calls.
+  - GPT-OSS's at its first connection test, from the key's own reported usage. The key must have
+    a finite limit that never resets.
+
+  A store from the earlier design that a launcher still names is refused as `LEGACY_STORE`. It is
+  never read for spending, migrated or changed. To archive it, stop the service and run
+  `python -I scripts/storage/archive_accounting_stores.py <data-root> <new folder>`. The tool
+  wraps `backup_stores.py`, never writes a source, and checks every row. Then point the launcher
+  at the session stores; the template shows how.
 - **Session allowance.**
-  - Every paid call on a provider's ledger belongs to that ledger's one open session.
-  - The allowance is US$5.00 by default and at most (1 to 5,000,000 micro-USD).
-  - Qualification and chat share the money; only chat calls count toward the chat-call limit,
-    which is now counted per session.
-  - Admission is checked in the ledger's own write transaction, after the lifetime and daily
-    caps.
-  - An exhausted session is never renewed automatically. HR starts a new one explicitly
-    (`POST /assistant/admin/models/session/start`, compare-and-set on the session id) or lowers
-    the allowance (`PUT .../session/allowance`, compare-and-set on its revision).
-  - Both changes are audited (`PAID_SESSION_STARTED`, `PAID_SESSION_ALLOWANCE_CHANGED`).
-- **Daily defaults.** `AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD` and
-  `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD` now default to 5,000,000 (US$5.00). Stored HR
-  values still win.
-- **Ledger format 2.** New ledgers are format 2; a format-1 ledger is refused with
-  `LEDGER_MIGRATION_REQUIRED` and is never migrated by the service. The owner migrates it once
-  with `scripts/budget_ledger.py migrate-v2` on a stopped service (verified backup, quiet period,
-  every v1 row and event proven unchanged). Triggers stop an earlier process from admitting a call
-  or changing the ledger header.
-- **Claude: provider-capped.**
-  - A fresh Claude ledger is created when HR enables Claude. It opens at zero only when the owner
-    confirms a new, dedicated, non-default workspace with no earlier usage; otherwise it opens at
-    the cumulative cost HR enters from the Console.
-  - The 24-hour and 7-day reconciliation windows no longer gate chat, qualification or
-    activation.
-  - Billing drift and spend outside the app are bounded only by Anthropic's monthly workspace
-    limit. That limit resets monthly, so it never bounds a session.
-  - HR reconciliation (section 13 and D-110) stays available as an optional tool.
-- **GPT-OSS: provider-anchored, reconciled automatically.**
-  - The first connection test creates the ledger from the key's reported usage. The key must
-    have a finite limit that never resets.
-  - Each later free preflight adopts the key's reported usage when it is within US$0.05 of the
-    ledger and no call is open (audited as `auto_reconciled`).
-  - Anything outside that range still fails the check or opens the breaker.
-- **Breaker recovery.**
-  - HR may resume only an `abandoned_call` or `usage_missing` breaker, and only on the ledger's
-    proof that every unverified call (and, on Claude, every quarantined call) since the last
-    resume was charged its full reservation with no anomaly and no provider refusal, and no genuine
-    trip was recorded while the breaker was already open. The charge is kept.
-  - Everything else stays with the owner.
-- **Setup view.** `GET /assistant/admin/models/setup` returns, for each provider, the ledger
-  state, accounting mode, open session, breaker and the exceptions to show. Routine use has none,
-  and reconciliation and P1 are never among them.
-- **Basis.** The qualification basis moves `77e50313a62c…` → `baf8461cb8ec…`. External models need
-  a separately approved paid requalification after the upgrade.
+  - It is US$5.00 by default and at most, admitted inside the store's own transaction after the
+    daily and lifetime caps.
+  - Qualification and chat share it. Chat calls also count toward a per-session limit that
+    survives restarts.
+  - An exhausted session is never renewed automatically. HR starts a new one, or lowers or
+    restores the allowance up to US$5.00 (`POST .../session/start`, `PUT .../session/allowance`;
+    compare-and-set and audited). Changing the allowance is never needed to activate.
+- **No reconciliation on the routine path.** Session stores are `provider_capped`:
+  - Claude's 24-hour and 7-day windows gate nothing.
+  - OpenRouter's usage is not required to match the store.
+  - Limit raises need only their confirmation.
+  - P1 and HR reconciliation (D-110) are optional tools and are never prerequisites.
+
+  Drift between the app and provider billing, and spend outside the app, are bounded only by the
+  provider's limit: the OpenRouter key limit (lifetime) or the Anthropic workspace limit
+  (monthly).
+- **Stops.** A failure never retries a paid request.
+  - **Financial stops** pause paid calls until HR chooses *Resume* on Set up AI
+    (`POST .../budget/resume`, audited). Every charge is kept. These are an interrupted or
+    abandoned call, a missing usage report, a provider refusal (key, payment or limit: fix the
+    cause first), and a cost or token figure above its estimate or a cost mismatch.
+  - **Routing and integrity stops stay with the owner**, who clears them after review with
+    `scripts/budget_ledger.py resume-after-review --code CODE --confirm-reviewed`. These are a
+    model, provider or workspace mismatch (including one recorded while a financial stop was
+    already open), a failed ledger write, or an OpenRouter call with no generation record.
+- **Qualification consent.** *Run qualification* runs the free connection check. Its one
+  confirmation then states the paid calls and the most they can cost from the session; that is
+  the existing `confirm_paid_calls` consent.
+- **After a restart.** The session, the activation and the setup record are kept. HR re-enters
+  the key (D-106: keys live in memory only) and continues.
+- **Daily defaults.** US$5.00 for both providers (`AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD`,
+  `AI_ASSISTANT_ANTHROPIC_DAILY_CAP_MICRO_USD`). Stored HR values win.
+- **Basis.** The qualification basis moves from `77e50313a62c…` to `17a3172e1607…`. External
+  models need a separately approved paid requalification after the upgrade.

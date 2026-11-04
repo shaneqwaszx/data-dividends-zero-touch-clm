@@ -526,7 +526,7 @@ def _corrupt(path: Path, how: str) -> None:
         ("garbage", "LEDGER_CORRUPT"),
         ("truncated", "LEDGER_CORRUPT"),
         ("newer", "LEDGER_SCHEMA_UNSUPPORTED"),
-        ("format_1", "LEDGER_MIGRATION_REQUIRED"),
+        ("format_1", "LEGACY_STORE"),
         ("dropped_fence", "LEDGER_SCHEMA_UNSUPPORTED"),
         ("dropped_table", "LEDGER_SCHEMA_UNSUPPORTED"),
         ("extra_table", "LEDGER_SCHEMA_UNSUPPORTED"),

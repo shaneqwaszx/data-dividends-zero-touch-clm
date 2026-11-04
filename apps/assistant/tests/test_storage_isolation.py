@@ -103,9 +103,12 @@ def _defaults_only(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
 def test_without_a_data_root_the_package_relative_defaults_are_unchanged() -> None:
     settings = _settings()
     assert settings.data_dir == ""
-    assert ledger_path(settings) == ASSISTANT_DIR / "data" / "budget" / "ledger.sqlite3"
+    assert (
+        ledger_path(settings)
+        == ASSISTANT_DIR / "data" / "budget" / "sessions" / "openrouter.sqlite3"
+    )
     assert anthropic_runtime.ledger_file(settings) == (
-        ASSISTANT_DIR / "data" / "budget" / "anthropic_ledger.sqlite3"
+        ASSISTANT_DIR / "data" / "budget" / "sessions" / "anthropic.sqlite3"
     )
     assert store_file(settings) == ASSISTANT_DIR / "data" / "models" / "model_admin.sqlite3"
     assert knowledge_dir(settings) == ASSISTANT_DIR / "data" / "knowledge"
@@ -124,7 +127,7 @@ def test_relative_store_paths_resolve_under_the_data_root(tmp_path: Path) -> Non
     )
     root = tmp_path.resolve()
     assert settings.data_dir == str(root)
-    assert ledger_path(settings) == root / "budget" / "ledger.sqlite3"
+    assert ledger_path(settings) == root / "budget" / "sessions" / "openrouter.sqlite3"
     fyp = root / "budget" / "anthropic_fyp_ledger.sqlite3"
     assert anthropic_runtime.ledger_file(settings) == fyp
     assert store_file(settings) == root / "models" / "model_admin.sqlite3"
@@ -140,14 +143,20 @@ def test_absolute_store_paths_take_precedence_over_the_data_root(tmp_path: Path)
     (tmp_path / "root").mkdir()
     settings = _settings(data_dir=str(tmp_path / "root"), model_admin_db_path=str(elsewhere))
     assert store_file(settings) == elsewhere
-    assert ledger_path(settings) == (tmp_path / "root").resolve() / "budget" / "ledger.sqlite3"
+    assert (
+        ledger_path(settings)
+        == (tmp_path / "root").resolve() / "budget" / "sessions" / "openrouter.sqlite3"
+    )
 
 
 def test_the_environment_variable_sets_the_data_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("AI_ASSISTANT_DATA_DIR", str(tmp_path))
-    assert ledger_path(_settings()) == tmp_path.resolve() / "budget" / "ledger.sqlite3"
+    assert (
+        ledger_path(_settings())
+        == tmp_path.resolve() / "budget" / "sessions" / "openrouter.sqlite3"
+    )
 
 
 @pytest.mark.parametrize(
@@ -178,7 +187,9 @@ def test_a_store_path_that_could_leave_the_data_root_is_refused(value: str, tmp_
 
 
 def test_the_two_ledgers_may_still_never_share_a_file_under_a_data_root(tmp_path: Path) -> None:
-    settings = _settings(data_dir=str(tmp_path), anthropic_ledger_path="budget/ledger.sqlite3")
+    settings = _settings(
+        data_dir=str(tmp_path), anthropic_ledger_path="budget/sessions/openrouter.sqlite3"
+    )
     assert anthropic_runtime.ledger_file(settings) == ledger_path(settings)
     assert anthropic_runtime._limits_problem(settings) == "LEDGER_PATH_SHARED"
 
@@ -203,7 +214,7 @@ def test_the_cli_resolves_the_ledger_under_data_dir_and_prints_it(
 ) -> None:
     assert CLI.main(["--data-dir", str(tmp_path), "status"]) == 2
     err = capsys.readouterr().err
-    assert f"ledger: {tmp_path.resolve() / 'budget' / 'ledger.sqlite3'}" in err
+    assert f"ledger: {tmp_path.resolve() / 'budget' / 'sessions' / 'openrouter.sqlite3'}" in err
     assert "LEDGER_MISSING" in err
     assert not (tmp_path / "budget").exists()  # a missing ledger is never created
 
@@ -212,7 +223,7 @@ def test_the_cli_anthropic_ledger_follows_the_data_root(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert CLI.main(["--data-dir", str(tmp_path), "--anthropic", "status"]) == 2
-    expected = tmp_path.resolve() / "budget" / "anthropic_ledger.sqlite3"
+    expected = tmp_path.resolve() / "budget" / "sessions" / "anthropic.sqlite3"
     assert f"ledger: {expected}" in capsys.readouterr().err
 
 
@@ -221,7 +232,10 @@ def test_the_cli_honours_the_environment_and_ledger_wins(
 ) -> None:
     monkeypatch.setenv("AI_ASSISTANT_DATA_DIR", str(tmp_path))
     CLI.main(["status"])
-    assert f"ledger: {tmp_path.resolve() / 'budget' / 'ledger.sqlite3'}" in capsys.readouterr().err
+    assert (
+        f"ledger: {tmp_path.resolve() / 'budget' / 'sessions' / 'openrouter.sqlite3'}"
+        in capsys.readouterr().err
+    )
     explicit = tmp_path / "explicit.sqlite3"
     CLI.main(["--data-dir", str(tmp_path), "--ledger", str(explicit), "status"])
     assert f"ledger: {explicit}" in capsys.readouterr().err

@@ -66,34 +66,28 @@ from .model_profiles import ENDPOINT_SLUG, OPENROUTER_PROFILE_ID, ApprovedEndpoi
 SCHEMA_VERSION = 1
 # D-118: the ledger format (``PRAGMA user_version``). Format 2 keeps the v1 tables (whose
 # ``schema_version`` column stays 1) and adds sessions, the ledger profile, its own events and
-# two triggers that refuse earlier writers. A format-1 ledger is refused, never migrated here.
+# two triggers that refuse earlier writers. A format-1 ledger (the earlier design) is refused as
+# a legacy store: the POC runtime never reads, migrates or depends on it (D-118 amendment P2).
 FORMAT_VERSION = 2
 # D-118 S2: a session's money allowance, US$5.00 by default and at most.
 SESSION_MAX_MICRO_USD = 5_000_000
 SESSION_DEFAULT_MICRO_USD = SESSION_MAX_MICRO_USD
 PURPOSES = ("chat", "qualification")
-ORIGINS = ("fresh", "migrated")
+ORIGINS = ("fresh",)
+# D-118 amendment P4: every session store is provider-capped (the provider's own limit is the
+# backstop; nothing routine waits for a reconciliation). ``provider_anchored`` is kept in the
+# schema only for a store an operator chose to anchor; no code path creates one.
 ACCOUNTING_MODES = ("provider_anchored", "provider_capped")
-OPENING_BASES = (
-    "operator_entered",
-    "provider_reported",
-    "new_workspace_confirmed",
-    "console_usage_entered",
-    "migrated",
-)
+OPENING_BASES = ("operator_entered", "provider_reported", "session_store")
 LEDGER_EVENTS = (
     "fresh_init",
-    "migrated",
     "session_started",
     "session_allowance_changed",
     "breaker_resumed",
-    "auto_reconciled",
     # A trip while the breaker was already open (its code is not overwritten, so the trip is
     # recorded here and a resume is judged on it: QG F1).
     "trip_while_open",
 )
-# D-118 S6: the only breaker codes HR may resume, and only on the ledger's own proof.
-RESUMABLE_BREAKER_CODES = ("abandoned_call", "usage_missing")
 # Approved opaque operator identifiers for a key (S3). A label never holds a name or case.
 KEY_ALIASES = ("key-01", "key-02", "key-03", "key-04")
 # D-099 Option B: a separate Anthropic ledger (its own file) for Claude Sonnet 5.5. A ledger
@@ -145,6 +139,11 @@ EVENTS = (
     "breaker_opened",
     "breaker_reset",
 )
+# D-118 amendment P6/P7: routing and ledger-integrity stops stay with the owner (reviewed, then
+# cleared with the operator script); every other stop is financial and HR may resume it from
+# the console, keeping every charge. Nothing is ever resumed or retried automatically.
+OWNER_REVIEW_CODES = ("routing_anomaly", "ledger_write_failed")
+HR_RESUMABLE_CODES = tuple(code for code in BREAKER_CODES if code not in OWNER_REVIEW_CODES)
 CALL_ANOMALIES = (*sorted(MODEL_ANOMALIES), "cost_above_reservation", "token_bound_exceeded")
 ANOMALY_BITS = {code: 1 << index for index, code in enumerate(CALL_ANOMALIES)}
 
@@ -560,9 +559,9 @@ def _session_status(connection: sqlite3.Connection) -> SessionStatus | None:
 
 
 def accounting_mode_for(profile_id: str) -> str:
-    """D-118: Anthropic ledgers are provider-capped, OpenRouter ledgers provider-anchored."""
+    """D-118 amendment P4: every session store is provider-capped, whatever its provider."""
 
-    return "provider_capped" if profile_id == ANTHROPIC_LEDGER_PROFILE_ID else "provider_anchored"
+    return "provider_capped"
 
 
 def _check_allowance(allowance: int) -> None:
@@ -615,7 +614,7 @@ def check_structure(connection: sqlite3.Connection, version: int) -> None:
     if found != version:
         if found == 1:
             raise LedgerError(
-                "LEDGER_MIGRATION_REQUIRED", "the ledger is format 1; the owner must migrate it"
+                "LEGACY_STORE", "an earlier-design ledger; archive it and use a session store"
             )
         raise LedgerError("LEDGER_SCHEMA_UNSUPPORTED", "the ledger schema is not supported")
     expected = V1_COLUMNS if version == 1 else FORMAT_2_COLUMNS
@@ -678,9 +677,7 @@ class BudgetLedger:
         if accounting_mode is None:
             accounting_mode = expected_mode
         if accounting_mode != expected_mode or opening_basis not in OPENING_BASES:
-            raise LedgerError("INVALID_INPUT", "the accounting mode follows the provider")
-        if opening_basis == "migrated":
-            raise LedgerError("INVALID_INPUT", "a new ledger is never a migrated one")
+            raise LedgerError("INVALID_INPUT", "a session store is provider-capped")
         for value in (cap_micro_usd, opening_usage_micro_usd):
             if type(value) is not int or not 0 <= value <= MAX_MICRO_USD:
                 raise LedgerError("INVALID_INPUT", "amounts must be micro-USD counts")
@@ -1262,7 +1259,6 @@ class BudgetLedger:
         *,
         release: bool = False,
         settle_lag_seconds: float = 600,
-        automatic: bool = False,
     ) -> int:
         """Anchor the ledger on the provider's cumulative usage of the key. Returns the drift
         (provider minus ledger). Only when no call is open and the last close is old enough;
@@ -1299,9 +1295,6 @@ class BudgetLedger:
                 (baseline, last_id or meta["baseline_high_water_call_id"], provider, self._now()),
             )
             self._event(connection, "reconciled", provider)
-            if automatic:
-                # D-118 S5: applied by the service from a provider-reported figure.
-                self._ledger_event(connection, "auto_reconciled", amount=provider)
             if drift < 0 and release:
                 self._event(connection, "released", -drift)
             if drift > RECONCILE_TOLERANCE_MICRO_USD:
@@ -1434,48 +1427,36 @@ class BudgetLedger:
         ).fetchone()[0]
         return int(value)
 
-    def _resume_blocker(self, connection: sqlite3.Connection, code: str) -> str | None:
+    def _resume_blocker(
+        self, connection: sqlite3.Connection, code: str, *, owner_reviewed: bool = False
+    ) -> str | None:
         meta = self._meta(connection)
         if not meta["breaker_open"] or meta["breaker_code"] != code:
             return "BREAKER_NOT_OPEN_WITH_CODE"
-        if code not in RESUMABLE_BREAKER_CODES:
-            return "BREAKER_NOT_RESUMABLE"
         if connection.execute("SELECT COUNT(*) FROM calls WHERE state = 'open'").fetchone()[0]:
             return "CALL_OPEN"
-        # A genuine trip recorded while the breaker was already open (a drift, a routing or
-        # cost anomaly, a provider refusal) since the last resume is never resumable.
+        if owner_reviewed:
+            return None
+        if code in OWNER_REVIEW_CODES:
+            return "OWNER_REVIEW_REQUIRED"
+        # A routing or integrity stop recorded while the breaker was already open, or a call
+        # flagged as misrouted, since the last resume: never resumable by HR (QG F1, P7).
         last_resume_event = connection.execute(
             "SELECT COALESCE(MAX(id), 0) FROM ledger_events WHERE event = 'breaker_resumed'"
         ).fetchone()[0]
         masked = connection.execute(
             "SELECT COUNT(*) FROM ledger_events WHERE event = 'trip_while_open' AND id > ?"
-            f" AND NOT {_in('code', RESUMABLE_BREAKER_CODES)}",
+            f" AND {_in('code', OWNER_REVIEW_CODES)}",
             (last_resume_event,),
         ).fetchone()[0]
         if masked:
             return "MASKED_ANOMALY"
-        # A quarantined call counts as proven only where verification is in-band (Claude:
-        # workspace, model and route were checked before any text). On OpenRouter a missing
-        # generation record is a routing-evidence gap, so it stays with the owner.
-        mode = connection.execute("SELECT accounting_mode FROM ledger_profile").fetchone()[0]
-        if (
-            mode != "provider_capped"
-            and connection.execute(
-                "SELECT COUNT(*) FROM calls WHERE id > ? AND verification = 'quarantined'",
-                (self._last_resume_call(connection),),
-            ).fetchone()[0]
-        ):
-            return "UNPROVEN_CHARGES"
-        # Every call not verified since the last resume must be conservatively charged: closed
-        # without usage, at its full reservation, with no anomaly and no provider refusal.
-        trips = tuple(sorted(TRIP_ERROR_CLASSES))
-        unproven = connection.execute(
-            "SELECT COUNT(*) FROM calls WHERE id > ? AND verification != 'verified' AND NOT ("
-            " state IN ('unsettled', 'abandoned') AND charged_micro_usd = reserved_micro_usd"
-            f" AND anomaly_bits = 0 AND (error_class IS NULL OR NOT {_in('error_class', trips)}))",
-            (self._last_resume_call(connection),),
+        routing = sum(ANOMALY_BITS[name] for name in sorted(ROUTING_ANOMALIES))
+        misrouted = connection.execute(
+            "SELECT COUNT(*) FROM calls WHERE id > ? AND (anomaly_bits & ?) != 0",
+            (self._last_resume_call(connection), routing),
         ).fetchone()[0]
-        return "UNPROVEN_CHARGES" if unproven else None
+        return "MASKED_ANOMALY" if misrouted else None
 
     def resume_blocker(self, code: str) -> str | None:
         """Why a breaker cannot be resumed (None: it can). Read-only."""
@@ -1483,14 +1464,14 @@ class BudgetLedger:
         result: str | None = self._transaction(lambda c: self._resume_blocker(c, code))
         return result
 
-    def resume_breaker(self, code: str) -> int:
-        """D-118 S6: close a breaker opened as ``abandoned_call`` or ``usage_missing`` only on
-        the ledger's own proof that every unverified or quarantined call is conservatively
-        charged. Charges, call states and verification states stay as they are. Returns the
-        call id the proof covers. Never used automatically."""
+    def resume_breaker(self, code: str, *, owner_reviewed: bool = False) -> int:
+        """D-118 amendment P6/P7: close a breaker on a deliberate action, never automatically.
+        HR may resume a financial stop (every charge is kept, nothing is retried); a routing or
+        integrity stop needs ``owner_reviewed`` (the operator script after the owner's review).
+        No call may be open. Returns the call id the resume covers."""
 
         def resume(connection: sqlite3.Connection) -> int:
-            blocker = self._resume_blocker(connection, code)
+            blocker = self._resume_blocker(connection, code, owner_reviewed=owner_reviewed)
             if blocker is not None:
                 raise LedgerError("BREAKER_RESUME_REFUSED", blocker)
             high = int(connection.execute("SELECT COALESCE(MAX(id), 0) FROM calls").fetchone()[0])

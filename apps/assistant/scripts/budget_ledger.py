@@ -23,14 +23,9 @@ reconcile      anchor the ledger on the key's cumulative usage from the dashboar
                An undercount is adopted (and opens the breaker above US$0.05); an over-count
                is kept unless --release is given.
 reset-breaker  only after a reconcile that is newer than the breaker, and naming its code.
-migrate-v2     D-118, owner only, with separate approval, on a STOPPED assistant service: moves
-               a format-1 ledger to format 2. Refuses unless the ledger is quiet (no call, close
-               or operator event within --quiet-seconds, default 300), no call is open, no
-               reconciliation lock or intent marker is held and the breaker is closed or
-               resumable; then writes a verified backup (--backup, a new file), migrates in one
-               exclusive transaction and proves every v1 row and event unchanged. The
-               accounting mode follows the ledger's provider (Anthropic provider_capped,
-               OpenRouter provider_anchored). The service never migrates a ledger itself.
+resume-after-review  D-118 amendment P7, owner only, after reviewing a routing or ledger-integrity
+               stop on a session store: closes the breaker (every charge kept), with
+               --confirm-reviewed. Financial stops are resumed by HR in AI Models instead.
 
 D-110 (HR reconciliation in AI Models): on the Anthropic ledger, reconcile, reset-breaker,
 set-cap and verify take the reconcile lock beside the ledger and refuse while an HR run's
@@ -97,7 +92,6 @@ from ai_assistant.budget import (  # noqa: E402
     LedgerError,
 )
 from ai_assistant.config import AiAssistantSettings  # noqa: E402
-from ai_assistant.ledger_migration import DEFAULT_QUIET_SECONDS, migrate_to_format_2  # noqa: E402
 from ai_assistant.model_factory import ledger_path  # noqa: E402
 from ai_assistant.model_profiles import OPENROUTER_PROFILE_ID  # noqa: E402
 
@@ -354,17 +348,13 @@ def cmd_attest_legacy_retired(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_migrate_v2(args: argparse.Namespace) -> int:
-    if not args.confirm_service_stopped:
-        raise LedgerError(
-            "MIGRATION_REFUSED", "stop the assistant service, then pass --confirm-service-stopped"
-        )
+def cmd_resume_after_review(args: argparse.Namespace) -> int:
+    if not args.confirm_reviewed:
+        raise LedgerError("BREAKER_RESUME_REFUSED", "review the stop, then pass --confirm-reviewed")
     path = _path(args)
-    result = migrate_to_format_2(path, backup=Path(args.backup), quiet_seconds=args.quiet_seconds)
-    mode = BudgetLedger(path).profile().accounting_mode
-    print(f"migrated to format 2 ({mode}); backup: {result.backup}")
-    print(f"v1 rows unchanged: {result.calls} calls, {result.events} operator events")
-    print(f"v1 fingerprint: {result.fingerprint}")
+    with _guarded(path):
+        covered = BudgetLedger.open(path).resume_breaker(args.code, owner_reviewed=True)
+    print(f"breaker resumed after review (calls up to {covered}; every charge kept)")
     return 0
 
 
@@ -422,11 +412,10 @@ def main(argv: list[str] | None = None) -> int:
     attest.add_argument("--by", default="owner")
     attest.set_defaults(run=cmd_attest_legacy_retired)
 
-    migrate = commands.add_parser("migrate-v2")
-    migrate.add_argument("--backup", required=True, help="a new file for the verified backup")
-    migrate.add_argument("--quiet-seconds", type=int, default=DEFAULT_QUIET_SECONDS)
-    migrate.add_argument("--confirm-service-stopped", action="store_true")
-    migrate.set_defaults(run=cmd_migrate_v2)
+    review = commands.add_parser("resume-after-review")
+    review.add_argument("--code", required=True)
+    review.add_argument("--confirm-reviewed", action="store_true")
+    review.set_defaults(run=cmd_resume_after_review)
 
     args = parser.parse_args(argv)
     try:

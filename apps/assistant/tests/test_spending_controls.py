@@ -413,10 +413,23 @@ def test_a_raise_needs_the_ledger_reconciled_with_openrouter(
         "confirm_cap_micro_usd": 800_000,
         "expected_cap_micro_usd": 500_000,
     }
+    # D-118 amendment P4: on an anchored store the provider's usage must match the ledger.
+    with sqlite3.connect(journey.settings.budget_ledger_path) as connection:
+        connection.execute("UPDATE ledger_profile SET accounting_mode = 'provider_anchored'")
     refused = journey.client.put(LIFETIME, json=body)
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "RECONCILIATION_REQUIRED"
     assert _ledger(journey).status().cap == 500_000
+    # A session store is bounded by the key's own limit instead: the raise needs no match.
+    with sqlite3.connect(journey.settings.budget_ledger_path) as connection:
+        connection.execute("UPDATE ledger_profile SET accounting_mode = 'provider_capped'")
+    assert journey.client.put(LIFETIME, json=body).status_code == 200
+    assert _ledger(journey).status().cap == 800_000
+    body = {
+        "cap_micro_usd": 900_000,
+        "confirm_cap_micro_usd": 900_000,
+        "expected_cap_micro_usd": 800_000,
+    }
 
     # An unreadable key check refuses too.
     journey.selector.transport = httpx.MockTransport(lambda request: httpx.Response(500))

@@ -221,28 +221,16 @@ MESSAGES = {
     "ENABLEMENT_CONFLICT": "Claude's setup changed since this view. Refresh and try again.",
     "ENABLEMENT_UNAVAILABLE": "Claude's setup could not be read. Nothing changed.",
     # D-118: a fresh Claude ledger, paid sessions and the conservative-only resume.
-    "OPENING_REQUIRED": (
-        "This is the first set-up on this machine: say whether the workspace is new with no"
-        " earlier usage, or enter its cumulative cost from the Anthropic Console. Nothing changed."
-    ),
-    "OPENING_INVALID": (
-        "The opening usage must be a whole amount from US$0.00 up to below the ledger cap."
-        " Nothing changed."
-    ),
-    "LEDGER_EXISTS": (
-        "Claude's spending ledger already exists here, so it keeps its own figures. Leave the"
-        " opening out. Nothing changed."
-    ),
     "SESSION_CHANGED": "The paid session changed since this view. Refresh and try again.",
     "SESSION_BUSY": "A paid call is still in progress. Wait for it to finish, then try again.",
     "SESSION_MISSING": "No paid session is open yet. Nothing changed.",
     "BREAKER_RESUME_REFUSED": (
-        "The ledger cannot prove every recent charge was a full, conservative charge, so paid"
-        " calls stay stopped for the owner. Nothing changed."
+        "This stop involves a routing or ledger-integrity problem, so paid calls stay stopped"
+        " until the owner reviews it. Nothing changed."
     ),
-    "LEDGER_MIGRATION_REQUIRED": (
-        "This spending ledger is in the earlier format; the owner must migrate it first."
-        " Nothing changed."
+    "LEGACY_STORE": (
+        "The launcher names a spending store from the earlier design. The owner archives it and"
+        " points the launcher at a session store. Nothing changed."
     ),
     "NOT_ENABLED": "Claude is not enabled, so there is nothing to disable.",
     "CREDENTIAL_SESSION_UNVERIFIED": (
@@ -292,7 +280,8 @@ MESSAGES = {
         " make. Nothing started."
     ),
     "QUALIFICATION_BILLING_UNRECONCILED": (
-        "Paid calls are stopped until an operator reconciles the spending ledger. Nothing started."
+        "Paid calls are paused for this provider. See Set up AI for the reason and the next step."
+        " Nothing started."
     ),
     "PROVIDER_LIMIT_NOT_CHECKED": (
         "Run Test connection first so the OpenRouter key's own limit is checked. Nothing started."
@@ -1369,11 +1358,6 @@ class AnthropicEnablementRequest(BaseModel):
     workspace_id: str = Field(default="", max_length=80)
     workspace_limit_micro_usd: StrictInt | None = None
     confirmations: list[str] = Field(default_factory=list, max_length=8)
-    # D-118 S4: how a fresh Claude ledger opens (only when none exists yet): a new, dedicated
-    # workspace with no earlier usage (owner-confirmed), or the workspace's cumulative cost
-    # from the Console. Never zero by default.
-    opening: Literal["new_workspace", "console_usage"] | None = None
-    opening_usage_micro_usd: StrictInt | None = None
 
 
 class SessionStartRequest(BaseModel):
@@ -1394,11 +1378,19 @@ class SessionAllowanceRequest(BaseModel):
 
 
 class BreakerResumeRequest(BaseModel):
-    # D-118 S6: only a conservative-only breaker, on the ledger's own proof.
+    # D-118 amendment P6: a financial stop only; routing and integrity stops stay with the
+    # owner (the ledger refuses them here whatever is sent).
     model_config = ConfigDict(extra="forbid")
 
     provider: Literal["anthropic", "openrouter"]
-    code: Literal["abandoned_call", "usage_missing"]
+    code: Literal[
+        "abandoned_call",
+        "usage_missing",
+        "provider_error",
+        "cost_above_reservation",
+        "token_bound_exceeded",
+        "reconcile_drift",
+    ]
 
 
 class ChangeRequest(BaseModel):
@@ -2754,7 +2746,10 @@ def model_admin_router(
             status = ledger.status()
             if status.profile_id != anthropic_profiles.LEDGER_PROFILE_ID:
                 raise LedgerError("LEDGER_PROFILE_MISMATCH", "not the Anthropic ledger")
-            fresh = anthropic_runtime.reconciled_within(
+            # D-118 amendment P4: a session store needs no reconciliation to raise a limit.
+            fresh = anthropic_runtime.provider_capped(
+                ledger
+            ) or anthropic_runtime.reconciled_within(
                 ledger, anthropic_runtime.PAID_RECONCILE_SECONDS, clock=time.time
             )
         except LedgerError:
@@ -3110,25 +3105,13 @@ def model_admin_router(
             "setup": anthropic_setup_view(),
         }
 
-    def fresh_claude_ledger(
-        body: AnthropicEnablementRequest, limit: int
-    ) -> tuple[str | None, tuple[int, int, str] | None]:
-        # D-118 S4: how a fresh deployment's Claude ledger opens, decided before anything is
-        # stored: only where none exists, and never at zero unless the owner confirmed a new
-        # workspace (the free read named it: never the default workspace). Returns a refusal
-        # code, or the (cap, opening, basis) to create once the setup record is stored (QG F4).
+    def fresh_claude_cap(limit: int) -> int | None:
+        # D-118 amendment P5: the Claude session store to create once the setup record is
+        # stored (QG F4), only where none exists. It counts only this deployment's calls and
+        # opens at zero; earlier workspace spend is bounded by Anthropic's own workspace limit.
         if anthropic_runtime.ledger_file(settings).exists():
-            return (None if body.opening is None else "LEDGER_EXISTS"), None
-        cap = min(anthropic_runtime.LIFETIME_CEILING_MICRO_USD, limit)
-        if body.opening == "new_workspace" and body.opening_usage_micro_usd is None:
-            opening, basis = 0, "new_workspace_confirmed"
-        elif body.opening == "console_usage" and type(body.opening_usage_micro_usd) is int:
-            opening, basis = body.opening_usage_micro_usd, "console_usage_entered"
-        else:
-            return ("OPENING_REQUIRED" if body.opening is None else "OPENING_INVALID"), None
-        if not 0 <= opening < cap:
-            return "OPENING_INVALID", None
-        return None, (cap, opening, basis)
+            return None
+        return min(anthropic_runtime.LIFETIME_CEILING_MICRO_USD, limit)
 
     @router.put("/provider/anthropic")
     def put_anthropic_enablement(
@@ -3156,7 +3139,7 @@ def model_admin_router(
             current = record.revision if record is not None else 0
             if current != body.expected_revision:
                 raise refuse("ENABLEMENT_CONFLICT")
-            fresh: tuple[int, int, str] | None = None
+            fresh: int | None = None
             if body.enabled:
                 if not anthropic_runtime.local_deployment(settings):
                     raise refuse("NOT_DEVELOPMENT_ENVIRONMENT")
@@ -3177,9 +3160,7 @@ def model_admin_router(
                 if environment and environment != body.workspace_id:
                     raise refuse("WORKSPACE_MISMATCH")
                 workspace, confirmations = body.workspace_id, anthropic_runtime.OWNER_ATTESTATIONS
-                code, fresh = fresh_claude_ledger(body, limit)
-                if code is not None:
-                    raise refuse(code, 400 if code == "OPENING_INVALID" else 409)
+                fresh = fresh_claude_cap(limit)
             elif record is not None:
                 if not record.enabled:
                     raise refuse("NOT_ENABLED")
@@ -3210,18 +3191,17 @@ def model_admin_router(
             except RevisionConflict:
                 raise refuse("ENABLEMENT_CONFLICT") from None
             if body.enabled and fresh is not None:
-                # After the record is stored, so a refused change never leaves a ledger behind.
-                # If this fails the record stays enabled with no ledger: enabling again with the
-                # opening creates it (nothing paid can run without a ledger).
-                cap, opening, basis = fresh
+                # After the record is stored, so a refused change never leaves a store behind.
+                # If this fails the record stays enabled with no store: enabling again creates
+                # it (nothing paid can run without one).
                 try:
                     BudgetLedger.initialise(
                         anthropic_runtime.ledger_file(settings),
-                        cap_micro_usd=cap,
-                        opening_usage_micro_usd=opening,
+                        cap_micro_usd=fresh,
+                        opening_usage_micro_usd=0,
                         key_alias="key-01",
                         profile_id=anthropic_profiles.LEDGER_PROFILE_ID,
-                        opening_basis=basis,
+                        opening_basis="session_store",
                     )
                 except LedgerError as error:
                     raise refuse(error.code) from None
@@ -3444,9 +3424,7 @@ def model_admin_router(
                 else None
             )
         except LedgerError as error:
-            view["ledger"] = (
-                "migration_required" if error.code == "LEDGER_MIGRATION_REQUIRED" else "unavailable"
-            )
+            view["ledger"] = "legacy" if error.code == "LEGACY_STORE" else "unavailable"
             view["code"] = error.code
             return view
         view.update(
@@ -3484,8 +3462,8 @@ def model_admin_router(
         if view["ledger"] == "missing":
             action = "ENABLE_CLAUDE" if anthropic else "TEST_CONNECTION"
             found.append({"code": "LEDGER_CREATED_AT_SETUP", "who": "hr", "action": action})
-        elif view["ledger"] == "migration_required":
-            found.append({"code": "LEDGER_MIGRATION_REQUIRED", "who": "owner", "action": "OWNER"})
+        elif view["ledger"] == "legacy":
+            found.append({"code": "LEGACY_STORE", "who": "owner", "action": "OWNER"})
         elif view["ledger"] == "unavailable":
             code = view["code"] or "LEDGER_UNAVAILABLE"
             found.append({"code": code, "who": "owner", "action": "OWNER"})

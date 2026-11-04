@@ -148,35 +148,37 @@ describe("GuidedSetup (D-118)", () => {
     expect((page.querySelector("#guided-key") as HTMLInputElement).value).toBe("");
   });
 
-  it("enables Claude only with the owner's statements and an explicit opening, never zero by default", async () => {
+  it("enables Claude only with the owner's statements, and asks nothing about earlier spend", async () => {
     const sent: Sent[] = [];
     const page = mount(overviewWith(profile({}), false, true), stub(setupView(), sent));
-    await waitFor(() => expect(page.textContent).toContain("This workspace is new and has no earlier usage"));
+    await waitFor(() => expect(page.textContent).toContain("One-time Claude setup"));
+    expect(page.querySelector("input[name=guided-opening]")).toBeNull(); // D-118 amendment P5
     const enable = button(page, "Enable Claude");
     expect(enable.disabled).toBe(true);
     const boxes = [...page.querySelectorAll(".guided-claude-setup input[type=checkbox]")] as HTMLInputElement[];
-    act(() => boxes.forEach((box) => box.click()));
-    expect(button(page, "Enable Claude").disabled).toBe(true); // the opening is still unstated
-    act(() => (page.querySelector("input[name=guided-opening]") as HTMLInputElement).click());
+    act(() => boxes[0].click());
+    expect(button(page, "Enable Claude").disabled).toBe(true); // the FYP-end revocation is unstated
+    act(() => boxes[1].click());
     expect(button(page, "Enable Claude").disabled).toBe(false);
     await act(async () => button(page, "Enable Claude").click());
     await waitFor(() => expect(sent[0]?.url).toContain("/admin/models/provider/anthropic"));
     expect(sent[0].body).toMatchObject({
-      enabled: true, workspace_id: "wrkspc_fyp", workspace_limit_micro_usd: 5_000_000, opening: "new_workspace",
+      enabled: true, workspace_id: "wrkspc_fyp", workspace_limit_micro_usd: 5_000_000,
       confirmations: ["dedicated_workspace", "workspace_limit_set", "inference_key_only", "key_revoked_at_fyp_end"],
     });
   });
 
-  it("qualifies with one paid confirmation and activates with one more", async () => {
+  it("runs the free check, then qualifies with one paid confirmation, and activates with one more", async () => {
     const sent: Sent[] = [];
     const ready = profile({ connection_test: { outcome: "passed", code: null, listed: null, complete_ms: null, stream_ms: null, first_piece_ms: null } });
     const page = mount(overviewWith(ready, true), stub(setupView({ ledger: "ready", accounting_mode: "provider_capped" }), sent));
-    await act(async () => button(page, "Test & qualify…").click());
+    await act(async () => button(page, "Run qualification…").click());
+    await waitFor(() => expect(document.querySelectorAll("[role=dialog]")).toHaveLength(1));
+    expect(sent.map((item) => item.url.split("/admin/models")[1])).toEqual(["/claude_balanced/connection-test"]);
     const dialogs = document.querySelectorAll("[role=dialog]");
-    expect(dialogs).toHaveLength(1);
     expect(dialogs[0].textContent).toContain("US$0.19");
     await act(async () => button(dialogs[0], "Run paid test calls").click());
-    await waitFor(() => expect(sent[0]?.body).toEqual({ confirm_paid_calls: 2 }));
+    await waitFor(() => expect(sent[1]?.body).toEqual({ confirm_paid_calls: 2 }));
 
     const qualified = profile({ ...ready, eligible_qualification: { qualification_id: "q", finished_at: null, is_latest: true }, activation_blockers: [] });
     if (root) act(() => root?.unmount());
@@ -213,14 +215,14 @@ describe("GuidedSetup (D-118)", () => {
     expect(page.textContent).not.toContain("Session allowance");
   });
 
-  it("offers HR a resume only for a proven conservative stop, and sends genuine anomalies to the owner", async () => {
+  it("offers HR a resume for a financial stop, and sends routing stops to the owner", async () => {
     const sent: Sent[] = [];
     const resumable = setupView({
       ledger: "ready", breaker_open: true, breaker_code: "usage_missing", resumable: true,
       blockers: [{ code: "BREAKER_OPEN:usage_missing", who: "hr", action: "RESUME" }],
     });
     const page = mount(overviewWith(profile({}), true), stub(resumable, sent));
-    await waitFor(() => expect(page.textContent).toContain("charged its full worst case"));
+    await waitFor(() => expect(page.textContent).toContain("Every charge is kept and nothing is retried"));
     await act(async () => button(page, "Resume, keeping the charge").click());
     await waitFor(() => expect(sent[0]?.body).toEqual({ provider: "anthropic", code: "usage_missing" }));
 

@@ -1,5 +1,8 @@
 """B0 cutover: prove the code is D-108 and every store resolves to an existing file in the root.
 
+D-118 amendment P2: a ledger may instead name the POC session store (budget/sessions/...), which
+the console creates on first use, so it need not exist yet.
+
 Run from apps/assistant with the launcher's environment (reads .env like the service; prints
 paths only, never a value from .env). No network, no store is opened. Exit 1 on any mismatch.
 """
@@ -33,10 +36,15 @@ expected = {
     "model_profiles_file": (s.model_profiles_file, root / "models" / "profiles.json"),
     "knowledge_data_dir": (s.knowledge_data_dir, root / "knowledge"),
 }
+sessions = {
+    "anthropic_ledger (runtime/CLI)": root / "budget" / "sessions" / "anthropic.sqlite3",
+    "budget_ledger (runtime/CLI)": root / "budget" / "sessions" / "openrouter.sqlite3",
+    "budget_ledger (D-094 remote test)": root / "budget" / "sessions" / "openrouter.sqlite3",
+}
 bad = 0
 for name, (actual, want) in expected.items():
     actual_p = Path(actual).resolve()
-    ok = actual_p == want and actual_p.exists()
+    ok = (actual_p == want and actual_p.exists()) or actual_p == sessions.get(name)
     bad += not ok
     print(f"{'ok  ' if ok else 'FAIL'} {name}: {actual_p}")
 print("code:", Path(sys.modules["ai_assistant"].__file__).parent)

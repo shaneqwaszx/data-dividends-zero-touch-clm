@@ -1518,30 +1518,27 @@ Delta only:
   lifecycle E2E without Mongo and Tesseract, semantic retrieval).
 - **Open (owner):** D-111 decisions; publication and merge of the three branches.
 
-## AI Assistant D-118 paid-model sessions and guided setup (branch `feat/d118-paid-sessions`) - 2026-11-04
+## AI Assistant D-118 paid-model sessions and guided setup, simplified for the POC (branch `feat/d118-paid-sessions`, PR #156) - 2026-11-04
 
-Delta only. Owner-approved Option B with six mandatory corrections (2026-11-03):
+Delta only. Owner direction "Final Scope Correction: Simplify for FYP POC" (amends D-118):
 
-- **Ledger.** Format 2: sessions, the ledger profile and its own events, plus triggers that fence
-  earlier writers. The US$5.00 default and maximum session allowance is admitted inside the
-  ledger's own transaction, and chat calls are counted per session, persisted.
-- **Migration.** The owner-only `migrate-v2` runs on a stopped service with a verified backup.
-  The service never migrates a ledger itself.
-- **Providers.**
-  - Claude is provider-capped: no routine reconciliation windows, and a fresh ledger opens at
-    zero only for an owner-confirmed new workspace.
-  - GPT-OSS reconciles automatically from the key's own usage within US$0.05, and a fresh
-    ledger is created from the key's reported figures.
-- **Resume.** HR may resume a conservative-only breaker on the ledger's proof; genuine anomalies
-  stay with the owner.
-- **Console.** AI Models opens on *Set up AI* (four steps, two confirmations); the earlier
-  sections sit under Administration.
-- **Defaults.** Daily limits now default to US$5.00 for both providers.
-- **Basis.** Moves `77e50313a62c…` → `baf8461cb8ec…`; `code_vocabulary` only changes in the
-  boundary.
+- **Guided flow.** AI Models opens on *Set up AI*: select, key, run qualification, activate.
+  US$5.00 is the default and maximum session allowance. The free check runs first, then one paid
+  consent.
+- **Fresh stores.** Session stores (`data/budget/sessions/...`) are created from the console,
+  with no CLI and no migration. Earlier-design ledgers are refused as `LEGACY_STORE` and never
+  used. `archive_accounting_stores.py` copies them non-destructively.
+- **No reconciliation dependency.** Every session store is provider-capped. Claude has no windows,
+  OpenRouter usage does not have to match, and limit raises need no reconciliation; P1 and D-110
+  are optional. The provider's limit is the backstop.
+- **Stops.** HR resumes financial stops in the console, keeping every charge. Routing and
+  integrity stops go to the owner via `resume-after-review`. Nothing is retried automatically.
+- **Removed.** `ledger_migration.py`, `migrate-v2`, the Claude opening question and the OpenRouter
+  automatic reconciliation.
+- **Basis.** Moves `77e50313a62c…` → `17a3172e1607…` (`code_vocabulary` only).
 - **Evidence class:** Local (mock providers, disposable stores).
-- **Not done (owner):** migrating the owner's existing stores, a paid requalification and a
-  restart of the running demo, each under separate approval.
+- **Not done (owner):** archiving or switching the owner's live stores, paid requalification,
+  restart, merge.
 
 ## AI Assistant B1 Phase B: HR reconciliation of the Claude ledger, D-110 (branch `feat/b1b-hr-reconciliation`, local commits) - 2026-10-31
 

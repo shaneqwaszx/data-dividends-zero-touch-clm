@@ -64,8 +64,9 @@ class AiAssistantSettings(BaseSettings):
     llm_reasoning_allowance_tokens: int = Field(default=0, ge=0, le=4000)
     remote_max_prompt_bytes: int = Field(default=32768, ge=1024, le=262144)
     # Remote profile only: the lifetime budget ledger (budget.py; path relative to
-    # apps/assistant, not in Git). The cap lives in the ledger, never in settings.
-    budget_ledger_path: str = "data/budget/ledger.sqlite3"
+    # apps/assistant, not in Git). The cap lives in the ledger, never in settings. D-118
+    # amendment P2: by default a fresh session store, never the earlier design's ledger.
+    budget_ledger_path: str = "data/budget/sessions/openrouter.sqlite3"
     budget_max_in_flight: int = Field(default=1, ge=1, le=4)
     budget_settle_lag_seconds: int = Field(default=600, ge=0, le=86400)
     # D-095: the most reserved plus settled remote spend per Singapore calendar day, in
@@ -115,8 +116,9 @@ class AiAssistantSettings(BaseSettings):
     # The monthly spend limit the owner set on that workspace (not readable with an API key;
     # owner-attested). At most US$30.00 (D-102); 0 means not set, which refuses.
     anthropic_workspace_limit_micro_usd: int = Field(default=0, ge=0, le=30_000_000)
-    # The separate Anthropic ledger (relative to apps/assistant; git-ignored data/).
-    anthropic_ledger_path: str = "data/budget/anthropic_ledger.sqlite3"
+    # The separate Anthropic ledger (relative to apps/assistant; git-ignored data/). D-118
+    # amendment P2: by default a fresh session store, never the earlier design's ledger.
+    anthropic_ledger_path: str = "data/budget/sessions/anthropic.sqlite3"
     # Defaults until an HR administrator sets them (D-102): US$5.00 a Singapore day (D-118;
     # the ceiling) and 20 chat calls per paid session (ceiling 20; D-118: counted per session).
     anthropic_daily_cap_micro_usd: int = Field(default=5_000_000, ge=0, le=5_000_000)

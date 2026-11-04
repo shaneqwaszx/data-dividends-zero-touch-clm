@@ -53,8 +53,17 @@ ACTION_SECTION: dict[str, str] = {
     "OWNER_REQUEST": "overview",
     "RESUME_BREAKER": "setup",
 }
-# D-118 S6: the breaker codes HR may ask the ledger to resume (budget.RESUMABLE_BREAKER_CODES).
-RESUMABLE_BREAKER_CODES = ("abandoned_call", "usage_missing")
+# D-118 amendment P6: the financial stops HR may resume from the console (as
+# budget.HR_RESUMABLE_CODES); routing and ledger-integrity stops stay with the owner. The ledger
+# decides again on the click.
+RESUMABLE_BREAKER_CODES = (
+    "abandoned_call",
+    "usage_missing",
+    "provider_error",
+    "cost_above_reservation",
+    "token_bound_exceeded",
+    "reconcile_drift",
+)
 
 # Problems an owner recovery request may name: only those the owner or IT must act on.
 OWNER_PROBLEMS = frozenset(
@@ -306,11 +315,11 @@ def _claude(
                 "CLAUDE_BREAKER_OPEN",
                 "blocking",
                 "anthropic",
-                "Claude: paid calls paused after an interrupted or incomplete call",
-                "A call ended without a usage report and was charged its full reservation."
-                " HR may resume once the ledger proves every unverified call was charged in full"
-                " with no anomaly (D-118 S6); the charge is kept. Anything else stays with the"
-                " owner.",
+                "Claude: paid calls are paused",
+                f"A financial stop ({code}): an interrupted or incomplete call, a provider"
+                " refusal or a cost above its estimate. Every charge is kept and nothing is"
+                " retried. Fix the cause (for example the key or the provider limit), then HR may"
+                " resume (D-118 amendment P6). A routing problem stays with the owner.",
                 (
                     _resume("anthropic", code),
                     _owner("Request owner review", "the breaker shows closed"),
@@ -622,9 +631,8 @@ def _gpt_oss(budget: Mapping[str, Any], profile_id: str | None, now: datetime) -
                 "GPT-OSS: the spending breaker is open",
                 f"The ledger stopped paid calls ({code or 'no code'}). "
                 + (
-                    "HR may resume once the ledger proves the call was charged in full and not"
-                    " yet judged by its generation record (D-118 S6); otherwise the operator"
-                    " reconciles and resets it with the script."
+                    "A financial stop: every charge is kept and nothing is retried. Fix the"
+                    " cause, then HR may resume (D-118 amendment P6)."
                     if resumable
                     else "The operator reconciles and resets it with the script; HR cannot."
                 ),

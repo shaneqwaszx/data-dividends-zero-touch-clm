@@ -24,8 +24,6 @@ from ai_assistant.budget import (
     LedgerError,
     Reservation,
 )
-from ai_assistant.claude_reconciliation import marker_file
-from ai_assistant.ledger_migration import migrate_to_format_2, v1_fingerprint
 from ai_assistant.llm import ModelUsage
 from tests.remote_fixtures import ENDPOINT, new_ledger
 
@@ -95,7 +93,7 @@ def test_the_first_paid_call_opens_one_default_us5_session(tmp_path: Path) -> No
     assert session.committed == 40_000 and session.calls == 1 and session.chat_calls == 1
     events = _rows(tmp_path / "ledger.sqlite3", "SELECT event FROM ledger_events ORDER BY id")
     assert [row[0] for row in events] == ["fresh_init", "session_started"]
-    assert ledger.profile().accounting_mode == "provider_anchored"
+    assert ledger.profile().accounting_mode == "provider_capped"
 
 
 def test_the_allowance_admits_exactly_up_to_us5_and_then_stops(tmp_path: Path) -> None:
@@ -263,7 +261,7 @@ def test_an_earlier_writer_can_neither_insert_a_call_nor_change_the_header(tmp_p
     ledger.verify()
 
 
-# --- conservative-only resume ----------------------------------------------------------------
+# --- console resume of financial stops; routing and integrity stay with the owner -------------
 
 
 def test_an_abandoned_call_is_resumable_and_keeps_its_full_charge(tmp_path: Path) -> None:
@@ -290,74 +288,140 @@ def test_an_abandoned_call_is_resumable_and_keeps_its_full_charge(tmp_path: Path
     _admit(ledger, 1_000)
 
 
-def test_usage_missing_is_resumable_only_while_every_unverified_call_is_conservative(
-    tmp_path: Path,
-) -> None:
-    ledger = _ledger(tmp_path)
-    ledger.settle(_admit(ledger, 50_000), usage=_usage("0.010000"), error_class=None)
-    ledger.settle(_admit(ledger, 60_000), usage=None, error_class=None)  # usage missing
-    # The settled call is still unverified: not proven, so not resumable yet.
-    assert ledger.resume_blocker("usage_missing") == "UNPROVEN_CHARGES"
-    ledger.record_verification(1, verified=True, breaker_code="routing_anomaly")
-
-    assert ledger.resume_blocker("usage_missing") is None
-    ledger.resume_breaker("usage_missing")
-    assert not ledger.status().breaker_open
-
-
-@pytest.mark.parametrize(
-    "scenario",
-    ["cost_above_reservation", "routing", "provider_refusal", "quarantined_settled", "drift"],
-)
-def test_genuine_anomalies_are_never_resumable(tmp_path: Path, scenario: str) -> None:
-    clock = Clock()
-    ledger = _ledger(tmp_path, clock)
-    if scenario == "cost_above_reservation":
+def _stop(ledger: BudgetLedger, clock: Clock, scenario: str) -> None:
+    if scenario == "usage_missing":
+        ledger.settle(_admit(ledger, 60_000), usage=None, error_class=None)
+    elif scenario == "cost_above_reservation":
         ledger.settle(_admit(ledger, 1_000), usage=_usage("0.002000"), error_class=None)
-    elif scenario == "routing":
-        usage = ModelUsage(1, 1, 0, 0, Decimal("0.0001"), "g", anomalies=("provider_mismatch",))
-        ledger.settle(_admit(ledger, 1_000), usage=usage, error_class=None)
     elif scenario == "provider_refusal":
         ledger.settle(_admit(ledger, 1_000), usage=None, error_class="payment_key_limit")
-    elif scenario == "quarantined_settled":
-        ledger.settle(_admit(ledger, 1_000), usage=_usage("0.000500"), error_class=None)
-        ledger.record_verification(1, verified=False, breaker_code="routing_anomaly")
-    else:
+    elif scenario == "drift":
         ledger.settle(_admit(ledger, 1_000), usage=_usage("0.000500"), error_class=None)
         clock.advance(601)
         ledger.reconcile(900_000)  # the provider reports far more than the ledger
-    code = ledger.status().breaker_code
-    assert code is not None
+    elif scenario == "routing":
+        usage = ModelUsage(1, 1, 0, 0, Decimal("0.0001"), "g", anomalies=("provider_mismatch",))
+        ledger.settle(_admit(ledger, 1_000), usage=usage, error_class=None)
+    elif scenario == "quarantined_routing":
+        ledger.settle(_admit(ledger, 1_000), usage=_usage("0.000500"), error_class=None)
+        ledger.record_verification(1, verified=False, breaker_code="routing_anomaly")
+    else:
+        ledger.open_breaker("ledger_write_failed")
 
-    assert ledger.resume_blocker(code) is not None
+
+@pytest.mark.parametrize(
+    "scenario", ["usage_missing", "cost_above_reservation", "provider_refusal", "drift"]
+)
+def test_hr_resumes_a_financial_stop_and_every_charge_is_kept(
+    tmp_path: Path, scenario: str
+) -> None:
+    # D-118 amendment P6: a deliberate console action, never automatic, nothing retried.
+    clock = Clock()
+    ledger = _ledger(tmp_path, clock)
+    _stop(ledger, clock, scenario)
+    status = ledger.status()
+    code = status.breaker_code
+    assert code is not None and ledger.resume_blocker(code) is None
+
+    ledger.resume_breaker(code)
+
+    after = ledger.status()
+    assert not after.breaker_open
+    assert (after.baseline, after.local_charged) == (status.baseline, status.local_charged)
+
+
+@pytest.mark.parametrize("scenario", ["routing", "quarantined_routing", "ledger_write_failed"])
+def test_routing_and_integrity_stops_stay_with_the_owner(tmp_path: Path, scenario: str) -> None:
+    # D-118 amendment P7: a data-protection or integrity stop is never HR-resumable.
+    clock = Clock()
+    ledger = _ledger(tmp_path, clock)
+    _stop(ledger, clock, scenario)
+    code = ledger.status().breaker_code
+    assert code in ("routing_anomaly", "ledger_write_failed")
+
+    assert ledger.resume_blocker(code) == "OWNER_REVIEW_REQUIRED"
     with pytest.raises(LedgerError) as raised:
         ledger.resume_breaker(code)
     assert raised.value.code == "BREAKER_RESUME_REFUSED"
     assert ledger.status().breaker_open
+    ledger.resume_breaker(code, owner_reviewed=True)  # the operator script after review
+    assert not ledger.status().breaker_open
 
 
-def test_an_abandoned_breaker_with_a_genuine_charge_behind_it_is_not_resumable(
+def test_a_routing_trip_while_a_financial_stop_is_open_blocks_the_hr_resume(
     tmp_path: Path,
 ) -> None:
+    # QG F1: an open breaker never hides a later routing stop.
     clock = Clock()
     ledger = _ledger(tmp_path, clock)
-    ledger.settle(_admit(ledger, 1_000), usage=_usage("0.000500"), error_class=None)
+    ledger.settle(_admit(ledger, 50_000), usage=_usage("0.010000"), error_class=None)
+    _admit(ledger, 60_000, lease=10)
+    clock.advance(11)
+    BudgetLedger.open(tmp_path / "ledger.sqlite3", clock=clock)  # abandoned_call
     ledger.record_verification(1, verified=False, breaker_code="routing_anomaly")
-    # The breaker code is routing_anomaly; even the conservative code would not pass.
-    _rows_update = sqlite3.connect(tmp_path / "ledger.sqlite3", isolation_level=None)
-    with closing(_rows_update) as connection:
-        connection.execute(
-            "UPDATE ledger_meta SET breaker_code = 'abandoned_call', write_token = write_token + 1"
+
+    assert ledger.status().breaker_code == "abandoned_call"
+    assert ledger.resume_blocker("abandoned_call") == "MASKED_ANOMALY"
+    assert _rows(
+        tmp_path / "ledger.sqlite3",
+        "SELECT code FROM ledger_events WHERE event = ?",
+        "trip_while_open",
+    ) == [("routing_anomaly",)]
+    ledger.resume_breaker("abandoned_call", owner_reviewed=True)
+
+
+def test_a_misrouted_call_since_the_last_resume_blocks_the_hr_resume(tmp_path: Path) -> None:
+    clock = Clock()
+    ledger = _ledger(tmp_path, clock)
+    _admit(ledger, 60_000, lease=10)
+    clock.advance(11)
+    BudgetLedger.open(tmp_path / "ledger.sqlite3", clock=clock)  # abandoned_call
+    with closing(sqlite3.connect(tmp_path / "ledger.sqlite3", isolation_level=None)) as db:
+        db.execute("UPDATE calls SET anomaly_bits = ?", (budget.ANOMALY_BITS["model_mismatch"],))
+    assert ledger.resume_blocker("abandoned_call") == "MASKED_ANOMALY"
+
+
+def test_a_financial_trip_while_open_stays_resumable(tmp_path: Path) -> None:
+    clock = Clock()
+    ledger = _ledger(tmp_path, clock)
+    _admit(ledger, 90_000, lease=10)
+    clock.advance(11)
+    BudgetLedger.open(tmp_path / "ledger.sqlite3", clock=clock)  # abandoned_call
+    clock.advance(601)
+    ledger.reconcile(5_000_000)  # a financial drift, recorded while the breaker is open
+    assert ledger.resume_blocker("abandoned_call") is None
+
+
+def test_every_session_store_is_provider_capped(tmp_path: Path) -> None:
+    from ai_assistant.anthropic_profiles import LEDGER_PROFILE_ID
+
+    for profile_id in ("openrouter_gpt_oss_120b", LEDGER_PROFILE_ID):
+        with pytest.raises(LedgerError):
+            BudgetLedger.initialise(
+                tmp_path / f"anchored-{len(profile_id)}.sqlite3",
+                cap_micro_usd=1_000_000,
+                opening_usage_micro_usd=0,
+                key_alias="key-01",
+                profile_id=profile_id,
+                accounting_mode="provider_anchored",
+            )
+        ledger = BudgetLedger.initialise(
+            tmp_path / f"{len(profile_id)}.sqlite3",
+            cap_micro_usd=1_000_000,
+            opening_usage_micro_usd=0,
+            key_alias="key-01",
+            profile_id=profile_id,
         )
-    assert ledger.resume_blocker("abandoned_call") == "UNPROVEN_CHARGES"
+        assert ledger.profile().accounting_mode == "provider_capped"
 
 
-# --- the owner's migration of a format-1 ledger ----------------------------------------------
+# --- the earlier design's stores: never used, archived without change ------------------------
 
 
 def _v1_ledger(path: Path, *, created_at: int = 1_000) -> None:
     """A ledger exactly as the format-1 code created and wrote it."""
 
+    path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path, isolation_level=None)) as connection:
         connection.execute("BEGIN")
         for statement in SCHEMA.split(";"):
@@ -385,180 +449,60 @@ def _v1_ledger(path: Path, *, created_at: int = 1_000) -> None:
         connection.execute("COMMIT")
 
 
-def test_migration_keeps_every_v1_row_writes_a_verified_backup_and_fences(tmp_path: Path) -> None:
-    path = tmp_path / "ledger.sqlite3"
-    _v1_ledger(path)
-    with closing(sqlite3.connect(path)) as connection:
-        before = v1_fingerprint(connection)
-    with pytest.raises(LedgerError) as raised:
-        BudgetLedger.open(path)
-    assert raised.value.code == "LEDGER_MIGRATION_REQUIRED"
-
-    result = migrate_to_format_2(path, backup=tmp_path / "backup" / "ledger.sqlite3")
-
-    assert (result.calls, result.events, result.fingerprint) == (3, 1, before[0])
-    with closing(sqlite3.connect(path)) as connection:
-        assert v1_fingerprint(connection) == before
-    with closing(sqlite3.connect(result.backup)) as connection:
-        assert v1_fingerprint(connection) == before
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
-    ledger = BudgetLedger.open(path)
-    assert ledger.profile().origin == "migrated" and ledger.session() is None
-    with (
-        closing(sqlite3.connect(path, isolation_level=None)) as connection,
-        pytest.raises(sqlite3.IntegrityError),
-    ):
-        connection.execute("UPDATE ledger_meta SET cap_micro_usd = 1")
-
-
-@pytest.mark.parametrize(
-    "problem", ["open_call", "recent", "marker", "backup_exists", "breaker", "inconsistent"]
-)
-def test_a_refused_migration_leaves_the_ledger_byte_identical(tmp_path: Path, problem: str) -> None:
-    import time
-
-    path = tmp_path / "ledger.sqlite3"
-    _v1_ledger(path, created_at=int(time.time() * 1000) if problem == "recent" else 1_000)
-    backup = tmp_path / "backup.sqlite3"
-    with closing(sqlite3.connect(path, isolation_level=None)) as connection:
-        if problem == "open_call":
-            connection.execute(
-                "INSERT INTO calls (reservation_id, instance_id, created_at, lease_expires_at,"
-                " state, reserved_micro_usd, prompt_bound_tokens, output_bound_tokens,"
-                " requested_endpoint, verification, anomaly_bits)"
-                " VALUES (?, ?, 1000, 2000, 'open', 5, 1, 1, 'a/b', 'unverified', 0)",
-                ("e" * 32, "d" * 32),
-            )
-            connection.execute("UPDATE ledger_meta SET open_reserved_micro_usd = 5")
-        if problem == "inconsistent":
-            connection.execute("UPDATE ledger_meta SET local_charged_micro_usd = 1")
-        if problem == "breaker":
-            connection.execute(
-                "UPDATE ledger_meta SET breaker_open = 1, breaker_code = 'routing_anomaly',"
-                " breaker_opened_at = 1000"
-            )
-    if problem == "marker":
-        marker_file(path).write_text("{}", encoding="utf-8")
-    if problem == "backup_exists":
-        backup.write_bytes(b"x")
-    snapshot = path.read_bytes()
-
-    with pytest.raises(LedgerError):
-        migrate_to_format_2(path, backup=backup)
-
-    assert path.read_bytes() == snapshot
-    if problem != "backup_exists":
-        assert not backup.exists()
-
-
-def test_the_service_never_migrates_a_format_1_ledger(tmp_path: Path) -> None:
+def test_the_runtime_refuses_an_earlier_design_store_and_never_changes_it(tmp_path: Path) -> None:
     path = tmp_path / "ledger.sqlite3"
     _v1_ledger(path)
     snapshot = path.read_bytes()
     for attempt in (BudgetLedger.open, lambda p: BudgetLedger(p).verify()):
         with pytest.raises(LedgerError) as raised:
             attempt(path)
-        assert raised.value.code == "LEDGER_MIGRATION_REQUIRED"
+        assert raised.value.code == "LEGACY_STORE"
     assert path.read_bytes() == snapshot
     assert budget.FORMAT_VERSION == 2
 
 
-def test_the_environment_defaults_fit_one_us5_session_a_day() -> None:
+def _archive_tool() -> Any:
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "storage"
+    spec = importlib.util.spec_from_file_location(
+        "archive_accounting_stores", script / "archive_accounting_stores.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_archive_copies_every_row_and_never_touches_the_sources(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    sources = [root / "budget" / "ledger.sqlite3", root / "budget" / "anthropic_fyp_ledger.sqlite3"]
+    for source in sources:
+        _v1_ledger(source)
+    marker = sources[1].with_name(sources[1].name + ".reconcile.intent")
+    marker.write_text('{"run_id": "r"}', encoding="utf-8")
+    before = {path: path.read_bytes() for path in [*sources, marker]}
+    tool = _archive_tool()
+    archive = tmp_path / "archive"
+
+    assert tool.main([str(root), str(archive)]) == 0
+
+    assert {path: path.read_bytes() for path in before} == before  # sources unchanged
+    for source in sources:
+        copy = archive / "budget" / source.name
+        assert tool.rows(copy) == tool.rows(source)
+    assert (archive / "budget" / marker.name).read_bytes() == before[marker]
+    assert (archive / "manifest.json").is_file()
+    assert tool.main([str(root), str(archive)]) == 2  # never into an existing folder
+    assert tool.main([str(tmp_path / "empty"), str(tmp_path / "other")]) == 2
+
+
+def test_the_environment_defaults_fit_one_us5_session_a_day_in_fresh_stores() -> None:
     from ai_assistant.config import AiAssistantSettings
 
     settings = AiAssistantSettings(_env_file=None)
     assert settings.budget_daily_cap_micro_usd == SESSION_MAX_MICRO_USD
     assert settings.anthropic_daily_cap_micro_usd == SESSION_MAX_MICRO_USD
-
-
-# --- QG F1: a genuine trip while a resumable breaker is open is never masked -------------------
-
-
-def test_a_drift_while_an_abandoned_breaker_is_open_blocks_the_resume(tmp_path: Path) -> None:
-    clock = Clock()
-    ledger = _ledger(tmp_path, clock)
-    _admit(ledger, 90_000, lease=10)
-    clock.advance(11)
-    BudgetLedger.open(tmp_path / "ledger.sqlite3", clock=clock)  # abandoned_call opens it
-    assert ledger.resume_blocker("abandoned_call") is None
-    clock.advance(601)
-    ledger.reconcile(5_000_000)  # the provider reports far more: a genuine discrepancy
-
-    assert ledger.status().breaker_code == "abandoned_call"  # the code is not overwritten
-    assert ledger.resume_blocker("abandoned_call") == "MASKED_ANOMALY"
-    with pytest.raises(LedgerError):
-        ledger.resume_breaker("abandoned_call")
-    events = _rows(
-        tmp_path / "ledger.sqlite3",
-        "SELECT code FROM ledger_events WHERE event = ?",
-        "trip_while_open",
-    )
-    assert events == [("reconcile_drift",)]
-
-
-def test_a_later_quarantine_of_an_already_covered_call_blocks_the_next_resume(
-    tmp_path: Path,
-) -> None:
-    clock = Clock()
-    ledger = _ledger(tmp_path, clock)
-    ledger.settle(_admit(ledger, 50_000), usage=None, error_class=None)  # usage_missing
-    ledger.resume_breaker("usage_missing")  # call 1 unverified, conservatively charged
-    _admit(ledger, 60_000, lease=10)
-    clock.advance(11)
-    BudgetLedger.open(tmp_path / "ledger.sqlite3", clock=clock)  # call 2 abandoned
-    # The OpenRouter preflight then finds no generation record for call 1.
-    ledger.record_verification(1, verified=False, breaker_code="routing_anomaly")
-
-    assert ledger.status().breaker_code == "abandoned_call"
-    assert ledger.resume_blocker("abandoned_call") == "MASKED_ANOMALY"
-
-
-def test_a_conservative_trip_while_open_stays_resumable(tmp_path: Path) -> None:
-    clock = Clock()
-    ledger = _ledger(tmp_path, clock)
-    _admit(ledger, 90_000, lease=10)
-    clock.advance(11)
-    BudgetLedger.open(tmp_path / "ledger.sqlite3", clock=clock)  # abandoned_call
-    ledger.open_breaker("usage_missing")  # recorded, but conservative
-    assert ledger.resume_blocker("abandoned_call") is None
-
-
-# --- QG F2: the accounting mode follows the provider --------------------------------------------
-
-
-def test_the_accounting_mode_cannot_be_chosen_against_the_provider(tmp_path: Path) -> None:
-    from ai_assistant.anthropic_profiles import LEDGER_PROFILE_ID
-
-    for profile_id, wrong in (
-        ("openrouter_gpt_oss_120b", "provider_capped"),
-        (LEDGER_PROFILE_ID, "provider_anchored"),
-    ):
-        with pytest.raises(LedgerError):
-            BudgetLedger.initialise(
-                tmp_path / f"{wrong}.sqlite3",
-                cap_micro_usd=1_000_000,
-                opening_usage_micro_usd=0,
-                key_alias="key-01",
-                profile_id=profile_id,
-                accounting_mode=wrong,
-            )
-    path = tmp_path / "v1.sqlite3"
-    _v1_ledger(path)
-    migrate_to_format_2(path, backup=tmp_path / "v1-backup.sqlite3")
-    assert BudgetLedger(path).profile().accounting_mode == "provider_anchored"
-
-
-def test_migration_refuses_a_header_that_is_not_v1(tmp_path: Path) -> None:
-    path = tmp_path / "ledger.sqlite3"
-    _v1_ledger(path)
-    with closing(sqlite3.connect(path, isolation_level=None)) as connection:
-        connection.execute("PRAGMA ignore_check_constraints = 1")
-        connection.execute("UPDATE ledger_meta SET profile_id = 'unknown_profile'")
-    snapshot = path.read_bytes()
-    with pytest.raises(LedgerError) as raised:
-        migrate_to_format_2(path, backup=tmp_path / "backup.sqlite3")
-    # SQLite's own integrity check already sees the broken CHECK; the header check is the
-    # second line of defence. Either way nothing is copied or changed.
-    assert raised.value.code in {"LEDGER_CORRUPT", "LEDGER_SCHEMA_UNSUPPORTED"}
-    assert path.read_bytes() == snapshot
-    assert not (tmp_path / "backup.sqlite3").exists()
+    fields = AiAssistantSettings.model_fields  # the defaults (tests redirect the stores)
+    assert fields["budget_ledger_path"].default == "data/budget/sessions/openrouter.sqlite3"
+    assert fields["anthropic_ledger_path"].default == "data/budget/sessions/anthropic.sqlite3"
