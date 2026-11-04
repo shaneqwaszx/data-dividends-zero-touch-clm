@@ -37,6 +37,7 @@ from .claims import (
     classification_problem,
     negated_sentence,
     relationship_problem,
+    status_problem,
 )
 from .evidence import evidence_message
 from .guardrails import _CITATION, _CLAUSE, Context, _asserted, _check
@@ -134,12 +135,22 @@ SHORT_QUESTION_WORDS = 8
 _NAMED_FOLLOW_UP = re.compile(r"^(?:and|or|also|plus|what about|how about)\b")
 
 
+_ARITHMETIC_ONLY = re.compile(
+    r"^(?:(?:what(?:'s| is)|whats|how much is|calculate|compute|solve|work out|and|so|ok)\s+)*"
+    r"[-+*/x×÷^=().,\d\s]*\d[-+*/x×÷^=().,\d\s]*\??$"
+)
+
+
 def in_domain(question: str, *, ongoing: bool, case_open: bool = False) -> bool:
     """True when the question is about corporate onboarding, or, with a case open or a chat
     ongoing, is a short question about it or refers back to it. An everyday topic with no
     onboarding word is never in scope. Scope is judged on the current question only."""
 
     text = question.lower().replace("’", "'").strip()
+    if _ARITHMETIC_ONLY.match(text):
+        # "What is 1+1?", "12*7": only digits and operators, never a case figure (a
+        # percentage, "80% x 50%", is left to the rules below).
+        return False
     if _DOMAIN.search(text):
         return True
     if _OFF_TOPIC.search(text) or not (case_open or ongoing):
@@ -577,6 +588,13 @@ class CopilotCheck:
     kept: int = 0
     left_out: list[str] = field(default_factory=list)
 
+    @property
+    def usable(self) -> bool:
+        """Worth showing only when sentences were kept and no more were left out than kept;
+        otherwise what is left is fragments, and the case-data answer is shown."""
+
+        return self.kept > 0 and len(self.left_out) <= self.kept
+
 
 class CopilotGuard:
     """Checks a free-form answer sentence by sentence (also while it streams)."""
@@ -588,6 +606,7 @@ class CopilotGuard:
         knowledge_tags: Iterable[str] = (),
         required: Sequence[str] = (),
     ) -> None:
+        self._facts = facts or {}
         self._ctx = Context(facts or {})
         # A case's facts ground percentages and names; the general chat has none to check.
         self._grounded = bool(facts)
@@ -629,6 +648,7 @@ class CopilotGuard:
             (classification_problem(probe, graph) if graph else None)
             or self._ubo_problem(probe.replace("’", "'"))
             or (relationship_problem(probe, graph) if graph else None)
+            or status_problem(probe, self._facts)
         )
         if problem:
             self._left_out.append(problem)

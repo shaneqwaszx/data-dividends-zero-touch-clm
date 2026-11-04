@@ -23,7 +23,7 @@ from typing import Any
 import anyio
 
 from ai_assistant import anthropic_runtime
-from ai_assistant.config import AiAssistantSettings
+from ai_assistant.config import AiAssistantSettings, external_conversational
 from ai_assistant.llm import ChatModel, OpenAICompatibleChatModel
 from ai_assistant.model_admin_store import (
     ModelAdminStore,
@@ -50,9 +50,11 @@ from ai_assistant.model_qualification import (
     verify_capacity,
 )
 from ai_assistant.remote_test import RemoteTestModel, connection_check, qualification_manifest
+from ai_assistant.synthetic_eligibility import mode as synthetic_dev_mode
 
 from . import gold as gold_mod
 from .runner import EMBEDDER, Workspace, run
+from .runner import settings as runner_settings
 from .scenarios import load_scenarios
 from .scoring import gold_based, label_free
 from .snapshot import SnapshotSet
@@ -322,12 +324,29 @@ class RemoteQualificationJob:
                 self.g8_rule,
             )
             return "failed", "CONNECTION_FAILED", summary
-        watched = WatchedModel(self.model, self._stop)
+        answers_freely = external_conversational(self.settings)
+        watched = WatchedModel(
+            self.model,
+            self._stop,
+            synthetic=answers_freely,
+            development=lambda: synthetic_dev_mode(self.settings),
+        )
+        # The harness answers as the service will: the same answer mode and D-095 mode.
+        harness = runner_settings().model_copy(
+            update={
+                "answer_mode": self.settings.answer_mode if answers_freely else "exact_lines",
+                "synthetic_dev_decision": self.settings.synthetic_dev_decision,
+            }
+        )
         with Workspace() as workspace:
             result = run(
                 scenarios,
                 lambda capture: watched,
                 workspace=workspace,
+                harness_settings=harness,
+                # Free-text answers go to the external model only for verified synthetic
+                # cases: the case's document is the tracked fixture file it is checked against.
+                verified_documents=answers_freely,
                 turns=frozenset(self.manifest),
             )
         turns = list(result.turns)

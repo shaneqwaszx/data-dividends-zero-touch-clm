@@ -321,9 +321,28 @@ class WatchedModel:
     """The candidate model as the harness sees it: counts turns, keeps the largest prompt
     (synthetic) for the capacity check, and stops the run when asked."""
 
-    def __init__(self, inner: ChatModel, stop: Callable[[int], None]) -> None:
+    def __init__(
+        self,
+        inner: ChatModel,
+        stop: Callable[[int], None],
+        *,
+        synthetic: bool = False,
+        development: Callable[[], bool] | None = None,
+    ) -> None:
         self.inner = inner
         self._stop = stop
+        if synthetic:
+            # Conversational answers: the service checks every prompt as it does in the chat
+            # (the synthetic boundary or the D-095 eligibility check, with its ticket), so the
+            # harness model shows itself as the external model it wraps.
+            self.requires_synthetic_boundary = getattr(inner, "requires_synthetic_boundary", False)
+            for name in ("development_mode", "notices"):
+                if hasattr(inner, name):
+                    setattr(self, name, getattr(inner, name))
+            if not hasattr(self, "development_mode") and development is not None:
+                # GPT-OSS: D-095 mode is the service's own decision (its OpenRouter-ready
+                # settings), not the harness's.
+                self.development_mode = development
         self.turns = 0
         self.largest: list[dict[str, str]] = []
         self.largest_bound = 0

@@ -79,8 +79,10 @@ SEEDED_USERS = (
     BACKEND / "app" / "services" / "admin_repository.py",
 )
 QUESTION_FILES = ("scenarios.json", "phase_b_questions.json")
-# D-115: modules whose text reaches only a local model (copilot mode never runs with an
-# external model), so their words never widen what an external model's system message may use.
+# D-115: modules whose words never widen what the D-094 text check lets an external model's
+# system message use. Their text reaches an external model only in D-095 development mode,
+# through the per-call eligibility check and its single-use ticket (the D-115 conversational
+# contract); a D-094-only external model keeps exact lines.
 LOCAL_ONLY_MODULES = ("copilot.py", "claims.py", "evidence.py")
 # Reviewed everyday words an RM uses in a question (no names, places or identifiers).
 EVERYDAY_WORDS = [
