@@ -365,7 +365,8 @@ describe("AiModelManagement D-094 local synthetic test mode", () => {
 
   it("explains the remote model's own refusals", () => {
     expect(readable("NOT_DEVELOPMENT_ENVIRONMENT")).toContain("local development set-up");
-    expect(readable("REMOTE_MANIFEST_MISSING")).toContain("question list and count");
+    expect(readable("REMOTE_MANIFEST_MISSING")).toContain("AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS");
+    expect(readable("REMOTE_MANIFEST_MISSING")).toContain("the approved two questions then apply");
     expect(readable("PREFLIGHT_FAILED:key.limit_set,ledger.healthy")).toBe(
       "Preflight failed: key.limit_set, ledger.healthy",
     );
@@ -842,8 +843,10 @@ describe("AiModelManagement Claude in the console (D-099 with D-100)", () => {
     const view = mount(server(withClaude({ qualification: run, paid_qualification: { ...paid, sufficient: false, refusal: "PROVIDER_LIMIT_NOT_CHECKED" } })), "qualifications");
     await waitFor(() => expect(view.querySelector("[data-testid=recovery-anthropic_claude_sonnet_5_5_medium]")).not.toBeNull());
     const card = view.querySelector("[data-testid=recovery-anthropic_claude_sonnet_5_5_medium]")!.textContent ?? "";
-    expect(card).toContain("reconciled with the Anthropic Console's usage");
-    expect(card).toContain("scripts/budget_ledger.py --anthropic");
+    // D-118 usability: a session store never needs a reconciliation; the stop is resumed or reviewed.
+    expect(card).toContain("Paid calls are paused for Claude");
+    expect(card).toContain("HR resumes a financial stop in Set up AI");
+    expect(card).not.toMatch(/operator (must )?reconcile|reconciled with the Anthropic Console/i);
     expect(card).toContain("Anthropic workspace and model check has not been run");
     expect(card).not.toContain("OpenRouter");
   });

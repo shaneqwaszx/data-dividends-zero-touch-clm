@@ -279,6 +279,19 @@ MESSAGES = {
         "The spending limits do not leave room for every paid call this qualification may"
         " make. Nothing started."
     ),
+    # D-118 usability: the session's own allowance, a store not ready, a setup step missing.
+    "SESSION_ALLOWANCE_INSUFFICIENT": (
+        "This session's allowance does not leave room for every paid call. Start a new session"
+        " in Set up AI. Nothing started."
+    ),
+    "SPENDING_STORE_NOT_READY": (
+        "This provider's spending store is not ready. See Set up AI for the next step."
+        " Nothing started."
+    ),
+    "SETUP_INCOMPLETE": (
+        "This model is not ready for a paid run yet. See Set up AI for what is missing."
+        " Nothing started."
+    ),
     "QUALIFICATION_BILLING_UNRECONCILED": (
         "Paid calls are paused for this provider. See Set up AI for the reason and the next step."
         " Nothing started."
@@ -1892,8 +1905,63 @@ def model_admin_router(
         estimate = (
             calls * reservation if calls is not None and isinstance(reservation, int) else None
         )
-        remaining = view.get("effective_remaining_micro_usd")
         refusal = view.get("refusal")
+        # D-118 usability: each limit a paid run is held to, by name, so the page can say which
+        # one (if any) leaves too little room. The session is the open one, or the default
+        # allowance the first paid action opens (S3); admission checks it per call as before.
+        limits: dict[str, int] = {}
+        daily = view.get("daily")
+        if isinstance(daily, dict) and isinstance(daily.get("remaining_micro_usd"), int):
+            limits["daily"] = max(daily["remaining_micro_usd"], 0)
+        ledger = view.get("ledger")
+        if isinstance(ledger, dict) and isinstance(ledger.get("headroom_micro_usd"), int):
+            limits["lifetime"] = max(ledger["headroom_micro_usd"], 0)
+        key = view.get("provider")
+        if isinstance(key, dict) and isinstance(key.get("remaining_micro_usd"), int):
+            limits["provider"] = max(key["remaining_micro_usd"], 0)
+        if limits:
+            try:
+                store = session_view(
+                    "anthropic" if entry.deployment == "anthropic" else "openrouter"
+                )
+            except Exception:
+                log.error("session view unavailable for the qualification estimate")
+                store = {"ledger": "unavailable", "session": None}
+            if store["ledger"] == "ready":
+                session = store["session"]
+                limits["session"] = (
+                    max(session["remaining_micro_usd"], 0)
+                    if session is not None
+                    else SESSION_DEFAULT_MICRO_USD
+                )
+            elif refusal is None:
+                # The session cannot be read: no paid run is offered (a setup state, not a
+                # shortfall), so a run the session would stop part-way never starts.
+                refusal = "LEDGER_UNAVAILABLE"
+        remaining = min(limits.values()) if limits else view.get("effective_remaining_micro_usd")
+        blocking = next(
+            (
+                name
+                for name in ("session", "daily", "lifetime", "provider")
+                if estimate is not None and name in limits and limits[name] < estimate
+            ),
+            None,
+        )
+        # Why no amount can be named: the question list (a server setting), else the ledger or
+        # configuration the spending view refused, else no reservation.
+        unavailable = (
+            "REMOTE_MANIFEST_MISSING"
+            if calls is None
+            else None
+            if isinstance(reservation, int)
+            else str(refusal or "LEDGER_UNAVAILABLE")
+        )
+        if refusal is None and unavailable is not None:
+            refusal = unavailable
+        if refusal is None and blocking == "session":
+            refusal = "SESSION_ALLOWANCE_INSUFFICIENT"
+        elif refusal is None and blocking is not None:
+            refusal = "QUALIFICATION_BUDGET_INSUFFICIENT"
         return {
             "calls": calls,
             "reservation_micro_usd": reservation,
@@ -1904,10 +1972,17 @@ def model_admin_router(
             and estimate is not None
             and isinstance(remaining, int)
             and remaining >= estimate,
+            "unavailable": unavailable,
+            "limits": limits,
+            "blocking": blocking,
         }
 
     def refuse_start(
-        entry: CatalogueEntry, profile: dict[str, Any], code: str, status: int = 409
+        entry: CatalogueEntry,
+        profile: dict[str, Any],
+        code: str,
+        status: int = 409,
+        message: str | None = None,
     ) -> HTTPException:
         audit(
             profile,
@@ -1918,11 +1993,8 @@ def model_admin_router(
             code=code,
         )
         # D-099: only the message differs for Claude; the code, status and audit are the same.
-        message = (
-            "PROVIDER_LIMIT_NOT_CHECKED_ANTHROPIC"
-            if code == "PROVIDER_LIMIT_NOT_CHECKED" and entry.deployment == "anthropic"
-            else None
-        )
+        if code == "PROVIDER_LIMIT_NOT_CHECKED" and entry.deployment == "anthropic":
+            message = "PROVIDER_LIMIT_NOT_CHECKED_ANTHROPIC"
         return _refusal(status, code, message)
 
     @router.post("/{profile_id}/qualifications", status_code=202)
@@ -1956,17 +2028,32 @@ def model_admin_router(
                 raise refuse_start(entry, profile, "PAID_CONFIRMATION_REQUIRED", 400)
             if not estimate.get("sufficient"):
                 refusal = str(estimate.get("refusal") or "")
-                if refusal.startswith("BREAKER_OPEN") or refusal in (
-                    "LEDGER_UNAVAILABLE",
-                    "RECONCILIATION_STALE",
-                    "LEDGER_PROFILE_MISMATCH",
-                ):
+                if refusal.startswith("BREAKER_OPEN") or refusal == "RECONCILIATION_STALE":
                     raise refuse_start(entry, profile, "QUALIFICATION_BILLING_UNRECONCILED")
+                # D-118 usability: a store that is missing, from the earlier design or unhealthy
+                # is a setup state, never a budget shortfall.
+                if refusal.startswith("LEDGER_") or refusal == "LEGACY_STORE":
+                    raise refuse_start(entry, profile, "SPENDING_STORE_NOT_READY")
                 if refusal in ("PROVIDER_LIMIT_NOT_CHECKED", "PROVIDER_CHECK_FAILED"):
                     raise refuse_start(entry, profile, "PROVIDER_LIMIT_NOT_CHECKED")
-                if refusal == "PROVIDER_LIMIT_EXHAUSTED":
+                if refusal in ("PROVIDER_LIMIT_EXHAUSTED",) or estimate.get("blocking") == (
+                    "provider"
+                ):
                     raise refuse_start(entry, profile, "PROVIDER_KEY_LIMIT_EXHAUSTED")
-                raise refuse_start(entry, profile, "QUALIFICATION_BUDGET_INSUFFICIENT")
+                if refusal == "SESSION_ALLOWANCE_INSUFFICIENT":
+                    raise refuse_start(entry, profile, refusal)
+                if refusal in (
+                    "QUALIFICATION_BUDGET_INSUFFICIENT",
+                    "DAILY_ALLOWANCE_EXHAUSTED",
+                    "DAILY_CAP_INVALID",  # a daily limit of zero: no daily allowance at all
+                    "LIFETIME_CAP_EXHAUSTED",
+                ):
+                    raise refuse_start(entry, profile, "QUALIFICATION_BUDGET_INSUFFICIENT")
+                # Any other closed readiness code (a key, setting or enablement still missing)
+                # is returned as it is, with the setup message: never as a budget shortfall.
+                raise refuse_start(
+                    entry, profile, refusal or "SETUP_INCOMPLETE", message="SETUP_INCOMPLETE"
+                )
         selector.close_interrupted()
         try:
             qualification_id = store.begin_qualification(

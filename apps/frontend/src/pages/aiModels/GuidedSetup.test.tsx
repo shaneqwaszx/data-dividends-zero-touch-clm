@@ -92,18 +92,22 @@ const setupView = (anthropic: Partial<ProviderSetup> = {}): SetupView => ({
 
 interface Sent { method: string; url: string; body: unknown }
 
-function stub(setup: SetupView, sent: Sent[]) {
+const PASSED = { outcome: "passed", code: null, listed: null, complete_ms: null, stream_ms: null, first_piece_ms: null };
+
+function stub(setup: SetupView, sent: Sent[], connection: unknown = PASSED) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     if (method !== "GET") sent.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (url.includes("/workspace-read")) return json({ outcome: "passed", code: null, workspace_id: "wrkspc_fyp", setup: null });
+    if (url.includes("/connection-test")) return json(connection);
     if (url.includes("/setup")) return json(setup);
     return json({});
   });
 }
 
-function mount(overview: ModelOverview, fetchMock: ReturnType<typeof vi.fn>, choose = "claude_balanced"): HTMLDivElement {
+function mount(overview: ModelOverview, fetchMock: ReturnType<typeof vi.fn>, choose = "claude_balanced",
+  describe?: (code: string | null | undefined) => string): HTMLDivElement {
   vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement("div");
@@ -111,7 +115,7 @@ function mount(overview: ModelOverview, fetchMock: ReturnType<typeof vi.fn>, cho
   root = createRoot(container);
   act(() => root?.render(
     <MemoryRouter><QueryClientProvider client={client}>
-      <GuidedSetup userId="hr-admin" overview={overview} busy={false} nameOf={(_id, fallback) => fallback} onChanged={() => undefined} />
+      <GuidedSetup userId="hr-admin" overview={overview} busy={false} nameOf={(_id, fallback) => fallback} describe={describe} onChanged={() => undefined} />
     </QueryClientProvider></MemoryRouter>,
   ));
   const radio = container.querySelector(`input[name=guided-model][value=${choose}]`) as HTMLInputElement;
@@ -176,7 +180,9 @@ describe("GuidedSetup (D-118)", () => {
     await waitFor(() => expect(document.querySelectorAll("[role=dialog]")).toHaveLength(1));
     expect(sent.map((item) => item.url.split("/admin/models")[1])).toEqual(["/claude_balanced/connection-test"]);
     const dialogs = document.querySelectorAll("[role=dialog]");
+    expect(dialogs[0].textContent).toContain("Run 2 paid test calls?");
     expect(dialogs[0].textContent).toContain("US$0.19");
+    expect(dialogs[0].textContent).not.toContain("no room");
     await act(async () => button(dialogs[0], "Run paid test calls").click());
     await waitFor(() => expect(sent[1]?.body).toEqual({ confirm_paid_calls: 2 }));
 
@@ -192,6 +198,91 @@ describe("GuidedSetup (D-118)", () => {
     act(() => (dialog.querySelector("input[type=checkbox]") as HTMLInputElement).click());
     await act(async () => button(dialog, "Activate").click());
     await waitFor(() => expect(second[0]?.body).toEqual({ expected_revision: 4, acknowledge_quality_unscored: true }));
+  });
+
+  it("never opens the paid confirmation when the free connection check fails", async () => {
+    const sent: Sent[] = [];
+    const ready = profile({ connection_test: PASSED as ModelProfileView["connection_test"] });
+    const page = mount(overviewWith(ready, true), stub(setupView({ ledger: "ready" }), sent, { ...PASSED, outcome: "failed", code: "WORKSPACE_MISMATCH" }),
+      "claude_balanced", (code) => `text for ${code}`);
+    await act(async () => button(page, "Run qualification…").click());
+    await waitFor(() => expect(page.textContent).toContain("The connection check did not pass: text for WORKSPACE_MISMATCH"));
+    expect(document.querySelectorAll("[role=dialog]")).toHaveLength(0);
+    expect(sent.map((item) => item.url.split("/admin/models")[1])).toEqual(["/claude_balanced/connection-test"]);
+  });
+
+  it("keeps step 3 waiting until the connection passed, and names a failed one", async () => {
+    const failed = profile({ connection_test: { ...PASSED, outcome: "failed", code: "CREDENTIAL_MISSING" } as ModelProfileView["connection_test"] });
+    const page = mount(overviewWith(failed, true), stub(setupView({ ledger: "ready" }), []), "claude_balanced", (code) => `text for ${code}`);
+    await waitFor(() => expect(page.querySelector("[data-testid=guided-connection]")?.textContent).toContain("Connection check failed: text for CREDENTIAL_MISSING"));
+    expect(page.textContent).not.toContain("Run qualification…");
+  });
+
+  it("names the missing question list instead of a budget shortfall, and keeps step 3 closed", async () => {
+    const ready = profile({
+      connection_test: PASSED as ModelProfileView["connection_test"],
+      paid_qualification: { calls: null, reservation_micro_usd: 96_000, estimate_micro_usd: null, effective_remaining_micro_usd: 1_000_000,
+        refusal: "REMOTE_MANIFEST_MISSING", sufficient: false, unavailable: "REMOTE_MANIFEST_MISSING", limits: { session: 1_000_000 }, blocking: null },
+    });
+    const page = mount(overviewWith(ready, true), stub(setupView({ ledger: "ready" }), []), "claude_balanced", (code) => `text for ${code}`);
+    await waitFor(() => expect(page.querySelector("[data-testid=guided-qualify-blocker]")?.textContent).toContain("text for REMOTE_MANIFEST_MISSING"));
+    expect(button(page, "Run qualification…").disabled).toBe(true);
+    expect(page.textContent).not.toMatch(/no room|insufficient/i);
+  });
+
+  it("qualifies within a deliberate US$1.00 session, and names the session when it is too small", async () => {
+    const session = { session_id: "s".repeat(32), revision: 2, allowance_micro_usd: 1_000_000, settled_micro_usd: 0, held_micro_usd: 0,
+      committed_micro_usd: 0, remaining_micro_usd: 1_000_000, calls: 0, chat_calls: 0, started_at: "2026-11-04T00:00:00Z" };
+    const fits = profile({
+      connection_test: PASSED as ModelProfileView["connection_test"],
+      paid_qualification: { calls: 2, reservation_micro_usd: 96_000, estimate_micro_usd: 192_000, effective_remaining_micro_usd: 1_000_000,
+        refusal: null, sufficient: true, unavailable: null, limits: { session: 1_000_000, daily: 5_000_000, lifetime: 5_000_000 }, blocking: null },
+    });
+    const page = mount(overviewWith(fits, true), stub(setupView({ ledger: "ready", session }), []));
+    await waitFor(() => expect(page.textContent).toContain("Session allowance US$1.00, US$1.00 left"));
+    await act(async () => button(page, "Run qualification…").click());
+    await waitFor(() => expect(document.querySelector("[data-testid=guided-limits]")?.textContent).toContain("Session allowanceUS$1.00 left"));
+    expect(button(document.querySelector("[role=dialog]")!, "Run paid test calls").disabled).toBe(false);
+
+    if (root) act(() => root?.unmount());
+    container?.remove();
+    const tight = profile({
+      connection_test: PASSED as ModelProfileView["connection_test"],
+      paid_qualification: { calls: 2, reservation_micro_usd: 96_000, estimate_micro_usd: 192_000, effective_remaining_micro_usd: 100_000,
+        refusal: "SESSION_ALLOWANCE_INSUFFICIENT", sufficient: false, unavailable: null, limits: { session: 100_000, daily: 5_000_000, lifetime: 5_000_000 }, blocking: "session" },
+    });
+    const page2 = mount(overviewWith(tight, true), stub(setupView({ ledger: "ready", session: { ...session, remaining_micro_usd: 100_000 } }), []));
+    await act(async () => button(page2, "Run qualification…").click());
+    const dialog = await (async () => { await waitFor(() => expect(document.querySelector("[role=dialog]")).not.toBeNull()); return document.querySelector("[role=dialog]")!; })();
+    expect(dialog.textContent).toContain("This session's allowance has US$0.10 left");
+    expect(dialog.textContent).toContain("Session allowanceUS$0.10 left (too little)");
+    expect(dialog.textContent).not.toContain("Today's limitUS$5.00 left (too little)");
+    expect(button(dialog, "Run paid test calls").disabled).toBe(true);
+  });
+
+  it("lets an enablement record from before D-118 create its session store by confirming again", async () => {
+    const sent: Sent[] = [];
+    const page = mount(overviewWith(profile({}), true, true), stub(setupView({ ledger: "missing" }), sent));
+    await waitFor(() => expect(page.textContent).toContain("Finish Claude setup (creates its session store)"));
+    const boxes = [...page.querySelectorAll(".guided-claude-setup input[type=checkbox]")] as HTMLInputElement[];
+    act(() => boxes[0].click());
+    act(() => boxes[1].click());
+    await act(async () => button(page, "Confirm and create the session store").click());
+    await waitFor(() => expect(sent[0]?.url).toContain("/admin/models/provider/anthropic"));
+    expect(sent[0].body).toMatchObject({ expected_revision: 1, enabled: true, workspace_id: "wrkspc_fyp", workspace_limit_micro_usd: 5_000_000 });
+  });
+
+  it("re-confirming an existing record keeps its stored workspace limit (QG M1)", async () => {
+    const sent: Sent[] = [];
+    const overview = overviewWith(profile({}), true, true);
+    overview.anthropic_setup!.record!.workspace_limit_micro_usd = 1_000_000;
+    const page = mount(overview, stub(setupView({ ledger: "missing" }), sent));
+    await waitFor(() => expect((page.querySelector("#guided-limit") as HTMLInputElement | null)?.value).toBe("1.00"));
+    const boxes = [...page.querySelectorAll(".guided-claude-setup input[type=checkbox]")] as HTMLInputElement[];
+    act(() => boxes[0].click());
+    act(() => boxes[1].click());
+    await act(async () => button(page, "Confirm and create the session store").click());
+    await waitFor(() => expect(sent[0]?.body).toMatchObject({ workspace_limit_micro_usd: 1_000_000 }));
   });
 
   it("lets HR lower the allowance but never above US$5.00", async () => {

@@ -32,14 +32,23 @@ stops it from starting calls, but it does not read the provider's bill.
      again or kept in the browser.
    - **Claude:** the first time, the page reads the workspace the key belongs to (free). Confirm
      the one-time setup record: the workspace is used only for the FYP, its monthly limit, and
-     that the key will be revoked when the FYP ends. Then choose **Enable Claude**.
+     that the key will be revoked when the FYP ends. Then choose **Enable Claude**. If Claude
+     was enabled before D-118, the same form says *Finish Claude setup*: confirm it again to
+     create its session store.
+   - Step 2 shows **Connection check passed** before step 3 opens. If the check fails, the page
+     says why (for example a missing key or a workspace mismatch).
 5. **Run qualification.** The free connection check runs first. Then one confirmation names the
-   paid test calls and the most they can cost from your US$5.00 session. Confirming it is your
-   consent to those calls.
+   paid test calls (two, about US$0.19 for Claude) and the most they can reserve. It lists what
+   your session, today's limit and the lifetime limit leave, and for GPT-OSS the key's own
+   limit. Confirming it is your consent to those calls. If it cannot start, it names the one
+   limit or setting that blocks it.
 6. **Activate.** One confirmation repeats that this is an external, paid API. Case users then use
    the AI Assistant on an open, verified synthetic case.
 
-None of this needs a CLI command, a P1 record, a ledger migration or a reconciliation.
+None of this needs a CLI command, a P1 record, a ledger migration or a reconciliation. The
+paid test questions come with the application. Leave
+`AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS` and `..._COUNT` out of your `.env`, or
+blank with count 0: the approved two questions then apply.
 
 **After a restart:** your session, its spend and the activation are kept. Enter the key again
 (keys live in memory only), and carry on.

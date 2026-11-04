@@ -92,7 +92,13 @@ const REASON_TEXT: Record<string, string> = {
   ANTHROPIC_ENABLEMENT_UNREADABLE: "Claude's setup could not be read, so Claude is off until it can be.",
   ANTHROPIC_PROVIDER_CONTROLS_MISSING: "Not usable: Anthropic does not provide the readable key limit, per-call cost verification and usage reconciliation that remote models require (D-099 proposed).",
   REMOTE_SETTINGS_INVALID: "The remote model's reasoning settings are not valid on the server.",
-  REMOTE_MANIFEST_MISSING: "The paid qualification's question list and count are not configured on the server.",
+  REMOTE_MANIFEST_MISSING: "The server's paid test questions are set inconsistently. The owner removes AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS and AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_COUNT from the assistant's launcher or apps/assistant/.env (the approved two questions then apply) and restarts the assistant.",
+  // D-118 usability: setup states and the session allowance, by name.
+  SESSION_ALLOWANCE_INSUFFICIENT: "This session's allowance has less left than every paid call may cost. Start a new session (Set up AI).",
+  SPENDING_STORE_NOT_READY: "This provider's spending store is not ready yet (see Set up AI).",
+  SETUP_INCOMPLETE: "This model is not ready for a paid run yet (see Set up AI).",
+  LEDGER_MISSING: "The spending store is created in step 2 (Claude: by finishing the one-time setup; GPT-OSS: by its first connection test).",
+  LEGACY_STORE: "The assistant still points at a spending store from the earlier design, which is never used. The owner points the launcher at the session stores (AI_ASSISTANT_ANTHROPIC_LEDGER_PATH and AI_ASSISTANT_BUDGET_LEDGER_PATH under data/budget/sessions, or removes them) and restarts the assistant.",
   LEDGER_UNAVAILABLE: "The spending ledger is missing or unhealthy.",
   // D-095 spending view.
   DAILY_ALLOWANCE_EXHAUSTED: "Today's allowance (Singapore day) has no room for another call.",
@@ -105,7 +111,7 @@ const REASON_TEXT: Record<string, string> = {
   // D-098: qualification recovery.
   QUALIFICATION_SUPERSEDED: "A later qualification of this configuration failed on answer quality.",
   INTERRUPTED: "Interrupted: the AI assistant service stopped or restarted during the run.",
-  INTERRUPTED_BILLING_UNCERTAIN: "Interrupted while a paid call may have been open: an operator must reconcile the ledger.",
+  INTERRUPTED_BILLING_UNCERTAIN: "Interrupted while a paid call may have been open: that call is charged in full and paid calls pause until HR resumes them in Set up AI.",
   // D-099 Option B: Claude Sonnet 5.5 through the Anthropic API (its own safeguards).
   ANTHROPIC_ATTESTATION_MISSING: "The owner has not made the four Anthropic confirmations (dedicated workspace, workspace limit set, inference-only key, key revoked at FYP end).",
   ANTHROPIC_SETTINGS_INVALID: "The server's Claude settings are not valid (they may not exceed the Option B ceilings).",
@@ -153,7 +159,7 @@ const CATEGORY_LABEL: Record<ModelDiagnosis["category"], string> = {
   budget: "Budget or limit",
   configuration: "Server configuration",
   quality: "Answer quality",
-  billing_uncertain: "Billing not reconciled",
+  billing_uncertain: "Paid call uncertain (charged in full)",
 };
 
 // An earlier pass for another configuration or answer code: requalification, not a fault.
@@ -178,21 +184,21 @@ const CAUSE_TEXT: Record<string, string> = {
   RUNNING: "The qualification is running on the server. You may leave this page; it keeps going.",
   CANCELLED: "The run was cancelled before it finished.",
   INTERRUPTED: "The run stopped because the AI assistant service stopped or restarted. It was not restarted automatically.",
-  INTERRUPTED_BILLING_UNCERTAIN: "The run stopped while a paid call may have been open. That call stays in the spending ledger until an operator reconciles it.",
+  INTERRUPTED_BILLING_UNCERTAIN: "The run stopped while a paid call may have been open. That call is charged in full (its whole reservation) and paid calls pause; HR resumes them in Set up AI, keeping the charge.",
   STALE: "The run stopped reporting progress. It says nothing about the model.",
   PROCESS_EXITED: "The run's process ended before it finished. It says nothing about the model.",
   SUPERVISOR_FAILED: "The service could not supervise the run. It says nothing about the model.",
   HARNESS_ERROR: "The run hit an internal error. It says nothing about the model.",
   DEADLINE: "The run overran its time limit. It says nothing about the model.",
   CONFIG_MISMATCH: "The model settings or the assistant's answer code changed while it ran. The current configuration needs a new qualification.",
-  LEDGER_NOT_RECONCILED: "The spending ledger is stopped or does not match OpenRouter's reported usage.",
+  LEDGER_NOT_RECONCILED: "Paid calls are paused for GPT-OSS, or its spending store could not be read.",
   SERVER_SETTINGS: "A server setting, the OpenRouter key's own limit or an owner attestation is not in place.",
   NO_ROOM_FOR_CALLS: "The spending limits had no room for a paid call.",
   PROVIDER_UNAVAILABLE: "The model provider (or the local model) could not be reached or checked.",
   UNSAFE_LINE: "At least one line shown was not an allowed line, so the exact-line guardrail failed the run.",
   CALLS_NOT_VERIFIED: "Some paid calls could not be verified against OpenRouter's records (provider, model and cost).",
   LOW_LINE_VALIDITY: "Too few of the lines the model wrote passed the exact-line check (the gate needs 70%).",
-  CALLS_REFUSED: "Paid calls were refused before anything was sent (daily allowance, lifetime limit, call limit or the key's own limit). The answers were not judged.",
+  CALLS_REFUSED: "Paid calls were refused before anything was sent (session allowance, daily allowance, lifetime limit, call limit or the key's own limit). The answers were not judged.",
   PROVIDER_REFUSED: "OpenRouter refused the calls (key, payment or provider routing). Paid calls are stopped until an operator checks the account.",
   MODEL_UNAVAILABLE: "The model did not answer (timeout, rate limit or provider error). This is usually temporary.",
   ANSWERS_CUT_SHORT: "Too many answers were cut short by the token limits.",
@@ -207,26 +213,26 @@ const ACTION_TEXT: Record<ModelDiagnosis["action"], string> = {
   RUN_AGAIN: "Run the qualification again.",
   RETRY_LATER: "Check the provider's status, run Test connection, then retry.",
   TEST_CONNECTION: "Run Test connection again and retry once it passes.",
-  REVIEW_SPENDING: "Review the spending limits (or wait for the Singapore-day reset), then retry.",
+  REVIEW_SPENDING: "Review the session allowance in Set up AI and the limits in Spending & Limits (or wait for the Singapore-day reset), then retry.",
   ESCALATE_IT: "Ask IT to correct the server configuration. Nothing on this page can override it.",
   ESCALATE_DEVELOPER: "Ask a developer to review the answers. This configuration cannot be qualified again until it is changed.",
   ESCALATE_KEY_OWNER: "Ask the OpenRouter key's owner to raise the key's own limit at OpenRouter (never changed from this page), then run Test connection.",
-  ESCALATE_OPERATOR: "Ask an operator to reconcile the spending ledger with OpenRouter (scripts/budget_ledger.py). Paid calls stay stopped until then.",
+  ESCALATE_OPERATOR: "Paid calls stay paused. HR resumes a financial stop in Set up AI (every charge is kept); a model, provider or workspace mismatch or a ledger problem goes to the owner.",
 };
 
 // D-099 with D-100: the Recovery texts above that name OpenRouter, in Claude's terms.
 const CLAUDE_CAUSE_TEXT: Record<string, string> = {
-  LEDGER_NOT_RECONCILED: "Claude's spending ledger is stopped or has not been reconciled with the Anthropic Console's usage.",
+  LEDGER_NOT_RECONCILED: "Paid calls are paused for Claude, or its spending store could not be read.",
   SERVER_SETTINGS: "A server setting, the attested Anthropic workspace or its limit, or an owner attestation is not in place.",
   CALLS_NOT_VERIFIED: "Some paid calls could not be verified in-band (workspace, model, standard routing and complete usage in the reply).",
   PROVIDER_REFUSED: "The Anthropic API refused the calls (key, workspace spend limit or routing). Paid calls are stopped until an operator checks the workspace.",
   KEY_LIMIT_EXHAUSTED: "The Anthropic workspace's spend limit has no room for a call. HR spending controls cannot change it.",
-  CALLS_REFUSED: "Paid calls were refused before anything was sent (Claude's daily allowance, lifetime cap, call limit or the reconciliation window). The answers were not judged.",
+  CALLS_REFUSED: "Paid calls were refused before anything was sent (the session allowance, Claude's daily allowance, lifetime cap or call limit). The answers were not judged.",
 };
 const CLAUDE_ACTION_TEXT: Partial<Record<ModelDiagnosis["action"], string>> = {
-  REVIEW_SPENDING: "Review Claude's own limits in Spending & Limits (separate from GPT-OSS's), wait for the Singapore-day reset, or ask an operator to reconcile the Claude ledger, then retry.",
+  REVIEW_SPENDING: "Review the session allowance in Set up AI and Claude's own limits in Spending & Limits (separate from GPT-OSS's), or wait for the Singapore-day reset, then retry.",
   ESCALATE_KEY_OWNER: "Ask the Anthropic workspace's owner to check its spend limit in the Anthropic Console (never changed from this page), then run Test connection.",
-  ESCALATE_OPERATOR: "Ask an operator to reconcile the Claude ledger with the Anthropic Console's usage (scripts/budget_ledger.py --anthropic). Paid calls stay stopped until then.",
+  ESCALATE_OPERATOR: "Paid calls stay paused. HR resumes a financial stop in Set up AI (every charge is kept); a model or workspace mismatch or a ledger problem goes to the owner.",
 };
 
 function microUsd(micro: number | null | undefined): string {
@@ -256,7 +262,7 @@ const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: str
     steps: [
       "Providers: check that an OpenRouter key is configured (a session key or the server key) and that Test connection passes (it reads the key's own limit; no model call).",
       "Spending & Limits: check that today's allowance, the lifetime headroom and the key's own limit leave room for every paid call.",
-      "If paid calls are stopped, an operator reconciles the ledger with OpenRouter (scripts/budget_ledger.py) before any retry.",
+      "If paid calls are paused, Set up AI says why: HR resumes a financial stop there (every charge is kept); a routing or ledger stop goes to the owner.",
       "A key limit with no room is raised only by the key's owner at OpenRouter, never from this page.",
     ],
   },
@@ -265,7 +271,7 @@ const TROUBLESHOOTING: Record<"openrouter" | "anthropic" | "local", { title: str
     steps: [
       "Run Test connection: it reads the attested Anthropic workspace and the model (free; no case data).",
       "Providers: enter a session inference key, or rely on the server key; either must belong to the workspace Claude was set up for. HR sets Claude up there (workspace read, the owner's four confirmations and monthly limit); no server decision settings are needed.",
-      "HR sets Claude's daily allowance, chat calls per paid session and lifetime limit in Spending & Limits (at most US$5.00 a day, 20 calls, and the lower of US$30.00 and the workspace limit). Raising one needs the Claude ledger reconciled with the Anthropic Console within 24 hours; on a provider-capped ledger (D-118) a paid qualification and chat do not.",
+      "HR sets Claude's daily allowance, chat calls per paid session and lifetime limit in Spending & Limits (at most US$5.00 a day, 20 calls, and the lower of US$30.00 and the workspace limit). On a session store (D-118) no reconciliation is needed to raise a limit, qualify or chat.",
       "The workspace's monthly spend limit is changed only by its owner in the Anthropic Console, never from this page.",
     ],
   },
@@ -554,7 +560,7 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
         <div><dt>Available now</dt><dd><strong>{usd(budget.effective_remaining_usd)}</strong> (the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit)</dd></div>
         {controls && <div><dt>Chat calls this session</dt><dd>{controls.calls_used === null ? `GPT-OSS is not the active model (limit ${controls.max_calls} per session)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls} (counted in the open paid session; a restart does not reset them)`}</dd></div>}
         <div><dt>Next daily reset</dt><dd>{formatTimestamp(budget.next_reset_at)} (midnight, Singapore)</dd></div>
-        <div><dt>Status</dt><dd>{budget.ledger?.breaker_open ? `Stopped: ${readable(budget.ledger.breaker_code)} (an operator must reconcile)` : budget.refusal ? readable(budget.refusal) : "Calls allowed"}</dd></div>
+        <div><dt>Status</dt><dd>{budget.ledger?.breaker_open ? `Stopped: ${readable(budget.ledger.breaker_code)} (see Set up AI: HR resumes a financial stop; the owner reviews a routing stop)` : budget.refusal ? readable(budget.refusal) : "Calls allowed"}</dd></div>
       </dl>
       <button type="button" className="btn btn-secondary" disabled={disabled}
         onClick={() => void run(refreshProviderLimits, "OpenRouter limits refreshed.")}>Refresh OpenRouter Limits</button>
@@ -878,8 +884,9 @@ function Responsibilities({ label, duties }: { label: string; duties: Duty[] }) 
 
 const GPT_OSS_SPENDING_DUTIES: Duty[] = [
   { who: "hr", text: "Set the daily limit and chat calls per paid session; lowering needs no confirmation, raising the daily limit does." },
-  { who: "hr", text: "Raise or lower the lifetime ledger limit (a raise needs your confirmation and a ledger that reconciles)." },
-  { who: "operator", text: "Reconcile the ledger with OpenRouter when calls are stopped (scripts/budget_ledger.py)." },
+  { who: "hr", text: "Raise or lower the lifetime ledger limit (a raise needs your confirmation)." },
+  { who: "hr", text: "Resume paid calls after a financial stop, in Set up AI (every charge is kept)." },
+  { who: "owner", text: "Review a routing or ledger stop (scripts/budget_ledger.py resume-after-review)." },
   { who: "owner", text: "Set the key's own lifetime limit at OpenRouter. It is never shown or changed here." },
 ];
 
@@ -888,7 +895,7 @@ const OPENROUTER_DUTIES: Duty[] = [
   { who: "operator", text: "Optionally set a server key (process environment or apps/assistant/.env), used when no session key is live." },
   { who: "hr", text: "Run Test connection (a free preflight that reads the key's limit; no model call, no case data)." },
   { who: "hr", text: "Change the GPT-OSS limits in Spending & Limits." },
-  { who: "operator", text: "Authorise the remote test mode and reconcile the ledger." },
+  { who: "operator", text: "Authorise the remote test mode (launcher settings)." },
   { who: "owner", text: "Set the key's own lifetime limit at OpenRouter." },
 ];
 
@@ -898,7 +905,7 @@ const ANTHROPIC_DUTIES: Duty[] = [
   { who: "hr", text: "Set Claude up here: read the workspace the key reports (free), confirm it with the owner's four confirmations and monthly limit, and enable Claude for verified synthetic cases. Disable it at any time." },
   { who: "operator", text: "Optionally set a server inference key (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env), used when no session key is live. No decision or attestation settings are needed." },
   { who: "hr", text: "Change Claude's own daily, call and lifetime limits in Spending & Limits." },
-  { who: "operator", text: "Reconcile Claude's ledger with the Anthropic Console (scripts/budget_ledger.py --anthropic) before any raise or paid run." },
+  { who: "owner", text: "Review a routing or ledger stop (scripts/budget_ledger.py --anthropic resume-after-review); HR resumes financial stops in Set up AI." },
   { who: "owner", text: "Keep the dedicated Anthropic workspace's monthly spend limit (attested at most US$30.00) in the Anthropic Console." },
 ];
 
@@ -2464,7 +2471,7 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           )}
 
           {section === "setup" && overview && (
-            <GuidedSetup userId={actor.user_id} overview={overview} busy={busy} nameOf={nameOf} onChanged={refresh} />
+            <GuidedSetup userId={actor.user_id} overview={overview} busy={busy} nameOf={nameOf} describe={readable} onChanged={refresh} />
           )}
 
           {section === "providers" && overview && <ProvidersSection overview={overview} busy={busy} onChanged={refresh} />}
