@@ -44,7 +44,7 @@ candidate (`d115-copilot-scope-20261104`) and the D-118 PR #157 worktree are unt
 
 ## 3. Requalification
 
-Basis: main `17a3172e1607…` → `763e3014a36d…`. Every qualification on main's basis becomes
+Basis: main `17a3172e1607…` → `49bc0541fa40…`. Every qualification on main's basis becomes
 stale. Once approved, each external configuration to be used needs a conversational
 requalification (2 approved questions each, ~2 paid calls): Claude Sonnet 5.5 Balanced and Fast,
 GPT-OSS 120B Balanced and Fast; plus the local model (free).

@@ -617,7 +617,7 @@ def _hypothetical(text: str, found: re.Match[str]) -> bool:
     near = _NEAR_CONDITION.search(before)
     if near is None:
         return False
-    if _PAST.search(found.group(0)) and not _SUPPOSING.match(text, near.start()):
+    if _PAST.search(found.group(0)) and not _SUPPOSING.match(before, near.start()):
         return False
     if _LEADING_CONDITION.match(before):
         return _CLAUSE_MARK.search(text, found.end()) is not None

@@ -78,6 +78,12 @@ FAILED = {**FACTS, "goldtier": {"state": "SUBMISSION_FAILED", "goldtier_id": Non
         "The case was ready for GoldTier.",
         "The case moved on after the blockers were resolved.",
         "Once the blockers were resolved, the case moved on.",
+        # The offset correction exempts only a supposition, never a past-tense claim after a
+        # comma or colon.
+        "To be clear, once it was ready for GoldTier, it was submitted.",
+        "To be clear: the case was ready for GoldTier.",
+        "To be clear, the blockers were resolved.",
+        "As it happens, when the blockers were resolved the case moved on.",
     ],
 )
 def test_status_claims_the_facts_do_not_show_are_removed(sentence: str) -> None:
@@ -106,6 +112,10 @@ def test_status_claims_the_facts_do_not_show_are_removed(sentence: str) -> None:
         "If the blockers were resolved, the case could go to GoldTier.",
         "If it were ready for GoldTier, the RM could submit it.",
         "The case was not ready for GoldTier.",
+        "The blockers were never resolved.",
+        # A supposition after a comma or colon (delta QG offset note).
+        "To be clear, if it were ready for GoldTier, it could be submitted.",
+        "In short, unless the blockers were resolved, nothing could move on.",
         # QG9: another stage named as the next one.
         "The next stage is ownership review.",
     ],
