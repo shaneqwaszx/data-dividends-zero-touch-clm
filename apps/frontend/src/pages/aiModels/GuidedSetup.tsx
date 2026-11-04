@@ -15,8 +15,11 @@ import {
   startModelQualification,
   startPaidSession,
   testModelConnection,
+  type ModelConnectionTest,
   type ModelOverview,
+  type ModelPaidQualification,
   type ModelProfileView,
+  type PaidLimit,
   type PaidProvider,
   type ProviderSetup,
   type ResumableStop,
@@ -45,8 +48,42 @@ function micro(text: string): number | null {
   return Number(match[1]) * 1_000_000 + Number((match[2] ?? "").padEnd(6, "0"));
 }
 
-function message(error: unknown): string {
-  return error instanceof AiAssistantError ? error.message : "The AI assistant service could not complete this request.";
+type Describe = (code: string | null | undefined, deployment?: string) => string;
+
+function message(error: unknown, describe?: Describe, deployment?: string): string {
+  if (!(error instanceof AiAssistantError)) return "The AI assistant service could not complete this request.";
+  // A closed refusal code the page can name says more than the server's generic fallback.
+  const named = error.code && describe ? describe(error.code, deployment) : "";
+  return named && GENERIC_MESSAGES.has(error.message) ? named : error.message;
+}
+
+// The server's catch-all messages: when a refusal carries one of these, the page names its code.
+const GENERIC_MESSAGES = new Set([
+  "The model could not be prepared on the server.",
+  "This model is not ready for a paid run yet. See Set up AI for what is missing. Nothing started.",
+]);
+
+/** Thrown when the free connection check answered but did not pass (it is never a paid call). */
+class ConnectionNotPassed extends Error {}
+
+const LIMIT_TEXT: Record<PaidLimit, { label: string; short: (left: string) => string }> = {
+  session: { label: "Session allowance", short: (left) => `This session's allowance has ${left} left. Start a new session, or choose a larger allowance (up to US$5.00).` },
+  daily: { label: "Today's limit", short: (left) => `Today's limit has ${left} left. HR can raise it in Spending & Limits, or wait for the Singapore-day reset.` },
+  lifetime: { label: "Lifetime limit", short: (left) => `The lifetime limit has ${left} left. HR can raise it in Spending & Limits.` },
+  provider: { label: "Provider key limit", short: (left) => `The provider key's own limit has ${left} left. Only the key's owner can raise it, at the provider.` },
+};
+const LIMIT_ORDER: PaidLimit[] = ["session", "daily", "lifetime", "provider"];
+
+/** Why a paid qualification cannot start, naming the one prerequisite or limit that blocks it. */
+function blockedReason(paid: ModelPaidQualification | null | undefined, describe: Describe, deployment: string): string | null {
+  if (!paid) return "The server did not report what a paid qualification would cost. Refresh the page.";
+  if (paid.sufficient) return null;
+  if (paid.unavailable) return describe(paid.unavailable, deployment);
+  if (paid.blocking) {
+    const left = paid.limits?.[paid.blocking];
+    return `${LIMIT_TEXT[paid.blocking].short(usd(left))} The ${paid.calls} paid calls may cost up to ${usd(paid.estimate_micro_usd)}.`;
+  }
+  return paid.refusal ? describe(paid.refusal, deployment) : "The server did not say why a paid run cannot start now. Refresh the page.";
 }
 
 const ALL_CONFIRMATIONS = ["dedicated_workspace", "workspace_limit_set", "inference_key_only", "key_revoked_at_fyp_end"];
@@ -85,11 +122,13 @@ function Step({ number, title, state, children }: {
   );
 }
 
-export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
+export function GuidedSetup({ userId, overview, busy, nameOf, describe = (code) => code ?? "", onChanged }: {
   userId: string;
   overview: ModelOverview;
   busy: boolean;
   nameOf: (profileId: string, fallback: string) => string;
+  /** Plain text for a closed server code (AiModelManagement's readable). */
+  describe?: Describe;
   onChanged: () => void;
 }) {
   const setupQuery = useQuery({ queryKey: setupQueryKey(userId), queryFn: ({ signal }) => fetchSetup(signal) });
@@ -103,39 +142,66 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
   const provider = paid ? (kind as PaidProvider) : null;
   const providerSetup = provider ? setupQuery.data?.providers[provider] ?? null : null;
   const claude = overview.anthropic_setup;
+  const storedLimit = claude?.record?.workspace_limit_micro_usd;
 
   const [key, setKey] = useState("");
   const [pending, setPending] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [limitText, setLimitText] = useState("5.00");
+  // null: untouched, so the field shows the stored record's limit (re-confirming an existing
+  // record never changes it silently), else US$5.00 for a first setup.
+  const [limitEdit, setLimitEdit] = useState<string | null>(null);
+  const limitText = limitEdit ?? (typeof storedLimit === "number" && storedLimit > 0
+    ? (storedLimit / 1_000_000).toFixed(2) : "5.00");
   const [workspaceOwned, setWorkspaceOwned] = useState(false);
   const [revokeAtEnd, setRevokeAtEnd] = useState(false);
   const [allowanceText, setAllowanceText] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"qualify" | "activate" | "new-session" | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
 
-  async function run(action: () => Promise<unknown>, done: string): Promise<void> {
+  /** One action at a time; true when it finished without an error. */
+  async function run(action: () => Promise<unknown>, done: string): Promise<boolean> {
     setPending(true);
     setNote(null);
+    let ok = false;
     try {
-      await action();
-      setNote({ kind: "ok", text: done });
+      const said = await action();
+      setNote({ kind: "ok", text: typeof said === "string" && said ? said : done });
+      ok = true;
     } catch (error) {
-      setNote({ kind: "error", text: message(error) });
+      setNote({ kind: "error", text: error instanceof ConnectionNotPassed ? error.message : message(error, describe, item?.deployment) });
     } finally {
       setKey("");
       setPending(false);
       setDialog(null);
       onChanged();
     }
+    return ok;
+  }
+
+  /** The free connection check; it throws (so nothing advances) unless it passed. */
+  async function checkConnection(profileId: string): Promise<void> {
+    const result: ModelConnectionTest = await testModelConnection(profileId);
+    if (result.outcome !== "passed") {
+      throw new ConnectionNotPassed(`The connection check did not pass: ${describe(result.code ?? "CONNECTION_FAILED", item?.deployment)}`);
+    }
   }
 
   const working = busy || pending;
-  const claudeNeedsSetup = kind === "anthropic" && !(claude?.enabled ?? false);
-  const connected = item?.connection_test?.outcome === "passed" && !claudeNeedsSetup;
+  // Claude needs its one-time setup until it is enabled and its session store exists (an
+  // enablement record from before D-118 has no store: confirming the setup again creates it).
+  const claudeStoreMissing = kind === "anthropic" && (claude?.enabled ?? false) && providerSetup?.ledger === "missing";
+  const claudeNeedsSetup = kind === "anthropic" && (!(claude?.enabled ?? false) || claudeStoreMissing);
+  const lastTest = item?.connection_test ?? null;
+  const connected = lastTest?.outcome === "passed" && !claudeNeedsSetup;
   const qualified = Boolean(item?.eligible_qualification);
   const session = providerSetup?.session ?? null;
-  const reservation = item?.paid_qualification?.reservation_micro_usd ?? null;
+  const paidEstimate = item?.paid_qualification ?? null;
+  const reservation = paidEstimate?.reservation_micro_usd ?? null;
+  // Step 3's own prerequisites: a passed connection and, for a paid model, a nameable cost.
+  const qualifyBlocker = !item || !paid || !connected ? null
+    : paidEstimate?.unavailable ? describe(paidEstimate.unavailable, item.deployment)
+    : !paidEstimate ? "The server did not report what a paid qualification would cost. Refresh the page."
+    : null;
   const unscored = overview.quality.status !== "SCORED" && item?.profile_id !== "env_default";
 
   function saveAndTest(): void {
@@ -143,13 +209,14 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
     const value = key;
     void run(async () => {
       await saveModelCredential(value, provider);
-      if (provider === "anthropic" && !(claude?.enabled ?? false)) {
+      if (provider === "anthropic" && claudeNeedsSetup) {
         const read = await readAnthropicWorkspace();
-        if (read.outcome !== "passed") throw new AiAssistantError("The key's workspace could not be read. Check the key, then try again.", 400, read.code ?? "WORKSPACE_NOT_READ");
-        return;
+        if (read.outcome !== "passed") throw new ConnectionNotPassed(`The key's workspace could not be read: ${describe(read.code ?? "WORKSPACE_NOT_READ", item.deployment)} Check the key, then try again.`);
+        return "Key saved for this session (never stored in the browser) and its workspace read. Finish the one-time setup below.";
       }
-      await testModelConnection(item.profile_id);
-    }, "Key saved for this session (never stored in the browser) and tested.");
+      await checkConnection(item.profile_id);
+      return "Key saved for this session (never stored in the browser). The connection check passed.";
+    }, "Key saved.");
   }
 
   function enableClaude(): void {
@@ -163,8 +230,15 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
         workspace_limit_micro_usd: limit ?? -1,
         confirmations: ALL_CONFIRMATIONS,
       });
-      await testModelConnection(item.profile_id);
-    }, "Claude is set up for verified synthetic cases and its connection was tested.");
+      await checkConnection(item.profile_id);
+    }, "Claude is set up for verified synthetic cases and the connection check passed.");
+  }
+
+  function openQualification(): void {
+    if (!item) return;
+    // The free connection check first (after a restart too), then the one paid consent; a
+    // failed check never opens it.
+    void run(() => checkConnection(item.profile_id), "The connection check passed.").then((ok) => { if (ok) setDialog("qualify"); });
   }
 
   function saveAllowance(): void {
@@ -233,49 +307,63 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
                 <button type="submit" className="btn btn-primary" disabled={working || key.trim() === ""}>Save &amp; test</button>
               </form>
               <p className="control-help">The key is held by the server for your sign-in session only; it is never shown again or kept in the browser.</p>
+              {lastTest && !claudeNeedsSetup && (
+                <p className={lastTest.outcome === "passed" ? "control-help" : "ds-banner ds-banner-warn"} role="status" data-testid="guided-connection">
+                  {lastTest.outcome === "passed"
+                    ? "Connection check passed."
+                    : `Connection check failed: ${describe(lastTest.code ?? "CONNECTION_FAILED", item?.deployment)} Fix it, then save & test again.`}
+                </p>
+              )}
               {connected && <button type="button" className="btn btn-secondary" disabled={working}
-                onClick={() => void run(() => testModelConnection(item!.profile_id), "Connection tested.")}>Test again</button>}
+                onClick={() => void run(() => checkConnection(item!.profile_id), "The connection check passed.")}>Test again</button>}
               {claudeNeedsSetup && claude?.workspace_read && (
                 <fieldset className="guided-claude-setup">
-                  <legend>One-time Claude setup for workspace <code className="console-code">{claude.workspace_read.workspace_id}</code></legend>
+                  <legend>{claudeStoreMissing ? "Finish Claude setup (creates its session store) for workspace " : "One-time Claude setup for workspace "}<code className="console-code">{claude.workspace_read.workspace_id}</code></legend>
                   <p className="control-help">These are the owner's statements; the app cannot read them from Anthropic.</p>
                   <label><input type="checkbox" checked={workspaceOwned} onChange={(event) => setWorkspaceOwned(event.target.checked)} />{" "}
                     This inference key belongs to an Anthropic workspace used only for this FYP project, with a monthly spend limit set in the Anthropic Console no higher than:</label>
                   <label className="guided-inline" htmlFor="guided-limit">US$</label>
-                  <input id="guided-limit" inputMode="decimal" value={limitText} onChange={(event) => setLimitText(event.target.value)} />
+                  <input id="guided-limit" inputMode="decimal" value={limitText} onChange={(event) => setLimitEdit(event.target.value)} />
                   <label><input type="checkbox" checked={revokeAtEnd} onChange={(event) => setRevokeAtEnd(event.target.checked)} />{" "}
                     The key will be revoked when the FYP ends.</label>
-                  <button type="button" className="btn btn-primary" disabled={working || !claudeReady} onClick={enableClaude}>Enable Claude</button>
+                  <button type="button" className="btn btn-primary" disabled={working || !claudeReady} onClick={enableClaude}>{claudeStoreMissing ? "Confirm and create the session store" : "Enable Claude"}</button>
                 </fieldset>
               )}
             </>
           ) : (
             item && <button type="button" className="btn btn-primary" disabled={working}
-              onClick={() => void run(() => testModelConnection(item.profile_id), "Connection tested.")}>Test connection</button>
+              onClick={() => void run(() => checkConnection(item.profile_id), "The connection check passed.")}>Test connection</button>
           )}
         </Step>
 
         <Step number={3} title="Run qualification" state={!connected ? "waiting" : qualified ? "done" : "current"}>
           {paid && (
-            <p className="control-help">
-              Session allowance {usd(session?.allowance_micro_usd ?? providerSetup?.allowance_default_micro_usd ?? 5_000_000)}
-              {session ? `, ${usd(session.remaining_micro_usd)} left` : ""}. One answer reserves at most {usd(reservation)} until it settles.{" "}
-              {allowanceText === null
-                ? <button type="button" className="btn btn-secondary" onClick={() => setAllowanceText("")}>Use a smaller amount</button>
-                : (
-                  <span className="guided-inline">
-                    <label htmlFor="guided-allowance">US$</label>
-                    <input id="guided-allowance" inputMode="decimal" value={allowanceText} onChange={(event) => setAllowanceText(event.target.value)} />
-                    <button type="button" className="btn btn-secondary" disabled={working} onClick={saveAllowance}>Save</button>
-                    <button type="button" className="btn btn-secondary" onClick={() => setAllowanceText(null)}>Keep US$5.00</button>
-                  </span>
-                )}
-            </p>
+            <>
+              <p className="control-help" data-testid="guided-cost">
+                {paidEstimate?.calls
+                  ? <>Qualification makes {paidEstimate.calls} paid calls, reserving at most {usd(paidEstimate.estimate_micro_usd)} ({usd(reservation)} each) until they settle.</>
+                  : <>One answer reserves at most {usd(reservation)} until it settles.</>}
+              </p>
+              <p className="control-help">
+                Session allowance {usd(session?.allowance_micro_usd ?? providerSetup?.allowance_default_micro_usd ?? 5_000_000)}
+                {session ? `, ${usd(session.remaining_micro_usd)} left` : " (starts with the first paid call)"}.{" "}
+                {allowanceText === null
+                  ? <button type="button" className="btn btn-secondary" onClick={() => setAllowanceText("")}>{session ? "Change the allowance" : "Use a smaller amount"}</button>
+                  : (
+                    <span className="guided-inline">
+                      <label htmlFor="guided-allowance">US$</label>
+                      <input id="guided-allowance" inputMode="decimal" value={allowanceText} onChange={(event) => setAllowanceText(event.target.value)} />
+                      <button type="button" className="btn btn-secondary" disabled={working} onClick={saveAllowance}>Save</button>
+                      <button type="button" className="btn btn-secondary" onClick={() => setAllowanceText(null)}>Cancel</button>
+                    </span>
+                  )}
+              </p>
+            </>
           )}
-          <button type="button" className="btn btn-primary" disabled={working || !item}
+          {qualifyBlocker && <p className="ds-banner ds-banner-warn" role="alert" data-testid="guided-qualify-blocker">Qualification cannot start yet: {qualifyBlocker}</p>}
+          <button type="button" className="btn btn-primary" disabled={working || !item || !connected || qualifyBlocker !== null}
             onClick={() => (paid
-              // The free connection check first (after a restart too), then the one paid consent.
-              ? void run(() => testModelConnection(item!.profile_id), "Connection checked.").then(() => setDialog("qualify"))
+              ? openQualification()
               : void run(() => startModelQualification(item!.profile_id), "Qualification started."))}>
             {paid ? "Run qualification…" : "Run qualification"}
           </button>
@@ -297,19 +385,27 @@ export function GuidedSetup({ userId, overview, busy, nameOf, onChanged }: {
 
       {dialog === "qualify" && item && (
         <ConsoleDialog labelledBy="guided-qualify-heading" testId="guided-qualify" onClose={() => setDialog(null)}>
-          <h2 id="guided-qualify-heading">Run {item.paid_qualification?.calls ?? "the"} paid test calls?</h2>
+          <h2 id="guided-qualify-heading">{paidEstimate?.calls ? `Run ${paidEstimate.calls} paid test calls?` : "Run the paid test calls?"}</h2>
           <p>
-            They ask {nameOf(item.profile_id, item.display_name)} the configured synthetic questions, with nothing retried automatically.
-            They use at most {usd(item.paid_qualification?.estimate_micro_usd)} of this session's allowance
-            ({usd(session?.remaining_micro_usd ?? providerSetup?.allowance_default_micro_usd)} left).
+            They ask {nameOf(item.profile_id, item.display_name)} the approved synthetic test questions, with nothing retried automatically.
+            {paidEstimate?.estimate_micro_usd != null
+              ? ` Together they reserve at most ${usd(paidEstimate.estimate_micro_usd)} (${usd(reservation)} each); what they actually cost is charged when they settle.`
+              : ""}
           </p>
-          {item.paid_qualification && !item.paid_qualification.sufficient && (
-            <p className="ds-banner ds-banner-warn" role="alert">It cannot start now: {item.paid_qualification.refusal ?? "a limit leaves no room for every call"}.</p>
+          {paidEstimate?.limits && Object.keys(paidEstimate.limits).length > 0 && (
+            <dl className="guided-limits" data-testid="guided-limits">
+              {LIMIT_ORDER.filter((name) => paidEstimate.limits?.[name] !== undefined).map((name) => (
+                <div key={name}><dt>{LIMIT_TEXT[name].label}</dt><dd>{usd(paidEstimate.limits?.[name])} left{paidEstimate.blocking === name ? " (too little)" : ""}</dd></div>
+              ))}
+            </dl>
+          )}
+          {!paidEstimate?.sufficient && (
+            <p className="ds-banner ds-banner-warn" role="alert">It cannot start now. {blockedReason(paidEstimate, describe, item.deployment)}</p>
           )}
           <div className="console-dialog__actions">
             <button type="button" className="btn btn-secondary" onClick={() => setDialog(null)}>Cancel</button>
-            <button type="button" className="btn btn-primary" disabled={working || !item.paid_qualification?.sufficient}
-              onClick={() => void run(() => startModelQualification(item.profile_id, item.paid_qualification?.calls ?? undefined), "Qualification started.")}>
+            <button type="button" className="btn btn-primary" disabled={working || !paidEstimate?.sufficient}
+              onClick={() => void run(() => startModelQualification(item.profile_id, paidEstimate?.calls ?? undefined), "Qualification started.")}>
               Run paid test calls
             </button>
           </div>

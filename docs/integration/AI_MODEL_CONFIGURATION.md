@@ -284,7 +284,10 @@ Otherwise the page says which condition is missing. What each action does:
   key limit, the ledger and earlier calls, and makes **no inference call**.
 - **Run qualification**: a **paid** run of only the Phase B questions listed in
   `AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS`. Their number must equal
-  `AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_COUNT`, or the run is refused. The gates are those
+  `AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_COUNT`, or the run is refused
+  (`REMOTE_MANIFEST_MISSING`). The default is the approved set, `P01#1,P02#0` with count 2
+  (D-092 P10, D-107 Q1). Leaving both unset, or blank with count 0 as in `.env.example`, gives
+  that default. Changing the set needs owner approval. The gates are those
   above plus G-8, which requires every call to be verified from its generation metadata
   (serving provider, model and cost). G-7 uses the adapter's enforced prompt byte limit.
 - **Activate** / **Roll back**: the same as for local models.
@@ -717,9 +720,25 @@ is not a billing guarantee.
   - The earlier design's `reset-breaker` is refused on a session store
     (`USE_RESUME_AFTER_REVIEW`, nothing written). It needs a reconciliation and records no
     review event, so a stop it closed would keep blocking later HR resumes.
-- **Qualification consent.** *Run qualification* runs the free connection check. Its one
-  confirmation then states the paid calls and the most they can cost from the session; that is
-  the existing `confirm_paid_calls` consent.
+- **Qualification consent.** *Run qualification* runs the free connection check. A failed
+  check never opens the confirmation, and step 3 stays closed until the check passed. The one
+  confirmation states the paid calls and the most they can reserve. It also shows what each
+  applicable limit leaves: the session (the open one, or the US$5.00 the first paid action
+  opens), today's limit, the lifetime limit and, for GPT-OSS, the key's own limit. That is the
+  existing `confirm_paid_calls` consent.
+- **Why a run cannot start (usability remediation, 2026-11-04).** The estimate
+  (`paid_qualification`) carries `limits`, `blocking` (the first limit below the estimate) and
+  `unavailable` (why no amount can be named). The page names that one cause:
+  - a limit that is too small (`SESSION_ALLOWANCE_INSUFFICIENT`, or
+    `QUALIFICATION_BUDGET_INSUFFICIENT` for the daily or lifetime limit);
+  - a store that is missing or from the earlier design (`SPENDING_STORE_NOT_READY`);
+  - a question list set inconsistently (`REMOTE_MANIFEST_MISSING`);
+  - any other missing setup step, by its own code (`SETUP_INCOMPLETE` message).
+
+  A budget refusal is returned only when a named limit causes it.
+- **An enablement record from before D-118** has no session store. Set up AI shows the one-time
+  setup again (*Confirm and create the session store*); confirming it creates the store. Nothing
+  else changes.
 - **After a restart.** The session, the activation and the setup record are kept. HR re-enters
   the key (D-106: keys live in memory only) and continues.
 - **Daily defaults.** US$5.00 for both providers (`AI_ASSISTANT_BUDGET_DAILY_CAP_MICRO_USD`,

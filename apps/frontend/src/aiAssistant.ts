@@ -275,6 +275,10 @@ const SAFE_ERROR_MESSAGES = new Set([
   "This stop involves a routing or ledger-integrity problem, so paid calls stay stopped until the owner reviews it. Nothing changed.",
   "The launcher names a spending store from the earlier design. The owner archives it and points the launcher at a session store. Nothing changed.",
   "Paid calls are paused for this provider. See Set up AI for the reason and the next step. Nothing started.",
+  // D-118 usability (model_admin.py): a session allowance, a store not ready, a setup step missing.
+  "This session's allowance does not leave room for every paid call. Start a new session in Set up AI. Nothing started.",
+  "This provider's spending store is not ready. See Set up AI for the next step. Nothing started.",
+  "This model is not ready for a paid run yet. See Set up AI for what is missing. Nothing started.",
 ]);
 
 function httpErrorMessage(status: number): string {
@@ -952,7 +956,16 @@ export interface ModelPaidQualification {
   effective_remaining_micro_usd: number | null;
   refusal: string | null;
   sufficient: boolean;
+  /** D-118 usability: why no amount can be named (a closed code), else null. */
+  unavailable?: string | null;
+  /** What each applicable limit leaves (micro-USD): the session (open, or the default the first
+   *  paid action opens), today's allowance, the lifetime limit and the provider key's own limit. */
+  limits?: Partial<Record<PaidLimit, number>>;
+  /** The first limit that leaves less than the estimate, else null. */
+  blocking?: PaidLimit | null;
 }
+
+export type PaidLimit = "session" | "daily" | "lifetime" | "provider";
 
 export interface ModelProfileView {
   profile_id: string;
