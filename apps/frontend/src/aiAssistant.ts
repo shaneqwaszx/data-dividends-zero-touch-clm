@@ -1150,6 +1150,8 @@ export interface ModelClaudeBudget {
     breaker_open: boolean;
     breaker_code: string | null;
     reconciled_at: string | null;
+    /** D-118: a session store is provider-capped (no reconciliation is ever required). */
+    accounting_mode?: "provider_anchored" | "provider_capped";
   } | null;
   daily: {
     cap_micro_usd: number;

@@ -712,7 +712,11 @@ is not a billing guarantee.
   - **Routing and integrity stops stay with the owner**, who clears them after review with
     `scripts/budget_ledger.py resume-after-review --code CODE --confirm-reviewed`. These are a
     model, provider or workspace mismatch (including one recorded while a financial stop was
-    already open), a failed ledger write, or an OpenRouter call with no generation record.
+    already open), a failed ledger write, or an OpenRouter call with no generation record (an
+    accepted limitation: interrupted GPT-OSS streams wait for the owner).
+  - The earlier design's `reset-breaker` is refused on a session store
+    (`USE_RESUME_AFTER_REVIEW`, nothing written). It needs a reconciliation and records no
+    review event, so a stop it closed would keep blocking later HR resumes.
 - **Qualification consent.** *Run qualification* runs the free connection check. Its one
   confirmation then states the paid calls and the most they can cost from the session; that is
   the existing `confirm_paid_calls` consent.

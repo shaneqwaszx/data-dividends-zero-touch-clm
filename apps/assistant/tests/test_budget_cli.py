@@ -127,6 +127,12 @@ def test_reconcile_and_breaker_reset_follow_the_rules(
     monkeypatch.setenv("AI_ASSISTANT_BUDGET_SETTLE_LAG_SECONDS", "0")  # configured: no lag
     path = tmp_path / "ledger.sqlite3"
     _init(path)
+    # The earlier design's reset-breaker rules, on a store an operator anchored (D-118: a
+    # session store refuses reset-breaker and uses resume-after-review instead).
+    import sqlite3
+
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE ledger_profile SET accounting_mode = 'provider_anchored'")
     ledger = BudgetLedger.open(path)
     rid = ledger.reserve(
         Reservation(10, 10, 72_452),
@@ -229,3 +235,49 @@ def test_resume_after_review_needs_the_owner_confirmation_and_keeps_the_charges(
     assert _run(path, "resume-after-review", "--code", "routing_anomaly", "--confirm-reviewed") == 0
     status = BudgetLedger(path).status()
     assert not status.breaker_open and status.local_charged == charged
+
+
+def test_reset_breaker_is_refused_on_a_session_store_and_names_the_review_command(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # PR #156 QG note 3: reset-breaker records no review, so on a session store it would leave
+    # later HR resumes blocked; the script refuses it there and writes nothing.
+    path = tmp_path / "ledger.sqlite3"
+    _init(path)
+    ledger = BudgetLedger.open(path)
+    ledger.open_breaker("routing_anomaly")
+    before = path.read_bytes()
+    capsys.readouterr()
+
+    assert _run(path, "reset-breaker", "--code", "routing_anomaly") == 2
+    err = capsys.readouterr().err
+    assert "USE_RESUME_AFTER_REVIEW" in err and "resume-after-review" in err
+    assert path.read_bytes() == before
+    assert _run(path, "resume-after-review", "--code", "routing_anomaly", "--confirm-reviewed") == 0
+    assert not BudgetLedger(path).status().breaker_open
+
+
+def test_a_refused_reset_breaker_writes_nothing_even_with_an_expired_lease(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # PR #156 QG (cleanup round): the refusal is decided on a read-only open, so not even the
+    # routine abandonment of an expired call is written.
+    import time
+
+    path = tmp_path / "ledger.sqlite3"
+    _init(path)
+    ledger = BudgetLedger.open(path)
+    ledger.reserve(
+        Reservation(10, 10, 1_000),
+        endpoint_slug="fictional-provider/fp8",
+        max_in_flight=1,
+        lease_seconds=0.001,
+    )
+    ledger.open_breaker("routing_anomaly")
+    time.sleep(0.05)  # the open call's lease has now expired
+    before = path.read_bytes()
+    capsys.readouterr()
+
+    assert _run(path, "reset-breaker", "--code", "routing_anomaly") == 2
+    assert "USE_RESUME_AFTER_REVIEW" in capsys.readouterr().err
+    assert path.read_bytes() == before

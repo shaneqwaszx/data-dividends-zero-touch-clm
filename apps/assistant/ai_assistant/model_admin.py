@@ -2445,11 +2445,13 @@ def model_admin_router(
         limit = effective.anthropic_max_calls
         lifetime = None
         reconciliation = None
+        capped = False
         try:
             ledger = BudgetLedger(anthropic_runtime.ledger_file(settings))
             ledger.verify()
             status = ledger.status()
             if status.profile_id == anthropic_profiles.LEDGER_PROFILE_ID:
+                capped = anthropic_runtime.provider_capped(ledger)
                 lifetime = {
                     "opening_usage_micro_usd": status.opening_usage,
                     "cap_micro_usd": status.cap,
@@ -2466,7 +2468,11 @@ def model_admin_router(
             "daily_cap_micro_usd": effective.anthropic_daily_cap_micro_usd,
             "daily_cap_range": list(CLAUDE_DAILY_CAP_RANGE),
             "daily_cap_default_micro_usd": settings.anthropic_daily_cap_micro_usd,
-            "raise_requires": ["confirmation", "reconciled_within_one_day"],
+            # What require_claude_raise checks: on a session store (provider-capped, D-118
+            # amendment P4) the confirmation and a quiet ledger, never a reconciliation.
+            "raise_requires": ["confirmation", "breaker_closed_no_open_call"]
+            if capped
+            else ["confirmation", "reconciled_within_one_day"],
             "daily_cap_source": "hr"
             if controls is not None and controls.daily_cap_micro_usd is not None
             else "environment",

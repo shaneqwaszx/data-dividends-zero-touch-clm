@@ -1715,6 +1715,20 @@ describe("AiModelManagement D-102 Claude spending controls", () => {
     });
   });
 
+  it("names the checks a session store's raise needs, never a reconciliation (D-118)", async () => {
+    const claude = claudeView({ raise_requires: ["confirmation", "breaker_closed_no_open_call"] });
+    claude.ledger = { ...claude.ledger!, accounting_mode: "provider_capped", reconciled_at: null };
+    const view = mount(controlsServer(withClaudeBudget(claude), []), "spending");
+    await waitFor(() => expect(view.querySelector("#claude-daily-limit-input")).not.toBeNull());
+    typeInto(input(view, "claude-daily-limit-input"), "5");
+    typeInto(input(view, "claude-call-limit-input"), "20");
+    const label = view.querySelector("[data-testid=claude-daily-raise-confirm]")!.closest("label")!.textContent ?? "";
+    expect(label).toContain("no paid call is open and paid calls are not paused");
+    expect(label).not.toMatch(/reconcil/i);
+    expect(view.textContent).toContain("Never (not needed: a session store is bounded by the Anthropic workspace limit)");
+    expect(view.textContent).not.toContain("Raising it needs your confirmation and a reconciliation");
+  });
+
   it("raises Claude's lifetime limit up to US$30.00 with the shown cap and a confirmation", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const view = mount(controlsServer(withClaudeBudget(), calls), "spending");

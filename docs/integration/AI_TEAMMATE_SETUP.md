@@ -78,8 +78,13 @@ offers the next action.
 | --- | --- |
 | Allowance used up | **Start a new session** (HR). |
 | Paid calls are paused: an interrupted call, a provider refusal (key, payment or limit) or a cost above its estimate | Fix the cause if there is one, then **Resume, keeping the charge** (HR). |
-| Paid calls are stopped for the owner: a model, provider or workspace mismatch, or a ledger problem | Ask the owner. They review it and clear it with `budget_ledger.py resume-after-review --code CODE --confirm-reviewed`. |
+| Paid calls are stopped for the owner: a model, provider or workspace mismatch, a ledger problem, or (GPT-OSS) a stream that ended without its generation record | Ask the owner. They review it and clear it with `budget_ledger.py resume-after-review --code CODE --confirm-reviewed`. The earlier `reset-breaker` command is refused on a session store: it would not record the review, so later HR resumes would stay blocked. |
 | The launcher names a store from the earlier design | Ask the owner (below). |
+
+**Accepted limitation (GPT-OSS).** If a GPT-OSS answer is interrupted (cancelled, timed out,
+rate-limited) before OpenRouter reports its generation record, the app cannot verify which provider
+and model served it, so paid GPT-OSS calls stop until the owner reviews it. This is deliberate
+routing protection, not a defect; Claude verifies routing in the reply itself and is not affected.
 
 ## Owner only: retiring the earlier accounting stores
 

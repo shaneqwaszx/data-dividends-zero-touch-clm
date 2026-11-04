@@ -390,3 +390,22 @@ def test_on_a_session_store_a_raise_needs_only_its_confirmation(
         journey, 5_000_000, 20, confirm_daily_cap_micro_usd=5_000_000, confirm_max_calls=20
     )
     assert raised.status_code == 200, raised.text
+
+
+def test_the_raise_requirements_shown_follow_the_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PR #156 QG note 1: a session store (provider-capped) advertises what require_claude_raise
+    # checks there (no reconciliation); an anchored store keeps the reconciliation requirement.
+    journey = ClaudeJourney(tmp_path, monkeypatch)
+    shown = _claude(journey)["controls"]["raise_requires"]
+    assert shown == ["confirmation", "breaker_closed_no_open_call"]
+    reconciled_ago(journey.settings, 9 * 86_400)  # stale, and still not needed
+    assert _save(journey, 1_000_000, 5).status_code == 200
+    raised = _save(
+        journey, 5_000_000, 20, confirm_daily_cap_micro_usd=5_000_000, confirm_max_calls=20
+    )
+    assert raised.status_code == 200, raised.text
+    anchored_on_the_console(journey.settings)
+    shown = _claude(journey)["controls"]["raise_requires"]
+    assert shown == ["confirmation", "reconciled_within_one_day"]

@@ -1091,6 +1091,12 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
     && (capMicro < lifetime.cap_micro_usd || capMicro <= lifetime.max_cap_micro_usd);
   const capRaising = capValid && capMicro! > lifetime!.cap_micro_usd;
   const disabled = pending || busy;
+  // D-118: what a raise needs is the server's own list (no reconciliation on a session store).
+  const raiseNeedsReconciliation = controls.raise_requires?.includes("reconciled_within_one_day") ?? true;
+  const raiseCheck = raiseNeedsReconciliation
+    ? "The server first checks that the Claude ledger was reconciled with the Anthropic Console within 24 hours."
+    : "The server first checks that no paid call is open and paid calls are not paused.";
+  const sessionStore = claude.ledger?.accounting_mode === "provider_capped";
 
   async function run(action: () => Promise<unknown>, done: string): Promise<void> {
     setPending(true);
@@ -1116,7 +1122,7 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
         <div><dt>Remaining today</dt><dd>{daily ? usd(daily.remaining_usd) : LEDGER_UNREAD}</dd></div>
         <div><dt>Lifetime headroom</dt><dd>{claude.ledger ? usd(claude.ledger.headroom_usd) : LEDGER_UNREAD}</dd></div>
         <div><dt>Anthropic workspace limit</dt><dd>{claude.workspace_limit_micro_usd > 0 ? `${usd(dollars(claude.workspace_limit_micro_usd))} a month (owner-confirmed, not read from Anthropic; changed only in the Anthropic Console)` : "Not confirmed yet (set up Claude in Providers → Anthropic)"}</dd></div>
-        <div><dt>Last reconciled</dt><dd>{claude.ledger?.reconciled_at ? formatTimestamp(claude.ledger.reconciled_at) : "Never (an operator reconciles the Claude ledger)"}</dd></div>
+        <div><dt>Last reconciled</dt><dd>{claude.ledger?.reconciled_at ? formatTimestamp(claude.ledger.reconciled_at) : sessionStore ? "Never (not needed: a session store is bounded by the Anthropic workspace limit)" : "Never (an operator reconciles the Claude ledger)"}</dd></div>
         <div><dt>Available now</dt><dd><strong>{usd(claude.effective_remaining_usd)}</strong> (the stricter of today's allowance and the lifetime headroom)</dd></div>
         <div><dt>Chat calls this session</dt><dd>{controls.calls_used !== null
           ? `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls}`
@@ -1124,7 +1130,7 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
             ? `${LEDGER_UNREAD} (limit ${controls.max_calls} per session)`
             : `No Claude configuration is active (limit ${controls.max_calls} per session)`}</dd></div>
         <div><dt>Next daily reset</dt><dd>{formatTimestamp(claude.next_reset_at)} (midnight, Singapore)</dd></div>
-        <div><dt>Status</dt><dd>{claude.ledger?.breaker_open ? `Stopped: ${readable(claude.ledger.breaker_code, ANTHROPIC_DEPLOYMENT)} (an operator must reconcile)` : claude.refusal ? readable(claude.refusal, ANTHROPIC_DEPLOYMENT) : "Calls allowed"}</dd></div>
+        <div><dt>Status</dt><dd>{claude.ledger?.breaker_open ? `Stopped: ${readable(claude.ledger.breaker_code, ANTHROPIC_DEPLOYMENT)} (${sessionStore ? "see Set up AI: HR resumes a financial stop; the owner reviews a routing stop" : "an operator must reconcile"})` : claude.refusal ? readable(claude.refusal, ANTHROPIC_DEPLOYMENT) : "Calls allowed"}</dd></div>
       </dl>
 
       <form aria-label="Claude daily and call limits" onSubmit={(event) => {
@@ -1149,13 +1155,13 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
         {dailyRaising && (
           <label className="control-help">
             <input type="checkbox" checked={dailyConfirmed} onChange={(event) => setDailyConfirmed(event.target.checked)} disabled={disabled} data-testid="claude-daily-raise-confirm" />
-            {" "}I confirm raising Claude's daily limit to {usd(exactDollars(dailyMicro!))}. The server first checks that the Claude ledger was reconciled with the Anthropic Console within 24 hours.
+            {" "}I confirm raising Claude's daily limit to {usd(exactDollars(dailyMicro!))}. {raiseCheck}
           </label>
         )}{" "}
         {callsRaising && (
           <label className="control-help">
             <input type="checkbox" checked={callsConfirmed} onChange={(event) => setCallsConfirmed(event.target.checked)} disabled={disabled} data-testid="claude-calls-raise-confirm" />
-            {" "}I confirm raising Claude's call limit to {calls} chat calls per paid session. The server first checks that the Claude ledger was reconciled with the Anthropic Console within 24 hours.
+            {" "}I confirm raising Claude's call limit to {calls} chat calls per paid session. {raiseCheck}
           </label>
         )}{" "}
         <button type="submit" className="btn btn-primary" disabled={disabled || !controlsValid || !controls.readable || unconfirmed}>Save Claude Limits</button>
@@ -1172,7 +1178,7 @@ function ClaudeLimits({ claude, busy, onChanged }: { claude: ModelClaudeBudget; 
         }}>
           <h3>Claude lifetime limit (Anthropic ledger)</h3>
           <p className="control-help">
-            The workspace's usage when the ledger was created: {usd(exactDollars(lifetime.opening_usage_micro_usd))}. Current limit {usd(exactDollars(lifetime.cap_micro_usd))}; committed {usd(exactDollars(lifetime.committed_micro_usd))}. It may be set above the opening usage and at most {usd(dollars(lifetime.max_cap_micro_usd))} (the lower of US$30.00 and the attested workspace limit); lowering it is always allowed. Raising it needs your confirmation and a reconciliation within 24 hours; the ledger keeps every charge and is never replaced.
+            The workspace's usage when the ledger was created: {usd(exactDollars(lifetime.opening_usage_micro_usd))}. Current limit {usd(exactDollars(lifetime.cap_micro_usd))}; committed {usd(exactDollars(lifetime.committed_micro_usd))}. It may be set above the opening usage and at most {usd(dollars(lifetime.max_cap_micro_usd))} (the lower of US$30.00 and the attested workspace limit); lowering it is always allowed. Raising it needs your confirmation{raiseNeedsReconciliation ? " and a reconciliation within 24 hours" : ""}; the ledger keeps every charge and is never replaced.
           </p>
           <label className="control-help" htmlFor="claude-lifetime-limit-input">New Claude lifetime limit (US$)</label>{" "}
           <input id="claude-lifetime-limit-input" inputMode="decimal" value={capText} onChange={(event) => { setCapText(event.target.value); setCapConfirmed(false); }} disabled={disabled} />{" "}
