@@ -75,6 +75,8 @@ FALLBACK_REASONS = frozenset(
         "stream_partial",
         "budget_refused",
         "remote_boundary",
+        # Was missing here, so every off-domain record was dropped as invalid (D-115).
+        "off_domain",
     }
 )
 FINISH_REASONS = frozenset({"stop", "length"})

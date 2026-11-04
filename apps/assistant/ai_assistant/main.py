@@ -48,7 +48,8 @@ from .anthropic_runtime import Notices
 from .briefing import fallback_answer, opening_message, suggested_questions
 from .case_contexts import CONTEXT_ID, ContextRefused, ContextStore, Ticket
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
-from .config import AiAssistantSettings
+from .config import AiAssistantSettings, external_conversational
+from .config import conversational as config_conversational
 from .context import build_case_facts
 from .data_access import REFUSAL_NOTICES as POLICY_REFUSALS
 from .guardrails import (
@@ -326,6 +327,9 @@ class Prepared:
     # it started (time.monotonic), for the answer record.
     question: str = ""
     started: float = 0.0
+    # Written in the model's own words and checked sentence by sentence (copilot), not
+    # selected from offered lines.
+    conversational: bool = False
 
     def sources(self, answer: str) -> list[KnowledgeSource]:
         return [
@@ -1006,15 +1010,23 @@ def create_app(
 
     # --- D-115 copilot answers and chat contexts ---------------------------------------------
 
-    def copilot_for(active: Active) -> bool:
-        """Copilot mode answers with an unrestricted local model only. An external model, or a
-        model the data access policy restricts, keeps exact lines and its synthetic gates."""
+    def synthetic_only_conversation(active: Active) -> bool:
+        # An external or policy-restricted model answers in its own words only in D-095 mode:
+        # each question is re-checked as a verified synthetic development case (remote_gate,
+        # synthetic_eligibility) before anything is sent. In D-094 mode it keeps exact lines.
+        development = getattr(active.model, "development_mode", None)
+        return bool(development() if development is not None else synthetic_dev_mode(config))
 
-        return (
-            config.answer_mode == "copilot"
-            and active.model is not None
-            and not is_remote_test_model(active.model)
-        )
+    def copilot_for(active: Active) -> bool:
+        """Conversational answers when approved (config.conversational): a local model on any
+        case it may read; an external or restricted model on verified synthetic cases only,
+        each call re-checked, with exact lines otherwise."""
+
+        if not config_conversational(config) or active.model is None:
+            return False
+        if not is_remote_test_model(active.model):
+            return True
+        return external_conversational(config) and synthetic_only_conversation(active)
 
     def context_refused(refused: ContextRefused) -> HTTPException:
         return HTTPException(
@@ -1059,6 +1071,19 @@ def create_app(
         analysis = backend.load_ownership(case_id, request.cookies.get(SESSION_COOKIE_NAME))
         return replaced(prep, facts={**prep.facts, "ownership": copilot.ownership_facts(analysis)})
 
+    def local_ownership(
+        prep: Prepared, case_id: UUID, request: Request, remote: bool
+    ) -> Prepared:
+        # D-115 X2: an external model never gets the ownership analysis (people's names and
+        # holdings the D-095 check does not ground); it answers from the checked case facts.
+        return prep if remote else with_ownership(prep, case_id, request)
+
+    def refused_outcome(lead: str | None) -> _Outcome:
+        # The case-data answer when no model may be used, with the reason recorded as in the
+        # exact-line path (answer_with_model): the external boundary, or no model.
+        refused = lead is not None and lead.startswith(_REMOTE_REFUSALS)
+        return _Outcome(fallback_reason="remote_boundary" if refused else "model_disabled")
+
     def copilot_prep(prep: Prepared, history: list[dict[str, str]]) -> tuple[Prepared, list[str]]:
         messages = copilot.build_messages(
             prep.facts,
@@ -1067,7 +1092,10 @@ def create_app(
             knowledge=copilot.knowledge_message(prep.tagged, prep.shown),
         )
         line = copilot.read_only_line(prep.question)
-        return replaced(prep, messages=messages, plan=None), [line] if line else []
+        prepared = replaced(prep, messages=messages, plan=None, conversational=True)
+        if on_prepared is not None:
+            on_prepared(prepared)  # the evaluation harness sees the prompt actually sent
+        return prepared, [line] if line else []
 
     def copilot_reply(
         check: copilot.CopilotCheck,
@@ -1077,11 +1105,13 @@ def create_app(
         model_name: str,
         cut_short: bool,
         required: list[str],
+        lead: str | None = None,
     ) -> ChatResponse:
         outcome.kept_lines = check.kept
         outcome.left_out_lines = len(check.left_out)
         outcome.cut_short = cut_short
         notices = [
+            lead,
             copilot.REMOVED_NOTICE.format(count=len(check.left_out)) if check.left_out else None,
             CUT_SHORT_NOTICE if cut_short else None,
         ]
@@ -1110,7 +1140,11 @@ def create_app(
         return outcome.answered(reply)
 
     def copilot_complete(
-        prep: Prepared, model: ChatModel, required: list[str], outcome: _Outcome
+        prep: Prepared,
+        model: ChatModel,
+        required: list[str],
+        outcome: _Outcome,
+        lead: str | None = None,
     ) -> ChatResponse:
         try:
             reply = model.complete(prep.messages)
@@ -1121,7 +1155,7 @@ def create_app(
                 knowledge_tags=[item.tag for item in prep.tagged],
                 required=required,
             )
-            if check.kept:
+            if check.usable:
                 return copilot_reply(
                     check,
                     prep,
@@ -1129,7 +1163,10 @@ def create_app(
                     model_name=model.name,
                     cut_short=reply.cut_short,
                     required=required,
+                    lead=lead,
                 )
+            # Nothing, or mostly fragments, passed the checks: the case-data answer instead.
+            outcome.kept_lines = check.kept
             outcome.left_out_lines = len(check.left_out)
             outcome.fallback_reason = "policy_no_allowed_line"
             return copilot_fallback(prep, outcome, required, POLICY_NOTICE)
@@ -1145,6 +1182,7 @@ def create_app(
         finish: Callable[[ChatResponse, _Outcome], ChatResponse],
         model: ChatModel,
         required: list[str],
+        lead: str | None = None,
     ) -> AsyncIterator[str]:
         """Like stream_answer, with each sentence checked as soon as it is complete."""
 
@@ -1171,7 +1209,7 @@ def create_app(
                                 outcome.first_line_at = time.monotonic()
                             yield line({"type": "text", "text": shown})
                 check = guard.finish()
-                if check.kept:
+                if check.usable:
                     response = copilot_reply(
                         check,
                         prep,
@@ -1179,8 +1217,13 @@ def create_app(
                         model_name=model.name,
                         cut_short=cut_short,
                         required=required,
+                        lead=lead,
                     )
                 else:
+                    # The final answer replaces what was streamed (each streamed sentence had
+                    # passed its checks; together they were mostly fragments).
+                    outcome.kept_lines = check.kept
+                    outcome.left_out_lines = len(check.left_out)
                     outcome.fallback_reason = "policy_no_allowed_line"
                     response = copilot_fallback(prep, outcome, required, POLICY_NOTICE)
             except LlmUnavailableError as error:
@@ -1195,6 +1238,7 @@ def create_app(
                         model_name=model.name,
                         cut_short=True,
                         required=required,
+                        lead=lead,
                     )
                 else:
                     if outcome.fallback_reason == "none":
@@ -1243,7 +1287,7 @@ def create_app(
         if body.case_id is not None:
             profile = load_case(body.case_id, request).actor.get("profile") or {}
         else:
-            if config.answer_mode != "copilot":
+            if not config_conversational(config):
                 raise general_chat_off()
             profile = general_profile(request)
         user = profile.get("user_id")
@@ -1284,7 +1328,7 @@ def create_app(
 
         started = time.monotonic()
         check_origin(request)
-        if config.answer_mode != "copilot":
+        if not config_conversational(config):
             raise general_chat_off()
         profile = general_profile(request)
         role, team = profile.get("role"), profile.get("team_id")
@@ -1330,7 +1374,12 @@ def create_app(
         )
         line = copilot.read_only_line(question)
         required = [line] if line else []
-        if copilot_for(active) and active.model is not None:
+        if (
+            copilot_for(active)
+            and active.model is not None
+            and not is_remote_test_model(active.model)
+        ):
+            # No case, so no synthetic check: the general chat stays with a local model.
             return stream_of(copilot_stream(prep, started, remember, active.model, required))
         outcome = _Outcome(fallback_reason="model_disabled")
         reply = copilot_fallback(prep, outcome, required, copilot.GENERAL_LOCAL_ONLY_NOTICE)
@@ -1473,8 +1522,8 @@ def create_app(
             status="ok",
             llm_enabled=model is not None,
             model=model.name if model is not None else None,
-            answer_mode=config.answer_mode,
-            general_chat=config.answer_mode == "copilot",
+            answer_mode="copilot" if config_conversational(config) else "exact_lines",
+            general_chat=config_conversational(config),
         )
 
     @app.get("/assistant/cases/{case_id}/brief", response_model=BriefResponse)
@@ -1518,17 +1567,21 @@ def create_app(
             ):
                 emit("chat", started, _Outcome(fallback_reason="off_domain"), None)
                 return off_domain(suggested_questions(facts))
-            prepared = prepare(body, snapshot, question, history=history)
-            prep, required = copilot_prep(with_ownership(prepared, case_id, request), history)
-            outcome = _Outcome(model=active.model)
-            response = record(
-                case_id,
-                snapshot,
-                body,
-                prep,
-                copilot_complete(prep, active.model, required, outcome),
-                outcome,
+            remote = is_remote_test_model(active.model)
+            prepared = prepare(body, snapshot, question, remote=remote, history=history)
+            owned = local_ownership(prepared, case_id, request, remote)
+            prep, required = copilot_prep(owned, history)
+            # The exact prompt is checked (D-095) before any external call, as in exact lines.
+            model, lead = remote_gate(
+                active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
             )
+            outcome = _Outcome(model=model) if model is not None else refused_outcome(lead)
+            reply = (
+                copilot_complete(prep, model, required, outcome, lead=lead)
+                if model is not None
+                else copilot_fallback(prep, outcome, required, lead or FALLBACK_NOTICE)
+            )
+            response = record(case_id, snapshot, body, prep, reply, outcome)
         else:
             prep = prepare(
                 body,
@@ -1594,9 +1647,21 @@ def create_app(
             ):
                 emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
                 return stream_of(single(off_domain(suggestions)))
-            prepared = prepare(body, snapshot, question, history=history)
-            prep, required = copilot_prep(with_ownership(prepared, case_id, request), history)
-            return stream_of(copilot_stream(prep, started, finish, active.model, required))
+            remote = is_remote_test_model(active.model)
+            prepared = prepare(body, snapshot, question, remote=remote, history=history)
+            owned = local_ownership(prepared, case_id, request, remote)
+            prep, required = copilot_prep(owned, history)
+            model, lead = remote_gate(
+                active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
+            )
+            if model is None:
+                outcome = refused_outcome(lead)
+                reply = finish(
+                    copilot_fallback(prep, outcome, required, lead or FALLBACK_NOTICE), outcome
+                )
+                emit("stream", started, outcome, prep)
+                return stream_of(single(reply))
+            return stream_of(copilot_stream(prep, started, finish, model, required, lead=lead))
         prep = prepare(
             body, snapshot, question, remote=is_remote_test_model(active.model), history=history
         )

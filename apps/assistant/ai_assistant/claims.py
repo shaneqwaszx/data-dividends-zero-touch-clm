@@ -476,3 +476,233 @@ def negated_sentence(sentence: str) -> bool:
     text = _LEAD.sub("", " ".join(sentence.lower().replace("\u2019", "'").split()))
     text = text.strip().rstrip(".!")
     return any(form.fullmatch(text) for form in _NEGATED_SENTENCES)
+
+
+# --- refinement 3: application status claims ---------------------------------------------------
+#
+# A free-form answer may describe where the case stands only as the application records it:
+# a GoldTier submission that succeeded, failed or was rejected; blockers resolved; the case
+# ready for GoldTier, completed or at a given stage. Each claim is compared with the case facts
+# (the backend's own state); a claim they do not support removes the sentence
+# (``unsupported_status``). A negated claim ("has not been submitted") is checked the other way.
+# Like the other checks here, this only removes sentences.
+
+_GT_SUCCESS = re.compile(
+    r"\b(?:successfully )?(?:submitted|sent|dispatched|transmitted|pushed)\b[^.;]{0,50}?"
+    r"\bgold ?tier\b"
+    r"|\bgold ?tier\b[^.;]{0,50}?\b(?:accepted|approved|confirmed|received|created"
+    r"|onboarded|registered|completed)\b"
+    r"|\b(?:the |its |this )?submission\b[^.;]{0,30}?\b(?:succeeded|successful|confirmed"
+    r"|accepted|completed|complete|went through)\b"
+    r"|\b(?:has|have|was|were|is) (?:been |now |already )*(?:successfully )?submitted\b"
+    # QG F5: "The client is now live in GoldTier."
+    r"|\b(?:is|are|went|gone) (?:now |already )?live (?:in|on) gold ?tier\b"
+    r"|\b(?:now )?exists? in gold ?tier\b|\bgold ?tier said yes\b"
+)
+_GT_FAILURE = re.compile(
+    r"\bgold ?tier\b[^.;]{0,50}\b(?:rejected|refused|declined|failed|returned an error)\b"
+    r"|\b(?:rejected|refused|declined) by gold ?tier\b"
+    r"|\b(?:the |its |this )?submission\b[^.;]{0,30}\b(?:failed|was rejected|was refused"
+    r"|has been rejected|has failed|did not go through)\b"
+)
+_RESOLVED = re.compile(
+    r"\b(?:all |the |every |its )?(?:blockers?|exceptions?|discrepanc\w+|mismatch\w*|conflicts?"
+    r"|issues?|reviews?)\b[^.;]{0,60}\b(?:resolved|cleared|fixed|closed|removed|gone|completed"
+    r"|done|settled|lifted)\b"
+)
+_UNBLOCKED = re.compile(
+    r"\bno (?:more |remaining |open |outstanding |active )?(?:blockers?|exceptions?|open items?)\b"
+    r"|\b(?:is|are|has been|have been) (?:now )?(?:no longer |not )blocked\b|\bunblocked\b"
+    r"|\bnothing (?:is )?(?:blocking|left|outstanding|pending|remaining)\b"
+    r"|\b(?:no longer|not) open any ?more\b|\bno longer open\b"
+    r"|\b(?:all )?(?:open )?items? (?:are|have been|were) (?:now )?closed\b"
+    r"|\beverything is (?:done|complete|completed|finished)\b"
+)
+_READY = re.compile(
+    # "was ready" too: "The case moved on once it was ready for GoldTier." (delta QG note 2).
+    r"\b(?:is|are|was|were) (?:now |fully |already )*ready (?:for|to) (?:gold ?tier|submission"
+    r"|submit|be submitted|approval|final review|send|be sent)\b"
+)
+_COMPLETED = re.compile(
+    r"\b(?:the )?(?:case|onboarding|application|workflow|automation)\b[^.;]{0,25}"
+    r"\b(?:is|has been|was) (?:now |fully |already )*(?:completed?|finished|closed|finali[sz]ed)\b"
+)
+_STAGE = re.compile(
+    r"\b(?:current(?:ly)? (?:at |in )?(?:the )?|now (?:at|in) the |is (?:at|in) the )"
+    r"([a-z]+(?: [a-z]+)?) (?:stage|step)\b"
+    # Not "the next (previous, following) stage is ...": that names another stage (QG9).
+    r"|\b(?<!next )(?<!previous )(?<!following )(?<!prior )(?<!last )"
+    r"(?:current )?stage (?:is|=) (?:the )?([a-z]+(?: [a-z]+)?)\b"
+)
+# Words that name no stage of their own ("the current stage"); "final" or "first" do (QG F5).
+_STAGE_WORDS = frozenset({"current", "next", "same", "this", "that"})
+# Which of two conflicting values is right is a reviewer's decision, never the assistant's.
+_PICKS_VALUE = re.compile(
+    r"\b(?:the )?(?:registry|acra|document|uploaded|official|extracted|ocr|first|second|new|old)"
+    r"(?: document)?(?: value| address| one| version| record)?\b[^.;]{0,20}\b(?:is|was) (?:the )?"
+    r"(?:correct|right|accurate|true|valid|wrong|incorrect|outdated)\b"
+    r"|\buse the (?:registry|acra|document|uploaded|extracted) (?:value|address|one)\b"
+    r"|\b(?:registry|acra|document|uploaded) (?:value|address|one|version) wins\b"
+)
+_CONDITION = re.compile(r"\b(?:if|whether|unless|when|should|suppose|assuming)\b")
+# A result signed off by a person or team the facts never name ("verified by compliance").
+_SIGNED_OFF = re.compile(
+    r"\b(?:was|were|has been|have been|is|are|got) (?:already |now |officially |fully )*"
+    r"(?:verified|approved|confirmed|validated|signed off|cleared|certified|accepted)"
+    r" (?:by|with) (?:the )?(?:compliance|reviewer|reviewers|director|manager|team|regulator"
+    r"|auditor|mas|acra|bank|legal|operations|supervisor|officer)\b"
+    # Independent review round 4: passive grants and sign-offs.
+    r"|\b(?:approval|sign-?off|clearance|consent)\b[^.;]{0,20}\b(?:has been|was|is|got)"
+    r" (?:granted|given|obtained|issued)\b"
+    r"|\b(?:compliance|the reviewer|a reviewer|the director|the manager|the team|the bank)\b"
+    r"[^.;]{0,15}\b(?:has|have|had) (?:signed (?:this |it |the case )?off|approved|cleared"
+    r"|accepted)\b"
+    r"|\b(?:the |a )?reviewer (?:chose|picked|selected|decided on|accepted|kept)\b"
+)
+
+
+def _state_text(value: Any) -> str:
+    return re.sub(r"[_\s]+", " ", str(value or "")).strip().lower()
+
+
+# A negation counts only in the claim's own clause, after the last comma, colon, semicolon or
+# dash before the end of the claim, and at most a few words before it ("has not been
+# submitted", "is not ready"). "Don't worry, the blockers have been resolved." and "The
+# blockers, not the warnings, have been resolved." are claims (QG rounds 2 and 3). Bare "no"
+# and "without" never negate a verb.
+_LOCAL_NEGATION = re.compile(r"\b(?:not|never|nothing|no longer|yet to|cannot)\b|n't\b")
+_CLAUSE_MARK = re.compile(r"[,;:\u2013\u2014]| - ")
+_NEGATION_REACH = 14
+# Inside the claim, only its last words negate it ("are not resolved", "have not yet been
+# resolved"); "the blockers that could not be cleared earlier are now resolved" is a claim.
+_NEGATION_INSIDE = 24
+
+
+def _negated(text: str, found: re.Match[str]) -> bool:
+    start = max(0, found.start() - _NEGATION_REACH)
+    for mark in _CLAUSE_MARK.finditer(text, 0, found.end()):
+        start = max(start, mark.end())
+    inside = max(start, found.start(), found.end() - _NEGATION_INSIDE)
+    return bool(
+        _LOCAL_NEGATION.search(text[start : max(start, found.start())])
+        or _LOCAL_NEGATION.search(text[inside : found.end()])
+    )
+
+
+# A claim made inside a condition or a time clause of its own describes what has to happen,
+# not what has happened (QG9): a clause that starts with the condition word and is followed by
+# the main clause ("Once the blockers are resolved, the case can go to GoldTier."), or a
+# condition word just before the claim after the main clause ("It can move on when the case is
+# ready for GoldTier."). "Before lunch the blockers were all resolved." and "If you ask me the
+# case is ready for GoldTier." are claims (QG10).
+_HYPOTHETICAL = r"(?:once|after|when|whenever|until|till|before|if|unless)"
+_LEADING_CONDITION = re.compile(r"\s*(?:and |but |so |then )?" + _HYPOTHETICAL + r"\b")
+_NEAR_CONDITION = re.compile(r"\b" + _HYPOTHETICAL + r"\b((?:\s+[\w'-]+){0,3})\s*$")
+
+
+# A claim in the past tense says it happened ("once it was ready", "after the blockers were
+# resolved"), unless the condition is an "if" or "unless" ("If it were ready, ...").
+_PAST = re.compile(r"\b(?:was|were|had been)\b")
+_SUPPOSING = re.compile(r"\b(?:if|unless)\b")
+
+
+def _hypothetical(text: str, found: re.Match[str]) -> bool:
+    start = 0
+    for mark in _CLAUSE_MARK.finditer(text, 0, found.start()):
+        start = mark.end()
+    before = text[start : found.start()]
+    # The condition word must introduce the claim's own clause: at most three words before it
+    # ("When you open the case you will see it is ready for GoldTier, so submit it." is a claim;
+    # delta QG note 1).
+    near = _NEAR_CONDITION.search(before)
+    if near is None:
+        return False
+    if _PAST.search(found.group(0)) and not _SUPPOSING.match(before, near.start()):
+        return False
+    if _LEADING_CONDITION.match(before):
+        return _CLAUSE_MARK.search(text, found.end()) is not None
+    return bool(before[: near.start()].strip())
+
+
+def goldtier_status(sentence: str, facts: dict[str, Any] | None) -> bool | None:
+    """Whether a sentence's GoldTier submission claim agrees with the recorded state: True
+    (it does), False (it does not), None (the sentence makes no such claim)."""
+
+    if not facts:
+        return None
+    text = sentence.lower().replace("’", "'")
+    goldtier = facts.get("goldtier") or {}
+    state = str(goldtier.get("state") or "NOT_SUBMITTED").upper()
+    sent = state in ("SUBMISSION_CONFIRMED", "FINALIZATION_PENDING")
+    failure = list(_GT_FAILURE.finditer(text))
+    success = list(_GT_SUCCESS.finditer(text))
+    if not failure and not success:
+        return None
+    if state not in ("NOT_SUBMITTED", "SUBMISSION_CONFIRMED", "SUBMISSION_FAILED"):
+        # Sending, outcome uncertain or finalisation pending: neither "sent" nor "not sent"
+        # is what the record shows (QG round 3).
+        return False
+    # Every claim in the sentence must agree with the record.
+    failed = state == "SUBMISSION_FAILED"
+    return all(_negated(text, found) != failed for found in failure) and all(
+        _negated(text, found) != sent for found in success
+    )
+
+
+def status_problem(sentence: str, facts: dict[str, Any] | None) -> str | None:
+    """``unsupported_status`` when the sentence states a GoldTier submission outcome, blockers
+    resolved, readiness, completion, a stage, a reviewer's decision on an open conflict or a
+    sign-off the case facts do not show; else None."""
+
+    if not facts:
+        return None
+    text = sentence.lower().replace("’", "'")
+
+    def claimed(pattern: re.Pattern[str]) -> re.Match[str] | None:
+        # The first match of the claim that is not negated where it is made.
+        return next((m for m in pattern.finditer(text) if not _negated(text, m)), None)
+
+    def stated(pattern: re.Pattern[str]) -> re.Match[str] | None:
+        # As claimed, and not made inside a condition or time clause of its own.
+        return next(
+            (
+                m
+                for m in pattern.finditer(text)
+                if not _negated(text, m) and not _hypothetical(text, m)
+            ),
+            None,
+        )
+
+    if goldtier_status(sentence, facts) is False:
+        return "unsupported_status"
+    if claimed(_SIGNED_OFF):
+        return "unsupported_status"
+    open_conflict = any(
+        str((item or {}).get("status") or "").upper() == "OPEN"
+        for item in facts.get("discrepancies") or []
+    )
+    picked = claimed(_PICKS_VALUE) if open_conflict else None
+    if picked and not _CONDITION.search(text[: picked.start()]):
+        # "If the registry is right, ..." explains a choice; it does not make it.
+        return "unsupported_status"
+    readiness = facts.get("readiness") or {}
+    open_items = bool(facts.get("blockers")) or bool(readiness.get("blockers"))
+    if _UNBLOCKED.search(text) and open_items:
+        return "unsupported_status"
+    if stated(_RESOLVED) and open_items:
+        return "unsupported_status"
+    if stated(_READY):
+        sections = readiness.get("sections") or {}
+        if open_items or str(sections.get("goldtier") or "").upper() != "READY":
+            return "unsupported_status"
+    overall = facts.get("overall") or {}
+    if stated(_COMPLETED) and "completed" not in _state_text(overall.get("status")):
+        return "unsupported_status"
+    stage = claimed(_STAGE)
+    if stage:
+        named = (stage.group(1) or stage.group(2) or "").strip()
+        if named and named.split()[0] not in _STAGE_WORDS:
+            current = _state_text(overall.get("current_stage"))
+            if named not in current and current not in named:
+                return "unsupported_status"
+    return None

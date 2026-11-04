@@ -34,7 +34,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from . import anthropic_profiles, remote_test, synthetic_eligibility
-from .config import AiAssistantSettings
+from .config import AiAssistantSettings, external_conversational
 from .llm import (
     ModelAnswer,
     ModelCallError,
@@ -280,6 +280,15 @@ def _remote_name(settings: AiAssistantSettings) -> str:
     return f"{MODEL_NAME} (reasoning {effort})" if effort else MODEL_NAME
 
 
+def _answers(settings: AiAssistantSettings, configuration: str) -> str:
+    # Conversational answers are part of what an external model's qualification is tied to:
+    # an exact-line qualification never counts for them, and the exact-line rollback brings
+    # the earlier identity back.
+    if not external_conversational(settings):
+        return configuration
+    return fingerprint({"configuration": configuration, "answers": "free text"})
+
+
 def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]:
     entries = []
     for profile in APPROVED_PROFILES.values():
@@ -338,7 +347,7 @@ def _remote_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
                     timeout_seconds=variant.llm_timeout_seconds,
                     streaming=profile.capabilities.streaming,
                     # The reasoning effort is part of it: Fast never matches the configured one.
-                    fingerprint=remote_test.remote_fingerprint(variant),
+                    fingerprint=_answers(variant, remote_test.remote_fingerprint(variant)),
                     status="selectable" if problem is None else "unavailable",
                     reason=problem,
                     details=_remote_details(variant, authorised=True),
@@ -383,7 +392,7 @@ def _claude_entries(settings: AiAssistantSettings) -> tuple[CatalogueEntry, ...]
             temperature=None,
             timeout_seconds=anthropic_profiles.TIMEOUT_SECONDS,
             streaming=True,
-            fingerprint=fingerprint(config.identity()),
+            fingerprint=_answers(settings, fingerprint(config.identity())),
             status=status,
             reason=reason,
             details=(

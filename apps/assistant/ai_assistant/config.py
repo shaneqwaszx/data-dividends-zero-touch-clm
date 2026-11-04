@@ -30,6 +30,27 @@ APPROVED_QUALIFICATION_QUESTIONS = "P01#1,P02#0"
 APPROVED_QUALIFICATION_COUNT = 2
 
 
+# Owner approval of conversational (free-text) answers, including external models on verified
+# synthetic cases (D-115 conversational contract). None until the owner records the decision in
+# a reviewed change; nothing a teammate sets turns it on.
+CONVERSATIONAL_DECISION: str | None = None
+
+
+def conversational(settings: "AiAssistantSettings") -> bool:
+    """True when answers are written in the model's own words (checked sentence by sentence)."""
+
+    mode = settings.answer_mode
+    return mode == "copilot" or (mode == "auto" and CONVERSATIONAL_DECISION is not None)
+
+
+def external_conversational(settings: "AiAssistantSettings") -> bool:
+    """True when an external model (Claude, GPT-OSS) may answer in its own words: the owner's
+    recorded decision, never a setting alone (``answer_mode=copilot`` keeps external models on
+    exact lines, as before D-115 X2), and not the exact-line rollback."""
+
+    return CONVERSATIONAL_DECISION is not None and conversational(settings)
+
+
 class AiAssistantSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_ASSISTANT_", env_file=".env", extra="ignore")
 
@@ -187,11 +208,11 @@ class AiAssistantSettings(BaseSettings):
     max_history_messages: int = Field(default=8, ge=0, le=20)
     max_question_chars: int = Field(default=600, ge=20, le=4000)
 
-    # How a model answer is written. "exact_lines" (default, unchanged): the model may only
-    # repeat approved catalog lines (ADR-012 section C). "copilot" (proposed D-115, needs the
-    # owner's approval): free-form reasoning, every sentence checked by the same grounding and
-    # action checks, a local model only; an external model keeps exact lines.
-    answer_mode: Literal["exact_lines", "copilot"] = "exact_lines"
+    # How answers are written. "auto" (the default): exact lines until the owner approves
+    # conversational answers (CONVERSATIONAL_DECISION), then conversational answers for every
+    # model, external ones on verified synthetic cases only. "exact_lines" is the rollback;
+    # "copilot" forces conversational answers (development and tests).
+    answer_mode: Literal["auto", "exact_lines", "copilot"] = "auto"
     # Chat contexts (D-115 case memory): the turns of one chat are held in memory only, for
     # one user and one case (or the general chat), and dropped when the chat is left, after
     # this idle time, or at the latest after the absolute time (the backend's session lifetime).

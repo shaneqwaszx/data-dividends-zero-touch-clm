@@ -15,6 +15,7 @@ are ignored, so a developer's own configuration cannot change what is measured. 
 always has; the harness never uses that app.)
 """
 
+import hashlib
 import json
 import shutil
 import tempfile
@@ -48,7 +49,7 @@ from .snapshot import (
     prompt_fingerprint,
     turn_snapshot,
 )
-from .variants import CaseInputs, case_inputs
+from .variants import UAT_FIXTURES, CaseInputs, case_inputs, verified_fixture_documents
 
 STORE_CLOCK = "2026-10-26T00:00:00+00:00"
 EVAL_NOW = datetime.fromisoformat(STORE_CLOCK)
@@ -115,6 +116,25 @@ class Workspace:
         self.close()
 
 
+def _digests(documents: Any) -> list[dict[str, Any]]:
+    replies = []
+    for document in documents or []:
+        name = str(document.get("display_name") or "")
+        # Only a plain file name of a tracked fixture (no path) has a digest.
+        found = UAT_FIXTURES / name if name and Path(name).name == name else None
+        found = found if found is not None and found.is_file() else None
+        replies.append(
+            {
+                "document_id": document.get("document_id"),
+                "document_version": document.get("document_version"),
+                "content_sha256": hashlib.sha256(found.read_bytes()).hexdigest()
+                if found is not None
+                else None,
+            }
+        )
+    return replies
+
+
 def _backend(case: CaseInputs) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method != "GET" or request.headers.get("cookie") != f"clm_session={SESSION}":
@@ -126,6 +146,10 @@ def _backend(case: CaseInputs) -> httpx.MockTransport:
             return httpx.Response(200, json=case.summary)
         if path == f"/api/onboarding/cases/{case.case_id}/documents":
             return httpx.Response(200, json=case.documents)
+        if path == f"/api/onboarding/cases/{case.case_id}/document-digests":
+            # What the backend computed at upload: the SHA-256 of each document's bytes,
+            # here the tracked synthetic fixture file of that name (None when there is none).
+            return httpx.Response(200, json=_digests(case.documents))
         return httpx.Response(404, json={"detail": "not found"})
 
     return httpx.MockTransport(handler)
@@ -205,6 +229,8 @@ def run(
     workspace: Workspace | None = None,
     only: set[str] | None = None,
     turns: frozenset[str] | None = None,
+    harness_settings: AiAssistantSettings | None = None,
+    verified_documents: bool = False,
 ) -> RunResult:
     """Ask every question of every scenario (``only``: a subset of scenario ids; ``turns``:
     only these turn keys, from scenarios without a conversation history)."""
@@ -236,8 +262,10 @@ def run(
             model_name = model.name
             sink = MemorySink()
             case = case_inputs(scenario.base, scenario.variants)
+            if verified_documents:
+                case = verified_fixture_documents(case)
             app = create_app(
-                settings(),
+                harness_settings or settings(),
                 clm_transport=_backend(case),
                 chat_model=model,
                 knowledge=space.knowledge(scenario.knowledge),
@@ -289,13 +317,36 @@ def _scenario(
         response = client.post(chat, json={"message": question, "history": history})
         done = _done(response)
         prep = capture.latest
-        if prep is None or len(sink.records) != before + 1:
-            raise RuntimeError("the service did not prepare and record this question")
+        recorded = len(sink.records) == before + 1
+        if prep is None and recorded and sink.records[-1].fallback_reason == "off_domain":
+            # Copilot mode's scope check refused the question before any model or prompt.
+            results.append(
+                TurnResult(
+                    key=key,
+                    rep=rep,
+                    answered_by=str(done["answered_by"]),
+                    fallback_reason="off_domain",
+                    shown=(),
+                    unmapped=0,
+                    cited_entries=(),
+                    offered=(),
+                    prompt_fingerprint="",
+                    drift=False,
+                    metrics=sink.records[-1].to_dict(),
+                    answer_text=str(done.get("answer") or ""),
+                )
+            )
+            # Not kept in the chat, as the service never keeps a refused exchange.
+            continue
+        if prep is None or not recorded:
+            raise RuntimeError(f"the service did not prepare and record this question ({key})")
         offered = {item.id: text for _, item, text in offered_lines(prep)}
         answer = str(done.get("answer") or "")
         added = frozenset(done.get("added_lines") or [])
         shown, unmapped = (
-            _shown(answer, offered, added) if done["answered_by"] == "model" else ((), 0)
+            _shown(answer, offered, added)
+            if done["answered_by"] == "model" and not getattr(prep, "conversational", False)
+            else ((), 0)
         )
         tags = {item.tag: item.hit.entry.entry_id for item in prep.tagged}
         cited = tuple(

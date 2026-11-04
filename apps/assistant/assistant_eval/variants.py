@@ -10,12 +10,17 @@ submission, an instruction hidden in a document value).
 
 import copy
 import json
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+# The synthetic document files the repository tracks (their bytes, unlike the recorded
+# documents' own, are here), and the Garden one a verified case is given.
+UAT_FIXTURES = Path(__file__).resolve().parents[2] / "backend" / "tests" / "fixtures" / "uat"
+VERIFIED_GARDEN_DOCUMENT = "garden-business-clean-onboarding-profile.pdf"
 
 BASES = {
     # The recorded address-conflict case with its three documents.
@@ -179,6 +184,36 @@ def instruction_in_document_value(case: CaseInputs) -> CaseInputs:
                 field["normalized_value"] = INJECTED_INSTRUCTION
                 field["original_extracted_value"] = INJECTED_INSTRUCTION
     return CaseInputs(summary, documents, copy.deepcopy(case.actor))
+
+
+def verified_fixture_documents(case: CaseInputs) -> CaseInputs:
+    """The case as if its document were the tracked synthetic Garden fixture file: one
+    document of that name, media type and byte size carrying the recorded document's
+    identity values, which the summary's document observations then name. Used for
+    conversational qualification, where the external model answers only verified synthetic
+    cases (D-095): the recorded documents' bytes are not in the repository, so they can
+    never be verified, while this one's digest is the fixture's own."""
+
+    if not case.documents:
+        return case
+    summary = copy.deepcopy(case.summary)
+    document = copy.deepcopy(case.documents[0])
+    data = (UAT_FIXTURES / VERIFIED_GARDEN_DOCUMENT).read_bytes()
+    document.update(
+        display_name=VERIFIED_GARDEN_DOCUMENT,
+        size_bytes=len(data),
+        media_type="application/pdf",
+        document_id=str(uuid.uuid5(uuid.NAMESPACE_URL, VERIFIED_GARDEN_DOCUMENT)),
+        document_version=1,
+    )
+    for discrepancy in (summary.get("reconciliation") or {}).get("discrepancies") or []:
+        for observation in discrepancy.get("observations") or []:
+            if observation.get("document_id"):
+                observation.update(
+                    document_id=document["document_id"],
+                    document_display_name=VERIFIED_GARDEN_DOCUMENT,
+                )
+    return CaseInputs(summary, [document], copy.deepcopy(case.actor))
 
 
 VARIANTS: dict[str, Callable[[CaseInputs], CaseInputs]] = {
