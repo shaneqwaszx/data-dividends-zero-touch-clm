@@ -1577,3 +1577,17 @@ Delta only. Owner-approved (B1 Phase A only; Phase B reconciliation is not imple
 - Evidence class: offline mock and local only.
 - **Open:** independent QG, owner publication authorisation, `pre_pr_check.py`, owner merge;
   the running assistant shows the view only after an owner-approved restart.
+
+## AI Assistant D-118 usability remediation (branch `fix/d118-setup-usability`) - 2026-11-04
+
+Delta only, within D-118 (decision log: usability remediation U1 to U4):
+
+- **Root cause.** The paid question list defaulted to empty, so the US$1.00 qualification showed
+  "—" and was refused as "no room". It is now the approved `P01#1,P02#0` (two calls) by default.
+- **Named causes.** The estimate carries `limits`, `blocking` and `unavailable`. The session
+  allowance counts. Store and setup states are never reported as a budget shortfall.
+- **Wizard.** It needs a passed connection check before step 3, shows the cost and limits, and
+  can create a missing Claude session store for an existing record.
+- **Evidence.** `apps/assistant/tests/ui_stack.py` runs the real assistant with mock providers
+  for `e2e/ai-models-setup-real-stack.e2e.ts` (scenarios A to H). Class: Local.
+- **Basis.** Unchanged.

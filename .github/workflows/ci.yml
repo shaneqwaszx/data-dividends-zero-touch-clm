@@ -125,8 +125,8 @@ jobs:
     # slow test and names the failing step; the runner deadline still stops a hung process.
     # Six tests set a longer test.setTimeout (180-240 s); for them the runner bound fires first
     # (they currently finish in under 50 s).
-    # 119 discovered lifecycles partition into at most 40 per shard, with all tests retained.
-    # Largest shard: 40 * (180s execution + 120s cleanup) + 60s = 201 minutes.
+    # 127 discovered lifecycles partition into at most 43 per shard, with all tests retained.
+    # Largest shard: 43 * (180s execution + 120s cleanup) + 60s = 216 minutes.
     # Keep the existing job deadline and 14-minute installation allowance.
     timeout-minutes: 234
     services:
@@ -151,7 +151,8 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
-      - run: python -m pip install -e "apps/backend[dev]"
+      # D-118 usability: the real-stack AI Models spec starts the assistant service itself.
+      - run: python -m pip install -e "apps/backend[dev]" -e "apps/assistant"
       - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - run: npm ci
         working-directory: apps/frontend

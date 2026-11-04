@@ -659,6 +659,9 @@ def run(
         # error-context.md after failures; authenticated pages may contain KYC data.
         "PLAYWRIGHT_NO_COPY_PROMPT": "1",
         "PLAYWRIGHT_BASE_URL": frontend_origin,
+        # D-118 usability: specs that start the real assistant service (tests/ui_stack.py)
+        # use this runner's own interpreter, on Windows and POSIX alike.
+        "CLM_E2E_PYTHON": sys.executable,
         **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
     }
 

@@ -24,6 +24,12 @@ def under_data_root(root: Path, value: str) -> str:
     return os.path.normpath(root.joinpath(*parts))
 
 
+# D-092 P10 and D-107 Q1: the approved paid qualification questions and their number. Changing
+# them needs owner approval (D-111 Q6 proposes four; not approved).
+APPROVED_QUALIFICATION_QUESTIONS = "P01#1,P02#0"
+APPROVED_QUALIFICATION_COUNT = 2
+
+
 # Owner approval of conversational (free-text) answers, including external models on verified
 # synthetic cases (D-115 conversational contract). None until the owner records the decision in
 # a reviewed change; nothing a teammate sets turns it on.
@@ -116,9 +122,13 @@ class AiAssistantSettings(BaseSettings):
     # and limits with its own configuration identity: it needs its own passing (paid)
     # qualification before HR can activate it; another setting's qualification never counts.
     remote_low_reasoning_profile_enabled: bool = False
-    # The paid qualification: Phase B question ids (P01#1,...) and their count.
-    local_api_test_qualification_questions: str = ""
-    local_api_test_qualification_count: int = Field(default=0, ge=0, le=17)
+    # The paid qualification: Phase B question ids (P01#1,...) and their count. The default is
+    # the approved set (D-092 P10, D-107 Q1: two questions, two paid calls); a launcher or .env
+    # that leaves both blank (the example file's empty values) gets it too (D-118 usability).
+    local_api_test_qualification_questions: str = APPROVED_QUALIFICATION_QUESTIONS
+    local_api_test_qualification_count: int = Field(
+        default=APPROVED_QUALIFICATION_COUNT, ge=0, le=17
+    )
     # D-095 development synthetic mode (off unless named, and only on top of a ready D-094
     # mode): the chat may then use the remote model on any verified synthetic development case
     # (synthetic_eligibility.py), not only the one D-094 fixture case. Never for real data.
@@ -214,6 +224,19 @@ class AiAssistantSettings(BaseSettings):
     # Content-free metrics for each explicit question (telemetry.py): off by default; "log"
     # writes one JSON line per answer with counts, sizes, timings and codes only.
     telemetry: Literal["off", "log"] = "off"
+
+    @model_validator(mode="after")
+    def _approved_qualification_when_unset(self) -> Self:
+        # Both left blank (empty list, count 0) means "not set": the approved set applies. A
+        # list or count set on its own is kept as given, so a wrong value is still refused by
+        # name (REMOTE_MANIFEST_MISSING) and never silently replaced.
+        if (
+            not self.local_api_test_qualification_questions.strip()
+            and self.local_api_test_qualification_count == 0
+        ):
+            self.local_api_test_qualification_questions = APPROVED_QUALIFICATION_QUESTIONS
+            self.local_api_test_qualification_count = APPROVED_QUALIFICATION_COUNT
+        return self
 
     @model_validator(mode="after")
     def _place_stores_under_data_root(self) -> Self:

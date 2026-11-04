@@ -244,7 +244,9 @@ def test_a_ready_mode_lists_a_selectable_remote_entry(tmp_path: Path) -> None:
         ("P01#1,P02#0", 2, True),
         ("P01#1,P02#0", 3, False),
         ("P01#1,P01#1", 2, False),
-        ("", 0, False),
+        # D-118 usability: both left blank means the approved default (P01#1,P02#0, 2 calls).
+        ("", 0, True),
+        ("", 2, False),
     ],
 )
 def test_the_paid_qualification_needs_a_counted_manifest(

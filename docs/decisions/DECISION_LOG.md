@@ -2360,3 +2360,21 @@ Reported for the owner, not changed (non-financial guardrails or separate approv
 - **GPT-OSS attestations are launcher settings.** The OpenRouter owner attestations (`auto_topup_off`, `prompt_logging_off`) and the D-094/D-095 decision names remain launcher settings. A teammate sets them when starting the stack, not in the console.
 - **Keys end with the session.** HR keys stay in memory only and end with the session or a restart (D-106).
 - **The owner's own deployment.** Switching the owner's deployment to the session stores, archiving its old ledgers, a paid requalification, a restart and a merge each need separate approval.
+
+**Usability remediation 2026-11-04 (owner direction "D-118 — Final Usability Remediation: Make AI
+Setup Actually Work"; PROJECT-DEFINED within D-118, no new authority).** Root cause of the
+refused US$1.00 qualification: the paid question list defaulted to empty. The example `.env`
+ships it blank with count 0, so the call count was unknown, the estimate showed "—" and the page
+fell back to a generic "no room" message. The session (US$1.00, no calls) was never the blocker.
+
+| # | Change |
+| --- | --- |
+| U1 | **Approved default.** `AI_ASSISTANT_LOCAL_API_TEST_QUALIFICATION_QUESTIONS` defaults to the approved `P01#1,P02#0` with count 2 (D-092 P10, D-107 Q1). Both blank with count 0 means "unset" and gets that default. Any other inconsistent value is kept and refused by name (`REMOTE_MANIFEST_MISSING`). The question set is unchanged; D-111 Q6 stays a proposal. |
+| U2 | **Named limits.** The paid estimate lists each limit (session, daily, lifetime, provider key) and names the one that blocks. The session's remaining amount now counts, so a run that the session cannot complete is refused before any call (`SESSION_ALLOWANCE_INSUFFICIENT`). Admission is unchanged. |
+| U3 | **No false budget refusals.** A missing, earlier-design or unhealthy store is `SPENDING_STORE_NOT_READY`, and any other missing setup step keeps its own code. The budget refusal is returned only for a daily, lifetime or zero daily limit. |
+| U4 | **Wizard.** Step 3 opens only after a passed connection check. A failed check never opens the paid confirmation. The cost and every limit are shown. An enablement record with no session store can create the store by confirming the setup again. A deliberate allowance is never reset or raised. |
+
+Unchanged: the qualification basis (`synthetic_boundary.json` stays current; `config.py` and
+`model_admin.py` are not basis files), admission and conservative charging, the caps, RBAC,
+D-094/D-095/D-104, D-106 key handling, audit, and the paid-call consent. Evidence class: Local
+(mock providers, disposable stores, real assistant service in real Chromium).
