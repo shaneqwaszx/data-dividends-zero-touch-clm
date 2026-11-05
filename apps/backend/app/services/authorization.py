@@ -57,7 +57,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("PATCH", "/api/policies/{policy_id}", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/policies/{policy_id}/reset", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/policies/reset", RouteAccess.ACTOR_ONLY),
-    # D-121: the owning service applies the Director or RM/onboarder rule on these.
+    # D-123: the owning service applies the Director or RM/onboarder rule on these.
     RoutePolicy("GET", "/api/workflows", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/workflows/startable", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows", RouteAccess.ACTOR_ONLY),

@@ -1,4 +1,4 @@
-"""D-121 physical MongoDB proof for workflow definitions and runs.
+"""D-123 physical MongoDB proof for workflow definitions and runs.
 
 Opt-in like every ``*_real_mongo`` suite: it runs only when ``PHASE12_MONGO_URI`` is set.
 Each test uses a newly generated allowlisted database that is dropped afterwards.

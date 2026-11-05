@@ -92,7 +92,7 @@ from .budget import (
     LedgerError,
     next_singapore_reset_ms,
 )
-from .config import AiAssistantSettings
+from .config import AiAssistantSettings, external_conversational
 from .llm import (
     ROUTING_ANOMALIES,
     ChatModel,
@@ -847,7 +847,7 @@ class ClaudeTestModel:
         if (
             cleared is not None
             and self._clock() - cleared <= synthetic_eligibility.TICKET_SECONDS
-            and self.development_mode()
+            and (external_conversational(self._settings) or self.development_mode())
         ):
             return True
         return check_messages(messages) is None
@@ -877,7 +877,10 @@ class ClaudeTestModel:
         # Blocking (ledger, preflight request): never on the event loop. Returns the guarded
         # adapter to call (rebuilt when the key changed).
         ticket = synthetic_eligibility.admitted(messages)
-        development = ticket and self.development_mode()
+        # D-122: conversational answers rest on the ticket alone, on any case.
+        development = ticket and (
+            external_conversational(self._settings) or self.development_mode()
+        )
         if not development and check_messages(messages) is not None:
             raise self._refuse("text outside the synthetic boundary")
         # A prompt the Messages API cannot take (not the service's known shape; D-099-FU1) is

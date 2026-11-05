@@ -114,7 +114,7 @@ class CaseDeletionService:
                 raise CaseDeleteForbiddenError
             restore_workflow_data: Callable[[], None] = _nothing_to_restore
             try:
-                # D-121: first, so collected answers can never outlive their case. They
+                # D-123: first, so collected answers can never outlive their case. They
                 # go back if the case itself cannot be deleted.
                 if self._delete_workflow_data is not None:
                     restore_workflow_data = self._delete_workflow_data(case_id)

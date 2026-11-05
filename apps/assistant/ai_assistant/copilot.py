@@ -72,7 +72,10 @@ OFF_DOMAIN_REPLY = (
 _ABOUT_THE_CASE = re.compile(
     r"\b(?:this|that|it|its|here|paused|stuck|waiting|wrong|problem\w*|issue\w*|fix\w*|next"
     r"|blocked|done|left|remaining|earlier|above|missing|outstanding|steps?|stages?|ready"
-    r"|readiness)\b"
+    r"|readiness"
+    # D-122: terms from the case pages. Only with a case open, so an everyday "score" stays out.
+    r"|canonical|source agreement|record correction|suggestions?|polic(?:y|ies)"
+    r"|scores? of \d|match score)\b"
     # Short questions about where the case stands; "status" or "risk" alone ("the status of
     # my flight") is not enough.
     r"|^(?:so |and |ok )?(?:what(?:'s| is)?|whats) (?:the )?(?:status|risk(?: rating)?)\W*$"
@@ -103,7 +106,8 @@ _OFF_TOPIC = re.compile(
     r"\b(?:weather|rain\w*|forecast\w*|flights?|holidays?|travel\w*|hotels?|cook\w*|recipes?"
     r"|food|dinner|lunch|breakfast|restaurants?|movies?|films?|songs?|music|lyrics|poem\w*"
     r"|jokes?|football|soccer|sports?|bitcoin|crypto\w*|stock prices?|lottery|horoscopes?"
-    r"|python|javascript|recursion|programming|homework)\b"
+    r"|python|javascript|recursion|programming|homework|assignments?|translat\w*"
+    r"|prime ministers?|presidents?)\b"
 )
 # Words that bring no topic of their own. A short question made only of these ("Status?",
 # "Why?", "How did you calculate that?", "What should I do next?") is about the chat it is
@@ -126,7 +130,7 @@ _CONTEXTUAL_WORDS = frozenset(
         "concern", "concerns", "problem", "problems", "issue", "issues", "wrong", "left",
         "remaining", "check", "checks", "priority", "important", "not", "no", "yes", "right",
         "correct", "sure", "about", "of", "to", "for", "in", "at", "by", "from", "with", "without",
-        "up",
+        "up", "need", "needs", "needed",
     ]
 )
 _WORD = re.compile(r"[a-z']+")
@@ -136,7 +140,8 @@ _NAMED_FOLLOW_UP = re.compile(r"^(?:and|or|also|plus|what about|how about)\b")
 
 
 _ARITHMETIC_ONLY = re.compile(
-    r"^(?:(?:what(?:'s| is)|whats|how much is|calculate|compute|solve|work out|and|so|ok)\s+)*"
+    r"^(?:(?:what about|what(?:'s| is)|whats|how much is|calculate|compute|solve|work out"
+    r"|and|so|ok)\s+)*"
     r"[-+*/x×÷^=().,\d\s]*\d[-+*/x×÷^=().,\d\s]*\??$"
 )
 
@@ -213,8 +218,8 @@ NO_CASE_MESSAGE = (
 
 
 # The rules a local model reasons under (guidelines, not sentences to copy). Kept here, not in
-# instructions/, so their words never widen the D-094 boundary's conversation vocabulary: a
-# copilot prompt is never sent to an external model. Editing them cannot widen what is shown.
+# instructions/, so their words never widen the D-094 boundary's conversation vocabulary.
+# Under D-122 external models receive them too. Editing them cannot widen what is shown.
 RULES = (
     "You are the AI Assistant of a corporate onboarding (CLM) application. You help "
     "onboarding staff understand and progress corporate onboarding: KYC, ACRA registry "

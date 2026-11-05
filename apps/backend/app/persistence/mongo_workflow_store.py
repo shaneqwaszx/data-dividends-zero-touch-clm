@@ -1,4 +1,4 @@
-"""Mongo persistence for workflow definitions and runs (D-121).
+"""Mongo persistence for workflow definitions and runs (D-123).
 
 Writes are insert-only on create and revision-guarded on update, so a deleted record
 cannot be recreated by a stale writer.

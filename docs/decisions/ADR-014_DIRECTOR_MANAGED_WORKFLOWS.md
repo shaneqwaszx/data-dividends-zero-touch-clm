@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted by owner direction (D-121). `USER_AUTHORIZED_POC`; not sponsor-confirmed.
+Accepted by owner direction (D-123). `USER_AUTHORIZED_POC`; not sponsor-confirmed.
 
 ## Date
 

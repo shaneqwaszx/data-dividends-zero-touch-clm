@@ -1,4 +1,4 @@
-"""Read-only values an onboarded case offers to existing-case workflows (D-121)."""
+"""Read-only values an onboarded case offers to existing-case workflows (D-123)."""
 
 from __future__ import annotations
 

@@ -440,7 +440,7 @@ class DocumentProcessingService:
                 message="Human field review is required for this provisional document profile.",
                 code="DOCUMENT_REVIEW_REQUIRED",
             )
-            if self._upload_observer is not None:  # D-121: absent unless switched on.
+            if self._upload_observer is not None:  # D-123: absent unless switched on.
                 self._upload_observer(record.case_id, record.document_id, extracted_content)
             return record.model_copy(deep=True)
         except DocumentProcessingInfrastructureError:

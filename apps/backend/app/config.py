@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     acra_marketplace_poc_ownership_acceptance: Literal["disabled", "accept_eligible_poc"] = (
         "accept_eligible_poc"
     )
+    # D-121 (owner, 2026-11-05): on the official Mock lane a UBO review never blocks
+    # readiness; issues and classifications stay visible. Sandbox/Live never qualify.
+    acra_marketplace_ubo_review_mode: Literal["advisory", "blocking"] = "advisory"
     # D-086 operator selector, hybrid lane only: which whitelisted scenario the OPQ root
     # uses. The historical five-layer simulation stays the default; never a case field.
     acra_marketplace_opq_scenario: Literal[
@@ -48,7 +51,7 @@ class Settings(BaseSettings):
     )
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
-    # D-121: Director workflows. Case flows only change once a Director activates a stage.
+    # D-123: Director workflows. Case flows only change once a Director activates a stage.
     workflow_manager_enabled: bool = True
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
     idp_max_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)

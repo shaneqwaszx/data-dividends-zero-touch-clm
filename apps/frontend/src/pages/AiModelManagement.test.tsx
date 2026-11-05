@@ -721,7 +721,7 @@ describe("AiModelManagement GPT-OSS 120B naming", () => {
     await waitFor(() => expect(view.textContent).toContain("GPT-OSS 120B — Fast"));
     expect(view.textContent).toContain("GPT-OSS 120B — Balanced");
     expect(view.textContent).toContain("Provider: OpenRouter / DeepInfra · Framework: Case-grounded Assistant · Reasoning: Medium");
-    expect(view.textContent).toContain("External inference: Verified synthetic cases only (D-095)");
+    expect(view.textContent).toContain("External inference: Every authorised case (D-122)");
     expect(view.textContent).toContain("Reasoning: Low");
     expect(view.textContent).toContain("the Balanced qualification does not count for it");
     expect(view.textContent).not.toContain("synthetic test only, D-094");
@@ -2220,9 +2220,9 @@ describe("AiModelManagement data access policy", () => {
     expect(view.querySelector("[data-testid=access-anthropic]")!.textContent).toContain("Provider");
     expect(box(view, "local_internal").checked).toBe(false);
     expect(box(view, "local_internal").disabled).toBe(false);
-    expect(view.textContent).toContain("Restrict AI to verified synthetic cases");
-    expect(view.textContent).toContain("it cannot be enabled on this page");
-    expect(view.textContent).toContain("D-095 verified synthetic cases");
+    expect(view.textContent).toContain("AI data access");
+    expect(view.textContent).toContain("this POC must hold synthetic data only");
+    expect(view.textContent).not.toContain("Verification in force"); // shown only while a restriction applies
   });
 
   it("restricts a local model without confirmation and always keeps external models restricted", async () => {
@@ -2405,7 +2405,7 @@ describe("AiModelManagement Claude setup by HR (D-107)", () => {
     const view = mount(setupServer(setup(), calls), "providers");
     await waitFor(() => expect(view.querySelector("[data-testid=claude-setup]")).not.toBeNull());
     expect(panel(view).textContent).toContain("Claude setup — Not enabled");
-    const enable = () => button(panel(view), "Enable Claude for Verified Synthetic Cases");
+    const enable = () => button(panel(view), "Enable Claude");
     expect(enable().disabled).toBe(true);
     await act(async () => button(panel(view), "Read Workspace").click());
     await waitFor(() => expect(panel(view).textContent).toContain("wrkspc_01TestWorkspace"));
@@ -2435,10 +2435,10 @@ describe("AiModelManagement Claude setup by HR (D-107)", () => {
     const view = mount(setupServer(enabled, calls), "providers");
     await waitFor(() => expect(view.querySelector("[data-testid=claude-setup]")).not.toBeNull());
     const text = panel(view).textContent ?? "";
-    expect(text).toContain("Claude setup — Enabled for verified synthetic cases");
+    expect(text).toContain("Claude setup — Enabled");
     expect(text).toContain("US$30.00, owner-confirmed. It is not read from Anthropic, and the app cannot verify it.");
     expect(text).toContain("wrkspc_01TestWorkspace");
-    expect(() => button(panel(view), "Enable Claude for Verified Synthetic Cases")).toThrow();
+    expect(() => button(panel(view), "Enable Claude")).toThrow();
     await act(async () => button(panel(view), "Disable Claude").click());
     expect(JSON.parse(calls.find((call) => call.method === "PUT")?.body ?? "{}")).toEqual({ expected_revision: 2, enabled: false });
   });

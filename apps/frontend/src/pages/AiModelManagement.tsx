@@ -403,7 +403,7 @@ export const REASONING_LABEL: Record<string, string> = { low: "Fast", medium: "B
 const PROVIDER_LABEL: Record<string, string> = { OPENROUTER_DEEPINFRA: "OpenRouter / DeepInfra", ANTHROPIC: "Anthropic API" };
 const THINKING_LABEL: Record<string, string> = { adaptive: "adaptive", between_tools: "between tool calls only" };
 const SCOPE_LABEL: Record<string, string> = {
-  VERIFIED_SYNTHETIC_CASES: "Verified synthetic cases only",
+  VERIFIED_SYNTHETIC_CASES: "Every authorised case (D-122)",
   APPROVED_SYNTHETIC_CASE: "The approved synthetic test case only",
   NOT_AUTHORISED: "Not authorised",
   PROVIDER_CONTROLS_MISSING: "Not available (provider spending controls missing)",
@@ -781,7 +781,7 @@ export function ClaudeSetup({ setup, busy, onChanged }: { setup: AnthropicSetup;
   const disabled = pending || busy || !setup.managed || !setup.readable;
   return (
     <section className="console-subcard" aria-labelledby="claude-setup-heading" data-testid="claude-setup">
-      <h3 id="claude-setup-heading">Claude setup — {setup.enabled ? "Enabled for verified synthetic cases" : "Not enabled"}</h3>
+      <h3 id="claude-setup-heading">Claude setup — {setup.enabled ? "Enabled" : "Not enabled"}</h3>
       {!setup.managed && <p className="console-help">Model management is not configured on this server, so Claude cannot be set up here.</p>}
       {!setup.readable && <p className="ds-banner ds-banner-warn" role="alert">Claude's setup could not be read, so Claude is off until it can be.</p>}
       {!setup.local_deployment && <p className="ds-banner ds-banner-warn" role="note">This server is not the approved local development set-up (loopback CLM backend and local browser origins), so Claude cannot be enabled here.</p>}
@@ -826,7 +826,7 @@ export function ClaudeSetup({ setup, busy, onChanged }: { setup: AnthropicSetup;
               onClick={() => void run(() => saveAnthropicEnablement({
                 expected_revision: revision, enabled: true, workspace_id: workspace ?? "",
                 workspace_limit_micro_usd: limitMicro ?? 0, confirmations: setup.confirmations_required,
-              }), "Claude enabled for verified synthetic cases.")}>Enable Claude for Verified Synthetic Cases</button>
+              }), "Claude enabled.")}>Enable Claude</button>
           </li>
         </ol>
       )}
@@ -834,7 +834,7 @@ export function ClaudeSetup({ setup, busy, onChanged }: { setup: AnthropicSetup;
         <button type="button" className="btn btn-secondary" disabled={disabled}
           onClick={() => void run(() => saveAnthropicEnablement({ expected_revision: revision, enabled: false }), "Claude disabled. Claude calls stop at the next question; no other model is switched in.")}>Disable Claude</button>
       )}
-      <p className="console-help">Claude only ever receives verified synthetic cases (see Data Access &amp; Privacy). The workspace check, Claude's own ledger, its daily, lifetime and call limits, and reconciliation still apply.</p>
+      <p className="console-help">Claude answers on any case the user may read and receives its facts and ownership data, so keep this POC on synthetic data (see Data Access &amp; Privacy). The workspace check, Claude's own ledger, its daily, lifetime and call limits, and reconciliation still apply.</p>
       {message && <p className={message.kind === "error" ? "ds-banner ds-banner-warn" : "control-help"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
     </section>
   );
@@ -902,7 +902,7 @@ const OPENROUTER_DUTIES: Duty[] = [
 const ANTHROPIC_DUTIES: Duty[] = [
   { who: "hr", text: "Run Test connection (a free workspace and model read), confirm a paid qualification and activate, from Models & Overview." },
   { who: "hr", text: "Enter or clear a session inference key for Balanced and Fast (memory only, used first, ends with your session; it must belong to the attested workspace)." },
-  { who: "hr", text: "Set Claude up here: read the workspace the key reports (free), confirm it with the owner's four confirmations and monthly limit, and enable Claude for verified synthetic cases. Disable it at any time." },
+  { who: "hr", text: "Set Claude up here: read the workspace the key reports (free), confirm it with the owner's four confirmations and monthly limit, and enable Claude. Disable it at any time." },
   { who: "operator", text: "Optionally set a server inference key (AI_ASSISTANT_ANTHROPIC_API_KEY or apps/assistant/.env), used when no session key is live. No decision or attestation settings are needed." },
   { who: "hr", text: "Change Claude's own daily, call and lifetime limits in Spending & Limits." },
   { who: "owner", text: "Review a routing or ledger stop (scripts/budget_ledger.py --anthropic resume-after-review); HR resumes financial stops in Set up AI." },
@@ -1676,11 +1676,11 @@ function activationState(item: ModelProfileView, usable: boolean): ViewState {
 
 function remoteNotice(item: ModelProfileView, mode: ModelBudgetStatus["mode"] | undefined): string | null {
   if (item.deployment === ANTHROPIC_DEPLOYMENT) {
-    return "External API (Anthropic, set up by HR, D-107): answers only on synthetic development cases inside the same boundary as GPT-OSS; every other case gets the case-data answer. Its own safeguards apply: a separate ledger with its own HR limits on Spending & Limits (at most US$30.00 lifetime within the owner-attested workspace limit, US$5.00 a day, 20 calls an activation; D-102 proposed) and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
+    return "External API (Anthropic, set up by HR, D-107): answers onboarding questions on any case the user may read. Its own safeguards apply: a separate ledger with its own HR limits on Spending & Limits (at most US$30.00 lifetime within the owner-attested workspace limit, US$5.00 a day, 20 calls an activation; D-102 proposed) and manual reconciliation. The GPT-OSS spending controls never apply to it. Test connection is a free model read; qualification makes paid calls.";
   }
   if (item.deployment !== REMOTE_DEPLOYMENT) return null;
   return mode === "D-095"
-    ? "External API: answers only on verified synthetic development cases; every other case gets the case-data answer. Within the daily, lifetime and OpenRouter key limits. Test connection is a free preflight; qualification makes paid calls."
+    ? "External API: answers onboarding questions on any case the user may read. Within the daily, lifetime and OpenRouter key limits. Test connection is a free preflight; qualification makes paid calls."
     : "External API: answers only on the approved synthetic test case; every other case gets the case-data answer. Test connection is a free preflight; qualification makes paid calls.";
 }
 
@@ -1827,7 +1827,7 @@ function DataAccessSection({ policy, overview, busy, onChanged }: { policy: Mode
   return (
     <section className="card" aria-labelledby="data-access-heading" data-testid="data-access">
       <p className="card-kicker">Data access policy · enforced by the AI Assistant server</p>
-      <h2 id="data-access-heading">Restrict AI to verified synthetic cases</h2>
+      <h2 id="data-access-heading">AI data access</h2>
       <p className="control-help">{POLICY_STATUS_TEXT[policy.status]}{policy.changed_at ? ` Last changed ${formatTimestamp(policy.changed_at)}.` : ""}</p>
       <ul className="console-list" aria-label="Policy by provider">
         {policy.classes.filter((item) => item.provider_class !== "local_internal").map((item) => (
@@ -1836,7 +1836,7 @@ function DataAccessSection({ policy, overview, busy, onChanged }: { policy: Mode
             <dl className="acra-detail-list">
               <div><dt>Provider</dt><dd>{providerState(overview, item.provider_class)}</dd></div>
               <div><dt>Data access</dt><dd><span className="tag tag-accent">{item.restricted ? "Verified synthetic cases only" : "Every authorised case"}</span>{" "}
-                {item.locked ? "Fixed for external providers: only cases that pass the D-095 provenance and document SHA-256 checks, approved case access and identifier screening, each with a one-use admission ticket. This does not stop the provider from being used." : ""}</dd></div>
+                {item.locked && item.restricted ? "Fixed for external providers: only cases that pass the D-095 provenance and document SHA-256 checks, approved case access and identifier screening, each with a one-use admission ticket. This does not stop the provider from being used." : ""}</dd></div>
             </dl>
           </li>
         ))}
@@ -1852,12 +1852,12 @@ function DataAccessSection({ policy, overview, busy, onChanged }: { policy: Mode
         ))}
       </ul>
       <p className="ds-banner ds-banner-warn" role="note">
-        External models are locked to verified synthetic cases on this deployment. Sending real customer data to OpenRouter or Anthropic needs a separately approved external-data policy and deployment controls; it cannot be enabled on this page. A model IT configured on any address other than a literal loopback address (127.0.0.1 or ::1) is treated the same way. Unchecking applies only to a local model on a literal loopback address, and only within the user's existing case access.
+        Answers are not limited to verified synthetic cases (D-122): every model answers onboarding questions on any case the user may read, and questions outside onboarding are redirected. Case facts and ownership data go to OpenRouter or Anthropic, so this POC must hold synthetic data only. Real customer data needs a separately approved external-data policy and deployment controls.
       </p>
       <dl className="acra-detail-list">
         <div><dt>Active model now</dt><dd>{activeLabel}: {policy.active_restricted ? "verified synthetic cases only" : policy.active_class ? "every case the user is authorised to see" : "no model answers"}</dd></div>
-        <div><dt>Verification in force</dt><dd>{VERIFICATION_TEXT[policy.verification]}</dd></div>
-        <div><dt>Refusals</dt><dd>A case or question that fails the check gets the case-data answer, and nothing is sent to the model.</dd></div>
+        {policy.active_restricted && <div><dt>Verification in force</dt><dd>{VERIFICATION_TEXT[policy.verification]}</dd></div>}
+        {policy.active_restricted && <div><dt>Refusals</dt><dd>A case or question that fails the check gets the case-data answer, and nothing is sent to the model.</dd></div>}
       </dl>
       {widening && (
         <label className="control-help">
@@ -2516,11 +2516,11 @@ export default function AiModelManagement({ actor }: { actor: AuthenticatedProfi
           <h2 id="confirm-heading">{confirming.kind === "rollback" ? `Roll back to ${confirming.name}?` : `Activate ${confirming.name}?`}</h2>
           <p>This changes the AI model for every user at once. Answers already being written finish with the current model.</p>
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === ANTHROPIC_DEPLOYMENT && (
-            <p className="ds-banner ds-banner-warn">This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, set up by HR under D-107). It is used only on synthetic development cases inside the same boundary as GPT-OSS; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within Claude's own separate ledger, daily allowance, call limit and the attested workspace limit. Nothing switches to or from Claude automatically.</p>
+            <p className="ds-banner ds-banner-warn">This is an external, paid API (Claude Sonnet 5.5 through the Anthropic API, set up by HR under D-107). It answers onboarding questions on any case the user may read, and it receives that case's facts and ownership data. Spending stays within Claude's own separate ledger, daily allowance, call limit and the attested workspace limit. Nothing switches to or from Claude automatically.</p>
           )}
           {overview.profiles.find((item) => item.profile_id === confirming.profileId)?.deployment === REMOTE_DEPLOYMENT && (
             <p className="ds-banner ds-banner-warn">{overview.budget?.mode === "D-095"
-              ? "This is an external, paid API (D-095 development mode). It is used only on verified synthetic development cases; on every other case the assistant gives the case-data answer and sends nothing. Spending stays within the daily, lifetime and OpenRouter key limits in Spending & Limits (the strictest applies)."
+              ? "This is an external, paid API (D-095 development mode). It answers onboarding questions on any case the user may read, and it receives that case's facts and ownership data. Spending stays within the daily, lifetime and OpenRouter key limits in Spending & Limits (the strictest applies)."
               : "This is an external, paid API (D-094 local synthetic test mode). It is used only on the approved synthetic test case; on every other case the assistant gives the case-data answer and sends nothing."}</p>
           )}
           {confirming.profileId !== "env_default" && unscored && (

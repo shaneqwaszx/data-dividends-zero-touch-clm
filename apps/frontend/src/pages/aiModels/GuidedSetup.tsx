@@ -231,7 +231,7 @@ export function GuidedSetup({ userId, overview, busy, nameOf, describe = (code) 
         confirmations: ALL_CONFIRMATIONS,
       });
       await checkConnection(item.profile_id);
-    }, "Claude is set up for verified synthetic cases and the connection check passed.");
+    }, "Claude is set up and the connection check passed.");
   }
 
   function openQualification(): void {
@@ -261,7 +261,7 @@ export function GuidedSetup({ userId, overview, busy, nameOf, describe = (code) 
       <p className="card-kicker">Set up AI</p>
       <h2 id="guided-setup-heading">Choose a model, connect it, qualify it, then activate it</h2>
       <p className="text-muted">
-        External models (Claude, GPT-OSS) answer verified synthetic cases only. Each paid model gets a session allowance of US$5.00 by default;
+        External models (Claude, GPT-OSS) answer onboarding questions on any case the user may read. Each paid model gets a session allowance of US$5.00 by default;
         qualification and chat share it. Local models need no key and no allowance.
       </p>
 
@@ -287,7 +287,7 @@ export function GuidedSetup({ userId, overview, busy, nameOf, describe = (code) 
                     onChange={() => { setChoice(entry.profile_id); setNote(null); }} />
                   <span className="guided-choice__name">{nameOf(entry.profile_id, entry.display_name)}</span>
                   <span className="guided-choice__meta">
-                    {entryKind === "local" ? "Local · free" : "Paid · verified synthetic cases only"}
+                    {entryKind === "local" ? "Local · free" : "Paid · every authorised case"}
                     {entry.active ? " · active" : ""}
                   </span>
                 </label>
@@ -416,7 +416,7 @@ export function GuidedSetup({ userId, overview, busy, nameOf, describe = (code) 
       {dialog === "activate" && item && (
         <ConsoleDialog labelledBy="guided-activate-heading" testId="guided-activate" onClose={() => setDialog(null)}>
           <h2 id="guided-activate-heading">Activate {nameOf(item.profile_id, item.display_name)}?</h2>
-          {paid && <p className="ds-banner ds-banner-warn">This is an external, paid API. It answers verified synthetic cases only, and its answers count against the session allowance.</p>}
+          {paid && <p className="ds-banner ds-banner-warn">This is an external, paid API. It receives the case facts and ownership data, and its answers count against the session allowance.</p>}
           {unscored && (
             <label><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />{" "}
               I understand this model passed technical qualification only; its answer quality is not scored.</label>

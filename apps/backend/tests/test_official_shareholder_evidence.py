@@ -102,6 +102,10 @@ GARDEN = "11111999A"
 SHAREHOLDERS_PATH = "/entityQuery/coShareholdersDetails"
 
 
+# D-121: these tests pin the blocking review, the rollback mode.
+pytestmark = pytest.mark.usefixtures("blocking_ubo_review")
+
+
 def holder(identifier: str, name: str, category: str, units: int, status: str) -> dict:
     return {
         "shareholderCategory": category,

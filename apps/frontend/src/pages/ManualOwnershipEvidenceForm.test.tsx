@@ -253,14 +253,14 @@ it("keeps historical receipt and document dates separate from a manual draft", (
   const { view, onSubmit } = render();
   act(() => root?.render(<ManualOwnershipEvidenceForm key="historical" canonicalRootUen="202400001A" initialRootLegalName="Garden synthetic company" documents={[doc]} ownership={retained} disabled={false} onSubmit={onSubmit} />));
   const date = view.querySelector<HTMLInputElement>('[name="as_of_date"]')!;
-  expect(date.value).toBe("2026-09-29");
+  expect(date.value).toMatch(/^\d{4}-\d{2}-\d{2}$/); // a new declaration defaults to today
   act(() => enter(date, "2026-09-28"));
   const source = view.querySelector<HTMLSelectElement>('[name="source_selection"]')!;
   act(() => { source.value = "CURRENT_EVIDENCE"; source.dispatchEvent(new Event("change", { bubbles: true })); });
   expect(date.value).toBe("2026-09-29");
   expect(date.readOnly).toBe(true);
   act(() => { source.value = "DOCUMENT_OBSERVATIONS"; source.dispatchEvent(new Event("change", { bubbles: true })); });
-  expect(date.value).toBe("");
+  expect(date.value).toMatch(/^\d{4}-\d{2}-\d{2}$/); // defaults to today until a source date applies
   act(() => view.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   expect(date.value).toBe("2026-09-20"); expect(date.readOnly).toBe(true);
   act(() => { source.value = "USER_SUPPLIED_DECLARATION"; source.dispatchEvent(new Event("change", { bubbles: true })); });

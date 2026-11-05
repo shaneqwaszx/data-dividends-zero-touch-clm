@@ -1,4 +1,4 @@
-"""Authenticated workflow HTTP contract (D-121). Disabled unless explicitly enabled."""
+"""Authenticated workflow HTTP contract (D-123). Disabled unless explicitly enabled."""
 
 from __future__ import annotations
 

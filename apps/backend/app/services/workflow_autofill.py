@@ -1,4 +1,4 @@
-"""Deterministic labelled-value lookup for workflow field suggestions (D-121).
+"""Deterministic labelled-value lookup for workflow field suggestions (D-123).
 
 Text passed here is transient: only a matched value is ever kept, and only as an
 unconfirmed suggestion for a person to check.
