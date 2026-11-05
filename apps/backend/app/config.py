@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     )
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
+    # D-121: Director workflows. Case flows only change once a Director activates a stage.
+    workflow_manager_enabled: bool = True
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
     idp_max_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
     idp_max_files_per_case: int = Field(default=20, ge=1, le=20)
@@ -107,6 +109,18 @@ class Settings(BaseSettings):
     )
     mongo_registry_cache_collection: str = Field(
         default="clm_registry_snapshots",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    mongo_workflow_definitions_collection: str = Field(
+        default="clm_workflow_definitions",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    mongo_workflow_runs_collection: str = Field(
+        default="clm_workflow_runs",
         min_length=1,
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",

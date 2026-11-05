@@ -64,6 +64,8 @@ import AdminUsers from "./pages/AdminUsers";
 import GoldTierSandbox from "./pages/GoldTierSandbox";
 import AcraDiagnostics from "./pages/AcraDiagnostics";
 import AiModelManagement from "./pages/AiModelManagement";
+import WorkflowManager from "./pages/WorkflowManager";
+import WorkflowTab, { WorkflowCasesPage, WorkflowRunPage } from "./pages/WorkflowTab";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
 import {
@@ -2399,6 +2401,10 @@ export default function App({
           goldtierSandbox={<GoldTierSandbox key={actor.user_id} actor={actor} />}
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}
           aiModels={<AiModelManagement key={actor.user_id} actor={actor} />}
+          workflows={<WorkflowManager key={actor.user_id} actor={actor} />}
+          workflowTab={(workflowId) => <WorkflowTab key={workflowId} actor={actor} workflowId={workflowId} onOpenRun={(runId) => navigate(paths.workflowRun(workflowId, runId))} />}
+          workflowCases={(workflowId) => <WorkflowCasesPage key={workflowId} actor={actor} workflowId={workflowId} onOpenRun={(runId) => navigate(paths.workflowRun(workflowId, runId))} />}
+          workflowRun={(workflowId, runId) => <WorkflowRunPage key={runId} actor={actor} workflowId={workflowId} runId={runId} onBack={() => navigate(paths.workflowCases(workflowId))} />}
           knowledgeReview={
             <KnowledgeReview
               key={actor.user_id}

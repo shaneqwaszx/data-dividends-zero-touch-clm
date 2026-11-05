@@ -2422,3 +2422,24 @@ Recorded residuals, accepted by the owner: a value moved by the smallest amount 
 declaration, and renaming both issuer and holder while also supplying a different registration
 for the issuer is indistinguishable from a different company. Both are visible in the review
 receipt. Owner note: D-117's planned schema 19 moves to the next free version.
+
+## D-121 - Director-managed workflows as an add-on (OWNER-DIRECTED 2026-11-05)
+
+Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
+[ADR-014](ADR-014_DIRECTOR_MANAGED_WORKFLOWS.md).
+
+| # | Decision |
+|---|---|
+| W1 | **Roles.** Only the Director (`POLICY_APPROVE`) sees and edits workflows, and activates them without a second approver. HR has no part. An active non-onboarding workflow appears as a tab for the RM or onboarder, who starts it on an existing case, fills in and confirms its stages. The Director cannot do those. |
+| W2 | **Use cases.** A workflow's name is its use case. Onboarding has one workflow and its eleven existing stages are locked. Case refresh, other countries and similar use cases are separate workflows that onboarding cases never join. |
+| W10 | **Case source.** The Director marks a workflow as using an existing or a new case. Existing-case workflows run for a company that finished onboarding. New-case workflows hold their own company details as a workflow-only case: no onboarding case exists, no registry or onboarding check runs, and nothing appears in Cases, Dashboard or Audit. Uploads are read for suggestions and not kept. Access follows the owning team, and an RM may delete one. Either way the workflow has its own page and a "(name) cases" tab, and adds nothing to the onboarding case page. |
+| W3 | **Stages.** A stage is a name plus the fields it collects, and it completes when a person confirms it. No new business rule, threshold or evidence test is introduced. |
+| W4 | **Versions.** An open onboarding case follows the latest active version, including a new required stage, and keeps answers to anything unchanged. A case sent or being sent stays as it was. A run freezes its version when started. This is an owner-directed exception to the original frozen-snapshot invariant. |
+| W5 | **Send check.** A required added stage must be confirmed before Final review & send. Any failure of the check refuses the send. |
+| W6 | **Autofill.** Uploads may suggest values for labelled fields. A suggestion is never final until a person confirms the stage, and never overwrites a typed value. |
+| W7 | **Boundary.** Collected data does not reach GoldTier, ownership or reconciliation, and new workflows do not write to GoldTier. No registry for another country is added. |
+| W9 | **Full stage list.** Every case now always shows Initial identity, so the count matches the full pipeline. This is the one deliberate change to an existing screen and applies to all cases, including those with no added stage. |
+| W8 | **On by default, inert until used.** Case flows are unchanged until a Director activates a stage. `WORKFLOW_MANAGER_ENABLED=false` and `VITE_WORKFLOW_MANAGER_ENABLED=false` remove the feature entirely. |
+
+Periodic review remains an extension: this provides a way to define such a workflow, not
+an ageing, scheduling or OCDD engine. Q-014 reviewer separation is unchanged.

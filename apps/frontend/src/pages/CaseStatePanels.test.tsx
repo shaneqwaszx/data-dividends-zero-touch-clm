@@ -313,10 +313,10 @@ describe("ten business steps over the twelve backend stages", () => {
     ["GOLDTIER_TARGET", "GoldTier submission package"], ["FINAL_REVIEW_SEND", "Final review & send"],
   ].map(([id, label]) => processingNode(id, label, overrides[id] ?? "COMPLETE"));
 
-  it("maps twelve backend stages to ten steps, grouping readiness and the package", () => {
+  it("maps twelve backend stages to eleven steps, grouping readiness and the package", () => {
     const steps = businessStagePipeline(backend());
     expect(steps.map(step => step.label)).toEqual([
-      "Case created", "Jurisdiction", "Existing-customer search", "Registry verification", "Document verification",
+      "Case created", "Initial identity", "Jurisdiction", "Existing-customer search", "Registry verification", "Document verification",
       "Data reconciliation", "Ownership & UBO", "Risk assessment", "GoldTier Details & Status", "Final review & send",
     ]);
     const grouped = steps.find(step => step.node_id === GOLDTIER_DETAILS_STEP_ID)!;
@@ -330,10 +330,8 @@ describe("ten business steps over the twelve backend stages", () => {
     },
   );
 
-  it("keeps a completed Initial identity visible while an identity blocker is retained", () => {
+  it("always shows a completed Initial identity, so the count matches the full pipeline", () => {
     const summary = summaryWithPipeline(backend());
-    expect(renderToStaticMarkup(<PipelineRail summary={summary} />)).not.toContain("Initial identity");
-    summary.active_exceptions = [{ exception_id: "ineligible", blocker_code: "INITIAL_IDENTITY_NOT_ELIGIBLE" }] as ZeroTouchCaseSummary["active_exceptions"];
     expect(renderToStaticMarkup(<PipelineRail summary={summary} />)).toContain('data-node-id="INITIAL_IDENTITY"');
     expect(renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />)).toContain("of 11 stages done");
   });
@@ -352,12 +350,12 @@ describe("ten business steps over the twelve backend stages", () => {
   it("counts business steps and names each member status when they differ", () => {
     const summary = summaryWithPipeline(backend({ GOLDTIER_TARGET: "NOT_REACHED", FINAL_REVIEW_SEND: "NOT_REACHED" }));
     const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
-    expect(markup).toContain("8 of 10 stages done");
+    expect(markup).toContain("9 of 11 stages done");
     expect(markup).toContain("Submission readiness: Complete · GoldTier submission package: Not reached");
     expect(markup).not.toContain("100%");
     // Readiness needing attention while the package is complete: the grouped step is not done.
     const differing = renderToStaticMarkup(<OnboardingProgressPanel summary={summaryWithPipeline(backend({ READINESS: "FAILED" }))} />);
-    expect(differing).toContain("9 of 10 stages done");
+    expect(differing).toContain("10 of 11 stages done");
     expect(differing).toContain("Submission readiness: Failed · GoldTier submission package: Complete");
     const identity = summaryWithPipeline(backend({ INITIAL_IDENTITY: "REVIEW_REQUIRED" }));
     expect(renderToStaticMarkup(<OnboardingProgressPanel summary={identity} />)).toContain("10 of 11 stages done");

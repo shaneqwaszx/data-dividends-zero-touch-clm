@@ -659,6 +659,7 @@ surface is currently verified by this repository.
 | GoldTier | target connector/mapper/ledger | Mock default; XPI sandbox partial opt-in | sponsor-confirmed field authority and separate PingFed/production phase |
 | Mongo | persistence adapters | optional explicit mode | repository/schema skill, never routes |
 | Camunda | none | not implemented | new bounded phase and ADR if introduced |
+| Director workflows | `WorkflowManagementService` (ADR-014, D-121) | add-on, inert until a stage is activated | added stages and new use-case workflows only; existing stages stay in the orchestrator |
 | Identity provider | authentication service | local POC | production security/authority phase |
 
 ## 17. Architecture invariants

@@ -94,12 +94,14 @@ class CaseDeletionService:
         repository: CaseDeletionRepository,
         release_provider_binding: Callable[[str], None],
         release_demo_transients: Callable[[UUID], None],
+        delete_workflow_data: Callable[[UUID], None] | None = None,
     ) -> None:
         self._cases = cases
         self._access_policy = access_policy
         self._repository = repository
         self._release_provider_binding = release_provider_binding
         self._release_demo_transients = release_demo_transients
+        self._delete_workflow_data = delete_workflow_data
 
     def delete(self, actor: AuthenticatedActor, case_id: UUID) -> None:
         with self._cases.case_lock(case_id):
@@ -107,6 +109,9 @@ class CaseDeletionService:
             if actor.profile.role not in {Role.DIRECTOR, Role.RELATIONSHIP_MANAGER}:
                 raise CaseDeleteForbiddenError
             try:
+                # D-121: first, so collected answers can never outlive their case.
+                if self._delete_workflow_data is not None:
+                    self._delete_workflow_data(case_id)
                 binding_id = self._repository.delete(case_id)
             except PersistenceConflictError:
                 raise CaseDeleteConflictError from None

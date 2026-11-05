@@ -781,9 +781,10 @@ describe("Evidence workbench integration isolation", () => {
     expect(section.querySelector('[aria-label="Submission details"], .goldtier-area, #case-readiness-status')).toBeNull();
     // Teammate composition: no separate case-explanation panel.
     expect(section.textContent).not.toContain("Why this case is in its current state");
-    // Ten-step rail: one grouped step naming both differing statuses; a completed identity is not shown.
+    // One grouped step names both differing statuses; a completed identity stays shown.
     const step = container!.querySelector<HTMLElement>(`.ds-stage[data-node-id="${GOLDTIER_DETAILS_STEP_ID}"]`)!;
-    expect(container!.querySelector('.ds-stage[data-node-id="READINESS"], .ds-stage[data-node-id="GOLDTIER_TARGET"], .ds-stage[data-node-id="INITIAL_IDENTITY"]')).toBeNull();
+    expect(container!.querySelector('.ds-stage[data-node-id="READINESS"], .ds-stage[data-node-id="GOLDTIER_TARGET"]')).toBeNull();
+    expect(container!.querySelector('.ds-stage[data-node-id="INITIAL_IDENTITY"]')).not.toBeNull();
     expect(step.textContent).toContain("Submission readiness: Complete · GoldTier submission package: Failed");
     expect([...step.querySelectorAll(".stage-facts__member h4")].map(item => item.textContent)).toEqual(["Submission readiness", "GoldTier submission package"]);
     // The step that needs attention routes to the section's GoldTier status.

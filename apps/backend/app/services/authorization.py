@@ -57,6 +57,41 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("PATCH", "/api/policies/{policy_id}", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/policies/{policy_id}/reset", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/policies/reset", RouteAccess.ACTOR_ONLY),
+    # D-121: the owning service applies the Director or RM/onboarder rule on these.
+    RoutePolicy("GET", "/api/workflows", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/workflows/startable", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/workflows", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/workflows/{workflow_id}", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("PUT", "/api/workflows/{workflow_id}/draft", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/workflows/{workflow_id}/activate", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/workflows/{workflow_id}/new-cases", RouteAccess.ACTOR_ONLY),
+    RoutePolicy(
+        "PUT",
+        "/api/workflows/{workflow_id}/runs/{run_id}/stages/{stage_id}/answers",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/runs/{run_id}/stages/{stage_id}/confirm",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST", "/api/workflows/{workflow_id}/runs/{run_id}/documents", RouteAccess.ACTOR_ONLY
+    ),
+    RoutePolicy("DELETE", "/api/workflows/{workflow_id}/runs/{run_id}", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/clm/zero-touch/cases/{case_id}/workflows", RouteAccess.CASE_SCOPED),
+    RoutePolicy(
+        "PUT",
+        "/api/clm/zero-touch/cases/{case_id}/workflows/runs/{run_id}/stages/{stage_id}/answers",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/clm/zero-touch/cases/{case_id}/workflows/runs/{run_id}/stages/{stage_id}/confirm",
+        RouteAccess.CASE_SCOPED,
+    ),
     RoutePolicy("GET", "/api/admin/goldtier-sandbox/status", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/goldtier-sandbox/search", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/goldtier-sandbox/dry-run", RouteAccess.ACTOR_ONLY),

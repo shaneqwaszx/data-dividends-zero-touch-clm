@@ -93,6 +93,7 @@ class DocumentProcessingService:
         media_router: DocumentMediaRouter | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
+        upload_observer: Callable[[UUID, UUID, ExtractedDocumentContent], None] | None = None,
     ) -> None:
         if max_upload_bytes <= 0:
             raise ValueError("max_upload_bytes must be positive")
@@ -112,6 +113,7 @@ class DocumentProcessingService:
         self._media_router = media_router or DocumentMediaRouter()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
+        self._upload_observer = upload_observer
 
     def refresh_current_comparisons(self, *, case_id: UUID) -> None:
         """Recompare retained observations after an accepted identity correction.
@@ -438,6 +440,8 @@ class DocumentProcessingService:
                 message="Human field review is required for this provisional document profile.",
                 code="DOCUMENT_REVIEW_REQUIRED",
             )
+            if self._upload_observer is not None:  # D-121: absent unless switched on.
+                self._upload_observer(record.case_id, record.document_id, extracted_content)
             return record.model_copy(deep=True)
         except DocumentProcessingInfrastructureError:
             raise

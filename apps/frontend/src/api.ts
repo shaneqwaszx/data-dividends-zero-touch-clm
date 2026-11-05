@@ -48,7 +48,7 @@ import type {
   AcraDiagnosticStatus,
 } from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 let activeCsrfToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
 let authenticatedTransportGeneration = 0;
@@ -130,7 +130,7 @@ export async function logout(): Promise<void> {
   if (!response.ok) await parseResponse<never>(response);
 }
 
-async function parseResponse<T>(response: Response): Promise<T> {
+export async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let code: string | null = null;
     let message = `Application API request failed (${response.status}).`;
