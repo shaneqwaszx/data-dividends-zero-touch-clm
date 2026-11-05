@@ -403,7 +403,8 @@ def build_ownership_analysis_service(
         poc_acceptance_enabled=poc_acceptance,
         ubo_review_advisory=(
             official_lane
-            and settings.goldtier_connector_mode == "mock"
+            # D-123: GoldTier Sandbox is the standing POC lane. Any other target never qualifies.
+            and settings.goldtier_connector_mode in {"mock", "sandbox"}
             and settings.acra_marketplace_ubo_review_mode == "advisory"
         ),
         # Corporate owners are acquired separately through the same registry owner;

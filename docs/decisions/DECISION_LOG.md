@@ -2450,3 +2450,13 @@ it supersedes the D-095 case-eligibility limit for conversational answers.
 | A3 | **Guardrails kept.** Case context, RAG knowledge, the sentence-by-sentence claim checks, the read-only rule, spending limits and audit are unchanged. |
 | A4 | **Data consequence.** External models now receive case facts and the ownership analysis, including people's names and holdings, for any case. That is acceptable only while this POC holds synthetic data. **It must not be used with real client data** without a new decision on the provider boundary. |
 | A5 | **Requalification.** The qualification basis changes, so every external configuration needs a new paid qualification before it can answer. |
+
+## D-123 - The advisory UBO review applies with GoldTier Sandbox (OWNER-DIRECTED 2026-11-05)
+
+Status: owner-directed on 2026-11-05 ("goldtier must always be in sandbox and mock acra live marketplace, nothing will be completely mock"). Authority: `USER_AUTHORIZED_POC`. Evidence class: Sandbox for GoldTier, Mock for ACRA. Not sponsor-confirmed. It supersedes D-121 U3, and D-112 O6 for GoldTier Sandbox only.
+
+| # | Decision |
+| --- | --- |
+| S1 | **Standing lane.** The POC runs ACRA Marketplace Mock with GoldTier Sandbox. Advisory applies there and with Mock GoldTier. Any other ACRA mode, and any Live target, still blocks. |
+| S2 | **Consequence.** After the RM's explicit confirmation, a case with an open ownership review is written to GoldTier Sandbox, with provisional ownership. Nothing is sent before that confirmation. |
+| S3 | **Unchanged.** D-121 U2, U4 and U5 stand: the review stays visible, nothing is reported as accepted, and `blocking` is the rollback. |
