@@ -2450,3 +2450,24 @@ it supersedes the D-095 case-eligibility limit for conversational answers.
 | A3 | **Guardrails kept.** Case context, RAG knowledge, the sentence-by-sentence claim checks, the read-only rule, spending limits and audit are unchanged. |
 | A4 | **Data consequence.** External models now receive case facts and the ownership analysis, including people's names and holdings, for any case. That is acceptable only while this POC holds synthetic data. **It must not be used with real client data** without a new decision on the provider boundary. |
 | A5 | **Requalification.** The qualification basis changes, so every external configuration needs a new paid qualification before it can answer. |
+
+## D-123 - Director-managed workflows as an add-on (OWNER-DIRECTED 2026-11-05)
+
+Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
+[ADR-014](ADR-014_DIRECTOR_MANAGED_WORKFLOWS.md).
+
+| # | Decision |
+|---|---|
+| W1 | **Roles.** Only the Director (`POLICY_APPROVE`) sees and edits workflows, and activates them without a second approver. HR has no part. An active non-onboarding workflow appears as a tab for the RM or onboarder, who starts it on an existing case, fills in and confirms its stages. The Director cannot do those. |
+| W2 | **Use cases.** A workflow's name is its use case. Onboarding has one workflow and its eleven existing stages are locked. Case refresh, other countries and similar use cases are separate workflows that onboarding cases never join. |
+| W10 | **Case source.** The Director marks a workflow as using an existing or a new case. Existing-case workflows run for a company that finished onboarding, once per company per workflow, so a repeat run is not possible. New-case workflows hold their own company details as a workflow-only case: no onboarding case exists, no registry or onboarding check runs, and nothing appears in Cases, Dashboard or Audit. Uploads are read for suggestions and not kept. Access follows the owning team, and an RM may delete one. Either way the workflow has its own page and a "(name) cases" tab, and adds nothing to the onboarding case page. |
+| W3 | **Stages.** A stage is a name plus the fields it collects, and it completes when a person confirms it. No new business rule, threshold or evidence test is introduced. |
+| W4 | **Versions.** An open onboarding case follows the latest active version, including a new required stage, and keeps answers to anything unchanged. A case sent or being sent stays as it was. A run freezes its version when started. This is an owner-directed exception to the original frozen-snapshot invariant. |
+| W5 | **Send check.** A required added stage must be confirmed before the zero-touch Final review & send. Any failure of the check refuses the send. Limit, accepted by the owner: the older `/api/clm/cases/{case_id}/target-confirmation` and `/submit` routes predate this work and do not pass the check. No current screen reaches them, but a signed-in onboarder or RM calling them directly can write to GoldTier with a required stage unconfirmed, and the case then still counts as not sent. |
+| W6 | **Autofill.** Uploads may suggest values for labelled fields. A suggestion is never final until a person confirms the stage, and never overwrites a typed value. |
+| W7 | **Boundary.** Collected data does not reach GoldTier, ownership or reconciliation, and new workflows do not write to GoldTier. No registry for another country is added. |
+| W9 | **Full stage list.** Every case now always shows Initial identity, so the count matches the full pipeline. This is the one deliberate change to an existing screen and applies to all cases, including those with no added stage. |
+| W8 | **On by default, inert until used.** Case flows are unchanged until a Director activates a stage. `WORKFLOW_MANAGER_ENABLED=false` and `VITE_WORKFLOW_MANAGER_ENABLED=false` remove the feature entirely. |
+
+Periodic review remains an extension: this provides a way to define such a workflow, not
+an ageing, scheduling or OCDD engine. Q-014 reviewer separation is unchanged.

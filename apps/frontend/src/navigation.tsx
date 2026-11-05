@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import {
   Link,
   matchPath,
@@ -10,6 +10,8 @@ import {
 } from "react-router";
 
 import type { AuthenticatedProfile, Capability } from "./types";
+import { workflowManagerEnabled } from "./workflowFlags";
+import { WorkflowTabLinks } from "./pages/WorkflowTab";
 
 export const routePatterns = {
   root: "/",
@@ -25,6 +27,10 @@ export const routePatterns = {
   audit: "/audit",
   auditCase: "/audit/:caseId",
   policy: "/policy",
+  workflows: "/workflows",
+  workflowTab: "/workflow-tabs/:workflowId",
+  workflowCases: "/workflow-tabs/:workflowId/cases",
+  workflowRun: "/workflow-tabs/:workflowId/runs/:runId",
   adminUsers: "/admin/users",
   adminTeams: "/admin/teams",
   goldtierSandbox: "/admin/goldtier-sandbox",
@@ -57,6 +63,10 @@ export const paths = {
   audit: routePatterns.audit,
   auditCase: (caseId: string) => buildCasePath(routePatterns.audit, caseId),
   policy: routePatterns.policy,
+  workflows: routePatterns.workflows,
+  workflowTab: (workflowId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}`,
+  workflowCases: (workflowId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}/cases`,
+  workflowRun: (workflowId: string, runId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`,
   adminUsers: routePatterns.adminUsers,
   adminTeams: routePatterns.adminTeams,
   goldtierSandbox: routePatterns.goldtierSandbox,
@@ -71,6 +81,7 @@ export type AppTab =
   | "queue"
   | "audit"
   | "policy"
+  | "workflows"
   | "users"
   | "teams"
   | "goldtier-sandbox"
@@ -93,6 +104,7 @@ const navigationItems: NavigationItem[] = [
   { tab: "audit", label: "Audit", path: paths.audit, capability: "CASE_ACCESS", end: false },
   { tab: "knowledge-review", label: "Knowledge Review", path: paths.knowledgeReview, capability: "KNOWLEDGE_REVIEW", end: true },
   { tab: "policy", label: "Policy", path: paths.policy, capability: "POLICY_VIEW", end: true },
+  { tab: "workflows", label: "Workflows", path: paths.workflows, capability: "POLICY_APPROVE", end: true },
   { tab: "users", label: "Users", path: paths.adminUsers, capability: "IDENTITY_ADMIN", end: true },
   { tab: "teams", label: "Teams", path: paths.adminTeams, capability: "TEAM_ADMIN", end: true },
   { tab: "goldtier-sandbox", label: "GoldTier Sandbox", path: paths.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST", end: true },
@@ -113,6 +125,10 @@ const routeCapabilities: Array<{ pattern: string; capability: Capability; casePa
   { pattern: routePatterns.audit, capability: "CASE_ACCESS" },
   { pattern: routePatterns.auditCase, capability: "CASE_ACCESS", caseParam: true },
   { pattern: routePatterns.policy, capability: "POLICY_VIEW" },
+  { pattern: routePatterns.workflows, capability: "POLICY_APPROVE" },
+  { pattern: routePatterns.workflowTab, capability: "CASE_ACCESS" },
+  { pattern: routePatterns.workflowCases, capability: "CASE_ACCESS" },
+  { pattern: routePatterns.workflowRun, capability: "CASE_ACCESS" },
   { pattern: routePatterns.adminUsers, capability: "IDENTITY_ADMIN" },
   { pattern: routePatterns.adminTeams, capability: "TEAM_ADMIN" },
   { pattern: routePatterns.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST" },
@@ -186,6 +202,16 @@ function CaseParamRoute({
   return caseId ? render(caseId) : <UnavailableRoute actor={actor} />;
 }
 
+function WorkflowTabRoute({ render }: { render?: (workflowId: string) => ReactNode }) {
+  const { workflowId } = useParams();
+  return workflowId && render ? render(workflowId) : null;
+}
+
+function WorkflowRunRoute({ render }: { render?: (workflowId: string, runId: string) => ReactNode }) {
+  const { workflowId, runId } = useParams();
+  return workflowId && runId && render ? render(workflowId, runId) : null;
+}
+
 function NewOnboardingLanding({ retainedCaseId, render }: {
   retainedCaseId: string | null;
   render: () => ReactNode;
@@ -218,18 +244,21 @@ export function WorkspaceTabs({
       <span className="nav-sep" />
       <div className="nav-tabs">
         {navigationItems
+          .filter(item => item.tab !== "workflows" || workflowManagerEnabled())
           .filter((item) => actor.capabilities.includes(item.capability))
           .map((item) => (
-            <NavLink
-              key={item.tab}
-              className={({ isActive }) => isActive ? "nav-tab nav-tab--active" : "nav-tab"}
-              end={item.end}
-              to={item.tab === "home" && retainedIntakeCaseId
-                ? paths.caseDetail(retainedIntakeCaseId)
-                : item.path}
-            >
-              {item.label}
-            </NavLink>
+            <Fragment key={item.tab}>
+              <NavLink
+                className={({ isActive }) => isActive ? "nav-tab nav-tab--active" : "nav-tab"}
+                end={item.end}
+                to={item.tab === "home" && retainedIntakeCaseId
+                  ? paths.caseDetail(retainedIntakeCaseId)
+                  : item.path}
+              >
+                {item.label}
+              </NavLink>
+              {item.tab === "home" && workflowManagerEnabled() && <WorkflowTabLinks actor={actor} />}
+            </Fragment>
           ))}
       </div>
       {trailing && <div className="nav-meta">{trailing}</div>}
@@ -253,6 +282,10 @@ export interface WorkspaceRoutesProps {
   goldtierSandbox: ReactNode;
   acraDiagnostics: ReactNode;
   aiModels: ReactNode;
+  workflows?: ReactNode;
+  workflowTab?: (workflowId: string) => ReactNode;
+  workflowCases?: (workflowId: string) => ReactNode;
+  workflowRun?: (workflowId: string, runId: string) => ReactNode;
   knowledgeReview: ReactNode;
 }
 
@@ -272,6 +305,10 @@ export function WorkspaceRoutes({
   goldtierSandbox,
   acraDiagnostics,
   aiModels,
+  workflows,
+  workflowTab,
+  workflowCases,
+  workflowRun,
   knowledgeReview,
 }: WorkspaceRoutesProps) {
   const caseAccess = (content: ReactNode) => (
@@ -331,6 +368,13 @@ export function WorkspaceRoutes({
       <Route
         path={routePatterns.acraDiagnostics}
         element={<CapabilityRoute actor={actor} capability="PROVIDER_SANDBOX_TEST">{acraDiagnostics}</CapabilityRoute>}
+      />
+      <Route path={routePatterns.workflowTab} element={caseAccess(<WorkflowTabRoute render={workflowTab} />)} />
+      <Route path={routePatterns.workflowCases} element={caseAccess(<WorkflowTabRoute render={workflowCases} />)} />
+      <Route path={routePatterns.workflowRun} element={caseAccess(<WorkflowRunRoute render={workflowRun} />)} />
+      <Route
+        path={routePatterns.workflows}
+        element={<CapabilityRoute actor={actor} capability="POLICY_APPROVE">{workflows}</CapabilityRoute>}
       />
       <Route
         path={routePatterns.aiModels}

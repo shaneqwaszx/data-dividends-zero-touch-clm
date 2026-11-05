@@ -998,6 +998,8 @@ def test_every_case_route_family_has_identical_cross_team_and_absent_behavior(
             "failed_document_id": opaque,
             "exception_id": opaque,
             "discrepancy_id": opaque,
+            "run_id": opaque,
+            "stage_id": "workflow-stage",
         }
         absent_values = {**values, "case_id": "00000000-0000-4000-8000-000000000000"}
         headers = {"X-CSRF-Token": csrf_b} if policy.method != "GET" else {}
@@ -1052,6 +1054,8 @@ def test_support_reads_only_the_knowledge_redaction_case_routes(
             "failed_document_id": opaque,
             "exception_id": opaque,
             "discrepancy_id": opaque,
+            "run_id": opaque,
+            "stage_id": "workflow-stage",
         }
         absent_values = {**values, "case_id": "00000000-0000-4000-8000-000000000000"}
         headers = {"X-CSRF-Token": csrf_support} if policy.method != "GET" else {}
@@ -1207,14 +1211,14 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 87
+    assert len(expected) == len(ROUTE_POLICIES) == 103
     assert counts == {
         RouteAccess.PUBLIC: 2,
-        RouteAccess.ACTOR_ONLY: 29,
+        RouteAccess.ACTOR_ONLY: 42,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
-        RouteAccess.CASE_SCOPED: 45,
+        RouteAccess.CASE_SCOPED: 48,
         # D-103: the summary and document list GETs also admit the Support redaction read.
         RouteAccess.CASE_READ: 2,
     }

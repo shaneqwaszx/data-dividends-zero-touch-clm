@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Protocol
 from uuid import UUID
@@ -19,6 +20,8 @@ from app.services.reconciliation_repository import ReconciliationRepository
 from app.services.repository import OnboardingCaseRepository
 from app.services.target_execution_repository import TargetExecutionRepository
 from app.services.zero_touch_repository import ZeroTouchAutomationRepository
+
+LOGGER = logging.getLogger(__name__)
 
 
 class CaseDeleteForbiddenError(Exception):
@@ -83,6 +86,19 @@ class InMemoryCaseDeletionRepository:
         return binding_id
 
 
+def _nothing_to_restore() -> None:
+    return None
+
+
+def _restore(restore_workflow_data: Callable[[], None], case_id: UUID) -> None:
+    """A failed restore must not hide why the deletion failed, so it is only logged."""
+
+    try:
+        restore_workflow_data()
+    except Exception:
+        LOGGER.error("workflow answers not restored", extra={"case_id": str(case_id)})
+
+
 class CaseDeletionService:
     """Re-authorize, delete atomically where durable, then clear transient state."""
 
@@ -94,24 +110,36 @@ class CaseDeletionService:
         repository: CaseDeletionRepository,
         release_provider_binding: Callable[[str], None],
         release_demo_transients: Callable[[UUID], None],
+        delete_workflow_data: Callable[[UUID], Callable[[], None]] | None = None,
     ) -> None:
         self._cases = cases
         self._access_policy = access_policy
         self._repository = repository
         self._release_provider_binding = release_provider_binding
         self._release_demo_transients = release_demo_transients
+        self._delete_workflow_data = delete_workflow_data
 
     def delete(self, actor: AuthenticatedActor, case_id: UUID) -> None:
         with self._cases.case_lock(case_id):
             self._access_policy.require_case_access(actor, case_id, self._cases)
             if actor.profile.role not in {Role.DIRECTOR, Role.RELATIONSHIP_MANAGER}:
                 raise CaseDeleteForbiddenError
+            restore_workflow_data: Callable[[], None] = _nothing_to_restore
             try:
+                # D-123: first, so collected answers can never outlive their case. They
+                # go back if the case itself cannot be deleted.
+                if self._delete_workflow_data is not None:
+                    restore_workflow_data = self._delete_workflow_data(case_id)
                 binding_id = self._repository.delete(case_id)
             except PersistenceConflictError:
+                _restore(restore_workflow_data, case_id)
                 raise CaseDeleteConflictError from None
             except PersistenceUnavailableError:
+                _restore(restore_workflow_data, case_id)
                 raise CaseDeleteUnavailableError from None
+            except Exception:
+                _restore(restore_workflow_data, case_id)
+                raise
             if binding_id is not None:
                 self._release_provider_binding(binding_id)
             self._release_demo_transients(case_id)

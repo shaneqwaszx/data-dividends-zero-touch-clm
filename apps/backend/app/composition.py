@@ -80,6 +80,7 @@ from app.services.clm_repository import (
     ClmOrchestrationRepository,
     InMemoryClmOrchestrationRepository,
 )
+from app.services.document_media import ExtractedDocumentContent
 from app.services.document_processing import DocumentProcessingService
 from app.services.document_repository import (
     DocumentProcessingRepository,
@@ -334,6 +335,7 @@ def build_document_processing_service(
     onboarding_service: OnboardingService,
     settings: Settings,
     repository: DocumentProcessingRepository | None = None,
+    upload_observer: Callable[[UUID, UUID, ExtractedDocumentContent], None] | None = None,
 ) -> DocumentProcessingService:
     """Compose the bounded local input-driven PDF text provider by default."""
 
@@ -352,6 +354,7 @@ def build_document_processing_service(
         max_files_per_case=settings.idp_max_files_per_case,
         max_total_intake_bytes=settings.idp_max_total_intake_bytes,
         review_confidence_threshold=settings.idp_review_confidence_threshold,
+        upload_observer=upload_observer,
     )
 
 
@@ -471,6 +474,7 @@ def build_zero_touch_orchestrator(
     durable_provider_bindings: bool = False,
     clock: Callable[[], datetime] | None = None,
     intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None] | None = None,
+    workflow_send_hold: Callable[[UUID], str | None] | None = None,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
 
@@ -494,6 +498,7 @@ def build_zero_touch_orchestrator(
         max_transitions_per_run=settings.zero_touch_max_transitions_per_run,
         clock=clock,
         intelligence_evaluator=intelligence_evaluator,
+        workflow_send_hold=workflow_send_hold,
     )
 
 

@@ -163,6 +163,7 @@ class ZeroTouchOrchestrator:
         clock: Callable[[], datetime] | None = None,
         intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
+        workflow_send_hold: Callable[[UUID], str | None] | None = None,
     ) -> None:
         if not 1 <= max_transitions_per_run <= 32:
             raise ValueError("zero-touch transition bound must be between 1 and 32")
@@ -186,6 +187,7 @@ class ZeroTouchOrchestrator:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._intelligence_evaluator = intelligence_evaluator
         self._uuid_factory = uuid_factory or uuid4
+        self._workflow_send_hold = workflow_send_hold
         self._blocker_decision_policy = BlockerDecisionPolicy()
 
     def release_provider_binding(self, binding_id: str) -> None:
@@ -2145,6 +2147,13 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_TARGET_CONFIRMATION_NOT_ALLOWED",
                     message="Target confirmation is not accepted at the current stage.",
                 )
+            if self._workflow_send_hold is not None:  # D-123: absent unless switched on.
+                hold_code = self._workflow_send_hold(case_id)
+                if hold_code is not None:
+                    raise ZeroTouchRequestError(
+                        code=hold_code,
+                        message="Complete and confirm the added workflow stages before sending.",
+                    )
             try:
                 rechecked_clm = self._clm.confirm_target_dispatch(
                     case_id=case_id,

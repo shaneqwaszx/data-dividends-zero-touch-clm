@@ -327,6 +327,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: "node",
+      env: { VITE_WORKFLOW_MANAGER_ENABLED: "false" },
     },
   };
 });

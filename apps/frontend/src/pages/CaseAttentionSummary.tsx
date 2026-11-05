@@ -1,3 +1,4 @@
+import type { WorkflowRun } from "../workflowApi";
 import { useId, useState } from "react";
 
 import type { HumanInterventionProjection, ProcessingNode, ZeroTouchCaseSummary, ZeroTouchException } from "../types";
@@ -102,8 +103,9 @@ export default function CaseAttentionSummary({ summary, onNavigate }: {
  * Pipeline steps with their attention items nested underneath. Each step's items
  * collapse independently; items that belong to no step stay visible at the top.
  */
-export function CasePipelineAttention({ summary, onNavigate, onStageActivate }: {
+export function CasePipelineAttention({ summary, onNavigate, onStageActivate, workflowRun }: {
   summary: ZeroTouchCaseSummary; onNavigate: Navigate; onStageActivate?: (node: ProcessingNode) => void;
+  workflowRun?: WorkflowRun | null;
 }) {
   const { items, blockers, technical, intakePending, blockerCount } = attentionModel(summary);
   const listId = useId();
@@ -164,6 +166,6 @@ export function CasePipelineAttention({ summary, onNavigate, onStageActivate }: 
       {general.map(item => <li key={itemKey(item)}><AttentionLine item={item} onNavigate={onNavigate} /></li>)}
       {technical && <li><button type="button" className="btn btn-ghost" onClick={() => onNavigate({ kind: "technical" })}>Technical failure: {technical.code}</button></li>}
     </ul>}
-    <PipelineRail summary={summary} onStageActivate={onStageActivate} renderAttention={renderAttention} />
+    <PipelineRail summary={summary} onStageActivate={onStageActivate} renderAttention={renderAttention} workflowRun={workflowRun} />
   </section>;
 }
