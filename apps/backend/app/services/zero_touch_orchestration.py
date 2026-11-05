@@ -1424,6 +1424,7 @@ class ZeroTouchOrchestrator:
             ownership is not None
             and self._government_gate(record.case_id) is None
             and self._ownership.review_is_advisory(ownership)
+            and not self.evidence_edit_is_frozen(case_id=record.case_id)
             and any(
                 item.evidence_version == f"ownership:{ownership.analysis_id}:{ownership.version}"
                 for item in holds

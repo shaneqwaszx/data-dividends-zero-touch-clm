@@ -255,6 +255,46 @@ def test_no_other_route_releases_a_hold_or_reaches_a_sandbox_write() -> None:
         assert writes(target) == []
 
 
+def direct_target_routes(client: Any, case_id: str, summary: dict, csrf: str) -> list[int]:
+    headers = {"X-CSRF-Token": csrf}
+    confirmation = client.post(
+        f"/api/clm/cases/{case_id}/target-confirmation",
+        headers=headers,
+        json={
+            "expected_clm_version": summary["clm"]["version"],
+            "expected_case_event_count": len(summary["case"]["events"]),
+        },
+    )
+    submission = client.post(f"/api/clm/cases/{case_id}/submit", headers=headers)
+    return [confirmation.status_code, submission.status_code]
+
+
+def test_the_direct_clm_routes_cannot_pass_a_held_case() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        summary = read(client, case_id)
+        before = state(bundle, case_id)
+        teammate, csrf = signed_in(client, "ethan-tan")
+        assert direct_target_routes(teammate, case_id, summary, csrf) == [409, 409]
+        assert writes(target) == []
+        assert state(bundle, case_id) == before
+        assert bundle.onboarding.get(UUID(case_id)).target_dispatch_confirmation is None
+
+
+def test_the_direct_clm_routes_cannot_pass_a_failed_continuation() -> None:
+    with lane() as (client, target, _):
+        case_id = held(client)
+        with patch.object(
+            ClmOrchestrationService, "evaluate", side_effect=RuntimeError("synthetic fault")
+        ):
+            resume(client, read(client, case_id))
+        summary = read(client, case_id)
+        assert summary["status"] == "TECHNICAL_FAILURE"
+        teammate, csrf = signed_in(client, "ethan-tan")
+        assert direct_target_routes(teammate, case_id, summary, csrf) == [409, 409]
+        assert writes(target) == []
+
+
 def test_a_retained_identity_decision_is_applied_by_resume_never_by_a_read() -> None:
     zero, _, _, transport, created = _existing_candidate_system()
     arguments = _confirmation_arguments(zero, created)
