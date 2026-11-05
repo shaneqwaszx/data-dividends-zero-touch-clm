@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from phase13_test_clients import RawTestClient
 from phase13_test_credentials import TEST_PASSWORD
 from scripts.seed_zero_touch_happy_path_companies import manage_fixtures
+from test_goldtier_xpi_sandbox import _confirmation_arguments, _existing_candidate_system
 from test_slice_b_registry_demo import confirm
 from test_zero_touch_database_happy_path import NoAcra, RecordingTarget, sandbox_settings
 from test_zero_touch_entity_types import (
@@ -28,7 +29,7 @@ from test_zero_touch_entity_types import (
 )
 
 from app.domain.ownership import OwnershipAnalysisState
-from app.domain.zero_touch import AutomationStage
+from app.domain.zero_touch import AutomationEventType, AutomationStage
 from app.main import create_app
 from app.persistence.composition import build_persistence_bundle
 from app.services.clm_orchestration import ClmOrchestrationService
@@ -226,6 +227,58 @@ def test_only_the_creator_with_current_versions_can_continue() -> None:
         assert state(bundle, case_id) == before and writes(target) == []
 
 
+def test_no_other_route_releases_a_hold_or_reaches_a_sandbox_write() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        legacy(bundle, case_id)
+        searches = reads(target)
+        teammate, csrf = signed_in(client, "ethan-tan")
+        for route, body in (("/start", None), ("/intake/complete", {"expected_document_count": 2})):
+            for caller, headers in ((teammate, {"X-CSRF-Token": csrf}), (client, {})):
+                caller.post(url(case_id, route), json=body, headers=headers)
+        summary = read(client, case_id)
+        assert summary["current_stage"] == "OWNERSHIP"
+        assert "TARGET_CONFIRMATION_REQUIRED" not in exceptions(summary)
+        assert summary["advisory_continuation"] == {"can_resume": True}
+        assert "ADVISORY_CONTINUATION_REQUESTED" not in codes(bundle, case_id)
+        assert reads(target) == searches  # no Search either
+        refused = teammate.post(
+            url(case_id, "/target-confirmation"),
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "expected_automation_version": summary["version"],
+                "expected_clm_version": summary["clm"]["version"],
+                "expected_case_event_count": len(summary["case"]["events"]),
+            },
+        )
+        assert refused.status_code >= 400
+        assert writes(target) == []
+
+
+def test_a_retained_identity_decision_is_applied_by_resume_never_by_a_read() -> None:
+    zero, _, _, transport, created = _existing_candidate_system()
+    arguments = _confirmation_arguments(zero, created)
+    arguments.pop("expected_automation_version")
+    zero._clm.confirm_existing_customer(**arguments)  # noqa: SLF001 (the interrupted write)
+    before = zero._repository.get_for_case(created.case_id)  # noqa: SLF001
+    calls = len(transport.calls)
+    assert zero.advisory_continuation_pending(before)
+    assert zero.get(case_id=created.case_id).version == before.version
+    clm = zero._clm.get(case_id=created.case_id)  # noqa: SLF001
+    case = zero._cases.get_case(created.case_id)  # noqa: SLF001
+    applied = zero.start(
+        case_id=created.case_id,
+        refresh_document_checkpoint=True,
+        expected_automation_id=before.automation_id,
+        expected_automation_version=before.version,
+        expected_clm_version=clm.version,
+        expected_case_event_count=len(case.events),
+    )
+    assert applied.version > before.version
+    assert applied.events[-1].code == "EXISTING_GOLDTIER_CUSTOMER_CONFIRMED"
+    assert len(transport.calls) == calls
+
+
 # 4, 5: legacy records and failed continuation -------------------------------------------------
 
 
@@ -276,6 +329,26 @@ def test_an_unexpected_fault_during_continuation_can_be_retried() -> None:
         assert retried.status_code == 200, retried.text
         assert exceptions(retried.json()) == TARGET_CONFIRMATION
         assert writes(target) == []
+
+
+def test_a_failure_after_the_attempt_got_further_offers_no_retry() -> None:
+    with lane() as (client, _, bundle):
+        case_id, _ = continued(client)  # finished: it raised the target confirmation
+        identity = UUID(case_id)
+        for store in vars(bundle.automation).values():
+            if isinstance(store, dict):
+                for key, value in list(store.items()):
+                    if getattr(value, "case_id", None) == identity:
+                        failure = value.events[-1].model_copy(update={
+                            "sequence": len(value.events) + 1,
+                            "event_type": AutomationEventType.AUTOMATION_TECHNICAL_FAILURE,
+                        })
+                        store[key] = value.model_copy(update={
+                            "status": "TECHNICAL_FAILURE",
+                            "technical_failure": {"code": "OTHER", "message": "Other."},
+                            "events": [*value.events, failure],
+                        })
+        assert read(client, case_id).get("advisory_continuation") is None
 
 
 def test_a_failure_that_was_not_a_continuation_offers_no_retry() -> None:
@@ -423,6 +496,22 @@ def test_rollback_a_held_case_stays_held_with_no_continuation() -> None:
         assert client.post(url(case_id, "/resume")).status_code == 200
         assert read(client, case_id)["current_stage"] == "OWNERSHIP"
         assert "ADVISORY_CONTINUATION_REQUESTED" not in codes(bundle, case_id)
+        assert writes(target) == []
+
+
+def test_rollback_a_failed_continuation_retries_back_to_the_hold_without_writing() -> None:
+    with lane() as (client, target, _):
+        case_id = held(client)
+        with patch.object(
+            ClmOrchestrationService, "evaluate", side_effect=RuntimeError("synthetic fault")
+        ):
+            resume(client, read(client, case_id))
+        ADVISORY["on"] = False
+        summary = read(client, case_id)
+        assert summary["advisory_continuation"] == {"can_resume": True}
+        retried = resume(client, summary)
+        assert retried.status_code == 200, retried.text
+        assert "OWNERSHIP_REVIEW_REQUIRED" in retried.json()["clm"]["readiness"]["blockers"]
         assert writes(target) == []
 
 

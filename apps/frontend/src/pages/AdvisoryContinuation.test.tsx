@@ -26,6 +26,11 @@ describe("D-124 advisory continuation", () => {
     expect(view).toContain("created this case");
   });
 
+  it("explains a saved identity decision that still has to be applied", () => {
+    const view = markup({ status: "WAITING_FOR_REVIEW", current_stage: "GOLDTIER_SEARCH", advisory_continuation: { can_resume: true } });
+    expect(view).toContain("existing-customer decision is saved");
+  });
+
   it("offers a retry after a failed continuation", () => {
     const view = markup({ status: "TECHNICAL_FAILURE", advisory_continuation: { can_resume: true } });
     expect(view).toContain("Try again</button>");

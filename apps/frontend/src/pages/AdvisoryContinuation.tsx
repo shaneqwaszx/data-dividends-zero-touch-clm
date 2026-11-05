@@ -9,11 +9,14 @@ export default function AdvisoryContinuation({ summary, disabled, onContinue }: 
   const continuation = summary.advisory_continuation;
   if (!continuation) return null;
   const retry = summary.status === "TECHNICAL_FAILURE";
+  const identityDecision = !retry && summary.current_stage === "GOLDTIER_SEARCH";
   return (
     <section className="ds-banner" aria-label="Continue onboarding" data-testid="advisory-continuation">
       <p>
         {retry
           ? "Continuing onboarding did not finish. Nothing was sent to GoldTier."
+          : identityDecision
+          ? "The existing-customer decision is saved. Continue to apply it to this case."
           : "The ownership review is advisory here, so this case can continue. The review stays open, and nothing is sent to GoldTier until you confirm."}
       </p>
       {continuation.can_resume
