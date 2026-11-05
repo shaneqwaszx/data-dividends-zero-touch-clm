@@ -218,6 +218,22 @@ describe("GuidedSetup (D-118)", () => {
     expect(page.textContent).not.toContain("Run qualification…");
   });
 
+  it("offers the free re-test after a stored failure, without retyping the key", async () => {
+    const sent: Sent[] = [];
+    const failed = profile({ connection_test: { ...PASSED, outcome: "failed", code: "PREFLIGHT_FAILED" } as ModelProfileView["connection_test"] });
+    const page = mount(overviewWith(failed, true), stub(setupView({ ledger: "ready" }), sent), "claude_balanced", (code) => `text for ${code}`);
+    await waitFor(() => expect(page.querySelector("[data-testid=guided-connection]")?.textContent).toContain("then test again"));
+    await act(async () => button(page, "Test again").click());
+    await waitFor(() => expect(sent.map((item) => item.url.split("/admin/models")[1])).toEqual(["/claude_balanced/connection-test"]));
+  });
+
+  it("offers no re-test before any check has run", async () => {
+    const untested = profile({ connection_test: null });
+    const page = mount(overviewWith(untested, true), stub(setupView({ ledger: "ready" }), []), "claude_balanced", (code) => `text for ${code}`);
+    await waitFor(() => expect(page.textContent).toContain("Save & test"));
+    expect(page.textContent).not.toContain("Test again");
+  });
+
   it("names the missing question list instead of a budget shortfall, and keeps step 3 closed", async () => {
     const ready = profile({
       connection_test: PASSED as ModelProfileView["connection_test"],
