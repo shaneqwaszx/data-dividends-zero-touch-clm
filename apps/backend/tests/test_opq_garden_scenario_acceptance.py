@@ -194,7 +194,7 @@ def test_an_incomplete_declaration_does_not_hold_the_case(name: str) -> None:
         context.__exit__(None, None, None)
 
 
-def test_a_case_held_before_the_review_became_advisory_is_released_on_open(
+def test_a_case_held_before_the_review_became_advisory_needs_an_explicit_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context, client, bundle, case_id = onboarded("opq-five-layer")
@@ -209,6 +209,19 @@ def test_a_case_held_before_the_review_became_advisory_is_released_on_open(
                 and self._current_for_readiness(record)  # noqa: SLF001
             ),
         )
+        opened = t.summary_of(client, case_id)
+        assert opened["version"] == held["version"]  # D-123: a read changes nothing
+        assert opened["current_stage"] == "OWNERSHIP"
+        resumed = client.post(
+            f"/api/clm/zero-touch/cases/{case_id}/resume",
+            headers={
+                "X-Automation-Id": opened["automation_id"],
+                "X-Automation-Version": str(opened["version"]),
+                "X-Clm-Version": str(opened["clm"]["version"]),
+                "X-Case-Event-Count": str(len(opened["case"]["events"])),
+            },
+        )
+        assert resumed.status_code == 200, resumed.text
         assert only_target_confirmation_is_open(client, case_id)
         assert bundle.target_executions.list_for_case(UUID(case_id)) == ()
     finally:

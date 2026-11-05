@@ -139,6 +139,15 @@ describe("ReviewAndSend", () => {
     expect(markup).not.toContain("do not clear ownership readiness");
     expect(markup).toContain("Ownership: 4 natural person(s) assessed, 0 provisional UBO candidate(s), 2 assumed-basis threshold match(es),");
   });
+  it("D-123: separates operational readiness from the open, provisional ownership review", () => {
+    const open = render(summaryFixture(), actor, { ...gardenAssumedBasisFixture(), state: "REVIEW_REQUIRED", poc_basis_accepted: false });
+    expect(open).toContain("Ownership review:");
+    expect(open).toContain("still unresolved");
+    expect(open).toContain("provisional, not verified");
+    const accepted = render(summaryFixture(), actor, { ...gardenAssumedBasisFixture(), state: "REVIEW_REQUIRED", poc_basis_accepted: true });
+    expect(accepted).not.toContain("ownership-review-open");
+  });
+
   it("renders the current mapping, truthful sandbox boundary, and print control", () => {
     const markup = render();
     expect(markup).toContain("Review and send");

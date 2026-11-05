@@ -124,6 +124,7 @@ from app.services.zero_touch_repository import (
     ZeroTouchRepositoryConflictError,
 )
 
+ADVISORY_CONTINUATION_REQUESTED = "ADVISORY_CONTINUATION_REQUESTED"
 _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES = frozenset({
     BusinessExceptionType.OWNERSHIP_CYCLE,
     BusinessExceptionType.OWNERSHIP_INCOMPLETE,
@@ -850,11 +851,19 @@ class ZeroTouchOrchestrator:
                 reauthorize()
             record = self._require_record(case_id)
             pending_refresh = self.document_refresh_pending(record)
+            # D-123: /resume alone continues past an advisory hold, with the same creator check
+            # and current-version context as document recovery, inside this lock.
+            advisory_continuation = (
+                refresh_document_checkpoint and self.advisory_continuation_pending(record)
+            )
             recovery_context = (
                 expected_automation_id, expected_automation_version,
                 expected_clm_version, expected_case_event_count,
             )
-            if pending_refresh or any(value is not None for value in recovery_context):
+            if (
+                pending_refresh or advisory_continuation
+                or any(value is not None for value in recovery_context)
+            ):
                 if reauthorize_document_recovery is not None:
                     reauthorize_document_recovery()
                 case = self._cases.get_case(case_id)
@@ -875,6 +884,8 @@ class ZeroTouchOrchestrator:
                     )
             if pending_refresh:
                 return self._continue_replacement_locked(record)
+            if advisory_continuation:
+                record = self._begin_advisory_continuation_locked(record)
             record = self._recover_obsolete_registry_ownership_locked(record)
             if (
                 refresh_document_checkpoint
@@ -1413,16 +1424,68 @@ class ZeroTouchOrchestrator:
             )
         )
 
+    def _advisory_continuation_failed(self, record: ZeroTouchAutomationRecord) -> bool:
+        """D-123: a requested continuation failed before anything could reach the target."""
+
+        if (
+            record.status != AutomationStatus.TECHNICAL_FAILURE
+            or record.technical_failure is None
+            or record.current_stage == AutomationStage.MOCK_GOLDTIER
+        ):
+            return False
+        requested = [
+            place for place, event in enumerate(record.events)
+            if event.code == ADVISORY_CONTINUATION_REQUESTED
+        ]
+        return (
+            bool(requested)
+            and any(
+                event.event_type == AutomationEventType.AUTOMATION_TECHNICAL_FAILURE
+                for event in record.events[requested[-1] + 1:]
+            )
+            and not self.evidence_edit_is_frozen(case_id=record.case_id)
+        )
+
+    def advisory_continuation_pending(self, record: ZeroTouchAutomationRecord) -> bool:
+        """D-123: an explicit resume can continue this case. Reads only, never changes it."""
+
+        return (
+            self._held_by_advisory_review(record)
+            or self._advisory_continuation_failed(record)
+        )
+
+    def _begin_advisory_continuation_locked(
+        self, record: ZeroTouchAutomationRecord,
+    ) -> ZeroTouchAutomationRecord:
+        """Record the authorized request; a failed attempt reopens for one more try.
+
+        Only an attempt that reached no target state reopens. Search is read-only, and every
+        target write still needs its own confirmation.
+        """
+
+        candidate = record.model_copy(deep=True)
+        if record.status == AutomationStatus.TECHNICAL_FAILURE:
+            self._clm.retry_failed_search(case_id=record.case_id)
+            candidate.status = AutomationStatus.RESUMING
+            candidate.technical_failure = None
+            candidate.metrics.final_outcome = None
+            candidate.current_stage = _next_stage(
+                candidate.completed_stages, order=_stage_order(candidate),
+            )
+        candidate = self._append_event(
+            candidate,
+            event_type=AutomationEventType.AUTOMATION_RESUMING,
+            outcome=EventOutcome.SUCCEEDED,
+            code=ADVISORY_CONTINUATION_REQUESTED,
+            message=(
+                "An authorized user continued with the ownership review open; nothing is "
+                "sent to the target before its confirmation."
+            ),
+        )
+        return self._save(record, candidate)
+
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
         record = self._repository.get_for_case(case_id)
-        if record is not None and self._held_by_advisory_review(record):
-            # The existing recovery retires the hold. It sends nothing: the target step still
-            # needs its explicit confirmation. If it cannot run now, the read stays a read.
-            with self._cases.case_lock(case_id):
-                try:
-                    return self._advance_locked(case_id=case_id)
-                except (ZeroTouchRequestError, ZeroTouchInfrastructureError):
-                    return self._repository.get_for_case(case_id)
         if (
             record is None or record.status != AutomationStatus.WAITING_FOR_REVIEW
             or record.current_stage != AutomationStage.GOLDTIER_SEARCH

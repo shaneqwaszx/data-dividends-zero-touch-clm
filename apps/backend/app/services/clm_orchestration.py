@@ -567,7 +567,10 @@ class ClmOrchestrationService:
                     expected_case_event_count=expected_case_event_count,
                     clm_version=record.version,
                     destination=destination,
-                    warnings=tuple(item.value for item in record.readiness.warnings),
+                    warnings=(
+                        *(item.value for item in record.readiness.warnings),
+                        *self._open_review_warning(record),
+                    ),
                 )
             except ValueError as exc:
                 raise ClmRequestError(
@@ -659,8 +662,8 @@ class ClmOrchestrationService:
                 raise ClmRequestError(
                     code="CLM_NOT_READY",
                     message=(
-                        "POC ownership acceptance is no longer current; no GoldTier target "
-                        "mutation was attempted."
+                        "The ownership basis for this review is no longer current; no GoldTier "
+                        "target mutation was attempted."
                     ),
                 )
 
@@ -1191,6 +1194,25 @@ class ClmOrchestrationService:
         ):
             return self._perform_early_search(saved, case)
         return saved
+
+    def _open_review_warning(self, record: ClmOrchestrationRecord) -> tuple[str, ...]:
+        # D-123: the confirmation states that the ownership review was still open.
+        ownership = self._ownership.get(case_id=record.case_id)
+        advisory = ownership is not None and self._ownership.review_is_advisory(ownership)
+        return ("OWNERSHIP_REVIEW_ADVISORY",) if advisory else ()
+
+    def retry_failed_search(self, *, case_id: UUID) -> None:
+        """D-123: repeat a failed read-only Search before anything was frozen for send."""
+
+        with self._lock_for(case_id):
+            record = self._require_record(case_id)
+            checkpoint = record.target_search_checkpoint
+            if (
+                record.submission_snapshot is None
+                and checkpoint is not None
+                and checkpoint.status == GoldTierSearchCheckpointStatus.FAILED
+            ):
+                self._perform_early_search(record, self._require_case(case_id), force=True)
 
     def _perform_early_search(
         self,

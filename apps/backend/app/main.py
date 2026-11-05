@@ -1303,6 +1303,10 @@ def create_app(
                 and not zero_touch.evidence_edit_is_frozen(case_id=case.case_id)
                 if zero_touch.document_refresh_pending(automation) else None
             ),
+            advisory_continuation_authorized=(
+                access_policy.can_decide_evidence(actor, case)
+                if zero_touch.advisory_continuation_pending(automation) else None
+            ),
             ownership_edit_authorized=(
                 access_policy.can_decide_evidence(actor, case)
                 and not zero_touch.evidence_edit_is_frozen(case_id=case.case_id)
