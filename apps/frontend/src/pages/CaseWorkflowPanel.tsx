@@ -114,6 +114,12 @@ function StageSection({ caseId, userId, canFill, scopeKey, run, stage }: StageSe
   );
 }
 
+/** Only the RM or onboarder fills in stages, and only until the case has been sent. */
+export function canFillOnboardingStages(role: string, summary: { status: string; current_stage: string } | null): boolean {
+  return (role === "CLIENT_ONBOARDER" || role === "RELATIONSHIP_MANAGER")
+    && summary?.status !== "COMPLETED" && summary?.current_stage !== "MOCK_GOLDTIER";
+}
+
 /** The added onboarding stages that follow any of the given existing stages. */
 export function CaseWorkflowStages({ run, anchors, ...props }: StageSectionProps & {
   run: WorkflowRun | null | undefined; anchors: string[];

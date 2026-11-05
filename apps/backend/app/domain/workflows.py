@@ -184,6 +184,8 @@ class WorkflowRun(BaseModel):
     answers: tuple[WorkflowAnswer, ...] = Field(default=(), max_length=1024)
     confirmations: tuple[WorkflowStageConfirmation, ...] = Field(default=(), max_length=32)
     revision: int = Field(default=0, ge=0)
+    # Set only while a rebased run is in memory: the revision its stored copy has.
+    stored_revision: int | None = Field(default=None, exclude=True)
     started_by: str | None = Field(default=None, max_length=64)
     created_at: datetime
     updated_at: datetime

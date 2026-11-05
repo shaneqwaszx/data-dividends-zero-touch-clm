@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
@@ -26,6 +26,7 @@ from app.domain.workflows import ONBOARDING_WORKFLOW_ID, WorkflowAnswer, Workflo
 from app.main import create_app
 from app.persistence.composition import WorkflowPersistence, build_persistence_bundle
 from app.persistence.errors import PersistenceUnavailableError
+from app.services.case_deletion import _restore
 from app.services.workflow_autofill import (
     find_labelled_value,
     match_option,
@@ -702,16 +703,125 @@ def test_a_saved_suggestion_is_not_replaced_by_a_later_document():
     assert runs.list_for_case(case.case_id)[0].answers[0].value == "One"
 
 
-def test_a_workflow_upload_is_authorized_before_the_body_is_used():
-    app = enabled_app()
+def test_a_workflow_upload_is_authorized_before_the_body_is_read():
+    reader = AsyncMock(return_value=b"Reference: ABC123\n")
+    with patch("app.main._read_bounded_body", reader):
+        app = enabled_app()
     director, maya, sophia = (login(app, item) for item in ("olivia-koh", "maya-lim", "sophia-ng"))
     url = new_case_workflow(director)
     run = maya.post(f"{url}/new-cases", json=COMPANY).json()["run"]
     upload = f"{url}/runs/{run['run_id']}/documents"
     headers = {"Content-Type": "text/plain", "X-Document-Name": "profile.txt"}
-    assert login(app, "hr-admin").post(upload, content=b"", headers=headers).status_code == 403
-    assert sophia.post(upload, content=b"", headers=headers).status_code == 404
-    assert director.post(upload, content=b"", headers=headers).status_code == 403
+    body = b"Reference: ABC123\n"
+    assert login(app, "hr-admin").post(upload, content=body, headers=headers).status_code == 403
+    assert sophia.post(upload, content=body, headers=headers).status_code == 404
+    assert director.post(upload, content=body, headers=headers).status_code == 403
+    reader.assert_not_awaited()
+    assert maya.post(upload, content=body, headers=headers).status_code == 200
+    reader.assert_awaited_once()
+
+
+def test_a_document_after_sending_leaves_the_onboarding_stage_alone():
+    case = FakeCase()
+    runs = InMemoryWorkflowRunRepository()
+    service = service_with_stage(case, runs)
+    service._case_is_sent = lambda _case_id: True
+    service.suggest_from_document(
+        case_id=case.case_id, document_id=case.case_id, content=b"x",
+        media_type="text/plain", extracted_text="Full name: After Send",
+    )
+    assert runs.list_for_case(case.case_id) == []
+
+
+def activate_stage(service, stage):
+    director = director_actor()
+    baseline = service.get_workflow(director, ONBOARDING_WORKFLOW_ID)
+    draft = service.save_draft(
+        lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=baseline.revision,
+        stages=(WorkflowStage.model_validate(stage),),
+    )
+    service.activate(lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=draft.revision)
+
+
+def test_a_screen_two_versions_behind_is_still_refused():
+    case = FakeCase()
+    service = service_with_stage(case)
+    filler = filler_actor()
+    run = service.case_view(case).onboarding
+    service.save_answers(
+        lambda: filler, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+        expected_revision=0, values={"full-name": "Sample", "birth-date": "1980-01-15"},
+    )
+    activate_stage(service, {**STAGE, "name": "Second version"})
+    second = service.case_view(case).onboarding
+    activate_stage(service, {**STAGE, "name": "Third version"})
+    third = service.case_view(case).onboarding
+    assert third.revision != second.revision
+    with pytest.raises(WorkflowConflictError):
+        service.confirm_stage(
+            lambda: filler, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+            expected_revision=second.revision,
+        )
+    confirmed = service.confirm_stage(
+        lambda: filler, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+        expected_revision=third.revision,
+    )
+    assert confirmed.workflow_version == 3
+    assert service.send_hold_code(case.case_id) is None
+
+
+def test_a_screen_on_an_old_version_of_an_unsaved_stage_is_refused():
+    app = enabled_app()
+    director, maya = login(app, "olivia-koh"), login(app, "maya-lim")
+    activate_onboarding(director)
+    case_id = new_case(maya)
+    stale = onboarding_run(maya, case_id)
+    assert stale["revision"] == 0
+
+    relabelled = {**STAGE, "fields": [{**STAGE["fields"][0], "label": "Sanctions declaration"}]}
+    activate_onboarding(director, (relabelled,))
+    refused = maya.put(
+        case_url(case_id, stale, "signatory", "answers"),
+        json={"expected_revision": stale["revision"], "values": {"full-name": "Old answer"}},
+    )
+    assert refused.status_code == 409
+
+    current = onboarding_run(maya, case_id)
+    assert current["stages"][0]["fields"][0]["label"] == "Sanctions declaration"
+    saved = maya.put(
+        case_url(case_id, current, "signatory", "answers"),
+        json={"expected_revision": current["revision"], "values": {"full-name": "New answer"}},
+    )
+    assert saved.status_code == 200, saved.json()
+    assert saved.json()["workflow_version"] == 2
+
+
+def test_a_stale_writer_cannot_overwrite_or_resurrect_a_run():
+    case = FakeCase()
+    runs = InMemoryWorkflowRunRepository()
+    service = service_with_stage(case, runs)
+    run = service.case_view(case).onboarding
+    saved = service._persist(run, confirmations=())
+    service._persist(saved, confirmations=())
+    with pytest.raises(WorkflowConflictError):
+        service._persist(saved, confirmations=())
+    latest = runs.list_for_case(case.case_id)[0]
+    runs.delete_for_case(case.case_id)
+    with pytest.raises(WorkflowConflictError):
+        service._persist(latest, confirmations=())
+    assert runs.list_for_case(case.case_id) == []
+
+
+def test_a_failed_restore_does_not_hide_why_deletion_failed():
+    def failing_restore():
+        raise PersistenceUnavailableError
+
+    _restore(failing_restore, FakeCase().case_id)
+
+
+def test_labels_with_special_characters_and_control_breaks():
+    assert find_labelled_value(["Straße: Main"], "Straße").value == "Main"
+    assert find_labelled_value(["Name: a\x0bb"], "Name") is None
 
 
 def test_a_long_hostile_line_is_read_quickly():

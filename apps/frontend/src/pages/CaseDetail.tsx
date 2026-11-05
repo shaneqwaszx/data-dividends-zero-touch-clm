@@ -4,7 +4,7 @@ import type { ReviewDecisionBatch } from "../types";
 import { confirmReviewDecisions } from "../api";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaseWorkflowStages } from "./CaseWorkflowPanel";
+import { canFillOnboardingStages, CaseWorkflowStages } from "./CaseWorkflowPanel";
 import { fetchCaseWorkflows, workflowQueryKeys } from "../workflowApi";
 import { workflowManagerEnabled } from "../workflowFlags";
 import { workflowStageElementId } from "../workflowPipeline";
@@ -234,9 +234,7 @@ export default function CaseDetail({
   const workflowSectionProps = {
     caseId,
     userId: actor.user_id,
-    // A case that has been sent keeps its stages as they were.
-    canFill: (actor.role === "CLIENT_ONBOARDER" || actor.role === "RELATIONSHIP_MANAGER")
-      && summary?.status !== "COMPLETED" && summary?.current_stage !== "MOCK_GOLDTIER",
+    canFill: canFillOnboardingStages(actor.role, summary),
     scopeKey: disclosureIdentity,
   };
   const workflowStagesAfter = (...anchors: string[]) => (

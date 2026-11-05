@@ -50,6 +50,8 @@ HOLD_UNAVAILABLE = "WORKFLOW_STAGE_CHECK_UNAVAILABLE"
 _FIELD_FILLER_ROLES = frozenset({Role.CLIENT_ONBOARDER, Role.RELATIONSHIP_MANAGER})
 _ANCHOR_NODE_IDS = frozenset(node_id for node_id, _ in ONBOARDING_ANCHOR_STAGES)
 
+_NEVER_SAVED = 0
+
 Reauthorize = Callable[[], AuthenticatedActor]
 
 
@@ -461,7 +463,9 @@ class WorkflowManagementService:
             if case is None:
                 return
             view = self.case_view(case)
-            runs = [run for run in (view.onboarding, *view.runs) if run is not None]
+            # A sent case keeps its onboarding stages exactly as they were sent.
+            onboarding = None if self._case_is_sent(case_id) else view.onboarding
+            runs = [run for run in (onboarding, *view.runs) if run is not None]
             if not any(_autofill_fields(run) for run in runs):
                 return
             pages = _document_pages(content, media_type, extracted_text)
@@ -643,14 +647,20 @@ class WorkflowManagementService:
 
     def _persist(self, run: WorkflowRun, **changes: object) -> WorkflowRun:
         candidate = run.model_copy(
-            update={**changes, "revision": run.revision + 1, "updated_at": self._clock()}
+            update={
+                **changes,
+                "revision": run.revision + 1,
+                "stored_revision": None,
+                "updated_at": self._clock(),
+            }
         )
         try:
-            stored = self._runs.get(run.run_id)
-            if stored is None:
+            # Only a never-saved run is inserted. Every other write is guarded by the
+            # revision the run was read at, which refuses a stale writer.
+            if run.stored_revision == _NEVER_SAVED:
                 return self._runs.create(candidate)
-            # A rebased run's revision runs ahead of the stored one until it is saved.
-            return self._runs.update(candidate, expected_revision=stored.revision)
+            expected = run.revision if run.stored_revision is None else run.stored_revision
+            return self._runs.update(candidate, expected_revision=expected)
         except PersistenceConflictError:
             raise WorkflowConflictError from None
 
@@ -717,6 +727,10 @@ class WorkflowManagementService:
             use_case=definition.use_case,
             workflow_version=version.version,
             stages=version.stages,
+            # Unsaved too, each version shows its own revision, so a screen still showing
+            # an older version must reload before it can answer or confirm.
+            revision=version.version - 1,
+            stored_revision=_NEVER_SAVED,
             created_at=case.created_at,
             updated_at=case.created_at,
         )
@@ -868,8 +882,10 @@ def _rebased(run: WorkflowRun, version: WorkflowVersion) -> WorkflowRun:
         update={
             "workflow_version": version.version,
             "stages": version.stages,
-            # The new revision makes a screen still showing the old version reload first.
-            "revision": run.revision + 1,
+            # Each version shown gets its own revision, so any screen still showing an
+            # older version must reload first, however many versions it has missed.
+            "revision": run.revision + version.version - run.workflow_version,
+            "stored_revision": run.revision,
             "answers": tuple(
                 item
                 for item in run.answers

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Protocol
 from uuid import UUID
@@ -19,6 +20,8 @@ from app.services.reconciliation_repository import ReconciliationRepository
 from app.services.repository import OnboardingCaseRepository
 from app.services.target_execution_repository import TargetExecutionRepository
 from app.services.zero_touch_repository import ZeroTouchAutomationRepository
+
+LOGGER = logging.getLogger(__name__)
 
 
 class CaseDeleteForbiddenError(Exception):
@@ -87,6 +90,15 @@ def _nothing_to_restore() -> None:
     return None
 
 
+def _restore(restore_workflow_data: Callable[[], None], case_id: UUID) -> None:
+    """A failed restore must not hide why the deletion failed, so it is only logged."""
+
+    try:
+        restore_workflow_data()
+    except Exception:
+        LOGGER.error("workflow answers not restored", extra={"case_id": str(case_id)})
+
+
 class CaseDeletionService:
     """Re-authorize, delete atomically where durable, then clear transient state."""
 
@@ -120,11 +132,14 @@ class CaseDeletionService:
                     restore_workflow_data = self._delete_workflow_data(case_id)
                 binding_id = self._repository.delete(case_id)
             except PersistenceConflictError:
-                restore_workflow_data()
+                _restore(restore_workflow_data, case_id)
                 raise CaseDeleteConflictError from None
             except PersistenceUnavailableError:
-                restore_workflow_data()
+                _restore(restore_workflow_data, case_id)
                 raise CaseDeleteUnavailableError from None
+            except Exception:
+                _restore(restore_workflow_data, case_id)
+                raise
             if binding_id is not None:
                 self._release_provider_binding(binding_id)
             self._release_demo_transients(case_id)

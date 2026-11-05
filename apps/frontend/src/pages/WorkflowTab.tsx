@@ -90,7 +90,7 @@ function ExistingCaseStart({ actor, workflow, onOpenRun }: {
   </>;
 }
 
-function NewCaseStart({ actor, workflow, onOpenRun }: {
+export function NewCaseStart({ actor, workflow, onOpenRun }: {
   actor: AuthenticatedProfile; workflow: StartableWorkflow; onOpenRun: (runId: string) => void;
 }) {
   const [country, setCountry] = useState<JurisdictionSelection>("");
@@ -101,6 +101,7 @@ function NewCaseStart({ actor, workflow, onOpenRun }: {
   const fileInput = useRef<HTMLInputElement>(null);
   // Kept across a failed upload, so pressing Start again never opens a second case.
   const createdRun = useRef<WorkflowRun | null>(null);
+  const uploaded = useRef(new Set<File>());
   const start = useMutation({
     mutationFn: async () => {
       createdRun.current ??= (await createWorkflowCase(workflow.workflow_id, {
@@ -110,10 +111,14 @@ function NewCaseStart({ actor, workflow, onOpenRun }: {
         priority: priority === "" ? null : priority,
       })).run;
       const run = createdRun.current;
-      for (const file of files) await uploadWorkflowCaseDocument(run, file);
+      for (const file of files) {
+        if (uploaded.current.has(file)) continue;
+        await uploadWorkflowCaseDocument(run, file);
+        uploaded.current.add(file);
+      }
       return run.run_id;
     },
-    onSuccess: onOpenRun,
+    onSuccess: runId => onOpenRun(runId),
   });
   function addFiles(selected: FileList | null) {
     // Copied now: the browser empties this list as soon as the input is cleared.
@@ -131,12 +136,13 @@ function NewCaseStart({ actor, workflow, onOpenRun }: {
       <p className="text-muted">Provide the company details and supporting documents to open a new case for this workflow.</p>
     </div></div>
     {start.isError && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{workflowErrorMessage(start.error)}</div>}
+    {createdRun.current && <p className="control-help">The case is created, so its company details are fixed. Replace any document that failed, then press Start again.</p>}
     <form onSubmit={submit}>
       <div className="ds-two-col" style={{ alignItems: "stretch" }}>
         <div className="card" style={{ width: 420, flex: "none" }}>
           <div className="field">
             <label htmlFor="workflow-country">Jurisdiction</label>
-            <select id="workflow-country" className="input" value={country} onChange={event => setCountry(event.target.value as JurisdictionSelection)}>
+            <select id="workflow-country" className="input" value={country} disabled={createdRun.current !== null} onChange={event => setCountry(event.target.value as JurisdictionSelection)}>
               <option value="">Not specified</option>
               <option value="SG">Singapore</option>
               <option value="AU">Australia</option>
@@ -146,11 +152,11 @@ function NewCaseStart({ actor, workflow, onOpenRun }: {
           </div>
           <div className="field">
             <label htmlFor="workflow-legal-name">Company Legal Name</label>
-            <input id="workflow-legal-name" className="input" value={legalName} maxLength={160} required onChange={event => setLegalName(event.target.value)} />
+            <input id="workflow-legal-name" className="input" value={legalName} maxLength={160} required disabled={createdRun.current !== null} onChange={event => setLegalName(event.target.value)} />
           </div>
           <div className="field">
             <label htmlFor="workflow-uen">Registration ID / UEN</label>
-            <input id="workflow-uen" className="input" value={uen} maxLength={32} required onChange={event => setUen(event.target.value.toUpperCase())} />
+            <input id="workflow-uen" className="input" value={uen} maxLength={32} required disabled={createdRun.current !== null} onChange={event => setUen(event.target.value.toUpperCase())} />
           </div>
           <div className="field">
             <span className="control-label" style={{ display: "block", marginBottom: 6 }}>Team</span>
@@ -159,7 +165,7 @@ function NewCaseStart({ actor, workflow, onOpenRun }: {
           </div>
           <div className="field">
             <label htmlFor="workflow-priority">Case priority</label>
-            <select id="workflow-priority" className="input" value={priority} onChange={event => setPriority(event.target.value === "" ? "" : Number(event.target.value))}>
+            <select id="workflow-priority" className="input" value={priority} disabled={createdRun.current !== null} onChange={event => setPriority(event.target.value === "" ? "" : Number(event.target.value))}>
               <option value="">Unset</option>
               <option value={1}>Low</option>
               <option value={5}>Medium</option>

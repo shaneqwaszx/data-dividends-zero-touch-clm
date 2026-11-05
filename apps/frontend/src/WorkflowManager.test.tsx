@@ -4,7 +4,7 @@ import { act, type JSX } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CaseWorkflowRuns, CaseWorkflowStages } from "./pages/CaseWorkflowPanel";
+import { canFillOnboardingStages, CaseWorkflowRuns, CaseWorkflowStages } from "./pages/CaseWorkflowPanel";
 import { availableCompanies, runProgress } from "./pages/WorkflowTab";
 import { copyStage, editorRows, reorderStages, reusableStages, workflowStatusLabel } from "./pages/WorkflowManager";
 import type { ProcessingNode } from "./types";
@@ -79,6 +79,21 @@ describe("withWorkflowStages", () => {
   it("falls back when the anchor is not shown", () => {
     const merged = withWorkflowStages(pipeline, run([stage({ after_node_id: "INITIAL_IDENTITY" })]));
     expect(merged[1].node_id).toBe("WORKFLOW_STAGE_signatory");
+  });
+});
+
+describe("canFillOnboardingStages", () => {
+  const open = { status: "WAITING_FOR_REVIEW", current_stage: "READINESS" };
+
+  it("lets only the RM or onboarder fill in a case that has not been sent", () => {
+    expect(canFillOnboardingStages("CLIENT_ONBOARDER", open)).toBe(true);
+    expect(canFillOnboardingStages("RELATIONSHIP_MANAGER", open)).toBe(true);
+    expect(canFillOnboardingStages("DIRECTOR", open)).toBe(false);
+  });
+
+  it("closes the stages once the case is sent or being sent", () => {
+    expect(canFillOnboardingStages("CLIENT_ONBOARDER", { status: "COMPLETED", current_stage: "COMPLETE" })).toBe(false);
+    expect(canFillOnboardingStages("CLIENT_ONBOARDER", { status: "RUNNING", current_stage: "MOCK_GOLDTIER" })).toBe(false);
   });
 });
 

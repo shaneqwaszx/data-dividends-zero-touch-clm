@@ -28,7 +28,7 @@ def _value_after_label(line: str, wanted: str) -> str | None:
     """Read one line in linear time, as document text can be long and hostile."""
 
     text = line.strip(" \t")
-    if text[: len(wanted)].casefold() != wanted:
+    if text[: len(wanted)].casefold() != wanted.casefold():
         return None
     rest = text[len(wanted) :].lstrip(" \t")
     return rest[1:].strip(" \t") if rest[:1] in {":", "-"} else None
@@ -37,10 +37,10 @@ def _value_after_label(line: str, wanted: str) -> str | None:
 def find_labelled_value(pages: Sequence[str], label: str) -> LabelledValue | None:
     """Return the one value on a ``label: value`` line; none or conflicting gives None."""
 
-    wanted = label.strip().casefold()
+    wanted = label.strip()
     found: dict[str, int] = {}
     for page_number, text in enumerate(pages, start=1):
-        for line in text.splitlines():
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             value = _value_after_label(line, wanted)
             if value and len(value) <= _MAX_VALUE_LENGTH and value.isprintable():
                 found.setdefault(value, page_number)
