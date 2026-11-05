@@ -834,7 +834,7 @@ class ClmOrchestrationService:
         ):
             return True
         ownership = self._ownership.get(case_id=record.case_id)
-        return ownership is not None and self._ownership.poc_basis_accepted(ownership)
+        return ownership is not None and self._ownership.clears_review(ownership)
 
     def _submission_snapshot_is_current(self, record: ClmOrchestrationRecord) -> bool:
         snapshot = record.submission_snapshot
@@ -930,8 +930,8 @@ class ClmOrchestrationService:
                     record.submission_plan.environment == GoldTierProviderMode.SANDBOX
                 ),
                 classification_current=self._document_classification_current(case),
-                ownership_poc_basis_accepted=(
-                    ownership is not None and self._ownership.poc_basis_accepted(ownership)
+                ownership_review_cleared=(
+                    ownership is not None and self._ownership.clears_review(ownership)
                 ),
                 now=self._clock(),
             ),
@@ -1421,8 +1421,8 @@ class ClmOrchestrationService:
                     self._cases.target_provider_mode == GoldTierProviderMode.SANDBOX
                 ),
                 classification_current=self._document_classification_current(case),
-                ownership_poc_basis_accepted=(
-                    ownership is not None and self._ownership.poc_basis_accepted(ownership)
+                ownership_review_cleared=(
+                    ownership is not None and self._ownership.clears_review(ownership)
                 ),
                 now=now or self._clock(),
             ),
@@ -1635,7 +1635,7 @@ def _evaluate_readiness(
     reconciliation_cleared: bool = False,
     require_target_classification: bool = False,
     classification_current: bool = True,
-    ownership_poc_basis_accepted: bool = False,
+    ownership_review_cleared: bool = False,
 ) -> ClmReadinessAssessment:
     blockers: list[ClmBlockerCode] = []
 
@@ -1736,9 +1736,9 @@ def _evaluate_readiness(
         ownership_stage = StageReadiness(status=ReadinessStageStatus.REVIEW_REQUIRED)
         block(ClmBlockerCode.OWNERSHIP_REVIEW_REQUIRED)
     elif ownership.state == OwnershipAnalysisState.ANALYZED or (
-        # D-082: the ownership owner's current opt-in POC acceptance; review is retained.
+        # D-082, D-121: an accepted or advisory review does not hold readiness.
         ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
-        and ownership_poc_basis_accepted
+        and ownership_review_cleared
     ):
         ownership_stage = StageReadiness(
             status=ReadinessStageStatus.READY,

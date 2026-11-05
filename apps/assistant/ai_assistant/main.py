@@ -94,6 +94,7 @@ from .small_talk import small_talk_reply
 from .support_chat import answer_support_question
 from .synthetic_boundary import approved_entry
 from .synthetic_boundary import check as synthetic_boundary_check
+from .synthetic_eligibility import approve as synthetic_eligibility_approve
 from .synthetic_eligibility import check as synthetic_eligibility_check
 from .synthetic_eligibility import mode as synthetic_dev_mode
 from .telemetry import (
@@ -821,6 +822,10 @@ def create_app(
         if not is_remote_test_model(active.model):
             return active.model, None
         notices: Notices = getattr(active.model, "notices", REMOTE_NOTICES)
+        if external_conversational(config):
+            # D-122: any case. The per-call ticket stays, so only these exact messages go.
+            synthetic_eligibility_approve(prep.messages)
+            return active.model, None
         entries = [item.hit.entry for item in prep.tagged]
         # D-104 A1: a model that decides D-095 mode itself (Claude, a policy-restricted model)
         # does so on the shared interlocks; GPT-OSS keeps the OpenRouter-ready mode.
@@ -1018,15 +1023,14 @@ def create_app(
         return bool(development() if development is not None else synthetic_dev_mode(config))
 
     def copilot_for(active: Active) -> bool:
-        """Conversational answers when approved (config.conversational): a local model on any
-        case it may read; an external or restricted model on verified synthetic cases only,
-        each call re-checked, with exact lines otherwise."""
+        """Conversational answers when approved (config.conversational): any model on any
+        case it may read (D-122), with exact lines otherwise."""
 
         if not config_conversational(config) or active.model is None:
             return False
         if not is_remote_test_model(active.model):
             return True
-        return external_conversational(config) and synthetic_only_conversation(active)
+        return external_conversational(config)
 
     def context_refused(refused: ContextRefused) -> HTTPException:
         return HTTPException(
@@ -1064,7 +1068,7 @@ def create_app(
         )
 
     def with_ownership(prep: Prepared, case_id: UUID, request: Request) -> Prepared:
-        """Copilot only (a local model): the application's ownership analysis joins the case
+        """Conversational answers only: the application's ownership analysis joins the case
         facts, read with the user's own session (the backend decides access). Without it, the
         ownership figures are reported as not available and no percentage is grounded."""
 
@@ -1074,9 +1078,10 @@ def create_app(
     def local_ownership(
         prep: Prepared, case_id: UUID, request: Request, remote: bool
     ) -> Prepared:
-        # D-115 X2: an external model never gets the ownership analysis (people's names and
-        # holdings the D-095 check does not ground); it answers from the checked case facts.
-        return prep if remote else with_ownership(prep, case_id, request)
+        # D-115 X2: without D-122 an external model never gets the ownership analysis.
+        if remote and not external_conversational(config):
+            return prep
+        return with_ownership(prep, case_id, request)
 
     def refused_outcome(lead: str | None) -> _Outcome:
         # The case-data answer when no model may be used, with the reason recorded as in the
@@ -1561,12 +1566,13 @@ def create_app(
                 suggested_questions=suggested_questions(facts),
                 small_talk=True,
             )
+        # D-122: scope is judged whichever model answers, so no case data follows "1+1".
+        if copilot_for(active) and not copilot.in_domain(
+            question, ongoing=bool(ticket and ticket.history), case_open=True
+        ):
+            emit("chat", started, _Outcome(fallback_reason="off_domain"), None)
+            return off_domain(suggested_questions(facts))
         if copilot_for(active) and active.model is not None:
-            if not copilot.in_domain(
-                question, ongoing=bool(ticket and ticket.history), case_open=True
-            ):
-                emit("chat", started, _Outcome(fallback_reason="off_domain"), None)
-                return off_domain(suggested_questions(facts))
             remote = is_remote_test_model(active.model)
             prepared = prepare(body, snapshot, question, remote=remote, history=history)
             owned = local_ownership(prepared, case_id, request, remote)
@@ -1641,12 +1647,12 @@ def create_app(
                     )
                 )
             )
+        if copilot_for(active) and not copilot.in_domain(
+            question, ongoing=bool(ticket and ticket.history), case_open=True
+        ):
+            emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
+            return stream_of(single(off_domain(suggestions)))
         if copilot_for(active) and active.model is not None:
-            if not copilot.in_domain(
-                question, ongoing=bool(ticket and ticket.history), case_open=True
-            ):
-                emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
-                return stream_of(single(off_domain(suggestions)))
             remote = is_remote_test_model(active.model)
             prepared = prepare(body, snapshot, question, remote=remote, history=history)
             owned = local_ownership(prepared, case_id, request, remote)

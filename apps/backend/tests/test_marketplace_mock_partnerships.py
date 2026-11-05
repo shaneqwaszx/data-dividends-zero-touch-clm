@@ -60,6 +60,10 @@ OFFICERS = [
 ]
 
 
+# D-121: these tests pin the blocking review, the rollback mode.
+pytestmark = pytest.mark.usefixtures("blocking_ubo_review")
+
+
 def entity_body(officers=OFFICERS, constitution="PARTNERSHIP") -> dict:
     return {"entities": [{
         "uen": XYZ.uen,

@@ -32,6 +32,7 @@ def system() -> tuple[TestClient, OfflineFiveLayerProtocolTransport]:
         clm_persistence_mode="memory",
         registry_cache_mode="auto",
         acra_connector_mode="api_marketplace_mock",
+        acra_marketplace_ubo_review_mode="blocking",  # D-121 rollback mode
         acra_marketplace_ownership_overlay="hybrid_direct_overlay",
         goldtier_connector_mode="mock",
         idp_connector_mode="local_pdf_text",

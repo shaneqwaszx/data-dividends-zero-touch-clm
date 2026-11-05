@@ -28,3 +28,10 @@ fastapi.testclient.TestClient = AuthenticatedTestClient
 @pytest.fixture(autouse=True)
 def _isolate_ordinary_test_environment() -> None:
     enforce_ordinary_test_environment()
+
+
+@pytest.fixture
+def blocking_ubo_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-121: a test of the blocking review, the rollback of the advisory default."""
+
+    monkeypatch.setenv("ACRA_MARKETPLACE_UBO_REVIEW_MODE", "blocking")

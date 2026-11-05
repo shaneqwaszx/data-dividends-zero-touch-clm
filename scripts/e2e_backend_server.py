@@ -157,6 +157,8 @@ def main() -> int:
     setting_values: dict[str, object] = {
         "app_env": "test",
         "acra_connector_mode": "mock",
+        # D-121: these browser specs assert the blocking review, the rollback mode.
+        "acra_marketplace_ubo_review_mode": "blocking",
         "goldtier_connector_mode": "mock",
         "idp_connector_mode": "local_pdf_text",
         "ownership_connector_mode": "mock",

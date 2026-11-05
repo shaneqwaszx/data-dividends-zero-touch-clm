@@ -2422,3 +2422,31 @@ Recorded residuals, accepted by the owner: a value moved by the smallest amount 
 declaration, and renaming both issuer and holder while also supplying a different registration
 for the issuer is indistinguishable from a different company. Both are visible in the review
 receipt. Owner note: D-117's planned schema 19 moves to the next free version.
+
+## D-121 - A UBO review never blocks readiness on the official Mock lane (OWNER-DIRECTED 2026-11-05)
+
+Status: owner-directed on 2026-11-05 ("ensure no blocker for OPQ and garden as well as in general
+for UBO"). Authority: `USER_AUTHORIZED_POC`. Evidence class: Mock. Not sponsor-confirmed. It
+supersedes D-112 O7 and narrows D-081's "readiness stays blocked" on this lane only.
+
+| # | Decision |
+| --- | --- |
+| U1 | **Advisory review.** `ACRA_MARKETPLACE_UBO_REVIEW_MODE` defaults to `advisory`. On the official Mock lane a current `REVIEW_REQUIRED` ownership analysis no longer blocks readiness, for every company, whatever its review causes. |
+| U2 | **What does not change.** The analysis keeps its review state, issues and classifications, and it is never verified ownership. No percentage or UBO calculation changes. A failed or unfinished analysis still blocks, and so does an analysis made stale by an identity or document change. **Consequence:** partnership share problems are advisory too. Shares that do not total 100%, a missing or extra partner and unconfirmed agreement shares show as issues but no longer stop the case. |
+| U3 | **Sandbox and Live** never qualify (D-112 O6): the switch needs both the official Mock registry and Mock GoldTier. With GoldTier in Sandbox a review still blocks. |
+| U4 | **GoldTier and audit.** The explicit target confirmation is unchanged, and nothing is sent before it. An advisory review is never reported as accepted: `poc_basis_accepted` stays false, the review warning stays on screen, and the audit code is `OWNERSHIP_REVIEW_ADVISORY`. |
+| U5 | **Rollback.** Set the switch to `blocking`. D-081 and D-120 protection of manual declarations is unchanged and still applies when a declaration is made. |
+
+## D-122 - Conversational answers from external models on any case, bounded by scope and guardrails (OWNER-DIRECTED 2026-11-05)
+
+Status: owner-directed on 2026-11-05 ("should not be restricted to verified synthetic cases only").
+Authority: `USER_AUTHORIZED_POC`. It records `CONVERSATIONAL_DECISION` and widens D-115 X2, and
+it supersedes the D-095 case-eligibility limit for conversational answers.
+
+| # | Decision |
+| --- | --- |
+| A1 | **Any case.** Claude, GPT-OSS and any local or IT-configured model answer in their own words on any case the signed-in user may read, so the console's data access restriction no longer limits answers. The D-095 eligibility check no longer gates them; the per-call ticket stays, so only the exact checked messages are sent. |
+| A2 | **Scope.** Questions outside corporate onboarding are redirected without calling a model, whichever model is active and even with a case open. Examples: arithmetic, public figures, homework. |
+| A3 | **Guardrails kept.** Case context, RAG knowledge, the sentence-by-sentence claim checks, the read-only rule, spending limits and audit are unchanged. |
+| A4 | **Data consequence.** External models now receive case facts and the ownership analysis, including people's names and holdings, for any case. That is acceptable only while this POC holds synthetic data. **It must not be used with real client data** without a new decision on the provider boundary. |
+| A5 | **Requalification.** The qualification basis changes, so every external configuration needs a new paid qualification before it can answer. |

@@ -1392,8 +1392,37 @@ class ZeroTouchOrchestrator:
                 self._documents.get_document(case_id=case_id, document_id=document_id) or reviewed
             )
 
+    def _held_by_advisory_review(self, record: ZeroTouchAutomationRecord) -> bool:
+        """D-121: an ownership hold raised before this review became advisory."""
+
+        holds = [
+            item for item in record.active_exceptions
+            if item.stage == AutomationStage.OWNERSHIP
+            and item.exception_type in _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES
+        ]
+        if record.status != AutomationStatus.WAITING_FOR_REVIEW or not holds:
+            return False
+        ownership = self._ownership.get(case_id=record.case_id)
+        return (
+            ownership is not None
+            and self._government_gate(record.case_id) is None
+            and self._ownership.review_is_advisory(ownership)
+            and any(
+                item.evidence_version == f"ownership:{ownership.analysis_id}:{ownership.version}"
+                for item in holds
+            )
+        )
+
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
         record = self._repository.get_for_case(case_id)
+        if record is not None and self._held_by_advisory_review(record):
+            # The existing recovery retires the hold. It sends nothing: the target step still
+            # needs its explicit confirmation. If it cannot run now, the read stays a read.
+            with self._cases.case_lock(case_id):
+                try:
+                    return self._advance_locked(case_id=case_id)
+                except (ZeroTouchRequestError, ZeroTouchInfrastructureError):
+                    return self._repository.get_for_case(case_id)
         if (
             record is None or record.status != AutomationStatus.WAITING_FOR_REVIEW
             or record.current_stage != AutomationStage.GOLDTIER_SEARCH
@@ -1555,6 +1584,11 @@ class ZeroTouchOrchestrator:
                     case_id=case_id, automation_id=record.automation_id,
                     code=exc.code, message=exc.public_message,
                 ) from None
+            # D-121: an advisory review does not hold the case, so it continues as analysed.
+            held = (
+                replacement.state != OwnershipAnalysisState.ANALYZED
+                and not self._ownership.clears_review(replacement)
+            )
             candidate = record.model_copy(deep=True)
             resolved_at = self._clock()
             for item in candidate.active_exceptions:
@@ -1570,7 +1604,7 @@ class ZeroTouchOrchestrator:
                 ):
                     item.status = (
                         BusinessExceptionStatus.CANCELLED
-                        if replacement.state != OwnershipAnalysisState.ANALYZED
+                        if held
                         and item.exception_type
                         == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
                         else BusinessExceptionStatus.RESOLVED
@@ -1588,7 +1622,7 @@ class ZeroTouchOrchestrator:
             )
             candidate.metrics.human_interventions += 1
             candidate.metrics.exceptions_resolved += len(ownership_blockers)
-            if replacement.state != OwnershipAnalysisState.ANALYZED:
+            if held:
                 # The graph and receipt are retained even for a safe 409. Bind the
                 # current ownership hold before returning that failed-closed result.
                 candidate = self._raise_ownership_exception(candidate, replacement, persist=False)
@@ -3022,7 +3056,7 @@ class ZeroTouchOrchestrator:
         return (
             ownership is not None
             and item.evidence_version == f"ownership:{ownership.analysis_id}:{ownership.version}"
-            and self._ownership.poc_basis_accepted(ownership)
+            and self._ownership.clears_review(ownership)
         )
 
     def _recover_obsolete_registry_ownership_locked(
@@ -3052,7 +3086,7 @@ class ZeroTouchOrchestrator:
         current_review = (
             ownership is not None
             and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
-            and not self._ownership.poc_basis_accepted(ownership)
+            and not self._ownership.clears_review(ownership)
             and not government
         ) or (government is False and ownership is not None)
         # D-101: a Government checkpoint is proved only by a confirmation that is current.
@@ -3358,6 +3392,7 @@ class ZeroTouchOrchestrator:
                 # D-082: a current opt-in POC acceptance completes the stage below with
                 # its own audit code; every other review outcome raises the exception.
                 poc_accepted = self._ownership.poc_basis_accepted(ownership)
+                advisory = self._ownership.review_is_advisory(ownership)  # D-121
                 # D-101: for a Government entity only a current RM confirmation completes
                 # this stage, whatever the (unsupported) ownership analysis says.
                 government = self._government_gate(case_id)
@@ -3365,6 +3400,7 @@ class ZeroTouchOrchestrator:
                     government is None
                     and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
                     and not poc_accepted
+                    and not advisory
                 ):
                     if self._intelligence_evaluator is not None:
                         intelligence = self._intelligence_evaluator(case_id)
@@ -3380,7 +3416,11 @@ class ZeroTouchOrchestrator:
                     )
                 if government or (
                     government is None
-                    and (ownership.state == OwnershipAnalysisState.ANALYZED or poc_accepted)
+                    and (
+                        ownership.state == OwnershipAnalysisState.ANALYZED
+                        or poc_accepted
+                        or advisory
+                    )
                 ):
                     intelligence = (
                         self._intelligence_evaluator(case_id)
@@ -3398,6 +3438,8 @@ class ZeroTouchOrchestrator:
                             if government
                             else "OWNERSHIP_POC_BASIS_ACCEPTED"
                             if poc_accepted
+                            else "OWNERSHIP_REVIEW_ADVISORY"
+                            if advisory
                             else "OWNERSHIP_AUTOMATED"
                         ),
                         message=(
@@ -3407,6 +3449,9 @@ class ZeroTouchOrchestrator:
                             else "Ownership calculated; the scenario's declared POC basis was "
                             "accepted by D-085. Classification review is retained."
                             if poc_accepted
+                            else "Ownership review is advisory on this lane (D-121): it does "
+                            "not block readiness, and nothing was accepted or verified."
+                            if advisory
                             else "Deterministic ownership analysis completed automatically."
                         ),
                         started_at=started_at,

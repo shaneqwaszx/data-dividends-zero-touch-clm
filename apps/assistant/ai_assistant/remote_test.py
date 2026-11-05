@@ -60,7 +60,7 @@ from .budget import (
     next_singapore_reset_ms,
     singapore_day_start_ms,
 )
-from .config import AiAssistantSettings
+from .config import AiAssistantSettings, external_conversational
 from .llm import ChatModel, ModelAnswer, ModelCallError, Piece, is_local_model_url
 from .model_factory import build_account_client, build_chat_model, ledger_path
 from .model_profiles import (
@@ -378,9 +378,10 @@ class RemoteTestModel:
         # Defence in depth, whoever the caller is: the messages passed the D-095 eligibility
         # check (their single-use ticket) or the text part of the D-094 synthetic boundary.
         ticket = synthetic_eligibility.admitted(messages)
-        if not (ticket and synthetic_eligibility.mode(self._settings)) and (
-            check_messages(messages) is not None
-        ):
+        cleared = ticket and (
+            external_conversational(self._settings) or synthetic_eligibility.mode(self._settings)
+        )
+        if not cleared and check_messages(messages) is not None:
             raise self._refuse("text outside the synthetic boundary")
         with self._lock:
             if readiness(self._settings) is not None:

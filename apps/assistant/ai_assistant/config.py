@@ -30,10 +30,10 @@ APPROVED_QUALIFICATION_QUESTIONS = "P01#1,P02#0"
 APPROVED_QUALIFICATION_COUNT = 2
 
 
-# Owner approval of conversational (free-text) answers, including external models on verified
-# synthetic cases (D-115 conversational contract). None until the owner records the decision in
-# a reviewed change; nothing a teammate sets turns it on.
-CONVERSATIONAL_DECISION: str | None = None
+# Owner approval of conversational (free-text) answers, including external models on any case
+# (D-115 conversational contract, widened by D-122). Scope, context, RAG and the sentence
+# checks still bound every answer. Set only in a reviewed change, never by a teammate.
+CONVERSATIONAL_DECISION: str | None = "D-122"
 
 
 def conversational(settings: "AiAssistantSettings") -> bool:

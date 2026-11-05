@@ -146,6 +146,16 @@ os.environ.pop("OPENROUTER_API_KEY", None)
 key_sources.ENV_FILE = key_sources.ENV_FILE.with_name(".env.test-suite-never-read")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def exact_lines_unless_a_test_opts_in() -> Iterator[None]:
+    """D-122 turned conversational answers on. Tests of the exact-line rollback run without
+    it; a test of conversational answers sets the decision itself."""
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("ai_assistant.config.CONVERSATIONAL_DECISION", None)
+        yield
+
+
 @pytest.fixture(autouse=True)
 def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """Every test starts with no .env key, empty HR key stores and no HR session check."""

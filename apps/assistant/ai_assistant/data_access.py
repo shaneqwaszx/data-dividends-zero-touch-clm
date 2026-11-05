@@ -31,7 +31,7 @@ from contextlib import aclosing
 from typing import Any
 
 from . import anthropic_runtime, remote_test, synthetic_eligibility
-from .config import AiAssistantSettings
+from .config import AiAssistantSettings, external_conversational
 from .llm import ChatModel, LlmUnavailableError, ModelAnswer, Piece, is_local_model_url
 from .model_admin_store import DataAccessPolicy
 from .synthetic_boundary import check_messages
@@ -139,7 +139,7 @@ class SyntheticOnlyModel:
 
     def _admit(self, messages: list[dict[str, str]]) -> None:
         ticket = synthetic_eligibility.admitted(messages)
-        if ticket and self.development_mode():
+        if ticket and (external_conversational(self._settings) or self.development_mode()):
             return
         if check_messages(messages) is not None:
             raise LlmUnavailableError("refused by the data access policy")
@@ -170,7 +170,10 @@ def view(
     # What the AI Models page shows: the effective server-side policy, never a wish. Without
     # model management (no state database) nothing is applied (D-093, unchanged), and the page
     # says so.
-    restricted = local_restricted(policy) if managed else False
+    # D-122: conversational answers reach every class on any case the user may read.
+    open_access = external_conversational(settings)
+    restricted = local_restricted(policy) and not open_access if managed else False
+    remote_restricted = remote_restricted and not open_access
     active = model_class(model, base_url)
     if not managed:
         status = "not_managed"
@@ -185,13 +188,17 @@ def view(
         "revision": policy.revision if policy is not None else None,
         "changed_at": policy.changed_at if policy is not None else None,
         "classes": [
-            {"provider_class": "openrouter", "restricted": True, "locked": True},
-            {"provider_class": "anthropic", "restricted": True, "locked": True},
+            {"provider_class": "openrouter", "restricted": not open_access, "locked": True},
+            {"provider_class": "anthropic", "restricted": not open_access, "locked": True},
             {"provider_class": IT_CLASS, "restricted": remote_restricted, "locked": True},
-            {"provider_class": LOCAL_CLASS, "restricted": restricted, "locked": not managed},
+            {
+                "provider_class": LOCAL_CLASS,
+                "restricted": restricted,
+                "locked": not managed or open_access,
+            },
         ],
         "active_class": active,
-        "active_restricted": active in ("openrouter", "anthropic")
+        "active_restricted": (active in ("openrouter", "anthropic") and not open_access)
         or (remote_restricted and active == IT_CLASS)
         or (active == LOCAL_CLASS and restricted),
         "verification": verification_mode(settings, active),

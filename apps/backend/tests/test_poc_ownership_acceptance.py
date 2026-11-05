@@ -135,6 +135,7 @@ def lane(acceptance: str = ACCEPT, **update: Any) -> Settings:
         "acra_connector_mode": "api_marketplace_mock",
         "acra_marketplace_ownership_overlay": "hybrid_direct_overlay",
         "acra_marketplace_poc_ownership_acceptance": acceptance,
+        "acra_marketplace_ubo_review_mode": "blocking",
         "goldtier_connector_mode": "mock",
         "idp_connector_mode": "local_pdf_text",
         "demo_controls_enabled": False,

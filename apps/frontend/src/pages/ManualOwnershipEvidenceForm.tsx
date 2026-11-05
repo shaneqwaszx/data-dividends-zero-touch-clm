@@ -143,8 +143,8 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>(agreementDocument ? "DOCUMENT_OBSERVATIONS" : "USER_SUPPLIED_DECLARATION");
   const [selectedObservationIds, setSelectedObservationIds] = useState<string[]>([]);
   const [asOfDates, setAsOfDates] = useState<Record<SourceSelection, string>>(() => ({
-    USER_SUPPLIED_DECLARATION: ownership?.manual_review_receipt?.as_of_date ?? singaporeCalendarDate(),
-    CURRENT_EVIDENCE: "", DOCUMENT_OBSERVATIONS: "",
+    USER_SUPPLIED_DECLARATION: singaporeCalendarDate(),
+    CURRENT_EVIDENCE: singaporeCalendarDate(), DOCUMENT_OBSERVATIONS: singaporeCalendarDate(),
   }));
   const [agreementAsOfDate, setAgreementAsOfDate] = useState(() => agreementDate(agreementDocument));
   const selectedObservations = observations.filter(item => selectedObservationIds.includes(item.observation_id));
@@ -311,7 +311,7 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
         <label>Root legal-entity ID<input className="input" name="root_party_id" value={rootPartyId} maxLength={64} disabled={graphDisabled} onChange={(event) => changeRootId(event.target.value)} /></label>
         <label>Root legal-entity name<input className="input" name="root_display_name" value={rootDisplayName} maxLength={160} disabled={graphDisabled} onChange={(event) => setRootDisplayName(event.target.value)} /></label>
       </div>
-      <p className="control-help">Declaration dates use the Singapore calendar (SGT). A new manual declaration defaults to today; retained and selected source dates stay historical. {sourceDate !== null ? "The displayed date is retained from the selected evidence." : sourceSelection !== "USER_SUPPLIED_DECLARATION" ? "A single source date is not recorded; supply an explicit date for this review decision. Original source dates remain unchanged." : ""}</p>
+      <p className="control-help">Declaration dates use the Singapore calendar (SGT). The date defaults to today; retained and selected source dates stay historical. {sourceDate !== null ? "The displayed date is retained from the selected evidence." : sourceSelection !== "USER_SUPPLIED_DECLARATION" ? "A single source date is not recorded, so today is used; change it if this review decision needs another date. Original source dates remain unchanged." : ""}</p>
       <p className="control-help">Current observation bindings: {bindings.length ? bindings.map((binding) => `${binding.document_id} · review revision ${binding.event_count}`).join("; ") : "No proposed ownership observations"}. Each proposal keeps its immutable document version and page reference.</p>
       {sourceSelection === "DOCUMENT_OBSERVATIONS" && <fieldset><legend>Select proposed observations for this decision</legend>{observations.map((observation) => <label className="s2-observation-choice" key={observation.observation_id}>
         <input type="checkbox" checked={selectedObservationIds.includes(observation.observation_id)} disabled={disabled} onChange={(event) => selectObservation(observation.observation_id, event.target.checked)} />

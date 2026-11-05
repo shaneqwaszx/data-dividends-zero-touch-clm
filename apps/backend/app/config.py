@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     acra_marketplace_poc_ownership_acceptance: Literal["disabled", "accept_eligible_poc"] = (
         "accept_eligible_poc"
     )
+    # D-121 (owner, 2026-11-05): on the official Mock lane a UBO review never blocks
+    # readiness; issues and classifications stay visible. Sandbox/Live never qualify.
+    acra_marketplace_ubo_review_mode: Literal["advisory", "blocking"] = "advisory"
     # D-086 operator selector, hybrid lane only: which whitelisted scenario the OPQ root
     # uses. The historical five-layer simulation stays the default; never a case field.
     acra_marketplace_opq_scenario: Literal[
