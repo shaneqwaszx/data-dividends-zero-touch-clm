@@ -96,6 +96,7 @@ class WorkflowManagementService:
         runs: WorkflowRunRepository,
         cases: WorkflowCaseReader,
         case_is_sent: Callable[[UUID], bool] | None = None,
+        case_is_onboarded: Callable[[UUID], bool] | None = None,
         case_data: Callable[[UUID], Mapping[str, str]] | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
@@ -104,6 +105,7 @@ class WorkflowManagementService:
         self._runs = runs
         self._cases = cases
         self._case_is_sent = case_is_sent or (lambda _case_id: False)
+        self._case_is_onboarded = case_is_onboarded or (lambda _case_id: False)
         self._case_data = case_data or (lambda _case_id: {})
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
@@ -239,6 +241,11 @@ class WorkflowManagementService:
                 self._apply_suggestions(run, self._uuid_factory(), pages)
             return self._owned_run(reauthorize(), workflow_id, run_id, None)
 
+    def require_workflow_case(
+        self, actor: AuthenticatedActor, workflow_id: str, run_id: UUID
+    ) -> None:
+        self._owned_run(actor, workflow_id, run_id, None)
+
     def delete_workflow_case(
         self, reauthorize: Reauthorize, *, workflow_id: str, run_id: UUID
     ) -> None:
@@ -356,14 +363,11 @@ class WorkflowManagementService:
                 raise WorkflowValidationError(
                     "WORKFLOW_NOT_STARTABLE", "This workflow opens its own new cases."
                 )
-            if not self._case_is_sent(case_id):
+            if not self._case_is_onboarded(case_id):
                 raise WorkflowValidationError(
                     "WORKFLOW_CASE_NOT_ONBOARDED", "Choose a case that has finished onboarding."
                 )
-            if any(
-                run.workflow_id == workflow_id and not run.is_complete
-                for run in self._runs.list_for_case(case_id)
-            ):
+            if any(run.workflow_id == workflow_id for run in self._runs.list_for_case(case_id)):
                 raise WorkflowConflictError
             now = self._clock()
             return self._runs.create(
@@ -405,6 +409,7 @@ class WorkflowManagementService:
         with self._cases.case_lock(case_id):
             self._require_filler(reauthorize())
             run = self._open_run(case_id, run_id, expected_revision)
+            self._require_not_sent(run, case_id)
             return self._with_answers(run, stage_id, values)
 
     def confirm_stage(
@@ -420,6 +425,7 @@ class WorkflowManagementService:
             actor = reauthorize()
             self._require_filler(actor)
             run = self._open_run(case_id, run_id, expected_revision)
+            self._require_not_sent(run, case_id)
             return self._with_confirmation(run, stage_id, actor)
 
     # Integration hooks. Neither may change a case's outcome when nothing is configured.
@@ -464,8 +470,17 @@ class WorkflowManagementService:
         except Exception:
             LOGGER.warning("workflow autofill skipped", extra={"case_id": str(case_id)})
 
-    def delete_case_data(self, case_id: UUID) -> None:
+    def delete_case_data(self, case_id: UUID) -> Callable[[], None]:
+        """Delete a case's answers and return how to put them back if the case survives."""
+
+        removed = self._runs.list_for_case(case_id)
         self._runs.delete_for_case(case_id)
+
+        def restore() -> None:
+            for run in removed:
+                self._runs.create(run)
+
+        return restore
 
     # Internals.
 
@@ -513,6 +528,12 @@ class WorkflowManagementService:
                             result[(stage.name.casefold(), field.label.casefold())] = answer.value
         return result
 
+    def _require_not_sent(self, run: WorkflowRun, case_id: UUID) -> None:
+        if run.is_onboarding and self._case_is_sent(case_id):
+            raise WorkflowValidationError(
+                "WORKFLOW_CASE_SENT", "This case has been sent, so its stages are closed."
+            )
+
     def _with_answers(
         self, run: WorkflowRun, stage_id: str, values: Mapping[str, str]
     ) -> WorkflowRun:
@@ -528,7 +549,12 @@ class WorkflowManagementService:
             previous = existing.get(field_id)
             if value is None:
                 existing.pop(field_id, None)
-            elif previous is None or previous.value != value:
+            elif (
+                previous is None
+                or previous.value != value
+                or previous.source == WorkflowAnswerSource.DOCUMENT
+            ):
+                # Saving a suggestion makes it the person's answer, so later uploads leave it.
                 existing[field_id] = WorkflowAnswer(
                     stage_id=stage_id, field_id=field_id, value=value
                 )
@@ -620,9 +646,11 @@ class WorkflowManagementService:
             update={**changes, "revision": run.revision + 1, "updated_at": self._clock()}
         )
         try:
-            if run.revision == 0:
+            stored = self._runs.get(run.run_id)
+            if stored is None:
                 return self._runs.create(candidate)
-            return self._runs.update(candidate, expected_revision=run.revision)
+            # A rebased run's revision runs ahead of the stored one until it is saved.
+            return self._runs.update(candidate, expected_revision=stored.revision)
         except PersistenceConflictError:
             raise WorkflowConflictError from None
 
@@ -831,15 +859,22 @@ def _rebased(run: WorkflowRun, version: WorkflowVersion) -> WorkflowRun:
         return run
     previous = {stage.stage_id: stage for stage in run.stages}
     current = {stage.stage_id: stage for stage in version.stages}
-    kept_fields = {
-        (stage.stage_id, field.field_id) for stage in version.stages for field in stage.fields
+    fields = {
+        (stage.stage_id, field.field_id): field
+        for stage in version.stages
+        for field in stage.fields
     }
     return run.model_copy(
         update={
             "workflow_version": version.version,
             "stages": version.stages,
+            # The new revision makes a screen still showing the old version reload first.
+            "revision": run.revision + 1,
             "answers": tuple(
-                item for item in run.answers if (item.stage_id, item.field_id) in kept_fields
+                item
+                for item in run.answers
+                if (item.stage_id, item.field_id) in fields
+                and _answer_still_valid(fields[(item.stage_id, item.field_id)], item.value)
             ),
             # A stage that changed needs checking again.
             "confirmations": tuple(
@@ -864,6 +899,13 @@ def _suggested_value(field: WorkflowField, value: str) -> str | None:
     if field.kind == WorkflowFieldKind.CHOICE:
         return match_option(value, field.options)
     return value
+
+
+def _answer_still_valid(field: WorkflowField, value: str) -> bool:
+    try:
+        return _validated_answer(field, value) is not None
+    except WorkflowValidationError:
+        return False
 
 
 def _autofill_fields(run: WorkflowRun) -> list[tuple[WorkflowStage, WorkflowField]]:

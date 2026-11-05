@@ -49,7 +49,7 @@ first. The rail merges added stages at display time, outside
 - Drive the orchestrator from definitions: the real Camunda-style result, but it rewrites
   the highest-risk owner, which the owner excluded.
 - Hold a case at the stage's own position: needs new statuses and exception types across
-  orchestration and persistence. The send is the single point every submission passes.
+  orchestration and persistence. Final review & send is the zero-touch send point.
 - Advisory stages with no send check: rejected by the owner.
 
 ## Consequences
@@ -57,6 +57,8 @@ first. The rail merges added stages at display time, outside
 - Existing onboarding stages still change only through code. Definitions control added
   stages and new workflows.
 - A case keeps moving past an unconfirmed added stage and stops at Final review & send.
+- The older `/api/clm/cases/{case_id}/target-confirmation` and `/submit` routes, which
+  predate this work, do not pass the send check. It holds for the zero-touch send only.
 - One Director can add a stage that blocks an RM's send with no second approver. This
   is a deliberate POC choice, separate from D-064 policy four-eyes.
 - Collected answers can include KYC/PII. They stay case-scoped, are never logged and are

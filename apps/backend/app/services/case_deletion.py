@@ -83,6 +83,10 @@ class InMemoryCaseDeletionRepository:
         return binding_id
 
 
+def _nothing_to_restore() -> None:
+    return None
+
+
 class CaseDeletionService:
     """Re-authorize, delete atomically where durable, then clear transient state."""
 
@@ -94,7 +98,7 @@ class CaseDeletionService:
         repository: CaseDeletionRepository,
         release_provider_binding: Callable[[str], None],
         release_demo_transients: Callable[[UUID], None],
-        delete_workflow_data: Callable[[UUID], None] | None = None,
+        delete_workflow_data: Callable[[UUID], Callable[[], None]] | None = None,
     ) -> None:
         self._cases = cases
         self._access_policy = access_policy
@@ -108,14 +112,18 @@ class CaseDeletionService:
             self._access_policy.require_case_access(actor, case_id, self._cases)
             if actor.profile.role not in {Role.DIRECTOR, Role.RELATIONSHIP_MANAGER}:
                 raise CaseDeleteForbiddenError
+            restore_workflow_data: Callable[[], None] = _nothing_to_restore
             try:
-                # D-121: first, so collected answers can never outlive their case.
+                # D-121: first, so collected answers can never outlive their case. They
+                # go back if the case itself cannot be deleted.
                 if self._delete_workflow_data is not None:
-                    self._delete_workflow_data(case_id)
+                    restore_workflow_data = self._delete_workflow_data(case_id)
                 binding_id = self._repository.delete(case_id)
             except PersistenceConflictError:
+                restore_workflow_data()
                 raise CaseDeleteConflictError from None
             except PersistenceUnavailableError:
+                restore_workflow_data()
                 raise CaseDeleteUnavailableError from None
             if binding_id is not None:
                 self._release_provider_binding(binding_id)

@@ -220,15 +220,6 @@ export default function CaseDetail({
   const evidenceIdentity = `${actor.user_id}:${caseId}`;
   // AuthProvider remounts this subtree for each authenticated session generation.
   const disclosureIdentity = `${evidenceIdentity}:${actor.role}:${actor.team_id}`;
-  const workflowSectionProps = {
-    caseId,
-    userId: actor.user_id,
-    canFill: actor.role === "CLIENT_ONBOARDER" || actor.role === "RELATIONSHIP_MANAGER",
-    scopeKey: disclosureIdentity,
-  };
-  const workflowStagesAfter = (...anchors: string[]) => (
-    <CaseWorkflowStages {...workflowSectionProps} run={workflowQuery.data?.onboarding} anchors={anchors} />
-  );
   const detailQuery = useQuery(caseDetailQueryOptions(actor.user_id, caseId));
   const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
   const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
@@ -240,6 +231,17 @@ export default function CaseDetail({
     enabled: workflowManagerEnabled(),
   });
   const summary = detailQuery.data ?? null;
+  const workflowSectionProps = {
+    caseId,
+    userId: actor.user_id,
+    // A case that has been sent keeps its stages as they were.
+    canFill: (actor.role === "CLIENT_ONBOARDER" || actor.role === "RELATIONSHIP_MANAGER")
+      && summary?.status !== "COMPLETED" && summary?.current_stage !== "MOCK_GOLDTIER",
+    scopeKey: disclosureIdentity,
+  };
+  const workflowStagesAfter = (...anchors: string[]) => (
+    <CaseWorkflowStages {...workflowSectionProps} run={workflowQuery.data?.onboarding} anchors={anchors} />
+  );
   // Document suggestions land during processing, so reload the stages as the case moves on.
   useEffect(() => {
     if (workflowManagerEnabled()) void queryClient.invalidateQueries({ queryKey: workflowQueryKeys.caseRuns(actor.user_id, caseId) });

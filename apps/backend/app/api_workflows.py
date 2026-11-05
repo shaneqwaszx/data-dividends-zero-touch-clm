@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -267,6 +267,7 @@ def build_workflow_router(
     access_policy: CaseAccessPolicy,
     cases: OnboardingService,
     max_upload_bytes: int,
+    read_bounded_body: Callable[[Request, int], Awaitable[bytes]],
 ) -> APIRouter:
     def require_enabled() -> None:
         if service is None:
@@ -473,9 +474,9 @@ def build_workflow_router(
     async def suggest_from_upload(
         workflow_id: str, run_id: UUID, request: Request
     ) -> RunResponse:
-        content = await request.body()
-        if len(content) > max_upload_bytes:
-            raise _error(413, "WORKFLOW_DOCUMENT_TOO_LARGE", "The document is too large.")
+        # Who may upload is settled before any of the body is read.
+        _call(lambda: active().require_workflow_case(fresh_actor(request)(), workflow_id, run_id))
+        content = await read_bounded_body(request, max_upload_bytes)
         try:
             extracted = DocumentMediaRouter().extract(
                 display_name=request.headers.get("X-Document-Name", ""),

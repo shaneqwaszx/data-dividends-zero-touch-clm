@@ -35,6 +35,7 @@ from app.services.workflow_autofill import (
 from app.services.workflow_management import (
     HOLD_INCOMPLETE,
     HOLD_UNAVAILABLE,
+    WorkflowConflictError,
     WorkflowManagementService,
     WorkflowValidationError,
     _suggested_value,
@@ -335,7 +336,7 @@ def test_another_team_gets_the_safe_404():
     ).status_code == 404
 
 
-@patch("app.main._automation_is_sent", return_value=True)
+@patch("app.main._automation_is_complete", return_value=True)
 def test_an_active_workflow_is_startable_by_rm_or_onboarder_and_stages_open_in_order(_sent):
     app = enabled_app()
     director, maya = login(app, "olivia-koh"), login(app, "maya-lim")
@@ -415,8 +416,10 @@ def test_an_existing_case_workflow_needs_a_case_that_finished_onboarding():
     with pytest.raises(WorkflowValidationError) as refused:
         service.start_run(lambda: filler, created.workflow_id, case_id=case.case_id)
     assert refused.value.code == "WORKFLOW_CASE_NOT_ONBOARDED"
-    service._case_is_sent = lambda _case_id: True
+    service._case_is_onboarded = lambda _case_id: True
     assert service.start_run(lambda: filler, created.workflow_id, case_id=case.case_id)
+    with pytest.raises(WorkflowConflictError):
+        service.start_run(lambda: filler, created.workflow_id, case_id=case.case_id)
 
 
 def new_case_workflow(director):
@@ -529,7 +532,7 @@ def test_each_workflow_type_only_starts_its_own_way():
 def existing_workflow_service(case, values, runs=None):
     service = service_with_stage(case, runs)
     service._case_data = lambda _case_id: values
-    service._case_is_sent = lambda _case_id: True
+    service._case_is_onboarded = lambda _case_id: True
     return service
 
 
@@ -585,6 +588,138 @@ def test_answers_to_added_onboarding_stages_carry_into_the_workflow():
     ]}
     run = start_with(service, case, copied)
     assert [(item.field_id, item.value) for item in run.answers] == [("new-id", "Sample Person")]
+
+
+def test_a_sent_case_cannot_be_edited_or_confirmed():
+    case = FakeCase()
+    service = service_with_stage(case)
+    run = service.case_view(case).onboarding
+    actor = filler_actor()
+    service.save_answers(
+        lambda: actor, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+        expected_revision=0, values={"full-name": "Sample", "birth-date": "1980-01-15"},
+    )
+    service._case_is_sent = lambda _case_id: True
+    for call in (
+        lambda: service.save_answers(
+            lambda: actor, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+            expected_revision=1, values={"full-name": "Changed"},
+        ),
+        lambda: service.confirm_stage(
+            lambda: actor, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+            expected_revision=1,
+        ),
+    ):
+        with pytest.raises(WorkflowValidationError) as refused:
+            call()
+        assert refused.value.code == "WORKFLOW_CASE_SENT"
+
+
+def test_a_failed_send_is_not_finished_onboarding():
+    from types import SimpleNamespace
+
+    from app.domain.zero_touch import AutomationStage, AutomationStatus
+    from app.main import _automation_is_complete, _automation_is_sent
+
+    failed = SimpleNamespace(
+        status=AutomationStatus.TECHNICAL_FAILURE, current_stage=AutomationStage.MOCK_GOLDTIER
+    )
+    assert _automation_is_sent(failed)
+    assert not _automation_is_complete(failed)
+    assert _automation_is_complete(SimpleNamespace(status=AutomationStatus.COMPLETED))
+
+
+def test_a_changed_stage_refuses_a_stale_screen_and_drops_a_now_invalid_answer():
+    case = FakeCase()
+    service = service_with_stage(case)
+    filler, director = filler_actor(), director_actor()
+    run = service.case_view(case).onboarding
+    saved = service.save_answers(
+        lambda: filler, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+        expected_revision=0, values={"full-name": "Sample", "birth-date": "1980-01-15"},
+    )
+    changed = dict(STAGE)
+    changed["fields"] = [
+        {"field_id": "full-name", "label": "Full name", "kind": "NUMBER", "required": True},
+    ]
+    baseline = service.get_workflow(director, ONBOARDING_WORKFLOW_ID)
+    draft = service.save_draft(
+        lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=baseline.revision,
+        stages=(WorkflowStage.model_validate(changed),),
+    )
+    service.activate(lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=draft.revision)
+    case.created_at = datetime(2031, 1, 1, tzinfo=UTC)
+
+    with pytest.raises(WorkflowConflictError):
+        service.confirm_stage(
+            lambda: filler, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+            expected_revision=saved.revision,
+        )
+    current = service.case_view(case).onboarding
+    assert current.workflow_version == 2
+    assert current.answers == ()
+    with pytest.raises(WorkflowValidationError):
+        service.confirm_stage(
+            lambda: filler, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+            expected_revision=current.revision,
+        )
+    assert service.send_hold_code(case.case_id) == HOLD_INCOMPLETE
+
+
+def test_a_failed_case_deletion_keeps_the_workflow_answers():
+    runs = InMemoryWorkflowRunRepository()
+    case = FakeCase()
+    service = service_with_stage(case, runs)
+    run = service.case_view(case).onboarding
+    service.save_answers(
+        lambda: filler_actor(), case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+        expected_revision=0, values={"full-name": "Sample"},
+    )
+    restore = service.delete_case_data(case.case_id)
+    assert runs.list_for_case(case.case_id) == []
+    restore()
+    assert runs.list_for_case(case.case_id)[0].answers[0].value == "Sample"
+
+
+def test_a_saved_suggestion_is_not_replaced_by_a_later_document():
+    case = FakeCase()
+    runs = InMemoryWorkflowRunRepository()
+    service = service_with_stage(case, runs)
+
+    def suggest(text):
+        service.suggest_from_document(
+            case_id=case.case_id, document_id=case.case_id, content=b"x",
+            media_type="text/plain", extracted_text=text,
+        )
+
+    suggest("Full name: One")
+    run = runs.list_for_case(case.case_id)[0]
+    service.save_answers(
+        lambda: filler_actor(), case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
+        expected_revision=run.revision, values={"full-name": "One"},
+    )
+    suggest("Full name: Two")
+    assert runs.list_for_case(case.case_id)[0].answers[0].value == "One"
+
+
+def test_a_workflow_upload_is_authorized_before_the_body_is_used():
+    app = enabled_app()
+    director, maya, sophia = (login(app, item) for item in ("olivia-koh", "maya-lim", "sophia-ng"))
+    url = new_case_workflow(director)
+    run = maya.post(f"{url}/new-cases", json=COMPANY).json()["run"]
+    upload = f"{url}/runs/{run['run_id']}/documents"
+    headers = {"Content-Type": "text/plain", "X-Document-Name": "profile.txt"}
+    assert login(app, "hr-admin").post(upload, content=b"", headers=headers).status_code == 403
+    assert sophia.post(upload, content=b"", headers=headers).status_code == 404
+    assert director.post(upload, content=b"", headers=headers).status_code == 403
+
+
+def test_a_long_hostile_line_is_read_quickly():
+    from time import perf_counter
+
+    started = perf_counter()
+    find_labelled_value([" " * 60_000 + "\n" + "Full name" * 6_000], "Full name")
+    assert perf_counter() - started < 0.5
 
 
 def test_onboarding_cannot_be_started_as_a_run():

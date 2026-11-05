@@ -580,6 +580,10 @@ def _onboarded_values(
     )
 
 
+def _automation_is_complete(record: ZeroTouchAutomationRecord | None) -> bool:
+    return record is not None and record.status == AutomationStatus.COMPLETED
+
+
 def _automation_is_sent(record: ZeroTouchAutomationRecord | None) -> bool:
     return record is not None and record.current_stage in {
         AutomationStage.MOCK_GOLDTIER,
@@ -661,6 +665,9 @@ def create_app(
             runs=workflow_persistence.runs,
             cases=service,
             case_is_sent=lambda case_id: _automation_is_sent(
+                persistence.automation.get_for_case(case_id)
+            ),
+            case_is_onboarded=lambda case_id: _automation_is_complete(
                 persistence.automation.get_for_case(case_id)
             ),
             case_data=lambda case_id: _onboarded_values(persistence, service, case_id),
@@ -796,6 +803,7 @@ def create_app(
             access_policy,
             service,
             active_settings.idp_max_upload_bytes,
+            _read_bounded_body,
         )
     )
     application.include_router(

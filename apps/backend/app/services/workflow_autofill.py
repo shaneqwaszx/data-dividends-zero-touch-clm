@@ -24,18 +24,25 @@ class LabelledValue:
     page_number: int = 1
 
 
+def _value_after_label(line: str, wanted: str) -> str | None:
+    """Read one line in linear time, as document text can be long and hostile."""
+
+    text = line.strip(" \t")
+    if text[: len(wanted)].casefold() != wanted:
+        return None
+    rest = text[len(wanted) :].lstrip(" \t")
+    return rest[1:].strip(" \t") if rest[:1] in {":", "-"} else None
+
+
 def find_labelled_value(pages: Sequence[str], label: str) -> LabelledValue | None:
     """Return the one value on a ``label: value`` line; none or conflicting gives None."""
 
-    pattern = re.compile(
-        rf"^[ \t]*{re.escape(label.strip())}[ \t]*[:\-][ \t]*(\S.*?)[ \t]*$",
-        re.IGNORECASE | re.MULTILINE,
-    )
+    wanted = label.strip().casefold()
     found: dict[str, int] = {}
     for page_number, text in enumerate(pages, start=1):
-        for match in pattern.finditer(text.replace("\r\n", "\n").replace("\r", "\n")):
-            value = match.group(1)
-            if len(value) <= _MAX_VALUE_LENGTH and value.isprintable():
+        for line in text.splitlines():
+            value = _value_after_label(line, wanted)
+            if value and len(value) <= _MAX_VALUE_LENGTH and value.isprintable():
                 found.setdefault(value, page_number)
     if len(found) != 1:
         return None

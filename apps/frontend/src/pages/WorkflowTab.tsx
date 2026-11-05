@@ -99,14 +99,17 @@ function NewCaseStart({ actor, workflow, onOpenRun }: {
   const [priority, setPriority] = useState<number | "">("");
   const [files, setFiles] = useState<File[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Kept across a failed upload, so pressing Start again never opens a second case.
+  const createdRun = useRef<WorkflowRun | null>(null);
   const start = useMutation({
     mutationFn: async () => {
-      const { run } = await createWorkflowCase(workflow.workflow_id, {
+      createdRun.current ??= (await createWorkflowCase(workflow.workflow_id, {
         legal_name: legalName.trim(),
         registration_id: uen.trim(),
         jurisdiction: country || null,
         priority: priority === "" ? null : priority,
-      });
+      })).run;
+      const run = createdRun.current;
       for (const file of files) await uploadWorkflowCaseDocument(run, file);
       return run.run_id;
     },
