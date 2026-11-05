@@ -321,7 +321,10 @@ def test_review_required_source_replacement_retains_history_receipt_and_cas() ->
     )
     assert replaced.prior_analyses[-1].analysis_id == previous.analysis_id
     assert replaced.prior_analyses[-1].relationships == tuple(previous.relationships)
-    assert OwnershipAnalysisRecord.model_validate_json(replaced.model_dump_json()) == replaced
+    # Backend-only: a dump omits the ledger, and its absence fails closed.
+    assert OwnershipAnalysisRecord.model_validate_json(
+        replaced.model_dump_json()
+    ) == replaced.model_copy(update={"poc_interest_ledger": None})
     snapshot = DurableCaseSnapshot(
         case_id=case.case_id,
         revision=7,
@@ -333,7 +336,7 @@ def test_review_required_source_replacement_retains_history_receipt_and_cas() ->
     )
     codec = object.__new__(MongoCaseStore)
     durable = codec._decode(codec._encode(snapshot))  # noqa: SLF001
-    assert durable.schema_version == 18
+    assert durable.schema_version == 19
     assert durable.ownership == replaced
     with pytest.raises(OwnershipRequestError) as repeated:
         service.replace_review_required_source(

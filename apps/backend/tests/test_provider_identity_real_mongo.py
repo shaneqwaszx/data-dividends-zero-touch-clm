@@ -184,6 +184,7 @@ def test_phase24_identity_replacement_is_bound_to_current_parent_and_survives_re
             identity_registration_number="202400002B", state=OwnershipAnalysisState.LOADING,
             identity_correction_version=len(corrected.identity_corrections),
             version=old.version, prior_analyses=(_snapshot_prior_analysis(old),),
+            poc_interest_ledger=old.poc_interest_ledger,
             threshold_percent=old.threshold_percent, created_at=now, updated_at=now,
         )
         with pytest.raises(OwnershipRepositoryConflictError):
@@ -360,6 +361,7 @@ def test_phase24_independent_roundtrip_replacement_survives_physical_restart(
             identity_registration_number=case.requested_uen, identity_correction_version=2,
             state=OwnershipAnalysisState.LOADING, version=old.version,
             prior_analyses=(_snapshot_prior_analysis(old),),
+            poc_interest_ledger=old.poc_interest_ledger,
             threshold_percent=old.threshold_percent,
             created_at=now, updated_at=now,
         )

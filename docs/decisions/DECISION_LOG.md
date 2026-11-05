@@ -425,7 +425,8 @@ UBO determination. The creator remains accountable through three existing safegu
   four prior analyses. After four further snapshot-creating changes (manual replacements
   or document/identity reloads), the hybrid snapshot is no longer in the ownership record.
   The hybrid analysis itself carries no receipt. The `CURRENT_EVIDENCE` receipt that names
-  it is held by the next analysis and drops out one change later;
+  it is held by the next analysis and drops out one change later. This bound is audit
+  history only: since D-120 the D-081 restriction does not depend on it;
 - the separate target-dispatch confirmation required before any GoldTier target mutation.
   GoldTier Search runs earlier and is read-only.
 
@@ -433,6 +434,7 @@ An incomplete replacement still requires review. No runtime behavior changed.
 
 Narrowed by D-081 (owner F1 decision, 2026-10-24) for POC-assumed equal-unit links only:
 `CURRENT_EVIDENCE` cannot keep them, and a declaration cannot redeclare them unchanged.
+D-120 makes that restriction durable and compares by business identity.
 
 Authority: `USER_AUTHORIZED_POC`. Not sponsor-confirmed reviewer authority (Q-014), legal
 UBO policy (Q-004) or Marketplace ownership capability (Q-012).
@@ -568,8 +570,8 @@ When D-079 retains an issuer's official rows in that lane:
   before any replacement, confirmation reset or readiness change when:
   - `CURRENT_EVIDENCE` would keep a graph holding POC-assumed links, directly or through an
     earlier kept copy (followed through the retained receipts);
-  - `USER_SUPPLIED_DECLARATION` would redeclare any POC-assumed link unchanged (same parent,
-    holder and percentage).
+  - `USER_SUPPLIED_DECLARATION` would redeclare any POC-assumed link unchanged. D-120
+    defines "unchanged" against a durable ledger, by business identity, not party ID.
 
   Other D-078 decisions are unchanged. A declaration with different values, or
   `DOCUMENT_OBSERVATIONS` matching current document observations, follows the existing
@@ -2256,7 +2258,7 @@ invented. Until a genuine Policy ID can be bound, XPI Amend stays disabled.
 | E7 | **Transmission, default disabled.** Any later mapping is Shell-only for new customers and must not set an Amend field, so it cannot trigger Customer Amend. Eligibility is a composition-root allowlist that is empty by default (no HR-editable policy, no environment flag); opening it is a separately reviewed `EXTERNAL_PROVIDER` change. Given S4, opening it also needs provider qualification of Shell carriage (a verified contract detail or separately authorized Sandbox evidence); Shell acceptance is not asserted before then. The exact GCN matching algorithm is provider behaviour shown to the RM as a consequence; it is not needed to build the feature. No Sandbox write is authorized by this decision. |
 | E8 | **Existing customers.** The value is retained in the case and shown as not transmitted until Amend is qualified (S3 Policy ID retrieval and binding, request schema, provider acceptance). Enrichment never turns `AMEND_NOT_REQUIRED` into an Amend and no Policy ID is invented. |
 | E9 | **Review & Send.** A populated value appears in an "Optional GoldTier details" card with source, provenance and status; the card is omitted when empty. A value appears in "What will be sent" only when eligible; otherwise it is listed as saved in the case and not transmitted. |
-| E10 | **Persistence plan.** One case snapshot schema bump (19) declares both the optional case field and the optional document observation field, so the later suggestion work needs no second revision. Strict schema-18 readers reject either key even when null or empty; schema-18 records read without rewrite. Both fields are omitted from `model_dump` while unset. The Mongo document stores every declared field (`_persistence_value`), so newly saved documents gain the null or empty keys and `schema_version: 19`. |
+| E10 | **Persistence plan.** (D-120 took schema 19; this plan moves to the next free version when implemented, and its "schema-18 readers" become readers of the version before it.) One case snapshot schema bump (19) declares both the optional case field and the optional document observation field, so the later suggestion work needs no second revision. Strict schema-18 readers reject either key even when null or empty; schema-18 records read without rewrite. Both fields are omitted from `model_dump` while unset. The Mongo document stores every declared field (`_persistence_value`), so newly saved documents gain the null or empty keys and `schema_version: 19`. |
 | E11 | **Unchanged onboarding when unused.** For a case with no enrichment, business fingerprints and review digests stay byte-identical: case dumps, document evidence fingerprints, `_target_review_digest` (enrichment added only when present), `GoldTierSubmissionInput` and its submission/idempotency fingerprints (enrichment populated only when eligible), XPI and Mock payloads, and `requires_amend`. Golden tests captured from the base revision prove this in the implementing PRs, including a direct check of the Mongo encoding rather than relying on `exclude_if`. |
 
 **Verified documentation inconsistencies.**
@@ -2393,3 +2395,30 @@ classification value on the next line is never read.
 | L2 | **Next-line value.** When nothing follows the colon, the value is the very next line, unless that line is blank, is itself a `Label:` line, is a numbered heading or a bullet, or is longer than 160 characters (such a line is skipped, never an error). Nothing is read without its label, and a value is never taken from further away. Provenance (`PAGE_n_LINE_m`) names the line the value came from. |
 | L3 | **Unchanged.** Rule-based and local only (no model, no external call). The same evidence scores, observation limits and D-070 handling apply. As with the single-line form, a trusted value that is in the approved vocabulary and unambiguous is bound automatically as the case's DOCUMENT selection (a document labelled "suggested" therefore pre-fills the GoldTier classification); a value outside the vocabulary, or a second differing value, is not bound (manual selection or conflict review), and the RM changes a document-bound value through document review. Final Review & Send remains the human gate. A capture from an unusual layout (for example two labels followed by two values) can only produce a non-vocabulary value or a conflict, both of which fail closed. Identity fields, Group Company Name (D-117) and every other field are unchanged. |
 | L4 | **Malformed PDFs stay rejected (owner decision, 2026-11-05).** Strict PDF validation is unchanged: the local document worker keeps `PdfReader(..., strict=True)`, and a structurally malformed upload (for example a broken cross-reference table) is still refused with `DOCUMENT_STRUCTURE_INVALID` before any text is read. Uploads are never repaired automatically and no structural check is bypassed. For the owner's two synthetic UAT PDFs (`Garden_Synthetic_Onboarding_GoldTier_Details_20261104.pdf` and `OPQ_Synthetic_Onboarding_GoldTier_Details_20261104.pdf`), re-saved repaired copies are the approved workaround; the originals are kept for comparison. No further PDF parser remediation is authorised. |
+
+## D-120 - Durable POC-assumed interests: the D-081 restriction outlives the analysis history (OWNER-DIRECTED 2026-11-05)
+
+Status: owner-directed on 2026-11-05 ("Durable POC Evidence Protection", Option 2), after three
+independent reviews failed a rolling four-snapshot approach. Authority: `USER_AUTHORIZED_POC`.
+Evidence class: Local. Not sponsor-confirmed, and not verified ownership. Refines D-081 option B
+and D-078; it changes no percentage, UBO calculation or GoldTier gate.
+
+Defect: D-081 compared a declaration with the current analysis by generated party IDs, so the
+same POC values passed under new IDs, or once an intervening decision or the four-snapshot
+retention removed the POC analysis from view.
+
+| # | Decision |
+| --- | --- |
+| P1 | **Durable record.** `OwnershipAnalysisRecord.poc_interest_ledger` keeps each POC-assumed interest (`LOCAL_POC_ASSUMED_EQUAL_UNITS`): case identity, issuer and holder parties, percentage, provenance and source analysis. It is independent of `prior_analyses`, which keeps its plain latest-four bound and stays audit history only. No declaration history is kept. |
+| P2 | **Append-only.** Every ownership write passes through one owner, which appends new interests. Both repositories refuse a write that shrinks, reorders or drops an established ledger, under the existing CAS and case lock. Two entries are one interest only when their case and percentage match and their issuers and holders are certainly the same parties: a registration decides whenever either party has one, so a shared name never merges different registrations and a registered party never merges into an unregistered one, and only two unregistered parties compare by name. Re-keyed links, and a renamed party with an unchanged registration, therefore add nothing; any doubt keeps both entries. It is bounded to 512 entries: a full ledger stops growing without an error, and every manual declaration is then refused before anything is saved, because an unrecorded interest may exist. Selected document observations stay available, so a full ledger never stalls the case. No separate store exists. |
+| P3 | **Evidence route.** No decision clears a ledger entry. `DOCUMENT_OBSERVATIONS` is the evidence route: its existing checks (current case-bound document, version bindings, selected rows, every link covered, every row matching) are unchanged, and it may state the POC values. A later manual declaration of those values is refused; the observations are selected again instead. Such ownership stays labelled `MANUAL_DECLARATION_POC` / `LOCAL` and is never verified corporate ownership. |
+| P4 | **Identity.** A declared link replays an interest when the percentage equals it and the issuer or the holder matches, by party ID, normalized registration or normalized name. So a same-percentage holder replacement on a POC issuer, or a lone 100% holder, needs evidence or a corrected value. A non-root company declared with no registration cannot be told from a renamed issuer, so a POC percentage under it is refused for review. Interests are scoped to the case identity they came from. |
+| P5 | **Corrected declarations.** A declaration whose values differ from the ledger keeps its existing authorisation and needs no document. D-081's scope is unchanged: equal-unit links only, not `LOCAL_SYNTHETIC_RELATIONSHIP` or `LOCAL_POC_ISSUED_CAPITAL_BASIS`. |
+| P6 | **Schema 19.** The ledger is backend-only (excluded from dumps, browser payloads and digests) and stored by `_persistence_value`. `DurableCaseSnapshotV18` and older readers reject the key even when null. Reads do not rewrite. |
+| P7 | **Legacy cases.** A record with no ledger is unknown, never empty. If nothing can have been trimmed, or a source load is still retained, the interests are derived from the retained history, enforced, and recorded by the next permitted decision. Otherwise a manual declaration is refused (`409 OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED`), corrected declarations included, because the interests cannot be known. Selecting current document observations remains available but does not establish the history; only a source reload does. Ownership already accepted before D-120 is not reopened. |
+| P8 | **Rollback.** A schema-18 build rejects schema-19 envelopes (fail closed). |
+
+Recorded residuals, accepted by the owner: a value moved by the smallest amount is a corrected
+declaration, and renaming both issuer and holder while also supplying a different registration
+for the issuer is indistinguishable from a different company. Both are visible in the review
+receipt. Owner note: D-117's planned schema 19 moves to the next free version.
