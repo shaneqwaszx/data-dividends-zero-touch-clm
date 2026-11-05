@@ -311,10 +311,11 @@ export function GuidedSetup({ userId, overview, busy, nameOf, describe = (code) 
                 <p className={lastTest.outcome === "passed" ? "control-help" : "ds-banner ds-banner-warn"} role="status" data-testid="guided-connection">
                   {lastTest.outcome === "passed"
                     ? "Connection check passed."
-                    : `Connection check failed: ${describe(lastTest.code ?? "CONNECTION_FAILED", item?.deployment)} Fix it, then save & test again.`}
+                    : `Connection check failed: ${describe(lastTest.code ?? "CONNECTION_FAILED", item?.deployment)} Fix it, then test again (or save a new key).`}
                 </p>
               )}
-              {connected && <button type="button" className="btn btn-secondary" disabled={working}
+              {/* After a failed check too: a stored failure must never need the key retyped. */}
+              {lastTest && !claudeNeedsSetup && <button type="button" className="btn btn-secondary" disabled={working}
                 onClick={() => void run(() => checkConnection(item!.profile_id), "The connection check passed.")}>Test again</button>}
               {claudeNeedsSetup && claude?.workspace_read && (
                 <fieldset className="guided-claude-setup">
