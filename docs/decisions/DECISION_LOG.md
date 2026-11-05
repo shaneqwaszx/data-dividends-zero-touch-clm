@@ -2378,3 +2378,18 @@ Unchanged: the qualification basis (`synthetic_boundary.json` stays current; `co
 `model_admin.py` are not basis files), admission and conservative charging, the caps, RBAC,
 D-094/D-095/D-104, D-106 key handling, audit, and the paid-call consent. Evidence class: Local
 (mock providers, disposable stores, real assistant service in real Chromium).
+
+## D-119 - Layout-tolerant classification labels in the local document reader (OWNER-DIRECTED 2026-11-05)
+
+Status: owner-directed on 2026-11-05 ("Layout-tolerant document field labels"), after synthetic
+onboarding PDFs labelled `KYC Customer Type (suggested):` with the value on the next line were
+not read. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence class: Local.
+Supersedes the project-defined rule (earlier quality-gate reports, not a decision) that a
+classification value on the next line is never read.
+
+| # | Decision |
+| --- | --- |
+| L1 | **Qualifier.** `KYC Customer Type` and `Client Segment` labels may carry one short parenthesised qualifier before the colon (up to 40 characters, e.g. `(suggested)`). The qualifier carries no meaning: `KYC Customer Type (suggested): Company - Private` is read exactly as `KYC Customer Type: Company - Private`. |
+| L2 | **Next-line value.** When nothing follows the colon, the value is the very next line, unless that line is blank, is itself a `Label:` line, is a numbered heading or a bullet, or is longer than 160 characters (such a line is skipped, never an error). Nothing is read without its label, and a value is never taken from further away. Provenance (`PAGE_n_LINE_m`) names the line the value came from. |
+| L3 | **Unchanged.** Rule-based and local only (no model, no external call). The same evidence scores, observation limits and D-070 handling apply. As with the single-line form, a trusted value that is in the approved vocabulary and unambiguous is bound automatically as the case's DOCUMENT selection (a document labelled "suggested" therefore pre-fills the GoldTier classification); a value outside the vocabulary, or a second differing value, is not bound (manual selection or conflict review), and the RM changes a document-bound value through document review. Final Review & Send remains the human gate. A capture from an unusual layout (for example two labels followed by two values) can only produce a non-vocabulary value or a conflict, both of which fail closed. Identity fields, Group Company Name (D-117) and every other field are unchanged. |
+| L4 | **Malformed PDFs stay rejected (owner decision, 2026-11-05).** Strict PDF validation is unchanged: the local document worker keeps `PdfReader(..., strict=True)`, and a structurally malformed upload (for example a broken cross-reference table) is still refused with `DOCUMENT_STRUCTURE_INVALID` before any text is read. Uploads are never repaired automatically and no structural check is bypassed. For the owner's two synthetic UAT PDFs (`Garden_Synthetic_Onboarding_GoldTier_Details_20261104.pdf` and `OPQ_Synthetic_Onboarding_GoldTier_Details_20261104.pdf`), re-saved repaired copies are the approved workaround; the originals are kept for comparison. No further PDF parser remediation is authorised. |

@@ -116,7 +116,9 @@ def test_supported_ocr_separators_preserve_scores_and_references(ending):
     "text,values",
     [
         ("KYC Customer Type:\r\nClient Segment:\r\n", []),
-        ("KYC Customer Type:\r\nCompany - Private", []),
+        # D-119: a value on the very next line is read (it was not before); still an observation
+        # the RM reviews. A blank line or another label is never taken (the case above).
+        ("KYC Customer Type:\r\nCompany - Private", ["Company - Private"]),
         (
             "KYC Customer Type: Company - Private\rKYC Customer Type: Government",
             ["Company - Private", "Government"],

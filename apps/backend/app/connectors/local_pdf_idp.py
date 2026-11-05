@@ -46,6 +46,10 @@ _PARTNER_SHARE = re.compile(
     r"(?:[ \t]*:[ \t]*(NATURAL_PERSON|LEGAL_ENTITY))?[ \t]*$"
 )
 _AGREEMENT_DATE = re.compile(r"(?im)^[ \t]*Agreement Date[ \t]*:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$")
+# A line that is itself a "Label:" (a few words, then a colon), so never another label's value.
+_LABEL_LINE = re.compile(r"^[A-Za-z][A-Za-z0-9 /&()'.-]{0,60}:")
+# A numbered heading ("4. Fields ...", "2) ...") or a bulleted line: never a next-line value.
+_LIST_LINE = re.compile(r"^(?:\d{1,3}[.)]\s|[-*•–]\s)")
 _FOUNDING_INSTRUMENT = re.compile(r"(?im)^[ \t]*Founding Instrument[ \t]*:[ \t]*([^\r\n]+)[ \t]*$")
 _MAX_TEXT = 64_000
 _TOTAL_TIMEOUT_SECONDS = 60.0
@@ -186,17 +190,37 @@ class LocalPdfTextIdpProvider:
             TargetClassificationKey.CLIENT_SEGMENT: "Client Segment",
         }
         for page in pages:
+            lines = page.text.split("\n")
             for key, label in labels.items():
+                # The label, optionally with a short qualifier ("KYC Customer Type (suggested):"),
+                # then its value on the same line or, when nothing follows the colon, on the
+                # very next line (a common layout). A blank next line or another "Label:" line
+                # is never taken as a value; nothing is read without its label.
                 pattern = re.compile(
-                    rf"(?im)^[ \t]*{re.escape(label)}[ \t]*:[ \t]*([^\r\n]+)[ \t]*$"
+                    rf"(?i)^[ \t]*{re.escape(label)}"
+                    rf"(?:[ \t]*\([^()\n]{{1,40}}\))?[ \t]*:[ \t]*(.*)$"
                 )
-                for match in pattern.finditer(page.text):
+                for index, line in enumerate(lines):
+                    match = pattern.match(line)
+                    if match is None:
+                        continue
                     value = match.group(1).strip()
+                    row = index + 1
+                    if not value and index + 1 < len(lines):
+                        candidate = lines[index + 1].strip()
+                        # Not another label, a numbered heading or a bullet, and never a long
+                        # line (prose is skipped, not an error: the rest of the document reads).
+                        if (
+                            candidate
+                            and len(candidate) <= 160
+                            and not _LABEL_LINE.match(candidate)
+                            and not _LIST_LINE.match(candidate)
+                        ):
+                            value, row = candidate, index + 2
                     if not value:
                         continue
                     if len(value) > 160:
                         raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
-                    row = page.text[: match.start()].count("\n") + 1
                     observations.append(
                         ClassificationObservationValues(
                             **page.evidence.model_dump(exclude={"source_reference"}),
