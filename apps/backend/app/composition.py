@@ -401,6 +401,11 @@ def build_ownership_analysis_service(
             else None
         ),
         poc_acceptance_enabled=poc_acceptance,
+        ubo_review_advisory=(
+            official_lane
+            and settings.goldtier_connector_mode == "mock"
+            and settings.acra_marketplace_ubo_review_mode == "advisory"
+        ),
         # Corporate owners are acquired separately through the same registry owner;
         # only cases with a frozen discovery policy use it.
         discovery=OwnershipDiscoveryCoordinator(onboarding_service),

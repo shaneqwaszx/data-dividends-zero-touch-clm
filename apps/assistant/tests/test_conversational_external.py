@@ -1,5 +1,5 @@
-"""D-115 conversational contract: Claude and GPT-OSS answer in their own words on verified
-synthetic cases (D-095), through the copilot pipeline (evidence package, reasoning rules,
+"""D-115 and D-122 conversational contract: Claude and GPT-OSS answer in their own words on any
+case the user may read, through the copilot pipeline (evidence package, reasoning rules,
 sentence checks, fallback), once the owner approves (config.CONVERSATIONAL_DECISION).
 
 Mock Anthropic and OpenRouter APIs, the fake CLM backend with the synthetic Garden case,
@@ -188,35 +188,33 @@ def test_unrelated_questions_never_reach_the_paid_model(
     assert len(scripted) == before
 
 
-# --- the synthetic boundary still decides ---------------------------------------------------------
+# --- D-122: any case the user may read --------------------------------------------------------
 
 
 @pytest.mark.parametrize("make", JOURNEYS)
-def test_a_case_that_is_not_a_verified_synthetic_case_sends_nothing(
+def test_a_case_that_is_not_a_verified_synthetic_case_is_answered_too(
     make: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripted: list[str]
 ) -> None:
     approve(monkeypatch)
     journey = make(tmp_path, monkeypatch)
     summary, documents = GARDEN
-    changed = json.loads(json.dumps(summary))
-    changed["registry"] = json.loads(json.dumps(summary.get("registry") or {}))
-    real_like = json.loads(json.dumps(summary).replace("GARDEN BUSINESS", "ACME TRADING"))
-    serve(monkeypatch, (real_like, documents))
+    other = json.loads(json.dumps(summary).replace("GARDEN BUSINESS", "ACME TRADING"))
+    serve(monkeypatch, (other, documents))
     before = len(scripted)
     reply = journey.ask("Why is this case blocked?", stream=True)
-    assert reply["answered_by"] == "case_data"
-    assert "SYNTHETIC_" in (reply["notice"] or "")
-    assert len(scripted) == before
+    assert reply["answered_by"] == "model", reply
+    assert "synthetic" not in (reply["notice"] or "").lower()
+    assert len(scripted) == before + 1
 
 
-def test_gpt_oss_in_d094_mode_keeps_exact_lines(
+def test_gpt_oss_in_d094_mode_answers_conversationally_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripted: list[str]
 ) -> None:
     approve(monkeypatch)
     journey = Journey(tmp_path, monkeypatch)  # D-094 only, no D-095 development mode
     journey.activate_remote()
     journey.ask("Why is this case blocked?", stream=True)
-    assert scripted == []
+    assert "Why is this case blocked?" in scripted
 
 
 # --- context, qualification identity and spending -------------------------------------------------
@@ -296,14 +294,14 @@ def test_a_conversational_qualification_answers_conversationally(
 
 
 @pytest.mark.parametrize("make", JOURNEYS)
-def test_an_external_model_never_receives_the_ownership_analysis(
+def test_an_external_model_receives_the_ownership_analysis(
     make: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripted: list[str]
 ) -> None:
-    # QG10 H1: the ownership analysis (names and holdings D-095 does not ground) stays local.
+    # D-122 A4: the analysis goes to external models, so this POC stays on synthetic data.
     approve(monkeypatch)
     journey = make(tmp_path, monkeypatch)
     journey.ask("Who are the ultimate beneficial owners of this company?", stream=True)
-    assert SENT and not any("OWNERSHIP FACTS (the application" in body for body in SENT)
+    assert SENT and any("OWNERSHIP FACTS (the application" in body for body in SENT)
 
 
 @pytest.mark.parametrize("make", JOURNEYS)
@@ -323,12 +321,11 @@ def test_the_copilot_setting_alone_never_turns_on_external_free_text(
 def test_a_refused_external_call_records_its_reason(
     stream: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripted: list[str]
 ) -> None:
-    # QG10 M4: the content-free metrics name the external boundary, as in exact lines.
+    # QG10 M4: on the exact-line rollback the content-free metrics name the external boundary.
     from ai_assistant.telemetry import MemorySink
 
     sink = MemorySink()
     monkeypatch.setattr("ai_assistant.main.sink_for", lambda _setting: sink)
-    approve(monkeypatch)
     journey = gpt_oss(tmp_path, monkeypatch)
     summary, documents = GARDEN
     serve(

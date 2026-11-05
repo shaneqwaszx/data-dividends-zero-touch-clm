@@ -424,6 +424,9 @@ DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
   - The creator cannot keep these links as `CURRENT_EVIDENCE`, or redeclare any of them
     unchanged as `USER_SUPPLIED_DECLARATION` (`409 OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED`,
     owner F1 decision). Other D-078 decisions are unchanged.
+  - D-121: on the official Mock lane a current review-required analysis no longer blocks
+    readiness (`ACRA_MARKETPLACE_UBO_REVIEW_MODE=advisory`, the default). Issues and
+    classifications stay, and Sandbox and Live are unchanged.
   - D-120: the restriction is enforced against `poc_interest_ledger`, a durable append-only
     record on the ownership record, independent of the four retained prior analyses. A
     declared link matches when its percentage equals an entry and its issuer or holder

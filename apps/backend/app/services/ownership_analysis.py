@@ -1277,6 +1277,7 @@ class OwnershipAnalysisService:
         discovery: OwnershipDiscoveryExpander | None = None,
         hybrid_overlay: HybridOwnershipOverlayCatalogue | None = None,
         poc_acceptance_enabled: bool = False,
+        ubo_review_advisory: bool = False,
         max_parties: int,
         max_relationships: int,
         max_depth: int,
@@ -1312,6 +1313,7 @@ class OwnershipAnalysisService:
         self._discovery = discovery
         self._hybrid_overlay = hybrid_overlay
         self._poc_acceptance_enabled = poc_acceptance_enabled
+        self._ubo_review_advisory = ubo_review_advisory
         self.threshold_percent = validated_threshold
         self.max_parties = max_parties
         self.max_relationships = max_relationships
@@ -1339,12 +1341,33 @@ class OwnershipAnalysisService:
         # analysis is judged by the code-level evidence rule alone.
         if not self._poc_acceptance_enabled:
             return False
+        return self._current_for_readiness(record) and poc_acceptance_current(
+            record, self._poc_scenario(record)
+        )
+
+    def review_is_advisory(self, record: OwnershipAnalysisRecord) -> bool:
+        """D-121: a current review analysis does not block here, and nothing is accepted.
+
+        A failed, unfinished or stale analysis never passes this way.
+        """
+
+        return (
+            self._ubo_review_advisory
+            and record.state == OwnershipAnalysisState.REVIEW_REQUIRED
+            and self._current_for_readiness(record)
+        )
+
+    def clears_review(self, record: OwnershipAnalysisRecord) -> bool:
+        """Readiness only: a review that does not hold the case. Never shown as accepted."""
+
+        return self.poc_basis_accepted(record) or self.review_is_advisory(record)
+
+    def _current_for_readiness(self, record: OwnershipAnalysisRecord) -> bool:
         parent = self._cases.get_case(record.case_id)
         return (
             parent is not None
             and ownership_is_current(record, parent)
             and record.document_bindings == self._document_inputs(record.case_id)[1]
-            and poc_acceptance_current(record, self._poc_scenario(record))
         )
 
     def simulation_calculated(self, record: OwnershipAnalysisRecord) -> bool:
