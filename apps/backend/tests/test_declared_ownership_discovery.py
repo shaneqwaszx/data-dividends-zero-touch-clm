@@ -343,7 +343,9 @@ def test_a_found_holder_below_a_declaration_keeps_its_own_review_causes() -> Non
 
     clock = Clock()
     issuers = {
-        ROOT: Issuer("ROOT CO", (company(holder, "100"),)),
+        # A second official holder keeps the declaration a correction: redeclaring a lone
+        # POC 100% is refused (D-081), whatever party ID carries it.
+        ROOT: Issuer("ROOT CO", (company(holder, "100"), person("Z", "100"))),
         holder: Issuer("SUB CO", (person("A", "600"), person("B", "300"), person("C", "100"))),
     }
     system = harness(UnitsRegistry(issuers, clock), clock=clock)

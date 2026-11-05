@@ -339,9 +339,11 @@ verification required**. Any unresolved, conflicting or structural issue keeps t
 The POC percentages cannot clear the ownership blocker (owner F1 decision). On this case,
 **Keep current ownership evidence** is refused with `409
 OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED`. So is submitting the pre-filled POC values
-unchanged as a declaration. Nothing is replaced, and readiness stays blocked. Clearing the
-blocker needs independent evidence: a declaration with supported values, or matching
-document observations, under the existing rules.
+unchanged as a declaration, including under new party IDs or after other declarations
+(D-120). Nothing is replaced, and readiness stays blocked. Clearing the blocker needs
+selected current document observations, which may state the same values, or a corrected
+declaration, under the existing rules. Selected rows stay client-stated evidence; they are
+not verified ownership.
 
 **Optional POC acceptance policy (D-085).** To show Garden reaching final review without
 manual ownership verification, also set

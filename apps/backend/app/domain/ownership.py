@@ -1092,6 +1092,22 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
         return self
 
 
+POC_INTEREST_LEDGER_LIMIT = 512
+
+
+class OwnershipPocInterest(BaseModel):
+    """D-120: one D-081 POC-assumed interest, kept whatever replaces its analysis."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    case_identity: SafeOptionalIdentifier
+    issuer: Party
+    holder: Party
+    ownership_percent: OwnershipPercent
+    provenance: OwnershipProvenance
+    source_analysis_id: UUID
+
+
 class OwnershipAnalysisRecord(BaseModel):
     """Case-linked ownership record isolated from onboarding and document aggregates."""
 
@@ -1137,6 +1153,11 @@ class OwnershipAnalysisRecord(BaseModel):
     manual_review_receipt: ManualOwnershipReviewReceipt | None = None
     # D-082 only: accepted declared POC basis; the review state and issues stay intact.
     poc_acceptance: OwnershipPocAcceptance | None = None
+    # D-120: append-only and backend-only. None means the history is not established (a
+    # record from before schema 19), which fails closed; empty means no POC interest yet.
+    poc_interest_ledger: tuple[OwnershipPocInterest, ...] | None = Field(
+        default=None, max_length=POC_INTEREST_LEDGER_LIMIT, exclude=True, repr=False
+    )
     error: SafeError | None = None
     created_at: datetime
     loaded_at: datetime | None = None

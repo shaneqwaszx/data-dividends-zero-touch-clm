@@ -47,6 +47,7 @@ from app.services.ownership_repository import (
     _is_valid_identity_replacement,
     _is_valid_review_replacement,
     ownership_is_current,
+    poc_ledger_preserved,
 )
 from app.services.reconciliation_repository import (
     ReconciliationRepositoryConflictError,
@@ -276,7 +277,7 @@ class MongoOwnershipAnalysisRepository:
                     OwnershipAnalysisState.FAILED,
                     OwnershipAnalysisState.ANALYZED,
                     OwnershipAnalysisState.REVIEW_REQUIRED,
-                }:
+                } or not poc_ledger_preserved(current, validated):
                     raise OwnershipRepositoryConflictError
                 next_version = expected_version + 1
             persisted = validated.model_copy(update={"version": next_version}, deep=True)

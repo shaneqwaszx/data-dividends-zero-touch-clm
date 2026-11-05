@@ -12,8 +12,12 @@ def drop_uen_route(onboarding: dict[str, Any]) -> dict[str, Any]:
 
 
 def without_d101_fields(raw: dict[str, Any]) -> dict[str, Any]:
-    """A copy without the schema-17 D-101 and schema-18 D-114 keys, for an older envelope."""
+    """A copy without the D-101, D-114 and schema-19 D-120 keys, for an older envelope."""
     legacy = {**raw, "onboarding": drop_uen_route(raw["onboarding"])}
+    if raw.get("ownership") is not None:
+        legacy["ownership"] = {
+            key: value for key, value in raw["ownership"].items() if key != "poc_interest_ledger"
+        }
     legacy["onboarding"].pop("government_status_confirmation", None)
     legacy["documents"] = [
         {key: value for key, value in document.items() if key != "government_status_observations"}
@@ -44,6 +48,7 @@ def omit_session2_fields(raw: dict[str, Any]) -> None:
     ownership = raw.get("ownership")
     if ownership is None:
         return
+    ownership.pop("poc_interest_ledger", None)  # D-120 (schema 19)
     for index, record in enumerate((ownership, *ownership.get("prior_analyses", ()))):
         for name in (
             "document_observations", "document_bindings", "document_discrepancies",

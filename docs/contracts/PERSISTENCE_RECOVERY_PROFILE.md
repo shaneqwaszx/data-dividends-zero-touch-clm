@@ -269,3 +269,12 @@ are never reused. The policy singleton may reach schema3 through one audited add
 `MIGRATED` activation that retains the replaced ACTIVE rules as a superseded version and
 keeps proposals/audit history. Insert-only/update-only CAS, no resurrection, no target
 replay and explicit memory/Mongo modes are unchanged.
+
+## D-120 POC interest ledger (schema 19)
+
+Case schema 19 adds the backend-only, append-only `ownership.poc_interest_ledger`. Schema 18 and
+older readers reject the key, even when null, and such a case reads with no ledger and is not
+rewritten by the read. Absence means the POC history is not established, never that it is
+empty; the ownership owner then fails closed as D-120 P7 describes. Repository `save` and every
+`replace_*` write refuse to shrink, reorder or drop an established ledger, under the existing
+CAS. A schema-18 build rejects schema-19 envelopes.

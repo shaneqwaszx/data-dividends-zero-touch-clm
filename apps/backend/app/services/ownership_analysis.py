@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Final, Never, Protocol
+from unicodedata import normalize
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -43,6 +44,7 @@ from app.domain.ownership import (
     OFFICIAL_BUSINESS_PROFILE_ISSUED_CAPITAL,
     OFFICIAL_SHAREHOLDERS_POC_EQUAL_UNITS,
     OWNERSHIP_POC_ACCEPTANCE_POLICY,
+    POC_INTEREST_LEDGER_LIMIT,
     ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
@@ -60,6 +62,7 @@ from app.domain.ownership import (
     OwnershipPathEvidence,
     OwnershipPercent,
     OwnershipPocAcceptance,
+    OwnershipPocInterest,
     OwnershipProvenance,
     OwnershipRelationship,
     OwnershipThresholdResult,
@@ -82,6 +85,7 @@ from app.services.ownership_evidence_tagger import OwnershipEvidenceTagger
 from app.services.ownership_repository import (
     OwnershipAnalysisRepository,
     OwnershipRepositoryConflictError,
+    ownership_identity,
     ownership_is_current,
 )
 
@@ -1501,16 +1505,33 @@ class OwnershipAnalysisService:
                 )
             # D-081 owner decision (F1): POC-assumed equal-unit links are illustrative. They
             # can be neither kept as current evidence nor redeclared unchanged.
-            poc_edges = _poc_assumed_edges(current)
-            if poc_edges and (
+            # D-120: a declaration is compared with the durable ledger, by interest rather
+            # than by generated party IDs. Selected current observations are the evidence
+            # route and never reach this check, so no decision clears a ledger entry.
+            known_interests = _known_poc_interests(current)
+            declared = review_receipt.source_selection == "USER_SUPPLIED_DECLARATION"
+            if declared and (
+                known_interests is None or len(known_interests) >= POC_INTEREST_LEDGER_LIMIT
+            ):
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED",
+                    message=(
+                        "This case's POC history cannot be fully checked, so a manual "
+                        "declaration is not available; select current document observations."
+                    ),
+                )
+            if (
                 review_receipt.source_selection == "CURRENT_EVIDENCE"
-                or (
-                    review_receipt.source_selection == "USER_SUPPLIED_DECLARATION"
-                    and any(
-                        (edge.parent_party_id, edge.child_party_id, edge.ownership_percent)
-                        in poc_edges
-                        for edge in source.relationships
-                    )
+                and _poc_assumed_edges(current)
+            ) or (
+                declared
+                and _replays_poc_interest(
+                    source,
+                    tuple(
+                        item
+                        for item in known_interests or ()
+                        if item.case_identity == parent.entity.registration_number
+                    ),
                 )
             ):
                 raise OwnershipRequestError(
@@ -1662,6 +1683,7 @@ class OwnershipAnalysisService:
                     )
                 ],
                 prior_analyses=(*current.prior_analyses[-3:], snapshot),
+                poc_interest_ledger=known_interests,
                 discovery=discovery_audit,
                 manual_review_receipt=review_receipt,
                 document_observations=observations,
@@ -1744,6 +1766,7 @@ class OwnershipAnalysisService:
             prior_analyses=(*previous.prior_analyses[-3:], _snapshot_prior_analysis(previous))
             if previous is not None
             else (),
+            poc_interest_ledger=_known_poc_interests(previous) if previous is not None else (),
             analysis_id=self._uuid_factory(),
             correlation_id=self._uuid_factory(),
             state=OwnershipAnalysisState.LOADING,
@@ -2717,6 +2740,14 @@ class OwnershipAnalysisService:
     ) -> OwnershipAnalysisRecord:
         timestamp = self._clock()
         candidate = record.model_copy(deep=True)
+        # Every ownership write passes here, so no path can leave a POC link unrecorded.
+        if candidate.poc_interest_ledger is not None:
+            additions = _poc_interests_of(candidate)
+            if additions is None:
+                raise OwnershipGraphError("A POC link has no retained parties.")
+            candidate.poc_interest_ledger = _merged_poc_interests(
+                candidate.poc_interest_ledger, additions
+            )
         candidate.state = state
         candidate.updated_at = timestamp
         candidate.events.append(
@@ -2829,6 +2860,174 @@ def _poc_assumed_edges(
         replaced = receipt.replaced_analysis_id
         analysis = priors.get(replaced) if replaced is not None else None
     return frozenset()
+
+
+def _identity_keys(
+    name: str | None, registration: str | None, party_id: str | None = None
+) -> frozenset[str]:
+    """Every key a party is known by; one shared key is enough, so a clash fails closed."""
+
+    def compact(value: str | None) -> str:
+        return "".join(
+            item for item in normalize("NFKC", value or "").casefold() if item.isalnum()
+        )
+
+    keys = {
+        f"name:{compact(name)}" if compact(name) else None,
+        f"registration:{compact(registration)}" if compact(registration) else None,
+        f"id:{party_id}" if party_id else None,
+    }
+    return frozenset(item for item in keys if item is not None)
+
+
+def _party_identity(party: Party) -> frozenset[str]:
+    return _identity_keys(party.display_name, party.registration_number, party.party_id)
+
+
+def _poc_interests_of(
+    analysis: OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot,
+) -> tuple[OwnershipPocInterest, ...] | None:
+    """The analysis's own POC-assumed links as interests; None if any cannot be identified."""
+
+    identity = ownership_identity(analysis)
+    parties = {
+        item.party_id: item for item in (*analysis.parties, *analysis.supplemental_parties)
+    }
+    edges = [
+        edge
+        for edge in (*analysis.relationships, *analysis.supplemental_relationships)
+        if edge.provenance.provider == POC_EQUAL_UNITS_PROVIDER
+    ]
+    if not edges:
+        return ()
+    if identity is None or any(
+        edge.parent_party_id not in parties or edge.child_party_id not in parties
+        for edge in edges
+    ):
+        return None
+    return tuple(
+        OwnershipPocInterest(
+            case_identity=identity,
+            issuer=parties[edge.parent_party_id],
+            holder=parties[edge.child_party_id],
+            ownership_percent=edge.ownership_percent,
+            provenance=edge.provenance,
+            source_analysis_id=analysis.analysis_id,
+        )
+        for edge in edges
+    )
+
+
+def _same_recorded_party(first: frozenset[str], second: frozenset[str]) -> bool:
+    """Whether two ledger parties are certainly one party, so one entry can be dropped.
+
+    A registration decides whenever one is present: a shared name never merges different
+    registrations, and a party with one is never merged into a party without. Only two
+    unregistered parties compare by name. Doubt keeps both entries, so nothing is lost.
+    """
+
+    registrations = [
+        {item for item in keys if item.startswith("registration:")} for keys in (first, second)
+    ]
+    if any(registrations):
+        return registrations[0] == registrations[1]
+    return bool(first & second)
+
+
+def _merged_poc_interests(
+    kept: tuple[OwnershipPocInterest, ...], additions: tuple[OwnershipPocInterest, ...]
+) -> tuple[OwnershipPocInterest, ...]:
+    """Append what is new, so re-keyed or renamed parties add nothing.
+
+    Two entries are one interest when their case and percentage match and their issuers and
+    holders are certainly the same parties. This never raises, because every failure path
+    writes through here too: a full ledger stops growing, and the guard then refuses every
+    manual declaration, so an unrecorded interest can never pass.
+    """
+
+    def key(item: OwnershipPocInterest) -> tuple[object, Decimal, frozenset[str], frozenset[str]]:
+        return (
+            item.case_identity,
+            item.ownership_percent,
+            _identity_keys(item.issuer.display_name, item.issuer.registration_number),
+            _identity_keys(item.holder.display_name, item.holder.registration_number),
+        )
+
+    merged = list(kept)
+    seen = [key(item) for item in kept]
+    for item in additions:
+        identity, percent, issuer, holder = key(item)
+        if len(merged) < POC_INTEREST_LEDGER_LIMIT and not any(
+            identity == other[0]
+            and percent == other[1]
+            and _same_recorded_party(issuer, other[2])
+            and _same_recorded_party(holder, other[3])
+            for other in seen
+        ):
+            seen.append((identity, percent, issuer, holder))
+            merged.append(item)
+    return tuple(merged)
+
+
+def _known_poc_interests(
+    record: OwnershipAnalysisRecord,
+) -> tuple[OwnershipPocInterest, ...] | None:
+    """The ledger, or for a pre-schema-19 record what its retained history can establish.
+
+    That history is complete while nothing can have been trimmed, or once it reaches a
+    source load. Otherwise this is None: the interests cannot be known, so the caller must
+    require evidence rather than treat the missing ledger as an empty one.
+    """
+
+    if record.poc_interest_ledger is not None:
+        return record.poc_interest_ledger
+    analyses: tuple[OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot, ...] = (
+        *record.prior_analyses,
+        record,
+    )
+    if len(record.prior_analyses) >= 4 and all(
+        item.manual_review_receipt is not None for item in analyses
+    ):
+        return None
+    interests: tuple[OwnershipPocInterest, ...] = ()
+    for analysis in analyses:
+        additions = _poc_interests_of(analysis)
+        if additions is None:
+            return None
+        interests = _merged_poc_interests(interests, additions)
+    return interests
+
+
+def _replays_poc_interest(
+    source: OwnershipSourceResult, interests: tuple[OwnershipPocInterest, ...]
+) -> bool:
+    """Whether a declared link repeats a POC value for an issuer or holder it belongs to.
+
+    Either side is enough: a POC percentage belongs to that issuer's register and that
+    holder's units, so renaming only one party leaves the same unsupported value. A
+    non-root company declared with no registration cannot be told from a renamed issuer,
+    so the same value under it needs review too.
+    """
+
+    parties = {item.party_id: item for item in source.parties}
+
+    def unidentified_issuer(party: Party) -> bool:
+        return (
+            party.party_id != source.root_party_id
+            and party.party_type == PartyType.LEGAL_ENTITY
+            and not (party.registration_number or "").strip()
+        )
+
+    return any(
+        edge.ownership_percent == item.ownership_percent
+        and (
+            _party_identity(parties[edge.parent_party_id]) & _party_identity(item.issuer)
+            or _party_identity(parties[edge.child_party_id]) & _party_identity(item.holder)
+            or unidentified_issuer(parties[edge.parent_party_id])
+        )
+        for edge in source.relationships
+        for item in interests
+    )
 
 
 def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipAnalysisSnapshot:

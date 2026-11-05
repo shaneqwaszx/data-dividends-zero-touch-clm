@@ -71,7 +71,7 @@ class InMemoryOwnershipAnalysisRepository:
                     OwnershipAnalysisState.FAILED,
                     OwnershipAnalysisState.ANALYZED,
                     OwnershipAnalysisState.REVIEW_REQUIRED,
-                }:
+                } or not poc_ledger_preserved(current, record):
                     raise OwnershipRepositoryConflictError
                 next_version = expected_version + 1
 
@@ -130,6 +130,16 @@ class InMemoryOwnershipAnalysisRepository:
             self._records.pop(case_id, None)
 
 
+def poc_ledger_preserved(
+    current: OwnershipAnalysisRecord, replacement: OwnershipAnalysisRecord
+) -> bool:
+    """D-120: an established POC ledger only ever grows; nothing may shrink or rewrite it."""
+
+    kept = current.poc_interest_ledger
+    new = replacement.poc_interest_ledger
+    return kept is None or (new is not None and new[: len(kept)] == kept)
+
+
 def _is_valid_review_replacement(
     current: OwnershipAnalysisRecord | None,
     replacement: OwnershipAnalysisRecord,
@@ -145,6 +155,7 @@ def _is_valid_review_replacement(
         or replacement.state != OwnershipAnalysisState.LOADING
         or replacement.manual_review_receipt is None
         or not replacement.prior_analyses
+        or not poc_ledger_preserved(current, replacement)
     ):
         return False
     retained = replacement.prior_analyses[-1]
@@ -169,6 +180,7 @@ def _is_valid_document_replacement(
         or replacement.identity_correction_version != current.identity_correction_version
         or replacement.document_bindings == current.document_bindings
         or not replacement.prior_analyses
+        or not poc_ledger_preserved(current, replacement)
     ):
         return False
     prior = replacement.prior_analyses[-1]
@@ -218,7 +230,8 @@ def _is_valid_identity_replacement(
                      and (current.identity_correction_version is None
                           or current.identity_correction_version
                           < replacement.identity_correction_version)))
-        or not replacement.prior_analyses):
+        or not replacement.prior_analyses
+        or not poc_ledger_preserved(current, replacement)):
         return False
     prior = replacement.prior_analyses[-1]
     return prior.analysis_id == current.analysis_id and prior.version == current.version

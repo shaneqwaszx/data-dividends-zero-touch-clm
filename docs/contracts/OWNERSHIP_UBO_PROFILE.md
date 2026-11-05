@@ -424,6 +424,17 @@ DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
   - The creator cannot keep these links as `CURRENT_EVIDENCE`, or redeclare any of them
     unchanged as `USER_SUPPLIED_DECLARATION` (`409 OWNERSHIP_POC_EVIDENCE_REVIEW_REQUIRED`,
     owner F1 decision). Other D-078 decisions are unchanged.
+  - D-120: the restriction is enforced against `poc_interest_ledger`, a durable append-only
+    record on the ownership record, independent of the four retained prior analyses. A
+    declared link matches when its percentage equals an entry and its issuer or holder
+    matches by party ID, normalized registration or normalized name. A non-root company
+    declared with no registration cannot carry a POC percentage. No decision clears an
+    entry: selecting current document observations is the evidence route, and may state the
+    same values, and a corrected declaration needs no document. A record with no ledger
+    (schema 18 or older) is unknown, never empty: its retained history is used while it can
+    be complete, otherwise a declaration is refused until a source reload. Selecting current
+    document observations stays available but does not establish the history. A ledger at
+    its 512-entry limit also refuses every declaration, before anything is saved.
   - Not ACRA ownership or a verified denominator.
 - **D-082 opt-in POC acceptance (candidate).** Applies only with
   `ACRA_MARKETPLACE_POC_OWNERSHIP_ACCEPTANCE=accept_eligible_poc` (default `disabled`; hybrid

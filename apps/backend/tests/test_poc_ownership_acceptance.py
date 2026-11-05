@@ -1401,11 +1401,12 @@ def test_acceptance_records_validate_their_own_authority_and_binding() -> None:
 
 def test_the_acceptance_round_trips_in_schema_fifteen_and_never_in_older_schemas() -> None:
     onboarding, ownership, record = accepted_record()
-    assert max(_SUPPORTED_SCHEMA_VERSIONS) == 18
+    assert max(_SUPPORTED_SCHEMA_VERSIONS) == 19
     encoded = snapshot_of(onboarding, record).model_dump(mode="json")
-    assert encoded["schema_version"] == 18
+    assert encoded["schema_version"] == 19
     restored = DurableCaseSnapshot.model_validate(encoded).ownership
-    assert restored == record
+    # Backend-only: a dump omits the ledger, and its absence fails closed.
+    assert restored == record.model_copy(update={"poc_interest_ledger": None})
     assert restored is not None and ownership.poc_basis_accepted(restored)
     for older in (13, 14):
         with pytest.raises(ValidationError):

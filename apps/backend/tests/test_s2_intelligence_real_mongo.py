@@ -124,7 +124,7 @@ def test_schema9_restarts_preserve_creator_pages_proposals_receipts_and_suppleme
     try:
         first.create(original)
         raw = first._collection.find_one({"_id": str(original.case_id)})  # noqa: SLF001
-        assert raw is not None and raw["schema_version"] == 18
+        assert raw is not None and raw["schema_version"] == 19
     finally:
         first.close()
     second = open_store(physical_database)
@@ -201,7 +201,7 @@ def test_exact_v1_to_v8_physical_reads_keep_unknown_creator_without_rewrite(
     second = open_store(physical_database)
     try:
         decoded = second.get(case_id)
-        assert decoded.schema_version == 18
+        assert decoded.schema_version == 19
         assert decoded.onboarding.created_by_actor_id is None
         assert decoded.documents[0].document_version is None
         assert decoded.documents[0].fields[0].extraction_method == "UNKNOWN"
@@ -260,6 +260,7 @@ def document_replacement(
         threshold_percent=previous.threshold_percent,
         document_observations=observations, document_bindings=bindings,
         prior_analyses=(*previous.prior_analyses, _snapshot_prior_analysis(previous)),
+        poc_interest_ledger=previous.poc_interest_ledger,
         created_at=previous.created_at, updated_at=previous.updated_at,
     )
     return original, replacement

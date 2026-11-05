@@ -61,7 +61,7 @@ def test_populated_v7_conversion_retains_required_excluded_binding() -> None:
 
     current = legacy.to_current()
 
-    assert current.schema_version == 18
+    assert current.schema_version == 19
     assert current.automation is not None
     assert current.automation.ownership_provider_binding_id == "a" * 32
     assert raw == original
@@ -138,7 +138,7 @@ def test_schema_matrix_preserves_history_without_active_policy_or_read_rewrite(
     current = store.get(UUID(raw["case_id"]))
 
     assert current is not None
-    assert current.schema_version == 18 and current.revision == raw["revision"]
+    assert current.schema_version == 19 and current.revision == raw["revision"]
     assert str(current.case_id) == raw["_id"]
     assert current.created_at.isoformat().replace("+00:00", "Z") == raw["created_at"]
     assert current.updated_at.isoformat().replace("+00:00", "Z") == raw["updated_at"]
@@ -279,7 +279,7 @@ def test_actual_v7_preserves_populated_hidden_evidence_and_confirmation(scenario
     assert raw == original
     rewritten = codec._encode(current)  # noqa: SLF001
     omit_session2_fields(rewritten)
-    assert rewritten == {**original, "schema_version": 18}
+    assert rewritten == {**original, "schema_version": 19}
     assert legacy.automation is not None and current.automation is not None
     assert current.automation.ownership_provider_binding_id
     assert current.automation.exceptions
@@ -359,7 +359,7 @@ def test_old_envelopes_reject_semantic_v2_tag_even_when_nested(version: int) -> 
         object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
 
-@pytest.mark.parametrize("version", [None, True, "7", 7.0, 0, 19])
+@pytest.mark.parametrize("version", [None, True, "7", 7.0, 0, 20])
 def test_invalid_schema_discriminators_fail_closed(version: object) -> None:
     raw = populated_v7_raw()
     raw["schema_version"] = version
