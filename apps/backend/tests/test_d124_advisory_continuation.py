@@ -1,4 +1,4 @@
-"""D-123: ACRA Marketplace Mock, advisory review, explicit continuation, GoldTier Sandbox.
+"""D-124: ACRA Marketplace Mock, advisory review, explicit continuation, GoldTier Sandbox.
 
 A read never changes a held case. Only an authorized resume continues it, and only an explicit
 confirmation writes. Recorded GoldTier transport, synthetic data, in memory.
@@ -403,7 +403,7 @@ def test_the_open_review_stays_visible_through_confirmation() -> None:
         assert "OWNERSHIP_REVIEW_ADVISORY" in confirmation.warnings
 
 
-# Rollback: what `blocking` actually does (D-123 S8) ---------------------------------------------
+# Rollback: what `blocking` actually does (D-124 S8) ---------------------------------------------
 
 
 def test_rollback_a_new_case_holds_at_ownership() -> None:

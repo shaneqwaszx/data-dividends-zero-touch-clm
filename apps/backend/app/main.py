@@ -45,6 +45,7 @@ from app.api_models import (
 )
 from app.api_policies import build_policy_router
 from app.api_provider_sandbox import build_provider_sandbox_router
+from app.api_workflows import build_workflow_router
 from app.composition import (
     build_acra_connector as build_acra_connector,
 )
@@ -118,7 +119,11 @@ from app.domain.zero_touch import (
     ExceptionResolutionAction,
     ZeroTouchAutomationRecord,
 )
-from app.persistence.composition import build_persistence_bundle
+from app.persistence.composition import (
+    PersistenceBundle,
+    build_persistence_bundle,
+    build_workflow_persistence,
+)
 from app.persistence.errors import (
     PersistenceDataInvalidError,
     PersistenceSchemaUnsupportedError,
@@ -172,6 +177,8 @@ from app.services.ownership_errors import (
 )
 from app.services.policy_management import PolicyManagementService
 from app.services.reconciliation import ReconciliationService
+from app.services.workflow_case_data import onboarded_case_values
+from app.services.workflow_management import WorkflowManagementService
 from app.services.zero_touch_errors import (
     ZeroTouchInfrastructureError,
     ZeroTouchRequestError,
@@ -558,6 +565,32 @@ class ZeroTouchFailureDetail(BaseModel):
     automation_id: UUID | None = None
 
 
+def _onboarded_values(
+    persistence: PersistenceBundle, cases: OnboardingService, case_id: UUID
+) -> dict[str, str]:
+    case = cases.get_case(case_id)
+    if case is None:
+        return {}
+    return onboarded_case_values(
+        case,
+        documents=persistence.documents.list_for_case(case_id),
+        ownership=persistence.ownership.get_for_case(case_id),
+        reconciliation=persistence.reconciliation.get_for_case(case_id),
+        intelligence=persistence.intelligence.get_for_case(case_id),
+    )
+
+
+def _automation_is_complete(record: ZeroTouchAutomationRecord | None) -> bool:
+    return record is not None and record.status == AutomationStatus.COMPLETED
+
+
+def _automation_is_sent(record: ZeroTouchAutomationRecord | None) -> bool:
+    return record is not None and record.current_stage in {
+        AutomationStage.MOCK_GOLDTIER,
+        AutomationStage.COMPLETE,
+    }
+
+
 def create_app(
     settings: Settings | None = None,
     onboarding_service: OnboardingService | None = None,
@@ -623,13 +656,43 @@ def create_app(
         )
     else:
         service = onboarding_service
+    workflows: WorkflowManagementService | None = None
+    if active_settings.workflow_manager_enabled:
+        workflow_persistence = build_workflow_persistence(active_settings)
+        application.router.add_event_handler("shutdown", workflow_persistence.close)
+        workflows = WorkflowManagementService(
+            definitions=workflow_persistence.definitions,
+            runs=workflow_persistence.runs,
+            cases=service,
+            case_is_sent=lambda case_id: _automation_is_sent(
+                persistence.automation.get_for_case(case_id)
+            ),
+            case_is_onboarded=lambda case_id: _automation_is_complete(
+                persistence.automation.get_for_case(case_id)
+            ),
+            case_data=lambda case_id: _onboarded_values(persistence, service, case_id),
+            clock=active_clock,
+        )
     active_acra_diagnostics = acra_diagnostic_service or (
         build_acra_diagnostic_service(active_acra_connector, active_settings)
         if active_acra_connector is not None
         else None
     )
     documents = document_processing_service or build_document_processing_service(
-        service, active_settings, repository=persistence.documents
+        service,
+        active_settings,
+        repository=persistence.documents,
+        upload_observer=(
+            None
+            if workflows is None
+            else lambda case_id, document_id, extracted: workflows.suggest_from_document(
+                case_id=case_id,
+                document_id=document_id,
+                content=extracted.content,
+                media_type=extracted.media_type,
+                extracted_text=extracted.extracted_text,
+            )
+        ),
     )
     demo_idp = idp_demo_control or build_mock_idp_demo_control()
     ownership = ownership_analysis_service or build_ownership_analysis_service(
@@ -675,6 +738,7 @@ def create_app(
         durable_provider_bindings=persistence.mode == "mongo",
         clock=active_clock,
         intelligence_evaluator=intelligence_projection.evaluate,
+        workflow_send_hold=None if workflows is None else workflows.send_hold_code,
     )
     if e2e_portfolio_seed_count:
         if active_settings.app_env != "test" or not 1 <= e2e_portfolio_seed_count <= 250:
@@ -718,6 +782,7 @@ def create_app(
         repository=persistence.deletion,
         release_provider_binding=zero_touch.release_provider_binding,
         release_demo_transients=zero_touch_demo.release_case_transients,
+        delete_workflow_data=None if workflows is None else workflows.delete_case_data,
     )
     application.include_router(
         build_auth_router(
@@ -731,6 +796,16 @@ def create_app(
     if active_acra_diagnostics is not None:
         application.include_router(build_acra_diagnostic_router(active_acra_diagnostics))
     application.include_router(build_policy_router(policy_management, authentication))
+    application.include_router(
+        build_workflow_router(
+            workflows,
+            authentication,
+            access_policy,
+            service,
+            active_settings.idp_max_upload_bytes,
+            _read_bounded_body,
+        )
+    )
     application.include_router(
         build_intelligence_router(
             intelligence_projection,

@@ -4,6 +4,10 @@ import type { ReviewDecisionBatch } from "../types";
 import { confirmReviewDecisions } from "../api";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { canFillOnboardingStages, CaseWorkflowStages } from "./CaseWorkflowPanel";
+import { fetchCaseWorkflows, workflowQueryKeys } from "../workflowApi";
+import { workflowManagerEnabled } from "../workflowFlags";
+import { workflowStageElementId } from "../workflowPipeline";
 
 import {
   ApiError,
@@ -221,7 +225,26 @@ export default function CaseDetail({
   const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
   const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
   const intelligenceQuery = useQuery(intelligenceQueryOptions(actor.user_id, caseId));
+  const workflowQuery = useQuery({
+    queryKey: workflowQueryKeys.caseRuns(actor.user_id, caseId),
+    queryFn: ({ signal }) => fetchCaseWorkflows(caseId, signal),
+    retry: false,
+    enabled: workflowManagerEnabled(),
+  });
   const summary = detailQuery.data ?? null;
+  const workflowSectionProps = {
+    caseId,
+    userId: actor.user_id,
+    canFill: canFillOnboardingStages(actor.role, summary),
+    scopeKey: disclosureIdentity,
+  };
+  const workflowStagesAfter = (...anchors: string[]) => (
+    <CaseWorkflowStages {...workflowSectionProps} run={workflowQuery.data?.onboarding} anchors={anchors} />
+  );
+  // Document suggestions land during processing, so reload the stages as the case moves on.
+  useEffect(() => {
+    if (workflowManagerEnabled()) void queryClient.invalidateQueries({ queryKey: workflowQueryKeys.caseRuns(actor.user_id, caseId) });
+  }, [actor.user_id, caseId, queryClient, summary?.version]);
   const focusVersion = useRef(summary?.version);
   focusVersion.current = summary?.version;
   const [pendingAttention, setPendingAttention] = useState<(CaseActionIdentity & {
@@ -1074,6 +1097,14 @@ export default function CaseDetail({
   }
 
   function focusProcessingNode(node: ProcessingNode): void {
+    const workflowStageId = workflowStageElementId(node.node_id);
+    if (workflowStageId) {
+      const form = document.getElementById(workflowStageId);
+      if (form) revealStage(form);
+      form?.scrollIntoView({ behavior: "smooth", block: "center" });
+      form?.focus({ preventScroll: true });
+      return;
+    }
     if (node.node_id === GOLDTIER_DETAILS_STEP_ID && summary) {
       // One readiness or package stage needing the user routes to its own content; when both do, the one
       // with a specific authorized control wins, else the section opens at its status overview.
@@ -1400,7 +1431,7 @@ export default function CaseDetail({
       <div className="side-panel case-pipeline-panel">
         <button type="button" className="btn btn-ghost" onClick={onBack} style={{ paddingLeft: 0 }}>← Back to Cases</button>
         {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
-        <CasePipelineAttention summary={summary} onNavigate={focusAttention} onStageActivate={focusProcessingNode} />
+        <CasePipelineAttention summary={summary} onNavigate={focusAttention} onStageActivate={focusProcessingNode} workflowRun={workflowQuery.data?.onboarding} />
         <AdvisoryContinuation
           summary={summary}
           disabled={isBusy || mutationBlocked}
@@ -1423,6 +1454,7 @@ export default function CaseDetail({
           onStageActivate={focusProcessingNode}
           availableFocusTargets={availableFocusTargets}
           initialFocusNodeId={initialFocusNodeId}
+          workflowRun={workflowQuery.data?.onboarding}
         />
         {/* The stage rail keeps the backend's registry status; a UEN mismatch is flagged separately. */}
         {identityConflict && <p className="ds-banner ds-banner-warn uen-conflict-indicator" role="status">
@@ -1438,6 +1470,7 @@ export default function CaseDetail({
           </div>
         )}
 
+        {workflowStagesAfter("CASE_START", "INITIAL_IDENTITY", "JURISDICTION")}
         <div id={SEARCH_TARGET_ID} role="group" aria-label="Existing-customer search" className="evidence-focus-target" tabIndex={-1}>
         <StageDisclosure title="Existing-customer search" status={stageStatusFor(summary, ["GOLDTIER_SEARCH"])} summary={`${headerReadSummary("Search", detailHeaderQueries)}Search: ${summary.clm.target_search_checkpoint?.status.replaceAll("_", " ") ?? "No result retained"}. ${identityInSearch || stageNeedsAttention(["GOLDTIER_SEARCH"]) ? "Attention required — review Search identity or decision." : "GoldTier Search evidence."}`} scopeKey={`${disclosureIdentity}:${summary.clm.target_search_checkpoint?.request_id ?? "no-request"}`}
           main={<>
@@ -1474,6 +1507,7 @@ export default function CaseDetail({
           </>}
         />
         </div>
+        {workflowStagesAfter("GOLDTIER_SEARCH")}
         <StageDisclosure title="Registry verification" status={stageStatusFor(summary, ["ACRA_REGISTRY"])} active={identityConflict || undefined} summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
           main={<>
             {renderInterventions(["REGISTRY"])}
@@ -1492,6 +1526,7 @@ export default function CaseDetail({
           </>}
           technicalDetails={<RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="technical" />}
         />
+        {workflowStagesAfter("ACRA_REGISTRY")}
         <StageDisclosure title="Document verification" status={stageStatusFor(summary, ["DOCUMENT_IDP", "RECONCILIATION"])} summary={`${documentHeaderFreshness}Documents: ${summary.clm.readiness.document.status}. ${stageNeedsAttention(["DOCUMENT"]) ? "Attention required — review document evidence and required actions." : summary.current_stage === "DOCUMENT" ? "Current stage — review document evidence and required actions." : "Document evidence and reconciliation."}`} scopeKey={disclosureIdentity}
           main={<>
           {renderInterventions(["DOCUMENT"], false, coveredByReviewPanel)}
@@ -1583,6 +1618,7 @@ export default function CaseDetail({
             <ConfirmDetailsPanel presentation="technical" summary={summary} />
           </>}
         />
+        {workflowStagesAfter("DOCUMENT_IDP", "RECONCILIATION")}
         <StageDisclosure title="Ownership & UBO" status={stageStatusFor(summary, ["OWNERSHIP_UBO"])} summary={governmentBasis ? governmentBasis.label : `${ownershipHeaderFreshness}${ownershipHeaderStatus}`} scopeKey={disclosureIdentity} main={governmentBasis ? <>
           {renderInterventions(["OWNERSHIP"])}
           <div key={`${evidenceIdentity}:government`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target" tabIndex={-1}>
@@ -1667,6 +1703,7 @@ export default function CaseDetail({
           moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" partnershipPendingLabel={partnershipPendingLabel} /></>}
           technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" partnershipPendingLabel={partnershipPendingLabel} /></>}
         />
+        {workflowStagesAfter("OWNERSHIP_UBO", "ADVISORY")}
         {/* An uncertain outcome or pending safe recovery needs the reviewer: the section opens on load and shows the blocked final step. */}
         <StageDisclosure title={GOLDTIER_DETAILS_STAGE_LABEL} active={targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || safeContinuation || summary.status === "RECOVERY_PENDING" ? true : undefined}
           status={stageStatusFor(summary, targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" ? ["READINESS", "GOLDTIER_TARGET", "FINAL_REVIEW_SEND"] : ["READINESS", "GOLDTIER_TARGET"])}
@@ -1808,6 +1845,7 @@ export default function CaseDetail({
             </aside>
           </>}
         />
+        {workflowStagesAfter("GOLDTIER_DETAILS")}
         {showFinalReview ? <ReviewAndSend
           disclosureScopeKey={disclosureIdentity}
           readNotice={finalReadNotice}

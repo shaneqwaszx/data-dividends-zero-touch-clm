@@ -1196,13 +1196,13 @@ class ClmOrchestrationService:
         return saved
 
     def _open_review_warning(self, record: ClmOrchestrationRecord) -> tuple[str, ...]:
-        # D-123: the confirmation states that the ownership review was still open.
+        # D-124: the confirmation states that the ownership review was still open.
         ownership = self._ownership.get(case_id=record.case_id)
         advisory = ownership is not None and self._ownership.review_is_advisory(ownership)
         return ("OWNERSHIP_REVIEW_ADVISORY",) if advisory else ()
 
     def retry_failed_search(self, *, case_id: UUID) -> None:
-        """D-123: repeat a failed read-only Search before anything was frozen for send."""
+        """D-124: repeat a failed read-only Search before anything was frozen for send."""
 
         with self._lock_for(case_id):
             record = self._require_record(case_id)

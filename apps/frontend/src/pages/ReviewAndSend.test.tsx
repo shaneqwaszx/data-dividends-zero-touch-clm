@@ -139,7 +139,7 @@ describe("ReviewAndSend", () => {
     expect(markup).not.toContain("do not clear ownership readiness");
     expect(markup).toContain("Ownership: 4 natural person(s) assessed, 0 provisional UBO candidate(s), 2 assumed-basis threshold match(es),");
   });
-  it("D-123: separates operational readiness from the open, provisional ownership review", () => {
+  it("D-124: separates operational readiness from the open, provisional ownership review", () => {
     const open = render(summaryFixture(), actor, { ...gardenAssumedBasisFixture(), state: "REVIEW_REQUIRED", poc_basis_accepted: false });
     expect(open).toContain("Ownership review:");
     expect(open).toContain("still unresolved");

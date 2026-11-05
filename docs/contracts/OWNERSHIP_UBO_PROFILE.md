@@ -426,9 +426,9 @@ DIANA KOH 18.75 + 6.25 = 25 (inclusive MET on the synthetic basis), EDWARD NG
     owner F1 decision). Other D-078 decisions are unchanged.
   - D-121: on the official Mock lane a current review-required analysis no longer blocks
     readiness (`ACRA_MARKETPLACE_UBO_REVIEW_MODE=advisory`, the default). Issues and
-    classifications stay. D-123: this includes GoldTier Sandbox, the standing POC lane; a Live
+    classifications stay. D-124: this includes GoldTier Sandbox, the standing POC lane; a Live
     target never qualifies. A case held earlier continues only through an authorized `/resume`,
-    never on a read, and `blocking` has the in-flight limits recorded in D-123 S8.
+    never on a read, and `blocking` has the in-flight limits recorded in D-124 S8.
   - D-120: the restriction is enforced against `poc_interest_ledger`, a durable append-only
     record on the ownership record, independent of the four retained prior analyses. A
     declared link matches when its percentage equals an entry and its issuer or holder

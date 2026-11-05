@@ -1,5 +1,6 @@
 """Select process-local or fail-closed Mongo persistence infrastructure."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -20,6 +21,11 @@ from app.persistence.mongo_admin_store import (
 )
 from app.persistence.mongo_case_store import MongoCaseStore
 from app.persistence.mongo_registry_cache_store import MongoRegistryCacheStore
+from app.persistence.mongo_workflow_store import (
+    MongoWorkflowDefinitionRepository,
+    MongoWorkflowRunRepository,
+    MongoWorkflowStore,
+)
 from app.persistence.repositories import (
     MongoCaseDeletionRepository,
     MongoCasePortfolioRepository,
@@ -83,6 +89,12 @@ from app.services.repository import (
 from app.services.target_execution_repository import (
     InMemoryTargetExecutionRepository,
     TargetExecutionRepository,
+)
+from app.services.workflow_repository import (
+    InMemoryWorkflowDefinitionRepository,
+    InMemoryWorkflowRunRepository,
+    WorkflowDefinitionRepository,
+    WorkflowRunRepository,
 )
 from app.services.zero_touch_repository import (
     InMemoryZeroTouchAutomationRepository,
@@ -219,6 +231,38 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
         mongo_store=store,
         mongo_admin_store=admin_store,
         registry_snapshots=registry_snapshots,
+    )
+
+
+@dataclass(frozen=True)
+class WorkflowPersistence:
+    definitions: WorkflowDefinitionRepository
+    runs: WorkflowRunRepository
+    close: Callable[[], None]
+
+
+def build_workflow_persistence(settings: Settings) -> WorkflowPersistence:
+    """Workflow storage has its own client so the case persistence bundle stays unchanged."""
+
+    if settings.clm_persistence_mode == "memory":
+        return WorkflowPersistence(
+            definitions=InMemoryWorkflowDefinitionRepository(),
+            runs=InMemoryWorkflowRunRepository(),
+            close=lambda: None,
+        )
+    if settings.mongo_uri is None:
+        raise PersistenceConfigurationError
+    store = MongoWorkflowStore(
+        create_mongo_client(settings),
+        database=settings.mongo_database,
+        definitions_collection=settings.mongo_workflow_definitions_collection,
+        runs_collection=settings.mongo_workflow_runs_collection,
+    )
+    store.initialize()
+    return WorkflowPersistence(
+        definitions=MongoWorkflowDefinitionRepository(store),
+        runs=MongoWorkflowRunRepository(store),
+        close=store.close,
     )
 
 

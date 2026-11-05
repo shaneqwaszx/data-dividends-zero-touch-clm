@@ -1,4 +1,4 @@
-"""D-121 and D-123: on the Marketplace Mock lane a UBO review never blocks readiness.
+"""D-121 and D-124: on the Marketplace Mock lane a UBO review never blocks readiness.
 
 It holds for any company, with GoldTier in Mock or Sandbox. Issues and classifications stay
 visible, nothing becomes verified ownership, and only the explicit confirmation sends.
@@ -210,7 +210,7 @@ def test_a_case_held_before_the_review_became_advisory_needs_an_explicit_resume(
             ),
         )
         opened = t.summary_of(client, case_id)
-        assert opened["version"] == held["version"]  # D-123: a read changes nothing
+        assert opened["version"] == held["version"]  # D-124: a read changes nothing
         assert opened["current_stage"] == "OWNERSHIP"
         resumed = client.post(
             f"/api/clm/zero-touch/cases/{case_id}/resume",

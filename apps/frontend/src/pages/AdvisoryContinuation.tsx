@@ -1,6 +1,6 @@
 import type { ZeroTouchCaseSummary } from "../types";
 
-/** D-123: the explicit step that continues a case held before its review became advisory. */
+/** D-124: the explicit step that continues a case held before its review became advisory. */
 export default function AdvisoryContinuation({ summary, disabled, onContinue }: {
   summary: ZeroTouchCaseSummary;
   disabled: boolean;

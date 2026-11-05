@@ -1683,7 +1683,7 @@ class BrowserTargetSubmissionEvidence(BaseModel):
 
 
 class BrowserAdvisoryContinuation(BaseModel):
-    """D-123: an explicit resume can continue a case with its ownership review open."""
+    """D-124: an explicit resume can continue a case with its ownership review open."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

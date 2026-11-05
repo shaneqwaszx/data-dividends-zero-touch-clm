@@ -9,7 +9,7 @@ function markup(part: Partial<ZeroTouchCaseSummary>): string {
   );
 }
 
-describe("D-123 advisory continuation", () => {
+describe("D-124 advisory continuation", () => {
   it("shows nothing unless the backend offers a continuation", () => {
     expect(markup({ advisory_continuation: null })).toBe("");
   });

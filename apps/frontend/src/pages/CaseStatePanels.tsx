@@ -1,3 +1,5 @@
+import { withWorkflowStages, workflowStageElementId } from "../workflowPipeline";
+import type { WorkflowRun } from "../workflowApi";
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 
 import { displayTimestamp, formatDuration, formatTimestamp, registryReuseDescription } from "../shared";
@@ -64,12 +66,12 @@ const GOLDTIER_DETAILS_NODE_IDS = ["READINESS", "GOLDTIER_TARGET"];
 
 /**
  * Presentation-only mapping of the twelve backend stages to the business steps shown.
- * Initial identity is shown while it is not done or an identity issue is retained, so it is never hidden.
+ * Every stage stays visible, so the count always matches the full pipeline.
  * READINESS and GOLDTIER_TARGET appear as one step: its marker uses the member that needs the
  * user most, so the step is done only when both are; each member keeps its own status and details.
  */
-export function businessStagePipeline(backendPipeline: ProcessingNode[], identityIssue = false): ProcessingNode[] {
-  const pipeline = backendPipeline.filter(node => node.node_id !== "INITIAL_IDENTITY" || identityIssue || pipelineRailState(node.status) !== "done");
+export function businessStagePipeline(backendPipeline: ProcessingNode[]): ProcessingNode[] {
+  const pipeline = backendPipeline;
   const grouped = pipeline.filter(node => GOLDTIER_DETAILS_NODE_IDS.includes(node.node_id));
   if (grouped.length < 2) return pipeline;
   const lead = grouped.find(node => pipelineRailState(node.status) === "attention")
@@ -100,14 +102,6 @@ export function businessStageMembers(backendPipeline: ProcessingNode[], node: Pr
 /** Resolve a business step or backend stage id, such as a stage-focus request from another page. */
 export function findBusinessStage(backendPipeline: ProcessingNode[], nodeId: string): ProcessingNode | null {
   return businessStagePipeline(backendPipeline).find(node => node.node_id === nodeId) ?? findProcessingNode(backendPipeline, nodeId);
-}
-
-/** True while the backend retains an Initial identity blocker or error, even for a completed identity stage. */
-export function identityIssueRetained(summary: ZeroTouchCaseSummary): boolean {
-  const identityCode = (code: string | null | undefined) => code?.startsWith("INITIAL_IDENTITY_") === true;
-  return summary.active_exceptions.some(item => identityCode(item.blocker_code))
-    || summary.interventions?.some(item => identityCode(item.blocker_code)) === true
-    || identityCode(summary.case.error?.code);
 }
 
 /** Business-step id that shows a backend stage on the rail. */
@@ -148,13 +142,14 @@ export function stageStatusFor(summary: ZeroTouchCaseSummary, nodeIds: string[])
   return { tone: "pending", label: PROGRESS_STATUS_LABELS[nodes.find(node => pipelineRailState(node.status) !== "done")!.status] };
 }
 
-export function PipelineRail({ summary, onStageActivate, renderAttention }: {
+export function PipelineRail({ summary, onStageActivate, renderAttention, workflowRun }: {
   summary: ZeroTouchCaseSummary; onStageActivate?: (node: ProcessingNode) => void;
   /** Optional per-step content, rendered after the step status. */
   renderAttention?: (node: ProcessingNode) => ReactNode;
+  workflowRun?: WorkflowRun | null;
 }) {
   const backendPipeline = identityCorrectedPipeline(summary);
-  const pipeline = businessStagePipeline(backendPipeline, identityIssueRetained(summary));
+  const pipeline = withWorkflowStages(businessStagePipeline(backendPipeline), workflowRun);
   return (
     <div className="ds-stage-rail" aria-label="Backend workflow stages">
       {pipeline.map((node, index) => {
@@ -341,6 +336,8 @@ const NAVIGABLE_PROCESSING_STATUSES = new Set<ProcessingNodeStatus>([
 
 export function processingNodeFocusTarget(node: ProcessingNode): string | null {
   const nodeId = node.node_id;
+  const workflowStageId = workflowStageElementId(nodeId);
+  if (workflowStageId) return workflowStageId;
   if (nodeId === "INITIAL_IDENTITY") return "case-identity-correction";
   // The grouped step always opens its section; the case page routes an attention member further.
   if (nodeId === GOLDTIER_DETAILS_STEP_ID) return "case-target-blocker";
@@ -458,11 +455,13 @@ export function OnboardingProgressPanel({
   onStageActivate,
   availableFocusTargets,
   initialFocusNodeId,
+  workflowRun,
 }: {
   summary: ZeroTouchCaseSummary;
   onStageActivate?: (node: ProcessingNode) => void;
   availableFocusTargets?: ReadonlySet<string>;
   initialFocusNodeId?: string;
+  workflowRun?: WorkflowRun | null;
 }) {
   const backendPipeline = summary.processing_pipeline ?? [];
   const [inspected, setInspected] = useState<{ caseId: string; nodeId: string } | null>(null);
@@ -470,8 +469,8 @@ export function OnboardingProgressPanel({
     if (initialFocusNodeId) setInspected({ caseId: summary.case.case_id, nodeId: initialFocusNodeId });
   }, [initialFocusNodeId, summary.case.case_id]);
   const stagePipeline = identityCorrectedPipeline(summary);
-  // Counts and percentages use the business steps shown; a hidden stage is always done.
-  const pipeline = businessStagePipeline(stagePipeline, identityIssueRetained(summary));
+  // Counts and percentages use the business steps shown.
+  const pipeline = withWorkflowStages(businessStagePipeline(stagePipeline), workflowRun);
   const inspectedNode = inspected?.caseId === summary.case.case_id
     ? findProcessingNode(pipeline, inspected.nodeId) ?? findProcessingNode(backendPipeline, inspected.nodeId)
     : null;
@@ -544,7 +543,7 @@ export function OnboardingProgressPanel({
             const navigable = Boolean(
               onStageActivate
               && target
-              && (!availableFocusTargets || availableFocusTargets.has(target)),
+              && (!availableFocusTargets || availableFocusTargets.has(target) || workflowStageElementId(node.node_id) !== null),
             );
             const content = <>
               <span className="onboarding-progress__title-row">
