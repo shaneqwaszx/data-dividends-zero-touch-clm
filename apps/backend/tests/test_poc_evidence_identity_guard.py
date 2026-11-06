@@ -841,7 +841,7 @@ def test_the_ledger_survives_the_case_envelope_and_stays_out_of_dumps() -> None:
     assert "poc_interest_ledger" not in record.model_dump()
     assert "poc_interest_ledger" not in repr(record)
     encoded = codec()._encode(snapshot_of(case.system.onboarding, record))  # noqa: SLF001
-    assert encoded["schema_version"] == 19
+    assert encoded["schema_version"] == 20
     decoded = codec()._decode(encoded)  # noqa: SLF001
     assert decoded.ownership is not None
     assert decoded.ownership.poc_interest_ledger == record.poc_interest_ledger
@@ -867,7 +867,7 @@ def test_a_schema_18_case_reads_without_a_ledger_and_is_not_rewritten() -> None:
     envelope = legacy_envelope(Generic())
     stored = deepcopy(envelope)
     decoded = codec()._decode(envelope)  # noqa: SLF001
-    assert decoded.schema_version == 19
+    assert decoded.schema_version == 20
     assert decoded.ownership is not None and decoded.ownership.poc_interest_ledger is None
     assert envelope == stored
 

@@ -3272,6 +3272,30 @@ dd {
 
 .manual-ownership__rationale { margin-bottom: 14px; }
 
+/* D-125: the RM keys in the founding statute and type of body before confirming. */
+.government-statute { display: grid; gap: 12px; margin: 14px 0; }
+.government-statute .manual-ownership__fields { margin: 0; }
+.government-statute .manual-ownership__fields label { align-content: start; }
+.government-statute .control-help { font-weight: 400; }
+.government-statute__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.government-statute__body legend { margin-bottom: 6px; padding: 0; font-weight: 700; }
+.manual-ownership .government-statute__body label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-weight: 400;
+}
+.government-statute .btn { justify-self: start; }
+
 /* D-101 partnership agreement: "Confirm partner shares" (display only; the server decides). */
 .partner-shares { display: grid; gap: 18px; }
 .partner-shares__intro p { margin: 0; max-width: 60rem; line-height: 1.55; }

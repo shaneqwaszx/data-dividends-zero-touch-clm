@@ -5,10 +5,16 @@ information confirming it is one. The requirement is met only by one current rev
 document carrying every labelled field plus an explicit RM confirmation bound to that
 exact document version. Nothing here sets the status automatically or from a label.
 Project-defined, not sponsor-confirmed. A foreign government body is out of scope.
+
+D-125 (sponsor-requested, project-designed): the RM also keys in the founding statute,
+which must equal the document's Founding Instrument after `normalise_statute`.
+Bracketed text the RM enters is accepted only when the same bracketed text (after
+normalisation) is on the document, so no free-text note rides along with a match.
 """
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -17,13 +23,55 @@ from app.domain.documents import (
     DocumentProcessingState,
     ExtractionQuality,
 )
-from app.domain.models import OnboardingCase
+from app.domain.models import STATUTE_MATCH_RULE, OnboardingCase
 from app.domain.registry_legal_form import RegistryLegalForm, classify_registry_legal_form
 from app.domain.target_classification import TargetClassificationKey
 from app.services.document_processing import document_semantic_assessment
 
 GOVERNMENT_KYC_CUSTOMER_TYPE = "Government"
 GOVERNMENT_CLIENT_SEGMENT = "DI - Government"
+
+_BRACKETED = re.compile(r"\([^()]*\)")
+_NON_WORD = re.compile(r"[\W_]+")
+_TRAILING_YEAR = re.compile(r" \d{4}$")
+
+
+def _words(text: str) -> str:
+    return " ".join(_NON_WORD.sub(" ", text).split())
+
+
+def _split_statute(value: str) -> tuple[str, frozenset[str]]:
+    """The normal form plus each bracketed group's own normal form (empty groups dropped)."""
+    text = value.casefold()
+    groups: set[str] = set()
+    while True:  # nested brackets: innermost first
+        found = _BRACKETED.findall(text)
+        if not found:
+            break
+        groups.update(_words(item[1:-1]) for item in found)
+        text = _BRACKETED.sub(" ", text)
+    groups.discard("")
+    return _TRAILING_YEAR.sub("", _words(text)), frozenset(groups)
+
+
+def normalise_statute(value: str) -> str:
+    """D-125: the one deterministic form used to compare a statute with the document.
+
+    Casefold, drop text in round brackets, turn punctuation into spaces, collapse
+    whitespace, then drop one trailing four-digit year. No fuzzy or partial matching.
+    """
+    return _split_statute(value)[0]
+
+
+def statute_matches(entered: str, founding_instrument: str) -> bool:
+    """D-125: exact equality after normalisation; an empty normal form never matches.
+
+    Every bracketed group the RM entered must also be a bracketed group on the
+    document (compared after the same normalisation); otherwise it is a mismatch.
+    """
+    normal, groups = _split_statute(entered)
+    document_normal, document_groups = _split_statute(founding_instrument)
+    return bool(normal) and normal == document_normal and groups <= document_groups
 
 
 @dataclass(frozen=True)
@@ -119,7 +167,11 @@ def government_status_confirmed(
     *,
     confidence_threshold: float,
 ) -> bool:
-    """An RM confirmation that is still bound to the current evidence."""
+    """An RM confirmation that is still bound to the current evidence.
+
+    D-125: a confirmation stored without the RM-entered founding statute, body type and
+    match result no longer counts; the RM must confirm again.
+    """
     confirmation = case.government_status_confirmation
     evidence = government_status_evidence(
         case, documents, confidence_threshold=confidence_threshold
@@ -127,6 +179,9 @@ def government_status_confirmed(
     return (
         confirmation is not None
         and evidence is not None
+        and confirmation.founding_statute is not None
+        and confirmation.government_body_type is not None
+        and confirmation.statute_match == STATUTE_MATCH_RULE
         and confirmation.document_id == evidence.document_id
         and confirmation.document_event_count == evidence.document_event_count
         and confirmation.evidence_fingerprint == evidence.evidence_fingerprint
