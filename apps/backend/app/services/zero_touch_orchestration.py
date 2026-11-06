@@ -2,6 +2,7 @@
 
 import hmac
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -125,6 +126,7 @@ from app.services.zero_touch_repository import (
 )
 
 ADVISORY_CONTINUATION_REQUESTED = "ADVISORY_CONTINUATION_REQUESTED"
+_LOGGER = logging.getLogger(__name__)
 _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES = frozenset({
     BusinessExceptionType.OWNERSHIP_CYCLE,
     BusinessExceptionType.OWNERSHIP_INCOMPLETE,
@@ -845,6 +847,7 @@ class ZeroTouchOrchestrator:
         expected_clm_version: int | None = None,
         expected_case_event_count: int | None = None,
         reauthorize_document_recovery: Callable[[], None] | None = None,
+        automatic_release: bool = False,
     ) -> ZeroTouchAutomationRecord:
         """Idempotently start or continue; normal upload already invokes this."""
 
@@ -853,8 +856,8 @@ class ZeroTouchOrchestrator:
                 reauthorize()
             record = self._require_record(case_id)
             pending_refresh = self.document_refresh_pending(record)
-            # D-124: /resume alone continues past an advisory hold or applies a retained identity
-            # decision, with document recovery's creator check and version context, in this lock.
+            # D-124: only /resume or the startup release continues past an advisory hold or
+            # applies a retained identity decision, with version context, in this lock.
             advisory_continuation = (
                 refresh_document_checkpoint and self.advisory_continuation_pending(record)
             )
@@ -889,7 +892,17 @@ class ZeroTouchOrchestrator:
             if advisory_continuation:
                 if self._existing_confirmation_projection_due(record):
                     return self._project_existing_confirmation_locked(record)
-                record = self._begin_advisory_continuation_locked(record)
+                # Before the hold is retired: a failed document can be replaced only at intake.
+                if self._has_required_document_reuploads(case_id):
+                    return self._reopen_document_intake_locked(record)
+                if not self._current_documents(case_id):
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_DOCUMENTS_REQUIRED",
+                        message="At least one valid supporting document is required.",
+                    )
+                record = self._begin_advisory_continuation_locked(
+                    record, automatic=automatic_release,
+                )
             record = self._recover_obsolete_registry_ownership_locked(
                 record, release_advisory=advisory_continuation,
             )
@@ -1454,7 +1467,7 @@ class ZeroTouchOrchestrator:
         )
 
     def advisory_continuation_pending(self, record: ZeroTouchAutomationRecord) -> bool:
-        """D-124: an explicit resume can continue this case. Reads only, never changes it."""
+        """D-124: a resume can continue this case. Reads only, never changes it."""
 
         return (
             self._held_by_advisory_review(record)
@@ -1462,10 +1475,80 @@ class ZeroTouchOrchestrator:
             or self._existing_confirmation_projection_due(record)
         )
 
-    def _begin_advisory_continuation_locked(
+    def release_advisory_holds(self) -> None:
+        """D-124 S9: at startup, advisory holds continue towards target confirmation by themselves.
+
+        Nothing is written to the target. A case already in technical failure is not retried,
+        and one case that fails neither stops the others nor stops the backend from starting.
+        """
+
+        try:
+            case_ids = [record.case_id for record in self._repository.list_records()]
+        except Exception as exc:  # noqa: BLE001 - startup must survive a failed sweep.
+            _LOGGER.warning("Advisory hold release skipped: %s", type(exc).__name__)
+            return
+        for case_id in case_ids:
+            try:
+                self._release_advisory_hold(case_id)
+            except Exception as exc:  # noqa: BLE001 - /resume or the next startup can continue.
+                _LOGGER.warning(
+                    "Advisory hold release failed for case %s: %s", case_id, type(exc).__name__,
+                )
+
+    def _release_advisory_hold(self, case_id: UUID) -> None:
+        with self._cases.case_lock(case_id):
+            record = self._repository.get_for_case(case_id)
+            if record is None or not self._held_by_advisory_review(record):
+                return
+            case = self._cases.get_case(case_id)
+            clm = self._clm.get(case_id=case_id)
+            assert case is not None and clm is not None
+            released = self.start(
+                case_id=case_id,
+                refresh_document_checkpoint=True,
+                expected_automation_id=record.automation_id,
+                expected_automation_version=record.version,
+                expected_clm_version=clm.version,
+                expected_case_event_count=len(case.events),
+                automatic_release=True,
+            )
+            if released.status == AutomationStatus.TECHNICAL_FAILURE:
+                _LOGGER.warning("Advisory hold release ended in failure for case %s", case_id)
+
+    def _reopen_document_intake_locked(
         self, record: ZeroTouchAutomationRecord,
     ) -> ZeroTouchAutomationRecord:
-        """Record the authorized request; a failed attempt reopens for one more try.
+        """D-124 S9: a failed document found past Document goes back through the legal route.
+
+        The state table returns to intake only from Document, so the case first resumes there,
+        as a document replacement does. Onboarding re-evaluates every blocker after the upload.
+        """
+
+        candidate = record.model_copy(deep=True)
+        for item in candidate.active_exceptions:
+            item.status = BusinessExceptionStatus.CANCELLED
+            item.resolved_at = self._clock()
+        candidate.completed_stages = tuple(
+            stage for stage in candidate.completed_stages
+            if stage in {AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH}
+        )
+        candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+        candidate.technical_failure = None
+        candidate.status = AutomationStatus.RESUMING
+        candidate.current_stage = AutomationStage.DOCUMENT
+        candidate = self._append_event(
+            candidate,
+            event_type=AutomationEventType.AUTOMATION_RESUMING,
+            outcome=EventOutcome.SUCCEEDED,
+            code="DOCUMENT_INTAKE_REOPENED",
+            message="A failed document must be uploaded again before onboarding continues.",
+        )
+        return self._return_to_document_intake(self._save(record, candidate))
+
+    def _begin_advisory_continuation_locked(
+        self, record: ZeroTouchAutomationRecord, *, automatic: bool = False,
+    ) -> ZeroTouchAutomationRecord:
+        """Record the request; a failed attempt reopens for one more try.
 
         Only an attempt that reached no target state reopens. Search is read-only, and every
         target write still needs its own confirmation.
@@ -1486,14 +1569,16 @@ class ZeroTouchOrchestrator:
             outcome=EventOutcome.SUCCEEDED,
             code=ADVISORY_CONTINUATION_REQUESTED,
             message=(
-                "An authorized user continued with the ownership review open; nothing is "
+                ("The backend continued automatically" if automatic
+                 else "An authorized user continued")
+                + " with the ownership review open; nothing is "
                 "sent to the target before its confirmation."
             ),
         )
         return self._save(record, candidate)
 
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
-        """D-124: a read changes nothing, whoever reads. Recovery runs from /resume."""
+        """D-124: a read changes nothing, whoever reads."""
 
         return self._repository.get_for_case(case_id)
 
@@ -3129,7 +3214,7 @@ class ZeroTouchOrchestrator:
         self, case_id: UUID, item: BusinessException, release_advisory: bool,
     ) -> bool:
         """D-082 F2: a hold on an analysis now accepted. D-124: an advisory hold is retired
-        only by the explicit continuation."""
+        only by a continuation, from /resume or the startup release."""
         ownership = self._ownership.get(case_id=case_id)
         return (
             ownership is not None

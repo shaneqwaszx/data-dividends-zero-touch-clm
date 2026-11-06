@@ -1,7 +1,7 @@
 """D-124: ACRA Marketplace Mock, advisory review, explicit continuation, GoldTier Sandbox.
 
-A read never changes a held case. Only an authorized resume continues it, and only an explicit
-confirmation writes. Recorded GoldTier transport, synthetic data, in memory.
+A read never changes a held case. The startup release or an authorized resume continues it, and
+only an explicit confirmation writes. Recorded GoldTier transport, synthetic data, in memory.
 """
 
 from __future__ import annotations
@@ -9,9 +9,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,13 +29,20 @@ from test_zero_touch_entity_types import (
     gamma_at_ownership,
 )
 
+from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
+from app.domain.documents import DocumentProcessingState
 from app.domain.ownership import OwnershipAnalysisState
 from app.domain.zero_touch import AutomationEventType, AutomationStage
 from app.main import create_app
 from app.persistence.composition import build_persistence_bundle
 from app.services.clm_orchestration import ClmOrchestrationService
+from app.services.document_processing import DocumentProcessingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.zero_touch_errors import ZeroTouchRequestError
+from app.services.zero_touch_orchestration import (
+    ADVISORY_CONTINUATION_REQUESTED as ADVISORY_REQUEST,
+)
+from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 
 ADVISORY = {"on": False}
 TARGET_CONFIRMATION = ["TARGET_CONFIRMATION_REQUIRED"]
@@ -602,3 +610,229 @@ def test_rollback_after_create_still_completes_the_policy_without_repeating_crea
         ADVISORY["on"] = False
         client.post(url(case_id, "/resume"))
         assert writes(target) == ["POST", "POST"]
+
+
+# S9: held cases continue by themselves at startup ---------------------------------------------
+
+
+def restart(client: TestClient) -> None:
+    """Run the app's registered startup handlers again, now the stores hold a case."""
+
+    handlers = client.app.router.on_startup
+    assert handlers
+    for handler in handlers:
+        handler()
+
+
+def test_startup_continues_a_held_case_to_confirmation_with_no_user_and_no_write() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        restart(client)
+        summary = read(client, case_id)
+        assert summary["status"] == "WAITING_FOR_REVIEW"
+        assert exceptions(summary) == TARGET_CONFIRMATION
+        assert summary["advisory_continuation"] is None
+        assert ADVISORY_REQUEST in codes(bundle, case_id)
+        event = [
+            item for item in bundle.automation.get_for_case(UUID(case_id)).events
+            if item.code == ADVISORY_REQUEST
+        ][-1]
+        assert event.message.startswith("The backend continued automatically")
+        assert writes(target) == []
+
+
+def test_a_case_released_at_startup_still_needs_its_confirmation_and_then_completes() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        restart(client)
+        assert writes(target) == []
+        completed = confirm(client, read(client, case_id))
+        assert completed["status"] == "COMPLETED"
+        assert len(writes(target)) == 2
+
+
+def test_a_second_startup_changes_nothing() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        restart(client)
+        before, calls = state(bundle, case_id), len(target.calls)
+        restart(client)
+        assert state(bundle, case_id) == before and len(target.calls) == calls
+
+
+def test_startup_releases_nothing_in_blocking_mode() -> None:
+    with lane() as (client, target, bundle):
+        case_id = gamma_at_ownership(client)["case"]["case_id"]
+        before, calls = state(bundle, case_id), len(target.calls)
+        restart(client)
+        assert state(bundle, case_id) == before and len(target.calls) == calls
+
+
+def test_startup_never_retries_a_failed_continuation() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        with patch.object(
+            ClmOrchestrationService, "evaluate", side_effect=RuntimeError("synthetic fault")
+        ):
+            resume(client, read(client, case_id))
+        before, calls = state(bundle, case_id), len(target.calls)
+        restart(client)
+        assert state(bundle, case_id) == before and len(target.calls) == calls
+        assert read(client, case_id)["status"] == "TECHNICAL_FAILURE"
+
+
+def test_one_case_that_cannot_continue_does_not_stop_startup() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        before = state(bundle, case_id)
+        with patch.object(
+            ZeroTouchOrchestrator, "_begin_advisory_continuation_locked",
+            side_effect=RuntimeError("synthetic fault"),
+        ):
+            restart(client)
+        assert state(bundle, case_id) == before
+        assert writes(target) == []
+
+
+def test_a_store_that_cannot_list_does_not_stop_startup() -> None:
+    with lane() as (client, _, bundle):
+        case_id = held(client)
+        before = state(bundle, case_id)
+        with patch.object(
+            type(bundle.automation), "list_records", side_effect=RuntimeError("synthetic fault")
+        ) as listing:
+            restart(client)
+        listing.assert_called()
+        assert state(bundle, case_id) == before
+
+
+def test_a_failing_case_does_not_stop_the_next_case() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        failing = uuid4()
+        real = ZeroTouchOrchestrator._release_advisory_hold  # noqa: SLF001
+
+        def release(self: Any, identity: UUID) -> None:
+            if identity == failing:
+                raise RuntimeError("synthetic fault")
+            real(self, identity)
+
+        records = [SimpleNamespace(case_id=failing), SimpleNamespace(case_id=UUID(case_id))]
+        with (
+            patch.object(type(bundle.automation), "list_records", return_value=records),
+            patch.object(ZeroTouchOrchestrator, "_release_advisory_hold", release),
+        ):
+            restart(client)
+        assert exceptions(read(client, case_id)) == TARGET_CONFIRMATION
+        assert writes(target) == []
+
+
+def test_a_pipeline_fault_at_startup_fails_safely_and_resume_recovers_it() -> None:
+    with lane() as (client, target, _):
+        case_id = held(client)
+        with patch.object(
+            ClmOrchestrationService, "evaluate", side_effect=RuntimeError("synthetic fault")
+        ):
+            restart(client)
+        summary = read(client, case_id)
+        assert summary["status"] == "TECHNICAL_FAILURE"
+        assert writes(target) == []
+        response = resume(client, summary)
+        assert response.status_code == 200, response.text
+        assert exceptions(response.json()) == TARGET_CONFIRMATION
+        assert writes(target) == []
+
+
+def test_a_legacy_case_makes_only_its_read_only_search_at_startup() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        legacy(bundle, case_id)
+        searches = reads(target)
+        restart(client)
+        assert exceptions(read(client, case_id)) == TARGET_CONFIRMATION
+        assert reads(target) > searches
+        assert writes(target) == []
+
+
+def failed_upload(client: TestClient, bundle: Any, case_id: str) -> str:
+    """A real upload during the hold whose processing fails: failed, and still current."""
+
+    real = DocumentProcessingService.create_document
+
+    def failing(self: Any, *args: Any, **options: Any) -> Any:
+        options["provider"] = MockIdpProvider(MockIdpScenario.PROCESSOR_FAILURE)
+        return real(self, *args, **options)
+
+    with patch.object(DocumentProcessingService, "create_document", failing):
+        response = client.post(
+            url(case_id, "/intake/documents"),
+            content=b"synthetic extra evidence",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "extra.txt"},
+        )
+    assert response.status_code == 503, response.text
+    failed = [
+        item for item in bundle.documents.list_for_case(UUID(case_id))
+        if item.state == DocumentProcessingState.FAILED and item.is_current_evidence
+    ]
+    assert len(failed) == 1
+    return str(failed[0].document_id)
+
+
+def test_a_failed_document_returns_to_intake_at_startup_and_the_reupload_recovers() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        document_id = failed_upload(client, bundle, case_id)
+        restart(client)
+        summary = read(client, case_id)
+        assert summary["status"] == "PENDING_INPUTS"
+        assert summary["current_stage"] == "DOCUMENT"
+        assert summary["advisory_continuation"] is None
+        assert "DOCUMENT_REUPLOAD_REQUIRED" in codes(bundle, case_id)
+        assert ADVISORY_REQUEST not in codes(bundle, case_id)
+        response = client.post(
+            url(case_id, f"/intake/documents/{document_id}/retry"),
+            content="\n".join(GAMMA.partnership_agreement_lines).encode(),
+            headers={"Content-Type": "text/plain", "X-Document-Name": "extra.txt"},
+        )
+        assert response.status_code == 201, response.text
+        assert exceptions(read(client, case_id)) == TARGET_CONFIRMATION
+        assert writes(target) == []
+
+
+def test_a_failed_document_returns_to_intake_on_resume() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        failed_upload(client, bundle, case_id)
+        response = resume(client, read(client, case_id))
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "PENDING_INPUTS"
+        assert writes(target) == []
+
+
+def test_a_failed_search_at_startup_is_logged_and_writes_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        legacy(bundle, case_id)
+        target.fail_get = True
+        with caplog.at_level("WARNING", logger="app.services.zero_touch_orchestration"):
+            restart(client)
+        assert read(client, case_id)["status"] == "TECHNICAL_FAILURE"
+        assert f"ended in failure for case {case_id}" in caplog.text
+        assert writes(target) == []
+
+
+def test_an_interrupted_identity_decision_stays_on_resume_at_startup() -> None:
+    zero, _, _, transport, created = _existing_candidate_system()
+    arguments = _confirmation_arguments(zero, created)
+    arguments.pop("expected_automation_version")
+    zero._clm.confirm_existing_customer(**arguments)  # noqa: SLF001 (the interrupted write)
+    before = zero._repository.get_for_case(created.case_id)  # noqa: SLF001
+    calls = len(transport.calls)
+    assert zero._repository.list_records()  # noqa: SLF001 (the sweep has a record to consider)
+    zero.release_advisory_holds()
+    after = zero._repository.get_for_case(created.case_id)  # noqa: SLF001
+    assert after.version == before.version
+    assert zero.advisory_continuation_pending(after)
+    assert len(transport.calls) == calls

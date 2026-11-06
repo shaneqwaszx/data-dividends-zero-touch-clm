@@ -740,6 +740,7 @@ def create_app(
         intelligence_evaluator=intelligence_projection.evaluate,
         workflow_send_hold=None if workflows is None else workflows.send_hold_code,
     )
+    application.router.add_event_handler("startup", zero_touch.release_advisory_holds)
     if e2e_portfolio_seed_count:
         if active_settings.app_env != "test" or not 1 <= e2e_portfolio_seed_count <= 250:
             raise ValueError("E2E portfolio seeds require test mode and a count from 1 to 250")
