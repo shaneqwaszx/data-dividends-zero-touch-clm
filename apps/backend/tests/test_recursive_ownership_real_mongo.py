@@ -407,6 +407,7 @@ def test_poc_acceptance_survives_restart_but_grants_readiness_only_while_enabled
     hybrid = {
         "acra_connector_mode": "api_marketplace_mock",
         "acra_marketplace_ownership_overlay": "hybrid_direct_overlay",
+        "acra_marketplace_ubo_review_mode": "blocking",
         "goldtier_connector_mode": "mock",
         "idp_connector_mode": "local_pdf_text",
         "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),

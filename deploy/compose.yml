@@ -1,0 +1,56 @@
+name: clm-staging
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?backend image required}
+    platform: linux/amd64
+    container_name: clm-staging-backend
+    env_file:
+      - path: ${BACKEND_ENV_FILE:?absolute runtime configuration path required}
+        format: raw
+    environment:
+      APP_ENV: staging
+      CLM_PERSISTENCE_MODE: mongo
+      MONGO_DATABASE: clm_staging
+      PHASE13_COOKIE_SECURE: "true"
+      ACRA_CONNECTOR_MODE: mock
+      GOLDTIER_CONNECTOR_MODE: mock
+      GOLDTIER_SANDBOX_ALLOW_WRITES: "false"
+      IDP_CONNECTOR_MODE: local_pdf_text
+      DEMO_CONTROLS_ENABLED: "false"
+      LOCAL_OCR_EXECUTABLE: /usr/bin/tesseract
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 55s
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+  frontend:
+    image: ${FRONTEND_IMAGE:?frontend image required}
+    platform: linux/amd64
+    environment:
+      CLM_SITE: ${CLM_SITE:?site hostname required}
+    ports:
+      - "${HTTP_BIND:-80}:80"
+      - "${HTTPS_BIND:-443}:443"
+    volumes:
+      - tls-data:/data
+      - tls-config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--header=Host: health.localhost", "http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+volumes:
+  tls-data:
+  tls-config:

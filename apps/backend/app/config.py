@@ -1,14 +1,17 @@
 """Application configuration loaded from environment variables."""
 
 import os
+import warnings
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
+from pymongo.errors import PyMongoError
+from pymongo.uri_parser import parse_uri, split_options
 
 from app.domain.ownership import OwnershipPercent
 
@@ -17,11 +20,71 @@ ENV_FILE = REPOSITORY_ROOT / ".env"
 PHASE13_LOCAL_BROWSER_ORIGINS = frozenset({"http://127.0.0.1:8000", "http://127.0.0.1:5173"})
 
 
+def _require_verified_mongo_tls(uri: str) -> None:
+    # PyMongo's public SRV parser resolves DNS. Parse just the endpoint and options
+    # with the non-SRV parser here so startup validation never touches the network.
+    scheme, _, endpoint = uri.partition("://")
+    try:
+        with warnings.catch_warnings(record=True) as parser_warnings:
+            warnings.simplefilter("always")
+            if scheme == "mongodb+srv":
+                address, _, query = endpoint.partition("?")
+                nodes = parse_uri(f"mongodb://{address}", default_port=None)["nodelist"]
+                if len(nodes) != 1 or nodes[0][1] is not None:
+                    raise ValueError
+                options = split_options(query) if query else {}
+                if options.get("directConnection"):
+                    raise ValueError
+                if options.get("srvMaxHosts", 0) > 0 and (
+                    "replicaSet" in options or options.get("loadBalanced") is True
+                ):
+                    raise ValueError
+            elif scheme == "mongodb":
+                options = parse_uri(uri)["options"]
+            else:
+                raise ValueError
+        if parser_warnings:
+            # In particular, duplicate options otherwise use the last supplied value.
+            raise ValueError
+    except (PyMongoError, ValueError):
+        raise ValueError("Invalid staging MongoDB connection configuration") from None
+
+    options = {key.casefold(): value for key, value in options.items()}
+    # The URI specification forbids the option even if its value is empty.
+    if options.get("loadbalanced") is True and "replicaset" in options:
+        raise ValueError("Invalid staging MongoDB connection configuration")
+    bypass_options = (
+        "tlsinsecure",
+        "tlsallowinvalidcertificates",
+        "tlsallowinvalidhostnames",
+        "tlsdisableocspendpointcheck",
+    )
+    if any(options.get(key) for key in bypass_options):
+        raise ValueError("staging requires verified MongoDB TLS")
+
+    # Match the pinned driver's implicit TLS settings for a standard seed list.
+    tls_enabled = options.get("tls")
+    if tls_enabled is None:
+        tls_enabled = (
+            scheme == "mongodb+srv"
+            or any(options.get(key) is False for key in bypass_options[1:])
+            or any(
+                options.get(key)
+                for key in (
+                    "tlscafile", "tlscrlfile", "tlscertificatekeyfile",
+                    "tlscertificatekeyfilepassword",
+                )
+            )
+        )
+    if tls_enabled is not True:
+        raise ValueError("staging requires verified MongoDB TLS")
+
+
 class Settings(BaseSettings):
     """Application settings, including backend-only ACRA connector selection."""
 
     app_name: str = "Zero-Touch CLM API"
-    app_env: Literal["development", "test", "production"] = "development"
+    app_env: Literal["development", "test", "staging", "production"] = "development"
     acra_connector_mode: Literal["mock", "api_marketplace_mock", "sandbox"] = "mock"
     goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"
     idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"
@@ -251,6 +314,21 @@ class Settings(BaseSettings):
             raise ValueError("ACRA API Marketplace Mock is non-production only")
         return self
 
+    @model_validator(mode="after")
+    def validate_staging_profile(self) -> "Settings":
+        if self.app_env != "staging":
+            return self
+        if self.clm_persistence_mode != "mongo" or not self.mongo_uri:
+            raise ValueError("staging requires Mongo persistence and MONGO_URI")
+        if self.mongo_database != "clm_staging":
+            raise ValueError("staging requires the approved clm_staging database")
+        if self.demo_controls_enabled:
+            raise ValueError("shared staging requires disabled demo controls")
+        if self.acra_connector_mode not in {"mock", "api_marketplace_mock"}:
+            raise ValueError("staging requires a Mock ACRA connector")
+        _require_verified_mongo_tls(self.mongo_uri.get_secret_value())
+        return self
+
     @property
     def phase13_trusted_browser_origins(self) -> frozenset[str]:
         """Return configured browser origins without consulting request metadata."""
@@ -263,7 +341,9 @@ class Settings(BaseSettings):
             )
             return PHASE13_LOCAL_BROWSER_ORIGINS | configured
         if self.phase13_browser_origin is None:
-            raise ValueError("PHASE13_BROWSER_ORIGIN is required in the production environment")
+            raise ValueError(
+                f"PHASE13_BROWSER_ORIGIN is required in the {self.app_env} environment"
+            )
         return frozenset({self.phase13_browser_origin})
 
 
@@ -271,4 +351,11 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return one validated settings instance per process."""
 
-    return Settings(_env_file=None) if os.environ.get("APP_ENV") == "test" else Settings()
+    environment = os.environ.get("APP_ENV")
+    if environment == "staging":
+        try:
+            return Settings(_env_file=None)
+        except (ValidationError, SettingsError):
+            # Driver and model errors can include unparsed environment values.
+            raise ValueError("Invalid staging configuration. Check runtime settings.") from None
+    return Settings(_env_file=None) if environment == "test" else Settings()

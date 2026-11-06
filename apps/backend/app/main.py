@@ -623,10 +623,17 @@ def create_app(
     ):
         raise ValueError("Offline ACRA protocol fixtures require an injected test/memory connector")
     active_clock = clock or (lambda: datetime.now(UTC))
+    secure_browser = active_settings.app_env in {"staging", "production"}
     browser_origin_policy = BrowserOriginPolicy.from_origins(
         active_settings.phase13_trusted_browser_origins,
-        require_https=active_settings.app_env == "production",
+        require_https=secure_browser,
+        require_origin_evidence=active_settings.app_env == "staging",
     )
+    cookie_secure = active_settings.phase13_cookie_secure
+    if cookie_secure is None:
+        cookie_secure = secure_browser
+    if secure_browser and not cookie_secure:
+        raise AuthenticationConfigurationError("PHASE13_COOKIE_SECURE")
     persistence = build_persistence_bundle(active_settings)
     policy_management = PolicyManagementService(persistence.policies)
     administration = AdministrationService(persistence.teams, persistence.profiles)
@@ -749,13 +756,6 @@ def create_app(
                 f"2099{index:05d}A",
                 team_id=TeamId.TEAM_A,
             )
-    cookie_secure = (
-        active_settings.app_env == "production"
-        if active_settings.phase13_cookie_secure is None
-        else active_settings.phase13_cookie_secure
-    )
-    if active_settings.app_env == "production" and not cookie_secure:
-        raise AuthenticationConfigurationError("PHASE13_COOKIE_SECURE")
     authentication = authentication_service or build_authentication_service(
         active_settings, persistence.profiles, persistence.teams
     )
