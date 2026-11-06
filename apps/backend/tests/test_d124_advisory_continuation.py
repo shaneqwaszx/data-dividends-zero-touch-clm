@@ -31,8 +31,9 @@ from test_zero_touch_entity_types import (
 
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.domain.documents import DocumentProcessingState
+from app.domain.onboarding_intelligence import EntityResolutionOutcome, MockRiskBand
 from app.domain.ownership import OwnershipAnalysisState
-from app.domain.zero_touch import AutomationEventType, AutomationStage
+from app.domain.zero_touch import AutomationEventType, AutomationStage, AutomationStatus
 from app.main import create_app
 from app.persistence.composition import build_persistence_bundle
 from app.services.clm_orchestration import ClmOrchestrationService
@@ -821,6 +822,144 @@ def test_a_failed_search_at_startup_is_logged_and_writes_nothing(
         assert read(client, case_id)["status"] == "TECHNICAL_FAILURE"
         assert f"ended in failure for case {case_id}" in caplog.text
         assert writes(target) == []
+
+
+class ProcessDied(BaseException):
+    """Stops the release as a dead process would: nothing catches it."""
+
+
+@contextmanager
+def dying_after(code: str) -> Iterator[None]:
+    real = ZeroTouchOrchestrator._save  # noqa: SLF001
+
+    def save(self: Any, previous: Any, candidate: Any) -> Any:
+        saved = real(self, previous, candidate)
+        if saved.events[-1].code == code:
+            raise ProcessDied
+        return saved
+
+    with patch.object(ZeroTouchOrchestrator, "_save", save), pytest.raises(ProcessDied):
+        yield
+
+
+@pytest.mark.parametrize("code", [
+    "OBSOLETE_OWNERSHIP_EVIDENCE_RETIRED", "RECONCILIATION_MATCHED", "OWNERSHIP_REVIEW_ADVISORY",
+])
+def test_the_next_startup_finishes_an_interrupted_continuation_without_a_write(code: str) -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        with dying_after(code):
+            restart(client)
+        assert read(client, case_id)["status"] in {"RESUMING", "RUNNING"}
+        restart(client)
+        summary = read(client, case_id)
+        assert exceptions(summary) == TARGET_CONFIRMATION
+        assert writes(target) == []
+        before = state(bundle, case_id)
+        restart(client)
+        assert state(bundle, case_id) == before
+        assert confirm(client, summary)["status"] == "COMPLETED"
+        assert writes(target) == ["POST", "POST"]
+
+
+def test_the_next_startup_completes_an_interrupted_intake_reopen() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        document_id = failed_upload(client, bundle, case_id)
+        with dying_after("DOCUMENT_INTAKE_REOPENED"):
+            restart(client)
+        assert read(client, case_id)["status"] == "RESUMING"
+        restart(client)
+        assert read(client, case_id)["status"] == "PENDING_INPUTS"
+        response = client.post(
+            url(case_id, f"/intake/documents/{document_id}/retry"),
+            content="\n".join(GAMMA.partnership_agreement_lines).encode(),
+            headers={"Content-Type": "text/plain", "X-Document-Name": "extra.txt"},
+        )
+        assert response.status_code == 201, response.text
+        assert exceptions(read(client, case_id)) == TARGET_CONFIRMATION
+        assert writes(target) == []
+
+
+def test_resume_keeps_its_creator_check_for_an_interrupted_intake_reopen() -> None:
+    with lane() as (client, target, bundle):
+        case_id = held(client)
+        failed_upload(client, bundle, case_id)
+        with dying_after("DOCUMENT_INTAKE_REOPENED"):
+            restart(client)
+        summary = read(client, case_id)
+        teammate, csrf = signed_in(client, "ethan-tan")
+        refused = resume(teammate, summary, **{"X-CSRF-Token": csrf})
+        assert refused.status_code == 403
+        assert read(client, case_id)["status"] == "RESUMING"
+        response = resume(client, summary)
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "PENDING_INPUTS"
+        assert writes(target) == []
+
+
+def test_startup_leaves_a_running_case_that_no_continuation_touched() -> None:
+    with lane() as (client, target, bundle):
+        case_id = gamma_at_ownership(client)["case"]["case_id"]
+        identity = UUID(case_id)
+        for store in vars(bundle.automation).values():
+            if isinstance(store, dict):
+                for key, value in list(store.items()):
+                    if getattr(value, "case_id", None) == identity:
+                        store[key] = value.model_copy(update={
+                            "status": AutomationStatus.RUNNING, "exceptions": (),
+                        })
+        assert read(client, case_id)["status"] == "RUNNING"
+        before, calls = state(bundle, case_id), len(target.calls)
+        restart(client)
+        assert state(bundle, case_id) == before and len(target.calls) == calls
+
+
+def orchestrator(client: TestClient) -> ZeroTouchOrchestrator:
+    return next(
+        handler.__self__ for handler in client.app.router.on_startup
+        if isinstance(getattr(handler, "__self__", None), ZeroTouchOrchestrator)
+    )
+
+
+@pytest.mark.parametrize(("intelligence", "blocker"), [
+    (
+        SimpleNamespace(
+            entity_resolution=SimpleNamespace(outcome=EntityResolutionOutcome.REVIEW_REQUIRED),
+            mock_risk=None, version=1, input_fingerprint="synthetic",
+        ),
+        "ENTITY_RESOLUTION_REVIEW_REQUIRED",
+    ),
+    (
+        SimpleNamespace(
+            entity_resolution=None, version=1, input_fingerprint="synthetic",
+            mock_risk=SimpleNamespace(blocks_readiness=True, band=MockRiskBand.HIGH),
+        ),
+        "MOCK_RISK_REVIEW_REQUIRED",
+    ),
+])
+def test_a_stop_after_ownership_completes_does_not_lose_its_review(
+    intelligence: Any, blocker: str,
+) -> None:
+    with lane() as (client, target, _):
+        case_id = held(client)
+        with dying_after("OWNERSHIP_REVIEW_ADVISORY"):
+            restart(client)
+        assert read(client, case_id)["status"] == "RUNNING"
+        orchestrator(client)._intelligence_evaluator = lambda _: intelligence  # noqa: SLF001
+        restart(client)
+        summary = read(client, case_id)
+        assert exceptions(summary) == [blocker]
+        assert confirm_status(client, summary) == 409
+        assert writes(target) == []
+
+
+def confirm_status(client: TestClient, summary: dict) -> int:
+    return client.post(url(summary["case"]["case_id"], "/target-confirmation"), json={
+        "expected_automation_version": summary["version"],
+        "expected_clm_version": summary["clm"]["version"],
+        "expected_case_event_count": len(summary["case"]["events"]),
+    }).status_code
 
 
 def test_an_interrupted_identity_decision_stays_on_resume_at_startup() -> None:

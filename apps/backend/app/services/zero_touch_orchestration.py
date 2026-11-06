@@ -126,6 +126,7 @@ from app.services.zero_touch_repository import (
 )
 
 ADVISORY_CONTINUATION_REQUESTED = "ADVISORY_CONTINUATION_REQUESTED"
+DOCUMENT_INTAKE_REOPENED = "DOCUMENT_INTAKE_REOPENED"
 _LOGGER = logging.getLogger(__name__)
 _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES = frozenset({
     BusinessExceptionType.OWNERSHIP_CYCLE,
@@ -855,6 +856,10 @@ class ZeroTouchOrchestrator:
             if reauthorize is not None:
                 reauthorize()
             record = self._require_record(case_id)
+            if self._intake_reopen_interrupted(record):
+                if reauthorize_document_recovery is not None:
+                    reauthorize_document_recovery()
+                return self._return_to_document_intake(record)
             pending_refresh = self.document_refresh_pending(record)
             # D-124: only /resume or the startup release continues past an advisory hold or
             # applies a retained identity decision, with version context, in this lock.
@@ -1498,12 +1503,29 @@ class ZeroTouchOrchestrator:
     def _release_advisory_hold(self, case_id: UUID) -> None:
         with self._cases.case_lock(case_id):
             record = self._repository.get_for_case(case_id)
-            if record is None or not self._held_by_advisory_review(record):
+            if record is None:
+                return
+            if self._intake_reopen_interrupted(record):
+                self._return_to_document_intake(record)
+                return
+            if self._advisory_continuation_interrupted(record):
+                # Ownership saves its completion before it raises these two reviews, and that
+                # stage never runs again, so a stop in between must not lose them.
+                restored = (
+                    self._raise_intelligence_blocker(record, self._intelligence_evaluator(case_id))
+                    if self._intelligence_evaluator is not None
+                    and record.status == AutomationStatus.RUNNING
+                    and record.events[-1].event_type == AutomationEventType.OWNERSHIP_AUTOMATED
+                    else None
+                )
+                self._warn_if_failed(restored or self.start(case_id=case_id))
+                return
+            if not self._held_by_advisory_review(record):
                 return
             case = self._cases.get_case(case_id)
             clm = self._clm.get(case_id=case_id)
             assert case is not None and clm is not None
-            released = self.start(
+            self._warn_if_failed(self.start(
                 case_id=case_id,
                 refresh_document_checkpoint=True,
                 expected_automation_id=record.automation_id,
@@ -1511,9 +1533,44 @@ class ZeroTouchOrchestrator:
                 expected_clm_version=clm.version,
                 expected_case_event_count=len(case.events),
                 automatic_release=True,
+            ))
+
+    @staticmethod
+    def _warn_if_failed(record: ZeroTouchAutomationRecord) -> None:
+        if record.status == AutomationStatus.TECHNICAL_FAILURE:
+            _LOGGER.warning("Advisory hold release ended in failure for case %s", record.case_id)
+
+    @staticmethod
+    def _intake_reopen_interrupted(record: ZeroTouchAutomationRecord) -> bool:
+        """D-124 S9: the process stopped between the two saves of an intake reopen."""
+
+        return (
+            record.status == AutomationStatus.RESUMING
+            and record.events[-1].code == DOCUMENT_INTAKE_REOPENED
+        )
+
+    def _advisory_continuation_interrupted(self, record: ZeroTouchAutomationRecord) -> bool:
+        """D-124 S9: a case that has had a continuation stopped mid-pipeline.
+
+        That may be the continuation or a later pipeline on the same case. Only evidence stages
+        remain: a target write needs a confirmation, which freezes the case.
+        """
+
+        requested = [
+            place for place, event in enumerate(record.events)
+            if event.code == ADVISORY_CONTINUATION_REQUESTED
+        ]
+        return (
+            bool(requested)
+            and record.status in {AutomationStatus.RUNNING, AutomationStatus.RESUMING}
+            and record.current_stage != AutomationStage.MOCK_GOLDTIER
+            and not self.document_refresh_pending(record)
+            and not self.evidence_edit_is_frozen(case_id=record.case_id)
+            and not any(
+                event.code == "DOCUMENT_REPLACEMENT_ACCEPTED"
+                for event in record.events[requested[-1] + 1:]
             )
-            if released.status == AutomationStatus.TECHNICAL_FAILURE:
-                _LOGGER.warning("Advisory hold release ended in failure for case %s", case_id)
+        )
 
     def _reopen_document_intake_locked(
         self, record: ZeroTouchAutomationRecord,
@@ -1540,7 +1597,7 @@ class ZeroTouchOrchestrator:
             candidate,
             event_type=AutomationEventType.AUTOMATION_RESUMING,
             outcome=EventOutcome.SUCCEEDED,
-            code="DOCUMENT_INTAKE_REOPENED",
+            code=DOCUMENT_INTAKE_REOPENED,
             message="A failed document must be uploaded again before onboarding continues.",
         )
         return self._return_to_document_intake(self._save(record, candidate))
@@ -3624,23 +3681,9 @@ class ZeroTouchOrchestrator:
                         ),
                         started_at=started_at,
                     )
-                    if (
-                        intelligence is not None
-                        and intelligence.entity_resolution is not None
-                        and intelligence.entity_resolution.outcome
-                        in {
-                            EntityResolutionOutcome.REVIEW_REQUIRED,
-                            EntityResolutionOutcome.CONFLICT,
-                        }
-                    ):
-                        return self._raise_entity_resolution_exception(record, intelligence)
-                    if (
-                        intelligence is not None
-                        and intelligence.mock_risk is not None
-                        and intelligence.mock_risk.blocks_readiness
-                        and intelligence.mock_risk.band == MockRiskBand.HIGH
-                    ):
-                        return self._raise_mock_risk_exception(record, intelligence)
+                    blocked = self._raise_intelligence_blocker(record, intelligence)
+                    if blocked is not None:
+                        return blocked
                     continue
                 return self._technical_failure(
                     record,
@@ -4244,6 +4287,30 @@ class ZeroTouchOrchestrator:
             evidence=(),
             actions=(),
         )
+
+    def _raise_intelligence_blocker(
+        self,
+        record: ZeroTouchAutomationRecord,
+        intelligence: OnboardingIntelligenceRecord | None,
+    ) -> ZeroTouchAutomationRecord | None:
+        if (
+            intelligence is not None
+            and intelligence.entity_resolution is not None
+            and intelligence.entity_resolution.outcome
+            in {
+                EntityResolutionOutcome.REVIEW_REQUIRED,
+                EntityResolutionOutcome.CONFLICT,
+            }
+        ):
+            return self._raise_entity_resolution_exception(record, intelligence)
+        if (
+            intelligence is not None
+            and intelligence.mock_risk is not None
+            and intelligence.mock_risk.blocks_readiness
+            and intelligence.mock_risk.band == MockRiskBand.HIGH
+        ):
+            return self._raise_mock_risk_exception(record, intelligence)
+        return None
 
     def _raise_mock_risk_exception(
         self,
