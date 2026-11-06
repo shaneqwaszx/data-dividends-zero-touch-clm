@@ -694,7 +694,19 @@ def test_retained_confirmation_recovers_interrupted_projection_without_replay(mo
         with pytest.raises(ZeroTouchRequestError):
             zero.confirm_existing_customer(**arguments)
     assert zero._repository.save == original
-    recovered = zero.get(case_id=created.case_id)
+    # D-124: a read changes nothing; the explicit resume applies the retained decision.
+    held = zero.get(case_id=created.case_id)
+    assert held.status == "WAITING_FOR_REVIEW"
+    assert zero.get(case_id=created.case_id).version == held.version
+    clm = zero._clm.get(case_id=created.case_id)
+    recovered = zero.start(
+        case_id=created.case_id,
+        refresh_document_checkpoint=True,
+        expected_automation_id=held.automation_id,
+        expected_automation_version=held.version,
+        expected_clm_version=clm.version,
+        expected_case_event_count=len(zero._cases.get_case(created.case_id).events),
+    )
     assert recovered.status == "PENDING_INPUTS"
     assert recovered.metrics.human_interventions == 1
     assert zero.get(case_id=created.case_id).version == recovered.version

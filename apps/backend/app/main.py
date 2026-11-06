@@ -740,6 +740,7 @@ def create_app(
         intelligence_evaluator=intelligence_projection.evaluate,
         workflow_send_hold=None if workflows is None else workflows.send_hold_code,
     )
+    application.router.add_event_handler("startup", zero_touch.release_advisory_holds)
     if e2e_portfolio_seed_count:
         if active_settings.app_env != "test" or not 1 <= e2e_portfolio_seed_count <= 250:
             raise ValueError("E2E portfolio seeds require test mode and a count from 1 to 250")
@@ -1378,6 +1379,10 @@ def create_app(
                 and not zero_touch.evidence_edit_is_frozen(case_id=case.case_id)
                 if zero_touch.document_refresh_pending(automation) else None
             ),
+            advisory_continuation_authorized=(
+                access_policy.can_decide_evidence(actor, case)
+                if zero_touch.advisory_continuation_pending(automation) else None
+            ),
             ownership_edit_authorized=(
                 access_policy.can_decide_evidence(actor, case)
                 and not zero_touch.evidence_edit_is_frozen(case_id=case.case_id)
@@ -1627,6 +1632,7 @@ def create_app(
         request: Request,
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ClmCaseSummaryResponse:
         try:
             return clm_response(
@@ -1635,8 +1641,12 @@ def create_app(
                     actor_id=actor.profile.user_id,
                     expected_clm_version=confirmation.expected_clm_version,
                     expected_case_event_count=confirmation.expected_case_event_count,
-                    reauthorize=build_case_reauthorizer(
-                        request, authentication, access_policy, service, case_id
+                    reauthorize=_refusing_pending_continuation(
+                        build_case_reauthorizer(
+                            request, authentication, access_policy, service, case_id
+                        ),
+                        active_zero_touch,
+                        case_id,
                     ),
                 )
             )
@@ -1652,13 +1662,18 @@ def create_app(
         case_id: UUID,
         request: Request,
         active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ClmCaseSummaryResponse:
         try:
             return clm_response(
                 active_clm.submit(
                     case_id=case_id,
-                    reauthorize=build_case_reauthorizer(
-                        request, authentication, access_policy, service, case_id
+                    reauthorize=_refusing_pending_continuation(
+                        build_case_reauthorizer(
+                            request, authentication, access_policy, service, case_id
+                        ),
+                        active_zero_touch,
+                        case_id,
                     ),
                 )
             )
@@ -3658,6 +3673,28 @@ def _ownership_http_error(exc: OwnershipRequestError) -> HTTPException:
         status_code=status_code,
         detail=detail.model_dump(mode="json", exclude_none=True),
     )
+
+
+def _refusing_pending_continuation(
+    reauthorize: Callable[[], None],
+    zero_touch: ZeroTouchOrchestrator,
+    case_id: UUID,
+) -> Callable[[], None]:
+    """D-124: the direct CLM target routes never pass a hold that needs an explicit resume.
+
+    It runs inside the CLM lock, with the reauthorization.
+    """
+
+    def check() -> None:
+        reauthorize()
+        record = zero_touch.automation_repository.get_for_case(case_id)
+        if record is not None and zero_touch.advisory_continuation_pending(record):
+            raise ClmRequestError(
+                code="CLM_NOT_READY",
+                message="Continue onboarding first; no GoldTier target mutation was attempted.",
+            )
+
+    return check
 
 
 def _clm_http_error(exc: ClmRequestError) -> HTTPException:

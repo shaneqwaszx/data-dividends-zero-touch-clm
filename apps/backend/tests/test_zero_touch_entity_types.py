@@ -28,6 +28,10 @@ GAMMA = COMPANIES[2]
 GAMMA_ROOT = f"ENTITY_{GAMMA.uen}"
 
 
+# D-121: these tests pin the blocking review, the rollback mode.
+pytestmark = pytest.mark.usefixtures("blocking_ubo_review")
+
+
 @contextmanager
 def lane(company) -> Iterator[tuple[TestClient, NoAcra, RecordingTarget, object]]:
     settings = sandbox_settings()
