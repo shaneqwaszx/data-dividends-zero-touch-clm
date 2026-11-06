@@ -94,6 +94,7 @@ import GoldTierRequestPreview from "./GoldTierRequestPreview";
 import RegistryProvenancePanel from "./RegistryProvenancePanel";
 import TargetClassificationPanel, { TargetClassificationDetails } from "./TargetClassificationPanel";
 import HumanInterventionPanel from "./HumanInterventionPanel";
+import AdvisoryContinuation from "./AdvisoryContinuation";
 import ReviewAndSend from "./ReviewAndSend";
 import TargetRecoveryPanel, { TargetRecoveryDetails } from "./TargetRecoveryPanel";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
@@ -1434,6 +1435,11 @@ export default function CaseDetail({
         <button type="button" className="btn btn-ghost" onClick={onBack} style={{ paddingLeft: 0 }}>← Back to Cases</button>
         {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
         <CasePipelineAttention summary={summary} onNavigate={focusAttention} onStageActivate={focusProcessingNode} workflowRun={workflowQuery.data?.onboarding} />
+        <AdvisoryContinuation
+          summary={summary}
+          disabled={isBusy || mutationBlocked}
+          onContinue={() => void runMutation(() => resumeZeroTouchCase(caseId, summary), "Continuing onboarding")}
+        />
         {(targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" || summary.current_stage !== "MOCK_GOLDTIER" || summary.technical_failure?.code !== "CLM_TARGET_OUTCOME_UNCERTAIN") && !preflightUnavailable && summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
         <hr className="hr" />
         <div className="text-muted" style={{ fontSize: 11.5 }}>

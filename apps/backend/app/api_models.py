@@ -1690,6 +1690,14 @@ class BrowserTargetSubmissionEvidence(BaseModel):
     lifecycle_resolved_operations: tuple[str, ...] = ()
 
 
+class BrowserAdvisoryContinuation(BaseModel):
+    """D-124: an explicit resume can continue a case with its ownership review open."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    can_resume: bool
+
+
 class BrowserDocumentRefreshRecovery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1725,6 +1733,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     evidence_decision_authorized: bool = False
     document_replacement_authorized: bool = False
     document_refresh_recovery: BrowserDocumentRefreshRecovery | None = None
+    advisory_continuation: BrowserAdvisoryContinuation | None = None
     ownership_edit_authorized: bool = False
     entity_type_basis: BrowserEntityTypeBasis | None = None
     timeline: list[AutomationEvent]
@@ -1749,6 +1758,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         evidence_decision_authorized: bool = False,
         document_replacement_authorized: bool = False,
         document_refresh_recovery_authorized: bool | None = None,
+        advisory_continuation_authorized: bool | None = None,
         ownership_edit_authorized: bool = False,
         entity_type_basis: BrowserEntityTypeBasis | None = None,
     ) -> "ZeroTouchCaseSummaryResponse":
@@ -1765,6 +1775,10 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             document_refresh_recovery=(
                 BrowserDocumentRefreshRecovery(can_resume=document_refresh_recovery_authorized)
                 if document_refresh_recovery_authorized is not None else None
+            ),
+            advisory_continuation=(
+                BrowserAdvisoryContinuation(can_resume=advisory_continuation_authorized)
+                if advisory_continuation_authorized is not None else None
             ),
             ownership_edit_authorized=ownership_edit_authorized,
             entity_type_basis=entity_type_basis,

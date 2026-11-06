@@ -1591,6 +1591,7 @@ export interface ZeroTouchCaseSummary {
   evidence_decision_authorized?: boolean;
   document_replacement_authorized?: boolean;
   document_refresh_recovery?: { can_resume: boolean } | null;
+  advisory_continuation?: { can_resume: boolean } | null;
   ownership_edit_authorized?: boolean;
   entity_type_basis?: EntityTypeBasis | null;
   case: OnboardingCase;

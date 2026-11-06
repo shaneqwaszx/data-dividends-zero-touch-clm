@@ -390,6 +390,13 @@ export default function ReviewAndSend({
         <div><span>Classification</span><strong>{clm.submission_plan.environment === "SANDBOX" ? "Sandbox Partial" : "Mock"}</strong></div>
       </div>
 
+      {ownership?.state === "REVIEW_REQUIRED" && !ownership.poc_basis_accepted && (
+        <section className="ds-banner ds-banner-warn" aria-label="Ownership review status" data-testid="ownership-review-open">
+          {eligibleForConfirmation && <p><strong>Case:</strong> operationally ready for your confirmation.</p>}
+          <p><strong>Ownership review:</strong> still unresolved. Sending does not resolve it.</p>
+          <p><strong>Ownership conclusions:</strong> provisional, not verified.</p>
+        </section>
+      )}
       <UboSummary record={ownership} />
       <div className="review-and-send__grid">
         <section>

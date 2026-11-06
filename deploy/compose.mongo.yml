@@ -1,0 +1,71 @@
+# Apply after deploy/compose.yml for the same-host demo only.
+services:
+  backend:
+    environment:
+      MONGO_URI: ${MONGO_URI:?inject the authenticated TLS connection setting}
+    networks: [database]
+    volumes:
+      - type: bind
+        source: ${MONGO_CA_FILE:?absolute Mongo CA path required}
+        target: /run/clm/mongo-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    networks: [default, database]
+
+  mongo:
+    image: mongo@sha256:b6421fd6d1c5ded6377b397d8983e2f82e2100dc5123332dcfda2065a472be5b
+    platform: linux/amd64
+    command:
+      - mongod
+      - --auth
+      - --bind_ip_all
+      - --tlsMode
+      - requireTLS
+      - --tlsCertificateKeyFile
+      - /run/clm/mongo-server.pem
+      - --tlsCAFile
+      - /run/clm/mongo-ca.pem
+      - --tlsAllowConnectionsWithoutCertificates
+    networks: [database]
+    volumes:
+      - type: volume
+        source: mongo-data
+        target: /data/db
+        volume:
+          nocopy: true
+      - type: bind
+        source: ${MONGO_SERVER_PEM:?absolute Mongo server certificate and key path required}
+        target: /run/clm/mongo-server.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MONGO_CA_FILE:?absolute Mongo CA path required}
+        target: /run/clm/mongo-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 60s
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --host, localhost, --tls, --tlsCAFile,
+             /run/clm/mongo-ca.pem, --eval, 'if (db.adminCommand({ping: 1}).ok !== 1) quit(1)']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+networks:
+  database:
+    internal: true
+
+volumes:
+  mongo-data:
+    external: true
+    name: ${MONGO_DATA_VOLUME:?explicit precreated Mongo data volume required}

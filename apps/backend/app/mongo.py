@@ -19,10 +19,15 @@ def create_mongo_client(settings: Settings | None = None) -> MongoClient[dict[st
     if active_settings.mongo_uri is None:
         raise ValueError("MONGO_URI is not configured")
 
-    return MongoClient(
-        active_settings.mongo_uri.get_secret_value(),
-        serverSelectionTimeoutMS=MONGO_SERVER_SELECTION_TIMEOUT_MS,
-    )
+    try:
+        return MongoClient(
+            active_settings.mongo_uri.get_secret_value(),
+            serverSelectionTimeoutMS=MONGO_SERVER_SELECTION_TIMEOUT_MS,
+        )
+    except (PyMongoError, OSError, ValueError):
+        if active_settings.app_env == "staging":
+            raise ValueError("Invalid staging MongoDB connection configuration") from None
+        raise
 
 
 def ping_mongodb(settings: Settings | None = None) -> None:
