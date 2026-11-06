@@ -32,18 +32,12 @@ retain their original attribution; the current assignment baseline is PR #80 abo
 
 ## 1. Purpose and scope
 
-The [reliability/recovery UX](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md), originally
-assigned 2026-10-07 and merged through PR #77 on 2026-10-08, extends existing
-CLM/onboarding/zero-touch and frontend query/view owners. Search-only
-retained intents revalidate current evidence before first dispatch; lost confirmation
-responses use bounded GET observation; the submission package exposes Director Shell
-and Requested Policy recovery with expected submission UUID and backend-owned identity.
-Recovery retains the original confirmation/intent and never replays resolved writes.
-No new owner, dependency, schema, provider, mapping or capability grant is introduced.
-Unsupported uncertainty remains blocked/escalated; customer Search never proves Policy
-success. Independent acceptance retains its exact content identity in the
-[task gate](../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_QUALITY_GATE.md)
-and [final Round 2 gate](../.ai-pipeline/reports/PR77_E2E_ISOLATION_ROUND2_QUALITY_GATE.md).
+PR #77 recovery stays within the existing CLM, onboarding, zero-touch and frontend
+owners, with no new dependency, schema, provider, mapping or capability grant. Before
+first dispatch, revalidate current evidence and retained confirmation.
+Never replay resolved writes. Keep unresolved outcomes blocked; customer Search
+does not establish Policy success. See the [recovery guide](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md)
+for the browser and operator procedures, retained identity rules and exact acceptance evidence.
 
 The system is a proof of concept for Singapore corporate new-to-bank onboarding:
 registry acquisition, document evidence, ownership/UBO analysis, reconciliation,
