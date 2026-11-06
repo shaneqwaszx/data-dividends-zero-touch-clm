@@ -18,7 +18,7 @@ from starlette.routing import BaseRoute
 
 import app.services.authentication as authentication_module
 from app.composition import build_authentication_service
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.domain.access import (
     SYNTHETIC_USER_PROFILES,
     TEAM_BY_ID,
@@ -26,6 +26,12 @@ from app.domain.access import (
     TeamId,
 )
 from app.main import create_app
+from app.mongo import create_mongo_client
+from app.persistence.composition import (
+    PersistenceBundle,
+    build_persistence_bundle,
+    build_workflow_persistence,
+)
 from app.services.admin_repository import (
     InMemoryProfileRepository,
     InMemoryTeamRepository,
@@ -1329,3 +1335,307 @@ def test_authentication_values_are_not_logged(
     assert issued.token not in logged
     assert issued.record.csrf_token not in logged
     assert all(encoded not in logged for encoded in hashes.values())
+
+
+STAGING_ORIGIN = "https://clm-staging.example"
+
+
+def test_staging_environment_config_errors_do_not_render_raw_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("CLM_PERSISTENCE_MODE", "memory")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="^Invalid staging configuration") as failure:
+            get_settings()
+        assert failure.value.__suppress_context__
+    finally:
+        get_settings.cache_clear()
+
+
+def _staging_settings(**overrides: object) -> Settings:
+    values = {
+        "app_env": "staging",
+        "clm_persistence_mode": "mongo",
+        "mongo_uri": "mongodb://127.0.0.1:1/?tls=true",
+        "mongo_database": "clm_staging",
+        "phase13_browser_origin": STAGING_ORIGIN,
+    }
+    return Settings(_env_file=None, **(values | overrides))  # type: ignore[arg-type]
+
+
+@pytest.fixture
+def offline_staging_workflow_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.main.build_workflow_persistence",
+        lambda _: build_workflow_persistence(ordinary_test_settings()),
+    )
+
+
+@pytest.mark.usefixtures("offline_staging_workflow_persistence")
+@pytest.mark.parametrize(
+    ("acra_mode", "target_mode"),
+    [
+        ("mock", "mock"),
+        ("api_marketplace_mock", "mock"),
+        ("mock", "sandbox"),
+        ("api_marketplace_mock", "sandbox"),
+    ],
+)
+def test_staging_starts_with_approved_provider_modes_offline(
+    acra_mode: str, target_mode: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _staging_settings(
+        acra_connector_mode=acra_mode,
+        acra_api_marketplace_mock_client_id="fixture-client",
+        acra_api_marketplace_mock_secret_key="fixture-key",
+        goldtier_connector_mode=target_mode,
+        goldtier_sandbox_base_url="https://goldtier.invalid",
+        goldtier_sandbox_environment="fixture",
+        goldtier_sandbox_user_id="fixture-user",
+    )
+    bundle = build_persistence_bundle(ordinary_test_settings())
+
+    def offline_persistence(config: Settings) -> PersistenceBundle:
+        assert config is settings
+        assert config.clm_persistence_mode == "mongo"
+        return bundle
+
+    monkeypatch.setattr("app.main.build_persistence_bundle", offline_persistence)
+    with RawTestClient(create_app(settings), base_url=STAGING_ORIGIN) as client:
+        assert client.get("/health").json()["environment"] == "staging"
+    assert settings.demo_controls_enabled is False
+    assert settings.goldtier_sandbox_allow_writes is False
+
+
+@pytest.mark.usefixtures("offline_staging_workflow_persistence")
+def test_staging_cookies_origin_and_csrf(
+    runtime_credentials: tuple[str, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    password, hashes = runtime_credentials
+    bundle = build_persistence_bundle(ordinary_test_settings())
+    monkeypatch.setattr("app.main.build_persistence_bundle", lambda _: bundle)
+    application = create_app(
+        _staging_settings(), authentication_service=build_test_authentication_service(hashes)
+    )
+    with RawTestClient(application, base_url=STAGING_ORIGIN) as client:
+        credentials = {"user_id": "maya-lim", "password": password}
+        login_url = "/api/auth/login"
+        for headers in ({}, {"Origin": "http://127.0.0.1:5173"}, {"Origin": "https://other.example"}):
+            _assert_csrf_rejection(client.post(login_url, headers=headers, json=credentials))
+
+        login = client.post(login_url, headers={"Origin": STAGING_ORIGIN}, json=credentials)
+        assert login.status_code == 200
+        cookie = login.headers["set-cookie"].lower()
+        assert "secure" in cookie and "httponly" in cookie and "samesite=strict" in cookie
+        token = login.json()["csrf_token"]
+        logout_url = "/api/auth/logout"
+        for headers in (
+            {"Origin": STAGING_ORIGIN},
+            {"Origin": "https://other.example", "X-CSRF-Token": token},
+            {"X-CSRF-Token": token},
+        ):
+            _assert_csrf_rejection(client.post(logout_url, headers=headers))
+        logout = client.post(
+            logout_url, headers={"Referer": f"{STAGING_ORIGIN}/", "X-CSRF-Token": token}
+        )
+        assert logout.status_code == 204
+
+
+@pytest.mark.parametrize("origin", [None, "http://clm-staging.example", f"{STAGING_ORIGIN}/path"])
+def test_staging_rejects_invalid_browser_origin_before_persistence(
+    origin: str | None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_persistence(_: Settings) -> None:
+        pytest.fail("invalid staging origin reached persistence")
+
+    monkeypatch.setattr("app.main.build_persistence_bundle", unexpected_persistence)
+    with pytest.raises(ValueError, match="PHASE13_BROWSER_ORIGIN|exact HTTP"):
+        create_app(_staging_settings(phase13_browser_origin=origin))
+
+
+def test_staging_rejects_insecure_cookies_before_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_persistence(_: Settings) -> None:
+        pytest.fail("insecure staging cookie settings reached persistence")
+
+    monkeypatch.setattr("app.main.build_persistence_bundle", unexpected_persistence)
+    with pytest.raises(AuthenticationConfigurationError, match="PHASE13_COOKIE_SECURE"):
+        create_app(_staging_settings(phase13_cookie_secure=False))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error"),
+    [
+        ({"clm_persistence_mode": "memory"}, "requires Mongo"),
+        ({"mongo_uri": None}, "requires Mongo"),
+        ({"acra_connector_mode": "sandbox"}, "requires a Mock ACRA connector"),
+        ({"goldtier_connector_mode": "sandbox"}, "sandbox configuration"),
+        (
+            {
+                "goldtier_connector_mode": "sandbox",
+                "goldtier_sandbox_base_url": "http://goldtier.invalid",
+                "goldtier_sandbox_environment": "fixture",
+                "goldtier_sandbox_user_id": "fixture-user",
+            },
+            "sandbox configuration",
+        ),
+    ],
+)
+def test_staging_fails_closed_for_unsafe_configuration(
+    overrides: dict[str, object], error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        _staging_settings(**overrides)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mongodb://127.0.0.1:1",
+        "mongodb://127.0.0.1:1/?tls=false",
+        "mongodb://127.0.0.1:1/?ssl=%66alse",
+        "mongodb://127.0.0.1:1/?tls=true&ssl=false",
+        "mongodb://127.0.0.1:1/?tls=false&TLS=true",
+        "mongodb://127.0.0.1:1/?tls=true;tlsInsecure=%74rue",
+        "mongodb://127.0.0.1:1/?tls=true&tlsAllowInvalidCertificates=true",
+        "mongodb://127.0.0.1:1/?tls=true&tlsAllowInvalidHostnames=true",
+        "mongodb://127.0.0.1:1/?tls=true&tlsDisableOCSPEndpointCheck=true",
+        "mongodb://127.0.0.1:1/?tls=true&tlsAllowInvalidCertificates=true"
+        "&TLSALLOWINVALIDCERTIFICATES=false",
+        "mongodb+srv://staging.invalid/?SSL=%66alse",
+        "mongodb+srv://staging.invalid/?%74ls=false",
+        "mongodb+srv://staging.invalid/?tlsAllowInvalidHostnames=%74rue",
+        "mongodb+srv://staging.invalid/?tlsAllowInvalidCertificates=%74rue",
+        "mongodb+srv://staging.invalid/?tlsInsecure=true",
+        "mongodb+srv://staging.invalid:1/?tls=true",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=1&replicaSet=fixture",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=1&replicaSet=",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=1&loadBalanced=true",
+        "mongodb+srv://staging.invalid/?sRvMaXhOsTs=%31&RePlIcAsEt=fixture",
+        "mongodb+srv://staging.invalid/?sRvMaXhOsTs=%31&LoAdBaLaNcEd=%74rue",
+        "mongodb+srv://staging.invalid/?%73rvMaxHosts=1&replicaSet=fixture",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=1&%72eplicaSet=fixture",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=1&%6coadBalanced=true",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=1&SRVMAXHOSTS=0&loadBalanced=true",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=invalid&replicaSet=fixture",
+        "mongodb://127.0.0.1:1/?tls=true&loadBalanced=true&replicaSet=fixture",
+        "mongodb://127.0.0.1:1/?tls=true&loadBalanced=true&replicaSet=",
+        "mongodb://127.0.0.1:1/?tls=true&loadBalanced=true&directConnection=true",
+        "mongodb://127.0.0.1:1/?tls=true&loadBalanced=true&srvMaxHosts=1",
+        "mongodb://127.0.0.1:1,127.0.0.1:2/?tls=true&loadBalanced=true",
+        "mongodb+srv://staging.invalid/?loadBalanced=true&replicaSet=fixture",
+        "mongodb+srv://staging.invalid/?loadBalanced=true&replicaSet=",
+        "mongodb+srv://staging.invalid/?LoAdBaLaNcEd=%74rue&RePlIcAsEt=%66ixture",
+        "mongodb+srv://staging.invalid/?loadBalanced=true&directConnection=true",
+        "mongodb+srv://staging.invalid/?loadBalanced=true&LOADBALANCED=false&replicaSet=fixture",
+        "mongodb+srv://staging.invalid/?loadBalanced=true&srvMaxHosts=0&replicaSet=fixture",
+        "https://staging.invalid/",
+    ],
+)
+def test_staging_rejects_invalid_mongo_uris_before_dns_or_client_creation(
+    uri: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_network(*args: object, **kwargs: object) -> None:
+        pytest.fail("invalid staging configuration reached a client or DNS")
+
+    monkeypatch.setattr("app.mongo.MongoClient", unexpected_network)
+    monkeypatch.setattr("dns.resolver.resolve", unexpected_network)
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("CLM_PERSISTENCE_MODE", "mongo")
+    monkeypatch.setenv("MONGO_DATABASE", "clm_staging")
+    monkeypatch.setenv("MONGO_URI", uri)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="^Invalid staging configuration") as failure:
+            create_app()
+        assert failure.value.__suppress_context__
+        assert uri not in str(failure.value)
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mongodb://127.0.0.1:1/?tls=true",
+        "mongodb://127.0.0.1:1?sSl=%74rue&authSource=admin",
+        "mongodb://127.0.0.1:1/?tlsAllowInvalidCertificates=false",
+        "mongodb+srv://staging.invalid/",
+        "mongodb+srv://staging.invalid/?tls=true&tlsAllowInvalidHostnames=false&srvMaxHosts=2",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=0&replicaSet=fixture",
+        "mongodb+srv://staging.invalid/?srvMaxHosts=0&loadBalanced=true",
+        "mongodb+srv://staging.invalid/?sRvMaXhOsTs=%31&LoAdBaLaNcEd=%66alse",
+        "mongodb://127.0.0.1:1/?tls=true&loadBalanced=true&directConnection=false",
+        "mongodb://127.0.0.1:1,127.0.0.1:2/?tls=true&loadBalanced=false&replicaSet=fixture",
+        "mongodb+srv://staging.invalid/?loadBalanced=true&directConnection=false",
+        "mongodb+srv://staging.invalid/?loadBalanced=false&replicaSet=fixture",
+    ],
+)
+def test_staging_accepts_verified_mongo_options_without_resolving_dns(
+    uri: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_dns(*args: object, **kwargs: object) -> None:
+        pytest.fail("staging validation resolved DNS")
+
+    monkeypatch.setattr("dns.resolver.resolve", unexpected_dns)
+    settings = _staging_settings(mongo_uri=uri)
+    assert settings.mongo_database == "clm_staging"
+    assert settings.clm_persistence_mode == "mongo"
+
+
+@pytest.mark.parametrize(
+    "database", ["clm_poc", "admin", "local", "config", "clm_ordinary_tests", "CLM_STAGING"]
+)
+def test_staging_rejects_unapproved_database_names(database: str) -> None:
+    with pytest.raises(ValueError, match="approved clm_staging database"):
+        _staging_settings(mongo_database=database)
+
+
+def test_shared_staging_rejects_demo_controls_without_changing_local_modes() -> None:
+    with pytest.raises(ValueError, match="requires disabled demo controls"):
+        _staging_settings(demo_controls_enabled=True)
+    for environment in ("development", "test"):
+        settings = ordinary_test_settings(app_env=environment, demo_controls_enabled=True)
+        assert settings.demo_controls_enabled
+
+
+def test_staging_mongo_client_construction_failure_is_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _staging_settings()
+    assert settings.mongo_uri is not None
+    uri = settings.mongo_uri.get_secret_value()
+
+    def fail_client(*args: object, **kwargs: object) -> None:
+        raise ValueError(uri)
+
+    monkeypatch.setattr("app.mongo.MongoClient", fail_client)
+    with pytest.raises(ValueError, match="^Invalid staging MongoDB") as failure:
+        create_mongo_client(settings)
+    assert failure.value.__suppress_context__
+    assert uri not in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error"),
+    [
+        ({"acra_connector_mode": "api_marketplace_mock"}, "non-production only"),
+        (
+            {
+                "goldtier_connector_mode": "sandbox",
+                "goldtier_sandbox_base_url": "https://goldtier.invalid",
+                "goldtier_sandbox_environment": "fixture",
+                "goldtier_sandbox_user_id": "fixture-user",
+            },
+            "sandbox configuration",
+        ),
+    ],
+)
+def test_production_provider_restrictions_remain_enforced(
+    overrides: dict[str, object], error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        ordinary_test_settings(app_env="production", **overrides)

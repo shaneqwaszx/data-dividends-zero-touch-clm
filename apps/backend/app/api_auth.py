@@ -128,6 +128,7 @@ class BrowserOriginPolicy:
     """Own the exact browser origins accepted by the Phase 13 CSRF boundary."""
 
     trusted_origins: frozenset[str]
+    require_origin_evidence: bool = False
 
     @classmethod
     def from_origins(
@@ -135,13 +136,14 @@ class BrowserOriginPolicy:
         origins: Collection[str],
         *,
         require_https: bool = False,
+        require_origin_evidence: bool = False,
     ) -> "BrowserOriginPolicy":
         normalized = frozenset(
             _normalize_configured_origin(origin, require_https=require_https) for origin in origins
         )
         if not normalized:
             raise ValueError("at least one trusted browser origin is required")
-        return cls(trusted_origins=normalized)
+        return cls(trusted_origins=normalized, require_origin_evidence=require_origin_evidence)
 
     def request_is_trusted(self, request: Request) -> bool:
         origin_is_unambiguous, origin = _single_header_value(request, "origin")
@@ -151,6 +153,8 @@ class BrowserOriginPolicy:
             return False
         referer_is_unambiguous, referer = _single_header_value(request, "referer")
         if not referer_is_unambiguous:
+            return False
+        if self.require_origin_evidence and origin is None and referer is None:
             return False
         return referer is None or _referer_origin(referer) in self.trusted_origins
 

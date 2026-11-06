@@ -1,0 +1,29 @@
+{
+    admin off
+}
+
+{$CLM_SITE} {
+    @assistant path /api/assistant /api/assistant/*
+    handle @assistant {
+        respond "Assistant service is unavailable in this deployment." 503
+    }
+
+    @api path /api /api/* /health
+    handle @api {
+        reverse_proxy backend:8000
+    }
+
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}
+
+http://:8080 {
+    bind 127.0.0.1
+    handle /ready {
+        rewrite * /health
+        reverse_proxy backend:8000
+    }
+}
