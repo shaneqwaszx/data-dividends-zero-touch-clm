@@ -40,14 +40,14 @@ function basis(status: Partial<GovernmentStatusProjection>): EntityTypeBasis {
   };
 }
 
-function render(value: EntityTypeBasis, { canConfirm = true, disabled = false, onConfirm = vi.fn(async () => false) } = {}) {
+function render(value: EntityTypeBasis, { canConfirm = true, disabled = false, onConfirm = vi.fn(async () => false), onContinue = vi.fn() } = {}) {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   act(() => root?.render(
-    <GovernmentStatusPanel basis={value} canConfirm={canConfirm} disabled={disabled} onConfirm={onConfirm} />,
+    <GovernmentStatusPanel basis={value} canConfirm={canConfirm} disabled={disabled} onConfirm={onConfirm} onContinue={onContinue} />,
   ));
-  return { view: container, onConfirm };
+  return { view: container, onConfirm, onContinue };
 }
 
 const confirmButton = (view: HTMLElement) =>
@@ -226,4 +226,31 @@ it("posts the exact document version, revisions and the RM's statute to the conf
     statute_section: "s 3",
     government_body_type: "STATUTORY_BOARD",
   });
+});
+
+it("D-125: offers Continue onboarding instead of the form when the server says the step must reopen", () => {
+  const { view, onConfirm, onContinue } = render(basis({ resume_required: true }));
+  expect(view.querySelector('form[aria-label="Confirm Government status"]')).toBeNull();
+  expect(confirmButton(view)).toBeUndefined();
+  expect(view.textContent).toContain("confirmed before the founding statute was recorded");
+  const resume = [...view.querySelectorAll("button")].find((button) => button.textContent === "Continue onboarding")!;
+  expect(resume.disabled).toBe(false);
+  act(() => resume.click());
+  expect(onContinue).toHaveBeenCalledTimes(1);
+  expect(onConfirm).not.toHaveBeenCalled();
+});
+
+it("D-125: Continue onboarding is disabled while busy and shown only to the case creator", () => {
+  const busy = render(basis({ resume_required: true }), { disabled: true });
+  expect([...busy.view.querySelectorAll("button")].find((button) => button.textContent === "Continue onboarding")!.disabled).toBe(true);
+  act(() => root?.unmount()); root = null; container?.remove();
+  const other = render(basis({ resume_required: true }), { canConfirm: false });
+  expect(other.view.textContent).toContain("Only the case creator can confirm Government status.");
+  expect([...other.view.querySelectorAll("button")].some((button) => button.textContent === "Continue onboarding")).toBe(false);
+});
+
+it("D-125: the form is shown when resume is not required", () => {
+  const { view } = render(basis({ resume_required: false }));
+  expect(view.querySelector('form[aria-label="Confirm Government status"]')).not.toBeNull();
+  expect([...view.querySelectorAll("button")].some((button) => button.textContent === "Continue onboarding")).toBe(false);
 });

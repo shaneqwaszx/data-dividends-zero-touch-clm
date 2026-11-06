@@ -1629,6 +1629,7 @@ export default function CaseDetail({
               basis={governmentBasis}
               canConfirm={summary.ownership_edit_authorized === true}
               disabled={isBusy || mutationBlocked}
+              onContinue={() => void runMutation(() => resumeZeroTouchCase(caseId, summary), "Continuing onboarding…")}
               onConfirm={async (statute) => {
                 const status = governmentBasis.government_status;
                 if (!status?.document_id || status.document_event_count === null) return false;

@@ -8,6 +8,8 @@ Project-defined, not sponsor-confirmed. A foreign government body is out of scop
 
 D-125 (sponsor-requested, project-designed): the RM also keys in the founding statute,
 which must equal the document's Founding Instrument after `normalise_statute`.
+Bracketed text the RM enters is accepted only when the same bracketed text (after
+normalisation) is on the document, so no free-text note rides along with a match.
 """
 
 import hashlib
@@ -34,24 +36,42 @@ _NON_WORD = re.compile(r"[\W_]+")
 _TRAILING_YEAR = re.compile(r" \d{4}$")
 
 
+def _words(text: str) -> str:
+    return " ".join(_NON_WORD.sub(" ", text).split())
+
+
+def _split_statute(value: str) -> tuple[str, frozenset[str]]:
+    """The normal form plus each bracketed group's own normal form (empty groups dropped)."""
+    text = value.casefold()
+    groups: set[str] = set()
+    while True:  # nested brackets: innermost first
+        found = _BRACKETED.findall(text)
+        if not found:
+            break
+        groups.update(_words(item[1:-1]) for item in found)
+        text = _BRACKETED.sub(" ", text)
+    groups.discard("")
+    return _TRAILING_YEAR.sub("", _words(text)), frozenset(groups)
+
+
 def normalise_statute(value: str) -> str:
     """D-125: the one deterministic form used to compare a statute with the document.
 
     Casefold, drop text in round brackets, turn punctuation into spaces, collapse
     whitespace, then drop one trailing four-digit year. No fuzzy or partial matching.
     """
-    text = value.casefold()
-    previous = None
-    while previous != text:  # nested brackets: innermost first
-        previous, text = text, _BRACKETED.sub(" ", text)
-    text = " ".join(_NON_WORD.sub(" ", text).split())
-    return _TRAILING_YEAR.sub("", text)
+    return _split_statute(value)[0]
 
 
 def statute_matches(entered: str, founding_instrument: str) -> bool:
-    """D-125: exact equality after normalisation; an empty normal form never matches."""
-    normal = normalise_statute(entered)
-    return bool(normal) and normal == normalise_statute(founding_instrument)
+    """D-125: exact equality after normalisation; an empty normal form never matches.
+
+    Every bracketed group the RM entered must also be a bracketed group on the
+    document (compared after the same normalisation); otherwise it is a mismatch.
+    """
+    normal, groups = _split_statute(entered)
+    document_normal, document_groups = _split_statute(founding_instrument)
+    return bool(normal) and normal == document_normal and groups <= document_groups
 
 
 @dataclass(frozen=True)

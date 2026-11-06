@@ -1388,6 +1388,9 @@ def create_app(
                     for item in documents.list_documents(case_id=case.case_id)
                     if item.is_current_evidence
                 ],
+                government_resume_required=zero_touch.government_reconfirmation_needs_resume(
+                    case_id=case.case_id
+                ),
             ),
             evidence_decision_authorized=access_policy.can_decide_evidence(actor, case),
             document_replacement_authorized=(

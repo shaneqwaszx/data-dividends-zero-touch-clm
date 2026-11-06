@@ -286,5 +286,5 @@ Case schema 20 adds four optional keys to `onboarding.government_status_confirma
 recorded together and omitted from domain dumps when absent, so digests of older cases do not
 change. `DurableCaseSnapshotV19` and older readers reject the keys, even when null; a schema-19
 confirmation reads without them, is not rewritten by the read, and no longer counts, so the RM
-confirms again. The RM-entered statute is not part of the evidence fingerprint. A schema-19
+confirms again (past the hold, after the existing resume reopens the step). The RM-entered statute is not part of the evidence fingerprint. A schema-19
 build rejects schema-20 envelopes.

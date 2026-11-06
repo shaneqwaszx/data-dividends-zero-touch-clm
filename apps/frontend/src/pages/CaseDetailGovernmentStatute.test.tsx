@@ -136,4 +136,20 @@ describe("D-125 CaseDetail page banner for a Government statute mismatch", () =>
     expect(pageBanners()).toEqual(["Current reviewed Government status evidence is required."]);
     expect(host!.querySelector('section[aria-labelledby="government-status-title"] [role="alert"]')).toBeNull();
   });
+
+  it("Continue onboarding calls the existing resume with the case's concurrency context", async () => {
+    const summary = governmentCase();
+    summary.entity_type_basis!.government_status!.resume_required = true;
+    const resume = vi.spyOn(api, "resumeZeroTouchCase").mockResolvedValue(summary);
+    const confirm = vi.spyOn(api, "confirmGovernmentStatus");
+    await mount(summary);
+    expect(host!.querySelector('form[aria-label="Confirm Government status"]')).toBeNull();
+    const button = Array.from(host!.querySelectorAll("button")).find((item) => item.textContent === "Continue onboarding")!;
+    await act(async () => { button.click(); });
+    await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(resume.mock.calls[0][0]).toBe(CASE_ID);
+    expect(resume.mock.calls[0][1]).toMatchObject({ automation_id: summary.automation_id, version: summary.version });
+    expect(confirm).not.toHaveBeenCalled();
+  });
 });

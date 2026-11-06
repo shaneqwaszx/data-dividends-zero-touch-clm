@@ -20,12 +20,14 @@ const STATUTE_MAX = 200;
 const SECTION_MAX = 40;
 
 /** D-101: replaces the ownership/UBO step for a Singapore Government entity. Server-owned state. */
-export default function GovernmentStatusPanel({ basis, canConfirm, disabled, onConfirm }: {
+export default function GovernmentStatusPanel({ basis, canConfirm, disabled, onConfirm, onContinue }: {
   basis: EntityTypeBasis;
   canConfirm: boolean;
   disabled: boolean;
   /** Resolves true when the server rejected the statute as not matching the document. */
   onConfirm: (input: GovernmentStatuteInput) => Promise<boolean>;
+  /** D-125: the existing resume, offered only when the server says the step must reopen. */
+  onContinue: () => void;
 }) {
   const status = basis.government_status;
   const ids = useId();
@@ -70,7 +72,13 @@ export default function GovernmentStatusPanel({ basis, canConfirm, disabled, onC
       </>}
     </dl>}
     {status?.state === "CONFIRMED" && <p className="ds-banner" role="status">Government status confirmed from the reviewed document.</p>}
-    {status?.state === "CONFIRMATION_REQUIRED" && (canConfirm
+    {status?.state === "CONFIRMATION_REQUIRED" && status.resume_required === true && (canConfirm
+      ? <div className="ds-banner ds-banner-warn" role="status">
+        <p>This Government status was confirmed before the founding statute was recorded, so it no longer counts. Continue onboarding to reopen the Government status step, then confirm it again with the statute.</p>
+        <button type="button" className="btn btn-primary" disabled={disabled} onClick={onContinue}>Continue onboarding</button>
+      </div>
+      : <p role="status">Only the case creator can confirm Government status.</p>)}
+    {status?.state === "CONFIRMATION_REQUIRED" && status.resume_required !== true && (canConfirm
       ? <form className="government-statute" aria-label="Confirm Government status" noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <div className="manual-ownership__fields">
           <label>Founding statute

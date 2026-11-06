@@ -1587,6 +1587,9 @@ class BrowserGovernmentStatus(BaseModel):
     statute_section: str | None = None
     government_body_type: Literal["MINISTRY_OR_ORGAN_OF_STATE", "STATUTORY_BOARD"] | None = None
     statute_match: Literal["MATCHED_AFTER_NORMALISATION"] | None = None
+    # D-125 (gate M1): the confirmation no longer counts and no Government hold is open,
+    # so the existing resume must reopen the step before the RM can confirm again.
+    resume_required: bool = False
 
 
 class BrowserEntityTypeBasis(BaseModel):
@@ -1604,6 +1607,8 @@ def project_entity_type_basis(
     case: OnboardingCase,
     ownership: OwnershipAnalysisRecord | None,
     documents: list[DocumentProcessingRecord],
+    *,
+    government_resume_required: bool = False,
 ) -> BrowserEntityTypeBasis | None:
     threshold = float(case.policy_snapshot.idp_review_confidence_threshold)
     if government_profile_applies(case):
@@ -1635,6 +1640,9 @@ def project_entity_type_basis(
                     shown.government_body_type if shown is not None else None
                 ),
                 statute_match=shown.statute_match if shown is not None else None,
+                resume_required=(
+                    government_resume_required and not confirmed and evidence is not None
+                ),
             ),
         )
     if registry_partner_names(case.registry_acquisition):

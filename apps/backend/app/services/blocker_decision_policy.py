@@ -1165,11 +1165,13 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         "instrument, KYC/segment labels and matching identity; exact document version and "
         "automation/case revisions. D-125: the RM keys in the founding statute (optional "
         "section) and the type of body; the statute must equal the document's founding "
-        "instrument after normalisation (no fuzzy match, no AI). Never set automatically "
-        "or from a label alone.",
+        "instrument after normalisation (no fuzzy match, no AI), and bracketed text is "
+        "accepted only when the document has it. Never set automatically or from a label "
+        "alone.",
         "No confirmation without current reviewed status evidence; a statute mismatch "
         "saves nothing; a changed document, a stale revision, frozen target state or a "
-        "pre-D-125 confirmation without a statute stays blocking.",
+        "pre-D-125 confirmation without a statute stays blocking (past the hold, the "
+        "existing resume reopens the step before the RM confirms again).",
     ),
     BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION: _local_action(
         BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION,

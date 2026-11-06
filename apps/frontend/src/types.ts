@@ -1257,6 +1257,8 @@ export interface GovernmentStatusProjection {
   statute_section?: string | null;
   government_body_type?: GovernmentBodyType | null;
   statute_match?: "MATCHED_AFTER_NORMALISATION" | null;
+  /** D-125: an older confirmation no longer counts; resume reopens the step first. */
+  resume_required?: boolean;
 }
 
 /** D-125: RM-asserted type of Government body (not verified against the UEN). */

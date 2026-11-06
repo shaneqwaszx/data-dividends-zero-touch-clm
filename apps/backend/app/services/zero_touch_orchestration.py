@@ -1027,6 +1027,34 @@ class ZeroTouchOrchestrator:
             or self._cases.has_retained_target_execution(case_id)
         )
 
+    def government_reconfirmation_needs_resume(self, *, case_id: UUID) -> bool:
+        """D-125 (gate M1): a revoked Government checkpoint with no open hold to confirm.
+
+        True only where `_recover_obsolete_registry_ownership_locked` would restore the
+        Government hold on resume: OWNERSHIP was completed, the stored confirmation no
+        longer counts (for example a pre-D-125 one without a statute), no
+        GOVERNMENT_STATUS_REQUIRED hold is open and nothing was frozen for or sent to the
+        target. Read-only; the browser only offers the existing resume.
+        """
+        record = self._repository.get_for_case(case_id)
+        case = self._cases.get_case(case_id)
+        clm = self._clm.get(case_id=case_id)
+        if (
+            record is None or case is None or clm is None
+            or record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}
+            or AutomationStage.OWNERSHIP not in record.completed_stages
+            or clm.submission_snapshot is not None
+            or case.goldtier_result is not None
+            or self._cases.has_retained_target_execution(case_id)
+        ):
+            return False
+        if any(
+            item.exception_type == BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED
+            for item in record.active_exceptions
+        ):
+            return False
+        return self._government_gate(case_id) is False
+
     def document_replacement_allowed(self, *, case_id: UUID) -> bool:
         record = self._require_record(case_id)
         return (

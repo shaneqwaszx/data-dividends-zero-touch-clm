@@ -714,7 +714,11 @@ def test_government_confirmation_event_without_a_section():
 
 @pytest.mark.parametrize(
     "statute",
-    ["Some Other Act", "Demo Parks FYP Test Authority", "Demo Parks FYP Test Authority Bill"],
+    [
+        "Some Other Act", "Demo Parks FYP Test Authority", "Demo Parks FYP Test Authority Bill",
+        # Gate L1: bracketed text that is not on the document is a mismatch, not a note.
+        "Demo Parks FYP Test Authority Act (any note)",
+    ],
 )
 def test_government_statute_mismatch_saves_nothing(statute):
     with lane(GOVERNMENT) as (client, _, target, bundle):
@@ -820,6 +824,73 @@ def test_a_confirmation_without_a_statute_no_longer_counts():
         status = after["entity_type_basis"]["government_status"]
         assert status["state"] == "CONFIRMATION_REQUIRED"
         assert status["founding_statute"] is None and status["confirmed_by_actor_id"] is None
+
+
+def _strip_statute(bundle, case_id: UUID) -> None:
+    """Rewrite the stored confirmation into its pre-D-125 (schema-19) shape."""
+    from app.domain.models import GovernmentStatusConfirmation
+
+    case = bundle.onboarding.get(case_id)
+    old_shape = GovernmentStatusConfirmation.model_validate(
+        case.government_status_confirmation.model_dump(
+            exclude={"founding_statute", "statute_section", "government_body_type",
+                     "statute_match"}
+        )
+    )
+    bundle.onboarding.save(case.model_copy(update={"government_status_confirmation": old_shape}))
+
+
+def test_an_old_confirmation_past_the_hold_is_reconfirmed_after_continue():
+    """Gate M1: a pre-D-125 confirmation on a case already at target confirmation."""
+    with lane(GOVERNMENT) as (client, _, target, bundle):
+        current = confirm_government(client, government_at_status(client)).json()
+        case_id = UUID(current["case"]["case_id"])
+        assert blockers(current) == ["TARGET_CONFIRMATION_REQUIRED"]
+        assert current["entity_type_basis"]["government_status"]["resume_required"] is False
+        _strip_statute(bundle, case_id)
+
+        stale = client.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        status = stale["entity_type_basis"]["government_status"]
+        assert status["state"] == "CONFIRMATION_REQUIRED"
+        assert status["resume_required"] is True
+        # The form alone is still refused: there is no open Government hold to resolve.
+        refused = confirm_government(client, stale)
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["code"] == "ZERO_TOUCH_GOVERNMENT_STATUS_NOT_ALLOWED"
+
+        # The existing resume reopens the Government step without any target write.
+        resumed = client.post(
+            f"/api/clm/zero-touch/cases/{case_id}/resume",
+            headers={
+                "X-Automation-Id": stale["automation_id"],
+                "X-Automation-Version": str(stale["version"]),
+                "X-Clm-Version": str(stale["clm"]["version"]),
+                "X-Case-Event-Count": str(len(stale["case"]["events"])),
+            },
+        )
+        assert resumed.status_code == 200, resumed.json()
+        reopened = resumed.json()
+        assert blockers(reopened) == ["GOVERNMENT_STATUS_REQUIRED"]
+        assert reopened["entity_type_basis"]["government_status"]["state"] == (
+            "CONFIRMATION_REQUIRED"
+        )
+        assert reopened["entity_type_basis"]["government_status"]["resume_required"] is False
+        assert bundle.onboarding.get(case_id).target_dispatch_confirmation is None
+
+        confirmed = confirm_government(client, reopened)
+        assert confirmed.status_code == 200, confirmed.json()
+        assert blockers(confirmed.json()) == ["TARGET_CONFIRMATION_REQUIRED"]
+        assert confirmed.json()["entity_type_basis"]["government_status"]["state"] == "CONFIRMED"
+        assert government_confirmed(bundle, case_id)
+        assert [call[0] for call in target.calls] == ["GET"]
+
+
+def test_resume_is_not_offered_while_the_government_hold_is_open():
+    with lane(GOVERNMENT) as (client, _, _, _):
+        current = government_at_status(client)
+        status = current["entity_type_basis"]["government_status"]
+        assert status["state"] == "CONFIRMATION_REQUIRED"
+        assert status["resume_required"] is False
 
 
 @pytest.mark.parametrize(
