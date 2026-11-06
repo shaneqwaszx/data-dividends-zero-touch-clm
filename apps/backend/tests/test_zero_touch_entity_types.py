@@ -26,6 +26,11 @@ from app.services.registry_cache_repository import InMemoryRegistrySnapshotRepos
 
 GAMMA = COMPANIES[2]
 GAMMA_ROOT = f"ENTITY_{GAMMA.uen}"
+# D-125: the RM keys in the founding statute and type of body with every confirmation.
+STATUTE = {
+    "founding_statute": "Demo Parks FYP Test Authority Act",
+    "government_body_type": "STATUTORY_BOARD",
+}
 
 
 @contextmanager
@@ -167,7 +172,7 @@ def government_at_status(client, lines=GOVERNMENT.government_status_lines) -> di
     return complete(client, current, 1)
 
 
-def confirm_government(client, current):
+def confirm_government(client, current, **statute):
     status = current["entity_type_basis"]["government_status"]
     return client.post(
         f"/api/clm/zero-touch/cases/{current['case']['case_id']}/government-status-confirmation",
@@ -176,6 +181,8 @@ def confirm_government(client, current):
             "document_event_count": status["document_event_count"],
             "expected_automation_version": current["version"],
             "expected_case_event_count": len(current["case"]["events"]),
+            **STATUTE,
+            **statute,
         },
     )
 
@@ -351,7 +358,7 @@ def test_government_without_a_status_document_stays_blocked():
             json={"document_id": document["document_id"],
                   "document_event_count": len(document["events"]),
                   "expected_automation_version": current["version"],
-                  "expected_case_event_count": len(current["case"]["events"])},
+                  "expected_case_event_count": len(current["case"]["events"]), **STATUTE},
         )
         assert response.status_code == 422
         assert response.json()["detail"]["code"] == "ZERO_TOUCH_GOVERNMENT_STATUS_EVIDENCE_REQUIRED"
@@ -386,15 +393,16 @@ def test_government_confirmation_must_bind_the_exact_document_version():
             json={"document_id": status["document_id"],
                   "document_event_count": status["document_event_count"] + 1,
                   "expected_automation_version": current["version"],
-                  "expected_case_event_count": len(current["case"]["events"])},
+                  "expected_case_event_count": len(current["case"]["events"]), **STATUTE},
         )
         assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "ZERO_TOUCH_GOVERNMENT_STATUS_EVIDENCE_REQUIRED"
         stale = client.post(
             f"/api/clm/zero-touch/cases/{current['case']['case_id']}/government-status-confirmation",
             json={"document_id": status["document_id"],
                   "document_event_count": status["document_event_count"],
                   "expected_automation_version": current["version"] + 1,
-                  "expected_case_event_count": len(current["case"]["events"])},
+                  "expected_case_event_count": len(current["case"]["events"]), **STATUTE},
         )
         assert stale.status_code == 409
         assert stale.json()["detail"]["code"] == "ZERO_TOUCH_GOVERNMENT_STATUS_STALE"
@@ -624,3 +632,235 @@ def test_a_real_registry_share_still_conflicts_with_a_different_agreement_share(
     )
     (result,) = compare_document_ownership((row,), [root, owner], [edge], ())
     assert (result.agreement, result.reason_code) == ("MISMATCH", "OWNERSHIP_DOCUMENT_CONFLICT")
+
+
+# --- D-125 founding statute --------------------------------------------------------------------
+
+
+def government_confirmed(bundle, case_id: UUID) -> bool:
+    from app.services.government_status import government_status_confirmed
+
+    case = bundle.onboarding.get(case_id)
+    return government_status_confirmed(
+        case,
+        [item for item in bundle.documents.list_for_case(case_id) if item.is_current_evidence],
+        confidence_threshold=float(case.policy_snapshot.idp_review_confidence_threshold),
+    )
+
+
+@pytest.mark.parametrize(
+    "statute",
+    [
+        "Demo Parks FYP Test Authority Act",
+        "demo parks fyp test authority act",
+        "  DEMO  PARKS FYP Test Authority Act 2099 ",
+        "Demo Parks FYP Test Authority Act (fictional FYP test instrument)",
+    ],
+    ids=["exact", "case", "whitespace-and-year", "bracketed"],
+)
+def test_government_statute_equal_after_normalisation_is_confirmed(statute):
+    with lane(GOVERNMENT) as (client, _, _, bundle):
+        current = government_at_status(client)
+        response = confirm_government(client, current, founding_statute=statute)
+        assert response.status_code == 200, response.json()
+        status = response.json()["entity_type_basis"]["government_status"]
+        assert status["state"] == "CONFIRMED"
+        assert status["founding_statute"] == statute.strip()
+        assert status["statute_section"] is None
+        assert status["government_body_type"] == "STATUTORY_BOARD"
+        assert status["statute_match"] == "MATCHED_AFTER_NORMALISATION"
+        confirmation = bundle.onboarding.get(
+            UUID(current["case"]["case_id"])
+        ).government_status_confirmation
+        assert confirmation.founding_statute == statute.strip()
+        assert confirmation.statute_section is None
+
+
+def test_government_statute_section_is_optional_and_stored_when_given():
+    with lane(GOVERNMENT) as (client, _, _, bundle):
+        current = government_at_status(client)
+        response = confirm_government(
+            client, current, founding_statute="demo parks fyp test authority act",
+            statute_section=" s 3 ", government_body_type="MINISTRY_OR_ORGAN_OF_STATE",
+        )
+        assert response.status_code == 200, response.json()
+        status = response.json()["entity_type_basis"]["government_status"]
+        assert status["statute_section"] == "s 3"
+        assert status["government_body_type"] == "MINISTRY_OR_ORGAN_OF_STATE"
+        case = bundle.onboarding.get(UUID(current["case"]["case_id"]))
+        assert case.government_status_confirmation.statute_section == "s 3"
+        [event] = [item for item in case.events if item.code == "GOVERNMENT_STATUS_CONFIRMED"]
+        assert event.message == (
+            "The RM confirmed Government status from a reviewed document, founded under "
+            "demo parks fyp test authority act, s 3; this is not approval."
+        )
+
+
+def test_government_confirmation_event_without_a_section():
+    with lane(GOVERNMENT) as (client, _, _, bundle):
+        current = government_at_status(client)
+        assert confirm_government(client, current).status_code == 200
+        case = bundle.onboarding.get(UUID(current["case"]["case_id"]))
+        [event] = [item for item in case.events if item.code == "GOVERNMENT_STATUS_CONFIRMED"]
+        assert event.message == (
+            "The RM confirmed Government status from a reviewed document, founded under "
+            "Demo Parks FYP Test Authority Act; this is not approval."
+        )
+
+
+@pytest.mark.parametrize(
+    "statute",
+    ["Some Other Act", "Demo Parks FYP Test Authority", "Demo Parks FYP Test Authority Bill"],
+)
+def test_government_statute_mismatch_saves_nothing(statute):
+    with lane(GOVERNMENT) as (client, _, target, bundle):
+        current = government_at_status(client)
+        case_id = UUID(current["case"]["case_id"])
+        case_before = bundle.onboarding.get(case_id)
+        automation_before = bundle.automation.get_for_case(case_id)
+        clm_before = bundle.clm.get_for_case(case_id)
+        response = confirm_government(client, current, founding_statute=statute)
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "GOVERNMENT_STATUTE_MISMATCH"
+        assert bundle.onboarding.get(case_id) == case_before  # no confirmation, no event
+        assert bundle.automation.get_for_case(case_id) == automation_before
+        assert bundle.clm.get_for_case(case_id) == clm_before
+        after = client.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert after["entity_type_basis"]["government_status"]["state"] == (
+            "CONFIRMATION_REQUIRED"
+        )
+        assert blockers(after) == ["GOVERNMENT_STATUS_REQUIRED"]
+        assert [call[0] for call in target.calls] == ["GET"]
+        # The same case still confirms with the right statute afterwards.
+        assert confirm_government(client, after).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"founding_statute": None},
+        {"founding_statute": ""},
+        {"founding_statute": "   "},
+        {"founding_statute": "ab"},
+        {"founding_statute": "A" * 201},
+        {"founding_statute": "Demo Parks FYP\nTest Authority Act"},
+        {"founding_statute": 42},
+        {"government_body_type": None},
+        {"government_body_type": "STATUTORY BOARD"},
+        {"government_body_type": "GOVERNMENT_LINKED_COMPANY"},
+        {"statute_section": "s" * 41},
+        {"statute_section": "s\t3"},
+        {"unexpected": "value"},
+    ],
+    ids=[
+        "statute-missing", "statute-empty", "statute-blank", "statute-short", "statute-long",
+        "statute-newline", "statute-not-text", "body-missing", "body-label", "body-unknown",
+        "section-long", "section-control", "extra-field",
+    ],
+)
+def test_government_statute_request_validation_gives_422(change):
+    with lane(GOVERNMENT) as (client, _, _, bundle):
+        current = government_at_status(client)
+        status = current["entity_type_basis"]["government_status"]
+        payload = {
+            "document_id": status["document_id"],
+            "document_event_count": status["document_event_count"],
+            "expected_automation_version": current["version"],
+            "expected_case_event_count": len(current["case"]["events"]),
+            **STATUTE,
+        }
+        for key, value in change.items():
+            if value is None:
+                payload.pop(key, None)
+            else:
+                payload[key] = value
+        response = client.post(
+            f"/api/clm/zero-touch/cases/{current['case']['case_id']}/government-status-confirmation",
+            json=payload,
+        )
+        assert response.status_code == 422, response.json()
+        case = bundle.onboarding.get(UUID(current["case"]["case_id"]))
+        assert case.government_status_confirmation is None
+        assert len(case.events) == len(current["case"]["events"])
+
+
+def test_government_blank_section_is_stored_as_none():
+    with lane(GOVERNMENT) as (client, _, _, bundle):
+        current = government_at_status(client)
+        assert confirm_government(client, current, statute_section="   ").status_code == 200
+        case = bundle.onboarding.get(UUID(current["case"]["case_id"]))
+        assert case.government_status_confirmation.statute_section is None
+
+
+def test_a_confirmation_without_a_statute_no_longer_counts():
+    """A pre-D-125 (schema-19) confirmation loads but must be confirmed again."""
+    from app.domain.models import GovernmentStatusConfirmation
+
+    with lane(GOVERNMENT) as (client, _, _, bundle):
+        current = confirm_government(client, government_at_status(client)).json()
+        case_id = UUID(current["case"]["case_id"])
+        assert government_confirmed(bundle, case_id)
+        case = bundle.onboarding.get(case_id)
+        old_shape = GovernmentStatusConfirmation.model_validate(
+            case.government_status_confirmation.model_dump(
+                exclude={"founding_statute", "statute_section", "government_body_type",
+                         "statute_match"}
+            )
+        )
+        assert old_shape.founding_statute is None and old_shape.statute_match is None
+        bundle.onboarding.save(
+            case.model_copy(update={"government_status_confirmation": old_shape})
+        )
+        assert not government_confirmed(bundle, case_id)
+        after = client.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        status = after["entity_type_basis"]["government_status"]
+        assert status["state"] == "CONFIRMATION_REQUIRED"
+        assert status["founding_statute"] is None and status["confirmed_by_actor_id"] is None
+
+
+@pytest.mark.parametrize(
+    "partial",
+    [
+        {"founding_statute": "Demo Parks FYP Test Authority Act"},
+        {"government_body_type": "STATUTORY_BOARD"},
+        {"statute_match": "MATCHED_AFTER_NORMALISATION"},
+        {"founding_statute": "Demo Parks FYP Test Authority Act",
+         "government_body_type": "STATUTORY_BOARD"},
+        {"statute_section": "s 3"},
+    ],
+)
+def test_a_half_recorded_statute_is_refused(partial):
+    from pydantic import ValidationError
+
+    from app.domain.models import GovernmentStatusConfirmation
+
+    base = {
+        "confirmation_id": "00000000-0000-4000-8000-000000000001",
+        "actor_id": "ethan-tan",
+        "confirmed_at": NOW,
+        "case_event_count": 1,
+        "document_id": "00000000-0000-4000-8000-000000000002",
+        "document_event_count": 1,
+        "evidence_fingerprint": "0" * 64,
+    }
+    with pytest.raises(ValidationError):
+        GovernmentStatusConfirmation.model_validate({**base, **partial})
+
+
+def test_a_changed_document_still_invalidates_a_statute_confirmation():
+    with lane(GOVERNMENT) as (client, _, _, bundle):
+        current = confirm_government(client, government_at_status(client)).json()
+        case_id = UUID(current["case"]["case_id"])
+        assert government_confirmed(bundle, case_id)
+        case = bundle.onboarding.get(case_id)
+        [document] = [
+            item for item in bundle.documents.list_for_case(case_id) if item.is_current_evidence
+        ]
+        changed = document.model_copy(update={"events": (*document.events, document.events[-1])})
+        from app.services.government_status import government_status_confirmed
+
+        assert not government_status_confirmed(
+            case, [changed],
+            confidence_threshold=float(case.policy_snapshot.idp_review_confidence_threshold),
+        )
+        assert case.government_status_confirmation.founding_statute is not None

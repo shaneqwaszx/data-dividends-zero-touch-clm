@@ -61,9 +61,16 @@ async function runFixture(page: Page, fixture: typeof fixtures[number]): Promise
       expect(pending.case.registry_evidence_binding?.disposition).not.toBe("CACHE_HIT");
       await openStage(page, "Ownership & UBO");
       await expect(page.getByText("Local synthetic identity: not ACRA-registered; government status from reviewed document", { exact: false }).first()).toBeVisible();
+      // D-125: the RM keys in the founding statute and type of body before confirming.
+      const confirm = page.getByRole("button", { name: "Confirm Government status", exact: true });
+      await expect(confirm).toBeDisabled();
+      await page.getByRole("textbox", { name: "Founding statute", exact: false }).fill("Demo Parks FYP Test Authority Act");
+      await page.getByRole("radio", { name: "Statutory Board", exact: true }).check();
       const confirmed = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/government-status-confirmation"));
-      await page.getByRole("button", { name: "Confirm Government status", exact: true }).click();
+      await confirm.click();
       expect((await confirmed).status()).toBe(200);
+      await expect(page.getByText("Government status confirmed from the reviewed document.", { exact: true })).toBeVisible();
+      await expect(page.getByText("Statutory Board", { exact: true })).toBeVisible();
     }
     await expect.poll(blockers).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
     await expect(page).toHaveURL(`/cases/${caseId}`);

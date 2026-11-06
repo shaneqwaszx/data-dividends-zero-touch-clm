@@ -278,3 +278,13 @@ rewritten by the read. Absence means the POC history is not established, never t
 empty; the ownership owner then fails closed as D-120 P7 describes. Repository `save` and every
 `replace_*` write refuse to shrink, reorder or drop an established ledger, under the existing
 CAS. A schema-18 build rejects schema-19 envelopes.
+
+## D-125 Government founding statute (schema 20)
+
+Case schema 20 adds four optional keys to `onboarding.government_status_confirmation`:
+`founding_statute`, `statute_section`, `government_body_type` and `statute_match`. They are
+recorded together and omitted from domain dumps when absent, so digests of older cases do not
+change. `DurableCaseSnapshotV19` and older readers reject the keys, even when null; a schema-19
+confirmation reads without them, is not rewritten by the read, and no longer counts, so the RM
+confirms again. The RM-entered statute is not part of the evidence fingerprint. A schema-19
+build rejects schema-20 envelopes.

@@ -29,7 +29,13 @@ from app.domain.documents import (
     ReviewDecision,
 )
 from app.domain.jurisdiction import is_eligible_singapore_uen
-from app.domain.models import EventOutcome, OnboardingCase, SafeError, WorkflowState
+from app.domain.models import (
+    EventOutcome,
+    GovernmentBodyType,
+    OnboardingCase,
+    SafeError,
+    WorkflowState,
+)
 from app.domain.onboarding_intelligence import (
     EntityResolutionOutcome,
     MockRiskBand,
@@ -91,6 +97,7 @@ from app.services.government_status import (
     government_profile_applies,
     government_status_confirmed,
     government_status_evidence,
+    statute_matches,
 )
 from app.services.manual_ownership_evidence import (
     ManualOwnershipDeclaration,
@@ -1662,9 +1669,16 @@ class ZeroTouchOrchestrator:
         document_event_count: int,
         expected_automation_version: int,
         expected_case_event_count: int,
+        founding_statute: str,
+        government_body_type: GovernmentBodyType,
+        statute_section: str | None = None,
         reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
-        """D-101: the RM confirms Government status from one exact reviewed document."""
+        """D-101: the RM confirms Government status from one exact reviewed document.
+
+        D-125: the RM-entered founding statute must equal the document's Founding
+        Instrument after normalisation; otherwise nothing is saved.
+        """
 
         with self._cases.case_lock(case_id):
             if reauthorize is not None:
@@ -1729,6 +1743,14 @@ class ZeroTouchOrchestrator:
                         "is required."
                     ),
                 )
+            if not statute_matches(founding_statute, evidence.founding_instrument):
+                raise ZeroTouchRequestError(
+                    code="GOVERNMENT_STATUTE_MISMATCH",
+                    message=(
+                        "The statute entered does not match the Founding Instrument on the "
+                        "reviewed document."
+                    ),
+                )
             try:
                 self._cases.confirm_government_status(
                     case_id=case_id,
@@ -1737,6 +1759,9 @@ class ZeroTouchOrchestrator:
                     document_id=evidence.document_id,
                     document_event_count=evidence.document_event_count,
                     evidence_fingerprint=evidence.evidence_fingerprint,
+                    founding_statute=founding_statute,
+                    statute_section=statute_section,
+                    government_body_type=government_body_type,
                 )
                 self._clm.refresh_pre_submission_evidence(case_id=case_id)
             except ValueError:

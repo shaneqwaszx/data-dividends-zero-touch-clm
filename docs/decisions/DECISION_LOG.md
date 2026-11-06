@@ -2471,3 +2471,26 @@ Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
 
 Periodic review remains an extension: this provides a way to define such a workflow, not
 an ageing, scheduling or OCDD engine. Q-014 reviewer separation is unchanged.
+
+## D-125 - The RM records the founding statute when confirming Government status (sponsor-requested, project-designed; candidate, Shane to confirm)
+
+Status: sponsor feedback on 2026-11-05 asked that the RM record the legal basis when confirming
+Government status, because that confirmation is what lets the case skip the ownership/UBO
+analysis (MAS Notice 626 para 6.12, D-101). The rule below is project-designed, not
+sponsor-confirmed. Authority: `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL`. Evidence
+class: Local. It amends D-101's Government confirmation only; UEN routing (D-114), the
+government register seed and the extractor labels are unchanged. Number note: D-120 and D-124
+were already taken (#161, #163), so this is D-125.
+
+| # | Decision |
+| --- | --- |
+| G1 | **RM input.** With the confirmation, the case creator keys in the **founding statute** (required, 3 to 200 characters after trimming, no control characters), an optional **section** (up to 40 characters; blank means none) and the **type of body**, `MINISTRY_OR_ORGAN_OF_STATE` or `STATUTORY_BOARD` (required). A missing or invalid value is the usual 422. The extracted Founding Instrument stays on screen so the RM can compare. |
+| G2 | **Check.** After the existing evidence check (one current reviewed document, exact version), the server compares `normalise(statute)` with `normalise(Founding Instrument)`. `normalise` casefolds, removes text in round brackets, turns punctuation into spaces, collapses whitespace, strips, then drops one trailing four-digit year token, so "Monetary Authority of Singapore Act 1970" equals "monetary authority of singapore act". Only exact equality is accepted: no fuzzy or partial matching and no AI. One pure function (`services/government_status.py`) with unit tests. |
+| G3 | **Mismatch.** Anything else is refused with `409 GOVERNMENT_STATUTE_MISMATCH`. Nothing is saved, no event is appended and the CLM record is not refreshed; the screen keeps the RM's inputs and names the document's Founding Instrument. |
+| G4 | **Stored (schema 20).** `GovernmentStatusConfirmation` gains `founding_statute`, `statute_section`, `government_body_type` and `statute_match = MATCHED_AFTER_NORMALISATION`. They are recorded together (a half-recorded statute is refused) and omitted from dumps when absent, so older digests are unchanged. The event code stays `GOVERNMENT_STATUS_CONFIRMED`; its message names the statute and section. The RM-entered statute is **not** part of the evidence fingerprint: the confirmation stays bound to the document version, and a changed document invalidates it as before. |
+| G5 | **Older confirmations.** A schema-19 confirmation (no statute) still loads, unchanged, but no longer counts: the step shows "confirmation required" again and the RM confirms with the statute. `DurableCaseSnapshotV19` and older readers reject the new keys even when null; a schema-19 build rejects schema-20 envelopes. D-117's planned schema moves to the next free version. |
+| G6 | **Body type is RM-asserted, not verified.** It is not inferred from or checked against the UEN entity-type code (GA/GB), because that mapping is not confirmed. |
+| G7 | **Unchanged.** Creator-only, document binding, automation and case-event concurrency, the open hold, and no revision once a target submission exists. The confirmation is still not approval and claims no ACRA verification. |
+
+Follow-ups (not implemented): section-level verification against the document; a GA/GB to
+body-type cross-check once the mapping is confirmed.

@@ -1252,7 +1252,15 @@ export interface GovernmentStatusProjection {
   founding_instrument: string | null;
   confirmed_by_actor_id: string | null;
   confirmed_at: string | null;
+  /** D-125: what the RM keyed in; set only when CONFIRMED (absent from older servers). */
+  founding_statute?: string | null;
+  statute_section?: string | null;
+  government_body_type?: GovernmentBodyType | null;
+  statute_match?: "MATCHED_AFTER_NORMALISATION" | null;
 }
+
+/** D-125: RM-asserted type of Government body (not verified against the UEN). */
+export type GovernmentBodyType = "MINISTRY_OR_ORGAN_OF_STATE" | "STATUTORY_BOARD";
 
 /** D-114: how the backend routed the case's UEN (set by the system from the UEN). */
 export interface UenRouteDecision {

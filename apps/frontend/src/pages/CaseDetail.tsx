@@ -588,6 +588,8 @@ export default function CaseDetail({
     operation: () => Promise<ZeroTouchCaseSummary>,
     label = "Saving case action…",
     effect: "supporting" | "target-confirmation" | "identity-recheck" | "registry-identity" | "manual-ownership" | "policy-rebind" = "supporting",
+    /** True for an error the calling panel already shows inline; the page banner then stays clear. */
+    shownInline?: (mutationError: unknown) => boolean,
   ) {
     let action = captureCaseAction();
     const returnToReview = reviewEdit.current !== null && isCurrentCaseAction(reviewEdit.current);
@@ -631,6 +633,7 @@ export default function CaseDetail({
         await refreshEvidence(action).catch(() => undefined);
       }
       if (!isCurrentCaseAction(action)) return;
+      if (shownInline?.(mutationError)) return;
       setError(mutationError instanceof Error ? mutationError.message : "The case action failed.");
     } finally {
       if (mutationPending.current === action) mutationPending.current = null;
@@ -1620,19 +1623,27 @@ export default function CaseDetail({
               basis={governmentBasis}
               canConfirm={summary.ownership_edit_authorized === true}
               disabled={isBusy || mutationBlocked}
-              onConfirm={() => {
+              onConfirm={async (statute) => {
                 const status = governmentBasis.government_status;
-                if (!status?.document_id || status.document_event_count === null) return;
-                void runMutation(
+                if (!status?.document_id || status.document_event_count === null) return false;
+                let statuteMismatch = false;
+                await runMutation(
                   () => confirmGovernmentStatus(caseId, {
                     document_id: status.document_id!,
                     document_event_count: status.document_event_count!,
                     expected_automation_version: summary.version,
                     expected_case_event_count: summary.case.events.length,
+                    ...statute,
                   }),
                   "Confirming Government status…",
                   "manual-ownership",
+                  // D-125: only a statute mismatch is shown inline (inputs kept) instead of in the page banner.
+                  (confirmError) => {
+                    statuteMismatch = confirmError instanceof ApiError && confirmError.code === "GOVERNMENT_STATUTE_MISMATCH";
+                    return statuteMismatch;
+                  },
                 );
+                return statuteMismatch;
               }}
             />
           </div>

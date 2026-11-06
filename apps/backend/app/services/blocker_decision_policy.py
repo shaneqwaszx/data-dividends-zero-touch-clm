@@ -1163,9 +1163,13 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         "GOVERNMENT_STATUS_REQUIRED hold before target intent/submission; KYC type Government "
         "on the exact GOVERNMENT legal form; one current reviewed document with the founding "
         "instrument, KYC/segment labels and matching identity; exact document version and "
-        "automation/case revisions. Never set automatically or from a label alone.",
-        "No confirmation without current reviewed status evidence; a changed document, "
-        "a stale revision or frozen target state stays blocking.",
+        "automation/case revisions. D-125: the RM keys in the founding statute (optional "
+        "section) and the type of body; the statute must equal the document's founding "
+        "instrument after normalisation (no fuzzy match, no AI). Never set automatically "
+        "or from a label alone.",
+        "No confirmation without current reviewed status evidence; a statute mismatch "
+        "saves nothing; a changed document, a stale revision, frozen target state or a "
+        "pre-D-125 confirmation without a statute stays blocking.",
     ),
     BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION: _local_action(
         BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION,

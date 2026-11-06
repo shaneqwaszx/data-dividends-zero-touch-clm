@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[19] = 19
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[20] = 20
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -910,6 +910,7 @@ class DurableCaseSnapshotV18(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_later_evidence(cls, value: Any) -> Any:
+        reject_government_statute_legacy_fields(value)
         reject_poc_ledger_legacy_fields(value)
         return value
 
@@ -929,12 +930,54 @@ class DurableCaseSnapshotV18(BaseModel):
         return self
 
 
+class DurableCaseSnapshotV19(BaseModel):
+    """Exact schema-19 envelope: the D-120 POC ledger without D-125 statute fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[19] = 19
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_government_statute_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        # From the attributes, not model_dump: a dump would drop backend-only excluded
+        # evidence (for example D-095 document digests).
+        return DurableCaseSnapshot.model_validate(
+            {
+                **{name: getattr(self, name) for name in type(self).model_fields},
+                "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION,
+            }
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV19":
+        _validate_case_bindings(self)
+        return self
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[19] = 19
+    schema_version: Literal[20] = 20
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -1112,6 +1155,23 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
             for item in audit.get("records", ()) or ()
         ):
             raise ValueError("Historical schema cannot contain a D-088 business profile.")
+
+
+_GOVERNMENT_STATUTE_FIELDS = (
+    "founding_statute", "statute_section", "government_body_type", "statute_match",
+)
+
+
+def reject_government_statute_legacy_fields(value: Any) -> None:
+    """Schema <= 19 envelopes cannot carry D-125 founding-statute fields, even if null.
+
+    A schema-19 Government confirmation reads without them, so it no longer counts and the
+    RM must confirm again; the read does not rewrite it.
+    """
+    onboarding = _explicit_fields(_explicit_fields(value).get("onboarding"))
+    confirmation = _explicit_fields(onboarding.get("government_status_confirmation"))
+    if any(name in confirmation for name in _GOVERNMENT_STATUTE_FIELDS):
+        raise ValueError("Historical schema cannot contain a D-125 founding statute.")
 
 
 def reject_poc_ledger_legacy_fields(value: Any) -> None:

@@ -170,9 +170,17 @@ classification-only `demo-government-scanned.pdf` (DEMO GOVERNMENT FYP TEST AUTH
    (MAS Notice 626 para 6.12: confirm it is a Singapore Government entity). It shows the reviewed
    status document and its founding instrument; signatories stay on the document only (not extracted,
    no ownership graph, not sent to GoldTier).
-4. **Confirm Government status** (authenticated RM, version-checked). Without a current reviewed
-   status document, or without this confirmation, the case stays blocked
-   (`GOVERNMENT_STATUS_REQUIRED`). It is never set automatically or from the label alone.
+4. **Confirm Government status** (authenticated RM, version-checked). D-125: first type the
+   **founding statute** as shown on the letter (e.g. "Demo Parks FYP Test Authority Act"), an
+   optional **section** (e.g. "s 3") and choose the **type of body** ("Statutory Board" for Demo
+   Parks). The statute must equal the letter's Founding Instrument after normalisation (case,
+   spacing, punctuation, bracketed text and one trailing year are ignored). "Some Other Act" is
+   refused with a mismatch message and nothing is saved. Once confirmed, the step shows the
+   statute, section, type of body and "Matched to document: Yes". The type of body is the RM's
+   statement, not checked against the UEN. Without a current reviewed status document, or without
+   this confirmation, the case stays blocked (`GOVERNMENT_STATUS_REQUIRED`). It is never set
+   automatically or from the label alone. A confirmation saved before D-125 (no statute) must be
+   confirmed again.
 5. Readiness then completes with ownership evidence "Government status confirmed" and 0 UBO
    candidates; continue with Review & Send as in step 7. A foreign government body is out of scope
    and keeps normal checks.

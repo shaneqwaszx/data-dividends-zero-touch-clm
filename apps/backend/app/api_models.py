@@ -1582,6 +1582,11 @@ class BrowserGovernmentStatus(BaseModel):
     founding_instrument: str | None = None
     confirmed_by_actor_id: str | None = None
     confirmed_at: datetime | None = None
+    # D-125: what the RM keyed in; filled only when CONFIRMED.
+    founding_statute: str | None = None
+    statute_section: str | None = None
+    government_body_type: Literal["MINISTRY_OR_ORGAN_OF_STATE", "STATUTORY_BOARD"] | None = None
+    statute_match: Literal["MATCHED_AFTER_NORMALISATION"] | None = None
 
 
 class BrowserEntityTypeBasis(BaseModel):
@@ -1605,6 +1610,7 @@ def project_entity_type_basis(
         evidence = government_status_evidence(case, documents, confidence_threshold=threshold)
         confirmation = case.government_status_confirmation
         confirmed = government_status_confirmed(case, documents, confidence_threshold=threshold)
+        shown = confirmation if confirmed else None
         return BrowserEntityTypeBasis(
             entity_type="GOVERNMENT",
             label=GOVERNMENT_IDENTITY_LABEL,
@@ -1621,12 +1627,14 @@ def project_entity_type_basis(
                 founding_instrument=(
                     evidence.founding_instrument if evidence is not None else None
                 ),
-                confirmed_by_actor_id=(
-                    confirmation.actor_id if confirmed and confirmation is not None else None
+                confirmed_by_actor_id=shown.actor_id if shown is not None else None,
+                confirmed_at=shown.confirmed_at if shown is not None else None,
+                founding_statute=shown.founding_statute if shown is not None else None,
+                statute_section=shown.statute_section if shown is not None else None,
+                government_body_type=(
+                    shown.government_body_type if shown is not None else None
                 ),
-                confirmed_at=(
-                    confirmation.confirmed_at if confirmed and confirmation is not None else None
-                ),
+                statute_match=shown.statute_match if shown is not None else None,
             ),
         )
     if registry_partner_names(case.registry_acquisition):

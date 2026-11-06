@@ -93,7 +93,11 @@ from app.domain.clm import (
 from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, DocumentProcessingRecord, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
-from app.domain.models import EventOutcome
+from app.domain.models import (
+    GOVERNMENT_STATUTE_PATTERN,
+    EventOutcome,
+    GovernmentBodyType,
+)
 from app.domain.ownership import (
     OwnershipAnalysisState,
     OwnershipCandidate,
@@ -473,6 +477,22 @@ class GovernmentStatusConfirmationRequest(BaseModel):
     document_event_count: int = Field(ge=1)
     expected_automation_version: int = Field(ge=1)
     expected_case_event_count: int = Field(ge=1)
+    # D-125: the RM keys in the legal basis; checked against the document server-side.
+    founding_statute: str = Field(
+        min_length=3, max_length=200, pattern=GOVERNMENT_STATUTE_PATTERN
+    )
+    statute_section: str | None = Field(
+        default=None, max_length=40, pattern=GOVERNMENT_STATUTE_PATTERN
+    )
+    government_body_type: GovernmentBodyType
+
+    @field_validator("founding_statute", "statute_section", mode="before")
+    @classmethod
+    def strip_statute_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
 
 class ManualOwnershipEvidenceRequest(BaseModel):
@@ -2619,6 +2639,9 @@ def create_app(
                 document_event_count=confirmation.document_event_count,
                 expected_automation_version=confirmation.expected_automation_version,
                 expected_case_event_count=confirmation.expected_case_event_count,
+                founding_statute=confirmation.founding_statute,
+                statute_section=confirmation.statute_section,
+                government_body_type=confirmation.government_body_type,
                 reauthorize=build_case_reauthorizer(
                     request, authentication, access_policy, service, case_id,
                     require_creator=True,

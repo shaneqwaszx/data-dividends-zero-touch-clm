@@ -529,7 +529,7 @@ def test_hybrid_records_round_trip_and_older_readers_still_reject_their_fields()
     record = ownership.analyze(case_id=case.case_id)
     assert record.poc_acceptance is None
     encoded = snapshot_of(onboarding, record).model_dump(mode="json")
-    assert encoded["schema_version"] == 19
+    assert encoded["schema_version"] == 20
     # Backend-only: a dump omits the ledger, and its absence fails closed.
     assert DurableCaseSnapshot.model_validate(encoded).ownership == record.model_copy(
         update={"poc_interest_ledger": None}
