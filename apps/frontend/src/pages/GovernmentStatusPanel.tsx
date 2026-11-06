@@ -89,7 +89,7 @@ export default function GovernmentStatusPanel({ basis, canConfirm, disabled, onC
           </label>)}
         </fieldset>
         {mismatch && <p className="ds-banner ds-banner-warn" role="alert">
-          The statute you entered does not match the Founding Instrument on the reviewed document ({status.founding_instrument}). Check the document, or upload a corrected status letter.
+          The statute you entered does not match the Founding Instrument on the reviewed document: "{status.founding_instrument}". Check the document, or upload a corrected status letter.
         </p>}
         <button type="submit" className="btn btn-primary" disabled={disabled || !ready}>Confirm Government status</button>
       </form>

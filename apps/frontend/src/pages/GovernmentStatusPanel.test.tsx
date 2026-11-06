@@ -132,7 +132,7 @@ it("shows the mismatch inline, keeps the inputs, and clears it when the statute 
   await act(async () => confirmButton(view)!.click());
   const alert = view.querySelector('[role="alert"]');
   expect(alert?.textContent).toBe(
-    "The statute you entered does not match the Founding Instrument on the reviewed document (Demo Parks FYP Test Authority Act (fictional FYP test instrument)). Check the document, or upload a corrected status letter.",
+    "The statute you entered does not match the Founding Instrument on the reviewed document: \"Demo Parks FYP Test Authority Act (fictional FYP test instrument)\". Check the document, or upload a corrected status letter.",
   );
   expect(input(view, "founding_statute").value).toBe("Some Other Act");
   expect(input(view, "statute_section").value).toBe("s 3");

@@ -119,7 +119,7 @@ describe("D-125 CaseDetail page banner for a Government statute mismatch", () =>
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(confirm.mock.calls[0][1]).toMatchObject({ founding_statute: "Some Other Act", government_body_type: "STATUTORY_BOARD" });
     const inline = host!.querySelector('section[aria-labelledby="government-status-title"] [role="alert"]');
-    expect(inline?.textContent).toContain(`(${FOUNDING})`);
+    expect(inline?.textContent).toContain(`on the reviewed document: "${FOUNDING}". Check the document`);
     expect(host!.querySelector<HTMLInputElement>('input[name="founding_statute"]')!.value).toBe("Some Other Act");
     expect(pageBanners()).toEqual([]);
     expect(host!.textContent).not.toContain("The statute entered does not match");
