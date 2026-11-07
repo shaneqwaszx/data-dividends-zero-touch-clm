@@ -99,6 +99,7 @@ from app.domain.target_classification import (
     bounded_classification_compatible,
     classification_incompatibility_message,
 )
+from app.domain.target_identity_evidence import TargetIdentityEvidencePolicy
 from app.domain.target_preparation import GoldTierRequestPreview
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
@@ -126,6 +127,8 @@ from app.services.canonical_validation import validate_entity
 from app.services.errors import (
     OnboardingInfrastructureError,
     TargetProviderContextMismatchError,
+    TargetRegistryProvenanceError,
+    TargetWritesDisabledError,
 )
 from app.services.registry_acquisition import (
     RegistryAcquisitionBusyError,
@@ -153,6 +156,11 @@ T = TypeVar("T")
 
 
 _INITIAL_SEARCH_FAILURES: dict[str, tuple[str, int, str]] = {
+    "REGISTRY_PROVENANCE_UNSUPPORTED": (
+        "REGISTRY_PROVENANCE_UNSUPPORTED",
+        409,
+        TargetRegistryProvenanceError.public_message,
+    ),
     "GT_XPI_SEARCH_INVALID": (
         "SEARCH_REQUEST_REJECTED",
         400,
@@ -422,7 +430,9 @@ class OnboardingService:
         policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
         goldtier_mapper: GoldTierRequestMapper | None = None,
         entity_resolver: EntityResolver | None = None,
+        target_identity_policy: TargetIdentityEvidencePolicy | None = None,
     ) -> None:
+        self._target_identity_policy = target_identity_policy
         if registry_router is None:
             if acra is None:
                 raise ValueError("Onboarding service requires a registry provider router")
@@ -464,6 +474,46 @@ class OnboardingService:
     def target_provider_mode(self) -> GoldTierProviderMode:
         return self._goldtier_mapper.environment
 
+    @property
+    def target_writes_enabled(self) -> bool:
+        """False only for a target that refuses mutations; Search stays available."""
+        return bool(getattr(self._goldtier, "writes_enabled", True))
+
+    def _require_target_writes(self) -> None:
+        """Stop before the ledger marks an attempt, so a refused write burns nothing."""
+        if not self.target_writes_enabled:
+            raise TargetWritesDisabledError
+
+    def _holds_accepted_identity(self, case: OnboardingCase) -> bool:
+        """The canonical identity must still be what the accepted source itself returned."""
+        policy = self._target_identity_policy
+        if policy is None:
+            return True
+        entity = case.entity
+        acquired = (
+            case.registry_acquisition.entity_profile
+            if case.registry_acquisition is not None
+            else None
+        )
+        return (
+            entity is not None
+            and acquired is not None
+            and policy.accepts(entity)
+            and policy.accepts(acquired)
+            and entity.legal_name == acquired.legal_name
+            and entity.registration_number == acquired.registration_number
+            and entity.country_of_incorporation == acquired.country_of_incorporation
+        )
+
+    def target_registry_evidence_refused(self, case: OnboardingCase) -> bool:
+        """True when this case holds identity evidence the target does not accept."""
+        return case.entity is not None and not self._holds_accepted_identity(case)
+
+    def _require_target_registry_provenance(self, case: OnboardingCase) -> None:
+        """Where a policy applies, nothing reaches the target without accepted evidence."""
+        if not self._holds_accepted_identity(case):
+            raise TargetRegistryProvenanceError
+
 
     def _find_verified_target_case(
         self,
@@ -481,6 +531,12 @@ class OnboardingService:
             country_of_incorporation=country_of_incorporation,
             party_id=party_id,
         )
+        if (
+            prior is not None
+            and self._target_identity_policy is not None
+            and not self._holds_accepted_identity(prior)
+        ):
+            return None
         if prior is None or self.target_provider_mode != GoldTierProviderMode.MOCK:
             return prior
         if (
@@ -1109,6 +1165,12 @@ class OnboardingService:
         identity: InitialCustomerIdentity,
         request_id: UUID,
     ) -> tuple[InitialGoldTierSearchEvidence, OnboardingCase | None]:
+        if self._target_identity_policy is not None and case.entity is not None:
+            # Typed values are unverified: a recheck searches the accepted identity only.
+            identity = identity.model_copy(update={
+                "legal_name": case.entity.legal_name,
+                "country_of_incorporation": case.entity.country_of_incorporation,
+            })
         request = (
             XpiCustomerSearchRequest(
                 legal_name=identity.legal_name,
@@ -1118,6 +1180,7 @@ class OnboardingService:
             else SearchPartyRequest(registration_number=identity.registration_number)
         )
         try:
+            self._require_target_registry_provenance(case)
             result = validate_search_response(
                 self._goldtier.search_party(
                     request,
@@ -1128,6 +1191,8 @@ class OnboardingService:
                     ),
                 )
             )
+        except TargetRegistryProvenanceError:
+            result = _initial_search_failure("REGISTRY_PROVENANCE_UNSUPPORTED")
         except ConnectorError as exc:
             result = _initial_search_failure(
                 exc.code, status_code=observed_goldtier_xpi_search_status(exc)
@@ -1644,6 +1709,13 @@ class OnboardingService:
 
         if self.target_provider_mode != GoldTierProviderMode.SANDBOX:
             raise ValueError("GoldTier sandbox Search is not configured")
+        if self._target_identity_policy is not None and (
+            request.goldtier_id is None
+            or request.legal_name is not None
+            or request.group_company_name is not None
+        ):
+            # Typed names are unverified identity. An exact target ID is an HR-only lookup.
+            raise TargetRegistryProvenanceError
         result = validate_search_response(
             self._goldtier.search_party(
                 request,
@@ -1832,7 +1904,9 @@ class OnboardingService:
             create=True,
         )
 
-        if legal_name is not None:
+        # Under an identity policy the typed name is unverified, so it is never sent. The
+        # target Search then runs on the accepted registry identity, once that exists.
+        if legal_name is not None and self._target_identity_policy is None:
             if explicit_jurisdiction is None:
                 return self._terminate(
                     case,
@@ -2553,6 +2627,7 @@ class OnboardingService:
             case = self._repository.get(case_id)
             if case is None or case.entity is None or validate_entity(case.entity):
                 raise ValueError("Canonical registry identity is not ready for target Search")
+            self._require_target_registry_provenance(case)
             search_input = self.build_submission_input(
                 case,
                 submission_id=request_id,
@@ -2697,6 +2772,8 @@ class OnboardingService:
             if not self.has_valid_target_dispatch_confirmation(case):
                 raise ValueError("Target dispatch requires a current frozen-review confirmation")
 
+            self._require_target_registry_provenance(case)
+            self._require_target_writes()
             self._start_execution(submission_input)
             outcome_uncertain = False
             try:
@@ -2813,8 +2890,11 @@ class OnboardingService:
             if not self.has_valid_target_dispatch_confirmation(case):
                 raise ValueError("Target dispatch requires a current frozen-review confirmation")
 
+            self._require_target_registry_provenance(case)
             entry = self._stored_execution_entry(submission_input)
             if entry is None:
+                if search_resolution == GoldTierSearchResolution.NO_MATCH:
+                    self._require_target_writes()
                 self._start_incremental_execution(
                     submission_input,
                     search_resolution=search_resolution,
@@ -2939,6 +3019,7 @@ class OnboardingService:
         submission_input: GoldTierSubmissionInput,
         entry: GoldTierExecutionLedgerEntry,
     ) -> GoldTierExecutionReceipt | None:
+        self._require_target_writes()
         request = self._goldtier_mapper.build_shell_request(submission_input)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.SHELL)
         try:
@@ -3023,6 +3104,7 @@ class OnboardingService:
         entry: GoldTierExecutionLedgerEntry,
         party_id: str,
     ) -> GoldTierExecutionReceipt | None:
+        self._require_target_writes()
         request = self._goldtier_mapper.build_policy_request(submission_input, party_id)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.POLICY)
         try:
@@ -3141,6 +3223,7 @@ class OnboardingService:
                 "AMEND_NOT_REQUIRED",
             )
             return None
+        self._require_target_writes()
         request = self._goldtier_mapper.build_amend_request(submission_input, party_id)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
         try:
@@ -3994,6 +4077,11 @@ class OnboardingService:
                 or case.entity.legal_name is None or case.entity.country_of_incorporation is None
             ):
                 raise ValueError("Recovery requires the owning canonical case identity")
+            if (
+                submission_input.provider_mode != GoldTierProviderMode.SANDBOX
+                or self.target_registry_evidence_refused(case)
+            ):
+                raise ValueError("Recovery requires accepted Sandbox submission evidence")
             expected = submission_input.canonical_entity
 
             def normalized(value: str) -> str:
@@ -4190,6 +4278,11 @@ class OnboardingService:
             case = self._repository.get(submission_input.case_id)
             if case is None or case.entity is None:
                 raise ValueError("Recovery requires the owning canonical case identity")
+            if (
+                submission_input.provider_mode != GoldTierProviderMode.SANDBOX
+                or self.target_registry_evidence_refused(case)
+            ):
+                raise ValueError("Recovery requires accepted Sandbox submission evidence")
             expected = submission_input.canonical_entity
 
             def normalized(value: str) -> str:

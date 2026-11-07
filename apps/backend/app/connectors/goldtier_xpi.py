@@ -412,6 +412,10 @@ class GoldTierXpiSandboxConnector:
         self._connection = connection
         self._transport = transport or HttpxGoldTierXpiTransport()
 
+    @property
+    def writes_enabled(self) -> bool:
+        return self._connection.allow_writes
+
     def _request(
         self,
         method: Literal["GET", "POST"],

@@ -285,6 +285,9 @@ class Settings(BaseSettings):
             }
             if len(collections) != 5:
                 raise ValueError("registry cache collection must be distinct")
+        # Staging Sandbox is read-only until a reviewed write qualification lifts this.
+        if self.app_env == "staging" and self.goldtier_sandbox_allow_writes:
+            raise ValueError("staging does not permit GoldTier sandbox writes")
         if self.goldtier_connector_mode == "sandbox":
             parsed = urlsplit(self.goldtier_sandbox_base_url)
             valid_base = (
@@ -305,7 +308,7 @@ class Settings(BaseSettings):
                 self.app_env == "production"
                 or not valid_base
                 or not self.goldtier_sandbox_environment
-                or not user_id
+                or not user_id.strip()
                 or len(user_id) > 160
                 or any(ord(character) < 32 for character in user_id)
             ):

@@ -77,6 +77,8 @@ from app.services.document_processing import (
 from app.services.errors import (
     OnboardingInfrastructureError,
     TargetProviderContextMismatchError,
+    TargetRegistryProvenanceError,
+    TargetWritesDisabledError,
 )
 from app.services.government_status import (
     government_profile_applies,
@@ -357,7 +359,7 @@ class ClmOrchestrationService:
             candidate.readiness = readiness
             candidate.status = _status_for_readiness(case, readiness)
             candidate.error = None
-            return self._record_event(
+            saved = self._record_event(
                 record,
                 candidate,
                 event_type=(
@@ -377,6 +379,7 @@ class ClmOrchestrationService:
                 code=checkpoint.code,
                 message=checkpoint.message,
             )
+            return self._void_refused_target_search(saved, case)
 
     def existing_confirmation_is_current(self, *, case_id: UUID) -> bool:
         record = self._require_record(case_id)
@@ -395,6 +398,7 @@ class ClmOrchestrationService:
         with self._lock_for(case_id):
             record = self._require_record(case_id)
             case = self._require_case(case_id)
+            self._refuse_unsupported_registry_evidence(case)
             checkpoint = record.target_search_checkpoint
             if (
                 record.version != expected_clm_version
@@ -469,6 +473,7 @@ class ClmOrchestrationService:
                 != _target_identity_fingerprint(case)
             ):
                 record = self._perform_early_search(record, case)
+            record = self._void_refused_target_search(record, case)
             readiness = self._evaluate_current(
                 case, search_checkpoint=record.target_search_checkpoint
             )
@@ -529,6 +534,15 @@ class ClmOrchestrationService:
                     message="Current classification evidence requires review before confirmation.",
                 )
             existing_confirmation = case.target_dispatch_confirmation
+            self._refuse_unsupported_registry_evidence(case)
+            if not self._cases.target_writes_enabled and not any(
+                operation in {"SHELL", "POLICY", "AMEND"}
+                for operation in self.attempted_target_operations(case_id=case_id)
+            ):
+                raise ClmRequestError(
+                    code="CLM_TARGET_WRITES_DISABLED",
+                    message=TargetWritesDisabledError.public_message,
+                )
             if existing_confirmation is None and record.submission_snapshot is None:
                 previous_search = record.target_search_checkpoint
                 # A creator-confirmed retained request remains the identity evidence
@@ -656,6 +670,11 @@ class ClmOrchestrationService:
                     code="CLM_TARGET_CONFIRMATION_REQUIRED",
                     message="A current frozen-review confirmation is required.",
                 )
+            if before_first_write and not self._cases.target_writes_enabled:
+                raise ClmRequestError(
+                    code="CLM_TARGET_WRITES_DISABLED",
+                    message=TargetWritesDisabledError.public_message,
+                )
             if before_first_write and not self._poc_authority_is_current(record):
                 # D-082 F6: a review frozen on a POC acceptance needs that authority at the
                 # first irreversible write; recovery of an attempted write is unaffected.
@@ -729,6 +748,16 @@ class ClmOrchestrationService:
                     except TargetProviderContextMismatchError as exc:
                         raise ClmRequestError(
                             code="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH",
+                            message=exc.public_message,
+                        ) from None
+                    except TargetWritesDisabledError as exc:
+                        raise ClmRequestError(
+                            code="CLM_TARGET_WRITES_DISABLED",
+                            message=exc.public_message,
+                        ) from None
+                    except TargetRegistryProvenanceError as exc:
+                        raise ClmRequestError(
+                            code="CLM_TARGET_REGISTRY_PROVENANCE_UNSUPPORTED",
                             message=exc.public_message,
                         ) from None
                     except Exception:
@@ -1193,7 +1222,7 @@ class ClmOrchestrationService:
             and saved.target_search_checkpoint is None
         ):
             return self._perform_early_search(saved, case)
-        return saved
+        return self._void_refused_target_search(saved, case)
 
     def _open_review_warning(self, record: ClmOrchestrationRecord) -> tuple[str, ...]:
         # D-124: the confirmation states that the ownership review was still open.
@@ -1258,6 +1287,15 @@ class ClmOrchestrationService:
                 searched_at=searched_at,
                 code="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH",
                 message="Configured GoldTier provider identity does not match this case.",
+            )
+        except TargetRegistryProvenanceError as exc:
+            return self._record_search_failure(
+                started,
+                request_id=request_id,
+                identity_fingerprint=identity_fingerprint,
+                searched_at=searched_at,
+                code="CLM_TARGET_REGISTRY_PROVENANCE_UNSUPPORTED",
+                message=exc.public_message,
             )
         except InvalidTargetResponseError:
             return self._record_search_failure(
@@ -1413,6 +1451,33 @@ class ClmOrchestrationService:
             message=message,
         )
 
+    def _refuse_unsupported_registry_evidence(self, case: OnboardingCase) -> None:
+        if self._cases.target_registry_evidence_refused(case):
+            raise ClmRequestError(
+                code="CLM_TARGET_REGISTRY_PROVENANCE_UNSUPPORTED",
+                message=TargetRegistryProvenanceError.public_message,
+            )
+
+    def _void_refused_target_search(
+        self, record: ClmOrchestrationRecord, case: OnboardingCase
+    ) -> ClmOrchestrationRecord:
+        """A Search made before registry evidence arrived cannot stand on refused evidence."""
+        checkpoint = record.target_search_checkpoint
+        if (
+            checkpoint is None
+            or checkpoint.status == GoldTierSearchCheckpointStatus.FAILED
+            or not self._cases.target_registry_evidence_refused(case)
+        ):
+            return record
+        return self._record_search_failure(
+            record,
+            request_id=checkpoint.request_id,
+            identity_fingerprint=checkpoint.identity_fingerprint,
+            searched_at=self._clock(),
+            code="CLM_TARGET_REGISTRY_PROVENANCE_UNSUPPORTED",
+            message=TargetRegistryProvenanceError.public_message,
+        )
+
     def _evaluate_current(
         self,
         case: OnboardingCase,
@@ -1420,6 +1485,14 @@ class ClmOrchestrationService:
         search_checkpoint: GoldTierSearchCheckpoint | None = None,
         now: datetime | None = None,
     ) -> ClmReadinessAssessment:
+        if search_checkpoint is not None and self._cases.target_registry_evidence_refused(case):
+            search_checkpoint = search_checkpoint.model_copy(
+                update={
+                    "status": GoldTierSearchCheckpointStatus.FAILED,
+                    "disposition": GoldTierSearchDisposition.FAILED,
+                    "selected_party_id": None,
+                }
+            )
         documents = [
             item
             for item in self._documents.list_documents(case_id=case.case_id)
