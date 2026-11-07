@@ -1278,6 +1278,7 @@ class OwnershipAnalysisService:
         hybrid_overlay: HybridOwnershipOverlayCatalogue | None = None,
         poc_acceptance_enabled: bool = False,
         ubo_review_advisory: bool = False,
+        official_registry_source_prefix: str | None = None,
         max_parties: int,
         max_relationships: int,
         max_depth: int,
@@ -1314,6 +1315,7 @@ class OwnershipAnalysisService:
         self._hybrid_overlay = hybrid_overlay
         self._poc_acceptance_enabled = poc_acceptance_enabled
         self._ubo_review_advisory = ubo_review_advisory
+        self._official_registry_source_prefix = official_registry_source_prefix
         self.threshold_percent = validated_threshold
         self.max_parties = max_parties
         self.max_relationships = max_relationships
@@ -1339,7 +1341,7 @@ class OwnershipAnalysisService:
 
         # O1: a scenario analysis needs this composition's overlay; any other official Mock
         # analysis is judged by the code-level evidence rule alone.
-        if not self._poc_acceptance_enabled:
+        if not self._poc_acceptance_enabled or not self._on_required_registry_lane(record):
             return False
         return self._current_for_readiness(record) and poc_acceptance_current(
             record, self._poc_scenario(record)
@@ -1354,6 +1356,7 @@ class OwnershipAnalysisService:
         return (
             self._ubo_review_advisory
             and record.state == OwnershipAnalysisState.REVIEW_REQUIRED
+            and self._on_required_registry_lane(record)
             and self._current_for_readiness(record)
         )
 
@@ -1361,6 +1364,19 @@ class OwnershipAnalysisService:
         """Readiness only: a review that does not hold the case. Never shown as accepted."""
 
         return self.poc_basis_accepted(record) or self.review_is_advisory(record)
+
+    def _on_required_registry_lane(self, record: OwnershipAnalysisRecord) -> bool:
+        """True when no lane is required, or the case identity came from that lane."""
+
+        prefix = self._official_registry_source_prefix
+        if prefix is None:
+            return True
+        parent = self._cases.get_case(record.case_id)
+        return (
+            parent is not None
+            and parent.entity is not None
+            and parent.entity.source.registry_source_link.startswith(prefix)
+        )
 
     def _current_for_readiness(self, record: OwnershipAnalysisRecord) -> bool:
         parent = self._cases.get_case(record.case_id)
@@ -2368,7 +2384,7 @@ class OwnershipAnalysisService:
                         accepted_at=record.analyzed_at,
                         ownership_version=record.version + 1,
                     )
-                    if self._poc_acceptance_enabled
+                    if self._poc_acceptance_enabled and self._on_required_registry_lane(record)
                     else None
                 )
                 record = self._record(
