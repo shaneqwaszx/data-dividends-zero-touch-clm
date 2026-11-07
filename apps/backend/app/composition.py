@@ -67,6 +67,10 @@ from app.domain.models import (
 from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.policy import CasePolicySnapshot
 from app.domain.registry_dataset import local_synthetic_registry_identity
+from app.domain.target_identity_evidence import (
+    AcceptedIdentitySource,
+    TargetIdentityEvidencePolicy,
+)
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
 from app.services.acra_diagnostics import (
@@ -115,6 +119,19 @@ from app.services.zero_touch_provider_bindings import (
 from app.services.zero_touch_repository import (
     InMemoryZeroTouchAutomationRepository,
     ZeroTouchAutomationRepository,
+)
+
+# The reviewed sources GoldTier Sandbox accepts in shared staging. This is the only source
+# reviewed today, not an authority for every legal-entity type: another source joins through
+# its own reviewed provider contract. Government identities have none yet.
+STAGING_SANDBOX_IDENTITY_POLICY = TargetIdentityEvidencePolicy(
+    accepted_sources=(
+        AcceptedIdentitySource(
+            source_system=SourceSystem.ACRA,
+            environment=SourceEnvironment.MOCK,
+            reference_prefix=f"{ACRA_API_MARKETPLACE_MOCK_BASE_URL}/",
+        ),
+    )
 )
 
 
@@ -175,6 +192,13 @@ def build_onboarding_service(
                 local_synthetic_registry_identity()
                 if active_settings.app_env != "production" else None
             ),
+            # Staging's official lane acquires only from the provider: a seeded corporate
+            # holder would otherwise merge into official evidence unmarked. The Government
+            # register keeps its own labelled route.
+            read_seed_for_provider_lanes=not (
+                active_settings.app_env == "staging"
+                and active_settings.acra_connector_mode == "api_marketplace_mock"
+            ),
         )
     goldtier: GoldTierConnector
     goldtier_mapper: GoldTierRequestMapper
@@ -212,6 +236,12 @@ def build_onboarding_service(
         goldtier=goldtier,
         goldtier_mapper=goldtier_mapper,
         entity_resolver=entity_resolver,
+        target_identity_policy=(
+            STAGING_SANDBOX_IDENTITY_POLICY
+            if active_settings.app_env == "staging"
+            and active_settings.goldtier_connector_mode == "sandbox"
+            else None
+        ),
         repository=repository or InMemoryOnboardingCaseRepository(),
         target_finalization_fault=target_finalization_fault,
         target_execution_repository=target_execution_repository,
@@ -404,6 +434,13 @@ def build_ownership_analysis_service(
             else None
         ),
         poc_acceptance_enabled=poc_acceptance,
+        # Shared staging can retain cases from an earlier local Mock lane. The official
+        # lane's review allowances need an official root; seeds are refused at acquisition.
+        official_registry_source_prefix=(
+            f"{ACRA_API_MARKETPLACE_MOCK_BASE_URL}/"
+            if official_lane and settings.app_env == "staging"
+            else None
+        ),
         ubo_review_advisory=(
             official_lane
             # D-124: GoldTier Sandbox is the standing POC lane. Any other target never qualifies.

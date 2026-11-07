@@ -41,6 +41,7 @@ from app.domain.target_submission import (
     SubmissionRegisteredAddress,
 )
 from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
+from app.services.errors import TargetRegistryProvenanceError
 from app.services.onboarding import OnboardingService
 from app.services.target_response_validation import InvalidTargetResponseError
 
@@ -256,6 +257,10 @@ def build_provider_sandbox_router(
 
         try:
             evidence = onboarding.search_sandbox_target(criteria, correlation_id=correlation_id)
+        except TargetRegistryProvenanceError as exc:
+            record("SEARCH", "BLOCKED", "GOLDTIER_SANDBOX_SEARCH_IDENTITY_UNVERIFIED")
+            _raise_conflict("GOLDTIER_SANDBOX_SEARCH_IDENTITY_UNVERIFIED", exc.public_message)
+            raise
         except ConnectorError as exc:
             public = public_goldtier_xpi_search_error(exc)
             observed = (

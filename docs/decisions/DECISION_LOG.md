@@ -2512,3 +2512,31 @@ were already taken (#161, #163), so this is D-125.
 
 Follow-ups (not implemented): section-level verification against the document; a GA/GB to
 body-type cross-check once the mapping is confirmed.
+
+## D-126 - AWS staging provider lanes: evidence-bound GoldTier Sandbox access, read-only by default (OWNER-DIRECTED 2026-11-07)
+
+Number note: D-126 was free on 2026-11-07 on `origin/main` (2698ea4, after #170), every remote
+branch, every local branch and the open PRs. #170 shipped the ACRA parts of P4 to P6: the
+Marketplace credential check, provider acquisition without local seeds, and the official-root
+allowances. Everything else ships with this record.
+
+Status: owner-directed on 2026-11-07 for the AWS staging integration. Authority:
+`USER_AUTHORIZED_POC`. Evidence classes: GoldTier Sandbox `SANDBOX_PARTIAL`, ACRA Marketplace Mock
+`MOCK`. Not sponsor-confirmed. No provider classification changes. D-121, D-124 and D-125
+are unchanged, except that P4 limits the staging official lane.
+
+| # | Decision |
+| --- | --- |
+| P1 | **Read-only Sandbox in staging.** `GOLDTIER_SANDBOX_ALLOW_WRITES=true` is refused at startup when `APP_ENV=staging`. With writes off, Final Review & Send is refused with `CLM_TARGET_WRITES_DISABLED` before the ledger marks any attempt and before the case changes. If writes are switched off after some steps, the next mutation is refused, automation pauses in `RECOVERY_PENDING`, and the same submission continues once writes return. Writes need a separately reviewed write qualification. |
+| P2 | **Evidence-bound Sandbox access.** In staging with GoldTier Sandbox, no Sandbox request is made unless the case holds identity evidence from an accepted source: Search, recheck, existing-customer confirmation, Send, and provider-verified Shell and Policy recovery are all covered. A typed name is unverified and is never sent; Search uses the accepted registry identity. The HR console accepts only an exact GoldTier ID. Refusals record `CLM_TARGET_REGISTRY_PROVENANCE_UNSUPPORTED` (or `REGISTRY_PROVENANCE_UNSUPPORTED` on a recheck); the HR console returns `GOLDTIER_SANDBOX_SEARCH_IDENTITY_UNVERIFIED`. |
+| P3 | **Provenance, not entity type.** `TargetIdentityEvidencePolicy` lists reviewed sources by provider, environment and reference boundary, and an empty list accepts nothing. The case's name, UEN and country must still equal what the source returned, so an edited identity loses acceptance. Today only the official ACRA Marketplace Mock is listed; it is not the authority for every legal-entity type. A future source joins through its own reviewed provider contract. No entity type, UEN, case or company name is hard-coded. |
+| P4 | **Government and seeded identities.** Neither is excluded as a category. Both are local synthetic evidence, have no accepted source, and so reach no Sandbox operation in staging. They are never promoted to official provenance. On the staging official lane, provider acquisition reads no local seeds. The Government register keeps its own labelled route. Local Mock onboarding and Mock GoldTier keep working for both. |
+| P5 | **Official-lane allowances need an official root.** In staging, D-121's advisory review and the POC acceptance apply only to cases whose identity is official Marketplace Mock evidence. A case retained from the local Mock lane keeps its review blocking. |
+| P6 | **Startup.** Staging on `api_marketplace_mock` requires both Marketplace credentials. A blank or whitespace `GOLDTIER_SANDBOX_USER_ID` is refused. ACRA and GoldTier modes stay independently selectable, and both default to Mock. |
+| P7 | **Recheck outcomes.** A same-identity recheck whose Search fails ends in a recoverable technical failure at GoldTier Search. One that ends in review waits for review. Neither raises a rejected transition or creates a ledger entry. |
+| P8 | **Unchanged.** The target ledger, no-replay and recovery, existing-customer confirmation, RM confirmation, TLS 1.3 verification and backend-only credentials. The AI Assistant is not restricted by these controls. |
+
+Open before any write qualification: paused-state wording; Sandbox prior-case ledger proof; the
+stale `initial_target_search` read model after a void; whether `check_uncertain_target_status` and
+`verify_completed_target` keep a deliberate recovery exception; an approved way to populate the
+Government register in staging.

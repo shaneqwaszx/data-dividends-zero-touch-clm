@@ -147,3 +147,42 @@ captured.
 This is `MOCK_INTEROPERABILITY_OBSERVED` only, not a Live or production observation. It
 supplies no share-class economic or control rule, and no denominator authority. Q-012
 remains open.
+
+## AWS staging readiness
+
+Offline preparation only: no genuine call was made, and this adds no interoperability
+evidence. The lane stays `MOCK`, not Sandbox or Live. The decision record is D-126.
+
+The three lanes stay distinct:
+
+| Lane | Mode | Evidence reference | Staging |
+|---|---|---|---|
+| Local synthetic Mock | `mock` | `https://mock.acra.gov.sg/...` or `local-synthetic:...` | Default |
+| Official Marketplace Mock | `api_marketplace_mock` | `https://api-sandbox.bizfile.gov.sg/api/acra/...` | Opt-in, after the release change to `deploy/compose.yml`, which pins `mock` today |
+| Generic Sandbox or Live | `sandbox`, none | None observed | Refused or unavailable |
+
+The Mock host name contains `sandbox`. It is the official Mock, not an ACRA Sandbox.
+
+Staging behaviour on the official lane:
+
+- Both credentials are required at startup. They are backend-only secrets, and a rejected
+  start reports only `Invalid staging configuration`.
+- POC acceptance and the advisory UBO review (D-121) apply only to cases whose identity is
+  official Mock evidence. A case retained from the local Mock lane gets neither, so its
+  review keeps blocking. A retained case with no review open is not affected, and the
+  runtime label describes the running lane, not each retained case.
+- Provider acquisition reads no local seeds, for root or corporate holders. Elsewhere this
+  lane reads the seed namespace first, so a seeded holder would merge unmarked. The
+  Government register keeps its own labelled route and is not promoted to official
+  provenance. The seeder refuses `clm_staging`, so nothing populates that register there
+  today, and a Government UEN stops at `GOVERNMENT_IDENTITY_NOT_FOUND` on both staging
+  lanes. Government in staging needs an approved way to populate it.
+- Registry cache keys stay isolated by dataset namespace.
+- `GARDEN_SUPPLEMENT_ENABLED` and the hybrid overlay stay off by default. Both add labelled
+  local synthetic evidence, so leave them unset unless the owner decides otherwise.
+
+Known limits are unchanged. Sample UEN coverage is small and Garden shareholders are
+empty. The Mock supplies no same-entity denominator, no percentage and no relationship or
+control data. Missing ownership stays missing and goes to review. Q-012 remains open for
+error schemas, rate and retry guidance, any network allowlist, and all Sandbox and
+Production contracts.

@@ -46,7 +46,7 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `GOLDTIER_SANDBOX_USER_ID` | backend-only secret | empty | Supplied `user_id` header value; never returned, logged, or exposed to the browser |
 | `GOLDTIER_SANDBOX_TIMEOUT_SECONDS` | security | `10` | Per-request timeout, bounded to 30 seconds |
 | `GOLDTIER_SANDBOX_MAX_RESPONSE_BYTES` | security | `131072` | Maximum retained response body, bounded to 1 MiB |
-| `GOLDTIER_SANDBOX_ALLOW_WRITES` | safety | `false` | Separate opt-in for customer mutations; false still permits bounded search diagnostics |
+| `GOLDTIER_SANDBOX_ALLOW_WRITES` | safety | `false` | Separate opt-in for customer mutations; false still permits bounded search diagnostics. `true` is refused in `APP_ENV=staging`; see [AWS readiness](GOLDTIER_SANDBOX_AWS_READINESS.md) |
 | `IDP_CONNECTOR_MODE` | local POC | `local_pdf_text` | `local_pdf_text` for the normal sponsor PDF path; `mock` only for developer/test fault injection |
 | `OWNERSHIP_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
 | `IDP_MAX_UPLOAD_BYTES` | security | `5242880` | POC upload bound, max configurable 20 MiB |
@@ -84,6 +84,9 @@ Bearer is not used. Fixed entity-basic and shareholder operations have bounded o
 Mock interoperability; Garden shareholder evidence is empty and no percentage is
 derived. The generic `ACRA_*` sandbox URL/path/header fields are not consulted or used as
 fallbacks. Q-012 remains open, and the lane is never labelled Sandbox or Live.
+
+In `APP_ENV=staging` the backend refuses to start on this lane unless both credentials
+are non-blank. See [Marketplace Mock readiness](ACRA_API_MARKETPLACE_MOCK_READINESS.md).
 
 ## Script-only smoke settings
 
