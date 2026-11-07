@@ -48,6 +48,8 @@ import {
 } from "./caseQueries";
 import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
+import SampleCaseDetail from "./pages/SampleCaseDetail";
+import { sampleCaseIdFromUrlId } from "./pages/mockDashboards/onboardingSample";
 import AiAssistantPanel from "./pages/AiAssistantPanel";
 import { aiAssistantContextFor } from "./pages/aiAssistantContext";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
@@ -2374,7 +2376,9 @@ export default function App({
               onPresentationChange={setCaseQueuePresentation}
             />
           )}
-          caseDetail={(caseId) => (
+          caseDetail={(caseId) => sampleCaseIdFromUrlId(caseId) ? (
+            <SampleCaseDetail sampleCaseId={sampleCaseIdFromUrlId(caseId)!} actor={actor} />
+          ) : (
             <CaseDetail
               caseId={caseId}
               actor={actor}

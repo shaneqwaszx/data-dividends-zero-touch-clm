@@ -12,6 +12,7 @@ import {
 import type { AuthenticatedProfile, Capability } from "./types";
 import { workflowManagerEnabled } from "./workflowFlags";
 import { WorkflowTabLinks } from "./pages/WorkflowTab";
+import { sampleCaseUrlId } from "./pages/mockDashboards/onboardingSample";
 
 export const routePatterns = {
   root: "/",
@@ -60,6 +61,11 @@ export const paths = {
   retainedIntake: (caseId: string) => buildCasePath(routePatterns.newOnboarding, caseId),
   cases: routePatterns.cases,
   caseDetail: (caseId: string) => buildCasePath(routePatterns.cases, caseId),
+  /** Read-only case page for a fixed dashboard sample case such as `sample-0041`. */
+  sampleCaseDetail: (sampleCaseId: string) => {
+    const urlId = sampleCaseUrlId(sampleCaseId);
+    return urlId ? buildCasePath(routePatterns.cases, urlId) : routePatterns.cases;
+  },
   audit: routePatterns.audit,
   auditCase: (caseId: string) => buildCasePath(routePatterns.audit, caseId),
   policy: routePatterns.policy,

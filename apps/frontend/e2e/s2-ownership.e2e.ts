@@ -166,7 +166,8 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   expect((await summary(page, caseId)).version).toBe(blocked.version);
   expect((await ownership(page, caseId)).analysis_id).toBe(incomplete.analysis_id);
   await focusPipelineAction(page, "OWNERSHIP_UBO", page.locator('#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))').first());
-  await expect(form.getByLabel("As-of date")).toHaveValue("2026-10-04");
+  // A new declaration defaults to today after reload (D-121); the retained date is not reused.
+  await expect(form.getByLabel("As-of date")).toHaveValue(singaporeToday);
   await form.getByRole("button", { name: "Add owner", exact: true }).click();
   await form.getByLabel("Owner name", { exact: true }).nth(1).fill("Synthetic corrected ultimate owner");
   await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");

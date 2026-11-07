@@ -4,7 +4,7 @@ import { Link } from "react-router";
 
 import DirectorTeamFilter from "./DirectorTeamFilter";
 import { MockCategoryCards } from "./mockDashboards/MockDashboards";
-import { MOCK_WEEKLY_ONBOARDED } from "./mockDashboards/mockDashboardData";
+import { isSampleCaseId, sampleCaseCount, withOnboardingSample } from "./mockDashboards/onboardingSample";
 import type { DashboardDateRange } from "../api";
 import { activityQueryOptions, dashboardQueryOptions } from "../caseQueries";
 import { paths } from "../navigation";
@@ -21,7 +21,7 @@ import type {
 } from "../types";
 import { BUSINESS_EXCEPTION_TYPE_LABELS } from "../types";
 
-const STAGE_LABELS: Record<AutomationStage, string> = {
+export const STAGE_LABELS: Record<AutomationStage, string> = {
   REGISTRY: "Registry verification",
   GOLDTIER_SEARCH: "Existing-customer search",
   DOCUMENT: "Document verification",
@@ -31,7 +31,7 @@ const STAGE_LABELS: Record<AutomationStage, string> = {
   COMPLETE: "Complete",
 };
 
-const JURISDICTION_LABELS: Record<JurisdictionCode, string> = {
+export const JURISDICTION_LABELS: Record<JurisdictionCode, string> = {
   SG: "Singapore",
   AU: "Australia",
   MY: "Malaysia",
@@ -261,7 +261,7 @@ function StageTimingTable({ stageTiming }: { stageTiming: DashboardStageTiming[]
   );
 }
 
-function WeeklyOnboardedChart({ weeks }: { weeks: DashboardSnapshot["weekly_onboarded"] }) {
+function WeeklyOnboardedChart({ weeks, includesSample }: { weeks: DashboardSnapshot["weekly_onboarded"]; includesSample: boolean }) {
   const totals = weeks.map((week) => Object.values(week.by_jurisdiction).reduce((sum, count) => sum + (count ?? 0), 0) + week.unresolved_count);
   const max = Math.max(1, ...totals);
   const jurisdictionsPresent = Array.from(
@@ -272,7 +272,7 @@ function WeeklyOnboardedChart({ weeks }: { weeks: DashboardSnapshot["weekly_onbo
   return (
     <article className="card" style={{ flex: 1.25 }}>
       <div className="row-between">
-        <h2>Onboarded per week <span className="tag tag-neutral" style={{ marginLeft: 8, verticalAlign: "middle" }}>Mock data</span></h2>
+        <h2>Onboarded per week</h2>
         <span className="weekly-chart-legend">
           {jurisdictionsPresent.map((code) => <span key={code}><span className="weekly-chart-swatch" style={{ background: JURISDICTION_COLORS[code] }} />{JURISDICTION_LABELS[code]}</span>)}
           {anyUnresolved && <span><span className="weekly-chart-swatch" style={{ background: "var(--color-neutral-300)" }} />Unresolved</span>}
@@ -293,7 +293,7 @@ function WeeklyOnboardedChart({ weeks }: { weeks: DashboardSnapshot["weekly_onbo
         })}
       </div>
       <div className="weekly-chart-axis">{weeks.map((week) => <span key={week.week_start} className="weekly-chart-label">{week.week_start.slice(5)}</span>)}</div>
-      <p className="text-muted" style={{ fontSize: 10.5, margin: "8px 0 0" }}>Fixed sample figures for demonstration; not affected by the team or date-range filters · weeks starting Monday.</p>
+      <p className="text-muted" style={{ fontSize: 10.5, margin: "8px 0 0" }}>{includesSample ? "Completed onboardings" : "Completions recorded in this environment"} · weeks starting Monday.</p>
     </article>
   );
 }
@@ -374,6 +374,10 @@ function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"]
       <Pagination page={page} setPage={setPage} pageCount={pageCount} total={rowCount} pageSize={pageSize} />
     </article>
   );
+}
+
+function CaseOpenAction({ caseId }: { caseId: string }) {
+  return <Link className="btn open-btn" to={isSampleCaseId(caseId) ? paths.sampleCaseDetail(caseId) : paths.caseDetail(caseId)}>Open</Link>;
 }
 
 function CaseSubsetNotice({ loaded, total, mine, id }: { loaded: number; total: number; mine: boolean; id: string }) {
@@ -463,7 +467,7 @@ function AllCasesTable({ cases, actor, cohortTotal }: { cases: DashboardCaseItem
                   <td>{item.created_by_display_name ?? "—"}</td>
                   <td aria-label={`${item.status === "COMPLETED" ? "Case duration" : "Case age"}: ${formatDuration(item.case_elapsed_ms)}`}>{formatDuration(item.case_elapsed_ms)}</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
-                  <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>
+                  <td style={{ textAlign: "right" }}><CaseOpenAction caseId={item.case_id} /></td>
                 </tr>
               ))}
             </tbody>
@@ -575,7 +579,7 @@ function YourCasesTable({ cases, cohortTotal }: { cases: DashboardCaseItem[]; co
                   <td aria-label={`${item.status === "COMPLETED" ? "Case duration" : "Case age"}: ${formatDuration(item.case_elapsed_ms)}`}>{formatDuration(item.case_elapsed_ms)}</td>
                   <td>{item.progress_percent}%</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
-                  <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>
+                  <td style={{ textAlign: "right" }}><CaseOpenAction caseId={item.case_id} /></td>
                 </tr>
               ))}
             </tbody>
@@ -601,7 +605,7 @@ function BlockedCases({ cases, cohortTotal }: { cases: DashboardCaseItem[]; coho
         {pageRows.map((item) => (
           <div className="blocked-case-row" key={item.case_id}>
             <div><div>{item.legal_name ?? item.requested_uen}</div><p className="cell-note">{item.delay_note ?? "Returned for review"}</p></div>
-            <Link className="btn btn-secondary" to={paths.caseDetail(item.case_id)}>Review</Link>
+            <Link className="btn btn-secondary" to={isSampleCaseId(item.case_id) ? paths.sampleCaseDetail(item.case_id) : paths.caseDetail(item.case_id)}>Review</Link>
           </div>
         ))}
       </div>
@@ -610,7 +614,7 @@ function BlockedCases({ cases, cohortTotal }: { cases: DashboardCaseItem[]; coho
   );
 }
 
-function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; actor: AuthenticatedProfile }) {
+function TeamDashboard({ dashboard, actor, includesSample }: { dashboard: DashboardSnapshot; actor: AuthenticatedProfile; includesSample: boolean }) {
   const totals = dashboard.totals;
   const runningCount = dashboard.status_breakdown
     .filter((item) => !BLOCKED_STATUSES.includes(item.status) && item.status !== "COMPLETED")
@@ -633,7 +637,7 @@ function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; act
       <StageTimingTable stageTiming={dashboard.stage_timing} />
 
       <div className="dashboard-grid dashboard-grid--distributions">
-        <WeeklyOnboardedChart weeks={MOCK_WEEKLY_ONBOARDED} />
+        <WeeklyOnboardedChart weeks={dashboard.weekly_onboarded} includesSample={includesSample} />
         <ExceptionBreakdown exceptions={dashboard.exception_breakdown} />
       </div>
 
@@ -737,6 +741,7 @@ export function DashboardView({
   onTeamFilterChange,
   onRefresh,
   onBack,
+  sampleCases = 0,
 }: {
   actor: AuthenticatedProfile;
   dashboard: DashboardSnapshot;
@@ -748,6 +753,8 @@ export function DashboardView({
   onTeamFilterChange: (value: string) => void;
   onRefresh: () => void;
   onBack: () => void;
+  /** Number of fixed sample cases included in `dashboard`; 0 when it is live data only. */
+  sampleCases?: number;
 }) {
   const [activityRefresh, setActivityRefresh] = useState(0);
   return (
@@ -769,7 +776,7 @@ export function DashboardView({
         </div>
       </header>
 
-      {dashScope === "team" ? <TeamDashboard dashboard={dashboard} actor={actor} /> : <MyWorkDashboard activityRefresh={activityRefresh} dashboard={dashboard} actor={actor} teamFilter={teamFilter} />}
+      {dashScope === "team" ? <TeamDashboard dashboard={dashboard} actor={actor} includesSample={sampleCases > 0} /> : <MyWorkDashboard activityRefresh={activityRefresh} dashboard={dashboard} actor={actor} teamFilter={teamFilter} />}
     </section>
   );
 }
@@ -784,7 +791,11 @@ export default function Dashboard({
   const [dashScope, setDashScope] = useState<"team" | "mine">("team");
   const [dateRange, setDateRange] = useState<DashboardDateRange>("30d");
   const query = useQuery(dashboardQueryOptions(actor.user_id, teamFilter, dashScope, dateRange));
-  const dashboard = query.data;
+  const live = query.data;
+  // Fixed sample cases are added on top of the live snapshot for display only; the query cache
+  // keeps the backend response unchanged.
+  const dashboard = useMemo(() => (live ? withOnboardingSample(live, actor) : undefined), [live, actor]);
+  const sampleCases = live ? sampleCaseCount(live.view) : 0;
 
   const feedback = <>
     {(query.isPending || query.isFetching) && <p className="refreshing-indicator" role="status">{dashboard ? "Refreshing dashboard…" : "Loading dashboard…"}</p>}
@@ -803,5 +814,5 @@ export default function Dashboard({
     {feedback}
   </section>;
 
-  return <>{feedback}<DashboardView actor={actor} dashboard={dashboard} dashScope={dashScope} onScopeChange={setDashScope} dateRange={dateRange} onDateRangeChange={setDateRange} teamFilter={teamFilter} onTeamFilterChange={setTeamFilter} onRefresh={() => void query.refetch()} onBack={() => setView("picker")} /></>;
+  return <>{feedback}<DashboardView actor={actor} dashboard={dashboard} dashScope={dashScope} onScopeChange={setDashScope} dateRange={dateRange} onDateRangeChange={setDateRange} teamFilter={teamFilter} onTeamFilterChange={setTeamFilter} onRefresh={() => void query.refetch()} onBack={() => setView("picker")} sampleCases={sampleCases} /></>;
 }

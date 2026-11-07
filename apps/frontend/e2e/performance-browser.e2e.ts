@@ -11,8 +11,8 @@ const fixture = path.resolve(directory, "../../backend/tests/fixtures/uat/clean-
 const method = createHash("sha256").update(fs.readFileSync(fileURLToPath(import.meta.url))).digest("hex");
 
 async function ready(page: Page) {
-  // Ten business steps over the twelve backend stages for a clean case.
-  await expect(page.locator(".onboarding-progress__stage-label")).toHaveCount(10);
+  // Eleven business steps over the twelve backend stages; Initial identity always shows (D-123).
+  await expect(page.locator(".onboarding-progress__stage-label")).toHaveCount(11);
   await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible();
 }
 
@@ -88,9 +88,9 @@ async function measure(page: Page, width: number) {
     await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
     await ready(page);
     const casePath = new URL(page.url()).pathname;
-    // Untimed structure check: the normal presentation has no Initial identity step, and the
-    // backend still reports all twelve authoritative stages.
-    await expect(page.locator(".onboarding-progress__stage-label").filter({ hasText: /^Initial identity$/ })).toHaveCount(0);
+    // Untimed structure check: Initial identity always shows (D-123), and the backend still
+    // reports all twelve authoritative stages.
+    await expect(page.locator(".onboarding-progress__stage-label").filter({ hasText: /^Initial identity$/ })).toHaveCount(1);
     expect((await (await page.request.get(`/api/clm/zero-touch${casePath}`)).json()).processing_pipeline).toHaveLength(12);
     const precondition = await awaitSettledResources(page, casePath);
     await page.waitForTimeout(500); // untimed settling, same protocol in both arms

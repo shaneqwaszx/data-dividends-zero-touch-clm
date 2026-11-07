@@ -11,7 +11,7 @@ import { openStage } from "./stage-disclosures";
 const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
   "../../backend/tests/fixtures/uat/clean-company-profile.pdf");
 const stageNames = [
-  "Case created", "Jurisdiction", "Existing-customer search",
+  "Case created", "Initial identity", "Jurisdiction", "Existing-customer search",
   "Registry verification", "Document verification", "Data reconciliation", "Ownership & UBO",
   "Risk assessment", "GoldTier Details & Status", "Final review & send",
 ];
@@ -120,7 +120,7 @@ test("S1 blank login and onboarding forms retain readable team ownership at thre
     .getByLabel("Registration ID / UEN", { exact: true })).toBeVisible();
 });
 
-test("S1 executing workspace is inert, all 10 business stages inspect, failed documents stay truthful, and reset clears drafts", async ({ page }) => {
+test("S1 executing workspace is inert, all 11 business stages inspect, failed documents stay truthful, and reset clears drafts", async ({ page }) => {
   await page.goto("/");
   await login(page, "olivia-koh");
   await openNew(page);

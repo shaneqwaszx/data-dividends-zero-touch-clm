@@ -11,6 +11,7 @@ import App from "./App";
 import { WorkspaceTabs } from "./navigation";
 import { configureAuthenticatedTransport, fetchDashboard } from "./api";
 import Dashboard, { DashboardCategoryPicker, DashboardView } from "./pages/Dashboard";
+import { sampleCaseCount, SAMPLE_CASES, withOnboardingSample } from "./pages/mockDashboards/onboardingSample";
 import { clearSessionQueries, createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, AutomationStage, DashboardSnapshot } from "./types";
 
@@ -148,6 +149,10 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
   };
 }
 
+// The Dashboard page adds fixed sample cases on top of the live snapshot it receives.
+const SAMPLE_OPEN = SAMPLE_CASES.filter((item) => item.status !== "COMPLETED").length;
+const openLabel = (liveOpen: number) => `${liveOpen + SAMPLE_OPEN} open`;
+
 afterEach(() => {
   configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
   vi.unstubAllGlobals();
@@ -277,22 +282,38 @@ it("Dashboard v2 explicitly requests its 30-day initial cohort", async () => {
 });
 
 
-it("renders the fixed mock weekly chart, labelled as mock data, regardless of the backend response", () => {
+function weeksEnding(lastMonday: string): DashboardSnapshot["weekly_onboarded"] {
+  const end = Date.parse(`${lastMonday}T00:00:00Z`);
+  return Array.from({ length: 8 }, (_, index) => ({
+    week_start: new Date(end - (7 - index) * 7 * 86_400_000).toISOString().slice(0, 10),
+    by_jurisdiction: {},
+    unresolved_count: 0,
+  }));
+}
+
+it("renders the live weekly chart and adds the fixed sample weeks on top, without marking them", () => {
   const value = snapshot(maya);
-  value.weekly_onboarded = [{
-    week_start: "2026-10-12", by_jurisdiction: { SG: 3 }, unresolved_count: 0,
-  }];
-  const markup = renderToStaticMarkup(<MemoryRouter><DashboardView
-    actor={maya} dashboard={value} dashScope="team" onScopeChange={() => undefined}
+  value.data_as_of = "2026-11-05T03:00:00Z";
+  value.weekly_onboarded = weeksEnding("2026-11-02");
+  value.weekly_onboarded[5].by_jurisdiction = { SG: 7 }; // week of 2026-10-19
+  const render = (dashboard: DashboardSnapshot, sampleCases?: number) => renderToStaticMarkup(<MemoryRouter><DashboardView
+    actor={maya} dashboard={dashboard} dashScope="team" onScopeChange={() => undefined}
     dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
     onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+    sampleCases={sampleCases}
   /></MemoryRouter>);
-  expect(markup).not.toContain('title="Singapore: 3"');
-  expect(markup).toContain('title="Singapore: 9"');
-  expect(markup).toContain("10-26");
-  expect(markup).toContain("Fixed sample figures for demonstration");
-  expect(markup).not.toContain("Illustrative mix");
-  expect(markup).toContain('title="Australia: 4"');
+
+  const liveOnly = render(value);
+  expect(liveOnly).toContain('title="Singapore: 7"');
+  expect(liveOnly).toContain("Completions recorded in this environment");
+
+  const merged = render(withOnboardingSample(value, maya), sampleCaseCount("team"));
+  expect(merged).toContain('title="Singapore: 13"'); // 6 sample + 7 live
+  expect(merged).not.toContain('title="Singapore: 7"');
+  expect(merged).toContain('title="Australia: 1"');
+  expect(merged).toContain("10-26");
+  expect(merged).toContain("Completed onboardings · weeks starting Monday.");
+  expect(merged).not.toMatch(/sample/i);
 });
 
 
@@ -765,7 +786,7 @@ it("PR95-R6 initial pending picker is truthful and navigation keeps one in-fligh
     expect(h.container.querySelector(".category-grid")).not.toBeNull();
     expect(h.requests).toHaveLength(1);
     await h.reply(0, snapshot(maya));
-    expect(h.container.textContent).toContain("1 open");
+    expect(h.container.textContent).toContain(openLabel(1));
     expect(h.container.querySelector('[role="status"]')).toBeNull();
   });
 });
@@ -787,7 +808,7 @@ it.each(["503", "network"])("PR95-R6 initial %s picker error is accessible, sani
     expect(h.container.querySelector('[role="status"]')?.textContent).toContain("Loading dashboard");
     await h.reply(1, snapshot(maya));
     expect(h.container.querySelector('[role="alert"]')).toBeNull();
-    expect(h.container.textContent).toContain("1 open");
+    expect(h.container.textContent).toContain(openLabel(1));
   });
 });
 
@@ -804,7 +825,7 @@ it("PR95-R6 repeated retry errors return to recoverable error rather than perman
     await h.click("Try again"); await h.reply(3, snapshot(maya));
     expect(h.requests).toHaveLength(4);
     expect(h.container.querySelector('[role="alert"]')).toBeNull();
-    expect(h.container.textContent).toContain("1 open");
+    expect(h.container.textContent).toContain(openLabel(1));
   });
 });
 
@@ -813,10 +834,10 @@ it("PR95-R6 cached refresh failure keeps snapshot through both views and later r
     await h.reply(0, snapshot(maya)); await h.open(); await h.click("Refresh");
     await h.click("All categories");
     expect(h.container.querySelector('[role="status"]')?.textContent).toContain("Refreshing dashboard");
-    expect(h.container.textContent).toContain("1 open");
+    expect(h.container.textContent).toContain(openLabel(1));
     await h.fail(1);
     expect(h.container.querySelector('[role="alert"]')?.textContent).toContain("last dashboard snapshot remains visible");
-    expect(h.container.textContent).toContain("1 open");
+    expect(h.container.textContent).toContain(openLabel(1));
     expect(h.container.textContent).not.toContain("SYNTHETIC_PRIVATE");
     await h.open(); expect(h.container.textContent).toContain("Refresh failed");
     await h.click("All categories"); await h.click("Try again");
@@ -824,9 +845,9 @@ it("PR95-R6 cached refresh failure keeps snapshot through both views and later r
     fresh.data_as_of = "2026-09-08T04:00:00Z";
     await h.reply(2, fresh);
     expect(h.container.querySelector('[role="alert"]')).toBeNull();
-    expect(h.container.textContent).toContain("7 open");
+    expect(h.container.textContent).toContain(openLabel(7));
     await h.open(); expect(h.container.textContent).toContain("Onboarding Dashboard");
-    await h.click("All categories"); expect(h.container.textContent).toContain("7 open");
+    await h.click("All categories"); expect(h.container.textContent).toContain(openLabel(7));
     expect(h.requests).toHaveLength(3);
   });
 });
@@ -853,12 +874,12 @@ it.each(["actor", "same-user-role-session"])("PR95-R6 %s replacement aborts pend
     const next = transition === "actor" ? olivia : { ...olivia, user_id: maya.user_id };
     await h.render(next, 1);
     expect(old.signal.aborted).toBe(true);
-    expect(h.container.textContent).not.toContain("1 open");
+    expect(h.container.textContent).not.toContain(openLabel(1));
     const fresh = snapshot(next); fresh.totals.non_completed_cases = 9;
     await h.reply(2, fresh);
     await h.reply(1, snapshot(maya));
-    expect(h.container.textContent).toContain("9 open");
-    expect(h.container.textContent).not.toContain("1 open");
+    expect(h.container.textContent).toContain(openLabel(9));
+    expect(h.container.textContent).not.toContain(openLabel(1));
     expect(h.requests).toHaveLength(3);
   });
 });

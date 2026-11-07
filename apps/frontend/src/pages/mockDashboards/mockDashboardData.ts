@@ -112,21 +112,4 @@ export const REVIEW_ROWS: ReviewRow[] = [
   { entity: "Orchid Bay Trading Co. Pte. Ltd.", riskTier: "Low", lastReview: "12 Feb 2022", nextDue: "12 Feb 2027", status: "On track" },
 ];
 
-// ---- Onboarding dashboard: "Onboarded per week" chart ----
-// Fixed mock weeks shown to every viewer instead of live counts. Illustrative only: Australia
-// figures are mock data, not completions from an implemented registry route.
-
-export const MOCK_WEEKLY_ONBOARDED: Array<{
-  week_start: string;
-  by_jurisdiction: { SG: number; AU?: number };
-  unresolved_count: number;
-}> = [
-  { week_start: "2026-09-07", by_jurisdiction: { SG: 4, AU: 1 }, unresolved_count: 0 },
-  { week_start: "2026-09-14", by_jurisdiction: { SG: 6, AU: 2 }, unresolved_count: 0 },
-  { week_start: "2026-09-21", by_jurisdiction: { SG: 5, AU: 1 }, unresolved_count: 0 },
-  { week_start: "2026-09-28", by_jurisdiction: { SG: 8, AU: 3 }, unresolved_count: 0 },
-  { week_start: "2026-10-05", by_jurisdiction: { SG: 7, AU: 2 }, unresolved_count: 0 },
-  { week_start: "2026-10-12", by_jurisdiction: { SG: 9, AU: 2 }, unresolved_count: 0 },
-  { week_start: "2026-10-19", by_jurisdiction: { SG: 6, AU: 3 }, unresolved_count: 0 },
-  { week_start: "2026-10-26", by_jurisdiction: { SG: 10, AU: 4 }, unresolved_count: 0 },
-];
+// The Onboarding dashboard's fixed sample cases live in onboardingSample.ts.
