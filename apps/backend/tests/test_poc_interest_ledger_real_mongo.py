@@ -83,7 +83,7 @@ def test_the_ledger_survives_restart_and_the_evidence_route_still_works(physical
             declared = first.declare(graph=graph, rekey=True, percents=corrected(step))
             assert declared.status_code == 200, declared.text
     raw = cases.find_one({"_id": case_id})
-    assert raw is not None and raw["schema_version"] == 19
+    assert raw is not None and raw["schema_version"] == 20
     assert raw["ownership"]["poc_interest_ledger"]
     assert len(raw["ownership"]["prior_analyses"]) == 4
     assert graph["analysis_id"] not in {
@@ -138,5 +138,5 @@ def test_a_stored_schema_18_case_fails_closed_and_is_not_rewritten_by_reads(phys
         assert selected.status_code == 200, selected.text
         restarted.assert_unsent()
     written = cases.find_one({"_id": case_id})
-    assert written is not None and written["schema_version"] == 19
+    assert written is not None and written["schema_version"] == 20
     assert written["ownership"]["poc_interest_ledger"] is None

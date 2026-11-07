@@ -30,7 +30,13 @@ from app.domain.documents import (
     ReviewDecision,
 )
 from app.domain.jurisdiction import is_eligible_singapore_uen
-from app.domain.models import EventOutcome, OnboardingCase, SafeError, WorkflowState
+from app.domain.models import (
+    EventOutcome,
+    GovernmentBodyType,
+    OnboardingCase,
+    SafeError,
+    WorkflowState,
+)
 from app.domain.onboarding_intelligence import (
     EntityResolutionOutcome,
     MockRiskBand,
@@ -92,6 +98,7 @@ from app.services.government_status import (
     government_profile_applies,
     government_status_confirmed,
     government_status_evidence,
+    statute_matches,
 )
 from app.services.manual_ownership_evidence import (
     ManualOwnershipDeclaration,
@@ -1020,6 +1027,34 @@ class ZeroTouchOrchestrator:
             or self._cases.has_retained_target_execution(case_id)
         )
 
+    def government_reconfirmation_needs_resume(self, *, case_id: UUID) -> bool:
+        """D-125 (gate M1): a revoked Government checkpoint with no open hold to confirm.
+
+        True only where `_recover_obsolete_registry_ownership_locked` would restore the
+        Government hold on resume: OWNERSHIP was completed, the stored confirmation no
+        longer counts (for example a pre-D-125 one without a statute), no
+        GOVERNMENT_STATUS_REQUIRED hold is open and nothing was frozen for or sent to the
+        target. Read-only; the browser only offers the existing resume.
+        """
+        record = self._repository.get_for_case(case_id)
+        case = self._cases.get_case(case_id)
+        clm = self._clm.get(case_id=case_id)
+        if (
+            record is None or case is None or clm is None
+            or record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}
+            or AutomationStage.OWNERSHIP not in record.completed_stages
+            or clm.submission_snapshot is not None
+            or case.goldtier_result is not None
+            or self._cases.has_retained_target_execution(case_id)
+        ):
+            return False
+        if any(
+            item.exception_type == BusinessExceptionType.GOVERNMENT_STATUS_REQUIRED
+            for item in record.active_exceptions
+        ):
+            return False
+        return self._government_gate(case_id) is False
+
     def document_replacement_allowed(self, *, case_id: UUID) -> bool:
         record = self._require_record(case_id)
         return (
@@ -1859,9 +1894,16 @@ class ZeroTouchOrchestrator:
         document_event_count: int,
         expected_automation_version: int,
         expected_case_event_count: int,
+        founding_statute: str,
+        government_body_type: GovernmentBodyType,
+        statute_section: str | None = None,
         reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
-        """D-101: the RM confirms Government status from one exact reviewed document."""
+        """D-101: the RM confirms Government status from one exact reviewed document.
+
+        D-125: the RM-entered founding statute must equal the document's Founding
+        Instrument after normalisation; otherwise nothing is saved.
+        """
 
         with self._cases.case_lock(case_id):
             if reauthorize is not None:
@@ -1926,6 +1968,14 @@ class ZeroTouchOrchestrator:
                         "is required."
                     ),
                 )
+            if not statute_matches(founding_statute, evidence.founding_instrument):
+                raise ZeroTouchRequestError(
+                    code="GOVERNMENT_STATUTE_MISMATCH",
+                    message=(
+                        "The statute entered does not match the Founding Instrument on the "
+                        "reviewed document."
+                    ),
+                )
             try:
                 self._cases.confirm_government_status(
                     case_id=case_id,
@@ -1934,6 +1984,9 @@ class ZeroTouchOrchestrator:
                     document_id=evidence.document_id,
                     document_event_count=evidence.document_event_count,
                     evidence_fingerprint=evidence.evidence_fingerprint,
+                    founding_statute=founding_statute,
+                    statute_section=statute_section,
+                    government_body_type=government_body_type,
                 )
                 self._clm.refresh_pre_submission_evidence(case_id=case_id)
             except ValueError:

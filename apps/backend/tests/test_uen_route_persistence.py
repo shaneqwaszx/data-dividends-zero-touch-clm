@@ -57,9 +57,9 @@ def company() -> DurableCaseSnapshot:
 
 
 def test_schema_18_round_trip_keeps_the_system_route(government):
-    assert CASE_SNAPSHOT_SCHEMA_VERSION == 19
+    assert CASE_SNAPSHOT_SCHEMA_VERSION == 20
     raw = CODEC._encode(government)  # noqa: SLF001
-    assert raw["schema_version"] == 19
+    assert raw["schema_version"] == 20
     assert raw["onboarding"]["uen_route"]["route"] == "GOVERNMENT_REGISTER"
     assert raw["onboarding"]["uen_route"]["pq_code"] == "GB"
     decoded = CODEC._decode(raw)  # noqa: SLF001
@@ -83,7 +83,7 @@ def test_a_schema_17_case_reads_without_a_route_and_is_not_rewritten(company):
     raw = as_schema_17(CODEC._encode(company))  # noqa: SLF001
     before = deepcopy(raw)
     decoded = CODEC._decode(raw)  # noqa: SLF001
-    assert decoded.schema_version == 19
+    assert decoded.schema_version == 20
     assert decoded.onboarding.uen_route is None
     assert raw == before
 

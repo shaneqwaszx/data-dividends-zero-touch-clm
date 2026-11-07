@@ -1037,11 +1037,21 @@ class TargetDispatchConfirmation(BaseModel):
     classification: Literal["USER_AUTHORIZED_POC"] = "USER_AUTHORIZED_POC"
 
 
+GovernmentBodyType = Literal["MINISTRY_OR_ORGAN_OF_STATE", "STATUTORY_BOARD"]
+GOVERNMENT_STATUTE_PATTERN = r"^[^\x00-\x1f\x7f]+$"
+STATUTE_MATCH_RULE: Literal["MATCHED_AFTER_NORMALISATION"] = "MATCHED_AFTER_NORMALISATION"
+
+
 class GovernmentStatusConfirmation(BaseModel):
     """D-101 RM confirmation of Government status from one reviewed document version.
 
     It replaces the ownership/UBO step only while it stays bound to that exact current
     evidence; it is never set automatically and is not approval.
+
+    D-125: the RM also records the founding statute (matched to the document's Founding
+    Instrument after normalisation), an optional section and the RM-asserted type of
+    body. These fields are optional only so a schema-19 confirmation still loads; such a
+    confirmation no longer counts and must be confirmed again.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -1054,6 +1064,30 @@ class GovernmentStatusConfirmation(BaseModel):
     document_event_count: int = Field(ge=1)
     evidence_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     classification: Literal["USER_AUTHORIZED_POC"] = "USER_AUTHORIZED_POC"
+    # Excluded when None, so a schema-19 confirmation dumps (and digests) unchanged.
+    founding_statute: str | None = Field(
+        default=None, min_length=3, max_length=200, pattern=GOVERNMENT_STATUTE_PATTERN,
+        exclude_if=lambda value: value is None,
+    )
+    statute_section: str | None = Field(
+        default=None, min_length=1, max_length=40, pattern=GOVERNMENT_STATUTE_PATTERN,
+        exclude_if=lambda value: value is None,
+    )
+    government_body_type: GovernmentBodyType | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    statute_match: Literal["MATCHED_AFTER_NORMALISATION"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def statute_fields_together(self) -> "GovernmentStatusConfirmation":
+        recorded = (self.founding_statute, self.government_body_type, self.statute_match)
+        if any(item is not None for item in recorded) and None in recorded:
+            raise ValueError("A founding statute, body type and match are recorded together.")
+        if self.statute_section is not None and self.founding_statute is None:
+            raise ValueError("A statute section needs a founding statute.")
+        return self
 
 
 class SafeError(BaseModel):

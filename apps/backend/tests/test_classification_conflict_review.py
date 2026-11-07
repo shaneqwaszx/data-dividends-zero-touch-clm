@@ -335,7 +335,7 @@ def test_earlier_schema10_missing_review_binding_stays_unknown_without_decode_mu
             selection.pop("actor_id")
         original = deepcopy(raw)
         restored = store._decode(raw)
-        assert restored.schema_version == 19
+        assert restored.schema_version == 20
         assert raw == original
         assert all(
             selection.evidence_fingerprint is None and selection.actor_id is None

@@ -48,9 +48,11 @@ from app.domain.jurisdiction import (
 )
 from app.domain.models import (
     IDENTITY_RECHECK_HISTORY_LIMIT,
+    STATUTE_MATCH_RULE,
     EventOutcome,
     ExistingTargetStateProvenance,
     GoldTierResult,
+    GovernmentBodyType,
     GovernmentStatusConfirmation,
     IdentityCorrectionEvidence,
     InitialCustomerIdentity,
@@ -693,8 +695,14 @@ class OnboardingService:
         document_id: UUID,
         document_event_count: int,
         evidence_fingerprint: str,
+        founding_statute: str,
+        government_body_type: GovernmentBodyType,
+        statute_section: str | None = None,
     ) -> OnboardingCase:
-        """D-101: retain one RM Government-status confirmation; the caller owns evidence."""
+        """D-101: retain one RM Government-status confirmation; the caller owns evidence.
+
+        D-125: the caller has already matched the founding statute to the document.
+        """
 
         with self.case_lock(case_id):
             case = self.get_case(case_id)
@@ -712,6 +720,13 @@ class OnboardingService:
                 document_id=document_id,
                 document_event_count=document_event_count,
                 evidence_fingerprint=evidence_fingerprint,
+                founding_statute=founding_statute,
+                statute_section=statute_section,
+                government_body_type=government_body_type,
+                statute_match=STATUTE_MATCH_RULE,
+            )
+            basis = founding_statute if statute_section is None else (
+                f"{founding_statute}, {statute_section}"
             )
             updated.target_dispatch_confirmation = None
             updated.updated_at = timestamp
@@ -725,8 +740,8 @@ class OnboardingService:
                     correlation_id=updated.correlation_id,
                     code="GOVERNMENT_STATUS_CONFIRMED",
                     message=(
-                        "The RM confirmed Government status from a reviewed document; "
-                        "this is not approval."
+                        "The RM confirmed Government status from a reviewed document, "
+                        f"founded under {basis}; this is not approval."
                     ),
                 )
             )

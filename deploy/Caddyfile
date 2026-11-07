@@ -10,7 +10,7 @@
 
     @api path /api /api/* /health
     handle @api {
-        reverse_proxy backend:8000
+        reverse_proxy clm-backend-proxy:8000
     }
 
     handle {
@@ -24,6 +24,6 @@ http://:8080 {
     bind 127.0.0.1
     handle /ready {
         rewrite * /health
-        reverse_proxy backend:8000
+        reverse_proxy clm-backend-proxy:8000
     }
 }

@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 19,
+  "case_envelope_schema_version": 20,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1378,7 +1378,9 @@ routing or backend change; the qualification basis stays `33f602653de7…`.
   "not ACRA-registered; government status from reviewed document". The Ownership & UBO stage
   holds a Government status step (`GOVERNMENT_STATUS_REQUIRED`), met only by a reviewed status
   document plus an explicit RM confirmation; readiness then records 0 UBO candidates. Replaces the
-  classification-only `209990105E` fixture.
+  classification-only `209990105E` fixture. D-125 (candidate, case schema v20): the RM also keys in
+  the founding statute (matched to the document's Founding Instrument after normalisation), an
+  optional section and the RM-asserted type of body; older confirmations must be confirmed again.
 - **Shared:** a bounded KYC type / legal form compatibility table (mismatch UNSAFE; unknown form
   UNSAFE for automatic candidates only), a new `GOVERNMENT` registry legal form, case snapshot
   schema v17, and regenerated D-094 synthetic boundary and eligibility manifests.

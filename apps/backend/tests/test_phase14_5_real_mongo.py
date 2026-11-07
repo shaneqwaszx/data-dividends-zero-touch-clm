@@ -166,7 +166,7 @@ def test_real_mongo_restart_preserves_admin_policy_case_snapshot_and_gamma_scope
             assert sum(item.role == Role.HR for item in repository.list()) == 1
 
         raw_case = cleanup[database][settings.mongo_case_collection].find_one({"_id": case_id})
-        assert raw_case is not None and raw_case["schema_version"] == 19
+        assert raw_case is not None and raw_case["schema_version"] == 20
         assert raw_case["onboarding"]["policy_snapshot"]["intelligence"] is not None
         assert "credential_hash" not in str(raw_case)
         assert "credential_hash" not in str(

@@ -39,6 +39,7 @@ import type {
   EventOutcome,
   OnboardingIntelligenceRecord,
   GoldTierSandboxStatus,
+  GovernmentBodyType,
   GoldTierSandboxSearchInput,
   GoldTierSandboxSearchResult,
   GoldTierSandboxDryRunInput,
@@ -792,6 +793,10 @@ export interface GovernmentStatusConfirmationInput {
   document_event_count: number;
   expected_automation_version: number;
   expected_case_event_count: number;
+  /** D-125: the RM-entered founding statute, optional section and type of body. */
+  founding_statute: string;
+  statute_section: string | null;
+  government_body_type: GovernmentBodyType;
 }
 
 export async function confirmGovernmentStatus(
