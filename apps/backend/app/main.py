@@ -166,6 +166,7 @@ from app.services.document_errors import (
 )
 from app.services.document_processing import DocumentProcessingService
 from app.services.errors import OnboardingInfrastructureError
+from app.services.login_admission import LoginAdmission
 from app.services.manual_ownership_evidence import (
     CanonicalUen,
     ManualEconomicInterest,
@@ -810,6 +811,7 @@ def create_app(
             authentication,
             administration.directory,
             cookie_secure=cookie_secure,
+            login_admission=LoginAdmission() if active_settings.app_env == "staging" else None,
         )
     )
     application.include_router(build_admin_router(administration))

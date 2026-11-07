@@ -28,3 +28,34 @@ docker compose --env-file /etc/clm/compose.env -f deploy/compose.yml up -d --no-
 ```
 
 Use a single designated host and never overlap backend writers against the database. For replacement, stop ingress, drain and stop the old backend, then start the approved pair. Retain the previous pair and review compatibility against the current data before rollback. Check external HTTPS, ingress exposure, authenticated synthetic onboarding, Mock dispatch and persistence after replacement. Preserve the existing target ledger recovery process for interrupted writes.
+
+
+### Login admission and proxy trust
+
+The staging worker limits login attempts per source and across all sources, with
+at most two password verifications in flight. The limiter resets when the
+backend restarts. Login bursts can return HTTP 429 with a Retry-After value.
+
+Caddy and the backend share an internal proxy network. Uvicorn trusts forwarded
+headers only from the reserved Caddy address on that network. The same-host
+Mongo overlay attaches only the backend and Mongo to the separate database
+network. Leave backend and database ports unpublished.
+
+Before deployment, check that the proxy subnet does not overlap any host or
+Docker route. The defaults are `172.30.240.0/29`, Caddy `172.30.240.2`, and
+backend `172.30.240.3`. If needed, set `CLM_PROXY_SUBNET`, `CLM_PROXY_IPV4`,
+and `CLM_BACKEND_PROXY_IPV4` together in the Compose interpolation file.
+Reserve distinct IPv4 addresses within that subnet, keep the proxy network
+exclusive to Caddy and the backend, and verify health after either service is
+recreated. The address supplied to Uvicorn and the Caddy network assignment
+come from the same Compose value.
+
+The aggregate budget is shared by all unauthenticated callers. Six sources can
+rotate attempts and consume every replenished slot, delaying login for a shared
+office network for the duration of that traffic. The deterministic test covers
+120 seconds of contention and recovery after traffic stops. Retry-After reports
+when a slot may become available. It does not reserve one. A queue or a pool
+reserved for new sources would still accept unauthenticated attack traffic.
+Keep the aggregate and concurrency limits as the backend safety boundary.
+If sustained contention affects the demo, evaluate an upstream access policy
+or a bot challenge before increasing the backend budget.

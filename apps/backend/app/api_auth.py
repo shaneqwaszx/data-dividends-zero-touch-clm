@@ -28,6 +28,7 @@ from app.services.authorization import (
     RouteAccess,
     classify_route,
 )
+from app.services.login_admission import LoginAdmission, LoginAdmissionDenied
 from app.services.onboarding import OnboardingService
 
 SESSION_COOKIE_NAME = "clm_session"
@@ -164,13 +165,27 @@ def build_auth_router(
     teams: TeamDirectoryService,
     *,
     cookie_secure: bool,
+    login_admission: LoginAdmission | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
     @router.post("/login", response_model=AuthSessionResponse)
-    def login(body: LoginRequest, response: Response) -> AuthSessionResponse:
+    def login(body: LoginRequest, request: Request, response: Response) -> AuthSessionResponse:
         try:
-            issued = auth.login(body.user_id, body.credential)
+            if login_admission is None:
+                issued = auth.login(body.user_id, body.credential)
+            else:
+                with login_admission.admit(request.client.host if request.client else None):
+                    issued = auth.login(body.user_id, body.credential)
+        except LoginAdmissionDenied as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "LOGIN_RATE_LIMITED",
+                    "message": "Too many login attempts. Try again later.",
+                },
+                headers={"Retry-After": str(exc.retry_after), "Cache-Control": "no-store"},
+            ) from None
         except AuthenticationError:
             raise _unauthorized() from None
         except SessionCapacityError:
