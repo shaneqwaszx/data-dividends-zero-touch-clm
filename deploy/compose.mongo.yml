@@ -3,7 +3,11 @@ services:
   backend:
     environment:
       MONGO_URI: ${MONGO_URI:?inject the authenticated TLS connection setting}
-    networks: [database]
+    networks: !override
+      proxy:
+        ipv4_address: "${CLM_BACKEND_PROXY_IPV4:-172.30.240.3}"
+        aliases: [clm-backend-proxy]
+      database: {}
     volumes:
       - type: bind
         source: ${MONGO_CA_FILE:?absolute Mongo CA path required}
@@ -14,9 +18,6 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
-
-  frontend:
-    networks: [default, database]
 
   mongo:
     image: mongo@sha256:b6421fd6d1c5ded6377b397d8983e2f82e2100dc5123332dcfda2065a472be5b

@@ -9,6 +9,7 @@ services:
         format: raw
     environment:
       APP_ENV: staging
+      FORWARDED_ALLOW_IPS: "${CLM_PROXY_IPV4:-172.30.240.2}"
       CLM_PERSISTENCE_MODE: mongo
       MONGO_DATABASE: clm_staging
       PHASE13_COOKIE_SECURE: "true"
@@ -18,6 +19,11 @@ services:
       IDP_CONNECTOR_MODE: local_pdf_text
       DEMO_CONTROLS_ENABLED: "false"
       LOCAL_OCR_EXECUTABLE: /usr/bin/tesseract
+    networks:
+      proxy:
+        ipv4_address: "${CLM_BACKEND_PROXY_IPV4:-172.30.240.3}"
+        aliases: [clm-backend-proxy]
+      default: {}
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,mode=1777
@@ -36,6 +42,10 @@ services:
     platform: linux/amd64
     environment:
       CLM_SITE: ${CLM_SITE:?site hostname required}
+    networks:
+      default: {}
+      proxy:
+        ipv4_address: "${CLM_PROXY_IPV4:-172.30.240.2}"
     ports:
       - "${HTTP_BIND:-80}:80"
       - "${HTTPS_BIND:-443}:443"
@@ -51,6 +61,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 6
+networks:
+  proxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: "${CLM_PROXY_SUBNET:-172.30.240.0/29}"
 volumes:
   tls-data:
   tls-config:
