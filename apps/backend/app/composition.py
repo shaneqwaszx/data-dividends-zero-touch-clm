@@ -67,6 +67,10 @@ from app.domain.models import (
 from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.policy import CasePolicySnapshot
 from app.domain.registry_dataset import local_synthetic_registry_identity
+from app.domain.target_identity_evidence import (
+    AcceptedIdentitySource,
+    TargetIdentityEvidencePolicy,
+)
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
 from app.services.acra_diagnostics import (
@@ -115,6 +119,19 @@ from app.services.zero_touch_provider_bindings import (
 from app.services.zero_touch_repository import (
     InMemoryZeroTouchAutomationRepository,
     ZeroTouchAutomationRepository,
+)
+
+# The reviewed sources GoldTier Sandbox accepts in shared staging. This is the only source
+# reviewed today, not an authority for every legal-entity type: another source joins through
+# its own reviewed provider contract. Government identities have none yet.
+STAGING_SANDBOX_IDENTITY_POLICY = TargetIdentityEvidencePolicy(
+    accepted_sources=(
+        AcceptedIdentitySource(
+            source_system=SourceSystem.ACRA,
+            environment=SourceEnvironment.MOCK,
+            reference_prefix=f"{ACRA_API_MARKETPLACE_MOCK_BASE_URL}/",
+        ),
+    )
 )
 
 
@@ -219,6 +236,12 @@ def build_onboarding_service(
         goldtier=goldtier,
         goldtier_mapper=goldtier_mapper,
         entity_resolver=entity_resolver,
+        target_identity_policy=(
+            STAGING_SANDBOX_IDENTITY_POLICY
+            if active_settings.app_env == "staging"
+            and active_settings.goldtier_connector_mode == "sandbox"
+            else None
+        ),
         repository=repository or InMemoryOnboardingCaseRepository(),
         target_finalization_fault=target_finalization_fault,
         target_execution_repository=target_execution_repository,

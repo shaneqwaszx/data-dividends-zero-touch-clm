@@ -151,8 +151,7 @@ remains open.
 ## AWS staging readiness
 
 Offline preparation only: no genuine call was made, and this adds no interoperability
-evidence. The lane stays `MOCK`, not Sandbox or Live. No decision number is allocated
-here; the owner assigns one when this content is accepted.
+evidence. The lane stays `MOCK`, not Sandbox or Live. The decision record is D-126.
 
 The three lanes stay distinct:
 

@@ -2809,6 +2809,47 @@ class ZeroTouchOrchestrator:
                 candidate.metrics.automated_stages_completed = len(
                     candidate.completed_stages
                 )
+            search_checkpoint = refreshed.target_search_checkpoint
+            if (
+                not remaining_exceptions
+                and not registry_completed
+                and search_checkpoint is not None
+                and search_checkpoint.status == GoldTierSearchCheckpointStatus.FAILED
+            ):
+                # The failed recheck left the case in review: there is no stage to resume,
+                # and the same recheck or an explicit retry remains available.
+                return self._technical_failure(
+                    failure_base,
+                    stage=AutomationStage.GOLDTIER_SEARCH,
+                    code=search_checkpoint.code or "GOLDTIER_SEARCH_FAILED",
+                    message="GoldTier Search recheck failed; target mutations remain blocked.",
+                )
+            if (
+                not remaining_exceptions
+                and not registry_completed
+                and search_checkpoint is not None
+                and search_checkpoint.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+            ):
+                candidate.completed_stages = (
+                    (AutomationStage.REGISTRY,)
+                    if repaired_case is not None and repaired_case.entity is not None
+                    else ()
+                )
+                candidate = self._add_exception(
+                    candidate,
+                    exception_type=BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED,
+                    stage=AutomationStage.GOLDTIER_SEARCH,
+                    blocker_code=search_checkpoint.code or "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+                    explanation=(
+                        "GoldTier candidates from the recheck require identity review; all "
+                        "target mutations remain blocked."
+                    ),
+                    evidence_version=f"goldtier-search:{search_checkpoint.request_id}",
+                    evidence=(),
+                    actions=(),
+                    persist=False,
+                )
+                remaining_exceptions = candidate.active_exceptions
             candidate.status = (
                 AutomationStatus.WAITING_FOR_REVIEW
                 if remaining_exceptions
@@ -3896,6 +3937,22 @@ class ZeroTouchOrchestrator:
                         and record.status == AutomationStatus.RECOVERY_PENDING
                     ):
                         return record
+                    if exc.code == "CLM_TARGET_WRITES_DISABLED":
+                        # Refused before any attempt: pause, so the same submission can
+                        # continue once writes return. Never a failure of the case.
+                        if record.status == AutomationStatus.RECOVERY_PENDING:
+                            return record
+                        candidate = record.model_copy(deep=True)
+                        candidate.status = AutomationStatus.RECOVERY_PENDING
+                        candidate.current_stage = AutomationStage.MOCK_GOLDTIER
+                        candidate = self._append_event(
+                            candidate,
+                            event_type=AutomationEventType.TARGET_OPERATION_RECOVERY_PENDING,
+                            outcome=EventOutcome.PARTIAL,
+                            code=exc.code,
+                            message=exc.public_message,
+                        )
+                        return self._save(record, candidate)
                     return self._technical_failure(
                         record,
                         stage=AutomationStage.MOCK_GOLDTIER,
