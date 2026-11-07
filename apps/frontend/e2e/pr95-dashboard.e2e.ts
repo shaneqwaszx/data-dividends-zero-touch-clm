@@ -2,6 +2,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { classifyBrowserRequest, createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { SAMPLE_CASES, sampleCaseCount } from "../src/pages/mockDashboards/onboardingSample";
+
+// The Onboarding dashboard adds fixed sample cases on top of the live backend counts.
+const SAMPLE_OPEN = SAMPLE_CASES.filter(item => item.status !== "COMPLETED").length;
+const SAMPLE_AU_WEEKS = new Set(SAMPLE_CASES.filter(item => item.jurisdiction === "AU").map(item => item.weeksAgo)).size;
 
 test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", async ({ page }) => {
   const violations: string[] = [];
@@ -75,13 +80,13 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
     dashboardMode = "pass"; releaseRetry();
     const genuine = await (await recovered).json();
     await expect(error).toHaveCount(0);
-    await expect(card).toContainText(`${genuine.totals.non_completed_cases} open`);
+    await expect(card).toContainText(`${genuine.totals.non_completed_cases + SAMPLE_OPEN} open`);
     await card.click();
     dashboardMode = "503";
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(page.getByRole("alert")).toHaveText("Refresh failed; the last dashboard snapshot remains visible.");
     await page.getByRole("button", { name: "All categories" }).click();
-    await expect(card).toContainText(`${genuine.totals.non_completed_cases} open`);
+    await expect(card).toContainText(`${genuine.totals.non_completed_cases + SAMPLE_OPEN} open`);
     await expect(page.getByRole("alert")).toHaveText("Refresh failed; the last dashboard snapshot remains visible.");
     dashboardMode = "pass";
     const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === "/api/clm/zero-touch/dashboard" && response.status() === 200);
@@ -113,13 +118,13 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   await page.locator(".category-card--live").click();
   await expect(page.getByRole("heading", { name: "Onboarding Dashboard" })).toBeVisible();
   await expect(page.locator(".dashboard-date-range")).toHaveValue("30d");
-  // The weekly chart shows fixed mock figures; the week of 2026-10-26 is Singapore: 10.
-  const recordedSegment = page.locator('.weekly-chart-seg[title="Singapore: 10"]');
+  // Two weeks ago holds six fixed sample Singapore completions and no live ones.
+  const recordedSegment = page.locator('.weekly-chart-seg[title="Singapore: 6"]').first();
   await expect(recordedSegment).toBeVisible();
   const segmentBox = await recordedSegment.boundingBox();
   expect(segmentBox?.height).toBeGreaterThan(0);
   expect(segmentBox?.width).toBeGreaterThan(0);
-  await expect(page.locator('.weekly-chart-seg[title^="Australia:"]')).toHaveCount(8);
+  await expect(page.locator('.weekly-chart-seg[title^="Australia:"]')).toHaveCount(SAMPLE_AU_WEEKS);
   expect(dashboardRanges.length).toBeGreaterThan(0);
   expect(dashboardRanges.every(value => value === "30d")).toBe(true);
   // Browser-clock skew must not change the same server duration or its age filters.
@@ -228,8 +233,11 @@ test("PR95 R4 recent activity pages past100 real authorized events", async ({ pa
   const headers = { "X-CSRF-Token": session.csrf_token, Origin: process.env.PLAYWRIGHT_BASE_URL! };
   const priorMine = await (await page.request.get("/api/clm/zero-touch/dashboard?scope=mine&date_range=30d")).json();
   const priorTeam = await (await page.request.get("/api/clm/zero-touch/dashboard?date_range=30d")).json();
-  const expectedMineTotal = priorMine.totals.total_cases + 205;
-  const expectedTeamTotal = priorTeam.totals.total_cases + 205;
+  // The dashboard adds the fixed sample cases to both the totals and the loaded cases.
+  const sampleMine = sampleCaseCount("mine");
+  const sampleTeam = sampleCaseCount("team");
+  const expectedMineTotal = priorMine.totals.total_cases + 205 + sampleMine;
+  const expectedTeamTotal = priorTeam.totals.total_cases + 205 + sampleTeam;
   // Genuine local test-mode case creation; no provider start or mocked API replies.
   for (let batch = 0; batch < 21; batch++) {
     const responses = await Promise.all(Array.from({ length: Math.min(10, 205 - batch * 10) }, (_, item) =>
@@ -255,11 +263,11 @@ test("PR95 R4 recent activity pages past100 real authorized events", async ({ pa
   await page.getByRole("button", { name: "My work", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Dashboard date range", exact: true })).toHaveValue("30d");
   const yourCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "Your cases", exact: true }) });
-  await expect(yourCases).toContainText(`Loaded subset: 200 of ${expectedMineTotal} creator-only cases`);
+  await expect(yourCases).toContainText(`Loaded subset: ${200 + sampleMine} of ${expectedMineTotal} creator-only cases`);
   await expect(yourCases).toContainText("filters apply only to the loaded subset");
   await expect(yourCases.getByRole("link", { name: "View or search Cases" })).toHaveAttribute("href", "/cases");
   const blockedCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "Blocked cases", exact: true }) });
-  await expect(blockedCases).toContainText(`Loaded subset: 200 of ${expectedMineTotal}`);
+  await expect(blockedCases).toContainText(`Loaded subset: ${200 + sampleMine} of ${expectedMineTotal}`);
   const activity = page.locator("article").filter({ has: page.getByRole("heading", { name: "Recent activity on your cases · all dates", exact: true }) });
   const seen: string[] = [];
   for (let offset = 0; offset < expected.length; offset += 10) {
@@ -290,7 +298,7 @@ test("PR95 R4 recent activity pages past100 real authorized events", async ({ pa
   const allCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "All cases", exact: true }) });
   // Direct fixture API writes bypass app mutation invalidation; refresh the fixed snapshot.
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(allCases).toContainText(`Loaded subset: 200 of ${expectedTeamTotal} cases in the authorized cohort`);
+  await expect(allCases).toContainText(`Loaded subset: ${200 + sampleTeam} of ${expectedTeamTotal} cases in the authorized cohort`);
   await allCases.getByRole("link", { name: "View or search Cases" }).click();
   await expect(page).toHaveURL(/\/cases$/);
   expect(violations).toEqual([]);

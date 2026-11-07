@@ -12,6 +12,13 @@ import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION, type CaseQueuePresentationS
 import { createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, ZeroTouchCaseListItem } from "./types";
 
+// These tests cover the live case portfolio; the fixed dashboard sample cases that the Cases
+// table lists after live cases are covered in pages/SampleCaseDetail.test.tsx.
+vi.mock("./pages/mockDashboards/onboardingSample", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./pages/mockDashboards/onboardingSample")>()),
+  sampleCaseRows: () => [],
+}));
+
 const actor: AuthenticatedProfile = {
   user_id: "maya-lim",
   display_name: "Maya Lim",

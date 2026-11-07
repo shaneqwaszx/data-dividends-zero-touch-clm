@@ -239,6 +239,18 @@ Recent cases to reuse the existing case detail flow. **Refresh** rereads the bac
 it does not run onboarding providers. Factual completion rate has no SLA, regulatory,
 approval, risk, or staff-performance meaning.
 
+The Onboarding dashboard also shows 46 fixed sample cases (9 in **My work**) so it is never
+empty. They are frontend-only display data in
+`apps/frontend/src/pages/mockDashboards/onboardingSample.ts`, identical for every user and
+device, and unaffected by the team and date-range filters. By request they are **not
+labelled** as sample data anywhere in the UI. **Cases** lists them after the live cases (on
+the last page of live results), and **Open** shows a read-only case page (summary, steps and
+blockers, no actions) at an ordinary-looking `/cases/<id>` address; there are no documents,
+ownership records or audit trail behind them. The six Australia cases are illustrative only;
+Singapore ACRA remains the sole implemented registry. Presenters should say that these
+cases are synthetic. Live backend figures are added on top, so creating or completing a case still
+changes the dashboard. Sample figures are not backend, sponsor, or Live evidence.
+
 For an engineering-only repeatable remote validation, explicitly select a newly generated
 database matching `clm_p13_<24 lowercase hex>` and run
 `python scripts/validate_phase13_mongo_dashboard.py` with `PYTHONPATH=apps/backend;.`.

@@ -1,4 +1,5 @@
 import { parseCaseId } from "../navigation";
+import { sampleCaseIdFromUrlId } from "./mockDashboards/onboardingSample";
 
 export interface AiAssistantContext {
   /** The case the AI assistant talks about, or null when there is none to explain yet. */
@@ -15,7 +16,9 @@ function caseIdSegment(segment: string | undefined): string | null {
   } catch {
     // parseCaseId rejects anything malformed
   }
-  return parseCaseId(decoded);
+  const caseId = parseCaseId(decoded);
+  // Dashboard sample cases exist only in the frontend, so there is nothing to ask the service about.
+  return caseId && sampleCaseIdFromUrlId(caseId) ? null : caseId;
 }
 
 /**

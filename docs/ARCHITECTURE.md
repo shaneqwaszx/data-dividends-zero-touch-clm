@@ -517,6 +517,11 @@ The backend applies actor/team authorization before filters, ordering, projectio
 aggregation. A lightweight repository projection avoids complete-envelope N+1 reads.
 Dashboard metrics are factual POC counts/trends, not risk, SLA, compliance, or staff
 performance metrics. `team_filter` is part of backend scope and frontend cache identity.
+For demonstration, the frontend Dashboard page adds a fixed, unlabelled sample portfolio on
+top of the backend snapshot at render time only; the backend response, query cache and API are
+unchanged, and sample rows never link to backend case detail. They open a read-only frontend
+case page at fixed UUID-shaped `/cases/<id>` addresses (`onboardingSample.ts` owns the
+mapping) and follow the live rows in the Cases table; neither calls the backend.
 
 The Cases portfolio page composes current status, priority filter/order, team, correlated
 OPEN exception type, exact jurisdiction, and trimmed literal search over registration

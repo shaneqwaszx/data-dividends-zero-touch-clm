@@ -16,6 +16,7 @@ import { mapZeroTouchCaseToCaseRow } from "../viewModels";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import PriorityControl, { PriorityFilterSelect, PrioritySortSelect } from "./PriorityControl";
 import DirectorTeamFilter from "./DirectorTeamFilter";
+import { sampleCaseRows, type SampleCaseRow } from "./mockDashboards/onboardingSample";
 import {
   BUSINESS_EXCEPTION_TYPE_LABELS,
   BUSINESS_EXCEPTION_TYPES,
@@ -88,6 +89,88 @@ export async function loadCaseQueueRows(
 }
 
 export type CaseQueueView = "all" | CasePortfolioProgress;
+
+interface SampleCaseFilters {
+  view: CaseQueueView;
+  status: string;
+  priority: PriorityFilter;
+  prioritySort: PrioritySort;
+  jurisdiction: string;
+  search: string;
+  attentionType: string;
+  createdFrom: string;
+  createdTo: string;
+}
+
+/** Apply the Cases tab filters (other than team) to the fixed sample cases. */
+export function filterSampleCases(rows: SampleCaseRow[], filters: SampleCaseFilters): SampleCaseRow[] {
+  const search = filters.search.trim().toLowerCase();
+  return rows
+    .filter((row) => filters.view !== "onboarded" || row.status === "COMPLETED")
+    .filter((row) => filters.view !== "in_progress" || row.status !== "COMPLETED")
+    .filter((row) => !filters.status || row.status === filters.status)
+    .filter((row) => filters.priority === "all"
+      || (filters.priority === "prioritised" ? row.priority !== null
+        : filters.priority === "unset" ? row.priority === null
+          : row.priority === Number(filters.priority)))
+    .filter((row) => !filters.jurisdiction || row.jurisdiction === filters.jurisdiction)
+    .filter((row) => !search || (row.legal_name ?? "").toLowerCase().includes(search) || row.requested_uen.toLowerCase().includes(search))
+    .filter((row) => !filters.attentionType || row.open_blocker_types.includes(filters.attentionType as BusinessExceptionType))
+    .filter((row) => !filters.createdFrom || row.created_at.slice(0, 10) >= filters.createdFrom)
+    .filter((row) => !filters.createdTo || row.created_at.slice(0, 10) <= filters.createdTo)
+    .sort((a, b) => {
+      if (a.priority === b.priority) return a.case_id < b.case_id ? -1 : 1;
+      if (a.priority === null) return 1;
+      if (b.priority === null) return -1;
+      return filters.prioritySort === "highest_first" ? b.priority - a.priority : a.priority - b.priority;
+    });
+}
+
+/**
+ * A fixed dashboard sample case as a row of the Cases table. It opens the read-only case page;
+ * priority is shown as text and there is no delete, because neither exists in the backend.
+ */
+function SampleCaseTableRow({ row }: { row: SampleCaseRow }) {
+  return (
+    <tr>
+      <td>{row.legal_name ?? row.requested_uen}</td>
+      <td>{row.requested_uen}</td>
+      <td>{row.jurisdiction}</td>
+      <td>
+        <span className={statusTagClass(row.status)}>{row.status.replaceAll("_", " ")}</span>
+        {row.blocker_count > 0
+          ? <span className="cell-note">{manualStepsLabel(row.blocker_count)}</span>
+          : row.status === "COMPLETED"
+            ? <strong className="cell-note zero-touch-note">Zero-touch</strong>
+            : <span className="cell-note">No manual steps yet</span>}
+      </td>
+      <td>{row.priority ?? "Not set"}</td>
+      <td>—</td>
+      <td>
+        Current stage
+        <span className="cell-note">{row.final_outcome ? targetOutcomeLabel(row.final_outcome) : row.current_stage.replaceAll("_", " ")}</span>
+      </td>
+      <td>
+        {row.open_blocker_types.length > 0 ? (
+          <div className="attention-type-list">
+            {row.open_blocker_types.map((type) => (
+              <span className="tag tag-neutral" key={type}>{BUSINESS_EXCEPTION_TYPE_LABELS[type]}</span>
+            ))}
+          </div>
+        ) : <span className="text-muted">—</span>}
+      </td>
+      <td>{formatDateNoSeconds(row.created_at)}</td>
+      <td>{formatDateNoSeconds(row.updated_at)}</td>
+      <td>
+        <div className="case-timing-cell">
+          <span>{row.completed_at ? "Case duration" : "Case age"}: {formatDuration(row.case_elapsed_ms)}</span>
+          <span className="cell-note">Last updated: {formatDuration(Math.max(0, Date.now() - Date.parse(row.updated_at)))} ago</span>
+        </div>
+      </td>
+      <td><Link className="btn btn-secondary" to={paths.sampleCaseDetail(row.case_id)}>Open</Link></td>
+    </tr>
+  );
+}
 
 export interface CaseQueuePresentationState {
   /** Show: all cases, only cases still in progress, or only onboarded (completed) cases. */
@@ -171,6 +254,15 @@ export default function CaseQueue({
     () => (createdRangeInvalid ? [] : query.data?.items ?? []).map(mapZeroTouchCaseToCaseRow),
     [query.data, createdRangeInvalid],
   );
+  // Dates are placed relative to when the tab opened, like the dashboard does.
+  const allSampleRows = useMemo(() => sampleCaseRows(actor), [actor]);
+  const sampleRows = useMemo(() => (createdRangeInvalid ? [] : filterSampleCases(allSampleRows, {
+    view, status, priority, prioritySort, jurisdiction, search: normalizedSearch,
+    attentionType, createdFrom, createdTo,
+  })), [allSampleRows, createdRangeInvalid, view, status, priority, prioritySort, jurisdiction, normalizedSearch, attentionType, createdFrom, createdTo]);
+  // Sample cases follow the live cases, on the last page of live results.
+  const pageSampleRows = query.data && !query.data.has_more ? sampleRows : [];
+  const shownCount = cases.length + pageSampleRows.length;
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
     await priorityMutationEffect(queryClient, actor.user_id);
@@ -345,13 +437,13 @@ export default function CaseQueue({
       {!searchIsDebouncing && query.isError && query.data && <div className="ds-banner ds-banner-warn">Refresh failed; cached cases remain visible.</div>}
       {query.isPending && !searchIsDebouncing && !createdRangeInvalid && <p className="text-muted">Loading cases…</p>}
       {!searchIsDebouncing && query.isFetching && !query.isPending && <p className="refreshing-indicator">Refreshing…</p>}
-      {!searchIsDebouncing && !createdRangeInvalid && !query.isError && !query.isPending && cases.length === 0 && (
+      {!searchIsDebouncing && !createdRangeInvalid && !query.isError && !query.isPending && shownCount === 0 && (
         <p className="text-muted">No cases match these filters.</p>
       )}
-      {!searchIsDebouncing && (cases.length > 0 || query.data?.observed_at) && (
+      {!searchIsDebouncing && (shownCount > 0 || query.data?.observed_at) && (
         <div className="case-queue-meta">
-          {cases.length > 0 ? (
-            <p className="text-muted" aria-live="polite">Showing {offset + 1}–{offset + cases.length}</p>
+          {shownCount > 0 ? (
+            <p className="text-muted" aria-live="polite">Showing {offset + 1}–{offset + shownCount}</p>
           ) : <span />}
           {query.data?.observed_at && (
             <div className="case-queue-meta__refresh text-muted">
@@ -368,7 +460,7 @@ export default function CaseQueue({
           )}
         </div>
       )}
-      {!searchIsDebouncing && cases.length > 0 && (
+      {!searchIsDebouncing && shownCount > 0 && (
         <div className="table-card table-scroll" tabIndex={0} aria-label="Cases table">
           <table className="table case-table">
             <colgroup>
@@ -473,6 +565,7 @@ export default function CaseQueue({
                   </td>
                 </tr>
               ))}
+              {pageSampleRows.map((row) => <SampleCaseTableRow key={row.case_id} row={row} />)}
             </tbody>
           </table>
         </div>
