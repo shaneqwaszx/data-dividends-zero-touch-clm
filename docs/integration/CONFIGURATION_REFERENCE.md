@@ -85,6 +85,9 @@ Mock interoperability; Garden shareholder evidence is empty and no percentage is
 derived. The generic `ACRA_*` sandbox URL/path/header fields are not consulted or used as
 fallbacks. Q-012 remains open, and the lane is never labelled Sandbox or Live.
 
+In `APP_ENV=staging` the backend refuses to start on this lane unless both credentials
+are non-blank. See [Marketplace Mock readiness](ACRA_API_MARKETPLACE_MOCK_READINESS.md).
+
 ## Script-only smoke settings
 
 `ACRA_LIVE_SMOKE_ENABLED` and `ACRA_SMOKE_UEN` are read only by the legacy generic

@@ -329,6 +329,14 @@ class Settings(BaseSettings):
             raise ValueError("shared staging requires disabled demo controls")
         if self.acra_connector_mode not in {"mock", "api_marketplace_mock"}:
             raise ValueError("staging requires a Mock ACRA connector")
+        if self.acra_connector_mode == "api_marketplace_mock" and not all(
+            secret is not None and secret.get_secret_value().strip()
+            for secret in (
+                self.acra_api_marketplace_mock_client_id,
+                self.acra_api_marketplace_mock_secret_key,
+            )
+        ):
+            raise ValueError("staging requires official Marketplace Mock credentials")
         _require_verified_mongo_tls(self.mongo_uri.get_secret_value())
         return self
 
