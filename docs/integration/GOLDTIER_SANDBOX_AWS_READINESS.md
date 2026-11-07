@@ -1,8 +1,8 @@
 # GoldTier Sandbox readiness for AWS staging
 
 Status: offline preparation. No genuine Sandbox call, GoldTier write or new customer was
-made. `GOLDTIER_XPI` stays `PARTIAL / SANDBOX_PARTIAL`. This is not Live evidence. No
-decision number is allocated here; the owner assigns one when this content is accepted.
+made. `GOLDTIER_XPI` stays `PARTIAL / SANDBOX_PARTIAL`. This is not Live evidence. The
+decision record is D-126.
 
 ## What staging does
 
