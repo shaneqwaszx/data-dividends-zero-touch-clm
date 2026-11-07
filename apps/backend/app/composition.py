@@ -175,6 +175,13 @@ def build_onboarding_service(
                 local_synthetic_registry_identity()
                 if active_settings.app_env != "production" else None
             ),
+            # Staging's official lane acquires only from the provider: a seeded corporate
+            # holder would otherwise merge into official evidence unmarked. The Government
+            # register keeps its own labelled route.
+            read_seed_for_provider_lanes=not (
+                active_settings.app_env == "staging"
+                and active_settings.acra_connector_mode == "api_marketplace_mock"
+            ),
         )
     goldtier: GoldTierConnector
     goldtier_mapper: GoldTierRequestMapper
@@ -404,6 +411,13 @@ def build_ownership_analysis_service(
             else None
         ),
         poc_acceptance_enabled=poc_acceptance,
+        # Shared staging can retain cases from an earlier local Mock lane. The official
+        # lane's review allowances need an official root; seeds are refused at acquisition.
+        official_registry_source_prefix=(
+            f"{ACRA_API_MARKETPLACE_MOCK_BASE_URL}/"
+            if official_lane and settings.app_env == "staging"
+            else None
+        ),
         ubo_review_advisory=(
             official_lane
             # D-124: GoldTier Sandbox is the standing POC lane. Any other target never qualifies.

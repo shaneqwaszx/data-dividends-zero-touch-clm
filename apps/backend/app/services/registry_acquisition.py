@@ -184,6 +184,7 @@ class RegistryAcquisitionCoordinator:
         *,
         clock: Callable[[], datetime] | None = None,
         local_seed_identity: RegistryProviderIdentity | None = None,
+        read_seed_for_provider_lanes: bool = True,
         max_active_keys: int = 256,
         max_users_per_key: int = 64,
         wait_timeout_seconds: float = 45.0,
@@ -203,6 +204,7 @@ class RegistryAcquisitionCoordinator:
             if local_seed_identity != local_synthetic_registry_identity():
                 raise ValueError("unapproved local registry dataset identity")
         self._local_seed_identity = local_seed_identity
+        self._read_seed_for_provider_lanes = read_seed_for_provider_lanes
         self._repository = repository
         self._policy = policy
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -289,6 +291,7 @@ class RegistryAcquisitionCoordinator:
         )
         if (
             self._local_seed_identity is not None
+            and self._read_seed_for_provider_lanes
             and identity.provider == self._local_seed_identity.provider
             and identity.acquisition_contract_version
             == self._local_seed_identity.acquisition_contract_version
