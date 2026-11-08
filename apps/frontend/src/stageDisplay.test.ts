@@ -113,6 +113,18 @@ describe("isWaitingForEarlierSteps", () => {
       expect(isWaitingForEarlierSteps(node(), withClassification)).toBe(true);
     });
 
+    it("keeps readiness-or-later stages blocked while a final-confirmation request is open", () => {
+      // Raised at READINESS (an earlier stage than Final review & send), but answered on Final review & send.
+      const confirmation = { ...exception("READINESS", "TARGET_CONFIRMATION_REQUIRED"), exception_type: "TARGET_CONFIRMATION_REQUIRED" };
+      const open = summary({ status: "WAITING_FOR_REVIEW", current_stage: "OWNERSHIP", completed_stages: ["REGISTRY", "GOLDTIER_SEARCH", "DOCUMENT"], active_exceptions: [confirmation],
+        clm: { readiness: { blockers: ["OWNERSHIP_REQUIRED"] } } });
+      expect(isWaitingForEarlierSteps(node({ node_id: "FINAL_REVIEW_SEND", backend_stage: "MOCK_GOLDTIER", blocker_code: "OWNERSHIP_REQUIRED" }), open)).toBe(false);
+      expect(isWaitingForEarlierSteps(node({ node_id: "READINESS", backend_stage: "READINESS", blocker_code: "OWNERSHIP_REQUIRED" }), open)).toBe(false);
+      // Without the confirmation request the same final-review stage would only be waiting.
+      const closed = summary({ status: "RUNNING", current_stage: "OWNERSHIP", completed_stages: ["REGISTRY", "GOLDTIER_SEARCH", "DOCUMENT"], clm: { readiness: { blockers: ["OWNERSHIP_REQUIRED"] } } });
+      expect(isWaitingForEarlierSteps(node({ node_id: "FINAL_REVIEW_SEND", backend_stage: "MOCK_GOLDTIER", blocker_code: "OWNERSHIP_REQUIRED" }), closed)).toBe(true);
+    });
+
     it("keeps the stage blocked when a sub-step needs attention", () => {
       const classification = { node_id: "TARGET_CLASSIFICATION", label: "Target classification", status: "REVIEW_REQUIRED" as const, children: [] };
       expect(isWaitingForEarlierSteps(node({ node_id: "READINESS", backend_stage: "READINESS", children: [classification] }), summary())).toBe(false);

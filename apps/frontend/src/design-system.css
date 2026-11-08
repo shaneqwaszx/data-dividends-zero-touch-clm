@@ -1000,7 +1000,7 @@ a.nav-brand:hover { color: var(--color-accent-800); }
 .case-pipeline-panel::-webkit-scrollbar-thumb:hover { background: var(--color-accent-700); }
 .ds-root .onboarding-progress__stages > li[data-status] { border-top-color: var(--tile); }
 /* A stage only waiting for earlier steps keeps the default (not started) tile; data-status stays the backend value. */
-.ds-root .onboarding-progress__stages > li[data-status][data-display-state="waiting"] { --tile: var(--color-neutral-400); border-color: var(--color-divider); background: #fff; }
+.ds-root .onboarding-progress__stages > li[data-status][data-display-state="waiting"] { --tile: var(--color-neutral-400); border-color: var(--color-divider); border-top-color: var(--tile); background: #fff; }
 
 /* Registry provenance rows match the registry boundary table (kv-row scale and weight). */
 .registry-provenance dl { margin: 0 0 4px; }

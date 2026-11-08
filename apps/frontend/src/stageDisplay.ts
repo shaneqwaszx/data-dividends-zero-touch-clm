@@ -73,6 +73,10 @@ export function isWaitingForEarlierSteps(node: ProcessingNode, summary: ZeroTouc
 
   // Never hide an RM action: every open exception and intervention must belong to an earlier
   // stage, and none may carry this stage's blocker code. Those earlier blockers stay visible.
+  // An open final-confirmation request is raised at READINESS but answered on Final review & send,
+  // so while it is open no readiness-or-later stage is ever shown as merely waiting.
+  const confirmationOpen = summary.active_exceptions.some(exception => exception.exception_type === "TARGET_CONFIRMATION_REQUIRED");
+  if (confirmationOpen && nodeIndex >= stageIndex("READINESS")) return false;
   for (const exception of summary.active_exceptions) {
     const index = stageIndex(exception.stage);
     if (index < 0 || index >= nodeIndex) return false;
