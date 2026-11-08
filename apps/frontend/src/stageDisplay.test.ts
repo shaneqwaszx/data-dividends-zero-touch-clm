@@ -18,6 +18,7 @@ function summary(overrides: Record<string, unknown> = {}): ZeroTouchCaseSummary 
     technical_failure: null,
     stage_order_version: 2,
     processing_pipeline: [],
+    clm: { readiness: { blockers: ["DOCUMENT_REQUIRED", "OWNERSHIP_REQUIRED"] } },
     ...overrides,
   } as unknown as ZeroTouchCaseSummary;
 }
@@ -92,6 +93,26 @@ describe("isWaitingForEarlierSteps", () => {
       expect(isWaitingForEarlierSteps(node({ blocker_code: "OWNERSHIP_REQUIRED" }), summary())).toBe(false);
     });
 
+    it("keeps a readiness-derived stage blocked when any retained readiness blocker is not an earlier prerequisite", () => {
+      // The node carries only the first readiness blocker; a later classification code must still count.
+      const withClassification = summary({ clm: { readiness: { blockers: ["DOCUMENT_REQUIRED", "GOLDTIER_CLASSIFICATION_REQUIRED"] } } });
+      for (const [id, stage] of [["READINESS", "READINESS"], ["GOLDTIER_TARGET", "READINESS"], ["FINAL_REVIEW_SEND", "MOCK_GOLDTIER"]] as const) {
+        expect(isWaitingForEarlierSteps(node({ node_id: id, backend_stage: stage, blocker_code: "DOCUMENT_REQUIRED" }), withClassification), id).toBe(false);
+      }
+      const withSearch = summary({ clm: { readiness: { blockers: ["DOCUMENT_REQUIRED", "GOLDTIER_SEARCH_STALE"] } } });
+      expect(isWaitingForEarlierSteps(node({ node_id: "READINESS", backend_stage: "READINESS", blocker_code: "DOCUMENT_REQUIRED" }), withSearch)).toBe(false);
+      // A readiness blocker owned by the readiness stage's own position or later is not a prerequisite either.
+      expect(isWaitingForEarlierSteps(node({ node_id: "READINESS", backend_stage: "READINESS", blocker_code: "DOCUMENT_REQUIRED" }),
+        summary({ clm: { readiness: { blockers: ["DOCUMENT_REQUIRED", "UNKNOWN_CODE"] } } }))).toBe(false);
+      // Only earlier prerequisites: waiting.
+      expect(isWaitingForEarlierSteps(node({ node_id: "READINESS", backend_stage: "READINESS", blocker_code: "DOCUMENT_REQUIRED" }), summary())).toBe(true);
+    });
+
+    it("does not apply the readiness list to stages that do not derive from it", () => {
+      const withClassification = summary({ clm: { readiness: { blockers: ["GOLDTIER_CLASSIFICATION_REQUIRED"] } } });
+      expect(isWaitingForEarlierSteps(node(), withClassification)).toBe(true);
+    });
+
     it("keeps the stage blocked when a sub-step needs attention", () => {
       const classification = { node_id: "TARGET_CLASSIFICATION", label: "Target classification", status: "REVIEW_REQUIRED" as const, children: [] };
       expect(isWaitingForEarlierSteps(node({ node_id: "READINESS", backend_stage: "READINESS", children: [classification] }), summary())).toBe(false);
@@ -126,6 +147,14 @@ describe("isWaitingForEarlierSteps", () => {
     it("when the stage is recorded as completed, or the current stage is already completed", () => {
       expect(isWaitingForEarlierSteps(node(), summary({ completed_stages: ["REGISTRY", "GOLDTIER_SEARCH", "OWNERSHIP"] }))).toBe(false);
       expect(isWaitingForEarlierSteps(node(), summary({ completed_stages: ["REGISTRY", "GOLDTIER_SEARCH", "DOCUMENT"] }))).toBe(false);
+    });
+
+    it("when readiness information is missing for a readiness-derived stage", () => {
+      const readiness = node({ node_id: "READINESS", backend_stage: "READINESS", blocker_code: "DOCUMENT_REQUIRED" });
+      expect(isWaitingForEarlierSteps(readiness, summary({ clm: undefined }))).toBe(false);
+      expect(isWaitingForEarlierSteps(readiness, summary({ clm: { readiness: {} } }))).toBe(false);
+      expect(isWaitingForEarlierSteps(readiness, summary({ clm: { readiness: { blockers: "DOCUMENT_REQUIRED" } } }))).toBe(false);
+      expect(isWaitingForEarlierSteps(readiness, summary({ clm: { readiness: { blockers: [42] } } }))).toBe(false);
     });
 
     it("when exception, completion or intervention lists are missing or malformed", () => {

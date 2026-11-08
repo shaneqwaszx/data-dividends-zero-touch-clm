@@ -143,12 +143,14 @@ test("Five-layer hybrid onboarding renders five corporate levels in the existing
   await person.click();
   const detail = stage.getByLabel("Selected holder");
   await expect(detail).toContainText("25%");
-  await expect(detail).toContainText("REVIEW_REQUIRED");
-  await expect(detail).toContainText("→ INDETERMINATE");
-  await expect(detail).toContainText("Assumed-basis comparison");
-  await expect(detail).toContainText("→ MET (not a classification)");
-  await expect(detail).toContainText("80% x 62.5% x 60% x 100% x 62.5% = 18.75%");
-  await expect(detail).toContainText("2 retained paths reach this person");
+  // Formal result REVIEW_REQUIRED / INDETERMINATE; assumed-basis MET is never a classification.
+  await expect(detail).toContainText("Needs a person's review before any conclusion");
+  await expect(detail).toContainText("Cannot be determined from the available records");
+  await expect(detail).toContainText("On the assumed POC basis");
+  await expect(detail).toContainText("Meets the 25% threshold (25% or more) (not a classification)");
+  await expect(detail).not.toContainText("Provisional UBO candidate");
+  await expect(detail).toContainText("80% × 62.5% × 60% × 100% × 62.5% = 18.75%");
+  await expect(detail).toContainText("2 ownership routes reach this person");
   await expect(detail).toContainText("LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL");
   await detail.screenshot({ path: path.join(evidence, "five-layer-selected-holder.png") });
   const discovery = stage.locator(".ownership-discovery");

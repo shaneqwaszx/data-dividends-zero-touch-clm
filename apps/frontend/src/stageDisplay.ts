@@ -33,6 +33,12 @@ const PREREQUISITE_BLOCKER_STAGES: Readonly<Record<string, AutomationStage>> = {
   GOVERNMENT_STATUS_REQUIRED: "OWNERSHIP",
 };
 
+/**
+ * Backend stages whose pipeline nodes take their reason from the CLM readiness blocker list
+ * (READINESS, GOLDTIER_TARGET and FINAL_REVIEW_SEND carry only its first code; api_models.py).
+ */
+const READINESS_DERIVED_STAGES: ReadonlySet<AutomationStage> = new Set<AutomationStage>(["READINESS", "MOCK_GOLDTIER"]);
+
 /** Child statuses that need no attention; any other child status keeps the parent as reported. */
 const QUIET_CHILD_STATUSES: ReadonlySet<ProcessingNodeStatus> = new Set<ProcessingNodeStatus>([
   "COMPLETE", "EMPTY", "SKIPPED", "NOT_REACHED",
@@ -79,9 +85,17 @@ export function isWaitingForEarlierSteps(node: ProcessingNode, summary: ZeroTouc
   }
 
   // The stage's own reason must be an earlier stage's unfinished prerequisite (or absent).
-  if (node.blocker_code) {
-    const owner = PREREQUISITE_BLOCKER_STAGES[node.blocker_code];
-    if (!owner || stageIndex(owner) >= nodeIndex) return false;
+  const isEarlierPrerequisite = (code: unknown) => {
+    const owner = typeof code === "string" ? PREREQUISITE_BLOCKER_STAGES[code] : undefined;
+    return owner !== undefined && stageIndex(owner) < nodeIndex;
+  };
+  if (node.blocker_code && !isEarlierPrerequisite(node.blocker_code)) return false;
+  // A readiness-derived stage shows only the first readiness blocker, so every retained
+  // readiness blocker (for example a later GOLDTIER_CLASSIFICATION_REQUIRED) must also be an
+  // earlier prerequisite. Missing readiness information keeps the backend display.
+  if (READINESS_DERIVED_STAGES.has(node.backend_stage as AutomationStage)) {
+    const blockers = summary.clm?.readiness?.blockers;
+    if (!Array.isArray(blockers) || !blockers.every(isEarlierPrerequisite)) return false;
   }
   // Any sub-step that needs attention (for example a target classification) keeps the stage as reported.
   if ((node.children ?? []).some(child => !QUIET_CHILD_STATUSES.has(child.status))) return false;

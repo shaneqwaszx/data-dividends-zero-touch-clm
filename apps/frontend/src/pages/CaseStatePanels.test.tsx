@@ -760,7 +760,8 @@ describe("stages waiting for earlier steps (presentation only)", () => {
       staged("GOLDTIER_TARGET", "GoldTier submission package", "BLOCKED", "READINESS", "DOCUMENT_REQUIRED"),
       staged("FINAL_REVIEW_SEND", "Final review & send", "BLOCKED", "MOCK_GOLDTIER", "DOCUMENT_REQUIRED"),
     ]);
-    return { ...value, status: "PENDING_INPUTS", current_stage: "DOCUMENT", completed_stages: ["REGISTRY", "GOLDTIER_SEARCH"], ...overrides } as ZeroTouchCaseSummary;
+    const clm = { ...value.clm, readiness: { blockers: ["DOCUMENT_REQUIRED", "OWNERSHIP_REQUIRED"] } };
+    return { ...value, clm, status: "PENDING_INPUTS", current_stage: "DOCUMENT", completed_stages: ["REGISTRY", "GOLDTIER_SEARCH"], ...overrides } as ZeroTouchCaseSummary;
   }
   const tile = (markup: string, label: string) => {
     const match = new RegExp(`<li[^>]*>(?:(?!</li>).)*?aria-label="Open details for ${label.replace("&", "&amp;")}"(?:(?!</li>).)*</li>`).exec(markup);
@@ -811,6 +812,17 @@ describe("stages waiting for earlier steps (presentation only)", () => {
     // Stages after the open Ownership exception still wait for it.
     expect(tile(markup, "Final review & send")).toContain(">Waiting for earlier steps<");
     expect(tile(markup, "Ownership & UBO")).toContain(">Resolve issue<");
+  });
+
+  it("keeps readiness-derived steps blocked when a later readiness blocker is not a prerequisite", () => {
+    const summary = pendingDocuments();
+    summary.clm.readiness.blockers = ["DOCUMENT_REQUIRED", "GOLDTIER_CLASSIFICATION_REQUIRED"];
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} onStageActivate={() => undefined} />);
+    expect(tile(markup, "GoldTier Details & Status")).not.toContain("data-display-state");
+    expect(tile(markup, "GoldTier Details & Status")).toContain(">Blocked<");
+    expect(tile(markup, "Final review & send")).not.toContain("data-display-state");
+    // Ownership does not derive from the readiness list, so it still only waits.
+    expect(tile(markup, "Ownership & UBO")).toContain(">Waiting for earlier steps<");
   });
 
   it("keeps the backend display during recovery and for legacy stage order", () => {
