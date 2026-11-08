@@ -131,6 +131,19 @@ and left alive.
 - Target calls in export: `SEARCH, SHELL, POLICY, AMEND`.
 - Warnings retain provisional/live limitations.
 
+## Reading the case progress and ownership wording
+
+These are presentation-only labels. Backend statuses, stage counts, completion figures, the
+25% inclusive UBO threshold and every disclaimer are unchanged.
+
+| You see | Meaning |
+|---|---|
+| **Waiting for earlier steps** (neutral tile) | The backend reports this later stage as `BLOCKED` only because an earlier stage is unfinished. No action is needed on it yet. Stage details still show the backend status, and **Detailed processing** shows the raw `BLOCKED`. Shown only when no exception or action belongs to that stage, the case is not in recovery or technical failure, and the case uses the current stage order |
+| **Blocked** with **Resolve issue** | A genuine blocker at the current stage, or any case the display rule cannot classify safely |
+| **Not started yet** | The automation has not reached this stage (backend `NOT_REACHED`); a locked add-on workflow stage shows "Opens after the previous stage" |
+| **Meets the 25% threshold (25% or more)** / **Below the 25% threshold** / **Cannot be determined from the available records** | The backend threshold result (`MET`/`NOT_MET`/`INDETERMINATE`), shown as returned and never recalculated |
+| **Jane Tan owns 60% of Alpha Pte Ltd** | One retained ownership relationship, owner first |
+
 ## Troubleshooting
 
 | Symptom | Safe action |

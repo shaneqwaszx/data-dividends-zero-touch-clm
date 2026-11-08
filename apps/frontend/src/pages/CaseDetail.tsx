@@ -105,6 +105,7 @@ import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
 import GovernmentStatusPanel from "./GovernmentStatusPanel";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import PolicyRebindPanel, { PolicyRebindDetails } from "./PolicyRebindPanel";
+import { isWaitingForEarlierSteps } from "../stageDisplay";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
   identity: "case-identity-correction",
@@ -1081,7 +1082,7 @@ export default function CaseDetail({
       if (latest.active_exceptions.some(item => item.exception_type === "TARGET_CONFIRMATION_REQUIRED")) {
         focusActionControl("case-review-and-send", ".btn-primary:not([disabled])");
       } else {
-        const node = latest.processing_pipeline?.find(item => item.status === "BLOCKED");
+        const node = latest.processing_pipeline?.find(item => item.status === "BLOCKED" && !isWaitingForEarlierSteps(item, latest));
         if (node) focusProcessingNode(node);
       }
     });

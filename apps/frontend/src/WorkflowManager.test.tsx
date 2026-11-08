@@ -65,9 +65,23 @@ describe("withWorkflowStages", () => {
       stage(),
       stage({ stage_id: "done", status: "COMPLETE", confirmed_by: "maya-lim", confirmed_at: "2026-11-05T11:00:00Z" }),
     ]));
-    expect(merged[2].safe_result).toBe("Not ready");
+    expect(merged[2].status).toBe("REVIEW_REQUIRED");
+    expect(merged[2].safe_result).toBe("Action needed");
     expect(merged[3].safe_result).toBe("Ready");
     expect(merged[3].timestamp).toBe("2026-11-05T11:00:00Z");
+  });
+
+  it("shows a locked stage as not started, never as needing review", () => {
+    const merged = withWorkflowStages(pipeline, run([
+      stage({ stage_id: "next", status: "LOCKED" }),
+      stage({ stage_id: "open" }),
+    ]));
+    const locked = merged.find(node => node.node_id === "WORKFLOW_STAGE_next")!;
+    const open = merged.find(node => node.node_id === "WORKFLOW_STAGE_open")!;
+    expect(locked.status).toBe("NOT_REACHED");
+    expect(locked.safe_result).toBe("Opens after the previous stage");
+    expect(open.status).toBe("REVIEW_REQUIRED");
+    expect(open.safe_result).toBe("Action needed");
   });
 
   it("keeps stages sharing an anchor in order and shows a confirmed stage as complete", () => {
