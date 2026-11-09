@@ -307,7 +307,7 @@ it("renders the live weekly chart and adds the fixed sample weeks on top, withou
   expect(liveOnly).toContain('title="Singapore: 7"');
   expect(liveOnly).toContain("Completions recorded in this environment");
 
-  const merged = render(withOnboardingSample(value, maya), sampleCaseCount("team"));
+  const merged = render(withOnboardingSample(value, maya), sampleCaseCount("team", maya));
   expect(merged).toContain('title="Singapore: 13"'); // 6 sample + 7 live
   expect(merged).not.toContain('title="Singapore: 7"');
   expect(merged).toContain('title="Australia: 1"');

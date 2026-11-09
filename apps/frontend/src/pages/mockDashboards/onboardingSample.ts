@@ -74,14 +74,24 @@ const BASE_STAGE_MS: Record<AutomationStage, number> = {
 const RUN_OVERHEAD_MS = 50 * SECOND;
 
 // "viewer" sample cases belong to whoever is signed in, so My work is populated for everyone.
-type Owner = "aisha" | "daniel" | "priya" | "marcus" | "viewer";
+type Owner = "ethan" | "ryan" | "viewer";
 
-const SAMPLE_PEOPLE: Record<Exclude<Owner, "viewer">, string> = {
-  aisha: "Aisha Rahman",
-  daniel: "Daniel Wong",
-  priya: "Priya Nair",
-  marcus: "Marcus Lee",
+// Every sample case belongs to Alpha or Beta, the two configured teams.
+const SAMPLE_TEAMS = { TEAM_A: "Alpha", TEAM_B: "Beta" } as const;
+type SampleTeamId = keyof typeof SAMPLE_TEAMS;
+
+// The other sample owners are the configured relationship managers, under their own user IDs
+// and teams, so their sample and live work combine into one row.
+const SAMPLE_PEOPLE: Record<Exclude<Owner, "viewer">, { user_id: string; name: string; team: SampleTeamId }> = {
+  ethan: { user_id: "ethan-tan", name: "Ethan Tan", team: "TEAM_A" },
+  ryan: { user_id: "ryan-lee", name: "Ryan Lee", team: "TEAM_B" },
 };
+
+/** Fixed per case so every viewer sees the same teams; the signed-in user's cases alternate. */
+function teamOf(item: SampleCase): SampleTeamId {
+  if (item.owner !== "viewer") return SAMPLE_PEOPLE[item.owner].team;
+  return item.n % 2 === 0 ? "TEAM_A" : "TEAM_B";
+}
 
 interface SampleBlocker {
   type: BusinessExceptionType;
@@ -118,63 +128,63 @@ const raised = (type: BusinessExceptionType, stage: AutomationStage): SampleBloc
 
 export const SAMPLE_CASES: readonly SampleCase[] = [
   // Onboarded 7 weeks ago
-  done(1, "Harbourline Logistics Pte. Ltd.", "201603318K", "SG", "aisha", 7),
-  done(2, "Tanjong Crest Foods Pte. Ltd.", "201711052M", "SG", "daniel", 7, [fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 5 * HOUR, "daniel")]),
-  done(3, "Southern Reef Mining Pty Ltd", "51824753556", "AU", "priya", 7),
+  done(1, "Harbourline Logistics Pte. Ltd.", "201603318K", "SG", "ethan", 7),
+  done(2, "Tanjong Crest Foods Pte. Ltd.", "201711052M", "SG", "ryan", 7, [fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 5 * HOUR, "ryan")]),
+  done(3, "Southern Reef Mining Pty Ltd", "51824753556", "AU", "ethan", 7),
   // 6 weeks ago
-  done(4, "Kallang Precision Works Pte. Ltd.", "201509876D", "SG", "marcus", 6),
+  done(4, "Kallang Precision Works Pte. Ltd.", "201509876D", "SG", "ryan", 6),
   done(5, "Emerald Quay Advisory Pte. Ltd.", "201814402W", "SG", "viewer", 6),
-  done(6, "Lumen Grid Technologies Pte. Ltd.", "201920318H", "SG", "aisha", 6, [fixed("OWNERSHIP_REVIEW_REQUIRED", "OWNERSHIP", 26 * HOUR, "priya")]),
+  done(6, "Lumen Grid Technologies Pte. Ltd.", "201920318H", "SG", "ethan", 6, [fixed("OWNERSHIP_REVIEW_REQUIRED", "OWNERSHIP", 26 * HOUR, "ethan")]),
   // 5 weeks ago
-  done(7, "Bukit Timah Dental Group Pte. Ltd.", "201606621Z", "SG", "priya", 5),
-  done(8, "Redhill Interiors Pte. Ltd.", "201712087C", "SG", "daniel", 5),
-  done(9, "Marina Coast Shipping Pte. Ltd.", "201502245E", "SG", "marcus", 5, [fixed("EXISTING_PARTY_REVIEW_REQUIRED", "GOLDTIER_SEARCH", 3.5 * HOUR, "marcus")]),
-  done(10, "Orchard Lane Capital Pte. Ltd.", "202003114N", "SG", "aisha", 5),
+  done(7, "Bukit Timah Dental Group Pte. Ltd.", "201606621Z", "SG", "ethan", 5),
+  done(8, "Redhill Interiors Pte. Ltd.", "201712087C", "SG", "ryan", 5),
+  done(9, "Marina Coast Shipping Pte. Ltd.", "201502245E", "SG", "ryan", 5, [fixed("EXISTING_PARTY_REVIEW_REQUIRED", "GOLDTIER_SEARCH", 3.5 * HOUR, "ryan")]),
+  done(10, "Orchard Lane Capital Pte. Ltd.", "202003114N", "SG", "ethan", 5),
   done(11, "Seletar Aero Components Pte. Ltd.", "201811930J", "SG", "viewer", 5, [fixed("DOCUMENT_REQUIRED_FIELD_MISSING", "DOCUMENT", 7 * HOUR, "viewer")]),
-  done(12, "Banksia Ridge Agriculture Pty Ltd", "63109472815", "AU", "daniel", 5),
+  done(12, "Banksia Ridge Agriculture Pty Ltd", "63109472815", "AU", "ryan", 5),
   // 4 weeks ago
-  done(13, "Clementi Learning Hub Pte. Ltd.", "201707734P", "SG", "priya", 4),
-  done(14, "Pasir Panjang Cold Chain Pte. Ltd.", "201604409B", "SG", "marcus", 4),
-  done(15, "Raffles Row Partners Pte. Ltd.", "201919821T", "SG", "aisha", 4, [
-    fixed("REGISTRY_REVIEW_REQUIRED", "REGISTRY", 2.5 * HOUR, "aisha"),
-    fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 4 * HOUR, "aisha"),
+  done(13, "Clementi Learning Hub Pte. Ltd.", "201707734P", "SG", "ethan", 4),
+  done(14, "Pasir Panjang Cold Chain Pte. Ltd.", "201604409B", "SG", "ryan", 4),
+  done(15, "Raffles Row Partners Pte. Ltd.", "201919821T", "SG", "ethan", 4, [
+    fixed("REGISTRY_REVIEW_REQUIRED", "REGISTRY", 2.5 * HOUR, "ethan"),
+    fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 4 * HOUR, "ethan"),
   ]),
-  done(16, "Coral Coast Hospitality Pty Ltd", "74006138291", "AU", "marcus", 4, [fixed("OWNERSHIP_INCOMPLETE", "OWNERSHIP", 30 * HOUR, "marcus")]),
+  done(16, "Coral Coast Hospitality Pty Ltd", "74006138291", "AU", "ryan", 4, [fixed("OWNERSHIP_INCOMPLETE", "OWNERSHIP", 30 * HOUR, "ryan")]),
   // 3 weeks ago
-  done(17, "Sentosa Leisure Holdings Pte. Ltd.", "201813356G", "SG", "daniel", 3),
+  done(17, "Sentosa Leisure Holdings Pte. Ltd.", "201813356G", "SG", "ryan", 3),
   done(18, "Jurong Polymer Supplies Pte. Ltd.", "201508812V", "SG", "viewer", 3),
-  done(19, "Novena Health Analytics Pte. Ltd.", "202104475Q", "SG", "priya", 3, [fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 6 * HOUR, "priya")]),
-  done(20, "Changi Freight Brokers Pte. Ltd.", "201710093F", "SG", "aisha", 3),
+  done(19, "Novena Health Analytics Pte. Ltd.", "202104475Q", "SG", "ethan", 3, [fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 6 * HOUR, "ethan")]),
+  done(20, "Changi Freight Brokers Pte. Ltd.", "201710093F", "SG", "ethan", 3),
   // 2 weeks ago
-  done(21, "Tiong Bahru Bakehouse Pte. Ltd.", "201611578L", "SG", "marcus", 2),
-  done(22, "Keppel Bay Marine Services Pte. Ltd.", "201505536S", "SG", "daniel", 2, [fixed("OWNERSHIP_REVIEW_REQUIRED", "OWNERSHIP", 20 * HOUR, "priya")]),
-  done(23, "Geylang Textile Traders Pte. Ltd.", "201802264X", "SG", "aisha", 2),
-  done(24, "Punggol Green Energy Pte. Ltd.", "202006691A", "SG", "priya", 2),
+  done(21, "Tiong Bahru Bakehouse Pte. Ltd.", "201611578L", "SG", "ryan", 2),
+  done(22, "Keppel Bay Marine Services Pte. Ltd.", "201505536S", "SG", "ryan", 2, [fixed("OWNERSHIP_REVIEW_REQUIRED", "OWNERSHIP", 20 * HOUR, "ethan")]),
+  done(23, "Geylang Textile Traders Pte. Ltd.", "201802264X", "SG", "ethan", 2),
+  done(24, "Punggol Green Energy Pte. Ltd.", "202006691A", "SG", "ethan", 2),
   done(25, "Queenstown Data Systems Pte. Ltd.", "201916107U", "SG", "viewer", 2),
-  done(26, "Holland Village Studios Pte. Ltd.", "201714448Y", "SG", "daniel", 2),
-  done(27, "Karri Valley Timber Pty Ltd", "85230617440", "AU", "priya", 2),
+  done(26, "Holland Village Studios Pte. Ltd.", "201714448Y", "SG", "ryan", 2),
+  done(27, "Karri Valley Timber Pty Ltd", "85230617440", "AU", "ethan", 2),
   // Last week
-  done(28, "Bedok Industrial Coatings Pte. Ltd.", "201609925R", "SG", "aisha", 1, [fixed("EXISTING_PARTY_REVIEW_REQUIRED", "GOLDTIER_SEARCH", 2 * HOUR, "aisha")]),
-  done(29, "Serangoon Pharma Distribution Pte. Ltd.", "201807718K", "SG", "marcus", 1),
+  done(28, "Bedok Industrial Coatings Pte. Ltd.", "201609925R", "SG", "ethan", 1, [fixed("EXISTING_PARTY_REVIEW_REQUIRED", "GOLDTIER_SEARCH", 2 * HOUR, "ethan")]),
+  done(29, "Serangoon Pharma Distribution Pte. Ltd.", "201807718K", "SG", "ryan", 1),
   done(30, "Woodlands Auto Parts Pte. Ltd.", "201503380M", "SG", "viewer", 1, [fixed("OWNERSHIP_INCOMPLETE", "OWNERSHIP", 18 * HOUR, "viewer")]),
-  done(31, "Tampines Retail Collective Pte. Ltd.", "202011246D", "SG", "daniel", 1),
-  done(32, "Wattle Creek Wines Pty Ltd", "96418205733", "AU", "aisha", 1, [fixed("DOCUMENT_REQUIRED_FIELD_MISSING", "DOCUMENT", 9 * HOUR, "aisha")]),
+  done(31, "Tampines Retail Collective Pte. Ltd.", "202011246D", "SG", "ryan", 1),
+  done(32, "Wattle Creek Wines Pty Ltd", "96418205733", "AU", "ethan", 1, [fixed("DOCUMENT_REQUIRED_FIELD_MISSING", "DOCUMENT", 9 * HOUR, "ethan")]),
   // This week
-  done(33, "Sembawang Hydraulics Pte. Ltd.", "201712659W", "SG", "priya", 0),
-  done(34, "Dhoby Ghaut Media Pte. Ltd.", "201920043E", "SG", "marcus", 0, [fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 1.5 * HOUR, "marcus")]),
+  done(33, "Sembawang Hydraulics Pte. Ltd.", "201712659W", "SG", "ethan", 0),
+  done(34, "Dhoby Ghaut Media Pte. Ltd.", "201920043E", "SG", "ryan", 0, [fixed("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT", 1.5 * HOUR, "ryan")]),
   // Open cases
-  open(35, "Ang Mo Kio Robotics Pte. Ltd.", "202008857H", "aisha", "RUNNING", "DOCUMENT", 3 * HOUR),
+  open(35, "Ang Mo Kio Robotics Pte. Ltd.", "202008857H", "ethan", "RUNNING", "DOCUMENT", 3 * HOUR),
   open(36, "Telok Ayer Ventures Pte. Ltd.", "201817792B", "viewer", "RUNNING", "OWNERSHIP", 6 * HOUR),
-  open(37, "Boon Lay Packaging Pte. Ltd.", "201604438N", "daniel", "PENDING_INPUTS", "DOCUMENT", 2 * DAY + 4 * HOUR),
-  open(38, "Yishun Home Care Services Pte. Ltd.", "201911163C", "marcus", "RUNNING", "READINESS", DAY + 2 * HOUR),
+  open(37, "Boon Lay Packaging Pte. Ltd.", "201604438N", "ryan", "PENDING_INPUTS", "DOCUMENT", 2 * DAY + 4 * HOUR),
+  open(38, "Yishun Home Care Services Pte. Ltd.", "201911163C", "ryan", "RUNNING", "READINESS", DAY + 2 * HOUR),
   open(39, "Bishan Fintech Labs Pte. Ltd.", "202102290K", "viewer", "RESUMING", "OWNERSHIP", 4 * DAY + 5 * HOUR, [fixed("OWNERSHIP_REVIEW_REQUIRED", "OWNERSHIP", 22 * HOUR, "viewer")]),
-  open(40, "Pioneer Steel Fabricators Pte. Ltd.", "201507741G", "priya", "RUNNING", "GOLDTIER_SEARCH", 40 * MINUTE),
-  open(41, "Hougang Pet Supplies Pte. Ltd.", "201713380T", "aisha", "WAITING_FOR_REVIEW", "DOCUMENT", 5 * DAY + 3 * HOUR, [raised("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT")]),
-  open(42, "Sengkang Solar Installers Pte. Ltd.", "202005518F", "daniel", "WAITING_FOR_REVIEW", "OWNERSHIP", 12 * DAY + 6 * HOUR, [raised("OWNERSHIP_INCOMPLETE", "OWNERSHIP")]),
+  open(40, "Pioneer Steel Fabricators Pte. Ltd.", "201507741G", "ethan", "RUNNING", "GOLDTIER_SEARCH", 40 * MINUTE),
+  open(41, "Hougang Pet Supplies Pte. Ltd.", "201713380T", "ethan", "WAITING_FOR_REVIEW", "DOCUMENT", 5 * DAY + 3 * HOUR, [raised("DOCUMENT_LOW_CONFIDENCE", "DOCUMENT")]),
+  open(42, "Sengkang Solar Installers Pte. Ltd.", "202005518F", "ryan", "WAITING_FOR_REVIEW", "OWNERSHIP", 12 * DAY + 6 * HOUR, [raised("OWNERSHIP_INCOMPLETE", "OWNERSHIP")]),
   open(43, "Kranji Agritech Pte. Ltd.", "201810027L", "viewer", "WAITING_FOR_REVIEW", "DOCUMENT", 8 * DAY + HOUR, [raised("DOCUMENT_REQUIRED_FIELD_MISSING", "DOCUMENT")]),
-  open(44, "Toa Payoh Electrical Pte. Ltd.", "201602289S", "marcus", "WAITING_FOR_REVIEW", "GOLDTIER_SEARCH", 3 * DAY + 7 * HOUR, [raised("EXISTING_PARTY_REVIEW_REQUIRED", "GOLDTIER_SEARCH")]),
+  open(44, "Toa Payoh Electrical Pte. Ltd.", "201602289S", "ryan", "WAITING_FOR_REVIEW", "GOLDTIER_SEARCH", 3 * DAY + 7 * HOUR, [raised("EXISTING_PARTY_REVIEW_REQUIRED", "GOLDTIER_SEARCH")]),
   open(45, "Bugis Street Eateries Pte. Ltd.", "201916654V", "viewer", "WAITING_FOR_REVIEW", "REGISTRY", 19 * DAY + 4 * HOUR, [raised("REGISTRY_REVIEW_REQUIRED", "REGISTRY")]),
-  open(46, "Marine Parade Wellness Pte. Ltd.", "201709913Q", "priya", "RECOVERY_PENDING", "MOCK_GOLDTIER", 26 * DAY + 2 * HOUR, [raised("TARGET_PARTIAL_REVIEW_REQUIRED", "MOCK_GOLDTIER")]),
+  open(46, "Marine Parade Wellness Pte. Ltd.", "201709913Q", "ethan", "RECOVERY_PENDING", "MOCK_GOLDTIER", 26 * DAY + 2 * HOUR, [raised("TARGET_PARTIAL_REVIEW_REQUIRED", "MOCK_GOLDTIER")]),
 ];
 
 // ---- Per-case derivations (deterministic) ----
@@ -248,11 +258,11 @@ function progressPercent(item: SampleCase): number {
 }
 
 function ownerUserId(owner: Owner, actor: AuthenticatedProfile): string {
-  return owner === "viewer" ? actor.user_id : `${SAMPLE_CASE_ID_PREFIX}${owner}`;
+  return owner === "viewer" ? actor.user_id : SAMPLE_PEOPLE[owner].user_id;
 }
 
 function ownerName(owner: Owner, actor: AuthenticatedProfile): string {
-  return owner === "viewer" ? actor.display_name : SAMPLE_PEOPLE[owner];
+  return owner === "viewer" ? actor.display_name : SAMPLE_PEOPLE[owner].name;
 }
 
 function mean(values: number[]): number | null {
@@ -295,8 +305,8 @@ function toCaseItem(item: SampleCase, actor: AuthenticatedProfile, asOf: number,
     case_id: caseId(item),
     requested_uen: item.registration,
     legal_name: item.name,
-    team_id: null,
-    team_display_name: null,
+    team_id: teamOf(item),
+    team_display_name: SAMPLE_TEAMS[teamOf(item)],
     priority: priorityOf(item),
     status: item.status,
     current_stage: item.stage,
@@ -381,10 +391,12 @@ function timingSummary(cases: readonly SampleCase[]): DashboardTimingSummary {
 // Case load belongs to the creator; blocker fixes belong to the recorded resolver. Like the
 // backend, rows are built over the whole sample portfolio and narrowed for My work.
 function workload(actor: AuthenticatedProfile): DashboardWorkloadRow[] {
-  const people = new Map<Owner, { open: SampleCase[]; completed: number; fixes: number[] }>();
+  // Keyed by user ID: when Ethan or Ryan is signed in, their "viewer" cases join their own row.
+  const people = new Map<string, { owner: Owner; open: SampleCase[]; completed: number; fixes: number[] }>();
   const entry = (owner: Owner) => {
-    let row = people.get(owner);
-    if (!row) { row = { open: [], completed: 0, fixes: [] }; people.set(owner, row); }
+    const userId = ownerUserId(owner, actor);
+    let row = people.get(userId);
+    if (!row) { row = { owner, open: [], completed: 0, fixes: [] }; people.set(userId, row); }
     return row;
   };
   for (const item of SAMPLE_CASES) {
@@ -393,9 +405,9 @@ function workload(actor: AuthenticatedProfile): DashboardWorkloadRow[] {
     else row.open.push(item);
     for (const blocker of item.blockers) if (blocker.fix) entry(blocker.fix.by).fixes.push(blocker.fix.ms);
   }
-  return sortWorkload([...people.entries()].map(([owner, row]) => ({
-    user_id: ownerUserId(owner, actor),
-    display_name: ownerName(owner, actor),
+  return sortWorkload([...people.entries()].map(([userId, row]) => ({
+    user_id: userId,
+    display_name: ownerName(row.owner, actor),
     open_cases: row.open.length,
     oldest_open_age_ms: row.open.length ? Math.max(...row.open.map(elapsedMs)) : null,
     completed_cases: row.completed,
@@ -408,13 +420,13 @@ function sortWorkload(rows: DashboardWorkloadRow[]): DashboardWorkloadRow[] {
   return rows.sort((a, b) => b.open_cases - a.open_cases || (a.user_id < b.user_id ? -1 : a.user_id > b.user_id ? 1 : 0));
 }
 
-function casesInView(view: DashboardSnapshot["view"]): readonly SampleCase[] {
-  return view === "mine" ? SAMPLE_CASES.filter((item) => item.owner === "viewer") : SAMPLE_CASES;
+function casesInView(view: DashboardSnapshot["view"], actor: AuthenticatedProfile): readonly SampleCase[] {
+  return view === "mine" ? SAMPLE_CASES.filter((item) => ownerUserId(item.owner, actor) === actor.user_id) : SAMPLE_CASES;
 }
 
 /** The sample portfolio on its own, shaped like a backend snapshot for the same view. */
 export function buildSampleSnapshot(live: DashboardSnapshot, actor: AuthenticatedProfile): DashboardSnapshot {
-  const cases = casesInView(live.view);
+  const cases = casesInView(live.view, actor);
   const asOf = Date.parse(live.data_as_of);
   const weeks = weekStarts(live);
   const currentMonday = Date.parse(`${weeks[weeks.length - 1]}T00:00:00Z`);
@@ -440,7 +452,14 @@ export function buildSampleSnapshot(live: DashboardSnapshot, actor: Authenticate
     timing: timingSummary(cases),
     status_breakdown: ALL_STATUSES.map((status) => ({ status, count: cases.filter((item) => item.status === status).length })),
     priority_breakdown: priorities.map((priority) => ({ priority, count: cases.filter((item) => priorityOf(item) === priority).length })),
-    team_breakdown: [],
+    team_breakdown: (Object.keys(SAMPLE_TEAMS) as SampleTeamId[])
+      .map((teamId) => ({
+        team_id: teamId,
+        team_display_name: SAMPLE_TEAMS[teamId],
+        client_scope_label: SAMPLE_TEAMS[teamId],
+        count: items.filter((item) => item.team_id === teamId).length,
+      }))
+      .filter((row) => row.count > 0),
     stage_timing: stageTiming(cases),
     exception_breakdown: exceptionBreakdown(cases),
     weekly_onboarded: weeklyOnboarded(cases, weeks),
@@ -555,6 +574,12 @@ export function withOnboardingSample(live: DashboardSnapshot, actor: Authenticat
       live.priority_breakdown.map((item) => ({ key: item.priority, count: item.count })),
       sample.priority_breakdown.map((item) => ({ key: item.priority, count: item.count })),
     ).map((item) => ({ priority: item.key, count: item.count })),
+    team_breakdown: [...live.team_breakdown, ...sample.team_breakdown].reduce<DashboardSnapshot["team_breakdown"]>((merged, row) => {
+      const match = merged.find((entry) => entry.team_id === row.team_id);
+      if (match) match.count += row.count;
+      else merged.push({ ...row });
+      return merged;
+    }, []),
     stage_timing: stages.map((stage) => mergeStage(
       live.stage_timing.find((row) => row.stage === stage),
       sample.stage_timing.find((row) => row.stage === stage),
@@ -577,8 +602,8 @@ export function withOnboardingSample(live: DashboardSnapshot, actor: Authenticat
 }
 
 /** Number of sample cases added to a snapshot of this view. */
-export function sampleCaseCount(view: DashboardSnapshot["view"]): number {
-  return casesInView(view).length;
+export function sampleCaseCount(view: DashboardSnapshot["view"], actor: AuthenticatedProfile): number {
+  return casesInView(view, actor).length;
 }
 
 // ---- Sample cases outside the dashboard (Cases tab and read-only case page) ----

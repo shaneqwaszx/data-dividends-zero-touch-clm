@@ -121,7 +121,7 @@ describe("fixed Onboarding sample portfolio", () => {
     const cases = sample.scoped_cases;
     const completed = cases.filter((item) => item.status === "COMPLETED");
     expect(sample.totals.total_cases).toBe(cases.length);
-    expect(sample.totals.total_cases).toBe(sampleCaseCount(view));
+    expect(sample.totals.total_cases).toBe(sampleCaseCount(view, maya));
     expect(sample.totals.completed_cases).toBe(completed.length);
     expect(sample.totals.non_completed_cases + sample.totals.completed_cases).toBe(sample.totals.total_cases);
     expect(sample.totals.prioritised_cases + sample.totals.unprioritised_cases).toBe(sample.totals.total_cases);
@@ -181,6 +181,16 @@ describe("fixed Onboarding sample portfolio", () => {
     for (const view of ["team", "mine"] as const) {
       expect(strip(buildSampleSnapshot(emptyLive(maya, view), maya))).toEqual(strip(buildSampleSnapshot(emptyLive(olivia, view), olivia)));
     }
+  });
+
+  it("puts every sample case in the Alpha or Beta team", () => {
+    const snapshot = buildSampleSnapshot(emptyLive(olivia, "team"), olivia);
+    expect(snapshot.scoped_cases.length).toBeGreaterThan(0);
+    for (const item of snapshot.scoped_cases) {
+      expect([["TEAM_A", "Alpha"], ["TEAM_B", "Beta"]]).toContainEqual([item.team_id, item.team_display_name]);
+    }
+    expect(snapshot.team_breakdown.map((row) => row.team_display_name)).toEqual(["Alpha", "Beta"]);
+    expect(snapshot.team_breakdown.reduce((sum, row) => sum + row.count, 0)).toBe(snapshot.scoped_cases.length);
   });
 
   it("adds live figures on top of the sample figures without changing the live snapshot", () => {
@@ -243,7 +253,7 @@ describe("Onboarding dashboard with sample cases", () => {
       actor={maya} dashboard={dashboard} dashScope={scope} onScopeChange={() => undefined}
       dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
       onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
-      sampleCases={sampleCaseCount(scope)}
+      sampleCases={sampleCaseCount(scope, maya)}
     /></MemoryRouter></QueryClientProvider>);
     client.clear();
     const container = document.createElement("div");

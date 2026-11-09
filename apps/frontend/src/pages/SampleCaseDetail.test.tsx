@@ -55,7 +55,7 @@ describe("sample case data outside the dashboard", () => {
     expect(detail.status).toBe("COMPLETED");
     expect(detail.steps.every((step) => step.state === "done" && step.duration_ms !== null)).toBe(true);
     expect(detail.blockers).toHaveLength(2);
-    expect(detail.blockers.every((blocker) => blocker.resolved && blocker.resolved_by === "Aisha Rahman")).toBe(true);
+    expect(detail.blockers.every((blocker) => blocker.resolved && blocker.resolved_by === "Ethan Tan")).toBe(true);
   });
 
   it("describes an open case stopped for review with its open blocker", () => {
@@ -109,7 +109,13 @@ describe("read-only sample case page", () => {
     expect(markup).not.toMatch(/sample/i);
     expect(markup).toContain("Stopped for review");
     expect(markup).toContain("Open");
-    expect(markup).not.toContain("<button");
+    // Buttons only open steps and sections or expand blockers; there are no case actions.
+    const page = new DOMParser().parseFromString(markup, "text/html");
+    const sectionToggles = new Set(page.querySelectorAll(".stage-disclosure > h2 > button"));
+    expect(sectionToggles.size).toBeGreaterThan(0);
+    for (const button of Array.from(page.querySelectorAll("button")).filter((item) => !sectionToggles.has(item))) {
+      expect(button.getAttribute("aria-label") ?? button.textContent).toMatch(/^(Open details for |Open case stage details$|Show all issues$|\d+ blockers?$|\d+ items?$|Blocker: )/);
+    }
     expect(markup.match(/<a /g)).toHaveLength(1); // only the way back to Cases
   });
 
@@ -174,6 +180,21 @@ describe("Cases tab sample cases", () => {
     const links = Array.from(table.querySelectorAll("a")).map((item) => item.getAttribute("href"));
     expect(links).toHaveLength(SAMPLE_CASES.length);
     expect(links.every((href) => sampleCaseIdFromUrlId(href!.slice("/cases/".length)) !== null)).toBe(true);
+  });
+
+  it("opens a step's section when the step is clicked, like a live case", async () => {
+    await act(async () => root?.render(<MemoryRouter><SampleCaseDetail sampleCaseId="sample-0042" actor={maya} /></MemoryRouter>));
+    const sectionToggle = (title: string) => Array.from(container!.querySelectorAll<HTMLButtonElement>(".stage-disclosure > h2 > button"))
+      .find((button) => button.textContent?.startsWith(title))!;
+    // The blocked step's section starts open; a completed step's section starts closed.
+    expect(sectionToggle("Ownership & UBO").getAttribute("aria-expanded")).toBe("true");
+    expect(sectionToggle("Registry verification").getAttribute("aria-expanded")).toBe("false");
+    const railButton = Array.from(container!.querySelectorAll<HTMLElement>(".ds-stage"))
+      .find((stage) => stage.dataset.nodeId === "ACRA_REGISTRY")!
+      .querySelector<HTMLButtonElement>("button")!;
+    expect(railButton.textContent).toBe("Open case stage details");
+    await act(async () => railButton.click());
+    expect(sectionToggle("Registry verification").getAttribute("aria-expanded")).toBe("true");
   });
 
   it("keeps sample cases off pages that have more live cases after them", async () => {

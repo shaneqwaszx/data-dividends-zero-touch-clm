@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { classifyBrowserRequest, createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 import { SAMPLE_CASES, sampleCaseCount } from "../src/pages/mockDashboards/onboardingSample";
+import type { AuthenticatedProfile } from "../src/types";
 
 // The Onboarding dashboard adds fixed sample cases on top of the live backend counts.
 const SAMPLE_OPEN = SAMPLE_CASES.filter(item => item.status !== "COMPLETED").length;
@@ -234,8 +235,9 @@ test("PR95 R4 recent activity pages past100 real authorized events", async ({ pa
   const priorMine = await (await page.request.get("/api/clm/zero-touch/dashboard?scope=mine&date_range=30d")).json();
   const priorTeam = await (await page.request.get("/api/clm/zero-touch/dashboard?date_range=30d")).json();
   // The dashboard adds the fixed sample cases to both the totals and the loaded cases.
-  const sampleMine = sampleCaseCount("mine");
-  const sampleTeam = sampleCaseCount("team");
+  const signedIn = { user_id: "maya-lim" } as AuthenticatedProfile;
+  const sampleMine = sampleCaseCount("mine", signedIn);
+  const sampleTeam = sampleCaseCount("team", signedIn);
   const expectedMineTotal = priorMine.totals.total_cases + 205 + sampleMine;
   const expectedTeamTotal = priorTeam.totals.total_cases + 205 + sampleTeam;
   // Genuine local test-mode case creation; no provider start or mocked API replies.

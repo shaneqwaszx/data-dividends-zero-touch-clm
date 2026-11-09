@@ -145,7 +145,7 @@ function SampleCaseTableRow({ row }: { row: SampleCaseRow }) {
             : <span className="cell-note">No manual steps yet</span>}
       </td>
       <td>{row.priority ?? "Not set"}</td>
-      <td>—</td>
+      <td>{row.team_display_name ?? "—"}</td>
       <td>
         Current stage
         <span className="cell-note">{row.final_outcome ? targetOutcomeLabel(row.final_outcome) : row.current_stage.replaceAll("_", " ")}</span>

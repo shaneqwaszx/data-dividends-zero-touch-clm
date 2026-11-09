@@ -2,15 +2,21 @@
 // frontend (see mockDashboards/onboardingSample.ts): there is no backend record, document,
 // ownership graph or audit trail behind them, so this page has no actions. By request the page
 // does not label itself as sample data; it is reached at /cases/<id> like any other case.
+// It uses the real case page's layout, Pipeline rail, Onboarding progress panel and stage
+// sections, fed by `sampleCaseSummary`. Clicking a step opens and scrolls to its section.
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { paths } from "../navigation";
 import { formatDateNoSeconds, formatDuration, targetOutcomeLabel } from "../shared";
-import { BUSINESS_EXCEPTION_TYPE_LABELS, type AuthenticatedProfile } from "../types";
+import { BUSINESS_EXCEPTION_TYPE_LABELS, type AuthenticatedProfile, type ProcessingNode, type ZeroTouchCaseSummary } from "../types";
 import { JURISDICTION_LABELS, STAGE_LABELS } from "./Dashboard";
-import { sampleCaseDetail, type SampleStepState } from "./mockDashboards/onboardingSample";
+import { sampleCaseDetail, type SampleCaseDetail as SampleCaseData, type SampleStepState } from "./mockDashboards/onboardingSample";
+import { sampleCaseSummary } from "./mockDashboards/sampleCaseSummary";
+import { CasePipelineAttention } from "./CaseAttentionSummary";
+import { businessStageIdFor, businessStageMembers, businessStagePipeline, OnboardingProgressPanel, stageStatusFor } from "./CaseStatePanels";
+import StageDisclosure from "./StageDisclosure";
 
 const STEP_STATE_LABELS: Record<SampleStepState, string> = {
   done: "Done",
@@ -29,6 +35,61 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+// The page shows one case, so a step id is unique on the page.
+function stageSectionId(nodeId: string): string {
+  return `case-stage-${businessStageIdFor(nodeId)}`;
+}
+
+/** Open a step's section and bring it into view, like a step click on a live case. */
+function openStageSection(node: ProcessingNode): void {
+  const section = document.getElementById(stageSectionId(node.node_id));
+  if (!section) return;
+  // StageDisclosure opens itself on this event.
+  section.querySelector(".stage-disclosure")?.dispatchEvent(new Event("reveal-stage"));
+  section.scrollIntoView?.({ behavior: "smooth", block: "start" });
+}
+
+/** One collapsible section per pipeline step, holding what is known about that step. */
+function StageSections({ detail, summary }: { detail: SampleCaseData; summary: ZeroTouchCaseSummary }) {
+  const backend = summary.processing_pipeline ?? [];
+  // Stage time and blockers are shown once per backend stage, on its first step.
+  const firstOfStage = (node: ProcessingNode) => Boolean(node.backend_stage)
+    && backend.find((item) => item.backend_stage === node.backend_stage) === node;
+  return <>
+    {businessStagePipeline(backend).map((step) => {
+      const members = businessStageMembers(backend, step);
+      const status = stageStatusFor(summary, members.map((member) => member.node_id));
+      return (
+        <div key={step.node_id} id={stageSectionId(step.node_id)} className="evidence-focus-target">
+          <StageDisclosure title={step.label} status={status} active={status?.tone === "attention" || status?.tone === "current"}
+            summary={[...new Set(members.map((member) => member.safe_result).filter(Boolean))].join(" · ")}>
+            {members.map((member) => {
+              const stepData = member.backend_stage ? detail.steps.find((item) => item.stage === member.backend_stage) : undefined;
+              const blockers = firstOfStage(member) ? detail.blockers.filter((blocker) => blocker.stage === member.backend_stage) : [];
+              return (
+                <div key={member.node_id} className="stage-facts__member">
+                  {members.length > 1 && <h4>{member.label}</h4>}
+                  <Row label="Status">{stageStatusFor(summary, [member.node_id])?.label ?? "—"}</Row>
+                  {member.safe_result && <Row label="Outcome">{member.safe_result}</Row>}
+                  {member.provider && <Row label="Provider">{member.provider}</Row>}
+                  {firstOfStage(member) && <Row label="Processing time">{stepData?.duration_ms == null ? "—" : formatDuration(stepData.duration_ms)}</Row>}
+                  {blockers.map((blocker, index) => (
+                    <Row key={`${blocker.type}-${index}`} label={blocker.resolved ? "Resolved blocker" : "Open blocker"}>
+                      {BUSINESS_EXCEPTION_TYPE_LABELS[blocker.type]}
+                      {blocker.resolved && blocker.fix_ms !== null ? ` · fixed in ${formatDuration(blocker.fix_ms)}` : ""}
+                      {blocker.resolved_by ? ` by ${blocker.resolved_by}` : ""}
+                    </Row>
+                  ))}
+                </div>
+              );
+            })}
+          </StageDisclosure>
+        </div>
+      );
+    })}
+  </>;
+}
+
 export default function SampleCaseDetail({
   sampleCaseId,
   actor,
@@ -38,8 +99,10 @@ export default function SampleCaseDetail({
 }) {
   // Dates are placed relative to when the page opened, like the dashboard does.
   const detail = useMemo(() => sampleCaseDetail(sampleCaseId, actor), [sampleCaseId, actor]);
+  const summary = useMemo(() => (detail ? sampleCaseSummary(detail) : null), [detail]);
+  const blockersRef = useRef<HTMLElement>(null);
 
-  if (!detail) {
+  if (!detail || !summary) {
     return (
       <section className="ds-root ds-page">
         <Link className="btn btn-ghost" to={paths.cases}>← Cases</Link>
@@ -51,13 +114,28 @@ export default function SampleCaseDetail({
 
   const completed = detail.status === "COMPLETED";
   return (
-    <section className="ds-root ds-page readonly-case-detail" aria-label={`Case ${detail.legal_name}`}>
+    <div className="ds-root detail-layout readonly-case-detail">
+      <div className="side-panel case-pipeline-panel">
+        <Link className="btn btn-ghost" to={paths.cases} style={{ paddingLeft: 0 }}>← Back to Cases</Link>
+        {/* Blocker links scroll to the Blockers table; there are no actions on a sample case. */}
+        <CasePipelineAttention summary={summary} onNavigate={() => blockersRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          onStageActivate={openStageSection} />
+      </div>
+
+    <section className="ds-page" style={{ flex: 1 }} aria-label={`Case ${detail.legal_name}`}>
       <header className="ds-page-header">
         <div>
-          <Link className="btn btn-ghost" to={paths.cases}>← Cases</Link>
+          <p className="card-kicker case-header-meta"><span>{detail.requested_uen} · {detail.jurisdiction} · {detail.team_display_name ?? "—"}</span></p>
           <h1>{detail.legal_name}</h1>
         </div>
+        <div className="case-header-actions">
+          <span className="tag tag-accent-2 case-header-status">{detail.status.replaceAll("_", " ")}</span>
+        </div>
       </header>
+
+      <OnboardingProgressPanel summary={summary} onStageActivate={openStageSection} />
+
+      <StageSections detail={detail} summary={summary} />
 
       <div className="ds-two-col">
         <article className="card" style={{ flex: 1 }}>
@@ -69,6 +147,7 @@ export default function SampleCaseDetail({
             {completed && detail.final_outcome ? targetOutcomeLabel(detail.final_outcome) : STAGE_LABELS[detail.current_stage]}
           </Row>
           <Row label="Owner">{detail.created_by_display_name}</Row>
+          <Row label="Team">{detail.team_display_name ?? "—"}</Row>
           <Row label="Priority">{detail.priority ?? "Not set"}</Row>
           <Row label="Created">{formatDateNoSeconds(detail.created_at)}</Row>
           {detail.completed_at
@@ -97,7 +176,7 @@ export default function SampleCaseDetail({
         </article>
       </div>
 
-      <article className="card">
+      <article className="card" ref={blockersRef}>
         <h2>Blockers</h2>
         {detail.blockers.length === 0 ? (
           <p className="text-muted">{completed ? "None. This case completed zero-touch." : "None raised so far."}</p>
@@ -121,5 +200,6 @@ export default function SampleCaseDetail({
         )}
       </article>
     </section>
+    </div>
   );
 }
