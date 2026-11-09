@@ -137,7 +137,7 @@ describe("OnboardingProgressPanel", () => {
 
     const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
 
-    for (const label of ["Complete", "In progress", "Skipped", "Review required", "Blocked", "Failed", "Not reached"]) {
+    for (const label of ["Complete", "In progress", "Skipped", "Review required", "Blocked", "Failed", "Not started yet"]) {
       expect(markup).toContain(label);
     }
     expect(markup).toContain('aria-valuemax="100"');
@@ -351,7 +351,7 @@ describe("ten business steps over the twelve backend stages", () => {
     const summary = summaryWithPipeline(backend({ GOLDTIER_TARGET: "NOT_REACHED", FINAL_REVIEW_SEND: "NOT_REACHED" }));
     const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
     expect(markup).toContain("9 of 11 stages done");
-    expect(markup).toContain("Submission readiness: Complete · GoldTier submission package: Not reached");
+    expect(markup).toContain("Submission readiness: Complete · GoldTier submission package: Not started yet");
     expect(markup).not.toContain("100%");
     // Readiness needing attention while the package is complete: the grouped step is not done.
     const differing = renderToStaticMarkup(<OnboardingProgressPanel summary={summaryWithPipeline(backend({ READINESS: "FAILED" }))} />);
@@ -742,4 +742,111 @@ it("compares registry value, document value with confidence, and the reviewer's 
   expect(markup).not.toMatch(/data-label="Registry value" class="is-chosen"/);
   expect(markup).toMatch(/data-label="Document value" class="is-chosen"/);
   expect(markup).toMatch(/data-label="Your choice" class="is-chosen"/);
+});
+
+describe("stages waiting for earlier steps (presentation only)", () => {
+  function staged(nodeId: string, label: string, status: ProcessingNode["status"], backend_stage: ProcessingNode["backend_stage"], blocker_code: string | null = null): ProcessingNode {
+    return { node_id: nodeId, label, status, backend_stage, blocker_code, children: [] };
+  }
+  /** A case at Document waiting for uploads; later stages report BLOCKED only for missing prerequisites. */
+  function pendingDocuments(overrides: Record<string, unknown> = {}): ZeroTouchCaseSummary {
+    const value = summaryWithPipeline([
+      staged("ACRA_REGISTRY", "Registry verification", "COMPLETE", "REGISTRY"),
+      staged("GOLDTIER_SEARCH", "Existing-customer search", "COMPLETE", "GOLDTIER_SEARCH"),
+      staged("DOCUMENT_IDP", "Document verification", "BLOCKED", "DOCUMENT"),
+      staged("RECONCILIATION", "Data reconciliation", "NOT_REACHED", "DOCUMENT"),
+      staged("OWNERSHIP_UBO", "Ownership & UBO", "BLOCKED", "OWNERSHIP"),
+      staged("READINESS", "Submission readiness", "BLOCKED", "READINESS", "DOCUMENT_REQUIRED"),
+      staged("GOLDTIER_TARGET", "GoldTier submission package", "BLOCKED", "READINESS", "DOCUMENT_REQUIRED"),
+      staged("FINAL_REVIEW_SEND", "Final review & send", "BLOCKED", "MOCK_GOLDTIER", "DOCUMENT_REQUIRED"),
+    ]);
+    const clm = { ...value.clm, readiness: { blockers: ["DOCUMENT_REQUIRED", "OWNERSHIP_REQUIRED"] } };
+    return { ...value, clm, status: "PENDING_INPUTS", current_stage: "DOCUMENT", completed_stages: ["REGISTRY", "GOLDTIER_SEARCH"], ...overrides } as ZeroTouchCaseSummary;
+  }
+  const tile = (markup: string, label: string) => {
+    const match = new RegExp(`<li[^>]*>(?:(?!</li>).)*?aria-label="Open details for ${label.replace("&", "&amp;")}"(?:(?!</li>).)*</li>`).exec(markup);
+    expect(match, label).not.toBeNull();
+    return match![0];
+  };
+
+  it("shows later prerequisite-only stages as waiting while keeping data-status, counts and the genuine blocker", () => {
+    const summary = pendingDocuments();
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} onStageActivate={() => undefined} />);
+    const documents = tile(markup, "Document verification");
+    expect(documents).toContain('data-status="BLOCKED"');
+    expect(documents).not.toContain("data-display-state");
+    expect(documents).toContain(">Blocked<");
+    expect(documents).toContain(">Resolve issue<");
+    for (const label of ["Ownership & UBO", "GoldTier Details & Status", "Final review & send"]) {
+      const later = tile(markup, label);
+      expect(later, label).toContain('data-status="BLOCKED"');
+      expect(later, label).toContain('data-display-state="waiting"');
+      expect(later, label).toContain(">Waiting for earlier steps<");
+      expect(later, label).not.toContain("Resolve issue");
+    }
+    // The genuine blocker stays current; counts and percentage are unchanged (2 of 7 steps).
+    expect(markup).toContain("current: Document verification — Blocked");
+    expect(markup).toContain("2 of 7 stages complete or skipped");
+    expect(markup).toContain('aria-valuenow="29"');
+  });
+
+  it("keeps an earlier-stage review visible and actionable while later stages wait", () => {
+    const summary = pendingDocuments({ status: "WAITING_FOR_REVIEW" });
+    summary.processing_pipeline![2] = staged("DOCUMENT_IDP", "Document verification", "REVIEW_REQUIRED", "DOCUMENT", "DOCUMENT_LOW_CONFIDENCE");
+    summary.active_exceptions = [{ exception_id: "e1", stage: "DOCUMENT", status: "OPEN", blocker_code: "DOCUMENT_LOW_CONFIDENCE", blocker_codes: ["DOCUMENT_LOW_CONFIDENCE"], exception_type: "DOCUMENT_LOW_CONFIDENCE" }] as unknown as ZeroTouchCaseSummary["active_exceptions"];
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} onStageActivate={() => undefined} />);
+    expect(tile(markup, "Document verification")).toContain(">Review required<");
+    expect(tile(markup, "Document verification")).toContain(">Review<");
+    expect(tile(markup, "Ownership & UBO")).toContain(">Waiting for earlier steps<");
+    expect(markup).toContain("current: Document verification — Review required");
+    expect(markup).toMatch(/Active issues.*?<dd>1<\/dd>/);
+  });
+
+  it("keeps a later stage blocked when its own exception is open, even at an earlier current stage", () => {
+    const summary = pendingDocuments({ status: "WAITING_FOR_REVIEW" });
+    summary.active_exceptions = [{ exception_id: "e2", stage: "OWNERSHIP", status: "OPEN", blocker_code: "OWNERSHIP_INCOMPLETE", blocker_codes: ["OWNERSHIP_INCOMPLETE"], exception_type: "OWNERSHIP_INCOMPLETE" }] as unknown as ZeroTouchCaseSummary["active_exceptions"];
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} onStageActivate={() => undefined} />);
+    expect(tile(markup, "Ownership & UBO")).not.toContain("data-display-state");
+    expect(tile(markup, "Ownership & UBO")).not.toContain("Waiting for earlier steps");
+    expect(tile(markup, "Ownership & UBO")).toContain(">Blocked<");
+    // Stages after the open Ownership exception still wait for it.
+    expect(tile(markup, "Final review & send")).toContain(">Waiting for earlier steps<");
+    expect(tile(markup, "Ownership & UBO")).toContain(">Resolve issue<");
+  });
+
+  it("keeps readiness-derived steps blocked when a later readiness blocker is not a prerequisite", () => {
+    const summary = pendingDocuments();
+    summary.clm.readiness.blockers = ["DOCUMENT_REQUIRED", "GOLDTIER_CLASSIFICATION_REQUIRED"];
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} onStageActivate={() => undefined} />);
+    expect(tile(markup, "GoldTier Details & Status")).not.toContain("data-display-state");
+    expect(tile(markup, "GoldTier Details & Status")).toContain(">Blocked<");
+    expect(tile(markup, "Final review & send")).not.toContain("data-display-state");
+    // Ownership does not derive from the readiness list, so it still only waits.
+    expect(tile(markup, "Ownership & UBO")).toContain(">Waiting for earlier steps<");
+  });
+
+  it("keeps the backend display during recovery and for legacy stage order", () => {
+    for (const overrides of [{ status: "RECOVERY_PENDING" }, { status: "TECHNICAL_FAILURE" }, { stage_order_version: 1 }]) {
+      const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={pendingDocuments(overrides)} />);
+      expect(markup).not.toContain("data-display-state");
+      expect(markup).not.toContain("Waiting for earlier steps");
+      expect(tile(markup, "Ownership & UBO")).toContain(">Blocked<");
+    }
+  });
+
+  it("shows the authoritative backend status in stage details and the technical processing record", () => {
+    const summary = pendingDocuments();
+    const details = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} initialFocusNodeId="OWNERSHIP_UBO" />);
+    // initialFocusNodeId is applied in an effect; render the stage facts through the rail instead.
+    const rail = renderToStaticMarkup(<PipelineRail summary={summary} />);
+    expect(rail).toMatch(/data-node-id="OWNERSHIP_UBO" data-status="BLOCKED" data-display-state="waiting"/);
+    expect(rail).toContain("<strong>Status:</strong> Waiting for earlier steps");
+    expect(rail).toContain("<strong>Backend status:</strong> Blocked");
+    expect(rail).toMatch(/data-node-id="DOCUMENT_IDP" data-status="BLOCKED">.*?ds-stage-node attention/);
+    expect(rail).toMatch(/data-node-id="OWNERSHIP_UBO"[^>]*>.*?ds-stage-node "/);
+    const inspector = renderToStaticMarkup(<DetailedProcessingInspector summary={summary} />);
+    expect(inspector).not.toContain("Waiting for earlier steps");
+    expect(inspector.match(/aria-label="Status: BLOCKED"/g)).toHaveLength(5);
+    expect(details).toContain("2 of 7 stages done");
+  });
 });

@@ -1,4 +1,5 @@
-import { formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
+import { formatOwnershipPercent } from "../ownershipDisplay";
+import { calculationText, classificationText, ownershipStatement, partyTypeText, thresholdResultText } from "../ownershipLabels";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { OwnershipAnalysisRecord, OwnershipRelationship } from "../types";
 
@@ -207,18 +208,18 @@ export default function OwnershipStructure({ record, selectedPartyId, onSelectPe
       <aside className="ownership-structure__detail" aria-label="Selected holder">
         <p className="card-kicker">Selected holder</p><h5>{holder?.display_name ?? selected?.partyId ?? "No holder selected"}</h5>
         {selected && <>
-          <p>{holder?.party_type.replaceAll("_", " ") ?? "Unknown type"} · {holder?.country ?? "Country not supplied"}</p>
-          <dl><div><dt>Direct holding in immediate entity</dt><dd>{selected.path.length ? formatOwnershipPercent(selected.path[selected.path.length - 1].ownership_percent) : selected.unlinked ? "Not retained" : "Root entity — N/A"}</dd></div>
-            <div><dt>Effective on selected path</dt><dd>{pathPercent(record, selected) !== null ? formatOwnershipPercent(pathPercent(record, selected)) : entityLabel(record, rows, selected) ?? "Not calculated by retained analysis"}</dd></div>
-            {!candidate && selectedEntity && <div><dt>Aggregate effective in root (all retained paths)</dt><dd>{formatOwnershipPercent(selectedEntity.effective_ownership_percent)} (calculated interest; not a UBO classification)</dd></div>}
-            {candidate && <><div><dt>Aggregate effective in root (all retained paths)</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div><div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.threshold_result}</dd></div>{candidate.synthetic_basis_threshold_result != null && <div><dt>Assumed-basis comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.synthetic_basis_threshold_result} (not a classification)</dd></div>}<div><dt>Classification</dt><dd>{candidate.classification}</dd></div></>}
+          <p>{partyTypeText(holder?.party_type)} · {holder?.country ?? "Country not supplied"}</p>
+          <dl><div><dt>Direct holding</dt><dd>{selected.path.length ? formatOwnershipPercent(selected.path[selected.path.length - 1].ownership_percent) : selected.unlinked ? "Not retained" : "Root entity — N/A"}</dd></div>
+            <div><dt>Effective ownership via this route</dt><dd>{pathPercent(record, selected) !== null ? formatOwnershipPercent(pathPercent(record, selected)) : entityLabel(record, rows, selected) ?? "Not calculated by retained analysis"}</dd></div>
+            {!candidate && selectedEntity && <div><dt>Total effective ownership of the client (all routes)</dt><dd>{formatOwnershipPercent(selectedEntity.effective_ownership_percent)} (calculated interest; not a UBO classification)</dd></div>}
+            {candidate && <><div><dt>Total effective ownership of the client (all routes)</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div><div><dt>Against the threshold</dt><dd>{thresholdResultText(candidate.threshold_result, candidate.threshold_percent, candidate.threshold_comparator)}</dd></div>{candidate.synthetic_basis_threshold_result != null && <div><dt>On the assumed POC basis</dt><dd>{thresholdResultText(candidate.synthetic_basis_threshold_result, candidate.threshold_percent, candidate.threshold_comparator)} (not a classification)</dd></div>}<div><dt>Result</dt><dd>{classificationText(candidate.classification)}</dd></div></>}
           </dl>
-          <h6>Path from client to holder</h6>
-          {selected.unlinked ? <p>No retained root path is available.</p> : <ol className="ownership-structure__path"><li>{partyName(record.root_party_id ?? selected.partyId)} · client</li>{selected.path.map(edge => <li key={edge.relationship_id}>{partyName(edge.child_party_id)} holds {formatOwnershipPercent(edge.ownership_percent)} of {partyName(edge.parent_party_id)}</li>)}</ol>}
+          <h6>How this holder connects to the client</h6>
+          {selected.unlinked ? <p>No retained root path is available.</p> : <ol className="ownership-structure__path"><li>{partyName(record.root_party_id ?? selected.partyId)} · client</li>{selected.path.map(edge => <li key={edge.relationship_id}>{ownershipStatement(partyName(edge.child_party_id), partyName(edge.parent_party_id), edge.ownership_percent)}</li>)}</ol>}
           {selected.path.length > 0 && <p className="control-help">Source: {sourceLabel(selected.path[selected.path.length - 1])}</p>}
-          {retainedPath(record, selected) && <p>Calculation: {formatOwnershipCalculation(retainedPath(record, selected)!.calculation)}</p>}
-          {!candidate && selectedEntity && selectedEntity.paths.length > 1 && <p>{selectedEntity.paths.length} retained paths reach this entity. The highlighted occurrence shows one path; the aggregate covers all retained paths.</p>}
-          {candidate && candidate.paths.length > 1 && <p>{candidate.paths.length} retained paths reach this person. The highlighted occurrence shows one path; the aggregate covers all retained paths. Inspect other paths in technical calculations.</p>}
+          {retainedPath(record, selected) && <p>Calculation: {calculationText(retainedPath(record, selected)!.calculation)}</p>}
+          {!candidate && selectedEntity && selectedEntity.paths.length > 1 && <p>{selectedEntity.paths.length} ownership routes reach this entity. The highlighted occurrence shows one route; the total covers all of them.</p>}
+          {candidate && candidate.paths.length > 1 && <p>{candidate.paths.length} ownership routes reach this person. The highlighted occurrence shows one route; the total covers all of them. Inspect other routes in technical calculations.</p>}
           {selected.cycle && <p>Cycle detected; this path is non-definitive.</p>}
         </>}
       </aside>

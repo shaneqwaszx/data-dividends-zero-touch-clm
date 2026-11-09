@@ -59,8 +59,10 @@ describe("D-081 assumed-basis threshold matches stay apart from formal UBO class
     expect(cards[0].text).toContain("POC equal-unit assumption");
     expect(cards[1].text).toContain("Local synthetic overlay basis");
     for (const card of cards) {
-      expect(card.text).toContain("GREATER_THAN_OR_EQUAL_TO 25% → MET");
-      expect(card.text).toContain("REVIEW_REQUIRED");
+      expect(card.text).toContain("On the assumed POC basisMeets the 25% threshold (25% or more) (not a classification)");
+      expect(card.text).toContain("StatusNeeds a person's review before any conclusion");
+      // An assumed-basis match is never presented as a formal provisional UBO.
+      expect(card.text).not.toContain("Provisional UBO candidate");
       expect(card.text).not.toContain("PROVISIONAL_UBO_CANDIDATE");
     }
     expect(section.textContent).not.toContain("TAN WEI LING");
@@ -70,12 +72,12 @@ describe("D-081 assumed-basis threshold matches stay apart from formal UBO class
   it("shows the assumed-basis comparison in the selected holder apart from the formal result", () => {
     render(gardenAssumedBasisFixture());
     const abcd = selectHolder("ABCD123");
-    expect(abcd.textContent).toContain("Threshold comparisonGREATER_THAN_OR_EQUAL_TO 25% → INDETERMINATE");
-    expect(abcd.textContent).toContain("Assumed-basis comparisonGREATER_THAN_OR_EQUAL_TO 25% → MET (not a classification)");
-    expect(abcd.textContent).toContain("ClassificationREVIEW_REQUIRED");
+    expect(abcd.textContent).toContain("Against the thresholdCannot be determined from the available records");
+    expect(abcd.textContent).toContain("On the assumed POC basisMeets the 25% threshold (25% or more) (not a classification)");
+    expect(abcd.textContent).toContain("ResultNeeds a person's review before any conclusion");
     const tan = selectHolder("TAN WEI LING");
-    expect(tan.textContent).toContain("→ NOT_MET (not a classification)");
-    expect(tan.textContent).toContain("ClassificationREVIEW_REQUIRED");
+    expect(tan.textContent).toContain("On the assumed POC basisBelow the 25% threshold (not a classification)");
+    expect(tan.textContent).toContain("ResultNeeds a person's review before any conclusion");
   });
 
   it("keeps the existing provisional UBO fixture exactly as before", () => {
@@ -85,7 +87,7 @@ describe("D-081 assumed-basis threshold matches stay apart from formal UBO class
     expect(assumedSection()).toBeNull();
     expect(host.querySelector(".ubo-summary .ubo-card__name")!.textContent).toBe("Synthetic qualifying person");
     expect(host.querySelector(".ubo-summary__empty")).toBeNull();
-    expect(selectHolder("Synthetic qualifying person").textContent).not.toContain("Assumed-basis comparison");
+    expect(selectHolder("Synthetic qualifying person").textContent).not.toContain("On the assumed POC basis");
   });
 
   it("keeps the previous behaviour when the optional field is absent", () => {
@@ -98,7 +100,7 @@ describe("D-081 assumed-basis threshold matches stay apart from formal UBO class
     expect(host.querySelector(".ubo-summary__empty")!.textContent).toBe(
       "No qualifying natural person is identified by the current retained classification.",
     );
-    expect(selectHolder("ABCD123").textContent).not.toContain("Assumed-basis comparison");
+    expect(selectHolder("ABCD123").textContent).not.toContain("On the assumed POC basis");
   });
 
   it("five-layer overlay: BEATRICE LIM and DIANA KOH match on the local synthetic basis", () => {
