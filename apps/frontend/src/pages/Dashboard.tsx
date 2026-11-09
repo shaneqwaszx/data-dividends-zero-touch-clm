@@ -795,7 +795,7 @@ export default function Dashboard({
   // Fixed sample cases are added on top of the live snapshot for display only; the query cache
   // keeps the backend response unchanged.
   const dashboard = useMemo(() => (live ? withOnboardingSample(live, actor) : undefined), [live, actor]);
-  const sampleCases = live ? sampleCaseCount(live.view) : 0;
+  const sampleCases = live ? sampleCaseCount(live.view, actor) : 0;
 
   const feedback = <>
     {(query.isPending || query.isFetching) && <p className="refreshing-indicator" role="status">{dashboard ? "Refreshing dashboard…" : "Loading dashboard…"}</p>}

@@ -38,14 +38,24 @@ test("sample cases open read-only from the dashboard and the Cases tab", async (
   expect(sampleHref).toBeTruthy();
   await page.locator(`a[href="${sampleHref}"]`).first().click();
   await expect(page).toHaveURL(new RegExp(`${sampleHref}$`));
-  const casePage = page.locator("section.readonly-case-detail");
+  const casePage = page.locator(".readonly-case-detail");
+  // Same layout as a live case: Pipeline rail, Onboarding progress and one section per step.
+  await expect(casePage.getByRole("heading", { name: "Onboarding progress" })).toBeVisible();
+  await expect(casePage.getByLabel("Attention required")).toBeVisible();
   await expect(casePage.getByRole("heading", { name: "Steps" })).toBeVisible();
   await expect(casePage.getByRole("heading", { name: "Blockers" })).toBeVisible();
-  await expect(casePage.locator("button")).toHaveCount(0);
+  // Buttons only open steps and sections or expand blockers; there are no case actions.
+  const buttonNames = await casePage.locator("button").evaluateAll(buttons => buttons
+    .filter(button => !button.matches(".stage-disclosure > h2 > button"))
+    .map(button => button.getAttribute("aria-label") ?? button.textContent ?? ""));
+  expect(buttonNames.length).toBeGreaterThan(0);
+  for (const name of buttonNames) {
+    expect(name).toMatch(/^(Open details for |Open case stage details$|Show all issues$|Hide all issues$|\d+ blockers?$|\d+ items?$|Blocker: )/);
+  }
   await expect(casePage).not.toContainText(/sample|illustrative|demonstration/i);
 
   // Back to Cases: sample cases are rows of the same table and follow the search.
-  await casePage.getByRole("link", { name: "← Cases" }).click();
+  await casePage.getByRole("link", { name: "← Back to Cases" }).click();
   await expect(page.getByRole("heading", { name: "Cases", exact: true })).toBeVisible();
   await page.getByLabel("Search", { exact: true }).fill("Hougang");
   const table = page.getByLabel("Cases table");
@@ -54,6 +64,12 @@ test("sample cases open read-only from the dashboard and the Cases tab", async (
   await table.getByRole("link", { name: "Open" }).click();
   await expect(page.getByRole("heading", { name: "Hougang Pet Supplies Pte. Ltd." })).toBeVisible();
   await expect(casePage).toContainText("Stopped for review");
+  // Clicking the blocked step opens its section, like a live case.
+  const documentSection = casePage.locator(".stage-disclosure").filter({ has: page.getByRole("button", { name: /^Document verification/ }) });
+  await documentSection.getByRole("button", { name: /^Document verification/ }).click();
+  await expect(documentSection.getByRole("button", { name: /^Document verification/ })).toHaveAttribute("aria-expanded", "false");
+  await casePage.getByRole("button", { name: "Open details for Document verification" }).click();
+  await expect(documentSection.getByRole("button", { name: /^Document verification/ })).toHaveAttribute("aria-expanded", "true");
 
   // Deep links survive a reload.
   await page.reload();
