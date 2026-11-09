@@ -37,10 +37,12 @@ unverified process.
    remains unchanged even though the shared cache was reused. If caching was left at its
    default disabled mode, the panel truthfully says the binding was not recorded and
    makes no miss/fetch/freshness inference.
-4. In **Ownership path explorer**, choose a candidate and retained path. Point out the
-   exact backend Decimal strings, threshold result, classification, calculation, and
-   “owned entity is owned by owner” direction. The selected visual is bounded and says
-   it is not a complete hierarchy; cycle/incomplete/limit issues make the view explicitly
+4. In **Ownership path explorer**, choose a candidate and ownership route. Point out the
+   plain-language threshold result and classification (for example "Meets the 25%
+   threshold (25% or more)"), the backend calculation, and the owner-first direction
+   ("Jane Tan owns 60% of Alpha Pte Ltd"). The exact backend Decimal strings and raw
+   values stay in the technical view. The selected visual is bounded and says it is not
+   the complete structure; cycle/incomplete/limit issues make the view explicitly
    non-definitive.
 5. In **Why this case is in its current state**, read the automation stage, stage
    readiness, server-authored blockers/warnings, retained target-operation order, and

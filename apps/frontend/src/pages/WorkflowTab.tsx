@@ -214,7 +214,7 @@ export function runProgress(run: Pick<WorkflowRun, "stages">) {
 const STAGE_DISPLAY: Record<WorkflowRunStage["status"], { node: string; symbol: string; label: string; status: string }> = {
   COMPLETE: { node: "done", symbol: "✓", label: "Complete", status: "COMPLETE" },
   OPEN: { node: "now", symbol: "!", label: "Review required", status: "REVIEW_REQUIRED" },
-  LOCKED: { node: "", symbol: "○", label: "Not reached", status: "NOT_REACHED" },
+  LOCKED: { node: "", symbol: "○", label: "Not started yet", status: "NOT_REACHED" },
 };
 
 function focusStage(stage: WorkflowRunStage) {

@@ -105,8 +105,9 @@ describe("ReviewAndSend", () => {
     const markup = render(summaryFixture(), actor, ownershipStructureFixture());
     expect(markup).toContain("Identified UBO candidates");
     expect(markup).toContain("Synthetic qualifying person");
-    expect(markup).toContain("25% effective");
-    expect(markup).toContain("GREATER_THAN_OR_EQUAL_TO 25% → MET");
+    expect(markup).toContain("25% via this route");
+    expect(markup).toContain("Meets the 25% threshold (25% or more)");
+    expect(markup).not.toContain("GREATER_THAN_OR_EQUAL_TO");
     expect(markup).toContain("<dt>Indirect</dt><dd>25%</dd>");
     expect(markup).toContain("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
     expect(markup).not.toContain("Synthetic below-threshold person");

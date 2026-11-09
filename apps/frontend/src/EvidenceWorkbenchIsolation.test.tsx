@@ -619,7 +619,7 @@ describe("Evidence workbench integration isolation", () => {
 
     renderCase(client, actorA, CASE_A);
     click("Inspect a-path-2");
-    expect(container?.textContent).toContain("Selected retained path: a-path-2");
+    expect(container?.textContent).toContain("Route reference: a-path-2");
     click("a Candidate Two");
     expect(container!.querySelector('[aria-label="Selected holder"]')?.textContent).toContain("a Candidate Two");
     expect(container!.querySelector('[aria-label="Ownership hierarchy"] [role="row"].is-selected')?.textContent).toContain("a Candidate Two");
@@ -675,18 +675,18 @@ describe("Evidence workbench integration isolation", () => {
 
     renderCase(client, actorA, CASE_A);
     click("Inspect a-path-2");
-    expect(container?.textContent).toContain("Selected retained path: a-path-2");
+    expect(container?.textContent).toContain("Route reference: a-path-2");
 
     renderCase(client, actorA, CASE_B);
     openPathInspection();
-    expect(container?.textContent).toContain("Selected retained path: b-path-1");
-    expect(container?.textContent).not.toContain("Selected retained path: a-path-2");
+    expect(container?.textContent).toContain("Route reference: b-path-1");
+    expect(container?.textContent).not.toContain("Route reference: a-path-2");
     click("Inspect b-path-2");
 
     renderCase(client, actorB, CASE_B);
     openPathInspection();
-    expect(container?.textContent).toContain("Selected retained path: c-path-1");
-    expect(container?.textContent).not.toContain("Selected retained path: b-path-2");
+    expect(container?.textContent).toContain("Route reference: c-path-1");
+    expect(container?.textContent).not.toContain("Route reference: b-path-2");
     click("Inspect c-path-2");
 
     await act(async () => {
@@ -697,8 +697,8 @@ describe("Evidence workbench integration isolation", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     openPathInspection();
-    expect(container?.textContent).toContain("Selected retained path: d-path-1");
-    expect(container?.textContent).not.toContain("Selected retained path: c-path-2");
+    expect(container?.textContent).toContain("Route reference: d-path-1");
+    expect(container?.textContent).not.toContain("Route reference: c-path-2");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -1393,7 +1393,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
     for (const panel of support) expect(panel.querySelector("button, input, select, textarea, details")).toBeNull();
     act(() => { support[0].open = true; }); expect(support[1].open).toBe(false);
     act(() => { support[1].open = true; support[0].open = false; });
-    expect(main.textContent).toContain("37.5%"); expect(main.textContent).toContain("GREATER_THAN_OR_EQUAL_TO");
+    expect(main.textContent).toContain("37.5%"); expect(main.textContent).toContain("Meets the 25% threshold (25% or more)");
     expect(main.textContent).toContain("LOCAL");
     expect(support[1].textContent).toContain("37.500000000000000010");
     const ids = [...region.querySelectorAll("[id]")].map(item => item.id);

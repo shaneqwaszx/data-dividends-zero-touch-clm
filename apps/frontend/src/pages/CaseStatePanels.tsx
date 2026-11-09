@@ -1,4 +1,5 @@
 import { withWorkflowStages, workflowStageElementId } from "../workflowPipeline";
+import { isWaitingForEarlierSteps, WAITING_STAGE_LABEL } from "../stageDisplay";
 import type { WorkflowRun } from "../workflowApi";
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 
@@ -59,6 +60,31 @@ function pipelineRailState(status: ProcessingNodeStatus): "done" | "now" | "atte
   return "";
 }
 
+/** Presentation of one backend stage: a BLOCKED stage that is only waiting for earlier steps is neutral. */
+function memberDisplay(member: ProcessingNode, summary?: ZeroTouchCaseSummary) {
+  const waiting = summary ? isWaitingForEarlierSteps(member, summary) : false;
+  return {
+    waiting,
+    label: waiting ? WAITING_STAGE_LABEL : PROGRESS_STATUS_LABELS[member.status],
+    rail: waiting ? "" as const : pipelineRailState(member.status),
+  };
+}
+
+/** Rail marker for a step; a grouped step uses its member that needs the user most (as before). */
+function stepRailState(node: ProcessingNode, members: ProcessingNode[], summary?: ZeroTouchCaseSummary): ReturnType<typeof pipelineRailState> {
+  if (members.length === 1 && members[0] === node) return memberDisplay(node, summary).rail;
+  const rails = members.map(member => memberDisplay(member, summary).rail);
+  if (rails.includes("attention")) return "attention";
+  if (rails.includes("now")) return "now";
+  if (rails.length && rails.every(rail => rail === "done")) return "done";
+  return rails.length ? "" : pipelineRailState(node.status);
+}
+
+/** True when every backend stage behind a step is only waiting for earlier steps. */
+function stepWaiting(members: ProcessingNode[], summary?: ZeroTouchCaseSummary): boolean {
+  return Boolean(summary) && members.length > 0 && members.every(member => memberDisplay(member, summary).waiting);
+}
+
 export const GOLDTIER_DETAILS_STAGE_LABEL = "GoldTier Details & Status";
 /** Presentation-only id of the visual step that groups the two backend stages below. */
 export const GOLDTIER_DETAILS_STEP_ID = "GOLDTIER_DETAILS";
@@ -110,21 +136,21 @@ export function businessStageIdFor(nodeId: string): string {
 }
 
 /** Status text for a step; a grouped step names each member's status when they differ. */
-function stageStatusText(members: ProcessingNode[], node: ProcessingNode): string {
-  const labels = new Set(members.map(member => PROGRESS_STATUS_LABELS[member.status]));
-  return labels.size > 1
-    ? members.map(member => `${member.label}: ${PROGRESS_STATUS_LABELS[member.status]}`).join(" · ")
-    : PROGRESS_STATUS_LABELS[node.status];
+function stageStatusText(members: ProcessingNode[], node: ProcessingNode, summary?: ZeroTouchCaseSummary): string {
+  const labels = new Set(members.map(member => memberDisplay(member, summary).label));
+  if (labels.size > 1) return members.map(member => `${member.label}: ${memberDisplay(member, summary).label}`).join(" · ");
+  return labels.size === 1 && !(members.length === 1 && members[0] === node) ? [...labels][0] : memberDisplay(node, summary).label;
 }
 
 /** Stage facts for a step; a grouped step lists each backend stage separately. */
-function BusinessStageFacts({ node, members, nextAction }: {
+function BusinessStageFacts({ node, members, nextAction, summary }: {
   node: ProcessingNode; members: ProcessingNode[]; nextAction?: (member: ProcessingNode) => string | undefined;
+  summary?: ZeroTouchCaseSummary;
 }) {
-  if (members.length === 1 && members[0] === node) return <ProcessingStageFacts node={node} nextAction={nextAction?.(node)} />;
+  if (members.length === 1 && members[0] === node) return <ProcessingStageFacts node={node} nextAction={nextAction?.(node)} summary={summary} />;
   return <>{members.map(member => <div key={member.node_id} className="stage-facts__member" data-node-id={member.node_id}>
     <h4>{member.label}</h4>
-    <ProcessingStageFacts node={member} nextAction={nextAction?.(member)} />
+    <ProcessingStageFacts node={member} nextAction={nextAction?.(member)} summary={summary} />
   </div>)}</>;
 }
 
@@ -134,12 +160,13 @@ export interface StageStatus { tone: "attention" | "current" | "done" | "pending
 export function stageStatusFor(summary: ZeroTouchCaseSummary, nodeIds: string[]): StageStatus | undefined {
   const nodes = (summary.processing_pipeline ?? []).filter(node => nodeIds.includes(node.node_id));
   if (!nodes.length) return undefined;
-  const attention = nodes.find(node => pipelineRailState(node.status) === "attention");
-  if (attention) return { tone: "attention", label: PROGRESS_STATUS_LABELS[attention.status] };
+  const display = (node: ProcessingNode) => memberDisplay(node, summary);
+  const attention = nodes.find(node => display(node).rail === "attention");
+  if (attention) return { tone: "attention", label: display(attention).label };
   const current = nodes.find(node => node.status === "IN_PROGRESS");
-  if (current) return { tone: "current", label: PROGRESS_STATUS_LABELS[current.status] };
-  if (nodes.every(node => pipelineRailState(node.status) === "done")) return { tone: "done", label: PROGRESS_STATUS_LABELS[nodes[0].status] };
-  return { tone: "pending", label: PROGRESS_STATUS_LABELS[nodes.find(node => pipelineRailState(node.status) !== "done")!.status] };
+  if (current) return { tone: "current", label: display(current).label };
+  if (nodes.every(node => display(node).rail === "done")) return { tone: "done", label: display(nodes[0]).label };
+  return { tone: "pending", label: display(nodes.find(node => display(node).rail !== "done")!).label };
 }
 
 export function PipelineRail({ summary, onStageActivate, renderAttention, workflowRun }: {
@@ -153,10 +180,11 @@ export function PipelineRail({ summary, onStageActivate, renderAttention, workfl
   return (
     <div className="ds-stage-rail" aria-label="Backend workflow stages">
       {pipeline.map((node, index) => {
-        const state = pipelineRailState(node.status);
         const members = businessStageMembers(backendPipeline, node);
+        const state = stepRailState(node, members, summary);
         return (
-          <div className="ds-stage" key={node.node_id} data-node-id={node.node_id} data-status={node.status}>
+          <div className="ds-stage" key={node.node_id} data-node-id={node.node_id} data-status={node.status}
+            data-display-state={stepWaiting(members, summary) ? "waiting" : undefined}>
             <div className="ds-stage-marker">
               <span className={`ds-stage-node ${state}`}>
                 {state === "done" ? "✓" : index + 1}
@@ -168,11 +196,11 @@ export function PipelineRail({ summary, onStageActivate, renderAttention, workfl
             <div className="ds-stage-copy">
               <details>
                 <summary>{node.label}</summary>
-                <BusinessStageFacts node={node} members={members} />
+                <BusinessStageFacts node={node} members={members} summary={summary} />
                 {onStageActivate && <button type="button" className="btn btn-ghost" onClick={() => onStageActivate(node)}>Open case stage details</button>}
               </details>
               {node.node_id === "ADVISORY" && <p className="control-help">Bounded POC advisory</p>}
-              <div className="text-muted">{stageStatusText(members, node)}</div>
+              <div className="text-muted">{stageStatusText(members, node, summary)}</div>
               {renderAttention?.(node)}
             </div>
           </div>
@@ -305,7 +333,7 @@ const PROGRESS_STATUS_LABELS: Record<ProcessingNodeStatus, string> = {
   REVIEW_REQUIRED: "Review required",
   BLOCKED: "Blocked",
   FAILED: "Failed",
-  NOT_REACHED: "Not reached",
+  NOT_REACHED: "Not started yet",
 };
 
 const PROGRESS_STATUS_SYMBOLS: Record<ProcessingNodeStatus, string> = {
@@ -320,9 +348,10 @@ const PROGRESS_STATUS_SYMBOLS: Record<ProcessingNodeStatus, string> = {
   NOT_REACHED: "○",
 };
 
-function currentProcessingNode(nodes: ProcessingNode[]): ProcessingNode | undefined {
+function currentProcessingNode(nodes: ProcessingNode[], isWaiting: (node: ProcessingNode) => boolean = () => false): ProcessingNode | undefined {
+  // A stage that is only waiting for earlier steps is never named as the current one.
   const node = nodes.find((item) =>
-    ["IN_PROGRESS", "REVIEW_REQUIRED", "BLOCKED", "FAILED"].includes(item.status)
+    ["IN_PROGRESS", "REVIEW_REQUIRED", "BLOCKED", "FAILED"].includes(item.status) && !isWaiting(item)
   );
   if (node) return node;
   return nodes.find((item) => item.status === "NOT_REACHED") ?? nodes.at(-1);
@@ -484,7 +513,8 @@ export function OnboardingProgressPanel({
   const completed = pipeline.filter((node) =>
     node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED"
   ).length;
-  const current = currentProcessingNode(pipeline);
+  const waitingStep = (node: ProcessingNode) => stepWaiting(businessStageMembers(stagePipeline, node), summary);
+  const current = currentProcessingNode(pipeline, waitingStep);
   const maximum = Math.max(pipeline.length, 1);
   const percentage = summary.status === "COMPLETED" ? 100 : Math.round((completed / maximum) * 100);
   const activeIssues = summary.status === "COMPLETED" ? 0 : summary.active_exceptions.filter(
@@ -502,7 +532,7 @@ export function OnboardingProgressPanel({
             : "Review the stopped stage.")
           : "Wait for the current backend stage.");
   const currentText = current
-    ? `${current.label} — ${stageStatusText(businessStageMembers(stagePipeline, current), current)}`
+    ? `${current.label} — ${stageStatusText(businessStageMembers(stagePipeline, current), current, summary)}`
     : "Waiting for backend processing state";
 
   return (
@@ -545,20 +575,22 @@ export function OnboardingProgressPanel({
               && target
               && (!availableFocusTargets || availableFocusTargets.has(target) || workflowStageElementId(node.node_id) !== null),
             );
+            const waiting = waitingStep(node);
             const content = <>
               <span className="onboarding-progress__title-row">
-                <span className="onboarding-progress__symbol" aria-hidden="true">{PROGRESS_STATUS_SYMBOLS[node.status]}</span>
+                <span className="onboarding-progress__symbol" aria-hidden="true">{waiting ? PROGRESS_STATUS_SYMBOLS.NOT_REACHED : PROGRESS_STATUS_SYMBOLS[node.status]}</span>
                 <span className="onboarding-progress__stage-label">{node.label}</span>
               </span>
-              <span className="onboarding-progress__stage-status">{stageStatusText(businessStageMembers(stagePipeline, node), node)}</span>
+              <span className="onboarding-progress__stage-status">{stageStatusText(businessStageMembers(stagePipeline, node), node, summary)}</span>
               {node.node_id === "ADVISORY" && <span className="control-help">Bounded POC advisory</span>}
-              <span className="onboarding-progress__stage-action">{navigable && node.status === "REVIEW_REQUIRED" ? "Review" : navigable && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
+              <span className="onboarding-progress__stage-action">{navigable && !waiting && node.status === "REVIEW_REQUIRED" ? "Review" : navigable && !waiting && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
             </>;
             return (
               <li
                 key={node.node_id}
                 className="onboarding-progress__stage onboarding-progress__stage--actionable"
                 data-status={node.status}
+                data-display-state={waiting ? "waiting" : undefined}
               >
                 <button type="button" onClick={() => {
                   setInspected({ caseId: summary.case.case_id, nodeId: node.node_id });
@@ -576,7 +608,7 @@ export function OnboardingProgressPanel({
       {/* Collapsed by default; a new stage starts collapsed again (keyed by node). */}
       {inspectedNode && <details key={inspectedNode.node_id} id="processing-stage-details" className="card evidence-focus-target stage-details" tabIndex={-1} aria-label={`${inspectedNode.label} details`}>
         <summary>Stage details — {inspectedNode.label}</summary>
-        <BusinessStageFacts node={inspectedNode} members={inspectedMembers} nextAction={nextActionFor} />
+        <BusinessStageFacts node={inspectedNode} members={inspectedMembers} nextAction={nextActionFor} summary={summary} />
         {inspectedMembers.flatMap(member => member.children).length > 0 && <ol>{inspectedMembers.flatMap(member => member.children).map((child) => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
       </details>}
       <p className="onboarding-progress__updated"><strong>Last updated:</strong> {formatTimestamp(summary.updated_at)}</p>
@@ -584,9 +616,11 @@ export function OnboardingProgressPanel({
   );
 }
 
-function ProcessingStageFacts({ node, nextAction }: { node: ProcessingNode; nextAction?: string }) {
+function ProcessingStageFacts({ node, nextAction, summary }: { node: ProcessingNode; nextAction?: string; summary?: ZeroTouchCaseSummary }) {
+  const display = memberDisplay(node, summary);
   return <>
-    <p><strong>Status:</strong> {PROGRESS_STATUS_LABELS[node.status]}</p>
+    <p><strong>Status:</strong> {display.label}</p>
+    {display.waiting && <p className="control-help"><strong>Backend status:</strong> {PROGRESS_STATUS_LABELS[node.status]}. An earlier step must finish first; no action is needed on this stage yet.</p>}
     {node.safe_result ? <p><strong>Outcome:</strong> {node.safe_result}</p> : <p className="control-help">The backend has not reported an outcome or explanation for this stage.</p>}
     {node.provider && <p><strong>Provider:</strong> {node.provider}</p>}
     {node.environment && <p><strong>Environment:</strong> {node.environment}</p>}

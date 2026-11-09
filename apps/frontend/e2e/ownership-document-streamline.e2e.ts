@@ -8,6 +8,7 @@ import { openStage, openStageSupport } from "./stage-disclosures";
 import { confirmBatch, reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 import { showAllIssues } from "./attention";
 import type { OwnershipAnalysisRecord } from "../src/types";
+import { thresholdResultText } from "../src/ownershipLabels";
 
 const validIdentityFixture = JSON.parse(await readFile(new URL("../src/pages/ownershipValidIdentityFixture.json", import.meta.url), "utf8")) as OwnershipAnalysisRecord;
 
@@ -293,7 +294,9 @@ test("Ownership hotfix Garden hierarchy and matching final candidates", { tag: "
   for (const candidate of qualifying) {
     await expect(finalSummary).toContainText(candidate.party.display_name);
     await expect(finalSummary).toContainText(effectiveDisplay(candidate));
-    await expect(finalSummary).toContainText(candidate.classification);
+    // Qualifying = backend PROVISIONAL_UBO_CANDIDATE with MET, worded for the RM.
+    await expect(finalSummary).toContainText("provisional UBO candidate");
+    await expect(finalSummary).toContainText(thresholdResultText(candidate.threshold_result, candidate.threshold_percent, candidate.threshold_comparator));
   }
   await finalSummary.screenshot({ path: path.join(evidence, "garden-final-review.png") });
   await writeFile(path.join(evidence, "receipt.json"), JSON.stringify({ analysis_id: result.analysis_id, source: result.source_classification, provider: result.provider_name, provider_environment: result.provider_environment, candidates: qualifying.map((c: any) => ({ name: c.party.display_name, effective: c.aggregated_ownership_percent, direct: c.direct_ownership_percent, indirect: c.indirect_ownership_percent, threshold: c.threshold_percent, result: c.threshold_result })), targetConfirmed: false }, null, 2));

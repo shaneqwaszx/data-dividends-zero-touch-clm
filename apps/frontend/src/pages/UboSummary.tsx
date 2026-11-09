@@ -1,4 +1,5 @@
-import { assumedBasisLabel, assumedBasisMatches, formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
+import { assumedBasisLabel, assumedBasisMatches, formatOwnershipPercent } from "../ownershipDisplay";
+import { calculationText, classificationText, ownershipStatement, thresholdResultText } from "../ownershipLabels";
 import type { OwnershipAnalysisRecord } from "../types";
 
 const ASSUMED_BASIS_HEADING = "Meets the threshold on an assumed basis — review required";
@@ -25,16 +26,16 @@ export default function UboSummary({ record }: { record: OwnershipAnalysisRecord
       <dl className="ubo-card__figures">
         <div><dt>Direct</dt><dd>{formatOwnershipPercent(candidate.direct_ownership_percent)}</dd></div>
         <div><dt>Indirect</dt><dd>{formatOwnershipPercent(candidate.indirect_ownership_percent)}</dd></div>
-        <div><dt>Threshold</dt><dd><span className="ubo-card__met">{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.threshold_result}</span></dd></div>
+        <div><dt>Threshold</dt><dd><span className="ubo-card__met">{thresholdResultText(candidate.threshold_result, candidate.threshold_percent, candidate.threshold_comparator)}</span></dd></div>
       </dl>
-      <details className="ubo-card__details"><summary>How this was determined · {candidate.paths.length} ownership path{candidate.paths.length === 1 ? "" : "s"}</summary>
-        <p>Why: this natural person's backend-calculated aggregate meets the case threshold; classification {candidate.classification}.</p>
+      <details className="ubo-card__details"><summary>How this was determined · {candidate.paths.length} ownership route{candidate.paths.length === 1 ? "" : "s"}</summary>
+        <p>Why: this person's total effective ownership ({formatOwnershipPercent(candidate.aggregated_ownership_percent)}) is at or above the {formatOwnershipPercent(candidate.threshold_percent)} threshold, so the analysis lists them as a provisional UBO candidate. This is not verified and not a legal UBO determination.</p>
         <p>Analysis provider: {record?.provider_name ?? "Not supplied"} · {record?.provider_environment ?? "Not supplied"} · {record?.source_classification ?? "SINGLE_SOURCE"}. Review {record?.state === "ANALYZED" ? "not outstanding in this analysis" : "outstanding for current evidence"}.</p>
         <p>Ownership evidence sources: {[...new Set(record?.relationships.filter(edge => candidate.paths.some(path => path.edges.some(item => item.relationship_id === edge.relationship_id))).map(edge => `${edge.provenance.provider} · ${edge.provenance.environment}`))].join("; ") || "Not retained"}</p>
         <div className="ubo-card__paths">
-          {candidate.paths.slice(0, 20).map(path => <p key={path.path_id}>{path.edges.map(edge => `${edge.parent_display_name} → ${edge.child_display_name} (${formatOwnershipPercent(edge.ownership_percent)})`).join("; ")} · {formatOwnershipCalculation(path.calculation)} · {formatOwnershipPercent(path.effective_ownership_percent)} effective on path</p>)}
+          {candidate.paths.slice(0, 20).map(path => <p key={path.path_id}>{path.edges.map(edge => ownershipStatement(edge.child_display_name, edge.parent_display_name, edge.ownership_percent)).join("; ")} · {calculationText(path.calculation)} · {formatOwnershipPercent(path.effective_ownership_percent)} via this route</p>)}
         </div>
-        {candidate.paths.length > 20 && <p>Showing 20 retained paths. Inspect all paths in technical calculations.</p>}
+        {candidate.paths.length > 20 && <p>Showing 20 ownership routes. Inspect all routes in technical calculations.</p>}
       </details>
     </li>)}</ul> : <p className="ubo-summary__empty">{!record ? "Ownership analysis is not available."
       : assumed.length ? `No natural person is formally classified as a provisional UBO; ${assumed.length} ${assumed.length === 1 ? "meets" : "meet"} the threshold only on an assumed basis (below).`
@@ -49,8 +50,8 @@ export default function UboSummary({ record }: { record: OwnershipAnalysisRecord
         <span className="ubo-card__effective"><b>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</b> effective</span>
         <dl className="ubo-card__figures">
           <div><dt>Basis</dt><dd>{assumedBasisLabel(record, candidate)}</dd></div>
-          <div><dt>Assumed-basis comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.synthetic_basis_threshold_result}</dd></div>
-          <div><dt>Classification</dt><dd>{candidate.classification}</dd></div>
+          <div><dt>On the assumed POC basis</dt><dd>{thresholdResultText(candidate.synthetic_basis_threshold_result, candidate.threshold_percent, candidate.threshold_comparator)} (not a classification)</dd></div>
+          <div><dt>Status</dt><dd>{classificationText(candidate.classification)}</dd></div>
         </dl>
       </li>)}</ul>
     </section>}

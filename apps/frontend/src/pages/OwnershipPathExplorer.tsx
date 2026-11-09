@@ -1,5 +1,6 @@
 import { displayTimestamp } from "../shared";
-import { assumedBasisMatches, formatOwnershipPercent, formatOwnershipCalculation, hasAssumedBasisComparison } from "../ownershipDisplay";
+import { assumedBasisMatches, formatOwnershipPercent, hasAssumedBasisComparison } from "../ownershipDisplay";
+import { analysisStateText, calculationText, classificationText, comparatorSymbol, thresholdResultText } from "../ownershipLabels";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { OwnershipAnalysisRecord, OwnershipPath, RegistryAcquisition } from "../types";
@@ -77,8 +78,8 @@ function visualEdges(path: OwnershipPath) {
 function EdgeList({ edges }: { edges: OwnershipPath["edges"] }) {
   return edges.map((edge) => (
     <li key={edge.relationship_id}>
-      <strong>{edge.parent_display_name}</strong> <span aria-label="is owned by">is owned by</span> <strong>{edge.child_display_name}</strong>
-      <span> · {formatOwnershipPercent(edge.ownership_percent)} · {edge.relationship_id}</span>
+      <strong>{edge.child_display_name}</strong> owns {formatOwnershipPercent(edge.ownership_percent)} of <strong>{edge.parent_display_name}</strong>
+      <span className="control-help"> · {edge.relationship_id}</span>
     </li>
   ));
 }
@@ -146,17 +147,17 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
               <dl>
                 <div><dt>Direct</dt><dd>{formatOwnershipPercent(candidate.direct_ownership_percent)}</dd></div>
                 <div><dt>Indirect</dt><dd>{formatOwnershipPercent(candidate.indirect_ownership_percent)}</dd></div>
-                <div><dt>Aggregated</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div>
-                <div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.threshold_result}</dd></div>
-                <div><dt>Classification</dt><dd>{candidate.classification}</dd></div>
+                <div><dt>Total effective</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div>
+                <div><dt>Against the threshold</dt><dd>{thresholdResultText(candidate.threshold_result, candidate.threshold_percent, candidate.threshold_comparator)}</dd></div>
+                <div><dt>Result</dt><dd>{classificationText(candidate.classification)}</dd></div>
               </dl>
 
               {path ? (
                 <div aria-label={`Selected retained path ${path.path_id}`}>
-                  <h6>Selected retained path: {path.path_id}</h6>
-                  <p>{formatOwnershipCalculation(path.calculation)}</p>
-                  <p>Effective ownership: {formatOwnershipPercent(path.effective_ownership_percent)}</p>
-                  <p className="control-help">Semantic direction: owned entity → owner. This selected retained path is not a complete hierarchy.</p>
+                  <h6>Selected ownership route ({candidate.paths.findIndex(item => item.path_id === path.path_id) + 1} of {candidate.paths.length})</h6>
+                  <p>{calculationText(path.calculation)}</p>
+                  <p>Effective ownership via this route: {formatOwnershipPercent(path.effective_ownership_percent)}</p>
+                  <p className="control-help">Read from the client outward; each line says who owns whom. This is one route, not the complete structure. Route reference: {path.path_id}</p>
                   <ol aria-label="Selected ownership path visual">
                     <EdgeList edges={visual!.prefix} />
                     {visual!.hidden > 0 && <li data-hidden-edge-boundary>… {visual!.hidden} hidden edge{visual!.hidden === 1 ? "" : "s"} between bounded prefix and suffix …</li>}
@@ -167,12 +168,12 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
 
               <div className="table-scroll">
                 <table>
-                  <caption>Retained paths — page {page + 1} of {totalPages}; not a complete hierarchy</caption>
-                  <thead><tr><th>Path</th><th>Effective ownership</th><th>Calculation</th><th>Inspect</th></tr></thead>
+                  <caption>Ownership routes for this person — page {page + 1} of {totalPages}; not the complete structure</caption>
+                  <thead><tr><th>Route reference</th><th>Effective ownership</th><th>Calculation</th><th>Inspect</th></tr></thead>
                   <tbody>
                     {visiblePaths.map((item) => (
                       <tr key={item.path_id}>
-                        <td>{item.path_id}</td><td>{formatOwnershipPercent(item.effective_ownership_percent)}</td><td>{formatOwnershipCalculation(item.calculation)}</td>
+                        <td>{item.path_id}</td><td>{formatOwnershipPercent(item.effective_ownership_percent)}</td><td>{calculationText(item.calculation)}</td>
                         <td><button type="button" className="btn btn-ghost" aria-pressed={path?.path_id === item.path_id} onClick={() => setPathId(item.path_id)}>Inspect {item.path_id}</button></td>
                       </tr>
                     ))}
@@ -193,11 +194,11 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
           <p className="card-kicker">Local deterministic analysis · provisional, not a legal determination</p>
           <h4 id="ownership-path-heading">Ownership path explorer</h4>
         </div>
-        <span className={`ownership-analysis__state${record.state === "ANALYZED" ? " is-complete" : " is-review"}`}>{record.state.replaceAll("_", " ")}</span>
+        <span className={`ownership-analysis__state${record.state === "ANALYZED" ? " is-complete" : " is-review"}`}>{analysisStateText(record.state)}</span>
       </div>
       <dl className="ownership-analysis__stats">
         <div><dt>Analysis state</dt><dd>{record.state === "ANALYZED" ? "Calculable" : record.poc_basis_accepted ? "Calculated — POC basis accepted" : record.simulation_calculated ? "Simulation calculated — review required" : "Needs review"}</dd></div>
-        <div><dt>Threshold</dt><dd>{record.threshold_comparator === "GREATER_THAN_OR_EQUAL_TO" ? "≥" : record.threshold_comparator} {formatOwnershipPercent(record.threshold_percent)}</dd></div>
+        <div><dt>Threshold</dt><dd>{comparatorSymbol(record.threshold_comparator)} {formatOwnershipPercent(record.threshold_percent)}</dd></div>
         <div><dt>People assessed</dt><dd>{record.candidates.length}</dd></div>
         <div><dt>Provisional UBOs</dt><dd>{record.candidates.filter(item => item.party.party_type === "NATURAL_PERSON" && item.classification === "PROVISIONAL_UBO_CANDIDATE" && item.threshold_result === "MET").length}</dd></div>
         {hasAssumedBasisComparison(record) && <div><dt>Assumed-basis matches</dt><dd>{assumedBasisMatches(record).length}</dd></div>}

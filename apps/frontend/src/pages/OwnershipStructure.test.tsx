@@ -35,7 +35,7 @@ describe("Ownership hierarchy and authoritative candidate summary", () => {
       const detail = host.querySelector('[aria-label="Selected holder"]')!;
       expect(detail.querySelector("h5")!.textContent).toBe("Avery Tan");
       expect(detail.textContent).toContain("60%");
-      expect(detail.textContent).toContain("PROVISIONAL_UBO_CANDIDATE");
+      expect(detail.textContent).toContain("ResultProvisional UBO candidate (meets the threshold; not verified)");
       expect(candidate.threshold_result).toBe("MET");
       expect(errors.mock.calls.filter(args => args.some(value => String(value).includes("same key")))).toEqual([]);
     },
@@ -101,7 +101,9 @@ describe("Ownership hierarchy and authoritative candidate summary", () => {
     const original = structuredClone(record); const view = render(record);
     act(() => button("Synthetic below-threshold person").click());
     expect(view.querySelector('[aria-label="Selected holder"]')!.textContent).toContain("25%");
-    expect(view.querySelector('[aria-label="Selected holder"]')!.textContent).toContain("NOT_MET");
+    // The rounded label equals the threshold, but the backend NOT_MET result is what is shown.
+    expect(view.querySelector('[aria-label="Selected holder"]')!.textContent).toContain("Against the thresholdBelow the 25% threshold");
+    expect(view.querySelector('[aria-label="Selected holder"]')!.textContent).not.toContain("Meets the 25% threshold");
     expect(view.querySelector(".ubo-summary")!.textContent).not.toContain("Synthetic below-threshold person");
     expect(view.querySelector(".ubo-summary li")).not.toBeNull(); expect(record).toEqual(original);
   });
@@ -114,7 +116,7 @@ describe("Ownership hierarchy and authoritative candidate summary", () => {
     act(() => button("Synthetic qualifying person").click());
     expect(host.querySelector('[aria-label="Selected holder"]')!.textContent).toContain("50 × 50 / 100 = 25");
     act(() => button("Inspect direct").click());
-    expect(host.textContent).toContain("Selected retained path: direct");
+    expect(host.textContent).toContain("Route reference: direct");
   });
   it("stops cycles and labels unlinked parties without turning incomplete evidence into no UBOs", () => {
     const record = ownershipStructureFixture(); record.state = "REVIEW_REQUIRED";
@@ -168,10 +170,10 @@ describe("Ownership structure entity labels and D-081 verification wording", () 
     expect(effective("LIM CHOON HUAT")).toEqual(["37.5%"]);
     expect(host.querySelector('[aria-label="Hierarchy summary"]')!.textContent).toContain("0 provisional UBOs");
     const root = holderText("GARDEN BUSINESS");
-    expect(root).toContain("Direct holding in immediate entityRoot entity — N/A");
-    expect(root).toContain("Effective on selected pathRoot entity — N/A");
-    expect(holderText("SIM LIM PTE. LTD.")).toContain("Effective on selected path62.5% — direct holding in client");
-    expect(holderText("ABCD123")).toContain("Effective on selected path51.14%");
+    expect(root).toContain("Direct holdingRoot entity — N/A");
+    expect(root).toContain("Effective ownership via this routeRoot entity — N/A");
+    expect(holderText("SIM LIM PTE. LTD.")).toContain("Effective ownership via this route62.5% — direct holding in client");
+    expect(holderText("ABCD123")).toContain("Effective ownership via this route51.14%");
   });
 
   it("Garden POC: the banner explains calculated ownership pending verification", () => {
@@ -223,7 +225,7 @@ describe("Ownership structure entity labels and D-081 verification wording", () 
     expect(effective("BEATRICE LIM (SYNTHETIC PERSON)")).toEqual(["37.5%"]);
     expect(host.textContent).toContain("LOCAL_SYNTHETIC_RELATIONSHIP");
     expect(host.querySelector(".ubo-summary__warning")!.textContent).toBe("UBO determination requires review. These values come from a calculated simulation on declared synthetic relationships; they are not verified ownership.");
-    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
+    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("StatusNeeds a person's review before any conclusion");
   });
 
   it("OPQ -> Garden -> SIM LIM: the owner-declared 100% is marked and Garden keeps its partnership form", () => {
@@ -266,8 +268,8 @@ describe("Ownership structure entity labels and D-081 verification wording", () 
     expect(host.textContent).not.toContain("Not calculated for indirect corporate holders");
     expect(host.textContent).not.toContain("Not calculated — held through multiple paths");
     const detail = holderText("FIVE LAYER L3 INVESTMENTS (SYNTHETIC)");
-    expect(detail).toContain("Aggregate effective in root (all retained paths)48% (calculated interest; not a UBO classification)");
-    expect(detail).toContain("2 retained paths reach this entity.");
+    expect(detail).toContain("Total effective ownership of the client (all routes)48% (calculated interest; not a UBO classification)");
+    expect(detail).toContain("2 ownership routes reach this entity.");
     expect(detail).toContain("Calculation:");
     // The root keeps its label and person values are unchanged.
     expect(effective("OPQ PTE. LTD.")).toEqual(["Root entity — N/A"]);
@@ -351,7 +353,7 @@ describe("D-085 POC basis accepted by the backend", () => {
     expect(host.querySelector(".s2-ownership-summary")!.textContent).toContain("Calculated on the accepted POC basis.");
     expect(host.querySelector(".ubo-summary__warning")).toBeNull();
     // The formal backend classification itself is unchanged and still shown per candidate.
-    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
+    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("StatusNeeds a person's review before any conclusion");
     expect(host.querySelectorAll(".ownership-structure__row.is-ubo")).toHaveLength(0);
   });
 
@@ -367,7 +369,7 @@ describe("D-085 POC basis accepted by the backend", () => {
     });
     const banner = host.querySelector<HTMLElement>(".ownership-structure .ds-banner")!;
     expect(banner.textContent).toContain("The registry legal form has no supported formal UBO method; the declared POC arithmetic is shown without a formal classification.");
-    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
+    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("StatusNeeds a person's review before any conclusion");
   });
 
   it("D-087 OPQ chain: accepted with intermediate-role and declared-link disclosures, no review warning", () => {
@@ -404,7 +406,7 @@ describe("D-085 POC basis accepted by the backend", () => {
     expect(effective("ABCD123")).toEqual(["51.14%"]);
     expect(effective("LIM CHOON HUAT")).toEqual(["37.5%"]);
     expect(holderText("GARDEN BUSINESS")).toContain("Source: LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL · owner-declared percentage");
-    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("ClassificationREVIEW_REQUIRED");
+    expect(host.querySelector(".ubo-summary__assumed")!.textContent).toContain("StatusNeeds a person's review before any conclusion");
   });
 
   it("D-088/D-089 multi-holder: accepted with issued-capital and declared-link disclosures", () => {
@@ -438,7 +440,7 @@ describe("D-085 POC basis accepted by the backend", () => {
     expect(holderText("ABC COMPANY PTE. LTD.")).toContain("Source: LOCAL_SYNTHETIC_RELATIONSHIP · LOCAL · owner-declared percentage");
     const assumed = host.querySelector(".ubo-summary__assumed")!.textContent!;
     expect(assumed).toContain("ACRA issued-capital POC basis");
-    expect(assumed).toContain("ClassificationREVIEW_REQUIRED");
+    expect(assumed).toContain("StatusNeeds a person's review before any conclusion");
   });
 
   it("an OPQ case without backend acceptance keeps the review warning (D-087 QG F3)", () => {

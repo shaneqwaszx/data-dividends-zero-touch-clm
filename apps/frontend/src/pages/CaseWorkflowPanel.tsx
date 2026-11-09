@@ -78,7 +78,7 @@ function StageForm({ caseId, run, stage, canFill, onChanged }: {
 const SECTION_STATUS: Record<WorkflowRunStage["status"], { tone: string; label: string }> = {
   COMPLETE: { tone: "done", label: "Complete" },
   OPEN: { tone: "attention", label: "Review required" },
-  LOCKED: { tone: "pending", label: "Not reached" },
+  LOCKED: { tone: "pending", label: "Not started yet" },
 };
 
 function sectionSummary(run: WorkflowRun, stage: WorkflowRunStage): string {

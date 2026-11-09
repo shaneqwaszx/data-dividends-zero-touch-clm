@@ -163,6 +163,10 @@
   border-color: #d92d20;
 }
 
+.onboarding-progress__stages > li[data-status][data-display-state="waiting"] {
+  border-color: var(--line);
+}
+
 .onboarding-progress__symbol {
   flex: none;
   font-weight: 800;
