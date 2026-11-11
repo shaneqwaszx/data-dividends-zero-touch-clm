@@ -1,0 +1,66 @@
+# Apply after deploy/compose.yml and deploy/compose.mongo.yml.
+# Stage A only: private, model-free, and no route to the internet.
+#
+# The assistant joins only the internal proxy network, so it can reach Caddy and the backend
+# and nothing else. No port is published. It does not start with the frontend's depends_on,
+# so the onboarding demo keeps working when the assistant is down.
+services:
+  assistant:
+    image: ${ASSISTANT_IMAGE:?assistant image required}
+    platform: linux/amd64
+    container_name: ${ASSISTANT_CONTAINER_NAME:-clm-staging-assistant}
+    init: true
+    environment:
+      AI_ASSISTANT_DATA_DIR: /data
+      AI_ASSISTANT_CLM_BACKEND_URL: http://clm-backend-proxy:8000
+      AI_ASSISTANT_ALLOWED_ORIGINS: '["${ASSISTANT_BROWSER_ORIGIN:?exact HTTPS browser origin required}"]'
+      AI_ASSISTANT_LLM_ENABLED: "true"
+      AI_ASSISTANT_LLM_BASE_URL: http://127.0.0.1:9/v1
+      AI_ASSISTANT_LLM_MODEL: no-model-configured
+      AI_ASSISTANT_LLM_TIMEOUT_SECONDS: "2"
+      AI_ASSISTANT_LLM_WARM_UP: "false"
+      AI_ASSISTANT_EMBED_TIMEOUT_SECONDS: "1"
+      AI_ASSISTANT_MODEL_PROFILES_FILE: /opt/assistant/deploy/model_profiles.hosted.json
+      ASSISTANT_HOSTING_DATA_QUOTA_MB: "${ASSISTANT_DATA_QUOTA_MB:-2048}"
+      ASSISTANT_HOSTING_MIN_FREE_MB: "256"
+      ASSISTANT_HOSTING_SEED_SYNTHETIC: "${ASSISTANT_SEED_SYNTHETIC:-false}"
+    networks:
+      proxy:
+        ipv4_address: "${CLM_ASSISTANT_PROXY_IPV4:-172.30.240.4}"
+        aliases: [clm-assistant-proxy]
+    volumes:
+      - type: volume
+        source: assistant-data
+        target: /data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: ${ASSISTANT_CPUS:-0.75}
+    mem_limit: ${ASSISTANT_MEM_LIMIT:-512m}
+    memswap_limit: ${ASSISTANT_MEM_LIMIT:-512m}
+    pids_limit: 128
+    ulimits:
+      nofile: 4096
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    stop_grace_period: 25s
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "assistant_hosting.probe"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  assistant-data:
+    external: true
+    name: ${ASSISTANT_DATA_VOLUME:?explicit precreated assistant data volume required}

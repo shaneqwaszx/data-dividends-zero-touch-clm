@@ -593,6 +593,17 @@ cd apps/assistant
   locked.
 - Remote profiles are never usable here (D-091 dormant; D-092 proposed, synthetic only).
 
+## Hosted deployment (Stage A: private, no model)
+
+`assistant_hosting/` wraps the service for a private container beside the AWS demo stack. It
+needs no model and no provider key, and it refuses to start with any remote setting. It lives
+outside `ai_assistant` so the qualification basis and the synthetic boundary do not move.
+
+- Release steps, Caddy change, recovery and measurements: [deploy/RELEASE_HANDOFF.md](deploy/RELEASE_HANDOFF.md)
+- Remote models in the cloud (Stage B) are a separate proposal, not approved and not part of this
+  service.
+- Docker smoke with real Caddy, backend and MongoDB: `deploy/smoke_hosted.py`
+
 ## Tests
 
 ```
