@@ -140,7 +140,7 @@ No change needed. The `/29` proxy subnet has room for `172.30.240.4`. If you cha
 |---|---|
 | `deploy/README.md` | Drop "The AI Assistant is excluded" and link here |
 | `deploy/README.md` | "keep the proxy network exclusive to Caddy and the backend" must now include the assistant. Forwarded headers stay trusted only from Caddy's address |
-| `deploy/LIGHTSAIL_RUNTIME.md` | Add the assistant overlay to the `dc()` helper and to the ordered stop, backup and restart steps |
+| `deploy/LIGHTSAIL_RUNTIME.md` | Keep the `dc()` helper unchanged and add a separate `dca()` assistant helper, the separately approved startup and route activation, and the ordered stop, backup, restart and rollback steps |
 | `docs/PROJECT_STATE.md` | Record the hosted assistant only once it has actually been deployed |
 
 `deploy/smoke.py` needs no change: it signs in before asserting the 503, which still holds with
@@ -197,17 +197,20 @@ clm-staging-assistant-data`. Compose fails if the volume is absent and never rem
 
 ## Deploy
 
-Extend the runbook's helper:
+Keep the runbook's `dc()` helper unchanged. Follow **Optional AI Assistant** in
+`deploy/LIGHTSAIL_RUNTIME.md`: preflight, then assistant startup and route activation as two
+separately approved operations. Every assistant command in this handoff uses its `dca()` helper.
 
 ```sh
-dc() {
-  docker compose --env-file /etc/clm/compose.env -f deploy/compose.yml -f deploy/compose.mongo.yml \
-    -f apps/assistant/deploy/compose.assistant.yml "$@"
+dca() {
+  dc -f apps/assistant/deploy/compose.assistant.yml "$@"
 }
 dc config --quiet
-dc pull assistant
-dc up -d --no-build --wait assistant
-dc up -d --no-build --wait frontend   # the image with the new Caddyfile
+dca config --quiet
+dca pull assistant
+dca up -d --no-build --no-deps --wait assistant   # approval A; the OP-4 frontend still returns 503
+# approval B, after data eligibility: set FRONTEND_IMAGE to the R2 frontend digest
+dc up -d --no-build --no-deps --wait frontend
 ```
 
 Expect one `BOOTSTRAP` line in the logs and `guidance_added: 9` on a new volume.
@@ -222,8 +225,8 @@ Expect one `BOOTSTRAP` line in the logs and `guidance_added: 9` on a new volume.
 
 ## Verify after deployment
 
-1. `dc exec assistant python -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8100/internal/ready').read().decode())"` shows every check `ok`.
-2. `ss -tlnp` shows only Caddy's ports, and `dc port assistant 8100` shows no mapping.
+1. `dca exec assistant python -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8100/internal/ready').read().decode())"` shows every check `ok`.
+2. `ss -tlnp` shows only Caddy's ports, and `dca port assistant 8100` shows no mapping.
 3. Signed out, `curl -i https://<host>/api/assistant/health` returns 401.
 4. Run the isolation matrix below with synthetic users.
 5. In a browser, open the panel on a case and confirm an answer streams with the "model is not
@@ -285,13 +288,13 @@ Run with the assistant stopped. The tool refuses a store left with a WAL file, w
 a crash. Start and cleanly stop the service once to clear it.
 
 ```sh
-dc stop assistant
-dc run --rm --no-deps --user 0:0 -v /var/backups/clm-assistant:/backup assistant \
+dca stop assistant
+dca run --rm --no-deps --user 0:0 -v /var/backups/clm-assistant:/backup assistant \
   python -m assistant_hosting.backup create /data /backup/$(date +%Y%m%dT%H%M%S)
-dc up -d --no-build --wait assistant
+dca up -d --no-build --no-deps --wait assistant
 ```
 
-`dc run` cannot run while the service holds its fixed address, so stop it first.
+`dca run` cannot run while the service holds its fixed address, so stop it first.
 
 `verify` and `restore` accept a backup only if `stores/` holds exactly the files its manifest
 names, each with the manifest's recorded size and SHA-256, and every SQLite copy passes an
@@ -341,7 +344,7 @@ To restore, never into the existing volume:
 
 ```sh
 docker volume create clm-staging-assistant-recovery
-dc run --rm --no-deps --user 0:0 -v /var/backups/clm-assistant:/backup \
+dca run --rm --no-deps --user 0:0 -v /var/backups/clm-assistant:/backup \
   -v clm-staging-assistant-recovery:/restore assistant \
   python -m assistant_hosting.backup restore /backup/<folder> /restore
 docker run --rm --user 0:0 --network none -v clm-staging-assistant-recovery:/restore \
@@ -349,12 +352,12 @@ docker run --rm --user 0:0 --network none -v clm-staging-assistant-recovery:/res
 ```
 
 Run the `chown` step and start the service only after the restore printed `RESTORED`. Set
-`ASSISTANT_DATA_VOLUME` to the recovery volume, then run `dc up -d --no-build --wait
+`ASSISTANT_DATA_VOLUME` to the recovery volume, then run `dca up -d --no-build --no-deps --wait
 assistant`. Keep the original volume until the restore is accepted.
 
 ## Rollback
 
-1. `dc stop assistant`. Onboarding keeps working and the panel shows the fixed 503.
+1. `dca stop assistant`. Onboarding keeps working and the panel shows the fixed 503.
 2. To remove the route, redeploy the previous frontend digest.
 3. Keep the volume. A newer image may have upgraded a store, so check compatibility before
    pointing an older image at it.
