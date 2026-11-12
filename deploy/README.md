@@ -1,6 +1,6 @@
 # AWS demo deployment candidate
 
-The Compose stack runs the production React build in Caddy and one FastAPI worker. Caddy serves the frontend and proxies the same-origin API. Only Caddy publishes ports. The backend uses the existing Mongo repositories. ACRA and GoldTier are Mock, and document extraction and Tesseract OCR run locally. The AI Assistant is excluded. Its separate HTTP service needs Chroma and writable model and spending stores, and the core onboarding demo needs no model.
+The Compose stack runs the production React build in Caddy and one FastAPI worker. Caddy serves the frontend and proxies the same-origin API. Only Caddy publishes ports. The backend uses the existing Mongo repositories. ACRA and GoldTier are Mock, and document extraction and Tesseract OCR run locally. The AI Assistant runs as an optional, private, model-free service from a separate Compose overlay. Caddy routes `/api/assistant/*` to it only after the backend confirms a session; with the assistant absent or stopped, those routes return a fixed 503 and onboarding is unaffected. See [the assistant release handoff](../apps/assistant/deploy/RELEASE_HANDOFF.md).
 
 ## Reproduce the local demo
 
@@ -36,19 +36,21 @@ The staging worker limits login attempts per source and across all sources, with
 at most two password verifications in flight. The limiter resets when the
 backend restarts. Login bursts can return HTTP 429 with a Retry-After value.
 
-Caddy and the backend share an internal proxy network. Uvicorn trusts forwarded
-headers only from the reserved Caddy address on that network. The same-host
-Mongo overlay attaches only the backend and Mongo to the separate database
-network. Leave backend and database ports unpublished.
+Caddy, the backend and the optional assistant share an internal proxy network.
+Uvicorn trusts forwarded headers only from the reserved Caddy address on that
+network. The same-host Mongo overlay attaches only the backend and Mongo to the
+separate database network. The assistant joins only the proxy network. Leave
+backend, assistant and database ports unpublished.
 
 Before deployment, check that the proxy subnet does not overlap any host or
-Docker route. The defaults are `172.30.240.0/29`, Caddy `172.30.240.2`, and
-backend `172.30.240.3`. If needed, set `CLM_PROXY_SUBNET`, `CLM_PROXY_IPV4`,
-and `CLM_BACKEND_PROXY_IPV4` together in the Compose interpolation file.
+Docker route. The defaults are `172.30.240.0/29`, Caddy `172.30.240.2`,
+backend `172.30.240.3` and assistant `172.30.240.4`. If needed, set
+`CLM_PROXY_SUBNET`, `CLM_PROXY_IPV4`, `CLM_BACKEND_PROXY_IPV4` and
+`CLM_ASSISTANT_PROXY_IPV4` together in the Compose interpolation file.
 Reserve distinct IPv4 addresses within that subnet, keep the proxy network
-exclusive to Caddy and the backend, and verify health after either service is
-recreated. The address supplied to Uvicorn and the Caddy network assignment
-come from the same Compose value.
+exclusive to Caddy, the backend and the assistant, and verify health after any
+of them is recreated. The address supplied to Uvicorn and the Caddy network
+assignment come from the same Compose value.
 
 The aggregate budget is shared by all unauthenticated callers. Six sources can
 rotate attempts and consume every replenished slot, delaying login for a shared

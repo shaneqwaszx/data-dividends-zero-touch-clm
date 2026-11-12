@@ -54,6 +54,65 @@ dc exec mongo mongorestore --host localhost --ssl --sslCAFile /run/clm/mongo-ca.
 
 Remove the container copy and drop the temporary restore user after import. Check the recovered case status and ledger before resuming the demo. Retain the original volume until the recovery is accepted. The export contains synthetic case data and excludes users. Keep the identity provisioning material separate. [MongoDB Database Tools](https://www.mongodb.com/docs/database-tools/mongodump/)
 
+## Optional AI Assistant
+
+The assistant is an optional, private, model-free service defined in the separate overlay `apps/assistant/deploy/compose.assistant.yml`. Remote inference stays disabled: the overlay points the model client at a closed local port and no provider key is configured. The `dc()` helper above never includes the overlay. `dc config`, `dc up`, `dc stop` and the recovery commands therefore behave exactly as in the OP-4 baseline, and no `dc` command can create or start the assistant. Only the frontend image decides whether the route exists. Use the separate `dca()` helper only for the assistant commands below, always naming the `assistant` service.
+
+```sh
+dca() {
+  dc -f apps/assistant/deploy/compose.assistant.yml "$@"
+}
+```
+
+Users reach the assistant only when two things are both true: the assistant is running, and the frontend image's Caddyfile routes `/api/assistant/*` to it. The OP-4 frontend answers every assistant route with a fixed 503. The R2 frontend returns the same 503 while the assistant is absent or stopped. Assistant startup and route activation are separate operations, and each needs its own owner approval.
+
+### Preflight (no service change)
+
+Do this after the reviewed files are on the host and before any other `dca` command.
+
+1. Append `ASSISTANT_IMAGE` (the approved AMD64 registry digest), `ASSISTANT_BROWSER_ORIGIN` (equal to the backend's `PHASE13_BROWSER_ORIGIN`) and `ASSISTANT_DATA_VOLUME` to `/etc/clm/compose.env`. Leave `FRONTEND_IMAGE` at the OP-4 digest. `dc` ignores these values.
+2. Create the assistant volume once with `docker volume create` and the approved name, then run `docker volume inspect` on it. Compose validation does not check that an external volume exists.
+3. Run `dc config --quiet` and then `dca config --quiet`. Both must pass. `dca config` fails until all three values are set.
+4. Confirm that `dca config` shows the assistant on the `proxy` network only, at `CLM_ASSISTANT_PROXY_IPV4`, with no published port.
+5. Run `dca pull assistant`.
+
+### Assistant startup (owner approval A)
+
+Confirm with `dc ps` that the backend is healthy. With the OP-4 frontend still serving, run:
+
+```sh
+dca up -d --no-build --no-deps --wait assistant
+```
+
+`--no-deps` leaves Mongo, the backend and Caddy untouched; confirm their container IDs are unchanged. Compose attaches the assistant to the existing `proxy` network without recreating it, so the Caddy and backend addresses and the forwarded-header trust stay as they are. Users still receive the fixed 503, because the OP-4 Caddyfile has no assistant route. Check readiness and isolation as described in `apps/assistant/deploy/RELEASE_HANDOFF.md`.
+
+### Route activation (owner approval B)
+
+Request this approval only after the owner has confirmed that every hosted case is eligible for the assistant and the idle resource check has passed. Set `FRONTEND_IMAGE` to the reviewed R2 frontend digest and run:
+
+```sh
+dc up -d --no-build --no-deps --wait frontend
+```
+
+This is the only user-visible change. Run the load and acceptance checks afterwards.
+
+### Operating alongside the CLM stack
+
+- Once the assistant is running, `dc` reports it as an orphan container. That is expected. Never pass `--remove-orphans` to `dc`, and never run `dc down` or `dca down`. Use `stop`.
+- For a controlled shutdown run `dc stop frontend`, then `dca stop assistant`, then `dc stop backend`, then `dc stop mongo`. Start in the reverse order: Mongo, the backend, `dca start assistant` after the backend is healthy (only if the assistant was approved and running), then the frontend. Docker restarts a running assistant after a host reboot (`unless-stopped`). A stopped assistant stays stopped.
+- For the Mongo export above, run `dca stop assistant` before stopping the backend. Start the assistant again only after the backend is healthy.
+- The assistant's own backup, restore and acceptance steps are in `apps/assistant/deploy/RELEASE_HANDOFF.md` and also use `dca`.
+
+### Rollback
+
+Each step keeps the OP-4 baseline and the assistant volume.
+
+1. Fastest: `dca stop assistant`. Every assistant route returns the fixed 503, and onboarding is unaffected.
+2. Remove the route: set `FRONTEND_IMAGE` back to the OP-4 digest and run `dc up -d --no-build --no-deps --wait frontend`.
+3. Remove the container: `dca rm -s -f assistant`. Compose never removes an external volume. Never run `docker volume rm` on it or `down -v`. A newer image may have upgraded a store, so check compatibility before pointing an older image at the volume.
+
+The `ASSISTANT_*` values may stay in `compose.env`, because `dc` ignores them. The `dc()` helper is never changed.
+
 ## Cost and release gate
 
 Confirm the exact bundle and credit eligibility immediately before launch, set an approved cost alert, and check available credit and usage during the demo. Record a teardown date and confirm that the instance and any detached static IP are accounted for. This overlay requires applicable acceptance and independent review. Follow the separate source and image publication approvals before transferring digest-pinned images or launching the host.

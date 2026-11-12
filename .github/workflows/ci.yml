@@ -48,8 +48,8 @@ jobs:
           cache-dependency-path: apps/assistant/pyproject.toml
       - run: python -m pip install -e ".[dev]"
       - run: python -m pip check
-      - run: python -m ruff check ai_assistant assistant_eval tests scripts
-      - run: python -m mypy ai_assistant assistant_eval
+      - run: python -m ruff check ai_assistant assistant_eval assistant_hosting tests scripts
+      - run: python -m mypy ai_assistant assistant_eval assistant_hosting
       - run: python -m pytest
 
   local-ocr:

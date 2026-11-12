@@ -5,7 +5,23 @@
 {$CLM_SITE} {
     @assistant path /api/assistant /api/assistant/*
     handle @assistant {
-        respond "Assistant service is unavailable in this deployment." 503
+        route {
+            request_body {
+                max_size 512KB
+            }
+            forward_auth clm-backend-proxy:8000 {
+                uri /api/auth/me
+            }
+            uri strip_prefix /api
+            reverse_proxy clm-assistant-proxy:8100 {
+                flush_interval -1
+            }
+        }
+    }
+
+    handle_errors 502 503 504 {
+        @assistant_down path /api/assistant /api/assistant/*
+        respond @assistant_down "Assistant service is unavailable in this deployment." 503
     }
 
     @api path /api /api/* /health
