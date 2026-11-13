@@ -357,3 +357,223 @@ def test_one_model_run_at_a_time_and_identical_requests_share_it() -> None:
         thread.join()
     assert peak == 1
     assert len(model.calls) == 3  # one per distinct user; the repeats reuse "a"'s answer
+
+
+def test_decision_verbs_in_any_form_are_dropped_but_the_nouns_stay() -> None:
+    request = InsightsRequest.model_validate(FINDINGS)
+    forbidden = [
+        "Get the overdue cases approved today.",
+        "These should be rejected.",
+        "Approving the oldest case first helps.",
+        "Close them out by Friday.",
+        "Close out these cases this week.",
+        "The overdue cases can be deleted.",
+        "Ownership checks are overridden too often.",
+    ]
+    for text in forbidden:
+        result = check_reply(
+            request,
+            reply(notes=[{"id": "F1", "text": "3 overdue."}], actions=[{"id": "F1", "text": text}]),
+            "m",
+        )
+        assert result.actions == (), text
+    kept = check_reply(
+        request,
+        reply(actions=[{"id": "F2", "text": "Review what slows ownership approval."}]),
+        "m",
+    )
+    assert [item.id for item in kept.actions] == ["F2"]
+
+
+def test_numbers_in_words_are_checked_and_ratio_words_are_refused() -> None:
+    request = InsightsRequest.model_validate(FINDINGS)
+
+    def note(text: str) -> list[str]:
+        try:
+            notes = check_reply(request, reply(notes=[{"id": "F1", "text": text}]), "m").notes
+        except InsightsRejected:  # the only note was dropped
+            return []
+        return [item.text for item in notes]
+
+    assert note("Three cases are past the target and one is at risk.")  # 3 and 1 are facts
+    for text in [
+        "Four cases are overdue.",
+        "Twice as many cases are overdue as at risk.",
+        "A dozen cases are close to the target.",
+        "Half of the open cases are overdue.",
+        "Overdue cases tripled.",
+    ]:
+        assert note(text) == [], text
+    summary = check_reply(request, reply(summary="Fifty cases are open."), "m").summary
+    assert summary == ""
+
+
+def test_waiting_is_bounded_and_a_newer_request_replaces_an_older_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    from ai_assistant import dashboard_insights as module
+
+    started, release = threading.Event(), threading.Event()
+
+    class HeldModel(FakeModel):
+        def complete(self, messages: list[dict[str, str]]) -> Any:
+            if not started.is_set():
+                started.set()
+                release.wait(5)
+            return super().complete(messages)
+
+    url = "http://127.0.0.1:11434/v1"
+    request = InsightsRequest.model_validate(FINDINGS)
+    newer_body = json.loads(json.dumps(FINDINGS))
+    newer_body["findings"][2]["facts"]["zero_touch_rate"] = "66%"
+    newer = InsightsRequest.model_validate(newer_body)
+
+    def wait_for(insights: DashboardInsights, waiting: int) -> None:
+        deadline = time.monotonic() + 5
+        while insights._waiting != waiting and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert insights._waiting == waiting
+
+    # A newer, different request from the same user drops the older one still waiting.
+    model = HeldModel(answer=reply())
+    insights = DashboardInsights()
+    outcome: dict[str, str] = {}
+
+    def run(name: str, user: str, body: InsightsRequest) -> None:
+        try:
+            insights.write(user, body, model, url)
+            outcome[name] = "written"
+        except InsightsUnavailable:
+            outcome[name] = "unavailable"
+
+    holder = threading.Thread(target=run, args=("holder", "other", request))
+    holder.start()
+    assert started.wait(5)
+    older = threading.Thread(target=run, args=("older", "a", request))
+    older.start()
+    wait_for(insights, 1)
+    latest = threading.Thread(target=run, args=("newer", "a", newer))
+    latest.start()
+    wait_for(insights, 2)
+    release.set()
+    for thread in (holder, older, latest):
+        thread.join(5)
+    assert outcome == {"holder": "written", "older": "unavailable", "newer": "written"}
+    assert len(model.calls) == 2
+
+    # A full queue and a long wait both give up instead of holding a worker.
+    monkeypatch.setattr(module, "MAX_WAITING", 1)
+    monkeypatch.setattr(module, "WAIT_SECONDS", 0.2)
+    started.clear()
+    release.clear()
+    model = HeldModel(answer=reply())
+    insights = DashboardInsights()
+    outcome.clear()
+    holder = threading.Thread(target=run, args=("holder", "other", request))
+    holder.start()
+    assert started.wait(5)
+    waiter = threading.Thread(target=run, args=("waiter", "b", request))
+    waiter.start()
+    wait_for(insights, 1)
+    with pytest.raises(InsightsUnavailable):
+        insights.write("c", request, model, url)  # queue full
+    waiter.join(5)
+    assert outcome["waiter"] == "unavailable"  # waited longer than WAIT_SECONDS
+    release.set()
+    holder.join(5)
+    assert outcome["holder"] == "written"
+
+
+LOCAL_URL = "http://127.0.0.1:11434/v1"
+
+
+class PaidModel(FakeModel):
+    """An API-key model: it answers only messages holding a single-use ticket."""
+
+    name = "paid-model"
+    requires_synthetic_boundary = True
+
+    def __init__(self, *, refuse: bool = False, answer: str | None = None) -> None:
+        super().__init__(answer=answer or reply())
+        self.refuse = refuse
+        self.ticketed: list[bool] = []
+
+    def complete(self, messages: list[dict[str, str]]) -> Any:
+        from ai_assistant import synthetic_eligibility
+        from ai_assistant.llm import LlmUnavailableError
+
+        self.ticketed.append(synthetic_eligibility.admitted(messages))
+        if self.refuse or not self.ticketed[-1]:
+            self.calls.append(messages)
+            raise LlmUnavailableError("refused")  # e.g. over its spending limit
+        return super().complete(messages)
+
+
+class LocalModel(FakeModel):
+    name = "local-model"
+
+
+def test_an_api_key_model_writes_insights_with_a_ticket_when_external_answers_are_on() -> None:
+    request = InsightsRequest.model_validate(FINDINGS)
+    paid, local = PaidModel(), LocalModel(answer=reply())
+    result = DashboardInsights().write(
+        "u", request, paid, "https://api.example.com", fallback=(local, LOCAL_URL), external=True
+    )
+    assert result.model == "paid-model"
+    assert paid.ticketed == [True] and local.calls == []
+
+
+def test_a_refused_or_rejected_api_key_call_falls_back_to_the_local_model_once() -> None:
+    request = InsightsRequest.model_validate(FINDINGS)
+    insights = DashboardInsights()
+    paid, local = PaidModel(refuse=True), LocalModel(answer=reply())
+    first = insights.write(
+        "u", request, paid, "https://api.example.com", fallback=(local, LOCAL_URL), external=True
+    )
+    assert first.model == "local-model" and len(paid.calls) == 1 and len(local.calls) == 1
+    # The local answer is reused: the paid model is not tried again for the same figures.
+    again = insights.write(
+        "u", request, paid, "https://api.example.com", fallback=(local, LOCAL_URL), external=True
+    )
+    assert again == first and len(paid.calls) == 1 and len(local.calls) == 1
+
+    # An unusable paid reply gets one try only (it costs money); the local model is the retry.
+    unusable = PaidModel(answer="not json")
+    local = LocalModel(answer=reply())
+    result = DashboardInsights().write(
+        "u",
+        request,
+        unusable,
+        "https://api.example.com",
+        fallback=(local, LOCAL_URL),
+        external=True,
+    )
+    assert result.model == "local-model" and unusable.ticketed == [True]
+
+
+def test_without_external_answers_or_a_local_model_the_api_key_model_is_not_enough() -> None:
+    request = InsightsRequest.model_validate(FINDINGS)
+    paid, local = PaidModel(), LocalModel(answer=reply())
+    result = DashboardInsights().write(
+        "u", request, paid, "https://api.example.com", fallback=(local, LOCAL_URL)
+    )
+    assert result.model == "local-model" and paid.ticketed == []
+    with pytest.raises(InsightsUnavailable):
+        DashboardInsights().write("u", request, paid, "https://api.example.com")
+    refusing = PaidModel(refuse=True)
+    with pytest.raises(InsightsUnavailable):
+        DashboardInsights().write("u", request, refusing, "https://api.example.com", external=True)
+    # A fallback that is not on this machine is never used.
+    remote_local = LocalModel(answer=reply())
+    with pytest.raises(InsightsUnavailable):
+        DashboardInsights().write(
+            "u",
+            request,
+            refusing,
+            "https://api.example.com",
+            fallback=(remote_local, "https://models.example.com/v1"),
+            external=True,
+        )
+    assert remote_local.calls == []

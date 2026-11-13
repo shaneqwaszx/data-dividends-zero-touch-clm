@@ -45,14 +45,22 @@ Current boundaries this must respect:
    `POST /assistant/dashboard/insights` accepts only the findings in a strict, size-bounded
    schema. It requires a signed-in actor with `CASE_ACCESS`, loaded through the existing
    `backend.load_actor` session check, and the existing origin check. It calls the active model
-   only when that model is the configured local baseline on a literal loopback URL
-   (`is_local_model_url`) and not a remote or test profile. Otherwise it returns `503` and the
-   panel stays hidden. The model must return JSON (`summary`, `notes`, `actions`) that
+   when that model is local, on a literal loopback URL (`is_local_model_url`). Amended by D-128
+   I7: when the active model is an API-key model (Claude, GPT-OSS) and D-122 lets external
+   models answer in their own words, that model writes the insights. Each call holds the
+   single-use ticket for exactly its messages and goes through the model's own readiness,
+   spending limits and ledger. A paid model gets one try. If it refuses, fails or is rejected,
+   the local baseline model (`ModelSelector.local_fallback`, under the same data access policy)
+   writes them, when it is on a loopback URL. With no usable model the service returns `503`
+   and the panel stays hidden. The model must return JSON (`summary`, `notes`, `actions`) that
    references finding ids.
 3. **Output checks (same module).** Each item must reference a supplied finding (actions only
    for actionable findings). It may contain only numbers present in that finding's facts (the
-   summary: in any finding), and must stay within length limits. It may not use approval,
-   rejection, deletion, closure or override wording, or company-name suffixes. Failing items
+   summary: in any finding), and must stay within length limits. Numbers written as words
+   ("three") are checked the same way, and ratio words ("twice", "half", "a dozen") are never
+   accepted. It may not tell anyone to approve, reject, delete, close or override, in any verb
+   form ("approved", "close them out"), though the nouns "approval" and "approvals" are allowed.
+   It may not use company-name suffixes either. Failing items
    are dropped. If no summary or note survives, the response is `502` and the panel stays
    hidden.
 4. **Caching.** The service keeps an in-process, bounded cache per user and findings
@@ -60,6 +68,9 @@ Current boundaries this must respect:
    existing session query owner, so unchanged figures never call the model again. The service
    runs one model request at a time; a request whose identical findings were written while it
    waited reuses that answer, so a burst of dashboard views cannot queue past the model timeout.
+   The wait is bounded: at most 4 requests wait, each for at most 120 seconds, and a waiting
+   request is dropped when the same user sends newer, different findings. All three give `503`
+   and the panel stays hidden.
    For the Director only, the rules add the decisions only a Director can take (GoldTier
    recovery cases waiting, policy changes awaiting their decision) and rank them, with the team
    comparison, ahead of the other findings.
@@ -125,7 +136,8 @@ demo sample portfolio is retired, revisit decision 1 so findings come from backe
 
 ## Verification
 
-- Assistant: focused tests for schema bounds, auth and origin, local-only model refusal,
+- Assistant: focused tests for schema bounds, auth and origin, model choice (local, API-key
+  with ticket, local fallback after a refused or rejected paid call, non-local fallback refused),
   number, id, wording and name checks, partial-drop, all-dropped `502`, model failure, cache
   reuse, and that the prompt carries only supplied facts.
 - Frontend: findings rules over the sample portfolio and edge cases (no cases, Director, empty

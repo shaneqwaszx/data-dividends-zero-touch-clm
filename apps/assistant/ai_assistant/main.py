@@ -1532,8 +1532,9 @@ def create_app(
 
     @app.post("/assistant/dashboard/insights", response_model=InsightsResponse)
     def dashboard_insights_route(body: InsightsRequest, request: Request) -> InsightsResponse:
-        """ADR-015: word the dashboard's own findings with the local model. Read-only: no case
-        is read, nothing is stored, and the browser hides the panel on any refusal."""
+        """ADR-015: word the dashboard's own findings with the active model (an API-key model
+        under D-122, with the local model as fallback, D-128 I7). Read-only: no case is read,
+        nothing is stored, and the browser hides the panel on any refusal."""
 
         check_origin(request)
         try:
@@ -1545,9 +1546,15 @@ def create_app(
                 403, detail={"code": "FORBIDDEN", "message": "You are not allowed to do this."}
             )
         active = selector.current()
+        fallback = selector.local_fallback()
         try:
             return dashboard_insights.write(
-                str(profile.get("user_id") or ""), body, active.model, active.base_url
+                str(profile.get("user_id") or ""),
+                body,
+                active.model,
+                active.base_url,
+                fallback=(fallback.model, fallback.base_url),
+                external=external_conversational(config),
             )
         except InsightsUnavailable:
             raise HTTPException(

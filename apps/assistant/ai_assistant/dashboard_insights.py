@@ -28,6 +28,7 @@ from pydantic import (
     model_validator,
 )
 
+from ai_assistant import synthetic_eligibility
 from ai_assistant.llm import ChatModel, LlmUnavailableError, is_local_model_url
 from ai_assistant.remote_test import is_remote_test_model
 
@@ -42,7 +43,14 @@ MAX_ITEM_CHARS = 240
 CACHE_SECONDS = 30 * 60
 CACHE_ENTRIES = 64
 # A local model occasionally returns malformed JSON; one more try is cheap next to a hidden panel.
+# A paid (API-key) model gets one try: the local model, when there is one, is the retry.
 ATTEMPTS = 2
+PAID_ATTEMPTS = 1
+# Requests queue for the one model slot. A waiter gives up after this long, at most this many
+# wait, and a waiter is dropped once the same user sends a newer request (the browser has
+# already moved on), so abandoned work never runs and the shared worker pool is not exhausted.
+WAIT_SECONDS = 120
+MAX_WAITING = 4
 
 # Strict: a JSON true/false is refused rather than read as 1/0.
 FactValue = StrictStr | StrictInt | StrictFloat
@@ -50,10 +58,36 @@ _FACT_KEY = re.compile(r"^[a-z][a-z_]{1,31}$")
 # Display-ready values only: labels, counts, durations, percentages and dates.
 _FACT_TEXT = re.compile(r"^[A-Za-z0-9 .,%&()/:'+\-–·]{1,48}$")
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
-# Instructions to take a consequential decision; nouns such as "approvals" stay allowed.
+# Instructions to take a consequential decision, in any verb form ("approved", "rejecting",
+# "close them out"); nouns such as "approval" and "approvals" stay allowed.
 _FORBIDDEN_WORDING = re.compile(
-    r"\b(approve|reject|delete|override|auto-approve"
-    r"|close (?:the|this|a|these|those) cases?|closing (?:the|this|a|these|those) cases?)\b",
+    r"\b(?:approv(?:e|es|ed|ing)|reject(?:s|ed|ing)?|delet(?:e|es|ed|ing)"
+    r"|overrid(?:e|es|den|ing)|overrode"
+    r"|clos(?:e|es|ed|ing)\s+(?:out|off|down|the|this|a|these|those|them|it|all)|closeout)\b",
+    re.IGNORECASE,
+)
+# Numbers written as words are checked like digits; ratio words are a number the model
+# worked out itself ("twice as many", "half of them"), so they are never accepted.
+# "Zero" is left out: "zero-touch" is the dashboard's own term, not a figure.
+_UNITS = (
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+    "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+    "twenty",
+)  # fmt: skip
+_NUMBER_WORDS = {word: str(value) for value, word in enumerate(_UNITS, start=1)} | {
+    "thirty": "30",
+    "forty": "40",
+    "fifty": "50",
+    "sixty": "60",
+    "seventy": "70",
+    "eighty": "80",
+    "ninety": "90",
+    "hundred": "100",
+}
+_NUMBER_WORD = re.compile(r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.IGNORECASE)
+_RATIO_WORDING = re.compile(
+    r"\b(?:half|halves|halved|twice|double[sd]?|triple[sd]?|quadruple[sd]?|dozens?"
+    r"|\w+fold|thousands?|millions?)\b",
     re.IGNORECASE,
 )
 # The model sometimes cites finding ids or adds markdown emphasis; neither is shown.
@@ -190,6 +224,12 @@ def _numbers(text: str) -> set[str]:
     return {token.replace(",", "") for token in _NUMBER.findall(text)}
 
 
+def _all_numbers(text: str) -> set[str]:
+    """Digits and number words in model text, as digit strings."""
+
+    return _numbers(text) | {_NUMBER_WORDS[word.lower()] for word in _NUMBER_WORD.findall(text)}
+
+
 def _fact_numbers(finding: InsightFinding) -> set[str]:
     allowed: set[str] = set()
     for value in finding.facts.values():
@@ -207,7 +247,9 @@ def _acceptable(text: str, allowed_numbers: set[str], *, limit: int = MAX_ITEM_C
         return False
     if _FORBIDDEN_WORDING.search(text) or _COMPANY_SUFFIX.search(text):
         return False
-    return _numbers(text) <= allowed_numbers
+    if _RATIO_WORDING.search(text):
+        return False
+    return _all_numbers(text) <= allowed_numbers
 
 
 def _clean(value: object) -> str:
@@ -276,7 +318,13 @@ def check_reply(request: InsightsRequest, text: str, model_name: str) -> Insight
 
 
 class DashboardInsights:
-    """Writes and caches insights per user and set of findings, with the local model only."""
+    """Writes and caches insights per user and set of findings (D-128 I3 and I7).
+
+    The active model writes them when it is local, or when it is an API-key model (Claude,
+    GPT-OSS) and external models may answer in their own words (D-122). An API-key call goes
+    through that model's own readiness, spending limits and ledger, with a single-use ticket
+    for exactly these messages. When it refuses, fails or its reply is rejected, the local
+    baseline model, if there is one, writes them instead."""
 
     def __init__(self) -> None:
         self._cache: OrderedDict[tuple[str, str], tuple[float, InsightsResponse]] = OrderedDict()
@@ -284,6 +332,9 @@ class DashboardInsights:
         # The local model works on one request at a time; queueing here instead of in the
         # model server keeps waits short and lets identical requests reuse one answer.
         self._model_lock = threading.Lock()
+        self._waiting = 0
+        self._latest: dict[str, tuple[int, tuple[str, str]]] = {}
+        self._ticket = 0
 
     @staticmethod
     def usable(model: ChatModel | None, base_url: str | None) -> bool:
@@ -293,6 +344,29 @@ class DashboardInsights:
             and is_local_model_url(base_url)
             and not is_remote_test_model(model)
         )
+
+    @classmethod
+    def candidates(
+        cls,
+        active: tuple[ChatModel | None, str | None],
+        fallback: tuple[ChatModel | None, str | None] = (None, None),
+        *,
+        external: bool = False,
+    ) -> list[ChatModel]:
+        """The models to try, in order: the active one if allowed, then the local fallback."""
+
+        chosen: list[ChatModel] = []
+        model, base_url = active
+        if model is not None and (
+            cls.usable(model, base_url) or (external and is_remote_test_model(model))
+        ):
+            chosen.append(model)
+        local, local_url = fallback
+        if local is not None and cls.usable(local, local_url):
+            inner = getattr(local, "inner", local)
+            if all(getattr(other, "inner", other) is not inner for other in chosen):
+                chosen.append(local)
+        return chosen
 
     @staticmethod
     def _key(user_id: str, request: InsightsRequest, model_name: str) -> tuple[str, str]:
@@ -326,29 +400,122 @@ class DashboardInsights:
         request: InsightsRequest,
         model: ChatModel | None,
         base_url: str | None,
+        *,
+        fallback: tuple[ChatModel | None, str | None] = (None, None),
+        external: bool = False,
     ) -> InsightsResponse:
-        if model is None or not self.usable(model, base_url):
-            raise InsightsUnavailable("no local model")
-        key = self._key(user_id, request, model.name)
-        cached = self._cached(key)
+        models = self.candidates((model, base_url), fallback, external=external)
+        if not models:
+            raise InsightsUnavailable("no usable model")
+        keys = [self._key(user_id, request, candidate.name) for candidate in models]
+        key = keys[0]
+        cached = self._first_cached(keys)
         if cached is not None:
             log.info("dashboard insights: cached")
             return cached
-        with self._model_lock:
-            cached = self._cached(key)
+        with self._lock:
+            self._ticket += 1
+            ticket = self._ticket
+            self._latest[user_id] = (ticket, key)
+        try:
+            self._acquire_model()
+        except InsightsUnavailable:
+            self._forget(user_id, ticket)
+            raise
+        try:
+            cached = self._first_cached(keys)
             if cached is not None:
                 log.info("dashboard insights: written by an earlier identical request")
                 return cached
-            return self._generate(key, request, model)
+            with self._lock:
+                latest = self._latest.get(user_id)
+                # A newer identical request will reuse this answer, so only a different one wins.
+                superseded = latest is not None and latest[0] != ticket and latest[1] != key
+            if superseded:
+                log.info("dashboard insights: superseded by a newer request")
+                raise InsightsUnavailable("superseded")
+            return self._write_with(models, keys, request, external=external)
+        finally:
+            self._forget(user_id, ticket)
+            self._model_lock.release()
+
+    def _first_cached(self, keys: list[tuple[str, str]]) -> InsightsResponse | None:
+        for key in keys:
+            cached = self._cached(key)
+            if cached is not None:
+                return cached
+        return None
+
+    def _write_with(
+        self,
+        models: list[ChatModel],
+        keys: list[tuple[str, str]],
+        request: InsightsRequest,
+        *,
+        external: bool,
+    ) -> InsightsResponse:
+        """Try each model in order; the last failure is the one reported."""
+
+        failure: Exception = InsightsUnavailable("no usable model")
+        for position, (candidate, key) in enumerate(zip(models, keys, strict=True)):
+            paid = is_remote_test_model(candidate)
+            if position:
+                log.info("dashboard insights: falling back to the local model")
+            try:
+                return self._generate(
+                    key,
+                    request,
+                    candidate,
+                    attempts=PAID_ATTEMPTS if paid else ATTEMPTS,
+                    ticket=external,
+                )
+            except (InsightsUnavailable, InsightsRejected) as exc:
+                failure = exc
+        raise failure
+
+    def _acquire_model(self) -> None:
+        """Take the one model slot, waiting a bounded time in a bounded queue."""
+
+        if self._model_lock.acquire(blocking=False):
+            return
+        with self._lock:
+            if self._waiting >= MAX_WAITING:
+                log.info("dashboard insights: queue full")
+                raise InsightsUnavailable("queue full")
+            self._waiting += 1
+        try:
+            acquired = self._model_lock.acquire(timeout=WAIT_SECONDS)
+        finally:
+            with self._lock:
+                self._waiting -= 1
+        if not acquired:
+            log.info("dashboard insights: waited too long")
+            raise InsightsUnavailable("model busy")
+
+    def _forget(self, user_id: str, ticket: int) -> None:
+        with self._lock:
+            if self._latest.get(user_id, (None,))[0] == ticket:
+                del self._latest[user_id]
 
     def _generate(
-        self, key: tuple[str, str], request: InsightsRequest, model: ChatModel
+        self,
+        key: tuple[str, str],
+        request: InsightsRequest,
+        model: ChatModel,
+        *,
+        attempts: int = ATTEMPTS,
+        ticket: bool = False,
     ) -> InsightsResponse:
         started = time.monotonic()
         response: InsightsResponse | None = None
-        for attempt in range(ATTEMPTS):
+        messages = build_messages(request)
+        for attempt in range(attempts):
+            if ticket:
+                # D-122: a model that checks its prompts (an API-key or policy-restricted model)
+                # takes exactly these messages, once; the ticket is spent by the call.
+                synthetic_eligibility.approve(messages)
             try:
-                answer = model.complete(build_messages(request))
+                answer = model.complete(messages)
             except LlmUnavailableError:
                 log.info("dashboard insights: model unavailable")
                 raise InsightsUnavailable("model unavailable") from None
