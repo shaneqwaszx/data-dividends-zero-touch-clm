@@ -110,6 +110,9 @@ def staging_settings(**overrides: object) -> Settings:
         "goldtier_sandbox_base_url": "https://goldtier.invalid",
         "goldtier_sandbox_environment": "fixture",
         "goldtier_sandbox_user_id": "fixture-user",
+        # D-127 E1: staging Sandbox starts only behind the R3 egress proxy.
+        "goldtier_sandbox_egress_proxy_url": "http://clm-goldtier-egress:4750",
+        "goldtier_sandbox_egress_fqdn": "goldtier.invalid",
     }
     return Settings(_env_file=None, **(values | overrides))  # type: ignore[arg-type]
 

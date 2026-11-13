@@ -152,3 +152,39 @@ Roll back by returning to the reviewed read-only release:
   `CLM_TARGET_PROVIDER_CONTEXT_MISMATCH` under another.
 - Resolve retained uncertainty only through provider-verified recovery.
 - Rotate `GOLDTIER_SANDBOX_USER_ID` if a secret exposure is suspected.
+
+## R3 egress path (D-131, drafted as D-127; G2 local candidate)
+
+Staging reaches the Sandbox only through the R3 egress overlay, applied last
+(`compose.yml` -> `compose.mongo.yml` -> [`compose.assistant.yml`] -> `compose.goldtier-egress.yml`).
+The mode stays Mock unless `CLM_GOLDTIER_CONNECTOR_MODE=sandbox`; writes stay `"false"`.
+`CLM_GOLDTIER_EGRESS_FQDN` is required and has no default; it must be the sponsor-confirmed
+FQDN (Q-020 part 1, still UNCONFIRMED). The host must have `clm-r3-egress-firewall.service`
+and `clm-r3-firewall-watch.service` active, verified with
+`deploy/egress/host/verify_host_firewall.sh` (read-only). If the host table is lost or changed,
+the watcher stops both R3 containers; Sandbox Search then fails closed (`503`) while Mock
+onboarding and `/health` continue. Recovery is an operator action: restore the table with the
+unit, confirm the verify script, then start `goldtier-dns` and `goldtier-egress`.
+None of this is authorised on the host before G3a/G3b/G3c.
+
+G3a preflight (from the G2 QG; each item is asserted on the live host, read-only first):
+`clm_r3.vars` values against the host; installed host files hashed against a manifest built from
+the reviewed commit (`R3_REVIEWED_MANIFEST=... verify_host_firewall.sh`); Docker
+`live-restore=false`, firewall backend `iptables`, Docker and runc versions; U-1 behaviour
+re-observed on the host's Docker (embedded DNS with and without `dns:`); and the `certifi` trust
+store: the backend image's `certifi` version and bundle hash recorded. `certifi` is now declared
+and pinned in `apps/backend/pyproject.toml` (fast-track D-cert), at the version in the tested G2
+backend image.
+
+R-1 destination pin (fast-track A2). `CLM_GOLDTIER_EGRESS_DST_V4` is also required and has no
+default. It is the comma-separated GoldTier IPv4 set (1 to 8 public addresses), and it must equal
+`GOLDTIER_DST_V4` in `/etc/clm/r3/clm_r3.vars` and the `goldtier_dst_v4` set in the installed
+`clm_r3.nft`. The proxy refuses to start without a valid set. The host table and Layer N then
+accept O-1 only toward those addresses, never toward any public IPv4. Preflight re-resolves the FQDN
+on the host through the VPC resolver: any difference from the pinned set, more than 8 addresses or
+answers that change between samples is a STOP. If GoldTier moves to an address that is not pinned,
+Sandbox Search fails closed (`503`); re-pinning is a reviewed edit of all three values, followed
+by a reload of the unit and a restart of the R3 containers. R-1b (shared virtual hosts on the
+pinned addresses) is accepted by the owner only for the temporary read-only FYP staging
+demonstration, under the D-131 A3 conditions. Reusing the local Sandbox credential from AWS is the owner's
+authorisation (D-131 FT-CRED); sponsor permission for hosted access is unverified.

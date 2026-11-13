@@ -1631,3 +1631,19 @@ query keyed by the signed-in user; if it fails, only that card says so.
 - **Evidence.** Class: Local. Backend `test_dashboard_insights.py` and `test_phase13_dashboard.py`;
   frontend `dashboardInsights.test.tsx`, `SampleCaseDetail.test.tsx`, `AiInsights.test.tsx` and
   `onboardingSample.test.tsx`; assistant `test_dashboard_insights.py`.
+
+## R3 GoldTier secure egress (D-131, drafted as D-127) - G2 local implementation candidate, 2026-11-12
+
+Branch `feat/r3-goldtier-egress-g2-20261112` (local, uncommitted) on `b7cb6a7`. Provider
+classifications are unchanged: GoldTier Mock is the default and `GOLDTIER_XPI` stays
+`SANDBOX_PARTIAL`. Staging Sandbox now refuses to start without
+`GOLDTIER_SANDBOX_EGRESS_PROXY_URL` and `GOLDTIER_SANDBOX_EGRESS_FQDN` (base-URL host must equal
+the FQDN on 443); the optional `GOLDTIER_SANDBOX_TLS_CA_FILE` selects the trust store
+explicitly (default: certifi's bundle, never OpenSSL's environment-sensitive default paths).
+New, not deployed: `deploy/compose.goldtier-egress.yml`, `deploy/egress/**` (image, guard,
+resolver config, host table and units). Evidence is local harness only (Docker 29.9.3,
+iptables-nft, kernel 7.0.0-1012-aws); it is not Live, Sandbox-call or sponsor evidence. Q-020
+is open. Update 2026-11-13: the fast-track R-1 pin and certifi declaration are in PR #177
+(implementation `68e621d`, independent QGs PASS WITH NOTES); the backend and egress images
+are published to private GHCR but **not deployed**. Read-only staging use is owner-gated
+(D-131 A3/FT-CRED); sponsor hosted-origin permission is unverified.

@@ -116,3 +116,22 @@ The `ASSISTANT_*` values may stay in `compose.env`, because `dc` ignores them. T
 ## Cost and release gate
 
 Confirm the exact bundle and credit eligibility immediately before launch, set an approved cost alert, and check available credit and usage during the demo. Record a teardown date and confirm that the instance and any detached static IP are accounted for. This overlay requires applicable acceptance and independent review. Follow the separate source and image publication approvals before transferring digest-pinned images or launching the host.
+
+## R3 GoldTier secure egress (D-127; G3 only, not yet authorised)
+
+The egress overlay is never part of `dc()` or `dca()`. A separate helper applies it last:
+
+```sh
+dcg() {
+  dc -f deploy/compose.goldtier-egress.yml "$@"
+}
+```
+
+After the G3b cutover, backend and egress operations use `dcg`; assistant operations keep
+`dca ... --no-deps assistant`. Prerequisites (G3a): `/etc/clm/r3/clm_r3.nft`, the two units in
+`deploy/egress/host/`, and `verify_host_firewall.sh` passing. `compose.env` must set
+`CLM_GOLDTIER_EGRESS_FQDN` and `CLM_GOLDTIER_EGRESS_DST_V4`, the R-1 pinned IPv4 set. The second
+must equal `GOLDTIER_DST_V4` in `/etc/clm/r3/clm_r3.vars`; the verify script compares it with
+the running proxy. Never enable `nftables.service`
+or ufw, and never run `iptables-legacy` on the host (facts SE-1). The R3 containers stay stopped
+after the watcher acts; start them only after the table is restored and verified.

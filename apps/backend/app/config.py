@@ -1,12 +1,14 @@
 """Application configuration loaded from environment variables."""
 
+import ipaddress
 import os
+import re
 import warnings
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
@@ -18,6 +20,69 @@ from app.domain.ownership import OwnershipPercent
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = REPOSITORY_ROOT / ".env"
 PHASE13_LOCAL_BROWSER_ORIGINS = frozenset({"http://127.0.0.1:8000", "http://127.0.0.1:5173"})
+
+
+_EGRESS_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_EGRESS_FQDN = re.compile(rf"^(?:{_EGRESS_LABEL}\.)+[a-z][a-z0-9-]{{0,61}}[a-z0-9]$")
+_EGRESS_PROXY_HOST = re.compile(rf"^{_EGRESS_LABEL}(?:\.{_EGRESS_LABEL})*$")
+
+
+def _valid_egress_fqdn(value: str) -> bool:
+    if len(value) > 253 or not _EGRESS_FQDN.fullmatch(value):
+        return False
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return True
+    return False
+
+
+def _valid_egress_proxy_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.hostname is not None
+        and bool(_EGRESS_PROXY_HOST.fullmatch(parsed.hostname))
+        and port is not None
+        and parsed.netloc == f"{parsed.hostname}:{port}"
+        and parsed.path == ""
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def _validate_goldtier_egress(settings: "Settings", base: "SplitResult") -> None:
+    """D-127 E1: Sandbox egress uses an explicit proxy with no direct fallback.
+
+    Staging Sandbox requires the proxy URL and the egress FQDN. Elsewhere they are optional, but
+    when either is set both must be, so a half-configured egress can never silently go direct.
+    The base-URL host must equal the FQDN on port 443. An explicit TLS CA file must be absolute.
+    """
+    proxy_url = settings.goldtier_sandbox_egress_proxy_url
+    fqdn = settings.goldtier_sandbox_egress_fqdn
+    ca_file = settings.goldtier_sandbox_tls_ca_file
+    if ca_file and (not Path(ca_file).is_absolute() or "\x00" in ca_file):
+        raise ValueError("GoldTier sandbox TLS CA file must be an absolute path")
+    if settings.app_env != "staging" and not proxy_url and not fqdn:
+        return
+    try:
+        base_port = base.port
+    except ValueError:
+        base_port = -1
+    if (
+        not _valid_egress_proxy_url(proxy_url)
+        or not _valid_egress_fqdn(fqdn)
+        or base.hostname != fqdn
+        or base.netloc not in {fqdn, f"{fqdn}:443"}
+        or base_port not in {None, 443}
+    ):
+        raise ValueError("GoldTier sandbox egress configuration is incomplete or unsafe")
 
 
 def _require_verified_mongo_tls(uri: str) -> None:
@@ -145,6 +210,9 @@ class Settings(BaseSettings):
     goldtier_sandbox_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
     goldtier_sandbox_max_response_bytes: int = Field(default=128 * 1024, ge=1024, le=1024 * 1024)
     goldtier_sandbox_allow_writes: bool = False
+    goldtier_sandbox_egress_proxy_url: str = ""
+    goldtier_sandbox_egress_fqdn: str = ""
+    goldtier_sandbox_tls_ca_file: str = ""
     mongo_uri: SecretStr | None = None
     mongo_database: str = Field(
         default="clm_poc", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
@@ -313,6 +381,7 @@ class Settings(BaseSettings):
                 or any(ord(character) < 32 for character in user_id)
             ):
                 raise ValueError("GoldTier sandbox configuration is incomplete or unsafe")
+            _validate_goldtier_egress(self, parsed)
         if self.acra_connector_mode == "api_marketplace_mock" and self.app_env == "production":
             raise ValueError("ACRA API Marketplace Mock is non-production only")
         return self

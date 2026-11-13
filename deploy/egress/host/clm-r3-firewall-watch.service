@@ -1,0 +1,17 @@
+# R3 host-table watcher (D-127 E7, Amendment A). Install: /etc/systemd/system/.
+# Detects loss or change of `table inet clm_r3` (nft monitor events plus a 1 s periodic check) and
+# answers by stopping the R3 containers. It never re-applies the table or restarts containers:
+# recovery is an operator action. Killing or stopping the watcher also stops the containers.
+[Unit]
+Description=CLM R3 host-table watcher (fail closed)
+After=clm-r3-egress-firewall.service docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /usr/local/lib/clm-r3/clm_r3_watch.py --table-file /etc/clm/r3/clm_r3.nft --containers clm-staging-goldtier-egress,clm-staging-goldtier-dns
+ExecStopPost=/usr/local/lib/clm-r3/clm_r3_stop_containers.sh watcher-stop
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

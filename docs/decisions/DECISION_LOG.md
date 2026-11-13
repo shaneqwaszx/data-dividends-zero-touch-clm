@@ -2569,3 +2569,39 @@ Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
 | I5 | **Failure.** When the model is unavailable, slow or fully rejected, the panel is hidden, with no message or rule-based substitute. |
 | I6 | **Privacy.** No customer names, registration numbers, documents or case identifiers are sent to the model, and prompt and answer text are not stored. |
 | I7 | **API-key models (owner-directed 2026-11-13, "when i connect to the api key i can use both the dashboard ai and ai assistant ai chatbot"; "fall back to local model if one is available").** This supersedes I3's refusal of remote profiles. When the active model is an API-key model (Claude, GPT-OSS) and external models may answer in their own words (D-122), it writes the insights. Each call gets the single-use ticket for exactly its messages and passes that model's own readiness, spending limits and ledger, unchanged. A paid model gets one try. If it refuses, fails or its reply is rejected, the local baseline model writes them, when one is configured on a loopback URL; otherwise the panel is hidden (I5). Without D-122 only the local model is used. An IT-configured model on another endpoint is never used. **Shared allowance (owner-accepted 2026-11-13, "share the API key"):** a paid dashboard call is recorded in that provider's ledger as a chat call, so it counts against the same call limit and spending allowance as the chatbot. Claude runs one paid call at a time, so a chatbot question sent while a dashboard call runs may be refused as busy; the reverse falls back to the local model. The chatbot's code is unchanged. I4 and I6 are unchanged: only findings are sent, never customer data. D-122 A4 applies: synthetic POC data only. |
+
+## D-131 - R3 GoldTier secure egress: restricted CONNECT egress for the staging backend (OWNER-DIRECTED 2026-11-12; drafted as D-127)
+
+Number note (alias): this decision was drafted and implemented as **D-127** on 2026-11-12, before `origin/main` assigned D-127 to the provisional dashboard SLA rules (#178). It is renumbered **D-131** in documentation only. Every `D-127` reference in the R3 product, deployment, test, image and host files (`apps/backend/app/config.py`, `apps/backend/app/connectors/goldtier_xpi.py`, `deploy/compose.goldtier-egress.yml`, `deploy/egress/**`, `deploy/LIGHTSAIL_RUNTIME.md`, `deploy/README.md`, `tests/deploy/**` and the R3 backend tests) means **D-131**. Those files are deliberately left byte-identical to the reviewed `68e621d` content and the published images. Text from `R3_G1_DECISION_RECORD.md` section 5, with the G2 owner decisions recorded below it.
+
+Status: owner-directed G1 approval with amendments A-C, authority `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Q-020 (endpoint, allowlisting, addressing, TLS, proxy, read-only scope) is open. `GOLDTIER_XPI` stays `SANDBOX_PARTIAL`. D-126 is unchanged.
+
+| # | Decision |
+| --- | --- |
+| E1 | The backend reaches GoldTier only through an explicit HTTPX proxy (`trust_env=False`, TLS 1.3 verified, no direct fallback). Staging Sandbox refuses to start without it. The base-URL host must equal the egress FQDN |
+| E2 | The egress proxy is Smokescreen at a pinned commit, subject to hard conformance gates. A failure needs a separate decision |
+| E3 | Networks: `goldtier-control` (internal) and `goldtier-uplink`. The overlay is applied last. ICC stays on. Mode defaults to `mock` |
+| E4 | Host enforcement uses a dedicated `inet clm_r3` table under its own unit. `nftables.service`, ufw and `DOCKER-USER` are not used |
+| E5 | DNS goes through an exact-name `A`-only resolver |
+| E6 | Exactly two outbound flows are allowed (Amendment C). All others are blocked |
+| E7 | Runtime firewall loss must be prevented or promptly terminated, with measured windows (Amendment A) |
+| E8 | The SNI or shared-address residual is unresolved and needs a separate decision before production (Amendment B) |
+
+G2 owner decisions (2026-11-12, after the G2 S2 STOP; G2 LOCAL only, not production-accepted):
+
+| # | Decision |
+| --- | --- |
+| G2-P2 | Option B. The R3 Smokescreen entrypoint accepts only the exact lowercase ASCII request `CONNECT <fqdn>:443 HTTP/1.1` with one exact `Host`, validated on the raw request head before any parsing, IDNA mapping, ACL or DNS, and re-checked after Smokescreen's own decision. It uses a fixed role and can only narrow what Smokescreen accepts. Smokescreen's ACL and private-address denial stay independent. The earlier failed S2 evidence is kept unchanged |
+| G2-LN | Option A. Each R3 container's root guard (PID 1) holds `NET_ADMIN`, `SETUID`, `SETGID` and `SETPCAP`, installs and verifies Layer N before starting the child, and keeps only `NET_ADMIN` once the child runs. The child runs as uid/gid 65532 with empty effective, permitted, inheritable, ambient and bounding sets and `NoNewPrivs`. This replaces the handoff's one-capability wording for G2 LOCAL only; the independent QG must rule on the increased guard privilege |
+
+Fast-track staging owner decisions (2026-11-13, A1 and A2; a temporary academic staging demo, not production):
+
+| # | Decision |
+| --- | --- |
+| FT-A1 | Read-only exact GoldTier ID lookup only, with at most three authorised Sandbox test calls. The tested G2-LN root guard is reused; there is no `NET_ADMIN` sidecar. Backend `:8000` isolation on `goldtier-control` relies on Layer N alone, which is accepted for this bounded design (G2 note N9). Mongo isolation, authentication, provenance (D-126), the R2 assistant safeguards and the rollback protections are unchanged |
+| D-cert | `certifi` is declared and pinned in `apps/backend/pyproject.toml` at the version in the tested G2 backend image. Normal TLS verification is unchanged |
+| FT-A2 / R-1 | O-1 is pinned to a validated GoldTier IPv4 set: the `goldtier_dst_v4` set in `inet clm_r3` (`GOLDTIER_DST_V4` in `clm_r3.vars`) and the proxy's required `CLM_EGRESS_DST_V4` in Layer N. There is no unpinned mode and no fallback to any public IPv4 |
+| R-1b (A3) | **Accepted by the owner (2026-11-13) only for the temporary, read-only FYP staging demonstration.** The residual is reachability of other virtual hosts on the two pinned addresses by a compromised backend changing SNI/Host inside the tunnel. Conditions: the independently reviewed IPv4 pin (QG PASS WITH NOTES, candidate `c2f7e467`), unchanged TLS verification, the exact-hostname `CONNECT` restriction, fail-closed behaviour and the rollback stay in place. If any of them is weakened, or the use goes beyond that demonstration (writes, production, a longer period), this acceptance lapses. Not sponsor-confirmed. Whether the addresses are dedicated is unknown (Q-020 part 3) |
+| FT-CRED | The owner authorises reuse of the existing locally tested Sandbox endpoint, `user_id` header method and connector from AWS staging (authority `USER_AUTHORIZED_POC`). No new credential is requested. **This is the owner's authorisation, not sponsor permission.** Any sponsor-specific permission for hosted-origin use, and source-IP allow-listing, are **UNVERIFIED** (Q-020 parts 2 and 6). A provider 401/403 or a refused connection on the first call is treated as that permission being absent: stop and roll back to Mock |
+
+Not authorised by this record: G3a, G3b, G3c and G4; any AWS, host or production change; image publication; GoldTier calls; commit, push, PR or merge.

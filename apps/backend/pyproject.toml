@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Mock-first FastAPI orchestration for the Zero-Touch CLM proof of concept"
 requires-python = ">=3.12"
 dependencies = [
+    # D-cert (fast-track A1): the GoldTier Sandbox trust store is certifi's bundle
+    # (goldtier_tls_context). Declared and pinned to the version in the tested G2 backend image.
+    "certifi==2026.10.23",
     "fastapi==0.141.1",
     "httpx==0.28.1",
     "pymongo==4.15.1",

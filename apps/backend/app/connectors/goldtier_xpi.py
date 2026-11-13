@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 from urllib.parse import urlencode, urlsplit
 
+import certifi
 import httpx
 from pydantic import SecretStr, ValidationError
 
@@ -203,8 +204,30 @@ class GoldTierXpiHttpTransport(Protocol):
     ) -> GoldTierXpiHttpResponse: ...
 
 
+def goldtier_tls_context(ca_file: str | None = None) -> ssl.SSLContext:
+    """TLS 1.3 only, hostname-checking context over an explicitly selected trust store.
+
+    The trust store is `ca_file` when configured, otherwise certifi's bundle. Passing `cafile`
+    means Python never calls OpenSSL's default-path loader, so inherited `SSL_CERT_FILE` or
+    `SSL_CERT_DIR` cannot redirect trust (D-127 E1).
+    """
+    context = ssl.create_default_context(cafile=ca_file or certifi.where())
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.maximum_version = ssl.TLSVersion.TLSv1_3
+    return context
+
+
 class HttpxGoldTierXpiTransport:
-    """TLS-1.3-only, certificate-verifying transport with bounded response reads."""
+    """TLS-1.3-only, certificate-verifying transport with bounded response reads.
+
+    `proxy_url` is the R3 egress proxy (D-127 E1). The client never reads proxy or TLS settings
+    from the environment (`trust_env=False`) and has no direct fallback: with a proxy configured,
+    every connection is a CONNECT tunnel through it.
+    """
+
+    def __init__(self, *, proxy_url: str | None = None, ca_file: str | None = None) -> None:
+        self._proxy_url = proxy_url or None
+        self._ca_file = ca_file or None
 
     def request(
         self,
@@ -216,15 +239,18 @@ class HttpxGoldTierXpiTransport:
         timeout_seconds: float,
         max_response_bytes: int,
     ) -> GoldTierXpiHttpResponse:
-        context = ssl.create_default_context()
-        context.minimum_version = ssl.TLSVersion.TLSv1_3
-        context.maximum_version = ssl.TLSVersion.TLSv1_3
+        context = goldtier_tls_context(self._ca_file)
         body = (
             json.dumps(json_body, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
             if json_body is not None
             else None
         )
-        with httpx.Client(verify=context, follow_redirects=False) as client, client.stream(
+        with httpx.Client(
+            verify=context,
+            follow_redirects=False,
+            trust_env=False,
+            proxy=self._proxy_url,
+        ) as client, client.stream(
             method,
             url,
             headers=dict(headers),
