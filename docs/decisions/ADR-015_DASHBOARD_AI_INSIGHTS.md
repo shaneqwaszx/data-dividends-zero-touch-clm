@@ -51,8 +51,11 @@ Current boundaries this must respect:
    single-use ticket for exactly its messages and goes through the model's own readiness,
    spending limits and ledger. A paid model gets one try. If it refuses, fails or is rejected,
    the local baseline model (`ModelSelector.local_fallback`, under the same data access policy)
-   writes them, when it is on a loopback URL. With no usable model the service returns `503`
-   and the panel stays hidden. The model must return JSON (`summary`, `notes`, `actions`) that
+   writes them, when it is on a loopback URL. An IT-configured model on another endpoint is
+   never used. Owner-accepted consequence: a paid dashboard call is recorded in the provider's
+   ledger as a chat call, so it shares the chatbot's call limit and spending allowance, and
+   while one runs Claude may refuse a chatbot question as busy (one paid call at a time). With
+   no usable model the service returns `503` and the panel stays hidden. The model must return JSON (`summary`, `notes`, `actions`) that
    references finding ids.
 3. **Output checks (same module).** Each item must reference a supplied finding (actions only
    for actionable findings). It may contain only numbers present in that finding's facts (the

@@ -28,8 +28,8 @@ from pydantic import (
     model_validator,
 )
 
-from ai_assistant import synthetic_eligibility
-from ai_assistant.llm import ChatModel, LlmUnavailableError, is_local_model_url
+from ai_assistant import data_access, synthetic_eligibility
+from ai_assistant.llm import ChatModel, LlmUnavailableError
 from ai_assistant.remote_test import is_remote_test_model
 
 log = logging.getLogger("ai_assistant.dashboard_insights")
@@ -46,6 +46,9 @@ CACHE_ENTRIES = 64
 # A paid (API-key) model gets one try: the local model, when there is one, is the retry.
 ATTEMPTS = 2
 PAID_ATTEMPTS = 1
+# The API-key providers (D-128 I7), by the class data_access gives them. An IT-configured
+# model on another endpoint is neither paid nor local, so it is never used here.
+PAID_CLASSES = frozenset({"openrouter", "anthropic"})
 # Requests queue for the one model slot. A waiter gives up after this long, at most this many
 # wait, and a waiter is dropped once the same user sends a newer request (the browser has
 # already moved on), so abandoned work never runs and the shared worker pool is not exhausted.
@@ -337,13 +340,23 @@ class DashboardInsights:
         self._ticket = 0
 
     @staticmethod
-    def usable(model: ChatModel | None, base_url: str | None) -> bool:
-        return (
-            model is not None
-            and base_url is not None
-            and is_local_model_url(base_url)
-            and not is_remote_test_model(model)
-        )
+    def kind(model: ChatModel | None, base_url: str | None, *, external: bool) -> str | None:
+        """Whether a model is "paid", "local" or None (not used).
+
+        Paid: Claude or GPT-OSS, only when D-122 lets external models answer. Local: a model on
+        a literal loopback URL; one the data access policy restricts takes the ticket, so it is
+        used only under D-122 too. Anything else, an IT-configured endpoint included, is not."""
+
+        if model is None:
+            return None
+        provider = data_access.model_class(model, base_url)
+        if provider in PAID_CLASSES:
+            return "paid" if external else None
+        if provider != data_access.LOCAL_CLASS:
+            return None
+        if isinstance(model, data_access.SyntheticOnlyModel):
+            return "local" if external else None
+        return None if is_remote_test_model(model) else "local"
 
     @classmethod
     def candidates(
@@ -352,20 +365,20 @@ class DashboardInsights:
         fallback: tuple[ChatModel | None, str | None] = (None, None),
         *,
         external: bool = False,
-    ) -> list[ChatModel]:
-        """The models to try, in order: the active one if allowed, then the local fallback."""
+    ) -> list[tuple[ChatModel, bool]]:
+        """The models to try, in order, each with whether it is paid: the active one if
+        allowed, then the local fallback (never a paid model)."""
 
-        chosen: list[ChatModel] = []
+        chosen: list[tuple[ChatModel, bool]] = []
         model, base_url = active
-        if model is not None and (
-            cls.usable(model, base_url) or (external and is_remote_test_model(model))
-        ):
-            chosen.append(model)
+        active_kind = cls.kind(model, base_url, external=external)
+        if model is not None and active_kind is not None:
+            chosen.append((model, active_kind == "paid"))
         local, local_url = fallback
-        if local is not None and cls.usable(local, local_url):
+        if local is not None and cls.kind(local, local_url, external=external) == "local":
             inner = getattr(local, "inner", local)
-            if all(getattr(other, "inner", other) is not inner for other in chosen):
-                chosen.append(local)
+            if all(getattr(other, "inner", other) is not inner for other, _ in chosen):
+                chosen.append((local, False))
         return chosen
 
     @staticmethod
@@ -407,7 +420,7 @@ class DashboardInsights:
         models = self.candidates((model, base_url), fallback, external=external)
         if not models:
             raise InsightsUnavailable("no usable model")
-        keys = [self._key(user_id, request, candidate.name) for candidate in models]
+        keys = [self._key(user_id, request, candidate.name) for candidate, _ in models]
         key = keys[0]
         cached = self._first_cached(keys)
         if cached is not None:
@@ -448,7 +461,7 @@ class DashboardInsights:
 
     def _write_with(
         self,
-        models: list[ChatModel],
+        models: list[tuple[ChatModel, bool]],
         keys: list[tuple[str, str]],
         request: InsightsRequest,
         *,
@@ -457,8 +470,7 @@ class DashboardInsights:
         """Try each model in order; the last failure is the one reported."""
 
         failure: Exception = InsightsUnavailable("no usable model")
-        for position, (candidate, key) in enumerate(zip(models, keys, strict=True)):
-            paid = is_remote_test_model(candidate)
+        for position, ((candidate, paid), key) in enumerate(zip(models, keys, strict=True)):
             if position:
                 log.info("dashboard insights: falling back to the local model")
             try:

@@ -18,7 +18,9 @@ from ai_assistant.dashboard_insights import (
     InsightsUnavailable,
     check_reply,
 )
+from ai_assistant.data_access import SyntheticOnlyModel
 from ai_assistant.main import create_app
+from ai_assistant.remote_test import RemoteTestModel
 from tests.test_ai_assistant import ME, ORIGIN, FakeBackend, FakeModel, _client
 
 PATH = "/assistant/dashboard/insights"
@@ -489,26 +491,29 @@ def test_waiting_is_bounded_and_a_newer_request_replaces_an_older_one(
 LOCAL_URL = "http://127.0.0.1:11434/v1"
 
 
-class PaidModel(FakeModel):
-    """An API-key model: it answers only messages holding a single-use ticket."""
-
-    name = "paid-model"
-    requires_synthetic_boundary = True
+class PaidModel(RemoteTestModel):
+    """An API-key model (classed as GPT-OSS): it answers only messages holding a ticket."""
 
     def __init__(self, *, refuse: bool = False, answer: str | None = None) -> None:
-        super().__init__(answer=answer or reply())
+        # The real constructor builds a provider client; none is needed here.
+        self.answer = answer or reply()
         self.refuse = refuse
+        self.calls: list[list[dict[str, str]]] = []
         self.ticketed: list[bool] = []
+
+    @property
+    def name(self) -> str:
+        return "paid-model"
 
     def complete(self, messages: list[dict[str, str]]) -> Any:
         from ai_assistant import synthetic_eligibility
-        from ai_assistant.llm import LlmUnavailableError
+        from ai_assistant.llm import LlmUnavailableError, ModelAnswer
 
         self.ticketed.append(synthetic_eligibility.admitted(messages))
+        self.calls.append(messages)
         if self.refuse or not self.ticketed[-1]:
-            self.calls.append(messages)
             raise LlmUnavailableError("refused")  # e.g. over its spending limit
-        return super().complete(messages)
+        return ModelAnswer(self.answer)
 
 
 class LocalModel(FakeModel):
@@ -577,3 +582,36 @@ def test_without_external_answers_or_a_local_model_the_api_key_model_is_not_enou
             external=True,
         )
     assert remote_local.calls == []
+
+
+def test_only_claude_or_gpt_oss_count_as_paid_and_an_it_endpoint_is_never_used() -> None:
+    settings = AiAssistantSettings(_env_file=None, llm_enabled=False)  # type: ignore[call-arg]
+    request = InsightsRequest.model_validate(FINDINGS)
+    it_model = SyntheticOnlyModel(LocalModel(answer=reply()), settings, local=False)
+    gated = RemoteModel(answer=reply())  # gated, but neither Claude nor GPT-OSS
+    for model, url in [(it_model, "https://it.example.com/v1"), (gated, LOCAL_URL)]:
+        assert DashboardInsights.candidates((model, url), external=True) == []
+        with pytest.raises(InsightsUnavailable):
+            DashboardInsights().write("u", request, model, url, external=True)
+    assert it_model.inner.calls == [] and gated.calls == []
+
+
+def test_a_policy_restricted_local_fallback_is_used_under_d122_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The suite runs without D-122 (conftest); this test opts in, as the running service has it.
+    monkeypatch.setattr("ai_assistant.config.CONVERSATIONAL_DECISION", "D-122")
+    settings = AiAssistantSettings(_env_file=None, llm_enabled=False)  # type: ignore[call-arg]
+    request = InsightsRequest.model_validate(FINDINGS)
+    inner = LocalModel(answer=reply())
+    restricted = SyntheticOnlyModel(inner, settings)
+    result = DashboardInsights().write(
+        "u",
+        request,
+        PaidModel(refuse=True),
+        "https://api.example.com",
+        fallback=(restricted, LOCAL_URL),
+        external=True,
+    )
+    assert result.model == "local-model" and len(inner.calls) == 1
+    assert DashboardInsights.candidates((None, None), (restricted, LOCAL_URL)) == []

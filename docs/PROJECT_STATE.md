@@ -1614,7 +1614,9 @@ query keyed by the signed-in user; if it fails, only that card says so.
 - **AI insights (ADR-015, D-128).** Browser rules turn the all-time dashboard figures into
   findings and send only those to `POST /assistant/dashboard/insights` in the AI Assistant
   service. The local model writes them, or the active API-key model (Claude, GPT-OSS) under
-  D-122 and its spending limits, with the local model as fallback (D-128 I7). Every number
+  D-122 and its spending limits, with the local model as fallback (D-128 I7). Paid dashboard
+  calls share the chatbot's call limit and allowance and can briefly make Claude refuse a
+  chatbot question as busy (owner-accepted). Every number
   in the reply is checked against the findings; a rejected or failed reply hides the panel.
   One model request runs at
   a time and results are cached per user for 30 minutes. Directors get Director findings
