@@ -509,6 +509,13 @@ class ModelSelector:
             reverted=reverted,
         )
 
+    def local_fallback(self) -> Active:
+        """The environment's baseline model under the same data access policy, for a feature
+        that falls back to it when the active model cannot answer (dashboard insights, D-128
+        I7). The chat never uses this: its model is the active one only."""
+
+        return self._with_data_access(self._baseline(self._active.revision))
+
     def current(self) -> Active:
         """The active model for one request (read once, used for the whole answer), with the
         HR spending controls that apply now (another process may have changed them)."""

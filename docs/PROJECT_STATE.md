@@ -1593,3 +1593,41 @@ Delta only, within D-118 (decision log: usability remediation U1 to U4):
 - **Evidence.** `apps/assistant/tests/ui_stack.py` runs the real assistant with mock providers
   for `e2e/ai-models-setup-real-stack.e2e.ts` (scenarios A to H). Class: Local.
 - **Basis.** Unchanged.
+
+## Dashboard management view, D-127 provisional SLA/attention and ADR-015 AI insights (branch `feat/dashboard-insights-cases-paging`, committed `69c0784`, not published) - 2026-11-13
+
+Delta only. The Onboarding Dashboard adds management KPIs, a previous-period comparison
+(bounded ranges only), an onboarding funnel, a turnaround trend, processing vs waiting per
+step, exceptions by country, rework, team comparison, workload running/blocked/
+overdue counts and All cases triage (country, attention, SLA and exception filters; highest
+attention first). The Cases tab shows 10 rows per page.
+
+Director only: a "Needs your action" card lists GoldTier recovery cases and policy proposals
+awaiting their decision (the Policy page rule), and team comparison adds SLA, overdue, high
+attention, end-to-end and blocker fix time. Proposals load through a read-only `/api/policies`
+query keyed by the signed-in user; if it fails, only that card says so.
+
+- **Authority.** SLA (10-day target from creation), at-risk, attention level and rework follow
+  D-127, `PROJECT_DEFINED_PROVISIONAL`. They are display and ordering only, with no workflow,
+  readiness, routing, approval or GoldTier effect. Q-016 stays open; there is no assignee, so
+  workload uses the creator.
+- **AI insights (ADR-015, D-128).** Browser rules turn the all-time dashboard figures into
+  findings and send only those to `POST /assistant/dashboard/insights` in the AI Assistant
+  service. The local model writes them, or the active API-key model (Claude, GPT-OSS) under
+  D-122 and its spending limits, with the local model as fallback (D-128 I7). Paid dashboard
+  calls share the chatbot's call limit and allowance and can briefly make Claude refuse a
+  chatbot question as busy (owner-accepted). Every number
+  in the reply is checked against the findings; a rejected or failed reply hides the panel.
+  One model request runs at
+  a time and results are cached per user for 30 minutes. Directors get Director findings
+  (recovery cases, policy proposals, team gaps) first. Advisory only: no case, approval or
+  GoldTier effect, and the CLM backend stays model-free. Class: Local (the API-key path is
+  covered by tests with fake models only; no paid call was made).
+- **Not included.** Dashboard chat and recommended actions. Weekly targets and workload
+  utilisation have no defined target or capacity data.
+- **Sample data.** The fixed, unlabelled sample portfolio mirrors every new figure. A
+  previous-period comparison is not shown while it is overlaid. RMs and onboarders see the same
+  view, limited to their own team's sample and real cases; the Director sees all teams.
+- **Evidence.** Class: Local. Backend `test_dashboard_insights.py` and `test_phase13_dashboard.py`;
+  frontend `dashboardInsights.test.tsx`, `SampleCaseDetail.test.tsx`, `AiInsights.test.tsx` and
+  `onboardingSample.test.tsx`; assistant `test_dashboard_insights.py`.

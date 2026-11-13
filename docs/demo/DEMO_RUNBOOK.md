@@ -252,10 +252,11 @@ Recent cases to reuse the existing case detail flow. **Refresh** rereads the bac
 it does not run onboarding providers. Factual completion rate has no SLA, regulatory,
 approval, risk, or staff-performance meaning.
 
-The Onboarding dashboard also shows 46 fixed sample cases (9 in **My work**) so it is never
-empty. They are frontend-only display data in
-`apps/frontend/src/pages/mockDashboards/onboardingSample.ts`, identical for every user and
-device, and unaffected by the team and date-range filters. By request they are **not
+The Onboarding dashboard also shows fixed sample cases so it is never empty: all 46 for the
+Director, and only their own team's for an onboarder or relationship manager, like the backend
+case scope (9 of them are the signed-in user's own, in **My work**). They are frontend-only
+display data in `apps/frontend/src/pages/mockDashboards/onboardingSample.ts`, identical for
+everyone with the same scope on every device, and unaffected by the date-range filter. By request they are **not
 labelled** as sample data anywhere in the UI. **Cases** lists them after the live cases (on
 the last page of live results), and **Open** shows a read-only case page (summary, steps and
 blockers, no actions) at an ordinary-looking `/cases/<id>` address; there are no documents,

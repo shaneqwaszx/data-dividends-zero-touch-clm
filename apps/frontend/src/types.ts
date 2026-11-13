@@ -1782,6 +1782,70 @@ export interface DashboardCaseItem {
   case_elapsed_ms: number;
   delay_note: string | null;
   created_by_display_name: string | null;
+  jurisdiction: JurisdictionCode | null;
+  /** Provisional D-127 rules; see DashboardSnapshot.attention_policy. */
+  sla_status: SlaStatus | null;
+  sla_due_at: string | null;
+  attention_level: AttentionLevel | null;
+  attention_reasons: AttentionReason[];
+  open_exception_types: BusinessExceptionType[];
+  oldest_open_blocker_age_ms: number | null;
+}
+
+export type SlaStatus = "ON_TRACK" | "AT_RISK" | "OVERDUE" | "MET" | "MISSED";
+export type AttentionLevel = "HIGH" | "MEDIUM" | "LOW";
+export type AttentionReason =
+  | "OVERDUE"
+  | "BLOCKER_OPEN_OVER_7_DAYS"
+  | "NO_UPDATE_5_DAYS"
+  | "SLA_AT_RISK"
+  | "AWAITING_REVIEW"
+  | "AWAITING_RECOVERY"
+  | "AWAITING_INPUTS"
+  | "TECHNICAL_FAILURE";
+
+export interface DashboardAttentionPolicy {
+  decision: string;
+  classification: "PROJECT_DEFINED_PROVISIONAL";
+  sla_target_ms: number;
+  at_risk_window_ms: number;
+  stale_blocker_ms: number;
+  inactivity_ms: number;
+}
+
+export interface DashboardKpis {
+  open_cases: number;
+  running_cases: number;
+  blocked_cases: number;
+  awaiting_review_cases: number;
+  completed_cases: number;
+  zero_touch_rate: number | null;
+  /** Mean summed recorded step processing time of completed cases. */
+  mean_processing_ms: number | null;
+  /** Mean creation-to-completion time of completed cases. */
+  mean_end_to_end_ms: number | null;
+  sla_met_cases: number;
+  sla_compliance_rate: number | null;
+  overdue_cases: number;
+  at_risk_cases: number;
+  high_attention_cases: number;
+}
+
+export interface DashboardPeriodComparison {
+  created_from: string;
+  created_to: string;
+  total_cases: number;
+  completed_cases: number;
+  zero_touch_rate: number | null;
+  mean_processing_ms: number | null;
+  mean_end_to_end_ms: number | null;
+  sla_compliance_rate: number | null;
+}
+
+export interface DashboardRework {
+  total_cases: number;
+  cases_with_blockers: number;
+  rework_cases: number;
 }
 
 export interface DashboardTimingSummary {
@@ -1809,11 +1873,29 @@ export interface DashboardStageTiming {
   combined_mean_ms: number | null;
   blocked_count: number;
   top_cases: DashboardStageCaseTiming[];
+  /** Cases with a recorded duration or a retained blocker at this step. */
+  reached_count: number;
+  /** Mean elapsed creation-to-resolution time of RESOLVED blockers raised at this step. */
+  resolution_mean_ms: number | null;
+  resolution_count: number;
+  processing_total_ms: number;
+  resolution_total_ms: number;
+  /** Cases with a blocker at this step that is still OPEN. */
+  open_blocked_count: number;
 }
 
 export interface DashboardExceptionCount {
   exception_type: BusinessExceptionType;
   count: number;
+  open_count: number;
+  resolved_count: number;
+  /** Elapsed creation-to-resolution time of RESOLVED blockers; not active working time. */
+  mean_fix_ms: number | null;
+  total_fix_ms: number;
+  by_jurisdiction: Partial<Record<JurisdictionCode, number>>;
+  unresolved_jurisdiction_count: number;
+  /** Blockers raised per week, aligned with weekly_onboarded. */
+  weekly_counts: number[];
 }
 
 export type JurisdictionCode = "SG" | "AU" | "MY" | "HK";
@@ -1822,6 +1904,10 @@ export interface DashboardWeeklyOnboarded {
   week_start: string;
   by_jurisdiction: Partial<Record<JurisdictionCode, number>>;
   unresolved_count: number;
+  /** Completed cases in this week with no recorded exception interventions. */
+  zero_touch_count: number;
+  /** Mean creation-to-completion time of the week's completed cases. */
+  mean_end_to_end_ms: number | null;
 }
 
 export interface DashboardWorkloadRow {
@@ -1832,12 +1918,33 @@ export interface DashboardWorkloadRow {
   completed_cases: number;
   blockers_resolved: number;
   mean_fix_time_ms: number | null;
+  running_cases: number;
+  blocked_cases: number;
+  overdue_cases: number;
+  high_attention_cases: number;
 }
 
 export interface DashboardTrendDay {
   day: string;
   created_count: number;
   completed_count: number;
+}
+
+export interface DashboardTeamCount {
+  team_id: TeamId;
+  team_display_name: string;
+  client_scope_label: string;
+  count: number;
+  status_breakdown: Array<{ status: AutomationStatus; count: number }>;
+  /** Completed cases with no recorded exception interventions. */
+  zero_touch_count: number;
+  sla_met_count: number;
+  overdue_count: number;
+  high_attention_count: number;
+  mean_end_to_end_ms: number | null;
+  resolved_blockers: number;
+  /** Mean elapsed creation-to-resolution time of the team's RESOLVED blockers. */
+  mean_fix_ms: number | null;
 }
 
 export interface DashboardSnapshot {
@@ -1857,12 +1964,7 @@ export interface DashboardSnapshot {
   timing: DashboardTimingSummary;
   status_breakdown: Array<{ status: AutomationStatus; count: number }>;
   priority_breakdown: Array<{ priority: number | null; count: number }>;
-  team_breakdown: Array<{
-    team_id: TeamId;
-    team_display_name: string;
-    client_scope_label: string;
-    count: number;
-  }>;
+  team_breakdown: DashboardTeamCount[];
   stage_timing: DashboardStageTiming[];
   exception_breakdown: DashboardExceptionCount[];
   weekly_onboarded: DashboardWeeklyOnboarded[];
@@ -1870,6 +1972,10 @@ export interface DashboardSnapshot {
   recent_cases: DashboardCaseItem[];
   top_active_cases: DashboardCaseItem[];
   scoped_cases: DashboardCaseItem[];
+  attention_policy: DashboardAttentionPolicy;
+  kpis: DashboardKpis;
+  previous_period: DashboardPeriodComparison | null;
+  rework: DashboardRework;
 }
 
 export interface UatEvidenceExport {

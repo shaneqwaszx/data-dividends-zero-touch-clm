@@ -11,7 +11,7 @@ import App from "./App";
 import { WorkspaceTabs } from "./navigation";
 import { configureAuthenticatedTransport, fetchDashboard } from "./api";
 import Dashboard, { DashboardCategoryPicker, DashboardView } from "./pages/Dashboard";
-import { sampleCaseCount, SAMPLE_CASES, withOnboardingSample } from "./pages/mockDashboards/onboardingSample";
+import { SAMPLE_ATTENTION_POLICY, sampleCaseCount, SAMPLE_CASES, withOnboardingSample } from "./pages/mockDashboards/onboardingSample";
 import { clearSessionQueries, createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, AutomationStage, DashboardSnapshot } from "./types";
 
@@ -60,6 +60,13 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
     case_elapsed_ms: 93_600_000,
     delay_note: null,
     created_by_display_name: "Maya Lim",
+    jurisdiction: "SG" as const,
+    sla_status: "ON_TRACK" as "ON_TRACK" | "MET",
+    sla_due_at: null,
+    attention_level: "LOW" as "LOW" | null,
+    attention_reasons: [],
+    open_exception_types: [],
+    oldest_open_blocker_age_ms: null,
   };
   const teamB = {
     ...teamA,
@@ -77,6 +84,8 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
     case_elapsed_ms: 90_000_000,
     delay_note: "Zero-touch",
     created_by_display_name: "Sophia Ng",
+    sla_status: "MET" as const,
+    attention_level: null,
   };
   const cases = total === 0 ? [] : actor.role === "DIRECTOR" ? [teamA, teamB] : [teamA];
   const completedCount = cases.filter((item) => item.status === "COMPLETED").length;
@@ -118,9 +127,9 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
     ],
     priority_breakdown: [...Array.from({ length: 10 }, (_, index) => ({ priority: 10 - index, count: 10 - index === 10 && cases.length ? 1 : 0 })), { priority: null, count: cases.some((item) => item.priority === null) ? 1 : 0 }],
     team_breakdown: actor.role === "DIRECTOR" ? [
-      { team_id: "TEAM_A", team_display_name: "DBS Corporate Onboarding", client_scope_label: "DBS", count: 1 },
-      { team_id: "TEAM_B", team_display_name: "OCBC Corporate Onboarding", client_scope_label: "OCBC", count: 1 },
-    ] : [{ team_id: "TEAM_A", team_display_name: "DBS Corporate Onboarding", client_scope_label: "DBS", count: total === 0 ? 0 : 1 }],
+      { team_id: "TEAM_A", team_display_name: "DBS Corporate Onboarding", client_scope_label: "DBS", count: 1, status_breakdown: [], zero_touch_count: 0, sla_met_count: 0, overdue_count: 0, high_attention_count: 0, mean_end_to_end_ms: null, resolved_blockers: 0, mean_fix_ms: null },
+      { team_id: "TEAM_B", team_display_name: "OCBC Corporate Onboarding", client_scope_label: "OCBC", count: 1, status_breakdown: [], zero_touch_count: 0, sla_met_count: 0, overdue_count: 0, high_attention_count: 0, mean_end_to_end_ms: null, resolved_blockers: 0, mean_fix_ms: null },
+    ] : [{ team_id: "TEAM_A", team_display_name: "DBS Corporate Onboarding", client_scope_label: "DBS", count: total === 0 ? 0 : 1, status_breakdown: [], zero_touch_count: 0, sla_met_count: 0, overdue_count: 0, high_attention_count: 0, mean_end_to_end_ms: null, resolved_blockers: 0, mean_fix_ms: null }],
     stage_timing: STAGES.map((stage) => ({
       stage,
       clean_mean_ms: null,
@@ -130,28 +139,52 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
       combined_mean_ms: null,
       blocked_count: 0,
       top_cases: [],
+      reached_count: 0,
+      resolution_mean_ms: null,
+      resolution_count: 0,
+      processing_total_ms: 0,
+      resolution_total_ms: 0,
+      open_blocked_count: 0,
     })),
     exception_breakdown: [],
     weekly_onboarded: Array.from({ length: 8 }, (_, index) => ({
       week_start: `2026-0${8 - Math.floor(index / 4)}-${(index % 4) * 7 + 1}`.slice(0, 10),
       by_jurisdiction: {},
       unresolved_count: 0,
+      zero_touch_count: 0,
+      mean_end_to_end_ms: null,
     })),
     workload_by_person: actor.role === "DIRECTOR"
       ? [
-          { user_id: "maya-lim", display_name: "Maya Lim", open_cases: 1, oldest_open_age_ms: 86_400_000, completed_cases: 0, blockers_resolved: 0, mean_fix_time_ms: null },
-          { user_id: "sophia-ng", display_name: "Sophia Ng", open_cases: 0, oldest_open_age_ms: null, completed_cases: 1, blockers_resolved: 0, mean_fix_time_ms: null },
+          { user_id: "maya-lim", display_name: "Maya Lim", open_cases: 1, oldest_open_age_ms: 86_400_000, completed_cases: 0, blockers_resolved: 0, mean_fix_time_ms: null, running_cases: 0, blocked_cases: 0, overdue_cases: 0, high_attention_cases: 0 },
+          { user_id: "sophia-ng", display_name: "Sophia Ng", open_cases: 0, oldest_open_age_ms: null, completed_cases: 1, blockers_resolved: 0, mean_fix_time_ms: null, running_cases: 0, blocked_cases: 0, overdue_cases: 0, high_attention_cases: 0 },
         ]
-      : (total === 0 ? [] : [{ user_id: "maya-lim", display_name: "Maya Lim", open_cases: 1, oldest_open_age_ms: 86_400_000, completed_cases: 0, blockers_resolved: 0, mean_fix_time_ms: null }]),
+      : (total === 0 ? [] : [{ user_id: "maya-lim", display_name: "Maya Lim", open_cases: 1, oldest_open_age_ms: 86_400_000, completed_cases: 0, blockers_resolved: 0, mean_fix_time_ms: null, running_cases: 0, blocked_cases: 0, overdue_cases: 0, high_attention_cases: 0 }]),
     recent_cases: cases,
     top_active_cases: cases.filter((item) => item.status !== "COMPLETED"),
     scoped_cases: cases,
+    attention_policy: SAMPLE_ATTENTION_POLICY,
+    kpis: {
+      ...{ open_cases: 0, running_cases: 0, blocked_cases: 0, awaiting_review_cases: 0, completed_cases: 0, zero_touch_rate: null, mean_processing_ms: null, mean_end_to_end_ms: null, sla_met_cases: 0, sla_compliance_rate: null, overdue_cases: 0, at_risk_cases: 0, high_attention_cases: 0 },
+      open_cases: cases.length - completedCount,
+      running_cases: cases.length - completedCount,
+      completed_cases: completedCount,
+      zero_touch_rate: completedCount ? 1 : null,
+      mean_end_to_end_ms: completedCount ? 90_000_000 : null,
+      sla_met_cases: completedCount,
+      sla_compliance_rate: completedCount ? 1 : null,
+    },
+    previous_period: null,
+    rework: { total_cases: cases.length, cases_with_blockers: 0, rework_cases: 0 },
   };
 }
 
 // The Dashboard page adds fixed sample cases on top of the live snapshot it receives.
-const SAMPLE_OPEN = SAMPLE_CASES.filter((item) => item.status !== "COMPLETED").length;
-const openLabel = (liveOpen: number) => `${liveOpen + SAMPLE_OPEN} open`;
+// Maya is in Alpha, so only Alpha sample cases are added (not Ryan Lee's Beta cases).
+const SAMPLE_OPEN = SAMPLE_CASES.filter((item) => item.owner !== "ryan" && item.status !== "COMPLETED").length;
+// A Director sees every sample case.
+const DIRECTOR_SAMPLE_OPEN = SAMPLE_CASES.filter((item) => item.status !== "COMPLETED").length;
+const openLabel = (liveOpen: number, director = false) => `${liveOpen + (director ? DIRECTOR_SAMPLE_OPEN : SAMPLE_OPEN)} open`;
 
 afterEach(() => {
   configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
@@ -182,13 +215,15 @@ describe("historical RBAC dashboard", () => {
   });
 
   it("renders exact backend totals, zero-touch rate, timing, and scoped cases", () => {
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter>);
+    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter></QueryClientProvider>);
     expect(markup).toContain("Onboarding Dashboard");
     expect(markup).not.toContain("Historical CLM overview");
     expect(markup).not.toContain("Global / cross-team");
     expect(markup).toContain("Open cases");
     expect(markup).toContain("Zero-touch rate");
-    expect(markup).toContain("Mean recorded run time");
+    expect(markup).toContain("Mean processing time");
+    expect(markup).toContain("Recorded run time (workflow start to completion)");
+    expect(markup).toContain("SLA compliance");
     expect(markup).toContain("Time per pipeline step");
     expect(markup).toContain("Registry verification");
     expect(markup).toContain("Existing-customer search");
@@ -201,7 +236,7 @@ describe("historical RBAC dashboard", () => {
   });
 
   it("renders cross-team workload for the Director", () => {
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardView actor={olivia} dashboard={snapshot(olivia)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter>);
+    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><MemoryRouter><DashboardView actor={olivia} dashboard={snapshot(olivia)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter></QueryClientProvider>);
     expect(markup).toContain("Onboarding Dashboard");
     expect(markup).toContain("Maya Lim");
     expect(markup).toContain("Sophia Ng");
@@ -212,7 +247,7 @@ describe("historical RBAC dashboard", () => {
   });
 
   it("hides the team filter for a team-scoped actor", () => {
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter>);
+    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter></QueryClientProvider>);
     expect(markup).not.toContain("Team scope");
   });
 
@@ -230,7 +265,7 @@ describe("historical RBAC dashboard", () => {
   });
 
   it("renders a safe empty state without NaN or undefined", () => {
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya, 0)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter>);
+    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya, 0)} dashScope="team" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></MemoryRouter></QueryClientProvider>);
     expect(markup).toContain("No onboarding cases are available for your current scope.");
     expect(markup).not.toContain("NaN");
     expect(markup).not.toContain("undefined");
@@ -288,6 +323,8 @@ function weeksEnding(lastMonday: string): DashboardSnapshot["weekly_onboarded"] 
     week_start: new Date(end - (7 - index) * 7 * 86_400_000).toISOString().slice(0, 10),
     by_jurisdiction: {},
     unresolved_count: 0,
+    zero_touch_count: 0,
+    mean_end_to_end_ms: null,
   }));
 }
 
@@ -296,19 +333,19 @@ it("renders the live weekly chart and adds the fixed sample weeks on top, withou
   value.data_as_of = "2026-11-05T03:00:00Z";
   value.weekly_onboarded = weeksEnding("2026-11-02");
   value.weekly_onboarded[5].by_jurisdiction = { SG: 7 }; // week of 2026-10-19
-  const render = (dashboard: DashboardSnapshot, sampleCases?: number) => renderToStaticMarkup(<MemoryRouter><DashboardView
+  const render = (dashboard: DashboardSnapshot, sampleCases?: number) => renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><MemoryRouter><DashboardView
     actor={maya} dashboard={dashboard} dashScope="team" onScopeChange={() => undefined}
     dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
     onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
     sampleCases={sampleCases}
-  /></MemoryRouter>);
+  /></MemoryRouter></QueryClientProvider>);
 
   const liveOnly = render(value);
   expect(liveOnly).toContain('title="Singapore: 7"');
   expect(liveOnly).toContain("Completions recorded in this environment");
 
   const merged = render(withOnboardingSample(value, maya), sampleCaseCount("team", maya));
-  expect(merged).toContain('title="Singapore: 13"'); // 6 sample + 7 live
+  expect(merged).toContain('title="Singapore: 10"'); // 3 Alpha sample + 7 live
   expect(merged).not.toContain('title="Singapore: 7"');
   expect(merged).toContain('title="Australia: 1"');
   expect(merged).toContain("10-26");
@@ -331,12 +368,14 @@ it("qualifies recorded timing samples and availability without Live claims", () 
   /></MemoryRouter></QueryClientProvider>);
   expect(markup).toContain("recorded workflow start to completion");
   expect(markup).not.toContain("creation to Completed");
-  const manager = renderToStaticMarkup(<MemoryRouter><DashboardView
+  const manager = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><MemoryRouter><DashboardView
     actor={maya} dashboard={value} dashScope="team" onScopeChange={() => undefined}
     dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
     onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
-  /></MemoryRouter>);
-  expect(manager).toContain("Waiting and blocker-resolution time are not included");
+  /></MemoryRouter></QueryClientProvider>);
+  // The cards show the figures only, without explaining the chart.
+  expect(manager).toContain("Waiting on a person");
+  expect(manager).not.toContain("Clean, With blocker and Combined are recorded processing time");
   expect(manager).not.toContain("including the time to fix it");
 });
 
@@ -415,15 +454,19 @@ it.each([
     expect(cases.querySelector("tbody tr")!.textContent).toContain(expected);
     const kpi = (label: string) => Array.from(container.querySelectorAll("article.dashboard-kpi")).find(item =>
       item.querySelector("span")?.textContent === label)!.querySelector("strong")!.textContent;
-    expect(kpi(scope === "team" ? "Mean recorded run time" : "Recorded run time")).toBe(expected);
     if (scope === "team") {
+      // The recorded run time is the processing card's note in the Manager view.
+      const processing = Array.from(container.querySelectorAll("article.dashboard-kpi")).find(item =>
+        item.querySelector("span")?.textContent === "Mean processing time")!;
+      expect(processing.querySelector("p")!.textContent).toContain(`Recorded run time (workflow start to completion): ${expected}.`);
       const cells = article("Workload by person").querySelectorAll("tbody tr td");
-      expect(cells[2].textContent).toBe(expected);
-      expect(cells[5].textContent).toBe(expected);
+      expect(cells[6].textContent).toBe(expected);
+      expect(cells[9].textContent).toBe(expected);
       const stageCells = container.querySelector(".stage-timing-table tbody tr")!.querySelectorAll("td");
       expect(stageCells[2].textContent).toBe(expected);
       expect(stageCells[4].textContent).toBe(expected);
     } else {
+      expect(kpi("Recorded run time")).toBe(expected);
       expect(kpi("Time to resolve a blocker")).toBe(expected);
     }
     client.clear();
@@ -874,12 +917,12 @@ it.each(["actor", "same-user-role-session"])("PR95-R6 %s replacement aborts pend
     const next = transition === "actor" ? olivia : { ...olivia, user_id: maya.user_id };
     await h.render(next, 1);
     expect(old.signal.aborted).toBe(true);
-    expect(h.container.textContent).not.toContain(openLabel(1));
+    expect(h.container.textContent).not.toContain(openLabel(1, true));
     const fresh = snapshot(next); fresh.totals.non_completed_cases = 9;
     await h.reply(2, fresh);
     await h.reply(1, snapshot(maya));
-    expect(h.container.textContent).toContain(openLabel(9));
-    expect(h.container.textContent).not.toContain(openLabel(1));
+    expect(h.container.textContent).toContain(openLabel(9, true));
+    expect(h.container.textContent).not.toContain(openLabel(1, true));
     expect(h.requests).toHaveLength(3);
   });
 });

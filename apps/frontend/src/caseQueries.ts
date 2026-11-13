@@ -7,6 +7,7 @@ import {
   fetchDocuments,
   fetchExecutionProfile,
   fetchOwnership,
+  fetchPolicies,
   fetchIntelligence,
   fetchZeroTouchCase,
   fetchZeroTouchCases,
@@ -16,6 +17,7 @@ import {
   type CaseActivityFilters,
   type CasePortfolioFilters,
 } from "./api";
+import { fetchDashboardInsights, type DashboardInsightsRequest } from "./aiAssistant";
 import type {
   AuthenticatedProfile,
   AutomationStatus,
@@ -35,8 +37,13 @@ function dashboardTeamScope(teamFilter?: string): string {
 
 type ActivityActorScope = Pick<AuthenticatedProfile, "role" | "team_id">;
 
+/** Rows per Cases tab page; the session prefetch requests the same first page. */
+export const CASES_PAGE_SIZE = 10;
+
 export const caseQueryKeys = {
   auth: (userId: string) => ["auth", userId] as const,
+  policyCatalogue: (userId: string) => ["auth", userId, "policies"] as const,
+  dashboardInsights: (userId: string, request: DashboardInsightsRequest) => ["auth", userId, "dashboard-insights", request] as const,
   dashboards: (userId: string) => ["auth", userId, "dashboard"] as const,
   dashboard: (userId: string, teamFilter?: string, scope?: "team" | "mine", dateRange?: DashboardDateRange) => [
     ...caseQueryKeys.dashboards(userId),
@@ -198,6 +205,30 @@ export function activityQueryOptions(userId: string, filters: CaseActivityFilter
   };
 }
 
+/**
+ * ADR-015 AI insights for exactly these findings. Identical findings reuse the cached reply,
+ * failures are not retried (the panel stays hidden), and it never refetches on its own.
+ */
+export function dashboardInsightsQueryOptions(userId: string, request: DashboardInsightsRequest) {
+  return {
+    queryKey: caseQueryKeys.dashboardInsights(userId, request),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboardInsights(request, signal),
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 30 * 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  };
+}
+
+/** Read-only policy catalogue for the Director's pending-approval count on the Dashboard. */
+export function policyCatalogueQueryOptions(userId: string) {
+  return {
+    queryKey: caseQueryKeys.policyCatalogue(userId),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchPolicies(signal),
+  };
+}
+
 export function executionProfileQueryOptions(userId: string) {
   return {
     queryKey: caseQueryKeys.executionProfile(userId),
@@ -217,7 +248,7 @@ export function prefetchSessionQueries(
       prioritySort: "highest_first",
       teamFilter: "all",
       offset: 0,
-      limit: 50,
+      limit: CASES_PAGE_SIZE,
     }),
   );
 }

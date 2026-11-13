@@ -1,7 +1,8 @@
 // Fixed sample cases for the Onboarding dashboard, added on top of the live backend snapshot.
 //
-// Frontend-only demo data: no API, storage or randomness, so every viewer on every device sees
-// the same sample figures. Every number is derived from SAMPLE_CASES with the same rules the
+// Frontend-only demo data: no API, storage or randomness, so every viewer with the same scope sees
+// the same sample figures. Like the backend case scope, a Director sees every sample case and an
+// onboarder or relationship manager only their own team's (My work: only their own). Every number is derived from SAMPLE_CASES with the same rules the
 // backend dashboard uses, so totals, charts and tables always agree with each other. Sample
 // cases are not affected by the team or date-range filters. They open on a read-only case page
 // (`sampleCaseDetail`) and are listed after the live cases in the Cases tab (`sampleCaseRows`).
@@ -9,12 +10,17 @@
 // Australia cases are illustrative only; Singapore ACRA is the sole implemented registry route.
 
 import type {
+  AttentionLevel,
+  AttentionReason,
   AuthenticatedProfile,
   AutomationStage,
   AutomationStatus,
   BusinessExceptionType,
+  DashboardAttentionPolicy,
   DashboardCaseItem,
   DashboardExceptionCount,
+  DashboardKpis,
+  DashboardRework,
   DashboardSnapshot,
   DashboardStageCaseTiming,
   DashboardStageTiming,
@@ -22,6 +28,7 @@ import type {
   DashboardWeeklyOnboarded,
   DashboardWorkloadRow,
   JurisdictionCode,
+  SlaStatus,
 } from "../../types";
 import { BUSINESS_EXCEPTION_TYPE_LABELS } from "../../types";
 
@@ -87,10 +94,21 @@ const SAMPLE_PEOPLE: Record<Exclude<Owner, "viewer">, { user_id: string; name: s
   ryan: { user_id: "ryan-lee", name: "Ryan Lee", team: "TEAM_B" },
 };
 
-/** Fixed per case so every viewer sees the same teams; the signed-in user's cases alternate. */
-function teamOf(item: SampleCase): SampleTeamId {
+function isSampleTeam(teamId: string | null): teamId is SampleTeamId {
+  return teamId !== null && teamId in SAMPLE_TEAMS;
+}
+
+/** Fixed per case. The signed-in user's cases sit in their own team; a Director's alternate. */
+function teamOf(item: SampleCase, actor: AuthenticatedProfile): SampleTeamId {
   if (item.owner !== "viewer") return SAMPLE_PEOPLE[item.owner].team;
+  if (actor.role !== "DIRECTOR" && isSampleTeam(actor.team_id)) return actor.team_id;
   return item.n % 2 === 0 ? "TEAM_A" : "TEAM_B";
+}
+
+/** Like the backend case scope: a Director sees every sample case, everyone else their own team's. */
+function visibleCases(actor: AuthenticatedProfile): readonly SampleCase[] {
+  if (actor.role === "DIRECTOR") return SAMPLE_CASES;
+  return SAMPLE_CASES.filter((item) => teamOf(item, actor) === actor.team_id);
 }
 
 interface SampleBlocker {
@@ -257,17 +275,86 @@ function progressPercent(item: SampleCase): number {
   return Math.round((PIPELINE.indexOf(item.stage) / PIPELINE.length) * 100);
 }
 
+// When a sample owner is the signed-in user, that owner's sample cases go to a same-team
+// colleague instead, so every viewer sees the same people, case counts and "My work" share.
+const SAMPLE_STAND_INS: Record<SampleTeamId, { user_id: string; name: string }> = {
+  TEAM_A: { user_id: "maya-lim", name: "Maya Lim" },
+  TEAM_B: { user_id: "sophia-ng", name: "Sophia Ng" },
+};
+
+function samplePerson(owner: Owner, actor: AuthenticatedProfile): { user_id: string; name: string } {
+  if (owner === "viewer") return { user_id: actor.user_id, name: actor.display_name };
+  const person = SAMPLE_PEOPLE[owner];
+  return person.user_id === actor.user_id ? SAMPLE_STAND_INS[person.team] : person;
+}
+
 function ownerUserId(owner: Owner, actor: AuthenticatedProfile): string {
-  return owner === "viewer" ? actor.user_id : SAMPLE_PEOPLE[owner].user_id;
+  return samplePerson(owner, actor).user_id;
 }
 
 function ownerName(owner: Owner, actor: AuthenticatedProfile): string {
-  return owner === "viewer" ? actor.display_name : SAMPLE_PEOPLE[owner].name;
+  return samplePerson(owner, actor).name;
 }
 
 function mean(values: number[]): number | null {
   return values.length ? Math.floor(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
 }
+
+// ---- Provisional SLA and attention rules (D-127), mirroring app/domain/dashboard_attention.py ----
+// Thresholds come from the live snapshot's attention_policy so sample and live cases agree.
+
+function slaStatusOf(status: AutomationStatus, elapsed: number, policy: DashboardAttentionPolicy): SlaStatus {
+  if (status === "COMPLETED") return elapsed <= policy.sla_target_ms ? "MET" : "MISSED";
+  if (elapsed > policy.sla_target_ms) return "OVERDUE";
+  if (elapsed >= policy.sla_target_ms - policy.at_risk_window_ms) return "AT_RISK";
+  return "ON_TRACK";
+}
+
+const WAITING_REASONS: Partial<Record<AutomationStatus, AttentionReason>> = {
+  WAITING_FOR_REVIEW: "AWAITING_REVIEW",
+  RECOVERY_PENDING: "AWAITING_RECOVERY",
+  PENDING_INPUTS: "AWAITING_INPUTS",
+  TECHNICAL_FAILURE: "TECHNICAL_FAILURE",
+};
+const HIGH_REASONS: readonly AttentionReason[] = ["OVERDUE", "BLOCKER_OPEN_OVER_7_DAYS", "NO_UPDATE_5_DAYS"];
+
+function attentionOf(
+  status: AutomationStatus,
+  sla: SlaStatus,
+  oldestBlockerMs: number | null,
+  sinceUpdateMs: number,
+  policy: DashboardAttentionPolicy,
+): { level: AttentionLevel | null; reasons: AttentionReason[] } {
+  if (status === "COMPLETED") return { level: null, reasons: [] };
+  const reasons: AttentionReason[] = [];
+  if (sla === "OVERDUE") reasons.push("OVERDUE");
+  if (oldestBlockerMs !== null && oldestBlockerMs > policy.stale_blocker_ms) reasons.push("BLOCKER_OPEN_OVER_7_DAYS");
+  if (sinceUpdateMs > policy.inactivity_ms) reasons.push("NO_UPDATE_5_DAYS");
+  if (sla === "AT_RISK") reasons.push("SLA_AT_RISK");
+  const waiting = WAITING_REASONS[status];
+  if (waiting) reasons.push(waiting);
+  if (reasons.some((reason) => HIGH_REASONS.includes(reason))) return { level: "HIGH", reasons };
+  return { level: reasons.length ? "MEDIUM" : "LOW", reasons };
+}
+
+// An open blocker was raised when the case reached its step: after the recorded processing of
+// the steps before it.
+function blockerAgeMs(item: SampleCase, blocker: SampleBlocker): number {
+  const durations = stageDurations(item);
+  let before = 0;
+  for (const stage of PIPELINE) {
+    if (stage === blocker.stage) break;
+    before += durations.get(stage) ?? 0;
+  }
+  return Math.max(0, elapsedMs(item) - before);
+}
+
+function oldestOpenBlockerMs(item: SampleCase): number | null {
+  const ages = item.blockers.filter((blocker) => !blocker.fix).map((blocker) => blockerAgeMs(item, blocker));
+  return ages.length ? Math.max(...ages) : null;
+}
+
+const SAMPLE_BLOCKED: readonly AutomationStatus[] = BLOCKED_STATUSES;
 
 // ---- Time anchoring ----
 // Sample ages and durations are fixed. Dates are only placed relative to the live snapshot so
@@ -286,7 +373,7 @@ function weekStarts(live: DashboardSnapshot): string[] {
   return Array.from({ length: WEEKLY_WEEKS }, (_, index) => new Date(current - (WEEKLY_WEEKS - 1 - index) * WEEK).toISOString().slice(0, 10));
 }
 
-function toCaseItem(item: SampleCase, actor: AuthenticatedProfile, asOf: number, currentMonday: number): DashboardCaseItem {
+function toCaseItem(item: SampleCase, actor: AuthenticatedProfile, asOf: number, currentMonday: number, policy: DashboardAttentionPolicy): DashboardCaseItem {
   const elapsed = elapsedMs(item);
   let createdAt: number;
   let updatedAt: number;
@@ -301,12 +388,15 @@ function toCaseItem(item: SampleCase, actor: AuthenticatedProfile, asOf: number,
     createdAt = asOf - elapsed;
     updatedAt = asOf - Math.min(elapsed, 2 * HOUR);
   }
+  const sla = slaStatusOf(item.status, elapsed, policy);
+  const oldestBlocker = oldestOpenBlockerMs(item);
+  const attention = attentionOf(item.status, sla, oldestBlocker, asOf - updatedAt, policy);
   return {
     case_id: caseId(item),
     requested_uen: item.registration,
     legal_name: item.name,
-    team_id: teamOf(item),
-    team_display_name: SAMPLE_TEAMS[teamOf(item)],
+    team_id: teamOf(item, actor),
+    team_display_name: SAMPLE_TEAMS[teamOf(item, actor)],
     priority: priorityOf(item),
     status: item.status,
     current_stage: item.stage,
@@ -318,6 +408,13 @@ function toCaseItem(item: SampleCase, actor: AuthenticatedProfile, asOf: number,
     case_elapsed_ms: elapsed,
     delay_note: delayNote(item),
     created_by_display_name: ownerName(item.owner, actor),
+    jurisdiction: item.jurisdiction,
+    sla_status: sla,
+    sla_due_at: new Date(createdAt + policy.sla_target_ms).toISOString(),
+    attention_level: attention.level,
+    attention_reasons: attention.reasons,
+    open_exception_types: item.blockers.filter((blocker) => !blocker.fix).map((blocker) => blocker.type),
+    oldest_open_blocker_age_ms: oldestBlocker,
   };
 }
 
@@ -328,11 +425,17 @@ function stageTiming(cases: readonly SampleCase[]): DashboardStageTiming[] {
     const clean: number[] = [];
     const withBlocker: number[] = [];
     const timings: DashboardStageCaseTiming[] = [];
+    const resolutions: number[] = [];
     let blockedCount = 0;
+    let openBlockedCount = 0;
+    let reachedCount = 0;
     for (const item of cases) {
       const hadBlocker = item.blockers.some((blocker) => blocker.stage === stage);
       if (hadBlocker) blockedCount += 1;
+      if (item.blockers.some((blocker) => blocker.stage === stage && !blocker.fix)) openBlockedCount += 1;
+      for (const blocker of item.blockers) if (blocker.stage === stage && blocker.fix) resolutions.push(blocker.fix.ms);
       const duration = stageDurations(item).get(stage);
+      if (hadBlocker || duration !== undefined) reachedCount += 1;
       if (duration === undefined) continue;
       (hadBlocker ? withBlocker : clean).push(duration);
       timings.push({ case_id: caseId(item), requested_uen: item.registration, legal_name: item.name, duration_ms: duration, had_blocker: hadBlocker });
@@ -346,32 +449,72 @@ function stageTiming(cases: readonly SampleCase[]): DashboardStageTiming[] {
       combined_mean_ms: mean([...clean, ...withBlocker]),
       blocked_count: blockedCount,
       top_cases: timings.sort((a, b) => b.duration_ms - a.duration_ms).slice(0, STAGE_TOP_CASES),
+      reached_count: reachedCount,
+      resolution_mean_ms: mean(resolutions),
+      resolution_count: resolutions.length,
+      processing_total_ms: [...clean, ...withBlocker].reduce((sum, ms) => sum + ms, 0),
+      resolution_total_ms: resolutions.reduce((sum, ms) => sum + ms, 0),
+      open_blocked_count: openBlockedCount,
     };
   });
 }
 
-function exceptionBreakdown(cases: readonly SampleCase[]): DashboardExceptionCount[] {
-  const counts = new Map<BusinessExceptionType, number>();
-  for (const item of cases) for (const blocker of item.blockers) counts.set(blocker.type, (counts.get(blocker.type) ?? 0) + 1);
-  return rankExceptions(counts);
+// Week index (0 = oldest of the eight buckets) a sample blocker was raised in, or null outside.
+function blockerWeekIndex(item: SampleCase, blocker: SampleBlocker, asOf: number, currentMonday: number): number | null {
+  const weeksAgo = item.status === "COMPLETED"
+    ? item.weeksAgo ?? 0
+    : Math.floor((currentMonday - mondayUtc(new Date(asOf - blockerAgeMs(item, blocker)).toISOString())) / WEEK);
+  const index = WEEKLY_WEEKS - 1 - weeksAgo;
+  return index >= 0 && index < WEEKLY_WEEKS ? index : null;
 }
 
-function rankExceptions(counts: Map<BusinessExceptionType, number>): DashboardExceptionCount[] {
-  return [...counts.entries()]
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-    .map(([exception_type, count]) => ({ exception_type, count }));
+function exceptionBreakdown(cases: readonly SampleCase[], asOf: number, currentMonday: number): DashboardExceptionCount[] {
+  const rows = new Map<BusinessExceptionType, { count: number; open: number; fixes: number[]; countries: Partial<Record<JurisdictionCode, number>>; weekly: number[] }>();
+  for (const item of cases) {
+    for (const blocker of item.blockers) {
+      const row = rows.get(blocker.type) ?? { count: 0, open: 0, fixes: [], countries: {}, weekly: Array<number>(WEEKLY_WEEKS).fill(0) };
+      row.count += 1;
+      if (blocker.fix) row.fixes.push(blocker.fix.ms);
+      else row.open += 1;
+      row.countries[item.jurisdiction] = (row.countries[item.jurisdiction] ?? 0) + 1;
+      const week = blockerWeekIndex(item, blocker, asOf, currentMonday);
+      if (week !== null) row.weekly[week] += 1;
+      rows.set(blocker.type, row);
+    }
+  }
+  return rankExceptions([...rows.entries()].map(([exception_type, row]) => ({
+    exception_type,
+    count: row.count,
+    open_count: row.open,
+    resolved_count: row.fixes.length,
+    mean_fix_ms: mean(row.fixes),
+    total_fix_ms: row.fixes.reduce((sum, ms) => sum + ms, 0),
+    by_jurisdiction: row.countries,
+    unresolved_jurisdiction_count: 0,
+    weekly_counts: row.weekly,
+  })));
+}
+
+// Same order as the backend: most frequent first, then by type code.
+function rankExceptions(rows: DashboardExceptionCount[]): DashboardExceptionCount[] {
+  return rows
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count || (a.exception_type < b.exception_type ? -1 : a.exception_type > b.exception_type ? 1 : 0));
 }
 
 function weeklyOnboarded(cases: readonly SampleCase[], weeks: string[]): DashboardWeeklyOnboarded[] {
   return weeks.map((week_start, index) => {
     const weeksAgo = weeks.length - 1 - index;
     const by_jurisdiction: Partial<Record<JurisdictionCode, number>> = {};
+    let zeroTouch = 0;
+    const endToEnd: number[] = [];
     for (const item of cases) {
       if (item.status !== "COMPLETED" || item.weeksAgo !== weeksAgo) continue;
       by_jurisdiction[item.jurisdiction] = (by_jurisdiction[item.jurisdiction] ?? 0) + 1;
+      if (!hadIntervention(item)) zeroTouch += 1;
+      endToEnd.push(completedDurationMs(item));
     }
-    return { week_start, by_jurisdiction, unresolved_count: 0 };
+    return { week_start, by_jurisdiction, unresolved_count: 0, zero_touch_count: zeroTouch, mean_end_to_end_ms: mean(endToEnd) };
   });
 }
 
@@ -389,8 +532,8 @@ function timingSummary(cases: readonly SampleCase[]): DashboardTimingSummary {
 }
 
 // Case load belongs to the creator; blocker fixes belong to the recorded resolver. Like the
-// backend, rows are built over the whole sample portfolio and narrowed for My work.
-function workload(actor: AuthenticatedProfile): DashboardWorkloadRow[] {
+// backend, rows are built over the viewer's case scope and narrowed for My work.
+function workload(actor: AuthenticatedProfile, policy: DashboardAttentionPolicy, asOf: number, currentMonday: number): DashboardWorkloadRow[] {
   // Keyed by user ID: when Ethan or Ryan is signed in, their "viewer" cases join their own row.
   const people = new Map<string, { owner: Owner; open: SampleCase[]; completed: number; fixes: number[] }>();
   const entry = (owner: Owner) => {
@@ -399,7 +542,7 @@ function workload(actor: AuthenticatedProfile): DashboardWorkloadRow[] {
     if (!row) { row = { owner, open: [], completed: 0, fixes: [] }; people.set(userId, row); }
     return row;
   };
-  for (const item of SAMPLE_CASES) {
+  for (const item of visibleCases(actor)) {
     const row = entry(item.owner);
     if (item.status === "COMPLETED") row.completed += 1;
     else row.open.push(item);
@@ -413,6 +556,10 @@ function workload(actor: AuthenticatedProfile): DashboardWorkloadRow[] {
     completed_cases: row.completed,
     blockers_resolved: row.fixes.length,
     mean_fix_time_ms: mean(row.fixes),
+    running_cases: row.open.filter((item) => !SAMPLE_BLOCKED.includes(item.status)).length,
+    blocked_cases: row.open.filter((item) => SAMPLE_BLOCKED.includes(item.status)).length,
+    overdue_cases: row.open.filter((item) => slaStatusOf(item.status, elapsedMs(item), policy) === "OVERDUE").length,
+    high_attention_cases: row.open.filter((item) => toCaseItem(item, actor, asOf, currentMonday, policy).attention_level === "HIGH").length,
   })));
 }
 
@@ -421,7 +568,35 @@ function sortWorkload(rows: DashboardWorkloadRow[]): DashboardWorkloadRow[] {
 }
 
 function casesInView(view: DashboardSnapshot["view"], actor: AuthenticatedProfile): readonly SampleCase[] {
-  return view === "mine" ? SAMPLE_CASES.filter((item) => ownerUserId(item.owner, actor) === actor.user_id) : SAMPLE_CASES;
+  const visible = visibleCases(actor);
+  return view === "mine" ? visible.filter((item) => ownerUserId(item.owner, actor) === actor.user_id) : visible;
+}
+
+function kpisOf(cases: readonly SampleCase[], items: DashboardCaseItem[]): DashboardKpis {
+  const completed = cases.filter((item) => item.status === "COMPLETED");
+  const openItems = items.filter((item) => item.status !== "COMPLETED");
+  const met = items.filter((item) => item.sla_status === "MET").length;
+  return {
+    open_cases: openItems.length,
+    running_cases: openItems.filter((item) => !SAMPLE_BLOCKED.includes(item.status)).length,
+    blocked_cases: openItems.filter((item) => SAMPLE_BLOCKED.includes(item.status)).length,
+    awaiting_review_cases: openItems.filter((item) => item.status === "WAITING_FOR_REVIEW").length,
+    completed_cases: completed.length,
+    zero_touch_rate: completed.length ? completed.filter((item) => !hadIntervention(item)).length / completed.length : null,
+    mean_processing_ms: mean(completed.map((item) => [...stageDurations(item).values()].reduce((sum, ms) => sum + ms, 0))),
+    mean_end_to_end_ms: mean(completed.map(completedDurationMs)),
+    sla_met_cases: met,
+    sla_compliance_rate: completed.length ? met / completed.length : null,
+    overdue_cases: openItems.filter((item) => item.sla_status === "OVERDUE").length,
+    at_risk_cases: openItems.filter((item) => item.sla_status === "AT_RISK").length,
+    high_attention_cases: openItems.filter((item) => item.attention_level === "HIGH").length,
+  };
+}
+
+function reworkOf(cases: readonly SampleCase[]): DashboardRework {
+  const withBlockers = cases.filter((item) => item.blockers.length > 0);
+  const rework = withBlockers.filter((item) => PIPELINE.some((stage) => item.blockers.filter((blocker) => blocker.stage === stage).length >= 2));
+  return { total_cases: cases.length, cases_with_blockers: withBlockers.length, rework_cases: rework.length };
 }
 
 /** The sample portfolio on its own, shaped like a backend snapshot for the same view. */
@@ -430,7 +605,8 @@ export function buildSampleSnapshot(live: DashboardSnapshot, actor: Authenticate
   const asOf = Date.parse(live.data_as_of);
   const weeks = weekStarts(live);
   const currentMonday = Date.parse(`${weeks[weeks.length - 1]}T00:00:00Z`);
-  const items = cases.map((item) => toCaseItem(item, actor, asOf, currentMonday));
+  const policy = live.attention_policy;
+  const items = cases.map((item) => toCaseItem(item, actor, asOf, currentMonday, policy));
   const total = cases.length;
   const completed = cases.filter((item) => item.status === "COMPLETED");
   const prioritised = cases.filter((item) => priorityOf(item) !== null).length;
@@ -453,20 +629,39 @@ export function buildSampleSnapshot(live: DashboardSnapshot, actor: Authenticate
     status_breakdown: ALL_STATUSES.map((status) => ({ status, count: cases.filter((item) => item.status === status).length })),
     priority_breakdown: priorities.map((priority) => ({ priority, count: cases.filter((item) => priorityOf(item) === priority).length })),
     team_breakdown: (Object.keys(SAMPLE_TEAMS) as SampleTeamId[])
-      .map((teamId) => ({
-        team_id: teamId,
-        team_display_name: SAMPLE_TEAMS[teamId],
-        client_scope_label: SAMPLE_TEAMS[teamId],
-        count: items.filter((item) => item.team_id === teamId).length,
-      }))
+      .map((teamId) => {
+        const teamCases = cases.filter((item) => teamOf(item, actor) === teamId);
+        const teamItems = items.filter((item) => item.team_id === teamId);
+        const openItems = teamItems.filter((item) => item.status !== "COMPLETED");
+        const fixes = teamCases.flatMap((item) => item.blockers.filter((blocker) => blocker.fix).map((blocker) => blocker.fix!.ms));
+        return {
+          team_id: teamId,
+          team_display_name: SAMPLE_TEAMS[teamId],
+          client_scope_label: SAMPLE_TEAMS[teamId],
+          count: teamCases.length,
+          status_breakdown: ALL_STATUSES.map((status) => ({ status, count: teamCases.filter((item) => item.status === status).length })),
+          zero_touch_count: teamCases.filter((item) => item.status === "COMPLETED" && !hadIntervention(item)).length,
+          sla_met_count: teamItems.filter((item) => item.sla_status === "MET").length,
+          overdue_count: openItems.filter((item) => item.sla_status === "OVERDUE").length,
+          high_attention_count: openItems.filter((item) => item.attention_level === "HIGH").length,
+          mean_end_to_end_ms: mean(teamCases.filter((item) => item.status === "COMPLETED").map(completedDurationMs)),
+          resolved_blockers: fixes.length,
+          mean_fix_ms: mean(fixes),
+        };
+      })
       .filter((row) => row.count > 0),
     stage_timing: stageTiming(cases),
-    exception_breakdown: exceptionBreakdown(cases),
+    exception_breakdown: exceptionBreakdown(cases, asOf, currentMonday),
     weekly_onboarded: weeklyOnboarded(cases, weeks),
-    workload_by_person: workload(actor).filter((row) => live.view === "team" || row.user_id === actor.user_id),
+    workload_by_person: workload(actor, policy, asOf, currentMonday).filter((row) => live.view === "team" || row.user_id === actor.user_id),
     recent_cases: [...items].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 10),
     top_active_cases: items.filter((item) => item.status !== "COMPLETED").slice(0, 5),
     scoped_cases: items,
+    attention_policy: policy,
+    kpis: kpisOf(cases, items),
+    // The sample is fixed and ignores the date range, so it has no earlier period of its own.
+    previous_period: null,
+    rework: reworkOf(cases),
   };
 }
 
@@ -510,6 +705,12 @@ function mergeStage(live: DashboardStageTiming | undefined, sample: DashboardSta
     ]),
     blocked_count: live.blocked_count + sample.blocked_count,
     top_cases: [...live.top_cases, ...sample.top_cases].sort((a, b) => b.duration_ms - a.duration_ms).slice(0, STAGE_TOP_CASES),
+    reached_count: live.reached_count + sample.reached_count,
+    resolution_mean_ms: combineMeans([[live.resolution_mean_ms, live.resolution_count], [sample.resolution_mean_ms, sample.resolution_count]]),
+    resolution_count: live.resolution_count + sample.resolution_count,
+    processing_total_ms: live.processing_total_ms + sample.processing_total_ms,
+    resolution_total_ms: live.resolution_total_ms + sample.resolution_total_ms,
+    open_blocked_count: live.open_blocked_count + sample.open_blocked_count,
   };
 }
 
@@ -522,6 +723,10 @@ function mergeWorkload(live: DashboardWorkloadRow[], sample: DashboardWorkloadRo
     row.open_cases += extra.open_cases;
     row.completed_cases += extra.completed_cases;
     row.blockers_resolved += extra.blockers_resolved;
+    row.running_cases += extra.running_cases;
+    row.blocked_cases += extra.blocked_cases;
+    row.overdue_cases += extra.overdue_cases;
+    row.high_attention_cases += extra.high_attention_cases;
     row.oldest_open_age_ms = row.oldest_open_age_ms === null ? extra.oldest_open_age_ms
       : extra.oldest_open_age_ms === null ? row.oldest_open_age_ms
       : Math.max(row.oldest_open_age_ms, extra.oldest_open_age_ms);
@@ -542,9 +747,22 @@ export function withOnboardingSample(live: DashboardSnapshot, actor: Authenticat
   const sampleZeroTouch = Math.round(sample.zero_touch_rate * sample.totals.completed_cases);
   const liveTimingCount = live.timing.zero_touch_count + live.timing.blocked_count;
   const sampleTimingCount = sample.timing.zero_touch_count + sample.timing.blocked_count;
-  const exceptionCounts = new Map<BusinessExceptionType, number>();
+  const exceptionRows = new Map<BusinessExceptionType, DashboardExceptionCount>();
   for (const item of [...live.exception_breakdown, ...sample.exception_breakdown]) {
-    exceptionCounts.set(item.exception_type, (exceptionCounts.get(item.exception_type) ?? 0) + item.count);
+    const row = exceptionRows.get(item.exception_type);
+    exceptionRows.set(item.exception_type, row ? {
+      exception_type: item.exception_type,
+      count: row.count + item.count,
+      open_count: row.open_count + item.open_count,
+      resolved_count: row.resolved_count + item.resolved_count,
+      mean_fix_ms: combineMeans([[row.mean_fix_ms, row.resolved_count], [item.mean_fix_ms, item.resolved_count]]),
+      total_fix_ms: row.total_fix_ms + item.total_fix_ms,
+      by_jurisdiction: addRecord(row.by_jurisdiction, item.by_jurisdiction),
+      unresolved_jurisdiction_count: row.unresolved_jurisdiction_count + item.unresolved_jurisdiction_count,
+      weekly_counts: row.weekly_counts.length >= item.weekly_counts.length
+        ? row.weekly_counts.map((count, index) => count + (item.weekly_counts[index] ?? 0))
+        : item.weekly_counts.map((count, index) => count + (row.weekly_counts[index] ?? 0)),
+    } : { ...item });
   }
   const stages = [...live.stage_timing.map((row) => row.stage), ...sample.stage_timing.map((row) => row.stage)]
     .filter((stage, index, all) => all.indexOf(stage) === index);
@@ -575,16 +793,32 @@ export function withOnboardingSample(live: DashboardSnapshot, actor: Authenticat
       sample.priority_breakdown.map((item) => ({ key: item.priority, count: item.count })),
     ).map((item) => ({ priority: item.key, count: item.count })),
     team_breakdown: [...live.team_breakdown, ...sample.team_breakdown].reduce<DashboardSnapshot["team_breakdown"]>((merged, row) => {
-      const match = merged.find((entry) => entry.team_id === row.team_id);
-      if (match) match.count += row.count;
-      else merged.push({ ...row });
+      const index = merged.findIndex((entry) => entry.team_id === row.team_id);
+      if (index < 0) { merged.push({ ...row, status_breakdown: row.status_breakdown.map((item) => ({ ...item })) }); return merged; }
+      const match = merged[index];
+      const completedOf = (team: typeof match) => team.status_breakdown.find((item) => item.status === "COMPLETED")?.count ?? 0;
+      merged[index] = {
+        ...match,
+        count: match.count + row.count,
+        zero_touch_count: match.zero_touch_count + row.zero_touch_count,
+        sla_met_count: match.sla_met_count + row.sla_met_count,
+        overdue_count: match.overdue_count + row.overdue_count,
+        high_attention_count: match.high_attention_count + row.high_attention_count,
+        mean_end_to_end_ms: combineMeans([[match.mean_end_to_end_ms, completedOf(match)], [row.mean_end_to_end_ms, completedOf(row)]]),
+        resolved_blockers: match.resolved_blockers + row.resolved_blockers,
+        mean_fix_ms: combineMeans([[match.mean_fix_ms, match.resolved_blockers], [row.mean_fix_ms, row.resolved_blockers]]),
+        status_breakdown: addCounts(
+          match.status_breakdown.map((item) => ({ key: item.status, count: item.count })),
+          row.status_breakdown.map((item) => ({ key: item.status, count: item.count })),
+        ).map((item) => ({ status: item.key, count: item.count })),
+      };
       return merged;
     }, []),
     stage_timing: stages.map((stage) => mergeStage(
       live.stage_timing.find((row) => row.stage === stage),
       sample.stage_timing.find((row) => row.stage === stage),
     )),
-    exception_breakdown: rankExceptions(exceptionCounts),
+    exception_breakdown: rankExceptions([...exceptionRows.values()]),
     weekly_onboarded: (live.weekly_onboarded.length ? live.weekly_onboarded : sample.weekly_onboarded).map((week) => {
       const extra = sample.weekly_onboarded.find((item) => item.week_start === week.week_start);
       if (!extra || week === extra) return week;
@@ -592,12 +826,63 @@ export function withOnboardingSample(live: DashboardSnapshot, actor: Authenticat
       for (const [code, count] of Object.entries(extra.by_jurisdiction) as Array<[JurisdictionCode, number]>) {
         by_jurisdiction[code] = (by_jurisdiction[code] ?? 0) + count;
       }
-      return { week_start: week.week_start, by_jurisdiction, unresolved_count: week.unresolved_count + extra.unresolved_count };
+      return {
+        week_start: week.week_start,
+        by_jurisdiction,
+        unresolved_count: week.unresolved_count + extra.unresolved_count,
+        zero_touch_count: week.zero_touch_count + extra.zero_touch_count,
+        mean_end_to_end_ms: combineMeans([
+          [week.mean_end_to_end_ms, weekCompletions(week)],
+          [extra.mean_end_to_end_ms, weekCompletions(extra)],
+        ]),
+      };
     }),
     workload_by_person: mergeWorkload(live.workload_by_person, sample.workload_by_person),
     recent_cases: [...live.recent_cases, ...sample.recent_cases],
     top_active_cases: [...live.top_active_cases, ...sample.top_active_cases],
     scoped_cases: [...live.scoped_cases, ...sample.scoped_cases],
+    kpis: mergeKpis(live.kpis, sample.kpis),
+    // A comparison against live history alone would mix bases once sample cases are added.
+    previous_period: sample.totals.total_cases ? null : live.previous_period,
+    rework: {
+      total_cases: live.rework.total_cases + sample.rework.total_cases,
+      cases_with_blockers: live.rework.cases_with_blockers + sample.rework.cases_with_blockers,
+      rework_cases: live.rework.rework_cases + sample.rework.rework_cases,
+    },
+  };
+}
+
+function addRecord<K extends string>(a: Partial<Record<K, number>>, b: Partial<Record<K, number>>): Partial<Record<K, number>> {
+  const merged: Partial<Record<K, number>> = { ...a };
+  for (const [key, count] of Object.entries(b) as Array<[K, number]>) merged[key] = (merged[key] ?? 0) + count;
+  return merged;
+}
+
+function weekCompletions(week: DashboardWeeklyOnboarded): number {
+  return Object.values(week.by_jurisdiction).reduce((sum, count) => sum + (count ?? 0), 0) + week.unresolved_count;
+}
+
+function mergeKpis(live: DashboardKpis, sample: DashboardKpis): DashboardKpis {
+  const completed = live.completed_cases + sample.completed_cases;
+  const rate = (a: number | null, b: number | null) => {
+    if (!completed) return null;
+    return ((a ?? 0) * live.completed_cases + (b ?? 0) * sample.completed_cases) / completed;
+  };
+  const met = live.sla_met_cases + sample.sla_met_cases;
+  return {
+    open_cases: live.open_cases + sample.open_cases,
+    running_cases: live.running_cases + sample.running_cases,
+    blocked_cases: live.blocked_cases + sample.blocked_cases,
+    awaiting_review_cases: live.awaiting_review_cases + sample.awaiting_review_cases,
+    completed_cases: completed,
+    zero_touch_rate: rate(live.zero_touch_rate, sample.zero_touch_rate),
+    mean_processing_ms: combineMeans([[live.mean_processing_ms, live.completed_cases], [sample.mean_processing_ms, sample.completed_cases]]),
+    mean_end_to_end_ms: combineMeans([[live.mean_end_to_end_ms, live.completed_cases], [sample.mean_end_to_end_ms, sample.completed_cases]]),
+    sla_met_cases: met,
+    sla_compliance_rate: completed ? met / completed : null,
+    overdue_cases: live.overdue_cases + sample.overdue_cases,
+    at_risk_cases: live.at_risk_cases + sample.at_risk_cases,
+    high_attention_cases: live.high_attention_cases + sample.high_attention_cases,
   };
 }
 
@@ -609,9 +894,19 @@ export function sampleCaseCount(view: DashboardSnapshot["view"], actor: Authenti
 // ---- Sample cases outside the dashboard (Cases tab and read-only case page) ----
 
 /** Dates are placed relative to `asOf`, the same way the dashboard places them. */
+// Used outside the dashboard, where no live snapshot supplies attention_policy: the D-127 values.
+export const SAMPLE_ATTENTION_POLICY: DashboardAttentionPolicy = {
+  decision: "D-127",
+  classification: "PROJECT_DEFINED_PROVISIONAL",
+  sla_target_ms: 10 * DAY,
+  at_risk_window_ms: 2 * DAY,
+  stale_blocker_ms: 7 * DAY,
+  inactivity_ms: 5 * DAY,
+};
+
 function anchoredItems(actor: AuthenticatedProfile, asOf: number): Array<{ source: SampleCase; item: DashboardCaseItem }> {
   const currentMonday = mondayUtc(new Date(asOf).toISOString());
-  return SAMPLE_CASES.map((source) => ({ source, item: toCaseItem(source, actor, asOf, currentMonday) }));
+  return visibleCases(actor).map((source) => ({ source, item: toCaseItem(source, actor, asOf, currentMonday, SAMPLE_ATTENTION_POLICY) }));
 }
 
 export interface SampleCaseRow extends DashboardCaseItem {

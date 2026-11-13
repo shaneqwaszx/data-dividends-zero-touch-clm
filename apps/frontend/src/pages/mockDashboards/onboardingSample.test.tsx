@@ -11,7 +11,7 @@ import Dashboard, { DashboardView } from "../Dashboard";
 import { caseQueryKeys } from "../../caseQueries";
 import { clearSessionQueries, createSessionQueryClient } from "../../queryClient";
 import type { AuthenticatedProfile, AutomationStage, DashboardCaseItem, DashboardSnapshot } from "../../types";
-import { buildSampleSnapshot, isSampleCaseId, SAMPLE_CASES, sampleCaseCount, sampleCaseIdFromUrlId, withOnboardingSample } from "./onboardingSample";
+import { buildSampleSnapshot, isSampleCaseId, SAMPLE_ATTENTION_POLICY, SAMPLE_CASES, sampleCaseCount, sampleCaseIdFromUrlId, withOnboardingSample } from "./onboardingSample";
 
 const maya: AuthenticatedProfile = {
   user_id: "maya-lim",
@@ -47,6 +47,8 @@ function weeksEnding(lastMonday: string): DashboardSnapshot["weekly_onboarded"] 
     week_start: new Date(end - (7 - index) * 7 * DAY).toISOString().slice(0, 10),
     by_jurisdiction: {},
     unresolved_count: 0,
+    zero_touch_count: 0,
+    mean_end_to_end_ms: null,
   }));
 }
 
@@ -67,6 +69,13 @@ const LIVE_CASE: DashboardCaseItem = {
   case_elapsed_ms: 600_000,
   delay_note: "Zero-touch",
   created_by_display_name: "Maya Lim",
+  jurisdiction: "SG",
+  sla_status: "MET",
+  sla_due_at: "2026-11-14T01:00:00Z",
+  attention_level: null,
+  attention_reasons: [],
+  open_exception_types: [],
+  oldest_open_blocker_age_ms: null,
 };
 
 function emptyLive(actor: AuthenticatedProfile, view: "team" | "mine" = "team"): DashboardSnapshot {
@@ -81,13 +90,17 @@ function emptyLive(actor: AuthenticatedProfile, view: "team" | "mine" = "team"):
     status_breakdown: (["PENDING_INPUTS", "RUNNING", "WAITING_FOR_REVIEW", "RESUMING", "RECOVERY_PENDING", "COMPLETED", "TECHNICAL_FAILURE"] as const).map((status) => ({ status, count: 0 })),
     priority_breakdown: [...Array.from({ length: 10 }, (_, index) => ({ priority: 10 - index, count: 0 })), { priority: null, count: 0 }],
     team_breakdown: [],
-    stage_timing: STAGES.map((stage) => ({ stage, clean_mean_ms: null, clean_count: 0, with_blocker_mean_ms: null, with_blocker_count: 0, combined_mean_ms: null, blocked_count: 0, top_cases: [] })),
+    stage_timing: STAGES.map((stage) => ({ stage, clean_mean_ms: null, clean_count: 0, with_blocker_mean_ms: null, with_blocker_count: 0, combined_mean_ms: null, blocked_count: 0, top_cases: [], reached_count: 0, resolution_mean_ms: null, resolution_count: 0, processing_total_ms: 0, resolution_total_ms: 0, open_blocked_count: 0 })),
     exception_breakdown: [],
     weekly_onboarded: weeksEnding("2026-11-02"),
     workload_by_person: [],
     recent_cases: [],
     top_active_cases: [],
     scoped_cases: [],
+    attention_policy: SAMPLE_ATTENTION_POLICY,
+    kpis: { open_cases: 0, running_cases: 0, blocked_cases: 0, awaiting_review_cases: 0, completed_cases: 0, zero_touch_rate: null, mean_processing_ms: null, mean_end_to_end_ms: null, sla_met_cases: 0, sla_compliance_rate: null, overdue_cases: 0, at_risk_cases: 0, high_attention_cases: 0 },
+    previous_period: null,
+    rework: { total_cases: 0, cases_with_blockers: 0, rework_cases: 0 },
   };
 }
 
@@ -99,16 +112,20 @@ function liveWithOneCompletion(actor: AuthenticatedProfile = maya): DashboardSna
   live.timing = { mean_total_duration_ms: 600_000, zero_touch_mean_duration_ms: 600_000, zero_touch_count: 1, blocked_mean_duration_ms: null, blocked_count: 0 };
   live.status_breakdown = live.status_breakdown.map((item) => ({ ...item, count: item.status === "COMPLETED" ? 1 : 0 }));
   live.stage_timing = live.stage_timing.map((row) => ({ ...row, clean_mean_ms: 60_000, clean_count: 1, combined_mean_ms: 60_000 }));
-  live.exception_breakdown = [{ exception_type: "DOCUMENT_LOW_CONFIDENCE", count: 1 }];
+  live.exception_breakdown = [{ exception_type: "DOCUMENT_LOW_CONFIDENCE", count: 1, open_count: 0, resolved_count: 1, mean_fix_ms: 3_600_000, total_fix_ms: 3_600_000, by_jurisdiction: { SG: 1 }, unresolved_jurisdiction_count: 0, weekly_counts: [0, 0, 0, 0, 0, 0, 0, 1] }];
   live.weekly_onboarded[7].by_jurisdiction = { SG: 1 };
-  live.workload_by_person = [{ user_id: "maya-lim", display_name: "Maya Lim", open_cases: 0, oldest_open_age_ms: null, completed_cases: 1, blockers_resolved: 1, mean_fix_time_ms: 3_600_000 }];
+  live.workload_by_person = [{ user_id: "maya-lim", display_name: "Maya Lim", open_cases: 0, oldest_open_age_ms: null, completed_cases: 1, blockers_resolved: 1, mean_fix_time_ms: 3_600_000, running_cases: 0, blocked_cases: 0, overdue_cases: 0, high_attention_cases: 0 }];
   live.scoped_cases = [LIVE_CASE];
+  live.kpis = { ...live.kpis, completed_cases: 1, zero_touch_rate: 1, mean_processing_ms: 360_000, mean_end_to_end_ms: 600_000, sla_met_cases: 1, sla_compliance_rate: 1 };
+  live.rework = { total_cases: 1, cases_with_blockers: 1, rework_cases: 0 };
   return live;
 }
 
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 const weeklyTotal = (snapshot: DashboardSnapshot) => sum(snapshot.weekly_onboarded.map((week) => sum(Object.values(week.by_jurisdiction).map((count) => count ?? 0)) + week.unresolved_count));
 const BLOCKED = ["WAITING_FOR_REVIEW", "RECOVERY_PENDING", "TECHNICAL_FAILURE"];
+// Maya is in Alpha: her team sees her own sample cases and Ethan Tan's, not Ryan Lee's (Beta).
+const MAYA_TEAM_CASES = SAMPLE_CASES.filter((item) => item.owner !== "ryan");
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -148,7 +165,7 @@ describe("fixed Onboarding sample portfolio", () => {
       expect(row.clean_count + row.with_blocker_count).toBeLessThanOrEqual(cases.length);
       expect(row.with_blocker_count).toBeLessThanOrEqual(row.blocked_count);
     }
-    expect(sum(sample.exception_breakdown.map((item) => item.count))).toBe(sum(SAMPLE_CASES.filter((item) => view === "team" || item.owner === "viewer").map((item) => item.blockers.length)));
+    expect(sum(sample.exception_breakdown.map((item) => item.count))).toBe(sum(MAYA_TEAM_CASES.filter((item) => view === "team" || item.owner === "viewer").map((item) => item.blockers.length)));
   });
 
   it("splits the team portfolio across the workload table without gaps", () => {
@@ -156,7 +173,7 @@ describe("fixed Onboarding sample portfolio", () => {
     const rows = sample.workload_by_person;
     expect(sum(rows.map((row) => row.open_cases))).toBe(sample.totals.non_completed_cases);
     expect(sum(rows.map((row) => row.completed_cases))).toBe(sample.totals.completed_cases);
-    const resolved = sum(SAMPLE_CASES.map((item) => item.blockers.filter((blocker) => blocker.fix).length));
+    const resolved = sum(MAYA_TEAM_CASES.map((item) => item.blockers.filter((blocker) => blocker.fix).length));
     expect(sum(rows.map((row) => row.blockers_resolved))).toBe(resolved);
     // The viewer's own sample cases are attributed to whoever is signed in.
     const mine = rows.find((row) => row.user_id === maya.user_id)!;
@@ -166,7 +183,7 @@ describe("fixed Onboarding sample portfolio", () => {
     expect(mine.completed_cases).toBe(mineView.totals.completed_cases);
   });
 
-  it("shows the same sample figures to every user", () => {
+  it("shows the same sample figures to everyone with the same scope", () => {
     const strip = (snapshot: DashboardSnapshot) => ({
       totals: snapshot.totals,
       zero: snapshot.zero_touch_rate,
@@ -175,12 +192,36 @@ describe("fixed Onboarding sample portfolio", () => {
       stages: snapshot.stage_timing,
       exceptions: snapshot.exception_breakdown,
       weekly: snapshot.weekly_onboarded,
-      workload: snapshot.workload_by_person.map(({ user_id: _id, display_name: _name, ...numbers }) => numbers),
+      workload: snapshot.workload_by_person.map(({ user_id: _id, display_name: _name, ...numbers }) => JSON.stringify(numbers)).sort(),
       cases: snapshot.scoped_cases.map(({ created_by_display_name: _name, ...item }) => item),
     });
+    const ethan = { ...maya, user_id: "ethan-tan", display_name: "Ethan Tan", role: "RELATIONSHIP_MANAGER" } as AuthenticatedProfile;
+    // Same team: an onboarder and a relationship manager see the same team and My work figures.
     for (const view of ["team", "mine"] as const) {
-      expect(strip(buildSampleSnapshot(emptyLive(maya, view), maya))).toEqual(strip(buildSampleSnapshot(emptyLive(olivia, view), olivia)));
+      expect(strip(buildSampleSnapshot(emptyLive(ethan, view), ethan))).toEqual(strip(buildSampleSnapshot(emptyLive(maya, view), maya)));
     }
+    // My work holds only the viewer's own cases, so it matches a Director's apart from the team.
+    const noTeam = (snapshot: DashboardSnapshot) => strip({
+      ...snapshot,
+      scoped_cases: snapshot.scoped_cases.map(({ team_id: _team, team_display_name: _teamName, ...item }) => item as DashboardCaseItem),
+    });
+    expect(noTeam(buildSampleSnapshot(emptyLive(maya, "mine"), maya))).toEqual(noTeam(buildSampleSnapshot(emptyLive(olivia, "mine"), olivia)));
+  });
+
+  it("keeps an onboarder or relationship manager to their own team, like the backend case scope", () => {
+    const sophia = { ...maya, user_id: "sophia-ng", display_name: "Sophia Ng", team_id: "TEAM_B", team_display_name: "Beta", client_scope_label: "Beta" } as AuthenticatedProfile;
+    const alpha = buildSampleSnapshot(emptyLive(maya), maya);
+    const beta = buildSampleSnapshot(emptyLive(sophia), sophia);
+    const all = buildSampleSnapshot(emptyLive(olivia), olivia);
+    expect(alpha.scoped_cases.every((item) => item.team_id === "TEAM_A")).toBe(true);
+    expect(beta.scoped_cases.every((item) => item.team_id === "TEAM_B")).toBe(true);
+    expect(alpha.totals.total_cases).toBe(MAYA_TEAM_CASES.length);
+    expect(all.totals.total_cases).toBe(SAMPLE_CASES.length);
+    // Case load belongs to team members; a resolver from another team keeps only their fix count.
+    const owners = (snapshot: DashboardSnapshot) => snapshot.workload_by_person
+      .filter((row) => row.open_cases + row.completed_cases > 0).map((row) => row.user_id).sort();
+    expect(owners(alpha)).toEqual(["ethan-tan", "maya-lim"]);
+    expect(owners(beta)).toEqual(["ryan-lee", "sophia-ng"]);
   });
 
   it("puts every sample case in the Alpha or Beta team", () => {
@@ -264,8 +305,8 @@ describe("Onboarding dashboard with sample cases", () => {
   it("shows sample cases unmarked and links them to their read-only case page, live cases to case detail", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], offset: 0, limit: 10, has_more: false }))));
     const live = liveWithOneCompletion();
-    // The oldest case sorts to the first page of All cases.
-    live.scoped_cases = [{ ...LIVE_CASE, case_elapsed_ms: 29 * DAY }];
+    // All cases sorts by attention first, so an overdue high-attention case is on the first page.
+    live.scoped_cases = [{ ...LIVE_CASE, status: "WAITING_FOR_REVIEW", current_stage: "DOCUMENT", completed_at: null, case_elapsed_ms: 29 * DAY, sla_status: "OVERDUE", attention_level: "HIGH", attention_reasons: ["OVERDUE", "AWAITING_REVIEW"] }];
     const merged = withOnboardingSample(live, maya);
     const team = renderView(merged, "team");
     expect(team.textContent).not.toMatch(/sample/i);
@@ -305,7 +346,7 @@ describe("Onboarding dashboard with sample cases", () => {
     try {
       await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><Dashboard actor={maya} /></MemoryRouter></QueryClientProvider>));
       await settle();
-      const sampleOpen = SAMPLE_CASES.filter((item) => item.status !== "COMPLETED").length;
+      const sampleOpen = MAYA_TEAM_CASES.filter((item) => item.status !== "COMPLETED").length;
       const card = container.querySelector(".category-card--live")!;
       expect(card.textContent).toContain(`${2 + sampleOpen} open`);
       expect(card.textContent).not.toMatch(/sample/i);

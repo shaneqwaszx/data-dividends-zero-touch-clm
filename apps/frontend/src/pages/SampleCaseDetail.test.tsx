@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caseQueryKeys } from "../caseQueries";
 import { parseCaseId, paths, requiredCapabilityForPath } from "../navigation";
 import { createSessionQueryClient } from "../queryClient";
-import type { AuthenticatedProfile } from "../types";
+import type { AuthenticatedProfile, ZeroTouchCaseListItem } from "../types";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION, filterSampleCases } from "./CaseQueue";
 import SampleCaseDetail from "./SampleCaseDetail";
 import { SAMPLE_CASES, sampleCaseDetail, sampleCaseIdFromUrlId, sampleCaseRows, sampleCaseUrlId } from "./mockDashboards/onboardingSample";
@@ -27,21 +27,46 @@ const maya: AuthenticatedProfile = {
   capabilities: ["CASE_ACCESS"],
 } as AuthenticatedProfile;
 
+const olivia: AuthenticatedProfile = {
+  ...maya,
+  user_id: "olivia-koh",
+  display_name: "Olivia Koh",
+  role: "DIRECTOR",
+  team_id: null,
+  team_display_name: null,
+  client_scope_label: "Global / cross-team",
+  capabilities: ["CASE_ACCESS", "CASE_GLOBAL"],
+} as AuthenticatedProfile;
+
 const AS_OF = Date.parse("2026-11-04T10:00:00Z"); // a Wednesday
+// An onboarder or relationship manager sees only their own team's sample cases (Alpha for Maya).
+// Her own cases plus Ethan Tan's; Ryan Lee's are in Beta.
+const MAYA_VISIBLE = SAMPLE_CASES.filter((item) => item.owner !== "ryan").length;
 const ALL_FILTERS = {
   view: "all" as const, status: "", priority: "all" as const, prioritySort: "highest_first" as const,
   jurisdiction: "", search: "", attentionType: "", createdFrom: "", createdTo: "",
 };
 
 describe("sample case data outside the dashboard", () => {
-  it("lists every sample case once, with dates placed before the as-of time", () => {
-    const rows = sampleCaseRows(maya, AS_OF);
+  it("lists every sample case once for a Director, with dates placed before the as-of time", () => {
+    const rows = sampleCaseRows(olivia, AS_OF);
     expect(rows).toHaveLength(SAMPLE_CASES.length);
     expect(new Set(rows.map((row) => row.case_id)).size).toBe(SAMPLE_CASES.length);
     for (const row of rows) {
       expect(Date.parse(row.created_at)).toBeLessThanOrEqual(AS_OF);
       if (row.completed_at) expect(Date.parse(row.completed_at)).toBeLessThanOrEqual(AS_OF);
     }
+  });
+
+  it("shows an onboarder only their own team's sample cases, like the backend case scope", () => {
+    const rows = sampleCaseRows(maya, AS_OF);
+    expect(rows).toHaveLength(MAYA_VISIBLE);
+    expect(rows.length).toBeLessThan(SAMPLE_CASES.length);
+    expect(rows.every((row) => row.team_id === "TEAM_A")).toBe(true);
+    const otherTeam = sampleCaseRows(olivia, AS_OF).find((row) => row.created_by_display_name === "Ryan Lee")!;
+    expect(otherTeam.team_id).toBe("TEAM_B");
+    expect(sampleCaseDetail(otherTeam.case_id, maya, AS_OF)).toBeNull();
+    expect(sampleCaseDetail(otherTeam.case_id, olivia, AS_OF)).not.toBeNull();
   });
 
   it("returns null for an ID that is not a sample case", () => {
@@ -67,9 +92,9 @@ describe("sample case data outside the dashboard", () => {
   });
 
   it("marks running and waiting-for-input steps without a recorded time", () => {
-    const running = sampleCaseDetail("sample-0035", maya, AS_OF)!;
+    const running = sampleCaseDetail("sample-0035", olivia, AS_OF)!;
     expect(running.steps.find((step) => step.stage === "DOCUMENT")).toMatchObject({ state: "in_progress", duration_ms: null });
-    const pending = sampleCaseDetail("sample-0037", maya, AS_OF)!;
+    const pending = sampleCaseDetail("sample-0037", olivia, AS_OF)!;
     expect(pending.steps.find((step) => step.stage === "DOCUMENT")).toMatchObject({ state: "waiting_inputs", duration_ms: null });
   });
 
@@ -98,8 +123,8 @@ describe("sample case addresses", () => {
 });
 
 describe("read-only sample case page", () => {
-  const renderPage = (id: string) => renderToStaticMarkup(
-    <MemoryRouter><SampleCaseDetail sampleCaseId={id} actor={maya} /></MemoryRouter>,
+  const renderPage = (id: string, actor: AuthenticatedProfile = maya) => renderToStaticMarkup(
+    <MemoryRouter><SampleCaseDetail sampleCaseId={id} actor={actor} /></MemoryRouter>,
   );
 
   it("shows the case summary, steps and blockers with no actions", () => {
@@ -121,7 +146,7 @@ describe("read-only sample case page", () => {
 
   it("does not mark any case as sample data", () => {
     for (const id of ["sample-0001", "sample-0003", "sample-0037", "sample-0046"]) {
-      expect(renderPage(id)).not.toMatch(/sample|illustrative|demonstration|mock/i);
+      expect(renderPage(id, olivia)).not.toMatch(/sample|illustrative|demonstration|mock/i);
     }
   });
 
@@ -132,7 +157,7 @@ describe("read-only sample case page", () => {
 
 describe("Cases tab sample cases", () => {
   it("applies the Cases tab filters other than team", () => {
-    const rows = sampleCaseRows(maya, AS_OF);
+    const rows = sampleCaseRows(olivia, AS_OF);
     expect(filterSampleCases(rows, ALL_FILTERS)).toHaveLength(SAMPLE_CASES.length);
     const completed = SAMPLE_CASES.filter((item) => item.status === "COMPLETED").length;
     expect(filterSampleCases(rows, { ...ALL_FILTERS, view: "onboarded" })).toHaveLength(completed);
@@ -160,11 +185,32 @@ describe("Cases tab sample cases", () => {
     vi.restoreAllMocks();
   });
 
-  it("lists sample cases after live cases in the same table, without marking them", async () => {
-    const queryClient = createSessionQueryClient();
-    queryClient.setQueryData(caseQueryKeys.casePortfolio(maya.user_id, { priority: "all", prioritySort: "highest_first", teamFilter: "all", offset: 0, limit: 50 }), {
-      items: [], offset: 0, limit: 50, has_more: false, observed_at: new Date().toISOString(),
+  const FIRST_PAGE = { priority: "all" as const, prioritySort: "highest_first" as const, teamFilter: "all", offset: 0, limit: 10 };
+  const seedPage = (queryClient: ReturnType<typeof createSessionQueryClient>, offset: number, items: ZeroTouchCaseListItem[], hasMore: boolean) => {
+    queryClient.setQueryData(caseQueryKeys.casePortfolio(maya.user_id, { ...FIRST_PAGE, offset }), {
+      items, offset, limit: 10, has_more: hasMore, observed_at: new Date().toISOString(),
     });
+  };
+  const liveItem = (index: number): ZeroTouchCaseListItem => ({
+    case_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    team_id: "TEAM_A",
+    client_scope_label: "Alpha",
+    priority: 10,
+    requested_uen: `2024${String(index).padStart(5, "0")}A`,
+    legal_name: `LIVE ${index} PTE. LTD.`,
+    status: "RUNNING",
+    current_stage: "DOCUMENT",
+    updated_at: "2026-11-04T09:00:00Z",
+    active_exception_count: 0,
+    active_exception_types: [],
+    human_interventions: 0,
+    final_outcome: null,
+    resolved_jurisdiction: "SG",
+    created_at: "2026-11-04T08:00:00Z",
+    completed_at: null,
+    mock_goldtier_party_id: null,
+  });
+  const renderQueue = async (queryClient: ReturnType<typeof createSessionQueryClient>) => {
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -172,18 +218,79 @@ describe("Cases tab sample cases", () => {
         </MemoryRouter>
       </QueryClientProvider>,
     ));
-    const table = container!.querySelector('[aria-label="Cases table"]')!;
-    expect(table.querySelectorAll("tbody tr")).toHaveLength(SAMPLE_CASES.length);
-    expect(container!.textContent).toContain(`Showing 1–${SAMPLE_CASES.length}`);
+  };
+  const pageButton = (label: string) => Array.from(container!.querySelectorAll<HTMLButtonElement>("button"))
+    .find((button) => button.textContent?.trim() === label)!;
+  const pageLinks = () => Array.from(container!.querySelectorAll('[aria-label="Cases table"] tbody a'))
+    .map((item) => item.getAttribute("href")!);
+  const isSampleHref = (href: string) => sampleCaseIdFromUrlId(href.slice("/cases/".length)) !== null;
+
+  it("lists sample cases after live cases ten per page, without marking them", async () => {
+    const queryClient = createSessionQueryClient();
+    for (let offset = 0; offset <= 40; offset += 10) seedPage(queryClient, offset, [], false);
+    await renderQueue(queryClient);
+
+    expect(container!.querySelectorAll('[aria-label="Cases table"] tbody tr')).toHaveLength(10);
+    expect(container!.textContent).toContain("Showing 1–10");
     expect(container!.textContent).not.toContain("No cases match these filters.");
     expect(container!.textContent).not.toMatch(/sample/i);
-    const links = Array.from(table.querySelectorAll("a")).map((item) => item.getAttribute("href"));
-    expect(links).toHaveLength(SAMPLE_CASES.length);
-    expect(links.every((href) => sampleCaseIdFromUrlId(href!.slice("/cases/".length)) !== null)).toBe(true);
+    expect(pageButton("Previous").disabled).toBe(true);
+
+    const seen = [...pageLinks()];
+    const lastPage = Math.ceil(MAYA_VISIBLE / 10);
+    for (let page = 2; page <= lastPage; page += 1) {
+      const start = (page - 1) * 10 + 1;
+      const end = Math.min(page * 10, MAYA_VISIBLE);
+      const range = `${start}–${end}`;
+      const rows = end - start + 1;
+      await act(async () => pageButton("Next").click());
+      expect(container!.textContent).toContain(`Page ${page}`);
+      expect(container!.textContent).toContain(`Showing ${range}`);
+      expect(pageLinks()).toHaveLength(rows);
+      seen.push(...pageLinks());
+    }
+    expect(pageButton("Next").disabled).toBe(true);
+    expect(seen).toHaveLength(MAYA_VISIBLE);
+    expect(new Set(seen).size).toBe(MAYA_VISIBLE);
+    expect(seen.every(isSampleHref)).toBe(true);
+
+    await act(async () => pageButton("Previous").click());
+    expect(container!.textContent).toContain(`Showing ${(lastPage - 2) * 10 + 1}–${(lastPage - 1) * 10}`);
+  });
+
+  it("fills the last live page with sample cases, then continues them on later pages", async () => {
+    const queryClient = createSessionQueryClient();
+    seedPage(queryClient, 0, Array.from({ length: 10 }, (_, index) => liveItem(index + 1)), true);
+    seedPage(queryClient, 10, [11, 12, 13].map(liveItem), false);
+    for (let offset = 20; offset <= 50; offset += 10) seedPage(queryClient, offset, [], false);
+    await renderQueue(queryClient);
+
+    expect(pageLinks()).toHaveLength(10);
+    expect(pageLinks().some(isSampleHref)).toBe(false);
+
+    await act(async () => pageButton("Next").click());
+    expect(container!.textContent).toContain("Showing 11–20");
+    const lastLivePage = pageLinks();
+    expect(lastLivePage.filter((href) => !isSampleHref(href))).toHaveLength(3);
+    expect(lastLivePage.filter(isSampleHref)).toHaveLength(7);
+    // Live rows come first on the shared page.
+    expect(lastLivePage.slice(0, 3).some(isSampleHref)).toBe(false);
+
+    const seen = lastLivePage.filter(isSampleHref);
+    while (!pageButton("Next").disabled) {
+      await act(async () => pageButton("Next").click());
+      expect(pageLinks().length).toBeLessThanOrEqual(10);
+      seen.push(...pageLinks());
+    }
+    const total = 13 + MAYA_VISIBLE;
+    expect(container!.textContent).toContain(`Showing ${Math.floor((total - 1) / 10) * 10 + 1}–${total}`);
+    expect(seen).toHaveLength(MAYA_VISIBLE);
+    expect(new Set(seen).size).toBe(MAYA_VISIBLE);
+    expect(seen.every(isSampleHref)).toBe(true);
   });
 
   it("opens a step's section when the step is clicked, like a live case", async () => {
-    await act(async () => root?.render(<MemoryRouter><SampleCaseDetail sampleCaseId="sample-0042" actor={maya} /></MemoryRouter>));
+    await act(async () => root?.render(<MemoryRouter><SampleCaseDetail sampleCaseId="sample-0042" actor={olivia} /></MemoryRouter>));
     const sectionToggle = (title: string) => Array.from(container!.querySelectorAll<HTMLButtonElement>(".stage-disclosure > h2 > button"))
       .find((button) => button.textContent?.startsWith(title))!;
     // The blocked step's section starts open; a completed step's section starts closed.
@@ -199,9 +306,7 @@ describe("Cases tab sample cases", () => {
 
   it("keeps sample cases off pages that have more live cases after them", async () => {
     const queryClient = createSessionQueryClient();
-    queryClient.setQueryData(caseQueryKeys.casePortfolio(maya.user_id, { priority: "all", prioritySort: "highest_first", teamFilter: "all", offset: 0, limit: 50 }), {
-      items: [], offset: 0, limit: 50, has_more: true, observed_at: new Date().toISOString(),
-    });
+    seedPage(queryClient, 0, [], true);
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>

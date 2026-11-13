@@ -137,6 +137,43 @@ it excludes waiting and resolution time.
 Exceptions include retained history; none of these metrics is a sponsor SLA,
 compliance calculation, staff-performance rating or Live-integration claim.
 
+Additive insight fields (defaulted, so older callers keep working) use the same selected
+case set. Each stage row adds `reached_count` (cases with a recorded duration or a retained
+blocker at that stage) and `resolution_mean_ms`/`resolution_count` (RESOLVED blockers raised at
+that stage). These are reported separately from processing time, which still excludes waiting.
+Each exception row adds `open_count`, `resolved_count`, `mean_fix_ms` and `total_fix_ms`.
+CANCELLED blockers count only toward `count`, and the existing frequency order is unchanged.
+Fix and resolution times use the workload fix-time arithmetic: elapsed resolution minus
+blocker creation, in exact floored milliseconds, not active working time. Each weekly bucket
+adds `zero_touch_count`: its completed cases with zero recorded exception interventions. Each
+team row adds `status_breakdown` and `zero_touch_count`. The browser derives open, blocked,
+weekly zero-touch rate and per-stage pass-without-stopping share from these counts; a week
+or team without completions shows no rate rather than 0%.
+
+Management fields (D-127, `PROJECT_DEFINED_PROVISIONAL`, display-only) are additive.
+`attention_policy` returns the rules the response used. `kpis` covers the selected case set:
+open, running, blocked (`WAITING_FOR_REVIEW`, `RECOVERY_PENDING`, `TECHNICAL_FAILURE`) and
+awaiting-review counts; completions; zero-touch rate; mean summed recorded step processing of
+completed cases; mean creation-to-completion time; SLA met count and compliance; and overdue,
+at-risk and high-attention open cases. Rates and means are null without a denominator.
+`previous_period` is present only for a bounded `date_range`. It covers the equally long run
+of Singapore calendar days immediately before the selected window, applies the same
+authorization and `scope` rules, and reports completion figures only.
+Open-case SLA counts are omitted there because they would be read at the current instant.
+Case items add `jurisdiction`, `sla_status`, `sla_due_at`, `attention_level`,
+`attention_reasons`, `open_exception_types` and `oldest_open_blocker_age_ms`. An OPEN blocker
+created after the observation fails closed as `DASHBOARD_UNAVAILABLE`. Stage rows add
+`processing_total_ms`, `resolution_total_ms` and `open_blocked_count` (cases whose blocker at
+that step is still OPEN). Exception rows add `by_jurisdiction`,
+`unresolved_jurisdiction_count` and `weekly_counts`, aligned with the eight weekly buckets by
+blocker creation week. Weekly rows add `mean_end_to_end_ms`. Workload rows add running,
+blocked, overdue and high-attention creator counts. Team rows add `sla_met_count`, `overdue_count`,
+`high_attention_count`, `mean_end_to_end_ms`, `resolved_blockers` and `mean_fix_ms` over that
+team's cases in the selected set. As before, they appear only in the `team` view and only for
+teams the actor can see. `rework` counts cases with two or more
+retained blockers at the same step. No field is a sponsor SLA, compliance result,
+staff-performance rating or approval signal.
+
 Workload open/completed case counts belong to the immutable creator. Fix counts and
 mean fix time belong to the last recorded resolver, once per RESOLVED exception,
 within the authorized/date-selected case cohort, including a teammate's created cases.

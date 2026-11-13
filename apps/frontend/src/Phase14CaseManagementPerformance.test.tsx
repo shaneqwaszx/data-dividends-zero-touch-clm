@@ -284,7 +284,7 @@ describe("Phase 14 queue and delete UX", () => {
       new Response(JSON.stringify({
         items: [listItem],
         offset: 0,
-        limit: 50,
+        limit: 10,
         has_more: false,
       }), {
         status: 200,
@@ -298,7 +298,7 @@ describe("Phase 14 queue and delete UX", () => {
         prioritySort: "highest_first",
         teamFilter: "all",
         offset: 0,
-        limit: 50,
+        limit: 10,
       }),
     );
 

@@ -340,6 +340,46 @@ async function request<T>(
   return await readJsonBody(await send(path, body, signal, method), MAX_JSON_BODY_BYTES, signal) as T;
 }
 
+// ---- Dashboard AI insights (ADR-015): separate from the chat; read-only and non-interactive ----
+
+export type InsightTopic =
+  | "SLA_OVERDUE"
+  | "SLA_AT_RISK"
+  | "WAITING_DRIVER"
+  | "STOP_HOTSPOT"
+  | "ZERO_TOUCH"
+  | "WORKLOAD"
+  | "TURNAROUND"
+  | "TEAM_GAP"
+  | "DIRECTOR_RECOVERY"
+  | "DIRECTOR_POLICY";
+export type InsightSeverity = "CRITICAL" | "WARNING" | "INFO";
+
+export interface InsightFinding {
+  id: string;
+  topic: InsightTopic;
+  severity: InsightSeverity;
+  actionable: boolean;
+  /** Display-ready figures only: no customer names, registration numbers or case IDs. */
+  facts: Record<string, string | number>;
+}
+
+export interface DashboardInsightsRequest {
+  period: string;
+  findings: InsightFinding[];
+}
+
+export interface DashboardInsights {
+  summary: string;
+  notes: Array<{ id: string; text: string }>;
+  actions: Array<{ id: string; text: string }>;
+  model: string;
+}
+
+export function fetchDashboardInsights(body: DashboardInsightsRequest, signal?: AbortSignal): Promise<DashboardInsights> {
+  return request<DashboardInsights>("/dashboard/insights", body, signal);
+}
+
 export function fetchAiAssistantBrief(caseId: string, signal?: AbortSignal): Promise<AiAssistantBrief> {
   return request<AiAssistantBrief>(`/cases/${encodeURIComponent(caseId)}/brief`, undefined, signal);
 }
