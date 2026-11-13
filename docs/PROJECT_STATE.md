@@ -1593,3 +1593,28 @@ Delta only, within D-118 (decision log: usability remediation U1 to U4):
 - **Evidence.** `apps/assistant/tests/ui_stack.py` runs the real assistant with mock providers
   for `e2e/ai-models-setup-real-stack.e2e.ts` (scenarios A to H). Class: Local.
 - **Basis.** Unchanged.
+
+## Dashboard management view and D-127 provisional SLA/attention (branch `feat/dashboard-insights-cases-paging`, uncommitted) - 2026-11-12
+
+Delta only. The Onboarding Dashboard adds management KPIs, a previous-period comparison
+(bounded ranges only), an onboarding funnel, a turnaround trend, processing vs waiting per
+step, exception share/country/weekly trend, rework, team comparison, workload running/blocked/
+overdue counts and All cases triage (country, attention, SLA and exception filters; highest
+attention first). The Cases tab shows 10 rows per page.
+
+Director only: a "Needs your action" card lists GoldTier recovery cases and policy proposals
+awaiting their decision (the Policy page rule), and team comparison adds SLA, overdue, high
+attention, end-to-end and blocker fix time. Proposals load through a read-only `/api/policies`
+query keyed by the signed-in user; if it fails, only that card says so.
+
+- **Authority.** SLA (10-day target from creation), at-risk, attention level and rework follow
+  D-127, `PROJECT_DEFINED_PROVISIONAL`. They are display and ordering only, with no workflow,
+  readiness, routing, approval or GoldTier effect. Q-016 stays open; there is no assignee, so
+  workload uses the creator.
+- **Not included.** AI insights, dashboard chat and recommended actions need a separate
+  architecture review in the AI Assistant service. Weekly targets and workload utilisation have
+  no defined target or capacity data.
+- **Sample data.** The fixed, unlabelled sample portfolio mirrors every new figure. A
+  previous-period comparison is not shown while it is overlaid.
+- **Evidence.** Class: Local. Backend `test_dashboard_insights.py` and `test_phase13_dashboard.py`;
+  frontend `dashboardInsights.test.tsx` and `SampleCaseDetail.test.tsx`.

@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { deleteZeroTouchCase, fetchZeroTouchCases } from "../api";
 import type { CasePortfolioProgress, PriorityFilter, PrioritySort } from "../api";
 import {
+  CASES_PAGE_SIZE,
   caseDeletedEffect,
   casePortfolioQueryOptions,
   priorityMutationEffect,
@@ -217,9 +218,11 @@ export default function CaseQueue({
   const createdRangeInvalid = Boolean(createdFrom && createdTo && createdFrom > createdTo);
   const [teamFilter, setTeamFilter] = useState("all");
   const [offset, setOffset] = useState(0);
+  // Live case count learned when leaving the last live page; places later sample-only pages.
+  const [liveTotal, setLiveTotal] = useState<number | null>(null);
   const normalizedSearch = search.trim();
   const [debouncedSearch, setDebouncedSearch] = useState(normalizedSearch);
-  const limit = 50;
+  const limit = CASES_PAGE_SIZE;
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(normalizedSearch), 300);
     return () => window.clearTimeout(timeout);
@@ -260,8 +263,15 @@ export default function CaseQueue({
     view, status, priority, prioritySort, jurisdiction, search: normalizedSearch,
     attentionType, createdFrom, createdTo,
   })), [allSampleRows, createdRangeInvalid, view, status, priority, prioritySort, jurisdiction, normalizedSearch, attentionType, createdFrom, createdTo]);
-  // Sample cases follow the live cases, on the last page of live results.
-  const pageSampleRows = query.data && !query.data.has_more ? sampleRows : [];
+  // Sample cases continue the live sequence at the same page size: they fill the rest of the
+  // last live page, then follow on their own pages. The portfolio API reports only has_more,
+  // so the live count is known on the last live page and remembered when paging past it.
+  const liveEnd = query.data && !query.data.has_more
+    ? (cases.length > 0 || offset === 0 ? offset + cases.length : liveTotal ?? offset)
+    : null;
+  const sampleStart = liveEnd === null ? 0 : Math.max(0, offset - liveEnd);
+  const pageSampleRows = liveEnd === null ? [] : sampleRows.slice(sampleStart, sampleStart + Math.max(0, limit - cases.length));
+  const samplesRemain = liveEnd !== null && sampleStart + pageSampleRows.length < sampleRows.length;
   const shownCount = cases.length + pageSampleRows.length;
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
@@ -584,8 +594,11 @@ export default function CaseQueue({
           <button
             type="button"
             className="btn btn-secondary"
-            disabled={!query.data.has_more || offset >= 10_000}
-            onClick={() => setOffset((current) => Math.min(10_000, current + limit))}
+            disabled={!(query.data.has_more || samplesRemain) || offset >= 10_000}
+            onClick={() => {
+              if (liveEnd !== null) setLiveTotal(liveEnd);
+              setOffset((current) => Math.min(10_000, current + limit));
+            }}
           >
             Next
           </button>

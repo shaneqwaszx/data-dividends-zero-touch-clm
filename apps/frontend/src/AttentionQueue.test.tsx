@@ -233,16 +233,16 @@ describe("blocker-aware attention queue contract", () => {
       prioritySort: "highest_first",
       teamFilter: "all",
       offset: 0,
-      limit: 50,
-    }), { items: [blocked, recovery], offset: 0, limit: 50, has_more: false });
+      limit: 10,
+    }), { items: [blocked, recovery], offset: 0, limit: 10, has_more: false });
     queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, {
       priority: "all",
       prioritySort: "highest_first",
       teamFilter: "all",
       attentionType: "DOCUMENT_LOW_CONFIDENCE",
       offset: 0,
-      limit: 50,
-    }), { items: [blocked], offset: 0, limit: 50, has_more: false });
+      limit: 10,
+    }), { items: [blocked], offset: 0, limit: 10, has_more: false });
 
     function Harness() {
       const [presentation, setPresentation] = useState<CaseQueuePresentationState>(

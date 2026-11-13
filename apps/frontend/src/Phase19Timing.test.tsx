@@ -97,13 +97,13 @@ describe("Phase 19 factual timing", () => {
       prioritySort: "highest_first",
       teamFilter: "all",
       offset: 0,
-      limit: 50,
+      limit: 10,
     });
     queryClient.setQueryData(query.queryKey, {
       observed_at: "2026-09-21T12:00:00Z",
       items: [item(false), item(true)],
       offset: 0,
-      limit: 50,
+      limit: 10,
       has_more: false,
     });
 
@@ -136,14 +136,14 @@ describe("Phase 19 factual timing", () => {
       prioritySort: "highest_first",
       teamFilter: "all",
       offset: 0,
-      limit: 50,
+      limit: 10,
     });
     const first = item(false);
     queryClient.setQueryData(query.queryKey, {
       observed_at: "2026-09-21T12:00:00Z",
       items: [first],
       offset: 0,
-      limit: 50,
+      limit: 10,
       has_more: false,
     });
     await act(async () => root?.render(
@@ -165,7 +165,7 @@ describe("Phase 19 factual timing", () => {
           },
         }],
         offset: 0,
-        limit: 50,
+        limit: 10,
         has_more: false,
       });
     });

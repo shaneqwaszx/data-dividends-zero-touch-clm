@@ -631,9 +631,9 @@ describe("Phase 15C canonical route ownership", () => {
         prioritySort: "highest_first",
         teamFilter: "all",
         offset: 0,
-        limit: 50,
+        limit: 10,
       }),
-      { items: [listItem], offset: 0, limit: 50, has_more: false },
+      { items: [listItem], offset: 0, limit: 10, has_more: false },
     );
     await act(async () => root?.render(
       <MemoryRouter initialEntries={[paths.cases]}>
@@ -1952,7 +1952,7 @@ describe("Phase 15C intake and mutation safety", () => {
           current_client_scope_label: "Alpha",
           }],
           offset: 0,
-          limit: 50,
+          limit: 10,
           has_more: false,
         });
       }

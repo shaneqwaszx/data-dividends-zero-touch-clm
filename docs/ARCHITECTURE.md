@@ -109,7 +109,7 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Target execution | `domain/target_submission.py`, `domain/target_safety.py`, `services/target_response_validation.py`, `services/target_execution_repository.py`, `connectors/goldtier*.py`, `mappers/goldtier.py` | ordered search/shell/policy/amend, strict responses, durable intent/outcome/finalization | target port and ledger | replay after uncertain attempt, sponsor approval claim |
 | Zero-touch workflow | `domain/zero_touch.py`, `services/zero_touch_orchestration.py`, provider bindings | stage ordering, typed exceptions, call stopping, resume | application services through ports | provider-specific payload logic |
 | Case persistence | `persistence/models.py`, `mongo_case_store.py`, `persistence/repositories.py`, service repository protocols | complete envelope, strict decode, CAS, insert/update/delete semantics | domain/service ports | API/UI behavior or provider calls |
-| Portfolio/dashboard/activity | `domain/case_management.py`, `domain/dashboard.py`, `services/case_query.py`, `services/dashboard.py` | authorized projections, filtering, ordering, retained automation-event activity and factual metrics | access policy, portfolio repository | analytics/risk/SLA inference, event production, regulatory audit ownership |
+| Portfolio/dashboard/activity | `domain/case_management.py`, `domain/dashboard.py`, `domain/dashboard_attention.py`, `services/case_query.py`, `services/dashboard.py` | authorized projections, filtering, ordering, retained automation-event activity, factual metrics and the provisional D-127 display-only SLA/attention classification | access policy, portfolio repository | sponsor SLA, compliance or risk decisions, workflow effects of SLA/attention, event production, regulatory audit ownership |
 | Frontend auth/cache | `frontend/src/auth.tsx`, `queryClient.tsx`, `caseQueries.ts` | session lifecycle, scoped query keys, cancellation/invalidation | backend APIs and server-authored profile | authorization or persistent sensitive cache |
 | Frontend navigation | `frontend/src/navigation.tsx`, browser location, router mount in `frontend/src/main.tsx` | route patterns, safe path construction, route matching, active links and generic unavailable presentation | existing auth, view and cache owners | server data, authorization, workflow actions or a second page/case identity |
 | Frontend views | `frontend/src/pages/*`, `App.tsx`, `api.ts`, `types.ts` | presentation, input, safe actions | authenticated API/cache owners | business authority or provider selection |
@@ -516,12 +516,17 @@ schema, dependency, provider or sponsor-policy authority is introduced.
 The backend applies actor/team authorization before filters, ordering, projection and
 aggregation. A lightweight repository projection avoids complete-envelope N+1 reads.
 Dashboard metrics are factual POC counts/trends, not risk, SLA, compliance, or staff
-performance metrics. `team_filter` is part of backend scope and frontend cache identity.
+performance metrics. The one exception is D-127's provisional display-only SLA and attention
+classification (`domain/dashboard_attention.py`, a 10-day target from creation). It orders and
+labels cases but never changes workflow state, readiness, priority, routing or approval, and it
+is not a sponsor SLA. `team_filter` is part of backend scope and frontend cache identity.
 For demonstration, the frontend Dashboard page adds a fixed, unlabelled sample portfolio on
 top of the backend snapshot at render time only; the backend response, query cache and API are
 unchanged, and sample rows never link to backend case detail. They open a read-only frontend
 case page at fixed UUID-shaped `/cases/<id>` addresses (`onboardingSample.ts` owns the
-mapping) and follow the live rows in the Cases table; neither calls the backend.
+mapping) and follow the live rows in the Cases table; neither calls the backend. The Cases table
+shows 10 rows per page: sample rows fill the rest of the last live page, then continue on
+later pages.
 
 The Cases portfolio page composes current status, priority filter/order, team, correlated
 OPEN exception type, exact jurisdiction, and trimmed literal search over registration

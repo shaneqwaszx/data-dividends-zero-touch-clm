@@ -2540,3 +2540,31 @@ Open before any write qualification: paused-state wording; Sandbox prior-case le
 stale `initial_target_search` read model after a void; whether `check_uncertain_target_status` and
 `verify_completed_target` keep a deliberate recovery exception; an approved way to populate the
 Government register in staging.
+
+## D-127 - Provisional dashboard SLA and attention rules (OWNER-DIRECTED 2026-11-12)
+
+Status: `PROJECT_DEFINED_PROVISIONAL`. Chosen by the owner on 2026-11-12 from defaults the
+implementer proposed. Not sponsor-confirmed. It narrows D-037's exclusion of invented SLA/risk
+semantics only for these display rules on the Dashboard. Q-016 stays open.
+
+| # | Decision |
+|---|---|
+| S1 | **Target.** A case's dashboard SLA target is 10 calendar days from case creation to completion, measured with the existing `case_elapsed_ms`. |
+| S2 | **SLA status.** Open: `OVERDUE` past the target, `AT_RISK` within 2 days of it, else `ON_TRACK`. Completed: `MET` within the target, else `MISSED`. Compliance is `MET` / completed cases in the selected cohort; with no completions it is not calculated. |
+| S3 | **Attention level** (named so it is not confused with the D-047 advisory risk rating). For open cases only: `HIGH` when overdue, when a blocker has been open more than 7 days, or when the case has not been updated for 5 days. `MEDIUM` when at risk, or waiting for review, recovery, inputs or after a technical failure. `LOW` otherwise. Every level lists the reasons that produced it. |
+| S4 | **Rework.** A case counts as rework when it has two or more retained blockers at the same pipeline step. |
+| S5 | **Boundary.** These rules are display and ordering aids only. They do not change workflow state, readiness, priority, routing, approval, escalation, notifications or GoldTier behaviour. They are not a compliance, regulatory or staff-performance measure. |
+
+## D-128 - Read-only AI insights on the Onboarding Dashboard (OWNER-DIRECTED 2026-11-13)
+
+Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
+[ADR-015](ADR-015_DASHBOARD_AI_INSIGHTS.md).
+
+| # | Decision |
+|---|---|
+| I1 | **Display only.** The Manager view shows an "AI insights" panel with a summary, "What to note" and "What to do". There is no chat, question box, regenerate button or per-case recommendation. |
+| I2 | **Source.** Fixed browser rules build findings from the dashboard as shown, including the demo sample. Severity, numbers and case links come from those rules. The model only writes the wording. |
+| I3 | **Model.** The existing local Ollama baseline in the AI Assistant service, through a separate module and endpoint. Remote and test profiles are refused, and the chat assistant is unchanged. |
+| I4 | **Checks.** Text may only use numbers from its finding and must avoid approval, rejection, deletion, closure or override wording. Failing items are dropped. |
+| I5 | **Failure.** When the model is unavailable, slow or fully rejected, the panel is hidden, with no message or rule-based substitute. |
+| I6 | **Privacy.** No customer names, registration numbers, documents or case identifiers are sent to the model, and prompt and answer text are not stored. |
