@@ -1074,3 +1074,139 @@ def test_pr95_r2_invalid_out_of_team_and_out_of_date_evidence_is_not_disclosed()
     assert result.totals.total_cases == 1
     assert len(result.scoped_cases) == 1
     assert len(result.historical_trend) == 30
+
+
+def _open_exception(case_id, exception_type, stage, *, created_at):
+    resolved = _resolved_exception(
+        case_id, exception_type, stage,
+        created_at=created_at, resolved_at=created_at, actor_id="maya-lim",
+    )
+    return resolved.model_copy(update={
+        "status": BusinessExceptionStatus.OPEN, "resolved_at": None, "decisions": (),
+    })
+
+
+def test_stage_timing_reports_reached_cases_and_separate_blocker_resolution_time() -> None:
+    clean_case, clean_automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.RUNNING, created_days_ago=1, updated_hours_ago=1,
+        stage_durations_ms={AutomationStage.DOCUMENT: 600_000},
+    )
+    fixed_case, fixed_automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.RUNNING, created_days_ago=1, updated_hours_ago=1,
+        stage_durations_ms={AutomationStage.DOCUMENT: 900_000},
+    )
+    fixed = _resolved_exception(
+        fixed_case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+        AutomationStage.DOCUMENT, created_at=fixed_case.created_at,
+        resolved_at=fixed_case.created_at + timedelta(hours=2), actor_id="maya-lim",
+    )
+    cancelled = fixed.model_copy(update={
+        "exception_id": uuid4(), "status": BusinessExceptionStatus.CANCELLED,
+        "resolved_at": fixed_case.created_at + timedelta(hours=9),
+    })
+    fixed_automation = fixed_automation.model_copy(update={"exceptions": [fixed, cancelled]})
+    waiting_case, waiting_automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.WAITING_FOR_REVIEW,
+        created_days_ago=1, updated_hours_ago=1,
+    )
+    waiting_automation = waiting_automation.model_copy(update={"exceptions": [_open_exception(
+        waiting_case.case_id, BusinessExceptionType.OWNERSHIP_INCOMPLETE,
+        AutomationStage.OWNERSHIP, created_at=waiting_case.created_at,
+    )]})
+    service, _ = _service_for([
+        (clean_case, clean_automation),
+        (fixed_case, fixed_automation),
+        (waiting_case, waiting_automation),
+    ])
+
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+    rows = {row.stage: row for row in result.stage_timing}
+
+    document = rows[AutomationStage.DOCUMENT]
+    assert (document.reached_count, document.blocked_count) == (2, 1)
+    # Its only blockers are resolved or cancelled, so no case is still blocked here.
+    assert document.open_blocked_count == 0
+    # Cancelled blockers never contribute resolution time; processing time is unchanged.
+    assert (document.resolution_mean_ms, document.resolution_count) == (7_200_000, 1)
+    assert document.combined_mean_ms == 750_000
+    ownership = rows[AutomationStage.OWNERSHIP]
+    assert (ownership.reached_count, ownership.blocked_count) == (1, 1)
+    assert ownership.open_blocked_count == 1
+    assert (ownership.resolution_mean_ms, ownership.resolution_count) == (None, 0)
+    registry = rows[AutomationStage.REGISTRY]
+    assert (registry.reached_count, registry.resolution_count) == (0, 0)
+
+
+def test_exception_breakdown_reports_open_resolved_and_elapsed_fix_time() -> None:
+    fixtures = []
+    for hours in (1, 3, None):
+        case, automation = _record(
+            TeamId.TEAM_A, None, AutomationStatus.RUNNING, created_days_ago=1, updated_hours_ago=1,
+        )
+        if hours is None:
+            exception = _open_exception(
+                case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+                AutomationStage.DOCUMENT, created_at=case.created_at,
+            )
+        else:
+            exception = _resolved_exception(
+                case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+                AutomationStage.DOCUMENT, created_at=case.created_at,
+                resolved_at=case.created_at + timedelta(hours=hours), actor_id="maya-lim",
+            )
+        fixtures.append((case, automation.model_copy(update={"exceptions": [exception]})))
+    case, automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.RUNNING, created_days_ago=1, updated_hours_ago=1,
+    )
+    cancelled = _resolved_exception(
+        case.case_id, BusinessExceptionType.OWNERSHIP_CYCLE, AutomationStage.OWNERSHIP,
+        created_at=case.created_at, resolved_at=case.created_at + timedelta(hours=5),
+        actor_id="maya-lim",
+    ).model_copy(update={"status": BusinessExceptionStatus.CANCELLED})
+    fixtures.append((case, automation.model_copy(update={"exceptions": [cancelled]})))
+    service, _ = _service_for(fixtures)
+
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+
+    fields = {
+        "exception_type", "count", "open_count", "resolved_count", "mean_fix_ms", "total_fix_ms",
+    }
+    assert [item.model_dump(include=fields) for item in result.exception_breakdown] == [
+        {
+            "exception_type": BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+            "count": 3, "open_count": 1, "resolved_count": 2,
+            "mean_fix_ms": 7_200_000, "total_fix_ms": 14_400_000,
+        },
+        {
+            "exception_type": BusinessExceptionType.OWNERSHIP_CYCLE,
+            "count": 1, "open_count": 0, "resolved_count": 0,
+            "mean_fix_ms": None, "total_fix_ms": 0,
+        },
+    ]
+
+
+def test_weekly_onboarded_and_team_breakdown_report_zero_touch_completions() -> None:
+    fixtures = [
+        _record(TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+                created_days_ago=1, updated_hours_ago=2),
+        _record(TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+                created_days_ago=1, updated_hours_ago=3, human_interventions=1),
+        _record(TeamId.TEAM_B, None, AutomationStatus.WAITING_FOR_REVIEW,
+                created_days_ago=1, updated_hours_ago=1),
+    ]
+    service, _ = _service_for(fixtures)
+
+    result = service.get_dashboard(_actor("olivia-koh"), date_range="all")
+
+    this_week = result.weekly_onboarded[-1]
+    assert this_week.unresolved_count == 2
+    assert this_week.zero_touch_count == 1
+    assert all(week.zero_touch_count == 0 for week in result.weekly_onboarded[:-1])
+    teams = {row.team_id: row for row in result.team_breakdown}
+    team_a = {item.status: item.count for item in teams[TeamId.TEAM_A].status_breakdown}
+    team_b = {item.status: item.count for item in teams[TeamId.TEAM_B].status_breakdown}
+    assert (teams[TeamId.TEAM_A].count, team_a[AutomationStatus.COMPLETED]) == (2, 2)
+    assert teams[TeamId.TEAM_A].zero_touch_count == 1
+    assert (teams[TeamId.TEAM_B].count, team_b[AutomationStatus.WAITING_FOR_REVIEW]) == (1, 1)
+    assert teams[TeamId.TEAM_B].zero_touch_count == 0
+    assert sum(item.count for item in teams[TeamId.TEAM_B].status_breakdown) == 1

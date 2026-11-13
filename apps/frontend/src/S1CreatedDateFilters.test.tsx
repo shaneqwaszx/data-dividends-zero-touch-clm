@@ -82,7 +82,7 @@ describe("S1 Singapore creation-date filters", () => {
   it("serializes dates without browser timezone conversion and retains AbortSignal on both APIs", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => (
       jsonResponse(String(input).includes("case-portfolio")
-        ? { items: [], offset: 0, limit: 50, has_more: false }
+        ? { items: [], offset: 0, limit: 10, has_more: false }
         : [])
     ));
     const controller = new AbortController();
@@ -127,7 +127,7 @@ describe("S1 Singapore creation-date filters", () => {
       const url = new URL(String(input), "http://localhost");
       return jsonResponse({
         items: [completed], offset: Number(url.searchParams.get("offset") ?? 0),
-        limit: 50, has_more: !url.searchParams.has("offset"),
+        limit: 10, has_more: !url.searchParams.has("offset"),
       });
     });
     await act(async () => root.render(
@@ -154,7 +154,7 @@ describe("S1 Singapore creation-date filters", () => {
     let releaseOldResponse: ((response: Response) => void) | undefined;
     let oldSignal: AbortSignal | undefined;
     const result = (name: string) => page === "Cases"
-      ? { items: [{ ...completed, legal_name: name }], offset: 0, limit: 50, has_more: false }
+      ? { items: [{ ...completed, legal_name: name }], offset: 0, limit: 10, has_more: false }
       : [{ ...completed, legal_name: name }];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, options) => {
       const url = new URL(String(input), "http://localhost");

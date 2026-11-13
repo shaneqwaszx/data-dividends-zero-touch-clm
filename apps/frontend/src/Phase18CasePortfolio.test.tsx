@@ -7,7 +7,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchCasePortfolio } from "./api";
-import { caseDeletedEffect, caseQueryKeys, prefetchSessionQueries } from "./caseQueries";
+import { CASES_PAGE_SIZE, caseDeletedEffect, caseQueryKeys, prefetchSessionQueries } from "./caseQueries";
 import CaseQueue, {
   DEFAULT_CASE_QUEUE_PRESENTATION,
   type CaseQueuePresentationState,
@@ -123,7 +123,7 @@ describe("Phase 18 paged Cases portfolio", () => {
       const path = new URL(String(input), "http://localhost").pathname;
       return new Response(JSON.stringify(
         path.endsWith("/case-portfolio")
-          ? { items: [], offset: 0, limit: 50, has_more: false }
+          ? { items: [], offset: 0, limit: 10, has_more: false }
           : {},
       ), { status: 200, headers: { "Content-Type": "application/json" } });
     });
@@ -137,6 +137,12 @@ describe("Phase 18 paged Cases portfolio", () => {
     ));
     expect(paths).toContain("/api/clm/zero-touch/case-portfolio");
     expect(paths).not.toContain("/api/clm/zero-touch/cases");
+    const portfolio = request.mock.calls
+      .map(([input]) => new URL(String(input), "http://localhost"))
+      .find((url) => url.pathname.endsWith("/case-portfolio"))!;
+    // The prefetched first page is the same page the Cases tab shows first.
+    expect(portfolio.searchParams.get("limit")).toBe(String(CASES_PAGE_SIZE));
+    expect(CASES_PAGE_SIZE).toBe(10);
   });
 
   it("keys pages by actor and every filter, sort, search, and paging dimension", () => {
@@ -179,14 +185,14 @@ describe("Phase 18 paged Cases portfolio", () => {
       prioritySort: "highest_first" as const,
       teamFilter: "all",
       offset: 0,
-      limit: 50,
+      limit: 10,
     };
     queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, filters), {
-      items: [first], offset: 0, limit: 50, has_more: true,
+      items: [first], offset: 0, limit: 10, has_more: true,
     });
     queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, {
-      ...filters, offset: 50,
-    }), { items: [second], offset: 50, limit: 50, has_more: false });
+      ...filters, offset: 10,
+    }), { items: [second], offset: 10, limit: 10, has_more: false });
 
     await act(async () => root?.render(
       <MemoryRouter><QueryClientProvider client={queryClient}>
@@ -203,7 +209,7 @@ describe("Phase 18 paged Cases portfolio", () => {
       .find((button) => button.textContent?.trim() === "Next");
     await act(async () => next?.click());
     expect(container?.textContent).toContain("BETA PTE. LTD.");
-    expect(container?.textContent).toContain("Showing 51–51");
+    expect(container?.textContent).toContain("Showing 11–11");
     expect(container?.textContent).toContain("Page 2");
     const previous = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .find((button) => button.textContent?.trim() === "Previous");
@@ -219,14 +225,14 @@ describe("Phase 18 paged Cases portfolio", () => {
       prioritySort: "highest_first" as const,
       teamFilter: "all",
       offset: 0,
-      limit: 50,
+      limit: 10,
     };
     queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, base), {
-      items: [first], offset: 0, limit: 50, has_more: false,
+      items: [first], offset: 0, limit: 10, has_more: false,
     });
     queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, {
       ...base, search: "Beta",
-    }), { items: [second], offset: 0, limit: 50, has_more: false });
+    }), { items: [second], offset: 0, limit: 10, has_more: false });
 
     function Harness() {
       const [presentation, setPresentation] = useState<CaseQueuePresentationState>(
@@ -262,15 +268,15 @@ describe("Phase 18 paged Cases portfolio", () => {
       priority: "all" as const,
       prioritySort: "highest_first" as const,
       offset: 0,
-      limit: 50,
+      limit: 10,
     };
     const ownKey = caseQueryKeys.casePortfolio(actor.user_id, filters);
     const otherKey = caseQueryKeys.casePortfolio("sophia-ng", filters);
     queryClient.setQueryData(ownKey, {
-      items: [first, second], offset: 0, limit: 50, has_more: false,
+      items: [first, second], offset: 0, limit: 10, has_more: false,
     });
     queryClient.setQueryData(otherKey, {
-      items: [first], offset: 0, limit: 50, has_more: false,
+      items: [first], offset: 0, limit: 10, has_more: false,
     });
 
     await caseDeletedEffect(queryClient, actor.user_id, first.case_id);

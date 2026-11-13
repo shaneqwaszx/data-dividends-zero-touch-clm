@@ -31,7 +31,7 @@ const actor: AuthenticatedProfile = {
   capabilities: ["CASE_ACCESS"],
 } as AuthenticatedProfile;
 
-const FILTERS = { priority: "all" as const, prioritySort: "highest_first" as const, teamFilter: "all", offset: 0, limit: 50 };
+const FILTERS = { priority: "all" as const, prioritySort: "highest_first" as const, teamFilter: "all", offset: 0, limit: 10 };
 
 function item(index: number, human: number, types: ZeroTouchCaseListItem["active_exception_types"] = []): ZeroTouchCaseListItem {
   return {
@@ -82,7 +82,7 @@ function json(value: unknown, status = 200): Response {
 async function renderCases(observedAt = new Date().toISOString(), items = ITEMS) {
   const queryClient = createSessionQueryClient();
   queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, FILTERS), {
-    items, offset: 0, limit: 50, has_more: false, observed_at: observedAt,
+    items, offset: 0, limit: 10, has_more: false, observed_at: observedAt,
   });
   await act(async () => root?.render(
     <MemoryRouter><QueryClientProvider client={queryClient}>
@@ -145,7 +145,7 @@ describe("Cases page top", () => {
     expect(updated?.textContent).toBe("Updated just now");
     expect(updated?.title).not.toBe("");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      json({ items: ITEMS, offset: 0, limit: 50, has_more: false, observed_at: observedAt }),
+      json({ items: ITEMS, offset: 0, limit: 10, has_more: false, observed_at: observedAt }),
     );
     const refresh = Array.from(container!.querySelectorAll("button")).find((button) => button.textContent === "Refresh")!;
     await act(async () => refresh.click());
@@ -202,7 +202,7 @@ describe("Cases table", () => {
     expect(cell.querySelector(".priority-badge")).toBeNull();
     expect(cell.querySelector(".sr-only")?.textContent).toBe("Priority for DEMO CASE 2 PTE. LTD.");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => (
-      String(url).endsWith("/priority") ? json({ case_id: ITEMS[1].case_id, priority: 10 }) : json({ items: ITEMS, offset: 0, limit: 50, has_more: false })
+      String(url).endsWith("/priority") ? json({ case_id: ITEMS[1].case_id, priority: 10 }) : json({ items: ITEMS, offset: 0, limit: 10, has_more: false })
     ));
     const select = cell.querySelector<HTMLSelectElement>("select.priority-select")!;
     await act(async () => {
@@ -241,7 +241,7 @@ describe("Show view and GoldTier ID", () => {
   }
 
   async function renderStateful() {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => json({ items: ITEMS, offset: 0, limit: 50, has_more: false }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => json({ items: ITEMS, offset: 0, limit: 10, has_more: false }));
     await act(async () => root?.render(
       <MemoryRouter><QueryClientProvider client={createSessionQueryClient()}><Harness /></QueryClientProvider></MemoryRouter>,
     ));
@@ -282,7 +282,7 @@ describe("Show view and GoldTier ID", () => {
     const onboarded = { ...item(4, 0), status: "COMPLETED" as const, mock_goldtier_party_id: "SYNTHETIC-GT-S3" };
     const queryClient = createSessionQueryClient();
     queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, FILTERS), {
-      items: [ITEMS[0], onboarded], offset: 0, limit: 50, has_more: false, observed_at: new Date().toISOString(),
+      items: [ITEMS[0], onboarded], offset: 0, limit: 10, has_more: false, observed_at: new Date().toISOString(),
     });
     await act(async () => root?.render(
       <MemoryRouter><QueryClientProvider client={queryClient}>

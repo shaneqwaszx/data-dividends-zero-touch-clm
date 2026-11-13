@@ -51,6 +51,13 @@ from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, Clm
 from .config import AiAssistantSettings, external_conversational
 from .config import conversational as config_conversational
 from .context import build_case_facts
+from .dashboard_insights import (
+    DashboardInsights,
+    InsightsRejected,
+    InsightsRequest,
+    InsightsResponse,
+    InsightsUnavailable,
+)
 from .data_access import REFUSAL_NOTICES as POLICY_REFUSALS
 from .guardrails import (
     LEFT_OUT_REASON,
@@ -1519,6 +1526,46 @@ def create_app(
         app.include_router(
             model_admin_router(selector=selector, backend=backend, check_origin=check_origin)
         )
+
+    dashboard_insights = DashboardInsights()
+    INSIGHTS_UNAVAILABLE = "AI insights are unavailable."  # noqa: N806 - fixed reply text
+
+    @app.post("/assistant/dashboard/insights", response_model=InsightsResponse)
+    def dashboard_insights_route(body: InsightsRequest, request: Request) -> InsightsResponse:
+        """ADR-015: word the dashboard's own findings with the active model (an API-key model
+        under D-122, with the local model as fallback, D-128 I7). Read-only: no case is read,
+        nothing is stored, and the browser hides the panel on any refusal."""
+
+        check_origin(request)
+        try:
+            profile = backend.load_actor(request.cookies.get(SESSION_COOKIE_NAME))["profile"]
+        except ClmBackendError as exc:
+            raise backend_error(exc) from None
+        if "CASE_ACCESS" not in (profile.get("capabilities") or []):
+            raise HTTPException(
+                403, detail={"code": "FORBIDDEN", "message": "You are not allowed to do this."}
+            )
+        active = selector.current()
+        fallback = selector.local_fallback()
+        try:
+            return dashboard_insights.write(
+                str(profile.get("user_id") or ""),
+                body,
+                active.model,
+                active.base_url,
+                fallback=(fallback.model, fallback.base_url),
+                external=external_conversational(config),
+            )
+        except InsightsUnavailable:
+            raise HTTPException(
+                503,
+                detail={"code": "DASHBOARD_INSIGHTS_UNAVAILABLE", "message": INSIGHTS_UNAVAILABLE},
+            ) from None
+        except InsightsRejected:
+            raise HTTPException(
+                502,
+                detail={"code": "DASHBOARD_INSIGHTS_REJECTED", "message": INSIGHTS_UNAVAILABLE},
+            ) from None
 
     @app.get("/assistant/health", response_model=HealthResponse)
     def health() -> HealthResponse:

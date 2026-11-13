@@ -2541,10 +2541,38 @@ stale `initial_target_search` read model after a void; whether `check_uncertain_
 `verify_completed_target` keep a deliberate recovery exception; an approved way to populate the
 Government register in staging.
 
-## D-127 - R3 GoldTier secure egress: restricted CONNECT egress for the staging backend (OWNER-DIRECTED 2026-11-12)
+## D-127 - Provisional dashboard SLA and attention rules (OWNER-DIRECTED 2026-11-12)
 
-Number note: D-127 was free on 2026-11-12 on `origin/main` (`b7cb6a7`). Text from
-`R3_G1_DECISION_RECORD.md` section 5, with the G2 owner decisions recorded below it.
+Status: `PROJECT_DEFINED_PROVISIONAL`. Chosen by the owner on 2026-11-12 from defaults the
+implementer proposed. Not sponsor-confirmed. It narrows D-037's exclusion of invented SLA/risk
+semantics only for these display rules on the Dashboard. Q-016 stays open.
+
+| # | Decision |
+|---|---|
+| S1 | **Target.** A case's dashboard SLA target is 10 calendar days from case creation to completion, measured with the existing `case_elapsed_ms`. |
+| S2 | **SLA status.** Open: `OVERDUE` past the target, `AT_RISK` within 2 days of it, else `ON_TRACK`. Completed: `MET` within the target, else `MISSED`. Compliance is `MET` / completed cases in the selected cohort; with no completions it is not calculated. |
+| S3 | **Attention level** (named so it is not confused with the D-047 advisory risk rating). For open cases only: `HIGH` when overdue, when a blocker has been open more than 7 days, or when the case has not been updated for 5 days. `MEDIUM` when at risk, or waiting for review, recovery, inputs or after a technical failure. `LOW` otherwise. Every level lists the reasons that produced it. |
+| S4 | **Rework.** A case counts as rework when it has two or more retained blockers at the same pipeline step. |
+| S5 | **Boundary.** These rules are display and ordering aids only. They do not change workflow state, readiness, priority, routing, approval, escalation, notifications or GoldTier behaviour. They are not a compliance, regulatory or staff-performance measure. |
+
+## D-128 - Read-only AI insights on the Onboarding Dashboard (OWNER-DIRECTED 2026-11-13)
+
+Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
+[ADR-015](ADR-015_DASHBOARD_AI_INSIGHTS.md).
+
+| # | Decision |
+|---|---|
+| I1 | **Display only.** The Manager view shows an "AI insights" panel with a summary, "What to note" and "What to do". There is no chat, question box, regenerate button or per-case recommendation. |
+| I2 | **Source.** Fixed browser rules build findings from the dashboard as shown, including the demo sample. Severity, numbers and case links come from those rules. The model only writes the wording. |
+| I3 | **Model.** The existing local Ollama baseline in the AI Assistant service, through a separate module and endpoint. Remote and test profiles are refused, and the chat assistant is unchanged. |
+| I4 | **Checks.** Text may only use numbers from its finding and must avoid approval, rejection, deletion, closure or override wording. Failing items are dropped. |
+| I5 | **Failure.** When the model is unavailable, slow or fully rejected, the panel is hidden, with no message or rule-based substitute. |
+| I6 | **Privacy.** No customer names, registration numbers, documents or case identifiers are sent to the model, and prompt and answer text are not stored. |
+| I7 | **API-key models (owner-directed 2026-11-13, "when i connect to the api key i can use both the dashboard ai and ai assistant ai chatbot"; "fall back to local model if one is available").** This supersedes I3's refusal of remote profiles. When the active model is an API-key model (Claude, GPT-OSS) and external models may answer in their own words (D-122), it writes the insights. Each call gets the single-use ticket for exactly its messages and passes that model's own readiness, spending limits and ledger, unchanged. A paid model gets one try. If it refuses, fails or its reply is rejected, the local baseline model writes them, when one is configured on a loopback URL; otherwise the panel is hidden (I5). Without D-122 only the local model is used. An IT-configured model on another endpoint is never used. **Shared allowance (owner-accepted 2026-11-13, "share the API key"):** a paid dashboard call is recorded in that provider's ledger as a chat call, so it counts against the same call limit and spending allowance as the chatbot. Claude runs one paid call at a time, so a chatbot question sent while a dashboard call runs may be refused as busy; the reverse falls back to the local model. The chatbot's code is unchanged. I4 and I6 are unchanged: only findings are sent, never customer data. D-122 A4 applies: synthetic POC data only. |
+
+## D-131 - R3 GoldTier secure egress: restricted CONNECT egress for the staging backend (OWNER-DIRECTED 2026-11-12; drafted as D-127)
+
+Number note (alias): this decision was drafted and implemented as **D-127** on 2026-11-12, before `origin/main` assigned D-127 to the provisional dashboard SLA rules (#178). It is renumbered **D-131** in documentation only. Every `D-127` reference in the R3 product, deployment, test, image and host files (`apps/backend/app/config.py`, `apps/backend/app/connectors/goldtier_xpi.py`, `deploy/compose.goldtier-egress.yml`, `deploy/egress/**`, `deploy/LIGHTSAIL_RUNTIME.md`, `deploy/README.md`, `tests/deploy/**` and the R3 backend tests) means **D-131**. Those files are deliberately left byte-identical to the reviewed `68e621d` content and the published images. Text from `R3_G1_DECISION_RECORD.md` section 5, with the G2 owner decisions recorded below it.
 
 Status: owner-directed G1 approval with amendments A-C, authority `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Q-020 (endpoint, allowlisting, addressing, TLS, proxy, read-only scope) is open. `GOLDTIER_XPI` stays `SANDBOX_PARTIAL`. D-126 is unchanged.
 

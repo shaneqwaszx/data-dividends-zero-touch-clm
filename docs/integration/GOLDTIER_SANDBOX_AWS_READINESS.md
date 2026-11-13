@@ -153,7 +153,7 @@ Roll back by returning to the reviewed read-only release:
 - Resolve retained uncertainty only through provider-verified recovery.
 - Rotate `GOLDTIER_SANDBOX_USER_ID` if a secret exposure is suspected.
 
-## R3 egress path (D-127, G2 local candidate)
+## R3 egress path (D-131, drafted as D-127; G2 local candidate)
 
 Staging reaches the Sandbox only through the R3 egress overlay, applied last
 (`compose.yml` -> `compose.mongo.yml` -> [`compose.assistant.yml`] -> `compose.goldtier-egress.yml`).
@@ -186,5 +186,5 @@ answers that change between samples is a STOP. If GoldTier moves to an address t
 Sandbox Search fails closed (`503`); re-pinning is a reviewed edit of all three values, followed
 by a reload of the unit and a restart of the R3 containers. R-1b (shared virtual hosts on the
 pinned addresses) is accepted by the owner only for the temporary read-only FYP staging
-demonstration, under the D-127 A3 conditions. Reusing the local Sandbox credential from AWS is the owner's
-authorisation (D-127 FT-CRED); sponsor permission for hosted access is unverified.
+demonstration, under the D-131 A3 conditions. Reusing the local Sandbox credential from AWS is the owner's
+authorisation (D-131 FT-CRED); sponsor permission for hosted access is unverified.
