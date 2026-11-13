@@ -1,0 +1,25 @@
+# R3 DNS-2 resolver (D-127 E5). goldtier_egress_guard.py fills in three markers (the FQDN,
+# the control-network listen address and the VPC resolver address) and nothing else.
+# Exactly one question is forwarded: `<FQDN>. IN A`. CoreDNS lowercases name() before the
+# comparison. Everything else, including subdomains of the FQDN, AAAA, TXT and ANY, falls
+# through to the second block and gets REFUSED. There is no cache, and max_fails 0 disables
+# the forward health probe, so no other query ever reaches upstream.
+.:53 {
+    bind @LISTEN@
+    view r3_exact_name {
+        expr name() == '@FQDN@.' && type() == 'A' && class() == 'IN'
+    }
+    forward . @UPSTREAM@:53 {
+        max_fails 0
+    }
+    log . "{remote} {type} {class} {name} {proto} {rcode} {duration}"
+    errors
+}
+.:53 {
+    bind @LISTEN@
+    acl {
+        block
+    }
+    log . "{remote} {type} {class} {name} {proto} {rcode} {duration}"
+    errors
+}

@@ -1175,3 +1175,32 @@ officer roles are descriptive context; nothing else changes ownership readiness.
 candidate: the registry owner gains a Mock-only `businessProfile` capability (strict
 decoder, opaque holder digest, cache schema 5) used by discovery only for
 scenario-named holders; its issued-capital links are ordinary edges in the single engine.
+
+## R3 GoldTier secure egress - G2 local candidate, 2026-11-12 (D-127; not sponsor-confirmed)
+
+Owner-directed, G2 LOCAL only. Nothing here is deployed; G3 and G4 need separate approvals.
+
+- **Path.** Backend -> `goldtier-control` (internal, `clm-gt-ctl`, 172.30.241.0/29) -> the
+  egress proxy (Smokescreen at a pinned commit, R3 entrypoint) -> `goldtier-uplink`
+  (`clm-gt-up`, 172.30.242.0/29) -> the pinned GoldTier IPv4 set on 443 (`goldtier_dst_v4`,
+  fast-track R-1 pin; never any public IPv4). The proxy resolves
+  only through the exact-name `A` resolver (CoreDNS, DNS-2), whose single upstream is the VPC
+  resolver. The backend keeps no route to the internet.
+- **Owner.** `HttpxGoldTierXpiTransport` alone uses the proxy (`trust_env=False`, explicit
+  trust store, TLS 1.3 verified, no direct fallback). ACRA transports are untouched. D-126
+  identity policy, the target ledger and write refusal are unchanged.
+- **Enforcement.** Two independent layers allow exactly the Amendment C flows: the host table
+  `inet clm_r3` (own unit, before Docker, drop-only, never `nftables.service`/ufw/`DOCKER-USER`)
+  with a fail-closed watcher, and Layer N, a default-deny nft table inside each R3 container
+  installed by its root guard before the unprivileged child starts.
+- **Privilege (G2-LN).** Only the guard holds `NET_ADMIN`, `SETUID`, `SETGID`, `SETPCAP`, and it
+  keeps only `NET_ADMIN` once the child (uid 65532, empty capability sets, `NoNewPrivs`) runs.
+- **Residuals (G2 QG, observed not only designed).** R-1: any process in the proxy namespace,
+  including the uid-65532 child, reached arbitrary public IPv4:443 directly at L3 in the AC-1
+  fuzz; only Smokescreen's L7 checks bound the FQDN. The fast-track pin now limits L3 at both
+  layers to the pinned GoldTier set (harness re-proof pending independent delta review). R-1b: no SNI-equality check (open under
+  Amendment B). Raw-frame spoofing: a sender with `CAP_NET_RAW` in one R3 namespace can use the
+  other R3 address (no R3 process holds it). Backend isolation from the proxy and resolver on
+  `clm-gt-ctl` (e.g. backend `:8000`) depends on Layer N alone, because ICC is on and
+  `br_netfilter` is absent. The host table has no OUTPUT chain, so the U-1 closure depends on
+  `dns:` plus Layer N. Also resolver compromise, B-5/OR-6 (existing host INPUT), OR-5 (Caddy).

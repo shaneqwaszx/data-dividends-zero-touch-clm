@@ -216,7 +216,11 @@ def build_onboarding_service(
                 max_response_bytes=active_settings.goldtier_sandbox_max_response_bytes,
                 allow_writes=active_settings.goldtier_sandbox_allow_writes,
             ),
-            transport=goldtier_transport or HttpxGoldTierXpiTransport(),
+            transport=goldtier_transport
+            or HttpxGoldTierXpiTransport(
+                proxy_url=active_settings.goldtier_sandbox_egress_proxy_url or None,
+                ca_file=active_settings.goldtier_sandbox_tls_ca_file or None,
+            ),
         )
         goldtier_mapper = GoldTierXpiRequestMapper()
         entity_resolver = OnboardingIntelligenceService()

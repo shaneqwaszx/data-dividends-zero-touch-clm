@@ -195,6 +195,26 @@ holdings, foreign corporate owners and non-share interests represented? D-076 us
 project-defined Mock defaults, never merges persons across issuers without an explicit
 verified binding, and keeps every unresolved branch under human review.
 
+### Q-020 - GoldTier XPI Sandbox access from the AWS-hosted staging environment (D-127)
+
+Raised by D-127 (R3 secure egress). `portal.gt.deltacapita.net` / `anz-nutmeg` remains
+**UNCONFIRMED** for AWS-origin calls; it was owner-supplied and observed only from a
+workstation. Planned use is a strictly read-only check from the single staging host on AWS
+Lightsail (ap-southeast-2, one static IPv4), with no writes and no customer creation.
+
+1. **Endpoint.** The approved Sandbox FQDN and HTTPS base path for server-to-server use.
+2. **Source allowlisting.** Are callers restricted by source IP, and how is a static IPv4 registered?
+3. **Destination addressing.** Stable IPv4 ranges (which), or changing CDN or load-balancer
+   addresses? Is IPv6 offered or required? (This sizes D-127 E8 / R-1b.)
+4. **TLS.** TLS 1.3 support, a publicly trusted chain, and whether mTLS, a private CA or pinning applies.
+5. **Proxy.** May the client connect through the project's own explicit HTTPS CONNECT proxy,
+   which does not decrypt or alter traffic?
+6. **Read-only scope.** Which operations are approved (proposed: exact-ID `GET .../customers/search`
+   for an existing synthetic record), which credentials apply, and any rate limits or test windows.
+
+Any part left unanswered stays BLOCKED; no default is supplied. G3 needs parts 1, 4 and 5; G4
+needs part 6. Status: OPEN, not yet sent (owner action).
+
 ## ACRA SANDBOX BINDING AND ACCESS
 
 ### Q-012 - Authoritative ACRA Business Profile API contract and access

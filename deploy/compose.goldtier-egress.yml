@@ -1,0 +1,120 @@
+# R3 GoldTier secure egress overlay (D-127). Apply LAST:
+#   compose.yml -> compose.mongo.yml -> [compose.assistant.yml] -> compose.goldtier-egress.yml
+# Helper: dcg() { dc -f deploy/compose.goldtier-egress.yml "$@"; }
+#
+# - The connector mode stays Mock unless CLM_GOLDTIER_CONNECTOR_MODE says otherwise (OD-3).
+# - Sandbox writes stay refused: the value below is the literal string "false".
+# - The backend reaches GoldTier only through goldtier-egress (Smokescreen) on the internal
+#   goldtier-control network; the backend itself still has no route to the internet.
+# - goldtier-egress and goldtier-dns are the only services that reach goldtier-uplink, and the
+#   host table `inet clm_r3` plus each container's own Layer N allow exactly two outbound flows
+#   (Amendment C): proxy -> FQDN IP:443 and resolver -> VPC DNS :53.
+# - Capabilities: G2-LOCAL owner decision G2-LN (option A). Only the root guard (PID 1) holds
+#   NET_ADMIN, SETUID, SETGID and SETPCAP; it keeps only NET_ADMIN once the child starts, and the
+#   child runs as 65532 with every capability set empty and no_new_privs. Not production-accepted.
+# - ICC is left on (enable_icc unset) so br_netfilter is never loaded host-wide. No ports.
+services:
+  backend:
+    environment:
+      GOLDTIER_CONNECTOR_MODE: ${CLM_GOLDTIER_CONNECTOR_MODE:-mock}
+      GOLDTIER_SANDBOX_ALLOW_WRITES: "false"
+      GOLDTIER_SANDBOX_EGRESS_PROXY_URL: http://clm-goldtier-egress:4750
+      GOLDTIER_SANDBOX_EGRESS_FQDN: ${CLM_GOLDTIER_EGRESS_FQDN:?approved GoldTier egress FQDN required}
+    networks:
+      goldtier-control:
+        ipv4_address: 172.30.241.3
+
+  goldtier-egress:
+    image: ${GOLDTIER_EGRESS_IMAGE:?egress image required}
+    platform: linux/amd64
+    container_name: clm-staging-goldtier-egress
+    environment:
+      CLM_EGRESS_ROLE: proxy
+      CLM_EGRESS_FQDN: ${CLM_GOLDTIER_EGRESS_FQDN:?approved GoldTier egress FQDN required}
+      # R-1 pin: must equal GOLDTIER_DST_V4 in /etc/clm/r3/clm_r3.vars. No default, no fallback.
+      CLM_EGRESS_DST_V4: ${CLM_GOLDTIER_EGRESS_DST_V4:?pinned GoldTier IPv4 set required}
+    networks:
+      goldtier-control:
+        ipv4_address: 172.30.241.2
+        aliases: [clm-goldtier-egress]
+      goldtier-uplink:
+        ipv4_address: 172.30.242.2
+    dns: [172.30.241.4]
+    read_only: true
+    tmpfs:
+      - /run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 0.5
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 64
+    logging: &r3-logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    stop_grace_period: 10s
+    restart: unless-stopped
+    depends_on:
+      goldtier-dns:
+        condition: service_healthy
+    healthcheck: &r3-health
+      test: ["CMD", "/usr/local/bin/python3", "-I", "/opt/egress/goldtier_egress_guard.py", "--health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+
+  goldtier-dns:
+    image: ${GOLDTIER_EGRESS_IMAGE:?egress image required}
+    platform: linux/amd64
+    container_name: clm-staging-goldtier-dns
+    environment:
+      CLM_EGRESS_ROLE: resolver
+      CLM_EGRESS_FQDN: ${CLM_GOLDTIER_EGRESS_FQDN:?approved GoldTier egress FQDN required}
+    networks:
+      goldtier-control:
+        ipv4_address: 172.30.241.4
+      goldtier-uplink:
+        ipv4_address: 172.30.242.3
+    # G2 U-1 finding: on Docker 29.9.3 a non-internal container WITHOUT dns: has its embedded-DNS
+    # queries forwarded from the HOST namespace straight to the VPC resolver (bypassing FORWARD).
+    # Layer N already drops loopback, so 127.0.0.11 is unreachable; this is defence in depth.
+    dns: [172.30.241.4]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "53"
+    read_only: true
+    tmpfs:
+      - /run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 0.25
+    mem_limit: 96m
+    memswap_limit: 96m
+    pids_limit: 64
+    logging: *r3-logging
+    stop_grace_period: 10s
+    restart: unless-stopped
+    healthcheck: *r3-health
+
+networks:
+  goldtier-control:
+    internal: true
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: clm-gt-ctl
+    ipam:
+      config:
+        - subnet: 172.30.241.0/29
+          gateway: 172.30.241.1
+  goldtier-uplink:
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: clm-gt-up
+    ipam:
+      config:
+        - subnet: 172.30.242.0/29
+          gateway: 172.30.242.1

@@ -1394,6 +1394,9 @@ def test_staging_starts_with_approved_provider_modes_offline(
         goldtier_sandbox_base_url="https://goldtier.invalid",
         goldtier_sandbox_environment="fixture",
         goldtier_sandbox_user_id="fixture-user",
+        # D-127 E1: staging Sandbox starts only behind the R3 egress proxy.
+        goldtier_sandbox_egress_proxy_url="http://clm-goldtier-egress:4750",
+        goldtier_sandbox_egress_fqdn="goldtier.invalid",
     )
     bundle = build_persistence_bundle(ordinary_test_settings())
 

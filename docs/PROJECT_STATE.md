@@ -1593,3 +1593,16 @@ Delta only, within D-118 (decision log: usability remediation U1 to U4):
 - **Evidence.** `apps/assistant/tests/ui_stack.py` runs the real assistant with mock providers
   for `e2e/ai-models-setup-real-stack.e2e.ts` (scenarios A to H). Class: Local.
 - **Basis.** Unchanged.
+
+## R3 GoldTier secure egress (D-127) - G2 local implementation candidate, 2026-11-12
+
+Branch `feat/r3-goldtier-egress-g2-20261112` (local, uncommitted) on `b7cb6a7`. Provider
+classifications are unchanged: GoldTier Mock is the default and `GOLDTIER_XPI` stays
+`SANDBOX_PARTIAL`. Staging Sandbox now refuses to start without
+`GOLDTIER_SANDBOX_EGRESS_PROXY_URL` and `GOLDTIER_SANDBOX_EGRESS_FQDN` (base-URL host must equal
+the FQDN on 443); the optional `GOLDTIER_SANDBOX_TLS_CA_FILE` selects the trust store
+explicitly (default: certifi's bundle, never OpenSSL's environment-sensitive default paths).
+New, not deployed: `deploy/compose.goldtier-egress.yml`, `deploy/egress/**` (image, guard,
+resolver config, host table and units). Evidence is local harness only (Docker 29.9.3,
+iptables-nft, kernel 7.0.0-1012-aws); it is not Live, Sandbox-call or sponsor evidence. Q-020
+is open. Next: independent QG of the G2 candidate.

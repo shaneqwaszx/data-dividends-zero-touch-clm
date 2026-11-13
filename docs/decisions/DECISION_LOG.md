@@ -2540,3 +2540,39 @@ Open before any write qualification: paused-state wording; Sandbox prior-case le
 stale `initial_target_search` read model after a void; whether `check_uncertain_target_status` and
 `verify_completed_target` keep a deliberate recovery exception; an approved way to populate the
 Government register in staging.
+
+## D-127 - R3 GoldTier secure egress: restricted CONNECT egress for the staging backend (OWNER-DIRECTED 2026-11-12)
+
+Number note: D-127 was free on 2026-11-12 on `origin/main` (`b7cb6a7`). Text from
+`R3_G1_DECISION_RECORD.md` section 5, with the G2 owner decisions recorded below it.
+
+Status: owner-directed G1 approval with amendments A-C, authority `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Q-020 (endpoint, allowlisting, addressing, TLS, proxy, read-only scope) is open. `GOLDTIER_XPI` stays `SANDBOX_PARTIAL`. D-126 is unchanged.
+
+| # | Decision |
+| --- | --- |
+| E1 | The backend reaches GoldTier only through an explicit HTTPX proxy (`trust_env=False`, TLS 1.3 verified, no direct fallback). Staging Sandbox refuses to start without it. The base-URL host must equal the egress FQDN |
+| E2 | The egress proxy is Smokescreen at a pinned commit, subject to hard conformance gates. A failure needs a separate decision |
+| E3 | Networks: `goldtier-control` (internal) and `goldtier-uplink`. The overlay is applied last. ICC stays on. Mode defaults to `mock` |
+| E4 | Host enforcement uses a dedicated `inet clm_r3` table under its own unit. `nftables.service`, ufw and `DOCKER-USER` are not used |
+| E5 | DNS goes through an exact-name `A`-only resolver |
+| E6 | Exactly two outbound flows are allowed (Amendment C). All others are blocked |
+| E7 | Runtime firewall loss must be prevented or promptly terminated, with measured windows (Amendment A) |
+| E8 | The SNI or shared-address residual is unresolved and needs a separate decision before production (Amendment B) |
+
+G2 owner decisions (2026-11-12, after the G2 S2 STOP; G2 LOCAL only, not production-accepted):
+
+| # | Decision |
+| --- | --- |
+| G2-P2 | Option B. The R3 Smokescreen entrypoint accepts only the exact lowercase ASCII request `CONNECT <fqdn>:443 HTTP/1.1` with one exact `Host`, validated on the raw request head before any parsing, IDNA mapping, ACL or DNS, and re-checked after Smokescreen's own decision. It uses a fixed role and can only narrow what Smokescreen accepts. Smokescreen's ACL and private-address denial stay independent. The earlier failed S2 evidence is kept unchanged |
+| G2-LN | Option A. Each R3 container's root guard (PID 1) holds `NET_ADMIN`, `SETUID`, `SETGID` and `SETPCAP`, installs and verifies Layer N before starting the child, and keeps only `NET_ADMIN` once the child runs. The child runs as uid/gid 65532 with empty effective, permitted, inheritable, ambient and bounding sets and `NoNewPrivs`. This replaces the handoff's one-capability wording for G2 LOCAL only; the independent QG must rule on the increased guard privilege |
+
+Fast-track staging owner decisions (2026-11-13, A1 and A2; a temporary academic staging demo, not production):
+
+| # | Decision |
+| --- | --- |
+| FT-A1 | Read-only exact GoldTier ID lookup only, with at most three authorised Sandbox test calls. The tested G2-LN root guard is reused; there is no `NET_ADMIN` sidecar. Backend `:8000` isolation on `goldtier-control` relies on Layer N alone, which is accepted for this bounded design (G2 note N9). Mongo isolation, authentication, provenance (D-126), the R2 assistant safeguards and the rollback protections are unchanged. The credential attestation for AWS-hosted use is **not** satisfied |
+| D-cert | `certifi` is declared and pinned in `apps/backend/pyproject.toml` at the version in the tested G2 backend image. Normal TLS verification is unchanged |
+| FT-A2 / R-1 | O-1 is pinned to a validated GoldTier IPv4 set: the `goldtier_dst_v4` set in `inet clm_r3` (`GOLDTIER_DST_V4` in `clm_r3.vars`) and the proxy's required `CLM_EGRESS_DST_V4` in Layer N. There is no unpinned mode and no fallback to any public IPv4 |
+| R-1b | **Not accepted.** It needs the owner's separate A3 decision on the observed address evidence |
+
+Not authorised by this record: G3a, G3b, G3c and G4; any AWS, host or production change; image publication; GoldTier calls; commit, push, PR or merge.

@@ -1,0 +1,21 @@
+# R3 host egress table (D-127 E4, Amendment A). Install: /etc/systemd/system/.
+# Loads ONLY `table inet clm_r3`, before Docker. Never nftables.service, ufw or DOCKER-USER.
+# Stopping this unit stops the R3 containers BEFORE the table is removed (RL-1).
+# There is deliberately no Requires= on docker.service (OD-6).
+[Unit]
+Description=CLM R3 GoldTier egress host table (inet clm_r3)
+DefaultDependencies=no
+After=local-fs.target
+Before=docker.service network-pre.target shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/clm/r3/clm_r3.nft
+ExecStop=/usr/local/lib/clm-r3/clm_r3_stop_containers.sh firewall-stop
+ExecStop=/usr/sbin/nft delete table inet clm_r3
+
+[Install]
+WantedBy=multi-user.target

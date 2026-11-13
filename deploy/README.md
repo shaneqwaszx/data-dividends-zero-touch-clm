@@ -61,3 +61,12 @@ reserved for new sources would still accept unauthenticated attack traffic.
 Keep the aggregate and concurrency limits as the backend safety boundary.
 If sustained contention affects the demo, evaluate an upstream access policy
 or a bot challenge before increasing the backend budget.
+
+## R3 GoldTier secure egress overlay (D-127, G2 candidate)
+
+`deploy/compose.goldtier-egress.yml` adds `goldtier-egress` (Smokescreen under its guard) and
+`goldtier-dns` (exact-name CoreDNS) on two R3 networks, and joins the backend to the internal
+control network. Apply it last with `dcg()` (see `LIGHTSAIL_RUNTIME.md`). The image is built
+from `deploy/egress/Dockerfile`; pins and the update policy are in
+`deploy/egress/SMOKESCREEN_PIN.md`. Local evidence comes from the Linux harness in
+`tests/deploy/egress_harness/` only, never from Docker Desktop.
