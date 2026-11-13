@@ -1198,7 +1198,7 @@ Owner-directed, G2 LOCAL only. Nothing here is deployed; G3 and G4 need separate
 - **Residuals (G2 QG, observed not only designed).** R-1: any process in the proxy namespace,
   including the uid-65532 child, reached arbitrary public IPv4:443 directly at L3 in the AC-1
   fuzz; only Smokescreen's L7 checks bound the FQDN. The fast-track pin now limits L3 at both
-  layers to the pinned GoldTier set (harness re-proof pending independent delta review). R-1b: no SNI-equality check (open under
+  layers to the pinned GoldTier set (independent delta QG PASS WITH NOTES). R-1b: no SNI-equality check (owner-accepted for the read-only FYP staging demo only, D-127 A3; otherwise open under
   Amendment B). Raw-frame spoofing: a sender with `CAP_NET_RAW` in one R3 namespace can use the
   other R3 address (no R3 process holds it). Backend isolation from the proxy and resolver on
   `clm-gt-ctl` (e.g. backend `:8000`) depends on Layer N alone, because ICC is on and

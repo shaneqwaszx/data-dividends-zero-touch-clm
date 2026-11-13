@@ -185,4 +185,6 @@ on the host through the VPC resolver: any difference from the pinned set, more t
 answers that change between samples is a STOP. If GoldTier moves to an address that is not pinned,
 Sandbox Search fails closed (`503`); re-pinning is a reviewed edit of all three values, followed
 by a reload of the unit and a restart of the R3 containers. R-1b (shared virtual hosts on the
-pinned addresses) is still open and needs its own owner decision.
+pinned addresses) is accepted by the owner only for the temporary read-only FYP staging
+demonstration, under the D-127 A3 conditions. Reusing the local Sandbox credential from AWS is the owner's
+authorisation (D-127 FT-CRED); sponsor permission for hosted access is unverified.
