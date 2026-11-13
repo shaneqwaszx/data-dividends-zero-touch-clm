@@ -182,21 +182,23 @@ describe("dashboard insight panels", () => {
     const rows = rowTexts(exceptions.querySelector("table")!);
     expect(rows).toHaveLength(7);
     expect(exceptions.querySelector(".pagination")).toBeNull();
-    // Exception, Raised, Share, Countries, Last 8 weeks, Open, Resolved, Mean fix, Total fix.
-    expect(rows[0].slice(0, 3)).toEqual(["Ownership review required", "3", "15%"]);
-    expect(rows[0][3]).toBe("SG 3");
-    expect(rows[0].slice(5, 8)).toEqual(["—", "3", "22h 40m"]);
-    expect(rows[0][8]).toContain("2d 20h");
-    expect(rows[0][8]).toContain("43% of all fix time");
+    // Exception, Raised, Countries, Open, Resolved, Mean fix, Total fix.
+    const headers = Array.from(exceptions.querySelectorAll("thead th")).map((th) => th.textContent?.trim());
+    expect(headers).not.toContain("Share");
+    expect(headers).not.toContain("Last 8 weeks");
+    expect(headers).toHaveLength(7);
+    expect(rows[0].slice(0, 2)).toEqual(["Ownership review required", "3"]);
+    expect(rows[0][2]).toBe("SG 3");
+    expect(rows[0].slice(3, 6)).toEqual(["—", "3", "22h 40m"]);
+    expect(rows[0][6]).toContain("2d 20h");
+    expect(rows[0][6]).toContain("43% of all fix time");
     expect(rows[1][0]).toBe("Ownership incomplete");
-    expect(rows[1][3]).toBe("SG 2 · AU 1");
-    expect(rows[1][5]).toBe("1");
-    expect(rows.at(-1)!.slice(5, 9)).toEqual(["1", "0", "—", "—"]);
+    expect(rows[1][2]).toBe("SG 2 · AU 1");
+    expect(rows[1][3]).toBe("1");
+    expect(rows.at(-1)!.slice(3, 7)).toEqual(["1", "0", "—", "—"]);
     expect(rows.at(-1)![0]).toBe("Target partial review required");
     const frequent = rows.find((row) => row[0].startsWith("Document low confidence"))!;
     expect(frequent[0]).toBe("Document low confidenceMost frequent");
-    expect(frequent[2]).toBe("25%");
-    expect(exceptions.querySelectorAll(".sparkline")).toHaveLength(7);
   });
 
   it("shows the weekly zero-touch rate and the share of cases passing each step", () => {

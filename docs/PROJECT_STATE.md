@@ -1598,7 +1598,7 @@ Delta only, within D-118 (decision log: usability remediation U1 to U4):
 
 Delta only. The Onboarding Dashboard adds management KPIs, a previous-period comparison
 (bounded ranges only), an onboarding funnel, a turnaround trend, processing vs waiting per
-step, exception share/country/weekly trend, rework, team comparison, workload running/blocked/
+step, exceptions by country, rework, team comparison, workload running/blocked/
 overdue counts and All cases triage (country, attention, SLA and exception filters; highest
 attention first). The Cases tab shows 10 rows per page.
 

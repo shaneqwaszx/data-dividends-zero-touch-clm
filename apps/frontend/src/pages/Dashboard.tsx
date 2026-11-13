@@ -398,9 +398,7 @@ function ExceptionBreakdown({ exceptions }: { exceptions: DashboardExceptionCoun
               <tr>
                 <SortableTh label="Exception" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Raised" sortKey="raised" activeKey={sortKey} dir={sortDir} onSort={onSort} />
-                <th scope="col">Share</th>
                 <th scope="col">Countries</th>
-                <th scope="col">Last 8 weeks</th>
                 <SortableTh label="Open" sortKey="open" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Resolved" sortKey="resolved" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Mean fix time" sortKey="mean" activeKey={sortKey} dir={sortDir} onSort={onSort} />
@@ -412,9 +410,7 @@ function ExceptionBreakdown({ exceptions }: { exceptions: DashboardExceptionCoun
                 <tr key={item.exception_type}>
                   <td>{BUSINESS_EXCEPTION_TYPE_LABELS[item.exception_type]}{item.count === mostFrequent && <span className="tag tag-amber exception-flag">Most frequent</span>}</td>
                   <td>{item.count}</td>
-                  <td>{total ? formatPercent(item.count / total) : "—"}</td>
                   <td>{countryBreakdown(item)}</td>
-                  <td><Sparkline counts={item.weekly_counts} label={BUSINESS_EXCEPTION_TYPE_LABELS[item.exception_type]} /></td>
                   <td>{item.open_count > 0 ? <span className="tag tag-warn">{item.open_count}</span> : <span className="text-muted">—</span>}</td>
                   <td>{item.resolved_count}</td>
                   <td>{formatDuration(item.mean_fix_ms)}</td>
@@ -444,15 +440,6 @@ function countryBreakdown(item: DashboardExceptionCount): string {
     .map(([code, count]) => `${code} ${count}`);
   if (item.unresolved_jurisdiction_count) parts.push(`Unresolved ${item.unresolved_jurisdiction_count}`);
   return parts.length ? parts.join(" · ") : "—";
-}
-
-function Sparkline({ counts, label }: { counts: number[]; label: string }) {
-  const max = Math.max(1, ...counts);
-  return (
-    <span className="sparkline" role="img" aria-label={`${label}: ${counts.join(", ")} raised per week, oldest first`}>
-      {counts.map((count, index) => <i key={index} style={{ height: `${Math.max(count ? 18 : 6, (count / max) * 100)}%` }} className={count ? "" : "sparkline-empty"} title={`${count}`} />)}
-    </span>
-  );
 }
 
 function StraightThroughPanel({ weeks, stageTiming }: { weeks: DashboardSnapshot["weekly_onboarded"]; stageTiming: DashboardStageTiming[] }) {
@@ -567,8 +554,6 @@ function TeamComparison({ teams }: { teams: DashboardTeamCount[] }) {
 }
 
 function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"] }) {
-  const max = Math.max(1, ...rows.map((row) => row.open_cases));
-  const totalOpen = rows.reduce((sum, row) => sum + row.open_cases, 0);
   type Row = DashboardSnapshot["workload_by_person"][number];
   const accessors = {
     person: (row: Row) => row.display_name,
@@ -604,7 +589,6 @@ function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"]
                 <SortableTh label="Onboarded" sortKey="completed" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Blockers fixed" sortKey="fixed" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Mean fix time" sortKey="fixtime" activeKey={sortKey} dir={sortDir} onSort={onSort} />
-                <th>Open workload</th>
               </tr>
             </thead>
             <tbody>
@@ -620,20 +604,12 @@ function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"]
                   <td>{row.completed_cases}</td>
                   <td>{row.blockers_resolved}</td>
                   <td>{formatDuration(row.mean_fix_time_ms)}</td>
-                  <td>
-                    <div className="workload-bar" role="img" aria-label={`${row.running_cases} running and ${row.blocked_cases} blocked of ${totalOpen} open`}>
-                      <i className="workload-running" style={{ width: `${(row.running_cases / max) * 100}%` }} />
-                      <i className="workload-blocked" style={{ width: `${(row.blocked_cases / max) * 100}%` }} />
-                    </div>
-                    <p className="load-bar-note">{row.open_cases} of {totalOpen} open{totalOpen ? ` (${formatPercent(row.open_cases / totalOpen)})` : ""}</p>
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {rows.length > 0 && <p className="text-muted stack-legend"><span><i className="stack-swatch workload-running" />Running</span><span><i className="stack-swatch workload-blocked" />Blocked</span></p>}
       <Pagination page={page} setPage={setPage} pageCount={pageCount} total={rowCount} pageSize={pageSize} />
     </article>
   );
