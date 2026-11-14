@@ -484,7 +484,10 @@ def read_json(path: Path) -> Any:
 def write_json(path: Path, document: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())  # on disk before the caller takes its next step
     temporary.replace(path)
 
 

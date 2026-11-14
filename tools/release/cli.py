@@ -321,13 +321,37 @@ def cmd_rollback(args: argparse.Namespace) -> int:
         _emit(
             {
                 "would_roll_back": [s for s in catalog.ROLLBACK_ORDER if s in ctx.changed],
-                "blocked_by": deploy.rollback_blockers(ctx, state, None),
+                "blocked_by": deploy.rollback_blockers(ctx, state, None, need_consent=False),
             }
         )
         return 0
     outcome = deploy.manual_rollback(ctx, ctx.manifest["release_id"])
     _emit({"state": outcome["state"], "held_reason": outcome.get("held_reason")})
     return 0 if outcome["state"] == records.ROLLED_BACK else 2
+
+
+def cmd_recover(args: argparse.Namespace) -> int:
+    """Read-only: it runs in dry-run mode, so the gate cannot issue a host write."""
+
+    ctx = _context(args, Mode.DRY_RUN)
+    outcome = deploy.recover(
+        ctx,
+        ctx.manifest["release_id"],
+        recovered_by=args.recovered_by,
+        interactive=_interactive(),
+    )
+    _emit(
+        {
+            "state": outcome["state"],
+            "rollback": outcome["rollback"],
+            "recovery": outcome["recovery_attempts"][-1],
+            "held_reason": outcome.get("held_reason")
+            if outcome["state"] == records.ROLLBACK_INTERRUPTED
+            else None,
+        }
+    )
+    verified = {records.ROLLED_BACK, records.DEPLOYED_AWAITING_ACCEPTANCE}
+    return 0 if outcome["state"] in verified else 2
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -506,6 +530,14 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--offline", action="store_true", help="dry run without any host read")
         modes(p)
         p.set_defaults(func=func)
+
+    p = sub.add_parser(
+        "recover", help="read-only: establish the host state after an unfinished rollback"
+    )
+    p.add_argument("--manifest", required=True)
+    p.add_argument("--operator-config", help="JSON outside the repository naming the SSH target")
+    p.add_argument("--recovered-by", required=True)
+    p.set_defaults(func=cmd_recover, approval=None, transfer="pull", offline=False)
 
     p = sub.add_parser("accept", help="owner only: record the browser acceptance result")
     p.add_argument("--manifest", required=True)

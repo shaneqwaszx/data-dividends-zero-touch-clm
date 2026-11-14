@@ -24,6 +24,12 @@ ACCEPTED = "ACCEPTED"
 ACCEPTANCE_FAILED = "ACCEPTANCE_FAILED"
 ROLLED_BACK = "ROLLED_BACK"
 FAILED_HELD = "FAILED_HELD"  # changed and not rolled back: stopped for an owner decision
+# Written to disk BEFORE the first rollback step. A record found in this state while no
+# release command is running means the tool died mid-rollback: the host state is unknown.
+ROLLBACK_IN_PROGRESS = "ROLLBACK_IN_PROGRESS"
+# A rollback ended without a verified outcome (interrupt, crash, or an unreadable host).
+ROLLBACK_INTERRUPTED = "ROLLBACK_INTERRUPTED"
+ROLLBACK_UNFINISHED = frozenset({ROLLBACK_IN_PROGRESS, ROLLBACK_INTERRUPTED})
 
 
 def default_state_dir() -> Path:
@@ -57,6 +63,25 @@ class StateStore:
         write_json(directory / f"result-{number:03d}.json", result)
         write_json(directory / "result.json", result)
         return directory / "result.json"
+
+    def journal(self, release_id: str, entry: dict[str, Any], rollback: dict[str, Any]) -> None:
+        """Record a rollback step BEFORE it is issued: append it to the release's journal and
+        refresh the latest result, both flushed to disk. A process that dies straight after
+        therefore leaves a record that already names the step it was about to take."""
+
+        directory = self.release_dir(release_id)
+        line = json.dumps({**entry, "at": format_utc(self.clock())}, sort_keys=True)
+        with (directory / "rollback-journal.jsonl").open(
+            "a", encoding="utf-8", newline="\n"
+        ) as handle:
+            handle.write(line + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        latest = directory / "result.json"
+        if latest.exists():
+            current = read_json(latest)
+            current["rollback"] = rollback
+            write_json(latest, current)
 
     def read_result(self, release_id: str) -> dict[str, Any] | None:
         path = self.release_dir(release_id) / "result.json"

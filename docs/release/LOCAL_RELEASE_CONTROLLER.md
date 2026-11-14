@@ -39,6 +39,7 @@ the same local lock as a deployment, so the two never overlap.
 Promotion is always a person running commands with an owner approval record
 (`RELEASE_AUTOMATION_RUNBOOK.md`, sections 3 to 5). The deployment command records its own
 result: `DRY_RUN_OK`, `FAILED_NO_CHANGE`, `DEPLOYED_AWAITING_ACCEPTANCE`, `ROLLED_BACK`,
+`ROLLBACK_IN_PROGRESS`, `ROLLBACK_INTERRUPTED`,
 `FAILED_HELD`, then `ACCEPTED` or `ACCEPTANCE_FAILED`. Each result is a numbered file; none is
 overwritten. `known-good.json` moves only on `ACCEPTED` and keeps its history.
 

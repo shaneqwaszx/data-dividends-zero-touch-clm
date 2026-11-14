@@ -23,7 +23,7 @@ use), `GHCR_CREDENTIAL_GUIDE.md`, `RISK_BASED_APPROVAL_PROPOSAL.md` (a proposal,
    runs `publish --execute` or `deploy --execute`, in an owner-approved window. Everything
    else (`verify-source`, `checks`, `image`, `manifest`, `validate`, `plan`, `controller tick`,
    any `--plan-only` or `--dry-run --offline`) stays on this machine.
-2. **You never approve.** `approve`, `accept`, `unlock` and `creds bootstrap|rotate` refuse a
+2. **You never approve.** `approve`, `accept`, `recover`, `unlock` and `creds bootstrap|rotate` refuse a
    non-interactive caller. Do not work around that.
 3. **Never rebuild a qualified image.** Accept it by its exact image id.
 4. **Never** `down`, `-v`, `--remove-orphans`, volume removal, `compose rm`, a second backend,
@@ -99,6 +99,22 @@ Design rules to keep:
 - A new safety rule needs a test that fails without it. A new host step needs the mock host in
   `tests/release/fakes.py` to model it.
 - Do not add a third-party dependency: the release path must run from a plain Python install.
+
+## Result states you will see
+
+`FAILED_NO_CHANGE`, `DEPLOYED_AWAITING_ACCEPTANCE`, `ACCEPTED`, `ACCEPTANCE_FAILED`,
+`ROLLED_BACK`, `FAILED_HELD`, and for a rollback without a verified outcome
+`ROLLBACK_IN_PROGRESS` and `ROLLBACK_INTERRUPTED` (diagram: `PIPELINE_ARCHITECTURE.md` 3.7).
+`ROLLBACK_IN_PROGRESS` is written before the first rollback step; found at rest it means the
+tool died mid-rollback and the host state is unknown. Only `recover` (read-only, run by a
+person) can move a release out of an unfinished rollback, and only on what it verified. Never
+report a release as rolled back, or the previous service as restored, from anything but a
+`ROLLED_BACK` record.
+
+If you change the rollback code: keep the in-progress record ahead of the first step, keep
+every step journalled before it is issued, and keep `rollback()` returning only after its
+final verification. `tests/release/test_rollback_interruption.py` holds those rules.
+
 
 ## Known gaps (do not assume they work)
 

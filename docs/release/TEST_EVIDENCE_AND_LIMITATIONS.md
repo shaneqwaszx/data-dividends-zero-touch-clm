@@ -9,7 +9,7 @@
 
 ## 1. Automated tests (`tests/release`)
 
-`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **246 passed, 1 skipped** (5 test files, 157 test functions; the count includes parametrised cases).
+`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **283 passed, 1 skipped** (6 test files, 184 test functions; the count includes parametrised cases).
 The one skipped test is the opt-in Windows Credential Manager round trip
 (`CLM_RELEASE_WINCRED_SELFTEST=1`); it was run once by hand and passed (it writes and removes
 one throwaway entry holding a sentinel value).
@@ -38,7 +38,7 @@ one throwaway entry holding a sentinel value).
 
 | Check | Result |
 |---|---|
-| `ruff check --select E,F,I,UP,B,SIM --line-length 100 --target-version py312 tools/release tests/release` | All checks passed |
+| `ruff check --select E,F,I,UP,B,SIM --line-length 100 --target-version py312 tools/release tests/release` | All checks passed. **Only with these options.** No ruff configuration is tracked at the repository root, so a bare `ruff check tools/release tests/release` uses ruff's defaults or a parent configuration and is not clean (the re-reviewer saw 21 findings from rules outside this set) |
 | `ruff format --check` (same options) | 24 files already formatted |
 | `mypy --strict -p tools.release` | Success: no issues found in 19 source files |
 | `python scripts/check_secrets.py` (worktree root) | Secret scan passed |
@@ -102,9 +102,9 @@ this toolchain is `FAIL` and it must not be used against the host or the registr
 | F5 schema-19 rule bypassable by omitting or re-casing the commit | P2 | A compatible backend target must name a 7 to 40 character lower-case hex commit (schema and rule); the commit is normalised before the schema-19 check. Documents now say "declared", not "proved". The tool still cannot verify what an image writes | `test_f5_*` (7 cases) |
 | F6 manual rollback overwrote `compose.env` wholesale, no host lock | P2 | It now changes back only this release's lines, only if they still show this release's pins (otherwise refuses and changes nothing), and takes the host lock | `test_f6_*` (2), `test_f7_*` |
 | F7 rollback approval semantics | P2 | New `rollback` approval action, single use; the deploy approval is not accepted; `auto_rollback` is not required for an explicit rollback approval; runbook updated | `test_f7_*`, `test_owner_requested_rollback_*` |
-| F8 interrupted run left no record | P2 | A record is written on every exit path, including Ctrl-C and unexpected errors (`INTERRUPTED`), with the applied services and backup path; the error is re-raised; runbook section "After an interrupted run" and stale host lock procedure added. A hard kill still leaves no record | `test_f8_*` (3 cases) |
+| F8 interrupted run left no record | P2 | First fix (`e6356a1`): a record on interrupts inside the main run only. The re-review showed interrupts during failure handling, automatic rollback and owner-requested rollback were still unrecorded (N1, N2). Second fix: section 4.2. A record is written on every exit path **Python can catch**; a hard kill or power loss runs no handler, and then the last record on disk stands (during a rollback that is `ROLLBACK_IN_PROGRESS`) | `test_f8_*`, `test_rollback_interruption.py` |
 | F9 undocumented `/etc/clm/mongo.uri`; fixed host paths | P2 | Host paths are configurable in the operator file; `--execute` refuses until `mongo_uri_file` is stated; checklist A5 is now an owner decision; the documents say the tool never creates the file. **Whether the file exists on the host is still unverified** | `test_f9_*` (2) |
-| F10 surviving mutants, untested paths | P2 | Tests added for 12 of the 13 surviving mutants (M06, M23, M25, M28, M29, M33, M34, M38, M39, M42, M44, M47, M48) and for rollback of two services, expiry at the pin, interruption, and the GoldTier and provider overlays being active. `--transfer load` through `deploy.run` is still untested. The mutation run itself was not repeated | `test_m*` |
+| F10 surviving mutants, untested paths | P2 | Tests added for the 13 mutants the first review listed (M06, M23, M25, M28, M29, M33, M34, M38, M39, M42, M44, M47, M48) and for rollback of two services, expiry at the pin, interruption, and the GoldTier and provider overlays being active. The re-review then found 7 of its own 20 mutants surviving; those are addressed in section 4.2. `--transfer load` through `deploy.run` is still untested. Neither reviewer's full mutation run has been repeated by the implementer | `test_m*`, `test_rollback_interruption.py` |
 | F11 weak deny-list | P3 | Quotes and backslashes are removed before matching; added `up` without `--no-deps` / `--no-build`, recreate flags, any `mongo` target, `exec`, direct `docker stop|exec|rm` forms. Still a backstop only | `test_f11_*` (17 cases) |
 | F12 `--offline` with `--execute` | P3 | Refused; in execute mode a preflight check that could not be read is a failure | `test_f12_*` (2) |
 | F13 `--skip-checks` left no trace | P3 | Every selected check is recorded `NOT_RUN` | `test_f13_*` |
@@ -113,7 +113,7 @@ this toolchain is `FAIL` and it must not be used against the host or the registr
 | F16 pull script without `trap` | P3 | `trap` on EXIT, HUP, INT, TERM. Not executed on a real host. The SSH client timeout behaviour is documented, not changed | script assertion |
 | F17 quoted `~` | P3 | Host state directory is now relative to the operator's home | `test_f17_*` |
 | F18 destination starting with `-` | P3 | Refused | `test_m23_*` |
-| F19 redaction scope; verify script writes a temp file | P3 | Documented in the credential guide; no code change | |
+| F19 redaction scope; verify script writes a temp file | P3 | Redaction scope is in the credential guide. The scratch file `verify_host_firewall.sh` writes and removes (`/tmp/.clm_r3_check`) is now stated in `PIPELINE_ARCHITECTURE.md` section 2; no code change | |
 
 Also fixed, found by the implementing session while running the toolchain on itself: the
 `release-ruff` check lacked the documented lint options and failed; the assistant's in-image
@@ -124,8 +124,44 @@ classic-store image for a containerd one.
 The reviewer's section 5 (what cannot be assessed without a real host or registry) stands in
 full and is not changed by the remediation.
 
+### 4.1 Re-review of the F1 to F19 remediation
+
+A second fresh reviewer re-reviewed head `7fa914637c452ada392739e818f06282afeb496e` (tree
+`5a6754279844b1072bcc3ae4d5579fee69d0a4ed`): **PASS WITH NOTES**. It confirmed F1, F2 and F3
+fixed, found no new P0 or P1, and raised two new P2 findings (N1, N2), six P3 notes (N3 to N8)
+and four overstated statements in these documents. That report is held by the release
+coordinator at `outputs/integration-release-lead-20261114/PIPELINE_REMEDIATION_REREVIEW.md` in
+the main checkout; it is not reproduced here.
+
+### 4.2 N1 and N2 (interrupted rollback), and the notes addressed with them
+
+| Finding | What was done | Tests (`test_rollback_interruption.py`) |
+|---|---|---|
+| N1 (P2) an interrupt or error during automatic rollback left no record | `ROLLBACK_IN_PROGRESS` is written and flushed to disk before the first rollback step; each step is journalled before it is issued; any exception Python can catch during failure handling or rollback is recorded as `ROLLBACK_INTERRUPTED` with host state `unknown`, then re-raised. If the in-progress record cannot be written the rollback does not start | `test_in_progress_record_is_on_disk_before_the_first_rollback_step`, `test_interrupt_before_any_rollback_step_*` (3), `test_a_process_that_dies_without_any_handler_*`, `test_interrupt_after_ingress_is_stopped_*`, `test_interrupt_during_the_ingress_stop_itself_*`, `test_interrupt_during_service_replacement` (2), `test_rollback_is_not_started_when_its_in_progress_record_cannot_be_written` |
+| N2 (P2) an interrupted owner-requested rollback left `DEPLOYED_AWAITING_ACCEPTANCE`, and `accept` would pass | The owner-requested rollback writes `ROLLBACK_IN_PROGRESS` before its first step and records an interrupt as `ROLLBACK_INTERRUPTED`; `accept` refuses (`ROLLBACK_INCOMPLETE`) while a rollback is in progress, interrupted or failed; a new read-only `recover` command is the only way back to an acceptable state, and only on what it verifies | `test_accept_is_refused_after_an_interrupted_owner_requested_rollback` (4), `test_manual_rollback_record_is_unacceptable_from_before_its_first_step`, `test_recover_*` (4), `test_incomplete_recovery_*`, `test_recovery_with_an_unreadable_host_*` |
+| N3 (P3) no retry after a part-failed rollback | A repeated attempt is allowed with a new `rollback` approval; a line already on the previous pin is accepted; attempts are kept in `rollback_history` | `test_repeated_rollback_after_a_failed_automatic_one_*`, `test_repeated_manual_rollback_after_an_interrupted_one`, `test_first_manual_attempt_still_refuses_a_host_that_has_moved_on` |
+| N4 (P3) automatic rollback ran after the host lock was released | Failure handling now runs inside the locked section | `test_automatic_rollback_runs_while_the_host_lock_is_still_held` |
+| N5 (P3) flags set after a command returned | For rollback steps the intent and the ingress flag are recorded before the command is sent. The deployment path itself is unchanged: an interrupt during its first pin can still be recorded as `FAILED_NO_CHANGE` with the pin written (the record says the host is unverified only when the tool knows it touched it) | `test_interrupt_during_the_ingress_stop_itself_is_not_under_reported` |
+| N6 (P3) seven surviving mutants | Tests added for all seven: rollback's final all-healthy and public health checks, failed ingress stop and failed backend stop during rollback, the rollback approval's single use, the skipped-preflight rule, and a stop raised while handling a stop | `test_rollback_is_not_complete_until_*` (2), `test_failed_rollback_command_*` (4), `test_a_rollback_approval_cannot_be_used_twice`, `test_execute_stops_when_a_single_preflight_check_could_not_be_read`, `test_a_stop_raised_inside_failure_handling_is_recorded_as_held` |
+| N7 (P3) expiry between ingress stop and backend recreate | Not changed (expiry stops execution). Now stated as limitation 4e in the architecture document | |
+| N8 (P3) socket invariant is a substring test; `manual_rollback` outside execute | Substring limit stated as limitation 4f. `manual_rollback` now refuses any mode but execute | `test_manual_rollback_never_runs_outside_execute_mode` |
+
+The implementer's own spot mutation check on these safeguards: 16 mutants, each removing one
+rule (the in-progress record, interrupt recording on both paths, the `accept` refusal, the
+final verifications, the stop-failure checks, the skipped-preflight rule, single use of the
+rollback approval, the early ingress flag, both `recover` conditions, the lock scope, the
+retry rule): **16 of 16 killed** by `tests/release`. This is a targeted check written by the
+implementer, not a repeat of either reviewer's mutation run.
+
+@@REVIEW3@@
+
+
 ## 5. What the evidence does not show
 
+0. **A process that dies with no handler records nothing more** (SIGKILL, power loss,
+   machine failure). During a rollback the last durable record is `ROLLBACK_IN_PROGRESS`,
+   which is truthful; during the deployment itself it is the previous result or none. The
+   tests simulate this by making the handler itself die; no real kill was performed.
 1. **Nothing has run against the real host or registry.** Every host and registry behaviour
    is the behaviour of `tests/release/fakes.py`. The fake was written from the Approval B
    scripts and evidence, by the same author as the toolchain, so a shared misunderstanding of

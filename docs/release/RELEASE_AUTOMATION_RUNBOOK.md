@@ -171,8 +171,12 @@ Explicit stop conditions for every run are printed in the plan (`stop_conditions
 
 - `FAILED_NO_CHANGE`: fix the cause, then run again. If the stop came before any host change
   the same approval is still usable inside its window.
-- `ROLLED_BACK`: the host is on the previous images. The approval is used; a new attempt needs
+- `ROLLED_BACK`: the tool verified every service healthy on the previous images and public
+  `/health` 200. The approval is used; a new attempt needs
   a new approval.
+- `ROLLBACK_IN_PROGRESS` or `ROLLBACK_INTERRUPTED`: a rollback started and has no verified
+  outcome. **The host state is unknown.** Go to "After an interrupted or failed rollback"
+  below. `accept` is refused in these states.
 - `FAILED_HELD`: **do not run anything else.** Read `held_reason`. If it says ingress is
   stopped, the site is down until the owner decides between a rollback and a forward fix.
 - A stale local lock after a crash: confirm on the host that nothing is running, then
@@ -180,8 +184,13 @@ Explicit stop conditions for every run are printed in the plan (`stop_conditions
 
 ### After an interrupted run (Ctrl-C, a crash, a dropped SSH session, a killed tool)
 
-The tool re-raises the error after writing a record (`stop_code: INTERRUPTED`). The host state
-is **unverified**. Stop and tell the owner. The host operator then checks, read-only:
+For an interrupt Python can catch (Ctrl-C, an unexpected error), the tool writes a record and
+then re-raises the error: `stop_code: INTERRUPTED` during the deployment, or state
+`ROLLBACK_INTERRUPTED` during a rollback. If the process was killed outright or the machine
+lost power, **no handler ran**: the last record on disk stands. During a rollback that is
+`ROLLBACK_IN_PROGRESS`; during the deployment itself it is the previous result, or none. In
+every case the host state is **unverified**. Stop and tell the owner. The host operator then
+checks, read-only:
 
 1. `release.ps1 status` and the last `result-NNN.json` in the release's state folder: `events`,
    `applied`, `env_backup`, `pins_before`, `ingress_stopped`.
@@ -196,7 +205,8 @@ Then the owner decides one of:
 - **Nothing had changed** (`applied` is empty, containers as before): the host operator copies
   the backup over `compose.env` if they differ. A new attempt needs a new approval if the old
   one was used.
-- **Roll back**: if the record is `FAILED_HELD`, `release.ps1 rollback` with a `rollback`
+- **Roll back**: if the record is `FAILED_HELD`, `ROLLBACK_INTERRUPTED` or a stale
+  `ROLLBACK_IN_PROGRESS`, `release.ps1 rollback` with a **new** `rollback`
   approval, subject to the usual eligibility. Otherwise by hand, following
   `deploy/LIGHTSAIL_RUNTIME.md`.
 - **Go forward**: fix the cause and run a new release with a new approval. Preflight will
@@ -206,6 +216,48 @@ Then the owner decides one of:
 A stale **host** lock is an empty directory. After confirming no release command is running,
 the host operator removes it with `rmdir /run/lock/clm-release.lock`. The tool never removes a
 lock it did not take.
+
+### After an interrupted or failed rollback
+
+Signs: state `ROLLBACK_IN_PROGRESS` with no release command running, `ROLLBACK_INTERRUPTED`, or
+`FAILED_HELD` whose `rollback.status` is `FAILED`. The site may be down
+(`rollback.ingress_may_be_stopped`). Nothing in such a record means the previous service is
+back. `accept` refuses until the state is verified.
+
+1. Read the latest `result-NNN.json` and `rollback-journal.jsonl` in the release's state
+   folder. The last journal line is the step that was running or about to run. `rollback`
+   holds this attempt (services, the images it was moving from and to, the `compose.env`
+   backup, the approval id); `rollback_history` holds earlier attempts.
+2. Confirm on the host that no `docker compose` command from the tool is still running. If the
+   local lock is stale, remove it with `release.ps1 unlock`; a stale host lock with
+   `rmdir /run/lock/clm-release.lock`.
+3. Establish the state, read-only:
+
+   ```powershell
+   .\tools\release.ps1 recover --manifest <manifest.published.json> `
+       --operator-config <operator.json> --recovered-by <name>
+   ```
+
+   It changes nothing on the host. Exit code 0 means it verified one of two things:
+   `ROLLED_BACK` (every service healthy on its previous image, public `/health` 200) or
+   `DEPLOYED_AWAITING_ACCEPTANCE` (every service healthy on this release's image, `/health`
+   200 and the release's smoke requests as expected; owner browser acceptance is still
+   required). Exit code 2 means the state could not be established: the record stays
+   `ROLLBACK_INTERRUPTED`, host state `unknown`. Unknown is never turned into success.
+4. If it stays unknown, the owner chooses:
+   - **Try the rollback again**: a new `rollback` approval (each attempt needs its own), then
+     `release.ps1 rollback ... --execute`. A line of `compose.env` that already shows the
+     previous pin is accepted; the stops and recreates are repeated and verified.
+   - **Recover by hand** following `deploy/LIGHTSAIL_RUNTIME.md` (start order: Mongo, backend,
+     assistant, frontend; never `down`, never a volume removal), then run `recover` again so
+     the record reflects what was verified.
+5. For a backend: before ingress is started again, the owner decides from the target ledger
+   whether the backend that is about to serve is the right one. The tool cannot judge that.
+
+What the tool cannot do: record anything after a kill or power loss, tell whether a remote
+command it lost contact with is still running, or verify data written by a backend that ran
+briefly.
+
 
 ## 8. Never
 
@@ -218,6 +270,7 @@ express the first six; do not work around it by hand.
 
 ```powershell
 .\tools\release.ps1 status          # known-good release, lock, result of each release
+.\tools\release.ps1 recover ...     # read-only: host state after an unfinished rollback
 .\tools\release.ps1 creds status    # identities, expiry (never a token)
 .\tools\release.ps1 baseline        # does the reviewed baseline still match the Compose files?
 ```

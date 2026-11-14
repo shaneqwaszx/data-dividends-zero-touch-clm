@@ -67,6 +67,7 @@
 | `FAILED_NO_CHANGE` | Nothing changed. If no host change had begun the approval is still usable in its window |
 | `ROLLED_BACK` | The tool confirmed every service healthy and public `/health` 200 on the previous image. Check the site by hand as well. Stop; investigate; a new attempt needs a new approval |
 | A traceback or an unexpected exit code | The run was interrupted. Runbook section 7, "After an interrupted run" |
+| `ROLLBACK_IN_PROGRESS` (no command running) or `ROLLBACK_INTERRUPTED` | A rollback has no verified outcome; the host state is unknown and the site may be down. **Do not run `accept`** (it is refused). Runbook section 7, "After an interrupted or failed rollback": `release.ps1 recover` first |
 | `FAILED_HELD` | **Run nothing else.** Tell the owner the `held_reason`. For an assistant: `dca stop assistant` is the safe action. For a frontend: the previous digest is in `pins_before` |
 
 ## G. Not for the first use

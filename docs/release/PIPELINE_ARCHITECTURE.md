@@ -25,7 +25,7 @@ toolchain turns that reasoning into code with tests, and keeps the same safeguar
 | `deploy/LIGHTSAIL_RUNTIME.md` (`dc`, `dca`, `dcg`, overlay order, "never `down`", stop order) | `catalog.py` encodes the wrappers and order; `host.py` builds exactly those commands |
 | `deploy/README.md` ("stop ingress and the old backend before starting the new one"; one writer) | The backend sequence in `deploy.py` |
 | `apps/assistant/deploy/RELEASE_HANDOFF.md`, the H5 addendum | Assistant-only flow, its rollback caution and acceptance rows |
-| `deploy/egress/host/verify_host_firewall.sh`, `apps/assistant/deploy/egress/verify_assistant_egress.sh` | Run read-only in preflight when the matching overlay is active |
+| `deploy/egress/host/verify_host_firewall.sh`, `apps/assistant/deploy/egress/verify_assistant_egress.sh` | Run in preflight when the matching overlay is active. They change no firewall, container or configuration state; `verify_host_firewall.sh` writes and removes one scratch file, `/tmp/.clm_r3_check`, so "read-only" here means "changes nothing that matters", not "writes nothing" |
 | `.github/workflows/ci.yml` | The job list mirrored by `release.ps1 checks`; a test fails if the workflow gains a job the mirror does not know |
 | `scripts/check_*.py`, `scripts/pre_pr_check.py`, `tests/deploy/**` | Run as they are by `release.ps1 checks` |
 | `ai_assistant.model_qualification.qualification_basis()` | Computed inside the assistant image with networking disabled |
@@ -233,8 +233,10 @@ public `/health` returns 200.
 | After a container changed, rollback not eligible | `FAILED_HELD` | **Nothing further is changed.** The record says exactly what is running, and whether ingress is stopped |
 | Approval expired after a container changed | `FAILED_HELD` | Stopped before the next change; no rollback |
 | Approval expired after the `compose.env` edit, before any container changed | `FAILED_NO_CHANGE` | `compose.env` restored |
-| Interrupted (Ctrl-C, killed tool, unexpected error) | `FAILED_HELD` if the host was touched, else `FAILED_NO_CHANGE`; the error is re-raised | Unverified. The record holds the backup path, the previous pins and the services already applied |
-| A rollback step fails | `FAILED_HELD` | Whatever the failed step left; `ingress_stopped` says whether the site is down |
+| Deployment interrupted by something Python can catch (Ctrl-C, an unexpected error), outside a rollback | `FAILED_HELD` if the host was touched, else `FAILED_NO_CHANGE`; the error is re-raised | Unverified. The record holds the backup path, the previous pins and the services already applied |
+| Rollback interrupted (automatic or owner-requested), by anything Python can catch | `ROLLBACK_INTERRUPTED`, host state `unknown`; the error is re-raised | Unknown. The journal names the step that was running. Never reported as rolled back |
+| The tool dies during a rollback with no handler (kill, power loss) | The record already on disk: `ROLLBACK_IN_PROGRESS` | Unknown. Treated exactly like `ROLLBACK_INTERRUPTED` |
+| A rollback step fails, or its final verification fails | `FAILED_HELD` with `rollback.status: FAILED` | Whatever the failed step left; `ingress_stopped` says whether the site may be down. The previous service is **not** confirmed restored |
 
 Automatic rollback needs all of: the owner approved it in the approval record; the manifest
 declares `data_compatible: true` and `automatic: true` for every touched service; the previous
@@ -249,6 +251,80 @@ An owner-requested rollback (`release.ps1 rollback`) uses the same eligibility r
 `rollback` approval, takes the host lock, and changes only this release's lines in
 `compose.env`, and only if they still show this release's pins. If the host has moved on it
 changes nothing.
+
+## 3.7 Result states and rollback
+
+```text
+                        deploy --execute
+                               |
+        +----------------------+-----------------------+
+        | stopped before any   | deployed and verified | stopped after a container changed
+        | container changed    |                       |
+        v                      v                       v
+ FAILED_NO_CHANGE   DEPLOYED_AWAITING_ACCEPTANCE   rollback eligible and approved?
+                       |        |        |            | no                 | yes
+               accept pass   accept    rollback       v                    v
+                       |      fail    --execute   FAILED_HELD     ROLLBACK_IN_PROGRESS  <-- written to disk
+                       v        |        |            |             (automatic)             BEFORE the first step
+                   ACCEPTED     v        |            | rollback        |
+                     ACCEPTANCE_FAILED   |            | --execute       |
+                                |        v            v                 |
+                                +--> ROLLBACK_IN_PROGRESS (manual) <----+ (a later attempt)
+                                              |
+            +---------------------------------+----------------------------------+
+            | every step done and verified    | a step failed        | interrupted, crashed,
+            v                                 v                      v or the tool died
+        ROLLED_BACK                      FAILED_HELD          ROLLBACK_INTERRUPTED
+     (rollback.status                 (rollback.status        (rollback.status INTERRUPTED,
+      COMPLETED_VERIFIED)              FAILED)                 host_state unknown)
+                                              |                      |
+                                              +----------+-----------+   a record left at
+                                                         |               ROLLBACK_IN_PROGRESS with
+                                                recover (read-only)      no command running is
+                                                         |               treated the same way
+            +--------------------------------+-----------+---------------------+
+            | verified on previous images    | verified on release images      | anything else,
+            v                                v and smoke as expected           v or host unreadable
+        ROLLED_BACK              DEPLOYED_AWAITING_ACCEPTANCE          ROLLBACK_INTERRUPTED
+                                 (acceptance still required)           (unknown stays unknown)
+```
+
+Rules the code enforces:
+
+- `ROLLBACK_IN_PROGRESS` is written and flushed to disk **before** any service is stopped or
+  replaced and before `compose.env` is touched for the rollback. If that record cannot be
+  written, the rollback does not start (`FAILED_HELD`, "rollback was not started").
+- Each rollback step is appended to `rollback-journal.jsonl` and to the latest record
+  **before** it is issued (`STARTED`), then marked `DONE`. A step that may stop ingress sets
+  `ingress_may_be_stopped` before the command is sent. So the record never under-reports by a
+  step.
+- A rollback is `ROLLED_BACK` only after every service is confirmed healthy on its previous
+  image and public `/health` returns 200. An interrupt, an unexpected error, a failed step or
+  an unreadable host can never produce `ROLLED_BACK`, and no record says the previous service
+  was restored unless that was verified.
+- `accept` refuses (`ROLLBACK_INCOMPLETE`) while the latest record is `ROLLBACK_IN_PROGRESS` or
+  `ROLLBACK_INTERRUPTED`, or carries a rollback that is in progress, interrupted or failed.
+  The only way back to an acceptable state is `recover`, which is read-only (it runs in
+  dry-run mode, so the gate cannot issue a host write), is run by a person, and changes the
+  state only on what it verified.
+- A further rollback attempt is allowed from `FAILED_HELD`, `ROLLBACK_INTERRUPTED` or a stale
+  `ROLLBACK_IN_PROGRESS`, with a new single-use `rollback` approval per attempt. On a repeated
+  attempt a `compose.env` line that already shows the previous pin is accepted as done.
+- Every attempt is kept: `rollback` holds the latest, `rollback_history` the earlier ones, and
+  `recovery_attempts` each recovery check. The record keeps the manifest hash, the previous
+  known-good reference, the previous pins, this release's references, the `compose.env` backup
+  path and both approval ids throughout.
+- Automatic rollback runs while the host lock is still held.
+
+**What cannot be handled, and what the operator does.** Interrupts and errors that Python can
+see are caught and recorded. A process that dies with no handler (SIGKILL, Task Manager "End
+task", power loss, machine failure, a full disk at the wrong moment) writes nothing more: the
+last durable record stands. During a rollback that record is `ROLLBACK_IN_PROGRESS` and its
+last journalled step is the one that was about to run or was running. During the deployment
+itself, before any rollback, there is no in-progress record: the previous result (or none)
+stands, as limitation 4b says. A stale local lock and possibly a stale host lock remain.
+The operator's procedure is runbook section 7.
+
 
 ## 4. Local state
 
@@ -278,8 +354,22 @@ history; `consumed-approvals.json`; `release.lock`. It holds no credential.
    refuses to start until it states `mongo_uri_file`. **The tool never creates that file. If
    the host does not have one, that is an owner decision about where a database credential may
    rest, not something to work around.**
-4b. A run killed without the chance to write its record (power loss, a killed process tree)
-   leaves no result. Recovery is by hand (runbook section 7).
+4b. A record is written on every exit path Python can catch, including an interrupt during
+   failure handling or rollback. It is **not** written when the process dies with no handler
+   (SIGKILL, power loss, machine failure). During a rollback the `ROLLBACK_IN_PROGRESS` record
+   is already on disk, so the last record is still truthful. During the deployment itself
+   (before any rollback) such a death leaves the previous result, or none. Recovery is then by
+   hand (runbook section 7).
+4d. `recover` verifies only what the mock-tested reads can show: the pins in `compose.env`,
+   each container's image id and health, and the public requests. It does not prove that a
+   backend that was briefly replaced wrote nothing; that judgement stays with the owner.
+4e. If the approval expires between the ingress stop and the backend recreate, the run ends
+   `FAILED_HELD` with the site down and the old backend untouched: expiry stops execution and
+   nothing restarts ingress. The start-of-run check that enough of the window is left makes
+   this unlikely; the owner should know the window exists before a backend release.
+4f. The Docker-socket invariant matches the text `docker.sock`. A bind of its parent directory
+   or of another runtime socket is refused only as an undeclared change; an explicit
+   declaration approved by the owner would let it through.
 4c. A client-side SSH timeout is reported as a failure while the remote command may still be
    running. The record will say `FAILED_HELD` or `FAILED_NO_CHANGE` from what the tool saw;
    check the host before acting.
