@@ -683,7 +683,26 @@ def _record(ctx: Context, state: RunState, outcome: dict[str, Any]) -> dict[str,
             "state_before_rollback": state.state_before_rollback,
         }
     )
-    ctx.store.write_result(ctx.manifest["release_id"], outcome)
+    release_id = ctx.manifest["release_id"]
+    standing_record = ctx.store.read_result(release_id)
+    earlier_failure = standing_record is not None and bool(
+        standing_record.get("acceptance_failed")
+        or standing_record.get("previously_failed_acceptance")
+    )
+    if earlier_failure and not outcome.get("acceptance_failed"):
+        # Shown to the owner at acceptance time; it does not block a new verified deployment.
+        outcome["previously_failed_acceptance"] = True
+    # A run that changed nothing (refused, failed before any change, or a dry-run) is kept as
+    # a numbered result, but it must not replace the record of a release that is live on the
+    # host: accept, rollback and recover all work from that standing record.
+    changed_nothing = outcome["state"] in {records.FAILED_NO_CHANGE, records.DRY_RUN_OK}
+    keep = (
+        changed_nothing and standing_record is not None and standing_record["state"] in records.LIVE
+    )
+    if keep:
+        assert standing_record is not None
+        outcome["standing_record_kept"] = standing_record["state"]
+    ctx.store.write_result(release_id, outcome, standing=not keep)
     return outcome
 
 
@@ -1839,7 +1858,10 @@ def accept(
         "accepted_by": accepted_by,
     }
     if not passed:
-        outcome["acceptance_failed"] = True  # permanent for this release
+        # Permanent for this deployment: no rollback, recovery or later accept can undo it.
+        # Only a new, complete, verified deployment under a new owner approval starts clean,
+        # and its record then carries ``previously_failed_acceptance``.
+        outcome["acceptance_failed"] = True
     if passed:
         outcome["known_good"] = store.record_known_good(manifest)
     store.write_result(manifest["release_id"], outcome)

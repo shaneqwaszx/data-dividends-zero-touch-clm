@@ -31,6 +31,18 @@ ROLLBACK_IN_PROGRESS = "ROLLBACK_IN_PROGRESS"
 # A rollback ended without a verified outcome (interrupt, crash, or an unreadable host).
 ROLLBACK_INTERRUPTED = "ROLLBACK_INTERRUPTED"
 ROLLBACK_UNFINISHED = frozenset({ROLLBACK_IN_PROGRESS, ROLLBACK_INTERRUPTED})
+# States in which this release is (or may be) what the host is running, or has been accepted.
+# A later run that changes nothing must not replace such a standing record.
+LIVE = frozenset(
+    {
+        DEPLOYED_AWAITING_ACCEPTANCE,
+        ACCEPTED,
+        ACCEPTANCE_FAILED,
+        FAILED_HELD,
+        ROLLBACK_IN_PROGRESS,
+        ROLLBACK_INTERRUPTED,
+    }
+)
 
 
 def default_state_dir() -> Path:
@@ -55,14 +67,19 @@ class StateStore:
 
     # -- results -------------------------------------------------------------------------
 
-    def write_result(self, release_id: str, result: dict[str, Any]) -> Path:
-        """Append-only: each result gets its own numbered file; ``result.json`` is the latest."""
+    def write_result(
+        self, release_id: str, result: dict[str, Any], *, standing: bool = True
+    ) -> Path:
+        """Append-only: each result gets its own numbered file; ``result.json`` is the release's
+        standing record. With ``standing=False`` the attempt is kept as a numbered file only,
+        and the standing record is left as it is."""
 
         directory = self.release_dir(release_id)
         result = {**result, "recorded_at": format_utc(self.clock())}
         number = len(list(directory.glob("result-*.json"))) + 1
         write_json(directory / f"result-{number:03d}.json", result)
-        write_json(directory / "result.json", result)
+        if standing:
+            write_json(directory / "result.json", result)
         return directory / "result.json"
 
     def journal(self, release_id: str, entry: dict[str, Any], rollback: dict[str, Any]) -> None:

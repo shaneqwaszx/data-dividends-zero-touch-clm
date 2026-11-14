@@ -9,7 +9,7 @@
 
 ## 1. Automated tests (`tests/release`)
 
-`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **312 passed, 1 skipped** (6 test files, 208 test functions; the count includes parametrised cases).
+`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **321 passed, 1 skipped** (6 test files, 212 test functions; the count includes parametrised cases).
 The one skipped test is the opt-in Windows Credential Manager round trip
 (`CLM_RELEASE_WINCRED_SELFTEST=1`); it was run once by hand and passed (it writes and removes
 one throwaway entry holding a sentinel value).
@@ -190,7 +190,7 @@ random call sequences, but one sequence still reached `ACCEPTED`). Its report is
 
 | Finding | What was done | Tests |
 |---|---|---|
-| N-1 (P1) deploy, rollback interrupted, `recover`, `accept` fail, rollback interrupted, `recover`, `accept` pass reached `ACCEPTED`, because the origin was inherited across rollback episodes | The origin is kept only within one episode; a rollback that starts from `ACCEPTANCE_FAILED` has that as its origin. A failed acceptance is recorded permanently and `accept` refuses it afterwards. `recover` also refuses to return a release that carries a stop code | `test_a_failed_acceptance_is_permanent_across_rollback_episodes`, `test_accept_refuses_a_release_that_already_failed_acceptance_whatever_its_state`, `test_recover_does_not_return_a_release_with_a_recorded_stop_code_to_acceptance`, `test_recover_does_not_return_a_release_marked_as_failed_acceptance_to_acceptance` |
+| N-1 (P1) deploy, rollback interrupted, `recover`, `accept` fail, rollback interrupted, `recover`, `accept` pass reached `ACCEPTED`, because the origin was inherited across rollback episodes | The origin is kept only within one episode; a rollback that starts from `ACCEPTANCE_FAILED` has that as its origin. A failed acceptance is recorded permanently for that deployment and `accept` refuses it afterwards (see 4.5 for what "that deployment" means). `recover` also refuses to return a release that carries a stop code | `test_a_failed_acceptance_is_permanent_across_rollback_episodes`, `test_accept_refuses_a_release_that_already_failed_acceptance_whatever_its_state`, `test_recover_does_not_return_a_release_with_a_recorded_stop_code_to_acceptance`, `test_recover_does_not_return_a_release_marked_as_failed_acceptance_to_acceptance` |
 | N-2 (P2) `ROLLED_BACK` recorded while a never-applied service ran the release image (after a manual `docker compose up`) | The final verification checks the container image, as well as the pin, of every service of the release | `test_rollback_is_not_verified_while_a_never_applied_service_runs_the_release_image` |
 | N-3 (P2, older) a second `run`, including a dry-run, replaced an unfinished-rollback record | `run` refuses (`ROLLBACK_INCOMPLETE`) before writing or contacting anything | `test_a_new_run_never_replaces_the_record_of_an_unfinished_rollback` (2) |
 | P3: wording on a persistent write failure; CLI did not print the held reason; four test gaps | Wording corrected; `recover` prints `held_reason` and the original stop code; tests added for the pre-check on never-applied services (2) and the journal-append retry | `test_first_attempt_accepts_the_previous_pin_only_for_a_never_applied_service`, `test_a_never_applied_service_on_neither_pin_refuses_the_rollback`, `test_journal_append_is_retried_after_a_transient_access_denied` |
@@ -199,7 +199,27 @@ random call sequences, but one sequence still reached `ACCEPTED`). Its report is
 Implementer's spot check on these fixes: 10 mutants, 10 killed after the last test above was
 added (9 of 10 before it).
 
-@@CHECK5@@
+### 4.5 Final check, and what was done about it
+
+A fifth fresh reviewer checked commit `6bcf1423717ddd1f21e269c0394d8d0104345b23` (tree
+`69e9f7b79663d8e00a8c4f9814ef8c7712d1b8a2`): **FAIL**, with an explicit condition. N-2 and
+N-3 were confirmed fixed. For N-1 the reported sequence is closed, the intended positive path
+still works, and 4,500 random sequences found no route to `ACCEPTED` through `recover`, an
+interrupt, a failure, a stale record or a hand change. The verdict is FAIL because of F-1
+below; the reviewer states that if a fresh verified deployment after a verified rollback is
+meant to be acceptable, F-1 is a wrong sentence (P2) and the verdict would be PASS WITH
+NOTES. Its report is reproduced **unedited** in
+[N1_N2_FINAL_CHECK_20261114.md](N1_N2_FINAL_CHECK_20261114.md).
+
+| Finding | What was done | Tests |
+|---|---|---|
+| F-1 (P1 as the rule was written) deploy, `accept` fail, owner rollback verified `ROLLED_BACK`, a **new** `deploy --execute` with a new owner approval, `accept` pass reaches `ACCEPTED`; the documents said a failed acceptance was permanent "for a release" | **The statement was narrowed, the behaviour kept.** This path is a new, complete, verified deployment under a new owner approval; it existed before this work, and forbidding it would change what an owner approval can do, which this remediation was told not to change. The failed acceptance is permanent for that deployment; a later deployment's record carries `previously_failed_acceptance: true`. **Owner decision recorded as open:** whether a release that once failed acceptance may ever be redeployed under the same release id | `test_a_new_verified_deployment_after_a_verified_rollback_carries_the_acceptance_history` |
+| F-1, second part: a dry-run dropped `acceptance_failed` from the latest record | Fixed with F-2 | below |
+| F-2 (P2) a second `run`, including a dry-run, replaced a `DEPLOYED_AWAITING_ACCEPTANCE`, `ACCEPTANCE_FAILED` or `FAILED_HELD` record with `FAILED_NO_CHANGE`, after which `accept`, `rollback` and `recover` all refused | A run that changes nothing is kept as a numbered result and no longer replaces the standing record of a live release | `test_a_run_that_changes_nothing_never_replaces_the_standing_record_of_a_live_release` (6) |
+| F-3 (P3) after the new N-2 check fails, the never-applied service must be recreated by hand before a retry can succeed | Not changed; stated in the runbook | |
+| P3 test gaps | Tests added for the refusal over a `FAILED_HELD` record whose rollback failed, and for the origin test inside `_may_return_to_acceptance` | `test_a_new_run_is_refused_over_a_held_record_whose_rollback_failed`, `test_recover_needs_the_awaiting_acceptance_origin_even_without_other_marks` |
+
+@@CHECK6@@
 
 
 ## 5. What the evidence does not show

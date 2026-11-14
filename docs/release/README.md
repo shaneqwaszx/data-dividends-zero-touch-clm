@@ -18,6 +18,7 @@ verdict applies to. It is not cleared for use against the host or the registry.*
 | [INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md) | The independent review of the first candidate, unedited. Verdict: **FAIL**. The fixes made afterwards are not re-reviewed |
 | [N1_N2_INDEPENDENT_REVIEW_20261114.md](N1_N2_INDEPENDENT_REVIEW_20261114.md) | The independent review of the interrupted-rollback change (`37f3aa6`), unedited. Verdict: **FAIL** (N1 and N2 fixed; one new P1 in `recover`). What was done about it: evidence document section 4.3 |
 | [N1_N2_FIX_CHECK_20261114.md](N1_N2_FIX_CHECK_20261114.md) | The check of the fixes in `84706a9`, unedited. Verdict: **FAIL** (one sequence could still reach `ACCEPTED`). What was done about it: evidence document section 4.4 |
+| [N1_N2_FINAL_CHECK_20261114.md](N1_N2_FINAL_CHECK_20261114.md) | The check of `6bcf142`, unedited. Verdict: **FAIL**, conditional on how one rule is read. What was done about it, and the open owner decision: evidence document section 4.5 |
 
 | Artefact | Path |
 |---|---|

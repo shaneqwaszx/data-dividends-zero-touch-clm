@@ -258,7 +258,11 @@ back. `accept` refuses until the state is verified.
      `release.ps1 rollback ... --execute`. A line of `compose.env` that already shows the
      previous pin is accepted; a line still on the release is changed back for every service
      of the release, including one that was pinned but never applied; the stops and recreates
-     are repeated and verified.
+     are repeated and verified. If the rollback stops with "the container is not running its
+     previous image" for a service that was never applied, someone started that service by
+     hand on the release image: the host operator recreates it by hand on the previous image
+     (`dc up -d --no-build --no-deps --wait <service>` with the line already changed back),
+     then runs `recover`.
    - **Recover by hand** following `deploy/LIGHTSAIL_RUNTIME.md` (start order: Mongo, backend,
      assistant, frontend; never `down`, never a volume removal), then run `recover` again so
      the record reflects what was verified.

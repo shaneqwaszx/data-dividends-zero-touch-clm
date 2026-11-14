@@ -299,14 +299,29 @@ post-deploy verification. `recover` can return a release to it only if the relea
 state when the current rollback episode began (`state_before_rollback`: kept across repeated
 attempts of one episode; a rollback that starts later, from `DEPLOYED_AWAITING_ACCEPTANCE` or
 `ACCEPTANCE_FAILED`, starts a new episode with that state as its origin), carries no stop
-code, and has never failed acceptance. A failed acceptance is permanent for a release
-(`acceptance_failed`): `accept` refuses it afterwards whatever the state says. A deployment
-that stopped on a stop condition, or whose acceptance failed, can never become acceptable
-through `recover`, however healthy the host looks.
+code, and has not failed acceptance. A failed acceptance is permanent for **that
+deployment** (`acceptance_failed`): no rollback, `recover` or later `accept` can undo it, and
+`accept` refuses it whatever the state says. A deployment that stopped on a stop condition, or
+whose acceptance failed, can never become acceptable through `recover`, however healthy the
+host looks.
+
+What can still be accepted afterwards is a **new, complete deployment** of the same release:
+after a verified `ROLLED_BACK`, a new `deploy --execute` with a new owner deploy approval that
+passes the whole preflight, apply and post-deploy verification produces a new
+`DEPLOYED_AWAITING_ACCEPTANCE` record. That path existed before this change and is left as it
+is, because removing it would change what an owner approval can do. The new record carries
+`previously_failed_acceptance: true` so the owner sees the history at acceptance time, and
+every earlier record stays in its numbered file. Whether a release that once failed
+acceptance should ever be redeployed under the same release id, rather than as a new release,
+is an owner decision.
 
 A `deploy` or dry-run of a release whose rollback has no verified outcome is refused
-(`ROLLBACK_INCOMPLETE`) before anything is written or contacted, so a later run cannot bury
-that record.
+(`ROLLBACK_INCOMPLETE`) before anything is written or contacted. More generally, a run that
+changes nothing (refused, stopped before any change, or a dry-run) is kept as a numbered
+result but never replaces the standing record (`result.json`) of a release that is live on
+the host (`DEPLOYED_AWAITING_ACCEPTANCE`, `ACCEPTED`, `ACCEPTANCE_FAILED`, `FAILED_HELD` or
+an unfinished rollback), so `accept`, `rollback` and `recover` keep working from the record
+that describes the host.
 
 Rules the code enforces:
 

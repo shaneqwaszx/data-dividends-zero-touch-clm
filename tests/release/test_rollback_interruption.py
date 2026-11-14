@@ -688,11 +688,11 @@ def test_rollback_is_not_started_when_its_in_progress_record_cannot_be_written(
     real_write = ctx.store.write_result
     calls: list[str] = []
 
-    def disk_full_once(release_id: str, result: dict[str, Any]) -> Path:
+    def disk_full_once(release_id: str, result: dict[str, Any], **kwargs: Any) -> Path:
         calls.append(result["state"])
         if result["state"] == records.ROLLBACK_IN_PROGRESS:
             raise OSError("no space left on device")
-        return real_write(release_id, result)
+        return real_write(release_id, result, **kwargs)
 
     ctx.store.write_result = disk_full_once  # type: ignore[method-assign]
     outcome = deploy.run(ctx)
@@ -1229,3 +1229,112 @@ def test_recover_does_not_return_a_release_marked_as_failed_acceptance_to_accept
     recovered = recover_now(ctx, world, tmp_path, manifest)
     assert recovered["state"] == records.FAILED_HELD
     assert recovered["rollback"]["status"] == "RECOVERED_ON_RELEASE_NOT_ACCEPTABLE"
+
+
+# =============================================================================================
+# Final check of 6bcf142 (N1_N2_FINAL_CHECK.md): F-1, F-2 and its test gaps
+# =============================================================================================
+
+
+def test_a_new_verified_deployment_after_a_verified_rollback_carries_the_acceptance_history(
+    tmp_path: Path,
+) -> None:
+    """A failed acceptance is permanent for that deployment. A new, complete, verified
+    deployment under a new owner approval is a new deployment: it may be accepted, and its
+    record says that an earlier deployment of this release failed acceptance."""
+
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    deploy.accept(ctx.store, manifest, passed=False, accepted_by="owner", interactive=True)
+    ctx.approval = rollback_approval(manifest, "150000")
+    assert deploy.manual_rollback(ctx, manifest["release_id"])["state"] == records.ROLLED_BACK
+    refusal = refuse_accept(ctx, manifest)  # rolled back: nothing is awaiting acceptance
+    assert refusal in {"ACCEPTANCE_NOT_PENDING", "ACCEPTANCE_ALREADY_FAILED"}
+    ctx.approval = make_approval(manifest, issued="151000")  # a new owner deploy approval
+    again = deploy.run(ctx)
+    assert again["state"] == records.DEPLOYED_AWAITING_ACCEPTANCE
+    assert again["previously_failed_acceptance"] is True and "acceptance_failed" not in again
+    accepted = deploy.accept(
+        ctx.store, manifest, passed=True, accepted_by="owner", interactive=True
+    )
+    assert (
+        accepted["state"] == records.ACCEPTED and accepted["previously_failed_acceptance"] is True
+    )
+    assert records.ACCEPTANCE_FAILED in result_states(ctx, manifest), "the history is kept"
+
+
+@pytest.mark.parametrize("mode", [Mode.EXECUTE, Mode.DRY_RUN])
+@pytest.mark.parametrize("standing", ["awaiting", "acceptance-failed", "held"])
+def test_a_run_that_changes_nothing_never_replaces_the_standing_record_of_a_live_release(
+    tmp_path: Path, mode: Mode, standing: str
+) -> None:
+    if standing == "held":
+        manifest = make_manifest(["assistant"])
+        world = FakeWorld(manifest)
+        world.unhealthy_after_up = {"assistant"}
+        ctx, world = make_context(manifest, tmp_path, world=world)
+        assert deploy.run(ctx)["state"] == records.FAILED_HELD
+        world.unhealthy_after_up = set()
+    else:
+        ctx, world, manifest = deployed(tmp_path, ["frontend"])
+        if standing == "acceptance-failed":
+            deploy.accept(ctx.store, manifest, passed=False, accepted_by="owner", interactive=True)
+    before = latest(ctx, manifest)
+    files = len(result_states(ctx, manifest))
+    writes = len(world.effects(Effect.HOST_WRITE))
+    again = make_context(
+        manifest,
+        tmp_path,
+        mode=mode,
+        world=world,
+        approval=make_approval(manifest, issued="152000"),
+    )[0]
+    outcome = deploy.run(again)
+    assert outcome["state"] in {records.FAILED_NO_CHANGE, records.DRY_RUN_OK}
+    assert outcome["standing_record_kept"] == before["state"]
+    assert latest(ctx, manifest) == before, "the standing record still describes the host"
+    assert len(result_states(ctx, manifest)) == files + 1, "the attempt itself is kept"
+    assert [c for c in world.effects(Effect.HOST_WRITE)[writes:] if " up " in c.argv[-1]] == []
+    if standing == "awaiting":
+        accepted = deploy.accept(
+            ctx.store, manifest, passed=True, accepted_by="owner", interactive=True
+        )
+        assert accepted["state"] == records.ACCEPTED
+    elif standing == "acceptance-failed":
+        assert latest(ctx, manifest)["acceptance_failed"] is True
+        ctx.approval = rollback_approval(manifest, "153000")
+        assert deploy.manual_rollback(ctx, manifest["release_id"])["state"] == records.ROLLED_BACK
+
+
+def test_a_new_run_is_refused_over_a_held_record_whose_rollback_failed(tmp_path: Path) -> None:
+    ctx, world, manifest = failing_release(tmp_path, ["frontend"])
+
+    def frontend_fails(command: Command) -> None:
+        if restore_command(command):
+            world.up_fails = {"frontend"}
+
+    world.on_command = frontend_fails
+    held = deploy.run(ctx)
+    assert held["state"] == records.FAILED_HELD and held["rollback"]["status"] == "FAILED"
+    world.on_command = None
+    received = len(world.received)
+    with pytest.raises(StopCondition) as refused:
+        deploy.run(reader(ctx, world, tmp_path))
+    assert refused.value.code == "ROLLBACK_INCOMPLETE" and len(world.received) == received
+    assert latest(ctx, manifest)["state"] == records.FAILED_HELD
+
+
+def test_recover_needs_the_awaiting_acceptance_origin_even_without_other_marks(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    ctx.approval = rollback_approval(manifest, "154000")
+    interrupt(world, lambda c: " sed -i " in c.argv[-1], KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    record = latest(ctx, manifest)
+    record.pop("recorded_at", None)
+    assert not record.get("stop_code") and not record.get("acceptance_failed")
+    ctx.store.write_result(
+        manifest["release_id"], {**record, "state_before_rollback": "FAILED_HELD"}
+    )
+    assert recover_now(ctx, world, tmp_path, manifest)["state"] == records.FAILED_HELD
