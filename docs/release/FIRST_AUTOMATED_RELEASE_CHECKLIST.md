@@ -67,7 +67,7 @@
 |---|---|
 | Refused before starting (exit 3) | Fix the cause. Nothing was contacted |
 | `FAILED_NO_CHANGE` | No container changed. If the run was interrupted, compare `compose.env` with its backup first. If no host change had begun the approval is still usable in its window |
-| `ROLLED_BACK` | The tool confirmed every service healthy and public `/health` 200 on the previous image. Check the site by hand as well. Stop; investigate; a new attempt needs a new approval |
+| `ROLLED_BACK` | The tool confirmed every service healthy and public `/health` 200 on the previous image. Check the site by hand as well. Stop; investigate; a new attempt needs a new approval. **If the release failed acceptance, it must not be deployed again (step E1b)** |
 | A traceback or an unexpected exit code | The run was interrupted. Runbook section 7, "After an interrupted run" |
 | `ROLLBACK_IN_PROGRESS` (no command running) or `ROLLBACK_INTERRUPTED`, or `FAILED_HELD` with `rollback.status: FAILED` | A rollback has no verified outcome; the host state is unknown and the site may be down. **Do not run `accept`** (it is refused). Runbook section 7, "After an interrupted or failed rollback": `release.ps1 recover` first |
 | `FAILED_HELD` with an empty `applied` list and `ingress_stopped: false` after an interrupt | The interrupt may have landed during the service's `up`: the container may already run the release image although nothing is recorded as applied. `rollback` and `recover` both refuse this record. Check the container's image on the host and restore by hand (runbook section 7, "After an interrupted run") |

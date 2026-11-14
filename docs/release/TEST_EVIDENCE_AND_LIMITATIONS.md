@@ -319,7 +319,21 @@ procedural (runbook section 7; checklist steps E1a and E1b).
 
 The commit that records this (documents only) and its independent check:
 
-@@CHECK8@@
+A fresh reviewer checked commit `d5193baa19c0f4551b34793686f2390e2a60c58d` (tree
+`3c05c08825b70b31e51b6c6488413555552abb57`, seven documents, nothing outside `docs/release/`):
+**PASS WITH NOTES** (P1 0, P2 1, P3 7). The decision is verbatim in all four places; the
+`release_id` / `attempt_id` model is stated correctly and "`attempt_id` does not exist in the
+tool today" is true; the six statuses are as instructed and no cell claims more enforcement
+than the code has; the interim prohibition is present and unambiguous in the runbook and the
+checklist; the mandatory follow-up heading exists. Its report is reproduced **unedited** in
+[DOCS_REFINED_DECISION_CHECK_20261115.md](DOCS_REFINED_DECISION_CHECK_20261115.md).
+
+Its P2: the `ROLLED_BACK` entries in the runbook ("After a stop") and in the checklist (section
+F) still said only "a new attempt needs a new approval", although `ROLLED_BACK` is also the
+state after a failed acceptance and a rollback. Both now carry the checker's sentence pointing
+to the prohibition. **That two-sentence correction, and this paragraph, are the only changes
+after the checked commit and were not themselves reviewed.** Its seven P3 notes (cross
+references, heading structure, where step E1b sits, wording) are not applied.
 
 ## 5. What the evidence does not show
 

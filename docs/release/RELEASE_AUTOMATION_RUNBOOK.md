@@ -176,8 +176,9 @@ Explicit stop conditions for every run are printed in the plan (`stop_conditions
 - `FAILED_NO_CHANGE`: fix the cause, then run again. If the stop came before any host change
   the same approval is still usable inside its window.
 - `ROLLED_BACK`: the tool verified every service healthy on the previous images and public
-  `/health` 200. The approval is used; a new attempt needs
-  a new approval.
+  `/health` 200. The approval is used; a new attempt needs a new approval. **If this release
+  failed acceptance, no new attempt is permitted for now: see "Deploying again after a failed
+  acceptance: PROHIBITED for now" below.**
 - `ROLLBACK_IN_PROGRESS` or `ROLLBACK_INTERRUPTED`: a rollback started and has no verified
   outcome. **The host state is unknown.** Go to "After an interrupted or failed rollback"
   below. `accept` is refused in these states.

@@ -26,6 +26,7 @@ this is a procedural rule (runbook section 7; checklist steps E1a and E1b).
 | [N1_N2_FINAL_CHECK_20261114.md](N1_N2_FINAL_CHECK_20261114.md) | The check of `6bcf142`, unedited. Verdict: **FAIL**, conditional on how one rule is read. What was done about it: evidence document section 4.5. The owner decision it raised was made on 2026-11-15 (architecture section 3.8) |
 | [N1_N2_CLOSING_CHECK_20261114.md](N1_N2_CLOSING_CHECK_20261114.md) | The check of `ed38d16`, unedited. Verdict: **PASS WITH NOTES**. Evidence document sections 4.6 and 4.7 |
 | [DOCS_FINAL_CHECK_20261115.md](DOCS_FINAL_CHECK_20261115.md) | The check of the documents-only commit `1cfa9bd`, unedited. Verdict: **PASS WITH NOTES**. Evidence document section 4.9 |
+| [DOCS_REFINED_DECISION_CHECK_20261115.md](DOCS_REFINED_DECISION_CHECK_20261115.md) | The check of the documents-only commit `d5193ba` (owner's refined decision), unedited. Verdict: **PASS WITH NOTES**. Evidence document section 4.9 |
 
 | Artefact | Path |
 |---|---|
