@@ -1049,3 +1049,183 @@ def test_recovered_record_does_not_keep_a_contradicting_failure_text(tmp_path: P
     recovered = recover_now(ctx, world, tmp_path, manifest)
     assert recovered["state"] == records.ROLLED_BACK and "held_reason" not in recovered
     assert "UNKNOWN" in recovered["held_reason_before_recovery"], "kept as evidence, relabelled"
+
+
+# =============================================================================================
+# Fix-check of 84706a9 (N1_N2_FIX_CHECK.md): N-1, N-2, N-3 and its test gaps
+# =============================================================================================
+
+
+def test_a_failed_acceptance_is_permanent_across_rollback_episodes(tmp_path: Path) -> None:
+    """deploy, rollback interrupted, recover, accept FAIL, rollback interrupted, recover:
+    the release must not come back as acceptable, and accept(pass) must not succeed."""
+
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    ctx.approval = rollback_approval(manifest, "140000")
+    interrupt(world, lambda c: " sed -i " in c.argv[-1], KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    assert (
+        recover_now(ctx, world, tmp_path, manifest)["state"] == records.DEPLOYED_AWAITING_ACCEPTANCE
+    )
+    failed = deploy.accept(ctx.store, manifest, passed=False, accepted_by="owner", interactive=True)
+    assert failed["state"] == records.ACCEPTANCE_FAILED and failed["acceptance_failed"] is True
+    ctx.approval = rollback_approval(manifest, "140500")
+    interrupt(world, lambda c: " sed -i " in c.argv[-1], KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    second = latest(ctx, manifest)
+    assert second["state_before_rollback"] == records.ACCEPTANCE_FAILED, (
+        "a new episode, a new origin"
+    )
+    recovered = recover_now(ctx, world, tmp_path, manifest)
+    assert recovered["state"] == records.FAILED_HELD
+    assert recovered["rollback"]["status"] == "RECOVERED_ON_RELEASE_NOT_ACCEPTABLE"
+    assert refuse_accept(ctx, manifest) in {"ACCEPTANCE_NOT_PENDING", "ACCEPTANCE_ALREADY_FAILED"}
+    assert ctx.store.known_good() is None
+    assert records.ACCEPTED not in result_states(ctx, manifest)
+
+
+def test_accept_refuses_a_release_that_already_failed_acceptance_whatever_its_state(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    deploy.accept(ctx.store, manifest, passed=False, accepted_by="owner", interactive=True)
+    record = latest(ctx, manifest)
+    forged = {**record, "state": records.DEPLOYED_AWAITING_ACCEPTANCE}
+    forged.pop("recorded_at", None)
+    ctx.store.write_result(manifest["release_id"], forged)
+    assert refuse_accept(ctx, manifest) == "ACCEPTANCE_ALREADY_FAILED"
+    assert ctx.store.known_good() is None
+
+
+def test_recover_does_not_return_a_release_with_a_recorded_stop_code_to_acceptance(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    ctx.approval = rollback_approval(manifest, "141000")
+    interrupt(world, lambda c: " sed -i " in c.argv[-1], KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    record = latest(ctx, manifest)
+    record.pop("recorded_at", None)
+    ctx.store.write_result(manifest["release_id"], {**record, "stop_code": "SMOKE_FAILED"})
+    assert recover_now(ctx, world, tmp_path, manifest)["state"] == records.FAILED_HELD
+
+
+def test_rollback_is_not_verified_while_a_never_applied_service_runs_the_release_image(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = partly_applied(tmp_path)
+    # Someone ran `docker compose up frontend` by hand while the file still pinned the release.
+    world.containers["frontend"].image = world.images.setdefault(
+        new_reference(manifest, "frontend"), "sha256:" + "5" * 64
+    )
+    ctx.approval = rollback_approval(manifest, "142000")
+    outcome = deploy.manual_rollback(ctx, manifest["release_id"])
+    assert outcome["state"] == records.FAILED_HELD
+    assert outcome["rollback"]["failure"]["message"] == (
+        "frontend: the container is not running its previous image"
+    )
+    assert records.ROLLED_BACK not in result_states(ctx, manifest)
+
+
+@pytest.mark.parametrize("mode", [Mode.EXECUTE, Mode.DRY_RUN])
+def test_a_new_run_never_replaces_the_record_of_an_unfinished_rollback(
+    tmp_path: Path, mode: Mode
+) -> None:
+    ctx, world, manifest = failing_release(tmp_path, ["frontend"])
+    interrupt(world, lambda c: in_rollback(world) and " up " in c.argv[-1], KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.run(ctx)
+    before = latest(ctx, manifest)
+    files = result_states(ctx, manifest)
+    received = len(world.received)
+    again = make_context(
+        manifest,
+        tmp_path,
+        mode=mode,
+        world=world,
+        approval=make_approval(manifest, issued="143000"),
+    )[0]
+    with pytest.raises(StopCondition) as refused:
+        deploy.run(again)
+    assert refused.value.code == "ROLLBACK_INCOMPLETE"
+    assert latest(ctx, manifest) == before and result_states(ctx, manifest) == files
+    assert len(world.received) == received, "nothing was contacted"
+    assert not (ctx.store.root / "release.lock").exists()
+    assert recover_now(ctx, world, tmp_path, manifest)["state"] == records.ROLLBACK_INTERRUPTED
+
+
+def test_first_attempt_accepts_the_previous_pin_only_for_a_never_applied_service(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = partly_applied(tmp_path)
+    world.env["FRONTEND_IMAGE"] = OLD["frontend"]  # never applied, already put back by hand
+    world.containers["frontend"].label_hash = world._hash("frontend")
+    ctx.approval = rollback_approval(manifest, "144000")
+    assert deploy.manual_rollback(ctx, manifest["release_id"])["state"] == records.ROLLED_BACK
+    assert "pin frontend back to its previous image" not in journal(ctx, manifest)
+
+
+def test_a_never_applied_service_on_neither_pin_refuses_the_rollback(tmp_path: Path) -> None:
+    ctx, world, manifest = partly_applied(tmp_path)
+    world.env["FRONTEND_IMAGE"] = OLD["frontend"][:-4] + "cafe"  # another release pinned it
+    writes = len(world.effects(Effect.HOST_WRITE))
+    ctx.approval = rollback_approval(manifest, "144500")
+    with pytest.raises(StopCondition) as refused:
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    assert refused.value.code == "HOST_STATE_UNEXPECTED" and "frontend" in refused.value.message
+    assert len(world.effects(Effect.HOST_WRITE)) == writes
+
+
+def test_journal_append_is_retried_after_a_transient_access_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import builtins
+
+    from tools.release import records as records_module
+
+    store = records_module.StateStore(tmp_path / "state")
+    store.write_result("rel-0000000-20261114-01", {"state": "ROLLBACK_IN_PROGRESS"})
+    real_open, failures = Path.open, {"left": 2}
+
+    def flaky_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.name == "rollback-journal.jsonl" and failures["left"]:
+            failures["left"] -= 1
+            raise PermissionError(13, "Access is denied")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", flaky_open)
+    monkeypatch.setattr(records_module.time, "sleep", lambda seconds: None)
+    store.journal("rel-0000000-20261114-01", {"step": "stop ingress"}, {"status": "IN_PROGRESS"})
+    assert failures["left"] == 0 and builtins is not None
+    lines = (
+        (store.release_dir("rel-0000000-20261114-01") / "rollback-journal.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert len(lines) == 1 and json.loads(lines[0])["step"] == "stop ingress"
+    failures["left"] = 10_000
+    with pytest.raises(PermissionError):
+        store.journal("rel-0000000-20261114-01", {"step": "never"}, {"status": "IN_PROGRESS"})
+
+
+def test_recover_does_not_return_a_release_marked_as_failed_acceptance_to_acceptance(
+    tmp_path: Path,
+) -> None:
+    """Belt and braces: even if the episode origin said "awaiting acceptance", a recorded
+    failed acceptance keeps the release held."""
+
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    ctx.approval = rollback_approval(manifest, "145000")
+    interrupt(world, lambda c: " sed -i " in c.argv[-1], KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    record = latest(ctx, manifest)
+    assert record["state_before_rollback"] == records.DEPLOYED_AWAITING_ACCEPTANCE
+    record.pop("recorded_at", None)
+    ctx.store.write_result(manifest["release_id"], {**record, "acceptance_failed": True})
+    recovered = recover_now(ctx, world, tmp_path, manifest)
+    assert recovered["state"] == records.FAILED_HELD
+    assert recovered["rollback"]["status"] == "RECOVERED_ON_RELEASE_NOT_ACCEPTABLE"

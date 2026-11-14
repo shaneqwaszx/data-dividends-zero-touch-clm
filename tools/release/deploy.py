@@ -633,6 +633,7 @@ def run(ctx: Context) -> dict[str, Any]:
     if mode is Mode.PLAN_ONLY:
         raise ReleaseError("MODE", "use build_plan for plan-only")
     with ctx.store.lock(manifest["release_id"]):
+        _refuse_over_unfinished_rollback(ctx)
         state = RunState()
         try:
             try:
@@ -643,6 +644,23 @@ def run(ctx: Context) -> dict[str, Any]:
             _record(ctx, state, _interrupted(state, crash))
             raise
         return _record(ctx, state, outcome)
+
+
+def _refuse_over_unfinished_rollback(ctx: Context) -> None:
+    """A deploy or dry-run of this release must not bury the record of a rollback that has
+    no verified outcome. Raised before anything is written or contacted."""
+
+    latest = ctx.store.read_result(ctx.manifest["release_id"])
+    block = (latest or {}).get("rollback") or {}
+    if latest is not None and (
+        latest["state"] in records.ROLLBACK_UNFINISHED
+        or block.get("status") in {"IN_PROGRESS", "INTERRUPTED", "FAILED"}
+    ):
+        raise StopCondition(
+            "ROLLBACK_INCOMPLETE",
+            "this release has a rollback with no verified outcome; resolve it with the recover "
+            "or rollback command before any other run",
+        )
 
 
 def _record(ctx: Context, state: RunState, outcome: dict[str, Any]) -> dict[str, Any]:
@@ -1168,6 +1186,41 @@ def _stopped(ctx: Context, state: RunState, stop: StopCondition) -> dict[str, An
 
 
 DEPLOYMENT_STOPPED = "DEPLOYMENT_STOPPED"
+# States a release reaches outside any rollback. A rollback that starts from one of them
+# begins a new episode, and that state is what the release "was" for that episode.
+SETTLED_BEFORE_ROLLBACK = frozenset(
+    {records.DEPLOYED_AWAITING_ACCEPTANCE, records.ACCEPTANCE_FAILED, records.FAILED_HELD}
+)
+
+
+def _origin_for_new_attempt(previous: dict[str, Any]) -> str:
+    """What the release was when this rollback episode began.
+
+    A later attempt inside one episode (from an interrupted or failed rollback) keeps the
+    episode's origin. An episode that starts after ``recover`` and a failed acceptance starts
+    from ``ACCEPTANCE_FAILED``, so an earlier, better origin is not inherited.
+    """
+
+    block = previous.get("rollback") or {}
+    unfinished = previous["state"] in records.ROLLBACK_UNFINISHED or block.get("status") in {
+        "IN_PROGRESS",
+        "INTERRUPTED",
+        "FAILED",
+    }
+    if unfinished and previous.get("state_before_rollback"):
+        return str(previous["state_before_rollback"])
+    return str(previous["state"])
+
+
+def _may_return_to_acceptance(previous: dict[str, Any]) -> bool:
+    """Only a release that passed its own deployment verification, was awaiting acceptance
+    when this rollback episode began, and has never failed acceptance."""
+
+    return (
+        previous.get("state_before_rollback") == records.DEPLOYED_AWAITING_ACCEPTANCE
+        and not previous.get("acceptance_failed")
+        and not previous.get("stop_code")
+    )
 
 
 def _begin_rollback(ctx: Context, state: RunState, kind: str) -> None:
@@ -1359,14 +1412,23 @@ def _unpin(ctx: Context, state: RunState, touched: set[str], *, retry: bool) -> 
 
 
 def _pins_restored(ctx: Context, state: RunState) -> None:
-    """Part of the final verification: every line of the release shows its previous pin."""
+    """Part of the final verification, for EVERY service of the release (also one that was
+    pinned but never applied): its line shows the previous pin and its container runs the
+    previous image."""
 
+    containers = ctx.host.container_states(ctx.changed)
     for name in ctx.changed:
         variable = catalog.service(name).image_variable
         assert variable is not None
-        if ctx.host.env_value(variable) != state.pins_before.get(name):
+        previous_pin = state.pins_before.get(name)
+        if previous_pin is None or ctx.host.env_value(variable) != previous_pin:
             raise StopCondition(
                 "ROLLBACK_FAILED", f"{name}: compose.env does not show the previous image pin"
+            )
+        expected = ctx.host.image_id(previous_pin)
+        if expected is None or containers[name].image != expected:
+            raise StopCondition(
+                "ROLLBACK_FAILED", f"{name}: the container is not running its previous image"
             )
 
 
@@ -1505,7 +1567,7 @@ def manual_rollback(ctx: Context, release_id: str) -> dict[str, Any]:
         rollback_history=earlier,
         carried=carried,
         deploy_approval_id=previous.get("approval_id"),
-        state_before_rollback=previous.get("state_before_rollback") or previous["state"],
+        state_before_rollback=_origin_for_new_attempt(previous),
     )
     host = ctx.host
     with ctx.store.lock(release_id):
@@ -1659,7 +1721,7 @@ def recover(
             rollback_block.update(
                 host_state="verified-on-release-images", ingress_may_be_stopped=False
             )
-            if previous.get("state_before_rollback") == records.DEPLOYED_AWAITING_ACCEPTANCE:
+            if _may_return_to_acceptance(previous):
                 # The deployment had passed its own full verification before the rollback
                 # was requested, and the host is verified back on it.
                 attempt["conclusion"] = "verified on this release's images; acceptance still needed"
@@ -1766,11 +1828,18 @@ def accept(
         raise StopCondition("ACCEPTANCE_NOT_PENDING", "this release is not awaiting acceptance")
     if previous["manifest_sha256"] != manifest_hash(manifest):
         raise StopCondition("APPROVAL_MANIFEST_MISMATCH", "this is not the deployed manifest")
+    if previous.get("acceptance_failed"):
+        raise StopCondition(
+            "ACCEPTANCE_ALREADY_FAILED",
+            "this release already failed acceptance; it cannot be accepted later",
+        )
     outcome = {
         **previous,
         "state": records.ACCEPTED if passed else records.ACCEPTANCE_FAILED,
         "accepted_by": accepted_by,
     }
+    if not passed:
+        outcome["acceptance_failed"] = True  # permanent for this release
     if passed:
         outcome["known_good"] = store.record_known_good(manifest)
     store.write_result(manifest["release_id"], outcome)

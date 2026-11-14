@@ -9,7 +9,7 @@
 
 ## 1. Automated tests (`tests/release`)
 
-`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **302 passed, 1 skipped** (6 test files, 203 test functions; the count includes parametrised cases).
+`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **312 passed, 1 skipped** (6 test files, 208 test functions; the count includes parametrised cases).
 The one skipped test is the opt-in Windows Credential Manager round trip
 (`CLM_RELEASE_WINCRED_SELFTEST=1`); it was run once by hand and passed (it writes and removes
 one throwaway entry holding a sentinel value).
@@ -180,7 +180,26 @@ back" unconditionally, which is easier to kill than the reviewer's finer mutants
 tests above, the implementer's second spot check (15 mutants: the six fixes above and the nine
 the reviewer named) is 15 of 15 killed. Both are the implementer's own targeted checks.
 
-@@CHECK4@@
+### 4.4 Check of the 4.3 fixes, and what was done about it
+
+A fourth fresh reviewer checked commit `84706a97fe57d51ce9098518136181276d5d8080` (tree
+`efbc61f242564894658ad4150fef3e5a05309cef`): **FAIL**. Findings 2, 3 and 4 were confirmed
+fixed; finding 1 was **partly** fixed (the four original scenarios were held, as were 2,500
+random call sequences, but one sequence still reached `ACCEPTED`). Its report is reproduced
+**unedited** in [N1_N2_FIX_CHECK_20261114.md](N1_N2_FIX_CHECK_20261114.md).
+
+| Finding | What was done | Tests |
+|---|---|---|
+| N-1 (P1) deploy, rollback interrupted, `recover`, `accept` fail, rollback interrupted, `recover`, `accept` pass reached `ACCEPTED`, because the origin was inherited across rollback episodes | The origin is kept only within one episode; a rollback that starts from `ACCEPTANCE_FAILED` has that as its origin. A failed acceptance is recorded permanently and `accept` refuses it afterwards. `recover` also refuses to return a release that carries a stop code | `test_a_failed_acceptance_is_permanent_across_rollback_episodes`, `test_accept_refuses_a_release_that_already_failed_acceptance_whatever_its_state`, `test_recover_does_not_return_a_release_with_a_recorded_stop_code_to_acceptance`, `test_recover_does_not_return_a_release_marked_as_failed_acceptance_to_acceptance` |
+| N-2 (P2) `ROLLED_BACK` recorded while a never-applied service ran the release image (after a manual `docker compose up`) | The final verification checks the container image, as well as the pin, of every service of the release | `test_rollback_is_not_verified_while_a_never_applied_service_runs_the_release_image` |
+| N-3 (P2, older) a second `run`, including a dry-run, replaced an unfinished-rollback record | `run` refuses (`ROLLBACK_INCOMPLETE`) before writing or contacting anything | `test_a_new_run_never_replaces_the_record_of_an_unfinished_rollback` (2) |
+| P3: wording on a persistent write failure; CLI did not print the held reason; four test gaps | Wording corrected; `recover` prints `held_reason` and the original stop code; tests added for the pre-check on never-applied services (2) and the journal-append retry | `test_first_attempt_accepts_the_previous_pin_only_for_a_never_applied_service`, `test_a_never_applied_service_on_neither_pin_refuses_the_rollback`, `test_journal_append_is_retried_after_a_transient_access_denied` |
+| P3 not changed | Records written by the two intermediate commits are not migrated (the tool has never been used, so none exist outside tests); small edges in the retry helpers; the top-level `ingress_stopped` can lag `rollback.ingress_may_be_stopped` in a stale in-progress record (read the latter) | |
+
+Implementer's spot check on these fixes: 10 mutants, 10 killed after the last test above was
+added (9 of 10 before it).
+
+@@CHECK5@@
 
 
 ## 5. What the evidence does not show

@@ -296,9 +296,17 @@ changes nothing.
 
 `DEPLOYED_AWAITING_ACCEPTANCE` is reached only by a deployment that passed its own full
 post-deploy verification. `recover` can return a release to it only if the release was in that
-state when its first rollback attempt began (`state_before_rollback`, recorded once and kept
-across attempts). A deployment that stopped on a stop condition, or whose acceptance failed,
-can never become acceptable through `recover`, however healthy the host looks.
+state when the current rollback episode began (`state_before_rollback`: kept across repeated
+attempts of one episode; a rollback that starts later, from `DEPLOYED_AWAITING_ACCEPTANCE` or
+`ACCEPTANCE_FAILED`, starts a new episode with that state as its origin), carries no stop
+code, and has never failed acceptance. A failed acceptance is permanent for a release
+(`acceptance_failed`): `accept` refuses it afterwards whatever the state says. A deployment
+that stopped on a stop condition, or whose acceptance failed, can never become acceptable
+through `recover`, however healthy the host looks.
+
+A `deploy` or dry-run of a release whose rollback has no verified outcome is refused
+(`ROLLBACK_INCOMPLETE`) before anything is written or contacted, so a later run cannot bury
+that record.
 
 Rules the code enforces:
 
@@ -314,10 +322,11 @@ Rules the code enforces:
 - The state files are written by write-then-rename with a flush to disk. On Windows the
   rename can briefly fail with "Access is denied" while another process holds the file; it is
   retried for about two seconds. If it still fails, the step is not taken and the rollback
-  ends `FAILED_HELD`.
-- A rollback is `ROLLED_BACK` only after every service is confirmed healthy on its previous
-  image, every image line of the release in `compose.env` shows its previous pin (including a
-  service that was pinned but never applied), and public `/health` returns 200. An interrupt, an unexpected error, a failed step or
+  stops; the result is `FAILED_HELD`, or, when the final record itself cannot be written, the
+  record on disk stays `ROLLBACK_IN_PROGRESS`. Neither is acceptable.
+- A rollback is `ROLLED_BACK` only after every service is confirmed healthy, every service
+  of the release (including one that was pinned but never applied) shows its previous pin in
+  `compose.env` **and** runs its previous image, and public `/health` returns 200. An interrupt, an unexpected error, a failed step or
   an unreadable host can never produce `ROLLED_BACK`, and no record says the previous service
   was restored unless that was verified.
 - `accept` refuses (`ROLLBACK_INCOMPLETE`) while the latest record is `ROLLBACK_IN_PROGRESS` or

@@ -2,8 +2,7 @@
 
 An Actions-independent release toolchain for the single-host AWS demo. **Implemented and
 tested locally against mocks; never run against the host or the registry; changes no existing
-owner gate. It has been through three independent reviews (FAIL, PASS WITH NOTES, FAIL), each followed
-by fixes; see `TEST_EVIDENCE_AND_LIMITATIONS.md` section 4 for exactly which commit each
+owner gate. It has been through several independent reviews and checks, each followed by fixes; see `TEST_EVIDENCE_AND_LIMITATIONS.md` section 4 for exactly which commit each
 verdict applies to. It is not cleared for use against the host or the registry.**
 
 | Document | What it is for |
@@ -18,6 +17,7 @@ verdict applies to. It is not cleared for use against the host or the registry.*
 | [TEST_EVIDENCE_AND_LIMITATIONS.md](TEST_EVIDENCE_AND_LIMITATIONS.md) | What was run, the counts, the independent review, what is not proven |
 | [INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md) | The independent review of the first candidate, unedited. Verdict: **FAIL**. The fixes made afterwards are not re-reviewed |
 | [N1_N2_INDEPENDENT_REVIEW_20261114.md](N1_N2_INDEPENDENT_REVIEW_20261114.md) | The independent review of the interrupted-rollback change (`37f3aa6`), unedited. Verdict: **FAIL** (N1 and N2 fixed; one new P1 in `recover`). What was done about it: evidence document section 4.3 |
+| [N1_N2_FIX_CHECK_20261114.md](N1_N2_FIX_CHECK_20261114.md) | The check of the fixes in `84706a9`, unedited. Verdict: **FAIL** (one sequence could still reach `ACCEPTED`). What was done about it: evidence document section 4.4 |
 
 | Artefact | Path |
 |---|---|

@@ -345,9 +345,8 @@ def cmd_recover(args: argparse.Namespace) -> int:
             "state": outcome["state"],
             "rollback": outcome["rollback"],
             "recovery": outcome["recovery_attempts"][-1],
-            "held_reason": outcome.get("held_reason")
-            if outcome["state"] == records.ROLLBACK_INTERRUPTED
-            else None,
+            "held_reason": outcome.get("held_reason"),
+            "original_stop_code": outcome.get("stop_code"),
         }
     )
     verified = {records.ROLLED_BACK, records.DEPLOYED_AWAITING_ACCEPTANCE}
