@@ -37,7 +37,7 @@ class SshTarget:
     def load(path: Path) -> SshTarget:
         data = read_json(path)
         destination = str(data.get("ssh_destination", ""))
-        if not re.fullmatch(r"[A-Za-z0-9._@-]+", destination):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._@-]*", destination):
             raise ReleaseError("OPERATOR_CONFIG_INVALID", "ssh_destination is missing or unsafe")
         return SshTarget(destination, data.get("identity_file"), int(data.get("port", 22)))
 

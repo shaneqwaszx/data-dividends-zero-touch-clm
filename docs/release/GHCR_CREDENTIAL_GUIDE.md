@@ -42,8 +42,12 @@ decision; the second needs a new account):
   logs in from standard input, pulls by digest, logs out, deletes the directory and reports
   how many such directories remain (must be 0). This is the pattern reviewed for Approval B.
 - Never in the repository, a Compose file, `compose.env`, a log, a result record, an
-  environment variable or a command-line argument. `tests/release` proves this with sentinel
-  tokens on success paths and failure paths.
+  environment variable or a command-line argument. `tests/release` checks this against the
+  mock host and registry with sentinel tokens, on success paths and failure paths. Redaction
+  removes the exact token and its base64 forms; it would not catch a token that some other
+  program re-encoded.
+- The host pull script removes its temporary directory on every exit, including a dropped
+  session (`trap`). It has not been executed on a real host.
 
 ## 3. One-time bootstrap (owner; needs owner approval because it creates credentials)
 
@@ -93,15 +97,15 @@ contact. Nothing is retried. Rotate, then start again inside a valid approval wi
 | Long-lived credential on the host | None | None |
 | Reference in `compose.env` | `repository@sha256:<manifest digest>`: content-addressed, as every release so far | A tag `rc-<commit12>-<config12>`; a loaded image has no registry digest, so the pin is a tag that the tool re-verifies by id |
 | Identity proof | The registry digest plus the config digest check after publication | Archive SHA-256 on both sides plus the config digest of the loaded image |
-| Proven on this host | Yes (Approval B, R3) | No. The host uses the containerd image store, where the loaded image id may differ from the config digest; the tool then stops |
+| Evidence on this host | The manual procedure this script is modelled on was used for Approval B and R3. This script itself has never run there | None. The host uses the containerd image store, where the loaded image id may differ from the config digest; the tool then stops |
 | Network | Host needs outbound HTTPS to GHCR | 67 MB to 587 MB per image uploaded over the operator's link |
 | Needs GHCR | Yes | No (also works if the registry is unreachable) |
 | Rollback store | The registry keeps every published digest | Only what is cached on the host |
 
 **Recommendation: host pull by digest, with the read-only token streamed over SSH.** It keeps
 no long-lived credential on the host, keeps digest pinning in `compose.env` exactly as today,
-and is the procedure already reviewed and proven on this host, so it is the simpler one to
-adopt. Archive transfer is implemented and mock-tested as a fallback for a registry outage;
+and follows the manual procedure already reviewed and used on this host, so it is the simpler
+one to adopt. Archive transfer is implemented and mock-tested as a fallback for a registry outage;
 it needs one supervised trial on the host before it is relied on.
 
 ## 8. Not done

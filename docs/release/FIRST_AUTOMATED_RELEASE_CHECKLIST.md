@@ -16,8 +16,8 @@
 | A1 | The pipeline branch is reviewed and merged to `main` by the owner | yes `[owner]` |
 | A2 | On this machine: `.\tools\release.ps1 status` and `.\tools\release.ps1 baseline` both succeed | no |
 | A3 | Create the two GHCR tokens and run `creds bootstrap` for `publish` and `pull` (`GHCR_CREDENTIAL_GUIDE.md`) | yes `[owner]` (creates credentials) |
-| A4 | Write the operator configuration file outside the repository: SSH destination, key path, the host directory that holds the Mongo archives | no (the host operator session writes it; it holds no secret) |
-| A5 | Confirm with the host operator that `/etc/clm/mongo.uri`, `/etc/clm/compose.env` and `/opt/clm` are where `catalog.HostProfile` says, and that `/run/lock` is writable | no (read-only on the host, by the host operator) |
+| A4 | Write the operator configuration file outside the repository: SSH destination, key path, the host directory that holds the Mongo archives, and `mongo_uri_file` | no (the host operator session writes it; it holds no secret) |
+| A5 | `[owner]` records where the host keeps the Compose connection setting. The tool's default is `/etc/clm/mongo.uri` (the path the Approval B script read); no tracked runbook names it. If the file exists, the host operator confirms the path, that `sudo -n --preserve-env=MONGO_URI` is permitted, that `/etc/clm/compose.env` and `/opt/clm` are as expected and that `/run/lock` is writable (all read-only checks). **If no such file exists, stop: creating one is a new at-rest copy of a database credential and needs an explicit owner decision** | yes `[owner]` |
 
 ## B. Prepare the release (this machine only)
 
@@ -65,7 +65,8 @@
 |---|---|
 | Refused before starting (exit 3) | Fix the cause. Nothing was contacted |
 | `FAILED_NO_CHANGE` | Nothing changed. If no host change had begun the approval is still usable in its window |
-| `ROLLED_BACK` | The previous image is serving. Stop; investigate; a new attempt needs a new approval |
+| `ROLLED_BACK` | The tool confirmed every service healthy and public `/health` 200 on the previous image. Check the site by hand as well. Stop; investigate; a new attempt needs a new approval |
+| A traceback or an unexpected exit code | The run was interrupted. Runbook section 7, "After an interrupted run" |
 | `FAILED_HELD` | **Run nothing else.** Tell the owner the `held_reason`. For an assistant: `dca stop assistant` is the safe action. For a frontend: the previous digest is in `pins_before` |
 
 ## G. Not for the first use

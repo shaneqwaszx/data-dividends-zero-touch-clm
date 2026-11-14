@@ -74,7 +74,7 @@
       "config_digest": "sha256:e98a00b298514b75a6a40379d2f266847968c78edcc4fe65869ba3fd547bbd12",
       "file_equality": {
         "detail": "byte-identical to the commit",
-        "files_compared": 97,
+        "files_compared": 99,
         "mismatches": 0,
         "status": "PASS"
       },

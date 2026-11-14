@@ -269,7 +269,9 @@
           "description": "The registry reference the service returns to, or null when it must be read from the host at preflight.",
           "type": ["string", "null"]
         },
-        "target_source_commit": {"type": ["string", "null"]},
+        "target_source_commit": {
+          "anyOf": [{"type": "string", "pattern": "^[0-9a-f]{7,40}$"}, {"type": "null"}]
+        },
         "target_snapshot_schema_writes": {"type": ["integer", "null"]},
         "target_confirmed_on_host": {"type": "boolean"},
         "data_compatible": {"enum": [true, false, "unproven"]},

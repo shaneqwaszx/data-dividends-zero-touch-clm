@@ -120,12 +120,13 @@ def make_approval(
     auto_rollback: bool = True,
     start: datetime = NOW - timedelta(minutes=5),
     end: datetime = NOW + timedelta(hours=2),
+    issued: str = "095500",
 ) -> dict[str, Any]:
     stamp = "%Y-%m-%dT%H:%M:%SZ"
     hashed = manifest_hash(manifest)
     return {
         "schema_version": 1,
-        "approval_id": f"apr-{hashed[:12]}-20261114T095500Z",
+        "approval_id": f"apr-{hashed[:12]}-20261114T{issued}Z",
         "release_id": manifest["release_id"],
         "manifest_sha256": hashed,
         "services": sorted(services if services is not None else manifest["services_changed"]),
@@ -178,6 +179,14 @@ class FakeWorld:
     compose_file_override: dict[str, str] = field(default_factory=dict)
     host_summary_extra_network: str | None = None
     on_command: Any = None
+    clock_skew: int = 0
+    compose_version: str = "5.7.0"
+    proxy_internal: bool = True
+    restarts_after_up: int = 0
+    verify_exit: int = 0
+    diff_lines: int | None = None
+    rollback_runs_wrong_image: bool = False
+    restore_fails: bool = False
 
     def __post_init__(self) -> None:
         self.env = {
@@ -298,11 +307,11 @@ class FakeWorld:
         if text.startswith("test -e "):
             return Result(0, "held\n" if self.host_lock else "free\n")
         if text == "date -u +%s":
-            return Result(0, f"{int(self.clock().timestamp())}\n")
+            return Result(0, f"{int(self.clock().timestamp()) + self.clock_skew}\n")
         if "MemAvailable" in text:
             return Result(0, f"{self.mem_available}\n{self.disk_free}\n")
         if "compose version --short" in text:
-            return Result(0, "5.7.0\ncompose_env=0\n")
+            return Result(0, f"{self.compose_version}\ncompose_env=0\n")
         if "sha256sum deploy/compose.yml" in text or " && sha256sum " in text:
             lines = [
                 f"{self.compose_file_override.get(e['path'], e['sha256'])}  {e['path']}"
@@ -335,7 +344,8 @@ class FakeWorld:
             return Result(0, "\n".join(lines) + "\n")
         if "docker network inspect" in text:
             if "{{.Internal}}" in text:
-                return Result(0, "proxy-net-1 true\n" + "\n".join(self.listening) + "\n")
+                internal = "true" if self.proxy_internal else "false"
+                return Result(0, f"proxy-net-1 {internal}\n" + "\n".join(self.listening) + "\n")
             return Result(0, "proxy-net-1\n")
         if "-mmin" in text:
             return Result(0, f"{self.backups}\n")
@@ -350,15 +360,19 @@ class FakeWorld:
             out = f"600 root\n{len(self.env)}\n"
             if " diff " in text:
                 backup = self.backups_store[sorted(self.backups_store)[-1]]
-                changed = sum(1 for k in self.env if self.env[k] != backup[k])
-                out += f"{2 * changed}\n"
+                changed = sum(1 for k in self.env if self.env[k] != backup.get(k))
+                lines = 2 * changed if self.diff_lines is None else self.diff_lines
+                out += f"{lines}\n"
             return Result(0, out)
         if " cp -p /etc/clm/compose.env /etc/clm/compose.env.pre-" in text:
             name = text.split()[-1]
             self.backups_store[name] = dict(self.env)
             return Result(0)
         if re.search(r"cp -p /etc/clm/compose\.env\.pre-\S+ /etc/clm/compose\.env$", text):
+            if self.restore_fails:
+                return Result(1, "", "cp: permission denied")
             self.env = dict(self.backups_store[text.split()[-2]])
+            self.restored = True
             return Result(0)
         if " sed -i " in text:
             found = re.search(r"s#\^([A-Z_]+)=(\S+)\$#([A-Z_]+)=(\S+)#", text)
@@ -369,7 +383,7 @@ class FakeWorld:
         if "docker compose" in text:
             return self._compose(text)
         if "verify_host_firewall.sh" in text or "verify_assistant_egress.sh" in text:
-            return Result(0, "verify_exit=0\n")
+            return Result(0, f"verify_exit={self.verify_exit}\n")
         return Result(1, "", f"unexpected remote command: {text[:80]}")
 
     @staticmethod
@@ -431,11 +445,15 @@ class FakeWorld:
         variable = catalog.service(service).image_variable
         assert variable is not None
         self.counter += 1
+        image = self.images.get(self.env[variable], digest("missing"))
+        if self.rollback_runs_wrong_image and getattr(self, "restored", False):
+            image = digest("some-other-image")
         self.containers[service] = Container(
             container_id=f"{service}-c{self.counter}",
-            image=self.images.get(self.env[variable], digest("missing")),
+            image=image,
             label_hash=self._hash(service),
             started="2026-11-14T10:00:30Z",
+            restarts=self.restarts_after_up,
             health="unhealthy" if service in self.unhealthy_after_up else "healthy",
         )
         if self.volume_changes_after_up:

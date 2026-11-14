@@ -289,9 +289,31 @@ FORBIDDEN_REMOTE = (
     (re.compile(r"\bvolume\s+(?:rm|remove|prune)\b"), "volume removal"),
     (re.compile(r"\b(?:system|container|image|network|builder)\s+prune\b"), "prune"),
     (re.compile(r"--scale\b"), "--scale (a second backend)"),
-    (re.compile(r"\bcompose\b[^|;&]*\s(?:run|build|create|kill|restart)\b"), "unsupported verb"),
+    (
+        re.compile(r"\bcompose\b[^|;&]*\s(?:run|build|create|kill|restart|exec|cp|pause)\b"),
+        "unsupported verb",
+    ),
     (re.compile(r"\bcompose\b[^|;&]*\srm\b"), "compose rm"),
-    (re.compile(r"\bdocker\s+(?:rm|rmi|kill|build|run)\b"), "direct docker mutation"),
+    (re.compile(r"\bcompose\b[^|;&]*\sup\b(?![^|;&]*--no-deps)"), "up without --no-deps"),
+    (re.compile(r"\bcompose\b[^|;&]*\sup\b(?![^|;&]*--no-build)"), "up without --no-build"),
+    (
+        re.compile(r"--renew-anon-volumes\b|--force-recreate\b|\bcompose\b[^|;&]*\s-\w*V\w*\b"),
+        "recreate flag",
+    ),
+    (
+        re.compile(r"\bcompose\b[^|;&]*\s(?:up|stop|start)\b[^|;&]*\smongo\b"),
+        "Mongo is never touched",
+    ),
+    (
+        re.compile(
+            r"\bdocker\s+(?:rm|rmi|kill|build|run|stop|start|restart|exec|cp|commit|update)\b"
+        ),
+        "direct docker mutation",
+    ),
+    (
+        re.compile(r"\bdocker\s+(?:container|image|network|volume)\s+(?:rm|remove|create|prune)\b"),
+        "direct docker mutation",
+    ),
     (re.compile(r"\b(?:mongodump|mongorestore|mongosh)\b"), "database tooling"),
     (re.compile(r"\b(?:nft|iptables|iptables-legacy|ufw)\b"), "firewall change"),
     (re.compile(r"\bsystemctl\s+(?!show\b|is-active\b|is-enabled\b|status\b)\w+"), "systemctl"),
@@ -300,8 +322,14 @@ FORBIDDEN_REMOTE = (
 
 
 def assert_remote_allowed(remote: str) -> None:
+    """Defence in depth only: the command builders are the real control.
+
+    Quotes and backslashes are removed first so ``"down"`` or ``do''wn`` cannot slip past.
+    """
+
+    plain = re.sub(r"[\\'\"]", "", remote)
     for pattern, label in FORBIDDEN_REMOTE:
-        if pattern.search(remote):
+        if pattern.search(plain):
             raise StopCondition("FORBIDDEN_HOST_COMMAND", f"refused: {label}")
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,8 @@ def _mode(args: argparse.Namespace) -> Mode:
     if getattr(args, "plan_only", False):
         return Mode.PLAN_ONLY
     if getattr(args, "execute", False):
+        if getattr(args, "offline", False):
+            raise StopCondition("MODE", "--offline cannot be combined with --execute")
         return Mode.EXECUTE
     return Mode.DRY_RUN
 
@@ -76,8 +79,19 @@ def _host(args: argparse.Namespace, gate: Gate) -> Host:
         gate._host_reads = False  # no host named: nothing can be contacted
         return Host(gate, SshTarget("host-not-configured"), catalog.HostProfile())
     data = json.loads(Path(config).read_text(encoding="utf-8"))
-    profile = catalog.HostProfile(backup_glob=data.get("backup_dir"))
-    return Host(gate, SshTarget.load(Path(config)), profile)
+    settings: dict[str, Any] = {"backup_glob": data.get("backup_dir")}
+    for key in ("workdir", "compose_env", "mongo_uri_file", "site", "lock_dir"):
+        if key in data:
+            value = str(data[key])
+            if not re.fullmatch(r"(https://)?[A-Za-z0-9._/-]+", value):
+                raise StopCondition("OPERATOR_CONFIG_INVALID", f"{key} has unsafe characters")
+            settings[key] = value
+    if gate.mode is Mode.EXECUTE and "mongo_uri_file" not in data:
+        raise StopCondition(
+            "OPERATOR_CONFIG_INVALID",
+            "mongo_uri_file must be confirmed in the operator configuration before executing",
+        )
+    return Host(gate, SshTarget.load(Path(config)), catalog.HostProfile(**settings))
 
 
 # -- commands ------------------------------------------------------------------------------
@@ -461,7 +475,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("approve", help="owner only: record an approval bound to the manifest hash")
     p.add_argument("--manifest", required=True)
     p.add_argument("--service", action="append", required=True)
-    p.add_argument("--action", action="append", required=True, choices=["publish", "deploy"])
+    p.add_argument(
+        "--action", action="append", required=True, choices=["publish", "deploy", "rollback"]
+    )
     p.add_argument("--not-before", required=True)
     p.add_argument("--expires-at", required=True)
     p.add_argument("--approved-by", required=True)

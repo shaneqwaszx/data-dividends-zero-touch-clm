@@ -88,6 +88,14 @@ SERVICES: dict[str, Service] = {
                 "apps/assistant/deploy/requirements.lock",
                 "/opt/assistant/deploy/requirements.lock",
             ),
+            (
+                "apps/assistant/scripts/storage/backup_stores.py",
+                "/opt/assistant/scripts/storage/backup_stores.py",
+            ),
+            (
+                "apps/assistant/scripts/qualify_model.py",
+                "/opt/assistant/scripts/qualify_model.py",
+            ),
         ),
     ),
     "backend": Service(
@@ -151,6 +159,9 @@ class HostProfile:
     project: str = "clm-staging"
     workdir: str = "/opt/clm"
     compose_env: str = "/etc/clm/compose.env"
+    # Where the host lane keeps the connection setting for Compose. The reviewed Approval B
+    # script read this path; no tracked runbook names it, so the operator configuration must
+    # confirm it (``mongo_uri_file``). The tool never creates this file.
     mongo_uri_file: str = "/etc/clm/mongo.uri"
     site: str = "https://delta-clm.duckdns.org"
     proxy_network: str = "clm-staging_proxy"
@@ -162,7 +173,8 @@ class HostProfile:
     max_backup_age_hours: int = 72
     wait_timeout_seconds: int = 180
     lock_dir: str = "/run/lock/clm-release.lock"
-    state_dir: str = "~/clm-release"
+    # Relative to the operator's home directory (the SSH session's working directory).
+    state_dir: str = "clm-release"
     containers: dict[str, str] = field(
         default_factory=lambda: {name: svc.container for name, svc in SERVICES.items()}
     )

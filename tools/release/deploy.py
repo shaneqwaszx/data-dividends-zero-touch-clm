@@ -293,7 +293,7 @@ def preflight(ctx: Context) -> list[CheckResult]:
         results.append(CheckResult(name, SKIPPED if ok is None else PASS if ok else FAIL, detail))
 
     lone = host.read(
-        "echo \"ssh=$(pgrep -fc '^sshd: [^ ]+@' || true) "
+        "echo \"ssh=$(pgrep -fc '^sshd(-session)?: [^ ]+@' || true) "
         "ops=$(pgrep -fc '[d]ocker compose|[d]ocker pull|[d]ocker load|[m]ongodump' || true)\"",
         "confirm this is the only operator session",
     )
@@ -611,34 +611,78 @@ class RunState:
 
 
 def run(ctx: Context) -> dict[str, Any]:
-    """Dry-run or execute one release. Returns the result record that was stored."""
+    """Dry-run or execute one release. Returns the result record that was stored.
+
+    A result is written on every exit path, including an interrupt or an unexpected error, so
+    a run that touched the host never ends without a record.
+    """
 
     manifest, mode = ctx.manifest, ctx.gate.mode
     if mode is Mode.PLAN_ONLY:
         raise ReleaseError("MODE", "use build_plan for plan-only")
-    release_id = manifest["release_id"]
-    with ctx.store.lock(release_id):
+    with ctx.store.lock(manifest["release_id"]):
         state = RunState()
         try:
             outcome = _run_locked(ctx, state)
         except StopCondition as stop:
-            outcome = _stopped(ctx, state, stop)
-        outcome.update(
-            {
-                "release_id": release_id,
-                "manifest_sha256": manifest_hash(manifest),
-                "mode": mode.value,
-                "transfer": ctx.transfer,
-                "services": ctx.changed,
-                "env_backup": state.backup,
-                "pins_before": state.pins_before,
-                "references": state.references,
-                "events": state.events,
-                "approval_id": (ctx.approval or {}).get("approval_id"),
-            }
+            outcome = _handle_stop(ctx, state, stop)
+        except BaseException as crash:
+            _record(ctx, state, _interrupted(state, crash))
+            raise
+        return _record(ctx, state, outcome)
+
+
+def _record(ctx: Context, state: RunState, outcome: dict[str, Any]) -> dict[str, Any]:
+    outcome.update(
+        {
+            "release_id": ctx.manifest["release_id"],
+            "manifest_sha256": manifest_hash(ctx.manifest),
+            "mode": ctx.gate.mode.value,
+            "transfer": ctx.transfer,
+            "services": ctx.changed,
+            "applied": list(state.applied),
+            "env_backup": state.backup,
+            "pins_before": state.pins_before,
+            "references": state.references,
+            "events": state.events,
+            "approval_id": (ctx.approval or {}).get("approval_id"),
+        }
+    )
+    ctx.store.write_result(ctx.manifest["release_id"], outcome)
+    return outcome
+
+
+def _interrupted(state: RunState, crash: BaseException) -> dict[str, Any]:
+    """The record for a run that ended without a decision (Ctrl-C, a killed tool, a defect)."""
+
+    touched = state.env_changed or bool(state.applied) or state.ingress_stopped
+    state.events.append(f"INTERRUPTED by {type(crash).__name__}")
+    outcome: dict[str, Any] = {
+        "state": records.FAILED_HELD if touched else records.FAILED_NO_CHANGE,
+        "stop_code": "INTERRUPTED",
+        "stop_message": f"the run ended unexpectedly ({type(crash).__name__})",
+    }
+    if touched:
+        outcome["held_reason"] = (
+            "the run was interrupted after it began changing the host; the host state is not "
+            "verified. Follow 'After an interrupted run' in the runbook before anything else"
         )
-        ctx.store.write_result(release_id, outcome)
-        return outcome
+        outcome["ingress_stopped"] = state.ingress_stopped
+    return outcome
+
+
+def _handle_stop(ctx: Context, state: RunState, stop: StopCondition) -> dict[str, Any]:
+    try:
+        return _stopped(ctx, state, stop)
+    except StopCondition as second:
+        state.events.append(f"STOP WHILE HANDLING A STOP {second.code}: {second.message}")
+        return {
+            "state": records.FAILED_HELD,
+            "stop_code": stop.code,
+            "stop_message": stop.message,
+            "held_reason": f"failure handling was itself stopped: {second.code}",
+            "ingress_stopped": state.ingress_stopped,
+        }
 
 
 def _run_locked(ctx: Context, state: RunState) -> dict[str, Any]:
@@ -668,8 +712,12 @@ def _run_locked(ctx: Context, state: RunState) -> dict[str, Any]:
 
     checks = preflight(ctx)
     failed = [c for c in checks if c.status == FAIL]
+    if execute:
+        # Only the backup check may be skipped (no stateful service); an unread check is a stop.
+        failed += [c for c in checks if c.status == SKIPPED and c.name != "backups"]
     if failed:
-        raise StopCondition("PREFLIGHT_FAILED", f"{failed[0].name}: {failed[0].detail}")
+        detail = failed[0].detail or "the check could not be read"
+        raise StopCondition("PREFLIGHT_FAILED", f"{failed[0].name}: {detail}")
     state.pins_before = dict(ctx.baseline.get("pins", {}))
     state.events.append(f"preflight {sum(c.status == PASS for c in checks)} passed")
 
@@ -1012,7 +1060,7 @@ def _stopped(ctx: Context, state: RunState, stop: StopCondition) -> dict[str, An
                     ),
                 }
         return {"state": records.FAILED_NO_CHANGE, **base}
-    if not state.applied and stop.code != "APPROVAL_EXPIRED":
+    if not state.applied and stop.code != "APPROVAL_EXPIRED":  # ingress_stopped only
         # Only the old containers were stopped; no new image ever started. Put them back.
         try:
             _resume_previous(ctx, state)
@@ -1052,22 +1100,37 @@ def _stopped(ctx: Context, state: RunState, stop: StopCondition) -> dict[str, An
     return {"state": records.ROLLED_BACK, **base}
 
 
-def rollback_blockers(ctx: Context, state: RunState, stop: StopCondition | None) -> list[str]:
-    """Why an automatic rollback must not run. An empty list means it may."""
+def rollback_blockers(
+    ctx: Context, state: RunState, stop: StopCondition | None, *, need_consent: bool = True
+) -> list[str]:
+    """Why a rollback must not run. An empty list means it may.
+
+    "Compatible" here means what the manifest declares and the owner approved; the tool cannot
+    inspect what an image writes.
+    """
 
     reasons: list[str] = []
     if stop is not None and stop.code == "APPROVAL_EXPIRED":
         reasons.append("the approval window ended; expiry stops execution and is never extended")
-    if ctx.approval is None or not ctx.approval.get("auto_rollback", False):
+    if need_consent and (ctx.approval is None or not ctx.approval.get("auto_rollback", False)):
         reasons.append("the owner did not approve automatic rollback")
-    touched = set(state.applied) | ({"backend"} if state.ingress_stopped else set())
-    for name in sorted(touched & set(ctx.changed)):
+    for name in sorted(_touched(ctx, state)):
         eligible, reason = rollback_eligibility(ctx.manifest, name)
         if not eligible:
             reasons.append(f"{name}: {reason}")
         elif name not in state.pins_before:
             reasons.append(f"{name}: the previous image pin was not recorded")
     return reasons
+
+
+def _touched(ctx: Context, state: RunState) -> set[str]:
+    touched = set(state.applied) | ({"backend"} if state.ingress_stopped else set())
+    return touched & set(ctx.changed)
+
+
+def _must(result: Any, message: str) -> None:
+    if result.returncode != 0:
+        raise StopCondition("ROLLBACK_FAILED", message)
 
 
 def _resume_previous(ctx: Context, state: RunState) -> None:
@@ -1078,8 +1141,7 @@ def _resume_previous(ctx: Context, state: RunState) -> None:
         raise StopCondition("ROLLBACK_FAILED", "compose.env could not be restored")
     for wrapper, name in ((ctx.wrapper("backend"), "backend"), ("base", "frontend")):
         started = host.write(host.compose_start(wrapper, name), f"start the previous {name} again")
-        if started.returncode != 0:
-            raise StopCondition("ROLLBACK_FAILED", f"the previous {name} did not start")
+        _must(started, f"the previous {name} did not start")
     before: dict[str, ContainerState] = ctx.baseline.get("states", {})
     now = host.container_states(["backend", "frontend"])
     for name in ("backend", "frontend"):
@@ -1091,53 +1153,112 @@ def _resume_previous(ctx: Context, state: RunState) -> None:
 
 
 def _restore_env(ctx: Context, state: RunState) -> bool:
+    """Put compose.env back as it was before this run.
+
+    Housekeeping: it returns a file to its pre-run content and touches no container, so it is
+    still allowed after the approval window has ended. Used only inside the run that made the
+    backup, under the host lock.
+    """
+
     restored = ctx.host.write(
         f"sudo -n cp -p {shlex.quote(state.backup)} {shlex.quote(ctx.host.profile.compose_env)}",
         "restore compose.env from the backup",
+        housekeeping=True,
     )
     return restored.skipped or restored.returncode == 0
 
 
-def rollback(ctx: Context, state: RunState) -> None:
-    """Return every touched service to its previous pin, frontend first, and verify."""
+def _unpin(ctx: Context, state: RunState, services: list[str]) -> None:
+    """Owner-requested rollback: change back only this release's lines, and only if the host
+    still shows this release's pins. Later edits to compose.env are left alone."""
+
+    env_file = shlex.quote(ctx.host.profile.compose_env)
+    for name in services:
+        variable = catalog.service(name).image_variable
+        assert variable is not None
+        new, old = safe(state.references[name]), safe(state.pins_before[name])
+        if ctx.host.env_value(variable) != new:
+            raise StopCondition(
+                "HOST_STATE_UNEXPECTED",
+                f"{name}: compose.env no longer pins this release; nothing was changed",
+            )
+    for name in services:
+        variable = catalog.service(name).image_variable
+        assert variable is not None
+        new, old = safe(state.references[name]), safe(state.pins_before[name])
+        edited = ctx.host.write(
+            f"sudo -n sed -i 's#^{variable}={new}$#{variable}={old}#' {env_file}",
+            f"pin {name} back to its previous image",
+        )
+        _must(edited, f"{name}: compose.env was not updated")
+        if ctx.host.env_value(variable) != old:
+            raise StopCondition("ROLLBACK_FAILED", f"{name}: the previous pin was not written")
+
+
+def rollback(ctx: Context, state: RunState, *, manual: bool = False) -> None:
+    """Return every touched service to its previous image and verify the site is serving.
+
+    With a backend among them, ingress is stopped first and started last, so a new frontend is
+    never served by an old backend and there is one backend writer throughout. Otherwise the
+    frontend goes first. Every step's result is checked.
+    """
 
     host = ctx.host
-    if not _restore_env(ctx, state):
+    touched = _touched(ctx, state)
+    if manual:
+        _unpin(ctx, state, [s for s in catalog.ROLLBACK_ORDER if s in touched])
+    elif not _restore_env(ctx, state):
         raise StopCondition("ROLLBACK_FAILED", "compose.env could not be restored")
-    touched = set(state.applied) | ({"backend"} if state.ingress_stopped else set())
-    order = [s for s in catalog.ROLLBACK_ORDER if s in touched]
+    with_backend = "backend" in touched
+    if with_backend:
+        stopped = host.write(
+            host.compose_stop("base", "frontend"), "stop ingress for the backend rollback"
+        )
+        _must(stopped, "ingress could not be stopped")
+        state.ingress_stopped = True
+        halted = host.write(
+            host.compose_stop(ctx.wrapper("backend"), "backend"), "stop the failed backend"
+        )
+        _must(halted, "the failed backend could not be stopped")
+        order = [s for s in ("backend", "assistant", "frontend") if s in touched]
+    else:
+        order = [s for s in catalog.ROLLBACK_ORDER if s in touched]
     for name in order:
         wrapper = ctx.wrapper(name)
         quiet = host.read(host.compose_config_quiet(wrapper), "validate the restored configuration")
-        if quiet.returncode != 0:
-            raise StopCondition("ROLLBACK_FAILED", "the restored configuration is invalid")
-        if name == "backend":
-            host.write(
-                host.compose_stop("base", "frontend"), "stop ingress for the backend rollback"
-            )
-            host.write(host.compose_stop(wrapper, "backend"), "stop the failed backend")
+        _must(quiet, "the restored configuration is invalid")
         result = host.write(
             host.compose_up(wrapper, name),
             f"roll {name} back to its previous image",
             timeout=host.profile.wait_timeout_seconds + 120,
         )
-        if result.returncode != 0:
-            raise StopCondition("ROLLBACK_FAILED", f"{name} did not come back healthy")
+        _must(result, f"{name} did not come back healthy")
         expected = host.image_id(state.pins_before[name])
         current = host.container_states([name])[name]
-        if not (current.running and current.health == "healthy" and current.image == expected):
+        on_previous = expected is not None and current.image == expected
+        if not (current.running and current.health == "healthy" and on_previous):
             raise StopCondition("ROLLBACK_FAILED", f"{name} is not on its previous image")
         state.events.append(f"{name}: rolled back to the previous image and healthy")
-    if "backend" in touched and "frontend" not in touched:
+    if with_backend and "frontend" not in touched:
         started = host.write(host.compose_start("base", "frontend"), "start ingress again")
-        if started.returncode != 0:
-            raise StopCondition("ROLLBACK_FAILED", "ingress could not be started again")
+        _must(started, "ingress could not be started again")
+    for name, current in host.container_states(ctx.running_services()).items():
+        if not (current.present and current.running and current.health == "healthy"):
+            raise StopCondition("ROLLBACK_FAILED", f"{name} is not running and healthy afterwards")
     state.ingress_stopped = False
-    _others_unchanged(ctx, touched | {"frontend"})
+    health = ctx.gate.run(_curl(host.profile.site + "/health", "GET"))
+    if health.stdout.strip() != "200":
+        raise StopCondition("ROLLBACK_FAILED", "the public health check does not return 200")
+    _others_unchanged(ctx, touched | ({"frontend"} if with_backend else set()))
+    state.events.append("rollback verified: every service healthy and the site serving")
 
 
 def manual_rollback(ctx: Context, release_id: str) -> dict[str, Any]:
-    """Owner-requested rollback of a deployed release. Same eligibility rules; never forced."""
+    """Owner-requested rollback of a deployed release.
+
+    Needs its own approval with the ``rollback`` action (single use). The eligibility rules
+    are those of the automatic path; an ineligible service is refused, never forced.
+    """
 
     previous = ctx.store.read_result(release_id)
     if previous is None or previous["state"] not in {
@@ -1146,31 +1267,67 @@ def manual_rollback(ctx: Context, release_id: str) -> dict[str, Any]:
         records.FAILED_HELD,
     }:
         raise StopCondition("ROLLBACK_NOT_APPLICABLE", "this release is not in a deployed state")
+    if previous.get("manifest_sha256") != manifest_hash(ctx.manifest):
+        raise StopCondition("APPROVAL_MANIFEST_MISMATCH", "this is not the deployed manifest")
     if ctx.approval is None:
         raise StopCondition("APPROVAL_MISSING", "a rollback needs a current owner approval")
     approvals.check_approval(
-        ctx.approval, ctx.manifest, action="deploy", services=ctx.changed, clock=ctx.clock
+        ctx.approval,
+        ctx.manifest,
+        action="rollback",
+        services=ctx.changed,
+        clock=ctx.clock,
+        consumed=ctx.store.consumed_approvals(),
     )
     ctx.gate.set_deadline(approvals.deadline(ctx.approval, ctx.clock))
     state = RunState(
         backup=previous["env_backup"],
         pins_before=dict(previous["pins_before"]),
         references=dict(previous["references"]),
-        applied=list(previous["services"]),
+        applied=list(previous.get("applied", previous["services"])),
+        ingress_stopped=bool(previous.get("ingress_stopped", False)),
     )
+    host = ctx.host
     with ctx.store.lock(release_id):
-        reasons = rollback_blockers(ctx, state, None)
+        reasons = rollback_blockers(ctx, state, None, need_consent=False)
         if reasons:
             raise StopCondition("ROLLBACK_REFUSED", "; ".join(reasons))
-        ctx.baseline["states"] = ctx.host.container_states(ctx.running_services())
-        _volumes(ctx)
-        _boundaries(ctx)
+        if not _touched(ctx, state):
+            raise StopCondition("ROLLBACK_NOT_APPLICABLE", "no service of this release changed")
+        for name in sorted(_touched(ctx, state)):
+            variable = catalog.service(name).image_variable
+            assert variable is not None
+            if host.env_value(variable) != state.references.get(name):
+                raise StopCondition(
+                    "HOST_STATE_UNEXPECTED",
+                    f"{name}: compose.env no longer pins this release; nothing was changed",
+                )
+        ctx.baseline["states"] = host.container_states(ctx.running_services())
+        for name, (ok, detail) in (("volumes", _volumes(ctx)), ("network", _boundaries(ctx))):
+            if ok is not True:
+                raise StopCondition("PREFLIGHT_FAILED", f"{name}: {detail or 'not readable'}")
+        locked = host.write(f"mkdir {shlex.quote(host.profile.lock_dir)}", "take the host lock")
+        if locked.returncode != 0:
+            raise StopCondition("RELEASE_IN_PROGRESS", "another release holds the host lock")
+        ctx.store.consume_approval(ctx.approval["approval_id"], "rollback")
         try:
-            rollback(ctx, state)
+            rollback(ctx, state, manual=True)
             outcome: dict[str, Any] = {"state": records.ROLLED_BACK}
         except StopCondition as failure:
-            outcome = {"state": records.FAILED_HELD, "held_reason": failure.code}
-        outcome.update({**previous, **outcome, "events": previous["events"] + state.events})
+            state.events.append(f"ROLLBACK STOP {failure.code}: {failure.message}")
+            outcome = {
+                "state": records.FAILED_HELD,
+                "held_reason": f"rollback did not complete: {failure.code}",
+                "ingress_stopped": state.ingress_stopped,
+            }
+        finally:
+            host.write(
+                f"rmdir {shlex.quote(host.profile.lock_dir)} 2>/dev/null || true",
+                "release the host release lock",
+                housekeeping=True,
+            )
+        outcome = {**previous, **outcome, "events": previous["events"] + state.events}
+        outcome["rollback_approval_id"] = ctx.approval["approval_id"]
         ctx.store.write_result(release_id, outcome)
         return outcome
 

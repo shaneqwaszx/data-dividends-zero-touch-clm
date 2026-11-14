@@ -653,18 +653,31 @@ def test_owner_requested_rollback_follows_the_same_eligibility_rules(tmp_path: P
     frontend = make_manifest(["frontend"])
     _, world, ctx = run(frontend, tmp_path / "a")
     deploy.accept(ctx.store, frontend, passed=False, accepted_by="owner", interactive=True)
-    world.clock.advance(minutes=20)
-    ctx.approval = make_approval(frontend, start=NOW, end=NOW + timedelta(hours=3))
-    ctx.approval["approval_id"] = ctx.approval["approval_id"].replace("095500", "101500")
+    deploy_approval = ctx.approval
+    with pytest.raises(StopCondition) as wrong_action:
+        deploy.manual_rollback(ctx, frontend["release_id"])
+    assert wrong_action.value.code == "APPROVAL_ACTION", "the deploy approval is not reusable"
+    ctx.approval = make_approval(
+        frontend, actions=("rollback",), auto_rollback=False, issued="101500"
+    )
     rolled = deploy.manual_rollback(ctx, frontend["release_id"])
     assert rolled["state"] == records.ROLLED_BACK and world.env["FRONTEND_IMAGE"] == OLD["frontend"]
+    assert rolled["rollback_approval_id"] != deploy_approval["approval_id"]
+    assert world.host_lock is False
+    with pytest.raises(StopCondition) as again:
+        deploy.manual_rollback(ctx, frontend["release_id"])
+    assert again.value.code == "ROLLBACK_NOT_APPLICABLE"
 
     assistant = make_manifest(["assistant"])
     _, world2, ctx2 = run(assistant, tmp_path / "b")
+    ctx2.approval = make_approval(assistant, actions=("rollback",), issued="101600")
     with pytest.raises(StopCondition) as refused:
         deploy.manual_rollback(ctx2, assistant["release_id"])
     assert refused.value.code == "ROLLBACK_REFUSED" and "unproven" in refused.value.message
     assert world2.env["ASSISTANT_IMAGE"] != OLD["assistant"]
+    assert ctx2.store.consumed_approvals() == frozenset(
+        {f"{make_approval(assistant)['approval_id']}:deploy"}
+    )
     ctx2.approval = None
     with pytest.raises(StopCondition) as unapproved:
         deploy.manual_rollback(ctx2, assistant["release_id"])

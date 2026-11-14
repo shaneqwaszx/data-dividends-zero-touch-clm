@@ -329,9 +329,10 @@ def describe_candidate(
     info = inspect_image(gate, reference)
     svc = catalog.service(service)
     dockerfile, floating = DOCKERFILES[service]
-    # With the classic image store the id is the config digest. With the containerd store it
-    # is a manifest digest, so the config digest stays unknown until an archive is read.
-    classic = not any("@" in d for d in info.get("RepoDigests") or []) and "Descriptor" not in info
+    # With the classic image store the id is the config digest. The containerd store reports
+    # a manifest descriptor instead, so there the config digest stays unknown until an
+    # archive is read. (RepoDigests say nothing: a pushed classic image has them too.)
+    classic = info.get("Descriptor") is None
     entry: dict[str, Any] = {
         "repository": svc.repository,
         "local_ref": reference,

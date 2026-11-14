@@ -7,8 +7,10 @@
 `tools/release/` is a Python 3.12 package (standard library only) with one PowerShell entry
 point, `tools/release.ps1`. It prepares, publishes and deploys the AWS demo stack without
 GitHub Actions. It has been tested only against mocks: it has never contacted the Lightsail
-host or GHCR. All existing owner gates still apply; the tool makes the mechanical work
-repeatable, it does not grant authority.
+host or GHCR. An independent review of the first candidate returned FAIL; the findings were
+addressed afterwards and that remediation has not been independently re-reviewed, so get a
+fresh review before anyone relies on it. All existing owner gates still apply; the tool makes
+the mechanical work repeatable, it does not grant authority.
 
 Full detail: `docs/release/PIPELINE_ARCHITECTURE.md` (design and limitations),
 `RELEASE_AUTOMATION_RUNBOOK.md` (commands), `FIRST_AUTOMATED_RELEASE_CHECKLIST.md` (first real
@@ -52,7 +54,8 @@ What you decide in the request, and must justify from evidence, not from an old 
 - `rollback` per service: the target digest, `data_compatible` (`true`, `false`, `"unproven"`),
   `automatic`, and stop conditions. For a backend also the target's source commit and
   case-snapshot schema version, and `target_confirmed_on_host`. A schema-19 target
-  (`4c1db49`) is refused. If you cannot prove compatibility, write `"unproven"`;
+  (`4c1db49`) is refused. The tool checks only what you declare: take the target's commit and
+  digest from the host lane's record. If you cannot show compatibility, write `"unproven"`;
 - `coupling`: for example a frontend that needs this release's backend;
 - `smoke`: public, signed-out requests and the exact status each must return;
 - `declared_config_changes`: any network, port, environment variable or container setting the
@@ -99,7 +102,9 @@ Design rules to keep:
 
 ## Known gaps (do not assume they work)
 
-Never run against the real host or registry; approval records are not signed; archive
+Never run against the real host or registry; the remediation of the review findings is not
+independently re-reviewed; approval records are not signed; "compatible" is a declaration the
+tool cannot verify; the configuration summary does not cover every Compose field; archive
 transfer is unproven on the host's image store; installing changed Compose files or host
 units is manual; Mongo, GoldTier egress and firewall changes are manual; the backup check
 does not validate an archive; a backend swap stops ingress briefly. See

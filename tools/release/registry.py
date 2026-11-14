@@ -188,6 +188,8 @@ def _publish_one(gate: Gate, env: dict[str, str], manifest: Manifest, name: str)
 
 PULL_SCRIPT = """set -u; umask 077
 a="$(sudo -n mktemp -d /run/clm-ghcr.XXXXXXXX)" || exit 12
+c() { sudo -n sh -c 'rm -f "$1/config.json"; rmdir "$1"' sh "$a" 2>/dev/null; }
+trap c EXIT HUP INT TERM
 printf '%s\\n' '{"auths":{"ghcr.io":{}}}' | sudo -n tee "$a/config.json" >/dev/null || exit 12
 sudo -n docker --config "$a" login ghcr.io --username __USER__ --password-stdin \\
   >/dev/null 2>&1; l=$?

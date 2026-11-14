@@ -104,12 +104,14 @@ def assemble_manifest(
     active = tuple(request.get("active_host_overlays", ()))
     validation_set = request.get("validation_set") or _default_validation_set(active)
     order = catalog.overlay_files(validation_set)
-    checks: list[dict[str, str]] = []
+    names = source.select_checks(request["change_classes"], tuple(request.get("extra_checks", ())))
     if run_checks:
-        names = source.select_checks(
-            request["change_classes"], tuple(request.get("extra_checks", ()))
-        )
         checks = source.run_checks(gate, root, names)
+    else:
+        checks = [
+            {"name": name, "status": "NOT_RUN", "detail": "skipped on request; not a pass"}
+            for name in [*names, *(f"ci-job:{job}" for job in source.MANUAL_CI_JOBS)]
+        ]
     entries: dict[str, Any] = {}
     candidates: dict[str, dict[str, str]] = request.get("candidates", {})
     for name in changed:

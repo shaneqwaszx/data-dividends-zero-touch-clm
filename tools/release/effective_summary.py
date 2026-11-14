@@ -44,7 +44,14 @@ SETTINGS = (
     "container_name",
     "platform",
     "init",
+    "tmpfs",
+    "volumes_from",
+    "group_add",
+    "mem_limit",
+    "pids_limit",
 )
+# Kept in their written order: sorting an argument list would hide a reordering.
+ORDERED = ("command", "entrypoint")
 
 
 def summarise(document: dict[str, Any]) -> dict[str, Any]:
@@ -60,9 +67,14 @@ def summarise(document: dict[str, Any]) -> dict[str, Any]:
                 )
             )
         volumes = []
+        bind_sources = []
         for volume in body.get("volumes") or []:
             kind = volume.get("type", "")
             source = volume.get("source", "") if kind == "volume" else ""
+            if kind == "bind":
+                bind_sources.append(str(volume.get("source", "")))
+                if "docker.sock" in str(volume.get("source", "")):
+                    source = "docker-socket"
             mode = "ro" if volume.get("read_only") else "rw"
             volumes.append("{}:{}:{}:{}".format(kind, source, volume.get("target", ""), mode))
         settings = {}
@@ -70,6 +82,12 @@ def summarise(document: dict[str, Any]) -> dict[str, Any]:
             if body.get(key) not in (None, [], {}, ""):
                 value = body[key]
                 settings[key] = sorted(value) if isinstance(value, list) else value
+        for key in ORDERED:
+            if body.get(key) not in (None, [], ""):
+                settings[key] = body[key]
+        test = (body.get("healthcheck") or {}).get("test")
+        if test:
+            settings["healthcheck"] = test
         deploy = body.get("deploy") or {}
         if deploy.get("replicas") not in (None, 1):
             settings["replicas"] = deploy["replicas"]
@@ -90,6 +108,7 @@ def summarise(document: dict[str, Any]) -> dict[str, Any]:
                 (key, str(environment[key])) for key in SAFE_VALUES if key in environment
             ),
             "volumes": sorted(volumes),
+            "bind_sources": sorted(bind_sources),
             "extra_hosts": hosts,
             "depends_on": sorted(body.get("depends_on") or {}),
             "settings": settings,

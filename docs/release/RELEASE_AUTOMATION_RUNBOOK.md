@@ -98,7 +98,8 @@ Operator configuration is a JSON file outside the repository, for example
 
 ```json
 {"ssh_destination": "<user@host alias>", "identity_file": "<path to the operator key>",
- "port": 22, "backup_dir": "<host directory holding the Mongo archives>"}
+ "port": 22, "backup_dir": "<host directory holding the Mongo archives>",
+ "mongo_uri_file": "<host file the operator's Compose wrapper reads the connection setting from>"}
 ```
 
 ```powershell
@@ -112,12 +113,19 @@ Operator configuration is a JSON file outside the repository, for example
     --operator-config <operator.json> --execute
 ```
 
+The file holds no secret. `mongo_uri_file` is required for `--execute`: the host operator
+confirms the path that already exists on the host (the Approval B script read
+`/etc/clm/mongo.uri`). The tool only reads it on the host, inside the Compose command; it never
+creates it. Optional overrides: `workdir`, `compose_env`, `site`, `lock_dir`.
+
 `--auto-rollback` is the owner's consent to roll back automatically; it only has effect for a
-service the manifest proves compatible. One approval covers the whole mechanical run: preflight,
+service the manifest declares compatible. One approval covers the whole mechanical run: preflight,
 transfer, apply, verification. No further decision is asked per command.
 
 Exit code 0: `DEPLOYED_AWAITING_ACCEPTANCE` (or `DRY_RUN_OK`). Exit code 2: stopped; read
-`state`, `stop_code` and `events` in the output. Exit code 3: refused before starting.
+`state`, `stop_code` and `events` in the output. Exit code 3: refused. For `deploy` that is
+before any host contact; for `rollback` it can follow read-only host checks. Any other exit
+code, or a Python traceback: the run was interrupted; go to section 7.
 
 ## 5. Browser acceptance (owner)
 
@@ -135,14 +143,27 @@ and changes nothing on the host.
 
 | Service | Automatic rollback | Manual / owner-requested | Stop conditions |
 |---|---|---|---|
-| frontend | Yes, when approved: stateless. `compose.env` restored, `dc up ... frontend` on the previous image, verified | `release.ps1 rollback --manifest ... --approval ... --operator-config ... --execute` | Roll the frontend back first, or together with the backend: a new frontend with an older backend breaks the Dashboard |
-| assistant | Only if the manifest proves the stores are compatible. Default: **held** | Fastest safe action is `dca stop assistant` (every assistant route then returns the fixed 503). Pointing an older image at the volume needs a store-compatibility check first | Never remove the assistant data volume |
+| frontend | Yes, when approved: stateless. `compose.env` restored, `dc up ... frontend` on the previous image, verified | `release.ps1 rollback --manifest ... --approval <rollback approval> --operator-config ... --execute` | Roll the frontend back first, or together with the backend: a new frontend with an older backend breaks the Dashboard |
+| assistant | Only if the manifest declares the stores compatible, from evidence. Default: **held** | Fastest safe action is `dca stop assistant` (every assistant route then returns the fixed 503). Pointing an older image at the volume needs a store-compatibility check first | Never remove the assistant data volume |
 | backend | Only with both schema versions equal, the target confirmed on the host, and owner consent. Default: **held**, ingress stopped | Owner decision after reading the target ledger state. Never a schema-19 build after a schema-20 backend has written | Exactly one backend writer. Never roll back blindly |
 | mongo, goldtier-egress, goldtier-dns | Never touched by the toolchain | Their own runbooks | A release naming them is refused |
 
-`release.ps1 rollback` applies the same eligibility rules as the automatic path and needs an
-approval that is still inside its window (or a new one). It refuses an ineligible service and
-says why.
+`release.ps1 rollback` applies the same eligibility rules as the automatic path. It needs its
+own approval:
+
+```powershell
+.\tools\release.ps1 approve --manifest <manifest.published.json> --service <service> `
+    --action rollback --not-before <utc> --expires-at <utc> --approved-by <owner>
+.\tools\release.ps1 rollback --manifest <manifest.published.json> --approval <rollback approval> `
+    --operator-config <operator.json> --execute
+```
+
+The deploy approval cannot be reused for a rollback, and a rollback approval is single use.
+The command refuses an ineligible service and says why; it takes the host lock; it changes
+back only this release's image lines in `compose.env`, and only if they still show this
+release's pins. If another change has been made since, it changes nothing and reports
+`HOST_STATE_UNEXPECTED`. It ends by confirming every service is healthy and public `/health`
+returns 200; if not, the result is `FAILED_HELD`, never `ROLLED_BACK`.
 
 Explicit stop conditions for every run are printed in the plan (`stop_conditions`).
 
@@ -156,6 +177,35 @@ Explicit stop conditions for every run are printed in the plan (`stop_conditions
   stopped, the site is down until the owner decides between a rollback and a forward fix.
 - A stale local lock after a crash: confirm on the host that nothing is running, then
   `.\tools\release.ps1 unlock`.
+
+### After an interrupted run (Ctrl-C, a crash, a dropped SSH session, a killed tool)
+
+The tool re-raises the error after writing a record (`stop_code: INTERRUPTED`). The host state
+is **unverified**. Stop and tell the owner. The host operator then checks, read-only:
+
+1. `release.ps1 status` and the last `result-NNN.json` in the release's state folder: `events`,
+   `applied`, `env_backup`, `pins_before`, `ingress_stopped`.
+2. On the host: is any `docker compose` command still running; which image each container
+   runs; whether `compose.env` differs from the backup named in `env_backup`; whether
+   `/run/lock/clm-release.lock` exists.
+3. If no record was written at all (the machine lost power), the backup is the newest
+   `/etc/clm/compose.env.pre-<release id>-<utc>`.
+
+Then the owner decides one of:
+
+- **Nothing had changed** (`applied` is empty, containers as before): the host operator copies
+  the backup over `compose.env` if they differ. A new attempt needs a new approval if the old
+  one was used.
+- **Roll back**: if the record is `FAILED_HELD`, `release.ps1 rollback` with a `rollback`
+  approval, subject to the usual eligibility. Otherwise by hand, following
+  `deploy/LIGHTSAIL_RUNTIME.md`.
+- **Go forward**: fix the cause and run a new release with a new approval. Preflight will
+  refuse while `compose.env` and the running containers disagree (`no-drift`), so the host
+  must first be brought back to a consistent state.
+
+A stale **host** lock is an empty directory. After confirming no release command is running,
+the host operator removes it with `rmdir /run/lock/clm-release.lock`. The tool never removes a
+lock it did not take.
 
 ## 8. Never
 

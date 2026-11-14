@@ -49,6 +49,8 @@ NETWORK_CEILING: dict[str, frozenset[str]] = {
     "goldtier-dns": frozenset({"goldtier-control", "goldtier-uplink"}),
 }
 FRONTEND_PORTS = frozenset({"80:80/tcp", "443:443/tcp"})
+# The only capabilities any service may add: the R3 guard's (deploy/compose.goldtier-egress.yml).
+R3_CAPS = ["NET_ADMIN", "SETGID", "SETPCAP", "SETUID"]
 MODEL_FREE_BASE_URL = "http://127.0.0.1:9/v1"
 
 
@@ -122,14 +124,25 @@ def render_set(gate: Gate, root: Path, set_name: str) -> Summary:
         document = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise StopCondition("COMPOSE_RENDER_FAILED", f"{set_name}: unreadable render") from exc
-    return normalise(summarise(document))
+    return normalise(summarise(document), scratch_name)
 
 
-def normalise(summary: Summary) -> Summary:
-    """Drop the parts that legitimately differ between a placeholder render and the host."""
+def normalise(summary: Summary, scratch: str | None = None) -> Summary:
+    """Drop the parts that legitimately differ between a placeholder render and the host.
+
+    Every bind source in the tracked Compose files is an interpolated host path. In a
+    placeholder render those all point into the scratch directory, so any other source is a
+    literal host path written into a Compose file: it is kept, and therefore shows up as a
+    difference from the baseline.
+    """
 
     for body in summary["services"].values():
         body["image"] = ""
+        marked = []
+        for source in body.get("bind_sources", []):
+            inside = scratch is not None and Path(source).parent == Path(scratch)
+            marked.append("interpolated" if inside else f"literal:{source}")
+        body["bind_sources"] = sorted(marked)
     return summary
 
 
@@ -172,8 +185,16 @@ def invariant_violations(set_name: str, summary: Summary) -> list[str]:
                 found.append(f"{name}: root filesystem is writable")
         if any(v.startswith("bind:") and v.endswith(":rw") for v in body["volumes"]):
             found.append(f"{name}: writable host bind mount")
-        if any("docker.sock" in v for v in body["volumes"]):
+        mounts = [*body["volumes"], *body.get("bind_sources", [])]
+        if any("docker.sock" in v or "docker-socket" in v for v in mounts):
             found.append(f"{name}: Docker socket mounted")
+        if settings.get("volumes_from"):
+            found.append(f"{name}: volumes_from")
+        allowed_caps = R3_CAPS if name in {"goldtier-egress", "goldtier-dns"} else []
+        if settings.get("cap_add", []) != allowed_caps:
+            found.append(f"{name}: added capabilities")
+        if any(option != "no-new-privileges:true" for option in settings.get("security_opt", [])):
+            found.append(f"{name}: security option other than no-new-privileges")
     services = summary["services"]
     backend = services.get("backend")
     if backend is not None:
@@ -217,7 +238,14 @@ def undeclared_changes(baseline: Summary, summary: Summary, declared: Declared) 
             for item in sorted(extra):
                 found.append(f"{name}: undeclared {kind} entry {item}")
         settings_allowed = set(allowed.get("settings", []))
-        for key in ("volumes", "extra_hosts", "depends_on", "addresses", "safe_values"):
+        for key in (
+            "volumes",
+            "bind_sources",
+            "extra_hosts",
+            "depends_on",
+            "addresses",
+            "safe_values",
+        ):
             if body[key] != base[key] and key not in settings_allowed:
                 found.append(f"{name}: undeclared change to {key}")
         for key in sorted(set(body["settings"]) | set(base["settings"])):

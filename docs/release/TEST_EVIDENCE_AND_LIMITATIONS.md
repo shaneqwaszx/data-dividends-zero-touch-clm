@@ -1,0 +1,143 @@
+# Test evidence and limitations
+
+| Field | Value |
+|---|---|
+| Evidence date | 2026-11-14, Windows 11, Python 3.12.10, Docker Desktop 29.9.3 (Compose 5.7.0), Git Bash |
+| Evidence class | **Mock and Local only.** No command reached the Lightsail host, AWS, GHCR or an AI provider. Nothing here is Sandbox or Live evidence |
+| Base | `origin/main` `d0142d8e8d74ea8002a72ec63bad8bbaf0f59410` |
+| Tested content | See the handoff in `outputs/release-pipeline-20261114/` for the exact commits and trees: the tree the independent reviewer read, and the final tree after its findings were addressed, are different and are named separately there |
+
+## 1. Automated tests (`tests/release`)
+
+`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **246 passed, 1 skipped** (5 test files, 157 test functions; the count includes parametrised cases).
+The one skipped test is the opt-in Windows Credential Manager round trip
+(`CLM_RELEASE_WINCRED_SELFTEST=1`); it was run once by hand and passed (it writes and removes
+one throwaway entry holding a sentinel value).
+
+| Requirement | Tests (file `tests/release/...`) |
+|---|---|
+| Wrong commit, wrong tree, abbreviated commit, dirty or untracked state, commit not on the baseline | `test_source_images_render.py`: `test_wrong_commit_tree_or_abbreviated_commit_is_refused`, `test_dirty_or_untracked_state_...`, `test_commit_that_is_not_on_the_integration_baseline_is_refused` (real throwaway Git repository) |
+| Wrong image id, wrong platform, never rebuilt | `test_existing_candidate_is_accepted_only_by_its_exact_image_id`, `test_a_local_image_that_changed_since_qualification_is_never_published` |
+| Wrong digest (registry, host, archive) | `test_registry_content_that_is_not_the_qualified_image_is_refused`, `test_wrong_digest_on_the_host_is_refused`, `test_archive_damaged_in_transit_...`, `test_archive_of_a_different_image_...` |
+| Missing and expired approval; other manifest, services, action, risk; window cap; reuse; expiry during the run | `test_core_and_manifest.py` approval tests; `test_deploy.py`: `test_execute_without_an_approval_...`, `test_expired_approval_...`, `test_approval_for_other_services_...`, `test_window_too_short_...`, `test_expiry_during_the_run_stops_before_the_next_change_and_does_not_roll_back`, `test_an_approval_cannot_be_used_twice` |
+| Secret exposure | `test_secret_cannot_be_printed_formatted_or_pickled`, `test_redaction_...`, `test_gate_refuses_secret_in_argument_or_environment`, `test_audit_log_never_holds_a_secret`, `test_pull_token_travels_only_on_stdin_and_reaches_no_log_or_record`, `test_publish_pushes_..._without_exposing_the_token`, failure paths in `test_registry_content_...` and `test_failed_image_pull_...`, credential-store tests |
+| Unsupported overlay combinations | `test_unsupported_overlay_combinations_are_refused` (8 cases), `test_wrappers_follow_the_runbook_and_refuse_absent_overlays`, `test_manifest_overlay_order_must_be_the_supported_one` |
+| Unauthorised service change | `test_a_service_outside_the_approval_that_would_be_recreated_stops_the_run`, `test_backend_hash_change_without_approval_is_named_as_unauthorised`, `test_services_the_applier_never_changes_are_refused`, `test_host_render_with_an_undeclared_network_is_refused` |
+| Failed preflight | `test_failed_preflight_stops_with_nothing_changed` (8 cases), `test_unhealthy_container_and_missing_rollback_image_fail_preflight`, `test_stateful_release_needs_a_recent_backup_...`, `test_backend_release_needs_the_running_backend_confirmed_on_the_host` |
+| Failed image pull | `test_failed_image_pull_changes_nothing_and_leaves_the_approval_usable` |
+| Duplicate or overlapping deployment | `test_overlapping_deployment_is_refused_by_the_local_lock`, `test_stale_local_lock_is_never_stolen_silently`, host lock in the preflight cases, `test_controller_refuses_to_run_beside_another_release_operation` |
+| Health-check failure | `test_frontend_health_failure_rolls_back_automatically` (2 cases), `test_smoke_failure_rolls_the_frontend_back` |
+| Rollback eligibility and refusal, including schema 19 | `test_schema_19_backend_is_never_an_eligible_rollback_target`, `test_automatic_rollback_needs_proof`, `test_assistant_failure_is_held_...`, `test_stateful_backend_is_never_rolled_back_blindly`, `test_backend_with_proven_compatibility_and_owner_consent_rolls_back`, `test_rollback_is_not_run_when_the_owner_did_not_approve_it`, `test_owner_requested_rollback_follows_the_same_eligibility_rules` |
+| Mongo volume preservation and forbidden Compose verbs | `test_forbidden_host_commands_are_refused_before_they_run` (18 cases), `test_mongo_volume_identity_change_stops_the_run_and_volumes_are_never_removed`, `test_mongo_is_never_stopped_started_or_recreated_by_any_run`, `test_mongo_volume_must_stay_external_and_mongo_stays_private`, forbidden-word assertions on every command of the happy paths |
+| Protected GoldTier and assistant networking in the rendered configuration | `test_assistant_networking_is_protected_even_when_declared`, `test_goldtier_and_backend_networking_is_protected_even_when_declared`, `test_real_render_keeps_goldtier_and_assistant_boundaries` (real offline `docker compose config`), `test_render_refuses_a_compose_file_that_adds_a_network` (real render of a modified copy) |
+| Dry-run and plan-only issue no host write, no registry write, no provider call | `test_non_executing_modes_never_issue_a_host_or_registry_write`, `test_provider_call_is_refused_in_every_mode`, `test_dry_run_issues_no_host_write_no_registry_write_and_no_provider_call` (3 cases), `test_offline_dry_run_contacts_nothing_at_all`, `test_plan_only_and_validation_sets_never_reach_the_host`, `test_publish_dry_run_issues_no_registry_write_and_reads_no_credential`, `test_cli_offline_dry_run_of_the_sample_contacts_nothing` |
+| Controller never promotes | `test_controller_prepares_a_promotion_ready_record_and_stops_there`, `test_controller_mode_cannot_publish_or_deploy_even_if_asked`, `test_failed_request_is_recorded_and_retried_only_on_request` |
+| Owner-only actions | `test_only_the_owner_at_a_terminal_can_create_an_approval`, `test_cli_owner_only_commands_refuse_a_non_interactive_caller`, `test_owner_acceptance_moves_known_good_...` |
+
+## 2. Other checks run on the final tree
+
+| Check | Result |
+|---|---|
+| `ruff check --select E,F,I,UP,B,SIM --line-length 100 --target-version py312 tools/release tests/release` | All checks passed |
+| `ruff format --check` (same options) | 24 files already formatted |
+| `mypy --strict -p tools.release` | Success: no issues found in 19 source files |
+| `python scripts/check_secrets.py` (worktree root) | Secret scan passed |
+| `python -m pytest tests/deploy -q -p no:cacheprovider` from Git Bash | 116 passed, 1 skipped |
+| `scripts/check_project_state.py`, `check_architecture.py`, `check_tooling_config.py`, `check_policy_authority.py`, `check_external_provider_readiness.py` | all five PASS |
+| `python scripts/pre_pr_check.py` on the clean committed state | @@PREPR@@ |
+| `release.ps1 checks --change-class CI_TOOLING` (the toolchain running its own selection) | @@SELF@@ |
+
+Not run, and not claimed: the backend, assistant and frontend suites, the E2E shards, the
+physical Mongo job, the local OCR job and the Windows demo-lifecycle job. This change touches
+none of that code; `release.ps1 checks` lists those CI jobs as `NOT_RUN`.
+
+## 3. Local evidence on the real `d0142d8` candidates (Local, not Live)
+
+`release.ps1 image` was run against the three existing local images, accepting each by its
+recorded id (no build). It reproduced the hand-recorded evidence in
+`outputs/release-images-d0142d8-20261114/` in the main checkout:
+
+| Image | Local id (= config digest; classic image store) | In-image files equal to the commit | Other |
+|---|---|---|---|
+| `clm-rc-frontend:d0142d8` | `sha256:5d566ea5...57f129` | 1 of 1 (`/etc/caddy/Caddyfile`) | |
+| `clm-rc-backend:d0142d8` | `sha256:7d36daa3...3c792c` | 142 of 142 (`app`) | case-snapshot schema 20, read from the commit |
+| `clm-rc-assistant:d0142d8` | `sha256:e98a00b2...7bbd12` | 99 of 99 (`ai_assistant`, `assistant_hosting`, `assistant_eval`, hosted profiles, lock file, two scripts) | fingerprint `d6955c9d2f97e3cba8b96409a5d4e3951691a156b822baef1acabb5974c6d281`, computed in the image with networking disabled; equal to the value reviewed for PR #180 |
+
+The assistant count of 99 equals the coordinator's hand count.
+`docker save` of the frontend image, read by `images.archive_identity`, gave the same config
+digest as the image id. The sample manifest was built from this output. Registry digests are
+recorded as `null`: this toolchain made no registry call. Observation only: during this work
+the local assistant image acquired the tag
+`ghcr.io/shaneqwaszx/clm-aws-demo-assistant:rc-d0142d8e8d74-e98a00b29851` and a repository
+digest `sha256:4812bf8c...c44b7`, which means another session published it. That was not done
+by this toolchain and the digest was not checked against the registry here. The tag is the
+one `manifest.release_tag` computes.
+
+`release.ps1 validate` on the sample rendered the `assistant` and `base` overlay sets offline
+and passed; `release.ps1 baseline` confirms the reviewed baseline equals a fresh render of all
+six overlay sets.
+
+## 4. Independent review
+
+**Verdict of the one independent review: FAIL** (P0 = 0, P1 = 3, P2 = 7, P3 = 9).
+
+The reviewer was a fresh session that did not write the code. It reviewed commit
+`728cf1ecda53ec81849329475cfc0ae3c72fdda7`, tree `c77a707565d45ccf00f3a0e071f43f287b34f4fb`.
+Its report is reproduced **unedited** in
+[INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md)
+(SHA-256 `7f1fd794843a7ad6095fa468acebc1bb91a93f5a13e0c505b72ea60ee71cbd27`, byte-identical to
+the file the reviewer wrote).
+
+The findings were real. They were addressed afterwards by the implementing session. **That
+remediation has not been independently re-reviewed.** Under `AGENTS.md`, changed reviewed
+content needs a fresh independent review; until one returns `PASS`, the standing verdict on
+this toolchain is `FAIL` and it must not be used against the host or the registry.
+
+| Finding | Severity | What was done (not re-reviewed) | Test |
+|---|---|---|---|
+| F1 rollback of backend + frontend left ingress stopped and reported `ROLLED_BACK` | P1 | Rollback rewritten: with a backend, ingress is stopped first and started or recreated last; every step's return code is checked; it ends by confirming every service healthy and public `/health` 200, otherwise `FAILED_HELD` | `test_f1_*` (3), `test_m38_*` |
+| F2 expiry between the pin and the first container change escaped unhandled | P1 | Restoring `compose.env` is housekeeping (no container touched), so it still runs after expiry; a stop raised while handling a stop is caught; a result is always written | `test_f2_*` (2) |
+| F3 Docker-socket invariant blind to bind sources | P1 | The summary marks a socket by source as well as target; literal bind sources differ from the interpolated baseline | `test_f3_*` (2) |
+| F4 summary too coarse; `cap_add` / `seccomp` declarable | P2 | Added command, entrypoint, health-check command, tmpfs, limits, `volumes_from`, bind-source kind; added capabilities and security options are invariants. Environment values, `extra_hosts` addresses and some other fields stay uncovered and are now listed in the architecture document | `test_f4_*` (10 cases) |
+| F5 schema-19 rule bypassable by omitting or re-casing the commit | P2 | A compatible backend target must name a 7 to 40 character lower-case hex commit (schema and rule); the commit is normalised before the schema-19 check. Documents now say "declared", not "proved". The tool still cannot verify what an image writes | `test_f5_*` (7 cases) |
+| F6 manual rollback overwrote `compose.env` wholesale, no host lock | P2 | It now changes back only this release's lines, only if they still show this release's pins (otherwise refuses and changes nothing), and takes the host lock | `test_f6_*` (2), `test_f7_*` |
+| F7 rollback approval semantics | P2 | New `rollback` approval action, single use; the deploy approval is not accepted; `auto_rollback` is not required for an explicit rollback approval; runbook updated | `test_f7_*`, `test_owner_requested_rollback_*` |
+| F8 interrupted run left no record | P2 | A record is written on every exit path, including Ctrl-C and unexpected errors (`INTERRUPTED`), with the applied services and backup path; the error is re-raised; runbook section "After an interrupted run" and stale host lock procedure added. A hard kill still leaves no record | `test_f8_*` (3 cases) |
+| F9 undocumented `/etc/clm/mongo.uri`; fixed host paths | P2 | Host paths are configurable in the operator file; `--execute` refuses until `mongo_uri_file` is stated; checklist A5 is now an owner decision; the documents say the tool never creates the file. **Whether the file exists on the host is still unverified** | `test_f9_*` (2) |
+| F10 surviving mutants, untested paths | P2 | Tests added for 12 of the 13 surviving mutants (M06, M23, M25, M28, M29, M33, M34, M38, M39, M42, M44, M47, M48) and for rollback of two services, expiry at the pin, interruption, and the GoldTier and provider overlays being active. `--transfer load` through `deploy.run` is still untested. The mutation run itself was not repeated | `test_m*` |
+| F11 weak deny-list | P3 | Quotes and backslashes are removed before matching; added `up` without `--no-deps` / `--no-build`, recreate flags, any `mongo` target, `exec`, direct `docker stop|exec|rm` forms. Still a backstop only | `test_f11_*` (17 cases) |
+| F12 `--offline` with `--execute` | P3 | Refused; in execute mode a preflight check that could not be read is a failure | `test_f12_*` (2) |
+| F13 `--skip-checks` left no trace | P3 | Every selected check is recorded `NOT_RUN` | `test_f13_*` |
+| F14 missing document | P3 | This document | |
+| F15 exit code 3 wording | P3 | Runbook corrected | |
+| F16 pull script without `trap` | P3 | `trap` on EXIT, HUP, INT, TERM. Not executed on a real host. The SSH client timeout behaviour is documented, not changed | script assertion |
+| F17 quoted `~` | P3 | Host state directory is now relative to the operator's home | `test_f17_*` |
+| F18 destination starting with `-` | P3 | Refused | `test_m23_*` |
+| F19 redaction scope; verify script writes a temp file | P3 | Documented in the credential guide; no code change | |
+
+Also fixed, found by the implementing session while running the toolchain on itself: the
+`release-ruff` check lacked the documented lint options and failed; the assistant's in-image
+comparison now covers the two `scripts` files the Dockerfile copies (99 files, the same count
+as the coordinator's hand check); the image-store detection no longer mistakes a pushed
+classic-store image for a containerd one.
+
+The reviewer's section 5 (what cannot be assessed without a real host or registry) stands in
+full and is not changed by the remediation.
+
+## 5. What the evidence does not show
+
+1. **Nothing has run against the real host or registry.** Every host and registry behaviour
+   is the behaviour of `tests/release/fakes.py`. The fake was written from the Approval B
+   scripts and evidence, by the same author as the toolchain, so a shared misunderstanding of
+   a real output format would not be caught. The first real use must be supervised
+   (`FIRST_AUTOMATED_RELEASE_CHECKLIST.md`, steps D2, D3 and D6).
+2. Remote shell snippets (the pull script, the sole-operator probe, `sed`, `ss` parsing) have
+   not been executed by a real shell on Ubuntu.
+3. The Windows Credential Manager wrapper was exercised with a throwaway entry only. No real
+   token has been stored or used.
+4. `docker login`, `docker push` and `docker buildx imagetools inspect` were never executed;
+   their output formats are assumed from the earlier manual releases.
+5. Archive transfer has no evidence on the host's containerd image store.
+6. The risk classes and combined approvals are a proposal; no owner decision exists.
+7. Local checks were proven to select and run; the long product suites were not run through
+   the toolchain.

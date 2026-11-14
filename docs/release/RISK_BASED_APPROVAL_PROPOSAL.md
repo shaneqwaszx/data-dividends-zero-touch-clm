@@ -44,7 +44,7 @@ files are never changed by the automated applier, whatever the class.
 | Owner approval to publish | **one combined approval** (publish + deploy) | **one combined approval** (publish + deploy) | separate publish approval |
 | Owner approval to deploy | covered by the combined approval | covered by the combined approval | separate deploy approval, after the host preflight result has been read |
 | Decisions inside the window | none: one approved run does preflight, deploy and postflight | none | owner go-ahead after preflight; the applier may be run service by service |
-| Automatic rollback | yes, if the owner ticks it | no by default (stop the assistant instead); yes only with proven store compatibility | no, unless both schema versions are equal, the target is confirmed on the host, and the owner ticks it |
+| Automatic rollback | yes, if the owner ticks it | no by default (stop the assistant instead); yes only where store compatibility is declared from evidence | no, unless the target's commit and both schema versions are declared and equal, the target is confirmed on the host, and the owner ticks it |
 | Browser acceptance by the owner | required | required | required |
 | Window length | up to 24 h cap; suggested 2 h | suggested 2 h | suggested 2 h, with the backup taken inside the window |
 

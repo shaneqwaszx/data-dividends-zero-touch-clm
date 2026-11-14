@@ -365,7 +365,8 @@ def test_windows_credential_manager_round_trip_with_a_sentinel() -> None:
 def test_pull_script_never_stores_the_token_and_removes_its_configuration(tmp_path: Path) -> None:
     script = registry.PULL_SCRIPT
     assert "--password-stdin" in script and "mktemp -d /run/clm-ghcr." in script
-    assert script.index("logout ghcr.io") < script.index("rmdir") < script.index("auth_dirs_left")
+    assert script.index("logout ghcr.io") < script.rindex("rmdir") < script.index("auth_dirs_left")
+    assert "trap c EXIT HUP INT TERM" in script, "cleanup also runs if the session drops"
     assert "~/.docker" not in script and "docker login ghcr.io -p" not in script
     manifest = make_manifest(["frontend"])
     ctx, world = make_context(manifest, tmp_path, mode=Mode.EXECUTE)

@@ -140,8 +140,22 @@ _GOVERNANCE = (
 )
 CHECKS: dict[str, Check] = {
     "release-ruff": Check(
-        "release-ruff", (PY, "-m", "ruff", "check", "tools/release", "tests/release")
-    ),
+        "release-ruff",
+        (
+            PY,
+            "-m",
+            "ruff",
+            "check",
+            "--select",
+            "E,F,I,UP,B,SIM",
+            "--line-length",
+            "100",
+            "--target-version",
+            "py312",
+            "tools/release",
+            "tests/release",
+        ),
+    ),  # fmt: skip
     "release-mypy": Check("release-mypy", (PY, "-m", "mypy", "--strict", "-p", "tools.release")),
     "release-pytest": Check(
         "release-pytest", (PY, "-m", "pytest", "tests/release", "-q", "-p", "no:cacheprovider")

@@ -20,6 +20,7 @@
     "addresses": {
      "proxy": "172.30.240.4"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -56,12 +57,23 @@
       "ALL"
      ],
      "container_name": "clm-staging-assistant",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-m",
+      "assistant_hosting.probe"
+     ],
      "init": true,
+     "mem_limit": "536870912",
+     "pids_limit": 128,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777"
      ]
     },
     "volumes": [
@@ -73,6 +85,9 @@
      "database": "",
      "proxy": "172.30.240.3"
     },
+    "bind_sources": [
+     "interpolated"
+    ],
     "depends_on": [
      "mongo"
     ],
@@ -113,11 +128,20 @@
       "ALL"
      ],
      "container_name": "clm-staging-backend",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"
+     ],
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,mode=1777"
      ]
     },
     "volumes": [
@@ -129,6 +153,7 @@
      "default": "",
      "proxy": "172.30.240.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -147,6 +172,15 @@
     ],
     "safe_values": {},
     "settings": {
+     "healthcheck": [
+      "CMD",
+      "wget",
+      "-q",
+      "-O",
+      "/dev/null",
+      "--header=Host: health.localhost",
+      "http://127.0.0.1:8080/ready"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -159,6 +193,10 @@
     "addresses": {
      "database": ""
     },
+    "bind_sources": [
+     "interpolated",
+     "interpolated"
+    ],
     "depends_on": [],
     "environment": [],
     "extra_hosts": [],
@@ -169,6 +207,30 @@
     "ports": [],
     "safe_values": {},
     "settings": {
+     "command": [
+      "mongod",
+      "--auth",
+      "--bind_ip_all",
+      "--tlsMode",
+      "requireTLS",
+      "--tlsCertificateKeyFile",
+      "/run/clm/mongo-server.pem",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--tlsAllowConnectionsWithoutCertificates"
+     ],
+     "healthcheck": [
+      "CMD",
+      "mongosh",
+      "--quiet",
+      "--host",
+      "localhost",
+      "--tls",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--eval",
+      "if (db.adminCommand({ping: 1}).ok !== 1) quit(1)"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -220,6 +282,7 @@
      "assistant-uplink": "172.30.243.2",
      "proxy": "172.30.240.4"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -265,12 +328,23 @@
      "dns": [
       "192.0.2.53"
      ],
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-m",
+      "assistant_hosting.probe"
+     ],
      "init": true,
+     "mem_limit": "536870912",
+     "pids_limit": 128,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "no",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777"
      ]
     },
     "volumes": [
@@ -282,6 +356,9 @@
      "database": "",
      "proxy": "172.30.240.3"
     },
+    "bind_sources": [
+     "interpolated"
+    ],
     "depends_on": [
      "mongo"
     ],
@@ -322,11 +399,20 @@
       "ALL"
      ],
      "container_name": "clm-staging-backend",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"
+     ],
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,mode=1777"
      ]
     },
     "volumes": [
@@ -338,6 +424,7 @@
      "default": "",
      "proxy": "172.30.240.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -356,6 +443,15 @@
     ],
     "safe_values": {},
     "settings": {
+     "healthcheck": [
+      "CMD",
+      "wget",
+      "-q",
+      "-O",
+      "/dev/null",
+      "--header=Host: health.localhost",
+      "http://127.0.0.1:8080/ready"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -368,6 +464,10 @@
     "addresses": {
      "database": ""
     },
+    "bind_sources": [
+     "interpolated",
+     "interpolated"
+    ],
     "depends_on": [],
     "environment": [],
     "extra_hosts": [],
@@ -378,6 +478,30 @@
     "ports": [],
     "safe_values": {},
     "settings": {
+     "command": [
+      "mongod",
+      "--auth",
+      "--bind_ip_all",
+      "--tlsMode",
+      "requireTLS",
+      "--tlsCertificateKeyFile",
+      "/run/clm/mongo-server.pem",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--tlsAllowConnectionsWithoutCertificates"
+     ],
+     "healthcheck": [
+      "CMD",
+      "mongosh",
+      "--quiet",
+      "--host",
+      "localhost",
+      "--tls",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--eval",
+      "if (db.adminCommand({ping: 1}).ok !== 1) quit(1)"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -425,6 +549,9 @@
      "database": "",
      "proxy": "172.30.240.3"
     },
+    "bind_sources": [
+     "interpolated"
+    ],
     "depends_on": [
      "mongo"
     ],
@@ -465,11 +592,20 @@
       "ALL"
      ],
      "container_name": "clm-staging-backend",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"
+     ],
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,mode=1777"
      ]
     },
     "volumes": [
@@ -481,6 +617,7 @@
      "default": "",
      "proxy": "172.30.240.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -499,6 +636,15 @@
     ],
     "safe_values": {},
     "settings": {
+     "healthcheck": [
+      "CMD",
+      "wget",
+      "-q",
+      "-O",
+      "/dev/null",
+      "--header=Host: health.localhost",
+      "http://127.0.0.1:8080/ready"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -511,6 +657,10 @@
     "addresses": {
      "database": ""
     },
+    "bind_sources": [
+     "interpolated",
+     "interpolated"
+    ],
     "depends_on": [],
     "environment": [],
     "extra_hosts": [],
@@ -521,6 +671,30 @@
     "ports": [],
     "safe_values": {},
     "settings": {
+     "command": [
+      "mongod",
+      "--auth",
+      "--bind_ip_all",
+      "--tlsMode",
+      "requireTLS",
+      "--tlsCertificateKeyFile",
+      "/run/clm/mongo-server.pem",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--tlsAllowConnectionsWithoutCertificates"
+     ],
+     "healthcheck": [
+      "CMD",
+      "mongosh",
+      "--quiet",
+      "--host",
+      "localhost",
+      "--tls",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--eval",
+      "if (db.adminCommand({ping: 1}).ok !== 1) quit(1)"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -572,6 +746,7 @@
     "addresses": {
      "proxy": "172.30.240.4"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -608,12 +783,23 @@
       "ALL"
      ],
      "container_name": "clm-staging-assistant",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-m",
+      "assistant_hosting.probe"
+     ],
      "init": true,
+     "mem_limit": "536870912",
+     "pids_limit": 128,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777"
      ]
     },
     "volumes": [
@@ -626,6 +812,9 @@
      "goldtier-control": "172.30.241.3",
      "proxy": "172.30.240.3"
     },
+    "bind_sources": [
+     "interpolated"
+    ],
     "depends_on": [
      "mongo"
     ],
@@ -669,11 +858,20 @@
       "ALL"
      ],
      "container_name": "clm-staging-backend",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"
+     ],
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,mode=1777"
      ]
     },
     "volumes": [
@@ -685,6 +883,7 @@
      "default": "",
      "proxy": "172.30.240.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -703,6 +902,15 @@
     ],
     "safe_values": {},
     "settings": {
+     "healthcheck": [
+      "CMD",
+      "wget",
+      "-q",
+      "-O",
+      "/dev/null",
+      "--header=Host: health.localhost",
+      "http://127.0.0.1:8080/ready"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -716,6 +924,7 @@
      "goldtier-control": "172.30.241.4",
      "goldtier-uplink": "172.30.242.3"
     },
+    "bind_sources": [],
     "depends_on": [],
     "environment": [
      "CLM_EGRESS_FQDN",
@@ -745,6 +954,15 @@
      "dns": [
       "172.30.241.4"
      ],
+     "healthcheck": [
+      "CMD",
+      "/usr/local/bin/python3",
+      "-I",
+      "/opt/egress/goldtier_egress_guard.py",
+      "--health"
+     ],
+     "mem_limit": "100663296",
+     "pids_limit": 64,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
@@ -753,7 +971,10 @@
      ],
      "sysctls": {
       "net.ipv4.ip_unprivileged_port_start": "53"
-     }
+     },
+     "tmpfs": [
+      "/run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m"
+     ]
     },
     "volumes": []
    },
@@ -762,6 +983,7 @@
      "goldtier-control": "172.30.241.2",
      "goldtier-uplink": "172.30.242.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "goldtier-dns"
     ],
@@ -794,11 +1016,23 @@
      "dns": [
       "172.30.241.4"
      ],
+     "healthcheck": [
+      "CMD",
+      "/usr/local/bin/python3",
+      "-I",
+      "/opt/egress/goldtier_egress_guard.py",
+      "--health"
+     ],
+     "mem_limit": "134217728",
+     "pids_limit": 64,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m"
      ]
     },
     "volumes": []
@@ -807,6 +1041,10 @@
     "addresses": {
      "database": ""
     },
+    "bind_sources": [
+     "interpolated",
+     "interpolated"
+    ],
     "depends_on": [],
     "environment": [],
     "extra_hosts": [],
@@ -817,6 +1055,30 @@
     "ports": [],
     "safe_values": {},
     "settings": {
+     "command": [
+      "mongod",
+      "--auth",
+      "--bind_ip_all",
+      "--tlsMode",
+      "requireTLS",
+      "--tlsCertificateKeyFile",
+      "/run/clm/mongo-server.pem",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--tlsAllowConnectionsWithoutCertificates"
+     ],
+     "healthcheck": [
+      "CMD",
+      "mongosh",
+      "--quiet",
+      "--host",
+      "localhost",
+      "--tls",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--eval",
+      "if (db.adminCommand({ping: 1}).ok !== 1) quit(1)"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -876,6 +1138,7 @@
      "assistant-uplink": "172.30.243.2",
      "proxy": "172.30.240.4"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -921,12 +1184,23 @@
      "dns": [
       "192.0.2.53"
      ],
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-m",
+      "assistant_hosting.probe"
+     ],
      "init": true,
+     "mem_limit": "536870912",
+     "pids_limit": 128,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "no",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777"
      ]
     },
     "volumes": [
@@ -939,6 +1213,9 @@
      "goldtier-control": "172.30.241.3",
      "proxy": "172.30.240.3"
     },
+    "bind_sources": [
+     "interpolated"
+    ],
     "depends_on": [
      "mongo"
     ],
@@ -982,11 +1259,20 @@
       "ALL"
      ],
      "container_name": "clm-staging-backend",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"
+     ],
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,mode=1777"
      ]
     },
     "volumes": [
@@ -998,6 +1284,7 @@
      "default": "",
      "proxy": "172.30.240.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -1016,6 +1303,15 @@
     ],
     "safe_values": {},
     "settings": {
+     "healthcheck": [
+      "CMD",
+      "wget",
+      "-q",
+      "-O",
+      "/dev/null",
+      "--header=Host: health.localhost",
+      "http://127.0.0.1:8080/ready"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -1029,6 +1325,7 @@
      "goldtier-control": "172.30.241.4",
      "goldtier-uplink": "172.30.242.3"
     },
+    "bind_sources": [],
     "depends_on": [],
     "environment": [
      "CLM_EGRESS_FQDN",
@@ -1058,6 +1355,15 @@
      "dns": [
       "172.30.241.4"
      ],
+     "healthcheck": [
+      "CMD",
+      "/usr/local/bin/python3",
+      "-I",
+      "/opt/egress/goldtier_egress_guard.py",
+      "--health"
+     ],
+     "mem_limit": "100663296",
+     "pids_limit": 64,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
@@ -1066,7 +1372,10 @@
      ],
      "sysctls": {
       "net.ipv4.ip_unprivileged_port_start": "53"
-     }
+     },
+     "tmpfs": [
+      "/run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m"
+     ]
     },
     "volumes": []
    },
@@ -1075,6 +1384,7 @@
      "goldtier-control": "172.30.241.2",
      "goldtier-uplink": "172.30.242.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "goldtier-dns"
     ],
@@ -1107,11 +1417,23 @@
      "dns": [
       "172.30.241.4"
      ],
+     "healthcheck": [
+      "CMD",
+      "/usr/local/bin/python3",
+      "-I",
+      "/opt/egress/goldtier_egress_guard.py",
+      "--health"
+     ],
+     "mem_limit": "134217728",
+     "pids_limit": 64,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m"
      ]
     },
     "volumes": []
@@ -1120,6 +1442,10 @@
     "addresses": {
      "database": ""
     },
+    "bind_sources": [
+     "interpolated",
+     "interpolated"
+    ],
     "depends_on": [],
     "environment": [],
     "extra_hosts": [],
@@ -1130,6 +1456,30 @@
     "ports": [],
     "safe_values": {},
     "settings": {
+     "command": [
+      "mongod",
+      "--auth",
+      "--bind_ip_all",
+      "--tlsMode",
+      "requireTLS",
+      "--tlsCertificateKeyFile",
+      "/run/clm/mongo-server.pem",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--tlsAllowConnectionsWithoutCertificates"
+     ],
+     "healthcheck": [
+      "CMD",
+      "mongosh",
+      "--quiet",
+      "--host",
+      "localhost",
+      "--tls",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--eval",
+      "if (db.adminCommand({ping: 1}).ok !== 1) quit(1)"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -1186,6 +1536,9 @@
      "goldtier-control": "172.30.241.3",
      "proxy": "172.30.240.3"
     },
+    "bind_sources": [
+     "interpolated"
+    ],
     "depends_on": [
      "mongo"
     ],
@@ -1229,11 +1582,20 @@
       "ALL"
      ],
      "container_name": "clm-staging-backend",
+     "healthcheck": [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"
+     ],
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/tmp:rw,noexec,nosuid,nodev,mode=1777"
      ]
     },
     "volumes": [
@@ -1245,6 +1607,7 @@
      "default": "",
      "proxy": "172.30.240.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "backend"
     ],
@@ -1263,6 +1626,15 @@
     ],
     "safe_values": {},
     "settings": {
+     "healthcheck": [
+      "CMD",
+      "wget",
+      "-q",
+      "-O",
+      "/dev/null",
+      "--header=Host: health.localhost",
+      "http://127.0.0.1:8080/ready"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },
@@ -1276,6 +1648,7 @@
      "goldtier-control": "172.30.241.4",
      "goldtier-uplink": "172.30.242.3"
     },
+    "bind_sources": [],
     "depends_on": [],
     "environment": [
      "CLM_EGRESS_FQDN",
@@ -1305,6 +1678,15 @@
      "dns": [
       "172.30.241.4"
      ],
+     "healthcheck": [
+      "CMD",
+      "/usr/local/bin/python3",
+      "-I",
+      "/opt/egress/goldtier_egress_guard.py",
+      "--health"
+     ],
+     "mem_limit": "100663296",
+     "pids_limit": 64,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
@@ -1313,7 +1695,10 @@
      ],
      "sysctls": {
       "net.ipv4.ip_unprivileged_port_start": "53"
-     }
+     },
+     "tmpfs": [
+      "/run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m"
+     ]
     },
     "volumes": []
    },
@@ -1322,6 +1707,7 @@
      "goldtier-control": "172.30.241.2",
      "goldtier-uplink": "172.30.242.2"
     },
+    "bind_sources": [],
     "depends_on": [
      "goldtier-dns"
     ],
@@ -1354,11 +1740,23 @@
      "dns": [
       "172.30.241.4"
      ],
+     "healthcheck": [
+      "CMD",
+      "/usr/local/bin/python3",
+      "-I",
+      "/opt/egress/goldtier_egress_guard.py",
+      "--health"
+     ],
+     "mem_limit": "134217728",
+     "pids_limit": 64,
      "platform": "linux/amd64",
      "read_only": true,
      "restart": "unless-stopped",
      "security_opt": [
       "no-new-privileges:true"
+     ],
+     "tmpfs": [
+      "/run/r3:rw,nosuid,nodev,noexec,mode=0755,size=1m"
      ]
     },
     "volumes": []
@@ -1367,6 +1765,10 @@
     "addresses": {
      "database": ""
     },
+    "bind_sources": [
+     "interpolated",
+     "interpolated"
+    ],
     "depends_on": [],
     "environment": [],
     "extra_hosts": [],
@@ -1377,6 +1779,30 @@
     "ports": [],
     "safe_values": {},
     "settings": {
+     "command": [
+      "mongod",
+      "--auth",
+      "--bind_ip_all",
+      "--tlsMode",
+      "requireTLS",
+      "--tlsCertificateKeyFile",
+      "/run/clm/mongo-server.pem",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--tlsAllowConnectionsWithoutCertificates"
+     ],
+     "healthcheck": [
+      "CMD",
+      "mongosh",
+      "--quiet",
+      "--host",
+      "localhost",
+      "--tls",
+      "--tlsCAFile",
+      "/run/clm/mongo-ca.pem",
+      "--eval",
+      "if (db.adminCommand({ping: 1}).ok !== 1) quit(1)"
+     ],
      "platform": "linux/amd64",
      "restart": "unless-stopped"
     },

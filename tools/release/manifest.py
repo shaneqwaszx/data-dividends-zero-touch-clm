@@ -214,7 +214,12 @@ def _validate_rollback(
         raise StopCondition("FLOATING_REFERENCE", f"{name}: rollback target must be a digest")
     if name != "backend":
         return
-    commit = entry.get("target_source_commit") or ""
+    commit = (entry.get("target_source_commit") or "").strip().lower()
+    if compatible is True and not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+        raise StopCondition(
+            "ROLLBACK_NOT_PROVEN",
+            "backend: a compatible rollback target must name its source commit",
+        )
     target_schema = entry.get("target_snapshot_schema_writes")
     new_schema = (image or {}).get("snapshot_schema_writes")
     schema_19 = any(commit.startswith(prefix) for prefix in catalog.SCHEMA_19_BACKEND_COMMITS)

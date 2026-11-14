@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **Implemented and tested locally against mocks. Never run against the Lightsail host or GHCR.** Not installed anywhere. Changes no existing gate |
+| Status | **Implemented and tested locally against mocks. Never run against the Lightsail host or GHCR.** Not installed anywhere. Changes no existing gate. An independent review of the first candidate returned **FAIL**; its findings were then addressed, and that remediation has **not** been independently re-reviewed (`TEST_EVIDENCE_AND_LIMITATIONS.md`) |
 | Scope | One reusable, Windows-friendly release toolchain for the single-host AWS demo (`clm-staging` on one Lightsail instance). No Kubernetes, Terraform, other cloud or new infrastructure |
 | Depends on GitHub Actions | No. Every step runs from this repository on the developer machine |
 | Code | `tools/release/` (Python 3.12, standard library only), entry point `tools/release.ps1` |
@@ -82,8 +82,13 @@ may run:
 A skipped command is recorded as "would issue" and returns no output. The gate also refuses a
 command whose argument or environment contains a registered credential, refuses a fixed list
 of host commands (`down`, `-v`, `--remove-orphans`, volume removal, `compose rm`, `--scale`,
-`docker rm`, firewall and power commands), and checks the approval deadline before every host
-or registry write. The toolchain has no code path that calls an AI provider; the effect exists
+`up` without `--no-deps` or `--no-build`, anything naming `mongo` as a target, direct
+`docker rm|stop|exec`, firewall and power commands), and checks the approval deadline before
+every host or registry write. The deny-list is a backstop, matched on text with quoting
+removed; the real control is that the command builders in `host.py` cannot produce those
+commands. Two housekeeping writes are exempt from the deadline, so an expired window never
+leaves the host half-configured or locked: restoring `compose.env` to its pre-run content
+(no container is touched) and releasing the host lock. The toolchain has no code path that calls an AI provider; the effect exists
 so the tests can prove it is refused.
 
 ### 3.2 Release manifest
@@ -96,7 +101,10 @@ backend, the case-snapshot schema version read from the commit; Compose file has
 host's active overlays and the overlay order; evidence paths and quality-gate verdicts; risk
 class and the reasons; the services that change and those that must not; per service the
 rollback target, whether rollback is data-compatible (`true`, `false` or `"unproven"`), whether
-it may be automatic and its stop conditions; public smoke expectations; and the previous
+it may be automatic and its stop conditions. **"Compatible" is a declaration**: a person
+states it in the manifest from evidence and the owner approves it; the tool cannot inspect
+what an image writes. It only refuses declarations that contradict themselves or the known
+schema-19 line; public smoke expectations; and the previous
 known-good manifest.
 
 The manifest hash is the SHA-256 of its canonical JSON. Publication fills in the registry
@@ -106,13 +114,18 @@ digests, so the published manifest has a new hash and records the candidate's ha
 ### 3.3 Approval record
 
 `tools/release/schema/approval-record.schema.json`. Bound to one manifest hash, one exact
-service list, one risk class, the actions (`publish`, `deploy`), a start time and an expiry.
+service list, one risk class, the actions (`publish`, `deploy`, `rollback`), a start time and
+an expiry.
 Rules enforced in code:
 
 - wrong manifest, wrong services, wrong action or wrong risk class: refused;
 - before the start or at/after the expiry: refused; a window longer than 24 hours: refused;
 - expiry is checked again before every host or registry write. An expired window stops the run
-  before the next change; it is never extended, and no automatic rollback runs after expiry;
+  before the next change; it is never extended, and no automatic rollback runs after expiry.
+  If it expires after `compose.env` was edited but before any container changed, the file is
+  restored (housekeeping) and the result is `FAILED_NO_CHANGE`;
+- an owner-requested rollback needs its own record with the `rollback` action; the deploy
+  record cannot be reused for it;
 - a deployment does not start unless enough of the window is left to finish and verify;
 - single use: once a run begins changing the host's configuration the approval cannot start
   another run. A stop before that point (failed preflight, failed pull) leaves it usable;
@@ -133,9 +146,11 @@ with the provider overlay; the GoldTier containers on their two networks only); 
 `false`; without the provider overlay the assistant's model client points at the closed local
 port and no provider variable exists; no credential variable in the assistant's Compose
 environment; no privileged mode, host namespaces, devices, replicas, Docker socket or writable
-host bind; capabilities dropped and a read-only root for backend, assistant and the egress
-containers; the Mongo and assistant data volumes stay `external` (so Compose can never remove
-them).
+host bind, or `volumes_from`; capabilities dropped and a read-only root for backend, assistant
+and the egress containers; no added capability except the four the R3 guard needs, on the two
+GoldTier services only; no security option other than `no-new-privileges`; the Mongo and
+assistant data volumes stay `external` (so Compose can never remove them). The Docker socket
+is recognised by a bind mount's source as well as its target.
 
 **Baseline comparison.** `policy/effective-baseline.json` is the reviewed render of every
 supported set at the current Compose files. A render that has a network, port, environment
@@ -143,6 +158,22 @@ variable or setting the baseline lacks is refused unless the manifest declares i
 `declared_config_changes`, and a declaration raises the risk class (a network, port or setting:
 HIGH). A test fails when the Compose files and the baseline disagree, so a Compose change
 forces a reviewed baseline update (`release.ps1 baseline --write`, then review the diff).
+
+**What the summary covers, and what it does not.** Covered per service: networks and fixed
+addresses, published ports, environment variable *names*, the values of 14 non-secret safety
+switches, volumes (type, named source, target, mode), whether each bind source is an
+interpolated path or a literal one, `extra_hosts` *names*, `depends_on`, command, entrypoint,
+health-check command, tmpfs, capabilities, security options, read-only root, restart policy,
+user, DNS, sysctls, devices, memory and process limits, container name and platform; plus the
+`internal` and `external` flags of top-level networks and volumes. **Not covered:** other
+environment values (they hold secrets, so they are never read), the actual host paths behind
+interpolated bind sources, the addresses in `extra_hosts`, labels, network aliases, CPU
+limits, logging, and health-check timing. A Compose change confined to those fields does not
+move the baseline. The Compose files are still hashed into the manifest and reviewed as
+source; the summary is an additional automatic check, not a replacement for that review.
+On the host, the changed service's networks and ports are compared with the baseline and the
+invariants are re-run; environment names are compared offline only, because the host's
+environment includes the backend's runtime file.
 
 Supported overlay sets, in the only supported order:
 
@@ -198,15 +229,26 @@ public `/health` returns 200.
 | Approval, manifest, offline render, preflight, image transfer | `FAILED_NO_CHANGE` | Nothing changed (an image may be cached) |
 | `compose.env` edit or host config validation | `FAILED_NO_CHANGE` | `compose.env` restored from its backup; no container changed |
 | Old backend stopped but the new one never started | `FAILED_NO_CHANGE` | The untouched old backend and ingress are started again |
-| After a container changed, rollback eligible and approved | `ROLLED_BACK` | `compose.env` restored; services recreated on their previous image, frontend first; verified |
+| After a container changed, rollback eligible and approved | `ROLLED_BACK` | `compose.env` restored; services recreated on their previous image; then every service is confirmed healthy and public `/health` returns 200. Without a backend the frontend goes first. With a backend, ingress is stopped first and started (or recreated) last |
 | After a container changed, rollback not eligible | `FAILED_HELD` | **Nothing further is changed.** The record says exactly what is running, and whether ingress is stopped |
-| Approval expired during the run | `FAILED_HELD` | Stopped before the next change; no rollback |
+| Approval expired after a container changed | `FAILED_HELD` | Stopped before the next change; no rollback |
+| Approval expired after the `compose.env` edit, before any container changed | `FAILED_NO_CHANGE` | `compose.env` restored |
+| Interrupted (Ctrl-C, killed tool, unexpected error) | `FAILED_HELD` if the host was touched, else `FAILED_NO_CHANGE`; the error is re-raised | Unverified. The record holds the backup path, the previous pins and the services already applied |
+| A rollback step fails | `FAILED_HELD` | Whatever the failed step left; `ingress_stopped` says whether the site is down |
 
 Automatic rollback needs all of: the owner approved it in the approval record; the manifest
-says `data_compatible: true` and `automatic: true` for every touched service; the previous pin
-was recorded. For a backend it additionally needs both schema versions and the target
-confirmed on the host. A rollback target that writes an older case-snapshot schema (the
-`4c1db49` line, schema 19) can never be marked compatible: the manifest is refused.
+declares `data_compatible: true` and `automatic: true` for every touched service; the previous
+pin was recorded. For a backend it additionally needs the target's source commit (7 to 40
+lower-case hex characters), both schema versions and the target recorded as confirmed on the
+host. A target whose declared commit is on the `4c1db49` line, or whose declared schema is
+older than the new backend's, cannot be marked compatible: the manifest is refused. These are
+checks on what the manifest declares. Nothing ties the target digest to the declared commit,
+so the declaration must come from the host lane's record, not from memory.
+
+An owner-requested rollback (`release.ps1 rollback`) uses the same eligibility rules, needs a
+`rollback` approval, takes the host lock, and changes only this release's lines in
+`compose.env`, and only if they still show this release's pins. If the host has moved on it
+changes nothing.
 
 ## 4. Local state
 
@@ -229,6 +271,18 @@ history; `consumed-approvals.json`; `release.lock`. It holds no credential.
 4. Installing changed Compose files or host units on the host is not automated: preflight
    refuses when the installed files differ from the manifest. Mongo, GoldTier egress and
    firewall changes are plan-and-document only.
+4a. Host paths (`/opt/clm`, `/etc/clm/compose.env`, `/etc/clm/mongo.uri`, `/run/lock`) are
+   defaults taken from the Approval B scripts. No tracked runbook names `/etc/clm/mongo.uri`;
+   `deploy/LIGHTSAIL_RUNTIME.md` says only that the connection setting is injected from the
+   approved secret source. The operator configuration can override every path, and `--execute`
+   refuses to start until it states `mongo_uri_file`. **The tool never creates that file. If
+   the host does not have one, that is an owner decision about where a database credential may
+   rest, not something to work around.**
+4b. A run killed without the chance to write its record (power loss, a killed process tree)
+   leaves no result. Recovery is by hand (runbook section 7).
+4c. A client-side SSH timeout is reported as a failure while the remote command may still be
+   running. The record will say `FAILED_HELD` or `FAILED_NO_CHANGE` from what the tool saw;
+   check the host before acting.
 5. The backup check counts recent files in a configured directory; it does not verify an
    archive's content.
 6. The backend sequence stops ingress during the swap, so the site is briefly down. Whether

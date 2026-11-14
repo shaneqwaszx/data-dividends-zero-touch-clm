@@ -2,7 +2,8 @@
 
 An Actions-independent release toolchain for the single-host AWS demo. **Implemented and
 tested locally against mocks; never run against the host or the registry; changes no existing
-owner gate.**
+owner gate. The one independent review returned FAIL; its findings were addressed but the fixes
+are not independently re-reviewed, so this is not yet cleared for use.**
 
 | Document | What it is for |
 |---|---|
@@ -14,6 +15,7 @@ owner gate.**
 | [LOCAL_RELEASE_CONTROLLER.md](LOCAL_RELEASE_CONTROLLER.md) | The local controller and the evaluation of an always-on runner |
 | [PIPELINE_HOW_TO_USE_AND_MAINTAIN.md](PIPELINE_HOW_TO_USE_AND_MAINTAIN.md) | Section to paste into an engineering handoff |
 | [TEST_EVIDENCE_AND_LIMITATIONS.md](TEST_EVIDENCE_AND_LIMITATIONS.md) | What was run, the counts, the independent review, what is not proven |
+| [INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md) | The independent review of the first candidate, unedited. Verdict: **FAIL**. The fixes made afterwards are not re-reviewed |
 
 | Artefact | Path |
 |---|---|

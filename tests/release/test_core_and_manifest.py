@@ -276,7 +276,7 @@ def test_assistant_with_provider_overlay_and_sensitive_change_classes_are_high()
 def test_schema_19_backend_is_never_an_eligible_rollback_target() -> None:
     manifest = make_manifest(["backend"])
     entry = manifest["rollback"]["backend"]
-    entry.update(target_source_commit="4c1db49aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", automatic=False)
+    entry.update(target_source_commit="4c1db49", automatic=False)
     with pytest.raises(StopCondition) as by_commit:
         manifests.validate_manifest(manifest)
     assert by_commit.value.code == "ROLLBACK_SCHEMA_INCOMPATIBLE"
