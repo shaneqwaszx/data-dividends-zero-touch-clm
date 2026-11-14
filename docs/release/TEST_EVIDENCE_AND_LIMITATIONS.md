@@ -44,8 +44,8 @@ one throwaway entry holding a sentinel value).
 | `python scripts/check_secrets.py` (worktree root) | Secret scan passed |
 | `python -m pytest tests/deploy -q -p no:cacheprovider` from Git Bash | 116 passed, 1 skipped |
 | `scripts/check_project_state.py`, `check_architecture.py`, `check_tooling_config.py`, `check_policy_authority.py`, `check_external_provider_readiness.py` | all five PASS |
-| `python scripts/pre_pr_check.py` on the clean committed state | @@PREPR@@ |
-| `release.ps1 checks --change-class CI_TOOLING` (the toolchain running its own selection) | @@SELF@@ |
+| `python scripts/pre_pr_check.py` on the clean committed state | PASS (0 unsafe conditions, 0 warnings) on commit `e6356a1`, with the untracked `outputs/` handoff folder moved aside for the run |
+| `release.ps1 checks --change-class CI_TOOLING` (the toolchain running its own selection) | On commit `e6356a1`: 12 checks PASS (5 governance scripts, `check_secrets`, `deploy-pytest`, `pre-pr-check`, `release-ruff`, `release-mypy`, `release-pytest`, `security-unittests`); the 4 manual CI jobs listed `NOT_RUN` |
 
 Not run, and not claimed: the backend, assistant and frontend suites, the E2E shards, the
 physical Mongo job, the local OCR job and the Windows demo-lifecycle job. This change touches
