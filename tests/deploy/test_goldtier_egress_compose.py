@@ -57,6 +57,8 @@ def env(tmp_path: Path) -> dict[str, str]:
         "MONGO_DATA_VOLUME": "clm-r3-test-mongo",
         "ASSISTANT_DATA_VOLUME": "clm-r3-test-assistant",
         "ASSISTANT_BROWSER_ORIGIN": "https://clm.example.invalid",
+        "ASSISTANT_ELIGIBLE_CASE_REFS": "000000000000",
+        "ASSISTANT_ELIGIBLE_CREATED_BEFORE": "2099-01-01T00:00:00Z",
         "CLM_GOLDTIER_EGRESS_FQDN": "goldtier.r3-test.invalid",
         "CLM_GOLDTIER_EGRESS_DST_V4": "34.120.0.10",
     }

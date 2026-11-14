@@ -18,6 +18,8 @@ from ai_assistant.config import AiAssistantSettings
 from ai_assistant.key_sources import ENV_FILE
 from ai_assistant.llm import is_local_model_url
 
+from . import eligibility
+
 # The chat baseline points at the discard port on the container's own loopback. Nothing listens
 # there, so every model call fails at once and the answer comes from the case data. Model
 # management needs a baseline to open its state and audit store (model_admin.open_selector).
@@ -144,4 +146,6 @@ def refusals(
         found.append("ENV_FILE_REFUSED")
     if not settings.model_profiles_file or not _profiles_empty(settings.model_profiles_file):
         found.append("EMPTY_PROFILES_FILE_REQUIRED")
+    # RD-1: a hosted service serves only the approved cases, so it needs the list and cutoff.
+    found.extend(eligibility.config_codes(env))
     return sorted(set(found))

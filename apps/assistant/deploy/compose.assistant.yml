@@ -24,6 +24,10 @@ services:
       ASSISTANT_HOSTING_DATA_QUOTA_MB: "${ASSISTANT_DATA_QUOTA_MB:-2048}"
       ASSISTANT_HOSTING_MIN_FREE_MB: "256"
       ASSISTANT_HOSTING_SEED_SYNTHETIC: "${ASSISTANT_SEED_SYNTHETIC:-false}"
+      # RD-1: the only cases the assistant serves (12-hex references) and their cutoff (UTC).
+      # Both are required, with no fallback value: Compose refuses to start without them.
+      ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS: "${ASSISTANT_ELIGIBLE_CASE_REFS:?approved case references required}"
+      ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE: "${ASSISTANT_ELIGIBLE_CREATED_BEFORE:?approved creation cutoff required}"
     networks:
       proxy:
         ipv4_address: "${CLM_ASSISTANT_PROXY_IPV4:-172.30.240.4}"

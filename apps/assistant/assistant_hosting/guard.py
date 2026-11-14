@@ -10,6 +10,14 @@ This layer only refuses earlier, and it never grants anything.
     unsafe methods     need a single allowed Origin; ai_assistant accepts a missing one
     AI Models changes  only the listed model-free controls. A provider key never reaches
                        the process, because the request body is not read
+    control characters 404 for any path holding one (an encoded newline, NUL, ...), before
+                       anything else: the router's `$` would otherwise match a path the exact
+                       checks below do not see (QG F-1, F-4)
+    dashboard insights 503 DASHBOARD_INSIGHTS_UNAVAILABLE for any method, before the session,
+                       origin and route checks (PR #178 / D-128 I7). The hosted deployment
+                       approves no model for them, so the route, and with it every local,
+                       remote or paid model, is never reached here; the browser hides the
+                       panel (D-128 I5)
 """
 
 import json
@@ -30,6 +38,17 @@ Send = Callable[[Message], Awaitable[None]]
 App = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 ADMIN_PREFIX = "/assistant/admin/models"
+# PR #178: the dashboard insights route, refused whole on the hosted deployment.
+DASHBOARD_INSIGHTS = "/assistant/dashboard/insights"
+
+
+def _dashboard_insights(path: str) -> bool:
+    # Any spelling the router or a proxy could treat as the route: case, trailing slashes,
+    # sub-paths. (The ASGI path is already percent-decoded.)
+    folded = path.lower().rstrip("/")
+    return folded == DASHBOARD_INSIGHTS or folded.startswith(DASHBOARD_INSIGHTS + "/")
+
+
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
 # Allowlisted, so a route added later is refused here until it is reviewed for hosting. Every
@@ -95,6 +114,9 @@ class HostedGuard:
             return
         path: str = scope["path"]
         method: str = scope["method"]
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
+            await _refuse(send, 404, "NOT_FOUND", "Not found.")
+            return
         if path.startswith("/internal/"):
             peer = scope.get("client")
             if peer is None or peer[0] not in LOOPBACK_PEERS:
@@ -104,6 +126,11 @@ class HostedGuard:
             return
         if not path.startswith("/assistant/"):
             await _refuse(send, 404, "NOT_FOUND", "Not found.")
+            return
+        if _dashboard_insights(path):
+            await _refuse(
+                send, 503, "DASHBOARD_INSIGHTS_UNAVAILABLE", "AI insights are unavailable."
+            )
             return
         if not _has_session(scope):
             await _refuse(send, 401, "AUTHENTICATION_REQUIRED", "Please sign in again.")
