@@ -158,7 +158,11 @@ own approval:
     --operator-config <operator.json> --execute
 ```
 
-The deploy approval cannot be reused for a rollback, and a rollback approval is single use.
+An approval covers a rollback only if it names the `rollback` action; each action of an
+approval is single use. An owner who wants the rollback to be a separate decision gives a
+separate approval. `rollback` works only before acceptance (`DEPLOYED_AWAITING_ACCEPTANCE`,
+`ACCEPTANCE_FAILED`, `FAILED_HELD`, or an unfinished rollback). An `ACCEPTED` release is
+reverted by a new release that deploys the previous image.
 The command refuses an ineligible service and says why; it takes the host lock; it changes
 back only this release's image lines in `compose.env`, and only if they still show this
 release's pins. If another change has been made since, it changes nothing and reports
@@ -202,13 +206,18 @@ checks, read-only:
 
 Then the owner decides one of:
 
-- **Nothing had changed** (`applied` is empty, containers as before): the host operator copies
-  the backup over `compose.env` if they differ. A new attempt needs a new approval if the old
-  one was used.
-- **Roll back**: if the record is `FAILED_HELD`, `ROLLBACK_INTERRUPTED` or a stale
-  `ROLLBACK_IN_PROGRESS`, `release.ps1 rollback` with a **new** `rollback`
-  approval, subject to the usual eligibility. Otherwise by hand, following
-  `deploy/LIGHTSAIL_RUNTIME.md`.
+- **Nothing had changed** (`applied` is empty **and** every container still runs its previous
+  image): the host operator copies the backup over `compose.env` if they differ. A new attempt
+  needs a new approval if the old one was used.
+- **Roll back**: if the record is `ROLLBACK_INTERRUPTED`, a stale `ROLLBACK_IN_PROGRESS`, or
+  `FAILED_HELD` **with a non-empty `applied` list or `ingress_stopped: true`**,
+  `release.ps1 rollback` with a **new** `rollback` approval, subject to the usual eligibility.
+  If `applied` is empty, the tool refuses (`ROLLBACK_NOT_APPLICABLE`) even when a container
+  was being recreated at the moment of the interrupt: check each container's image on the
+  host. Restore by hand following `deploy/LIGHTSAIL_RUNTIME.md` (copy the backup named in
+  `env_backup` over `compose.env`, then the service's own wrapper
+  `up -d --no-build --no-deps --wait <service>`). `recover` does not apply to this record; it
+  stays `FAILED_HELD` until a later run changes the host.
 - **Go forward**: fix the cause and run a new release with a new approval. Preflight will
   refuse while `compose.env` and the running containers disagree (`no-drift`), so the host
   must first be brought back to a consistent state.
@@ -243,7 +252,7 @@ back. `accept` refuses until the state is verified.
    `DEPLOYED_AWAITING_ACCEPTANCE` (every service healthy on this release's image, `/health`
    200 and the release's smoke requests as expected; owner browser acceptance is still
    required). The second is only possible for a release that was awaiting acceptance when
-   its first rollback began.
+   the current rollback episode began, and that has not failed acceptance.
 
    Exit code 2 means one of:
    - the state could not be established: the record becomes (or stays)
@@ -262,7 +271,8 @@ back. `accept` refuses until the state is verified.
      previous image" for a service that was never applied, someone started that service by
      hand on the release image: the host operator recreates it by hand on the previous image
      (the service's own wrapper from `deploy/LIGHTSAIL_RUNTIME.md`: `dc` for the frontend or
-     backend, `dca` for the assistant; `up -d --no-build --no-deps --wait <service>`, with the
+     backend (`dcg` for the backend when the GoldTier overlay is active), `dca` for the
+     assistant; `up -d --no-build --no-deps --wait <service>`, with the
      line already changed back),
      then runs `recover`.
    - **Recover by hand** following `deploy/LIGHTSAIL_RUNTIME.md` (start order: Mongo, backend,
@@ -275,6 +285,22 @@ What the tool cannot do: record anything after a kill or power loss, tell whethe
 command it lost contact with is still running, or verify data written by a backend that ran
 briefly.
 
+
+### Deploying again after a failed acceptance
+
+Owner decision, 2026-11-15: a release that failed acceptance may be deployed again only as a
+**new release attempt** (`PIPELINE_ARCHITECTURE.md` section 3.8). The tool does not yet enforce
+four of the six requirements of that decision. Until it does, and that has been reviewed:
+
+- **do not redeploy the same release** after a failed acceptance; prepare a new release (a new
+  release id and manifest) and take it through the whole procedure;
+- before any `accept`, open the release's `result.json` (or read the `deploy` output). If
+  `previously_failed_acceptance` is `true`, an earlier deployment of this release failed
+  acceptance. `accept`, the runsheet and `status` do not show this.
+
+Names you may meet: `accept` refuses with `ACCEPTANCE_ALREADY_FAILED` for a record whose
+acceptance failed; a run that changed nothing while a release was live carries
+`standing_record_kept` in its numbered result and leaves `result.json` as it was.
 
 ## 8. Never
 

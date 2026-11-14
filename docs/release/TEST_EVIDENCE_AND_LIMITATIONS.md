@@ -79,7 +79,7 @@ six overlay sets.
 
 ## 4. Independent review
 
-**Verdict of the one independent review: FAIL** (P0 = 0, P1 = 3, P2 = 7, P3 = 9).
+**Verdict of the first independent review: FAIL** (P0 = 0, P1 = 3, P2 = 7, P3 = 9).
 
 The reviewer was a fresh session that did not write the code. It reviewed commit
 `728cf1ecda53ec81849329475cfc0ae3c72fdda7`, tree `c77a707565d45ccf00f3a0e071f43f287b34f4fb`.
@@ -88,12 +88,10 @@ Its report is reproduced **unedited** in
 (SHA-256 `7f1fd794843a7ad6095fa468acebc1bb91a93f5a13e0c505b72ea60ee71cbd27`, byte-identical to
 the file the reviewer wrote).
 
-The findings were real. They were addressed afterwards by the implementing session. **That
-remediation has not been independently re-reviewed.** Under `AGENTS.md`, changed reviewed
-content needs a fresh independent review; until one returns `PASS`, the standing verdict on
-this toolchain is `FAIL` and it must not be used against the host or the registry.
+The findings were real and were addressed afterwards. The later reviews of that remediation
+are in sections 4.1 to 4.6; the current standing is in 4.7.
 
-| Finding | Severity | What was done (not re-reviewed) | Test |
+| Finding | Severity | What was done | Test |
 |---|---|---|---|
 | F1 rollback of backend + frontend left ingress stopped and reported `ROLLED_BACK` | P1 | Rollback rewritten: with a backend, ingress is stopped first and started or recreated last; every step's return code is checked; it ends by confirming every service healthy and public `/health` 200, otherwise `FAILED_HELD` | `test_f1_*` (3), `test_m38_*` |
 | F2 expiry between the pin and the first container change escaped unhandled | P1 | Restoring `compose.env` is housekeeping (no container touched), so it still runs after expiry; a stop raised while handling a stop is caught; a result is always written | `test_f2_*` (2) |
@@ -213,7 +211,7 @@ NOTES. Its report is reproduced **unedited** in
 
 | Finding | What was done | Tests |
 |---|---|---|
-| F-1 (P1 as the rule was written) deploy, `accept` fail, owner rollback verified `ROLLED_BACK`, a **new** `deploy --execute` with a new owner approval, `accept` pass reaches `ACCEPTED`; the documents said a failed acceptance was permanent "for a release" | **The statement was narrowed, the behaviour kept.** This path is a new, complete, verified deployment under a new owner approval; it existed before this work, and forbidding it would change what an owner approval can do, which this remediation was told not to change. The failed acceptance is permanent for that deployment; a later deployment's record carries `previously_failed_acceptance: true`. **Owner decision recorded as open:** whether a release that once failed acceptance may ever be redeployed under the same release id | `test_a_new_verified_deployment_after_a_verified_rollback_carries_the_acceptance_history` |
+| F-1 (P1 as the rule was written) deploy, `accept` fail, owner rollback verified `ROLLED_BACK`, a **new** `deploy --execute` with a new owner approval, `accept` pass reaches `ACCEPTED`; the documents said a failed acceptance was permanent "for a release" | **The statement was narrowed, the behaviour kept.** This path is a new, complete, verified deployment under a new owner approval; it existed before this work, and forbidding it would change what an owner approval can do, which this remediation was told not to change. The failed acceptance is permanent for that deployment; a later deployment's record carries `previously_failed_acceptance: true`. The owner decided this question on 2026-11-15 (section 4.8) | `test_a_new_verified_deployment_after_a_verified_rollback_carries_the_acceptance_history` |
 | F-1, second part: a dry-run dropped `acceptance_failed` from the latest record | Fixed with F-2 | below |
 | F-2 (P2) a second `run`, including a dry-run, replaced a `DEPLOYED_AWAITING_ACCEPTANCE`, `ACCEPTANCE_FAILED` or `FAILED_HELD` record with `FAILED_NO_CHANGE`, after which `accept`, `rollback` and `recover` all refused | A run that changes nothing is kept as a numbered result and no longer replaces the standing record of a live release | `test_a_run_that_changes_nothing_never_replaces_the_standing_record_of_a_live_release` (6) |
 | F-3 (P3) after the new N-2 check fails, the never-applied service must be recreated by hand before a retry can succeed | Not changed; stated in the runbook | |
@@ -227,7 +225,8 @@ F-2 confirmed fixed (8 reproduced cases; 5,773 no-change runs in a random driver
 replaced a live standing record). On F-1 the reviewer assessed the choice on its merits:
 keeping the new-deployment path is consistent with "no change to deployment approval policy";
 within one deployment a failed acceptance never reached `ACCEPTED` in 3,300 random sequences;
-the owner decision stays open. Its report is reproduced **unedited** in
+the owner decision was open at that time (decided on 2026-11-15, section 4.8). Its report is
+reproduced **unedited** in
 [N1_N2_CLOSING_CHECK_20261114.md](N1_N2_CLOSING_CHECK_20261114.md).
 
 **This is the latest independent verdict on code. The commit after it changes documents
@@ -241,7 +240,7 @@ only** (this section and the corrections below) and was not itself reviewed.
 | N-4 (P3) the kept path does not strictly require a `ROLLED_BACK` record | Wording corrected |
 | N-5 (P3) `_record` reads the standing record before each write with no retry; a read failure fails closed but can lose the attempt's record | Not changed |
 | N-6 (P3) four surviving mutants (replacement of a non-live record, `DRY_RUN_OK` over a live record, `ACCEPTED` in the live set, the history-flag carry-over) | Not changed: open test gaps |
-| N-7 (P3) wording; the runbook's hand command named `dc`, which cannot start the assistant | Runbook corrected to name the service's own wrapper |
+| N-7 (P3) wording; the runbook's hand command named `dc`, which cannot start the assistant | Runbook corrected to name the service's own wrapper. The other N-7 wording items ("FIRST rollback", three field and code names missing from the runbook) were not changed in that commit; they are corrected in the later documents-only pass (section 4.8) |
 
 ### 4.7 Where the verdicts stand
 
@@ -259,6 +258,37 @@ No reviewer has reviewed the whole toolchain at the head in one pass: the first 
 everything at `728cf1e`, and each later review covered a delta. Nothing here is evidence from
 a real host or registry.
 
+
+### 4.8 Review of the head, the owner's decision, and the last documents-only pass
+
+A seventh independent review, arranged by the release coordinator, covered head
+`b97fa598626e3f6be185e7ea65e7125cbb0fa9c0`: **PASS WITH NOTES** on the documents delta
+`ed38d16..b97fa59` (0 P0, 0 P1, 1 P2, 12 P3). It re-probed the N1/N2 claims at the head
+(1,422 automatic-run cases, 486 owner-rollback cases, 700 random sequences, and a child
+process killed at every command): all seven claims hold, with 0 violations. The report is held
+by the coordinator at `outputs/integration-release-lead-20261114/PIPELINE_FINAL_DELTA_REVIEW.md`
+in the main checkout and is not reproduced here. The coordinator re-ran the suites on
+`b97fa59`: `tests/release` 321 passed, 1 skipped; `tests/deploy` 116 passed, 1 skipped; ruff
+(documented options), `mypy --strict` and `check_secrets.py` clean.
+
+Its P2 (A-1): the runbook sent a `FAILED_HELD` record with an empty `applied` list to
+`rollback`, which refuses it, and `recover` refuses it too, so an interrupt during a service's
+`up` left the operator with no next step. Corrected in the runbook with the reviewer's wording.
+Its P3 rows that gave replacement wording for a false or overstated sentence (A-2 to A-11,
+A-13) are applied. Notes that need code are left alone.
+
+**Owner decision, 2026-11-15** (A-12): "A release that previously failed acceptance MAY be
+deployed again, but only as a NEW release attempt." Recorded in
+`PIPELINE_ARCHITECTURE.md` section 3.8 with the enforcement status of each of its six
+requirements as that review found it: (1) PARTLY, (2) NOT ENFORCED, (3) PARTLY, (4) PARTLY,
+(5) ENFORCED, (6) ENFORCED. **Requirements 1 to 4 are not fully implemented.** The smallest
+change proposed for each is listed there as future work; none was implemented. Until they are
+implemented and reviewed, a release must not be redeployed after a failed acceptance with this
+tool (runbook section 7; checklist step E1a).
+
+This pass changed documents only: no code, test, schema or sample. Its independent check:
+
+@@CHECK7@@
 
 ## 5. What the evidence does not show
 

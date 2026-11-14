@@ -2,8 +2,8 @@
 
 An Actions-independent release toolchain for the single-host AWS demo. **Implemented and
 tested locally against mocks; never run against the host or the registry; changes no existing
-owner gate. It has been through six independent reviews and checks, each followed by fixes; the latest, on
-the last code commit, is PASS WITH NOTES; see `TEST_EVIDENCE_AND_LIMITATIONS.md` section 4 for exactly which commit each
+owner gate. It has been through seven independent reviews and checks, each followed by fixes; the latest on
+code, at the last code commit, is PASS WITH NOTES; see `TEST_EVIDENCE_AND_LIMITATIONS.md` section 4 for exactly which commit each
 verdict applies to. It is not cleared for use against the host or the registry.**
 
 | Document | What it is for |
@@ -16,7 +16,7 @@ verdict applies to. It is not cleared for use against the host or the registry.*
 | [LOCAL_RELEASE_CONTROLLER.md](LOCAL_RELEASE_CONTROLLER.md) | The local controller and the evaluation of an always-on runner |
 | [PIPELINE_HOW_TO_USE_AND_MAINTAIN.md](PIPELINE_HOW_TO_USE_AND_MAINTAIN.md) | Section to paste into an engineering handoff |
 | [TEST_EVIDENCE_AND_LIMITATIONS.md](TEST_EVIDENCE_AND_LIMITATIONS.md) | What was run, the counts, the independent review, what is not proven |
-| [INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md) | The independent review of the first candidate, unedited. Verdict: **FAIL**. The fixes made afterwards are not re-reviewed |
+| [INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md) | The independent review of the first candidate, unedited. Verdict: **FAIL**. The later reviews of the fixes are in the evidence document, sections 4.1 to 4.8 |
 | [N1_N2_INDEPENDENT_REVIEW_20261114.md](N1_N2_INDEPENDENT_REVIEW_20261114.md) | The independent review of the interrupted-rollback change (`37f3aa6`), unedited. Verdict: **FAIL** (N1 and N2 fixed; one new P1 in `recover`). What was done about it: evidence document section 4.3 |
 | [N1_N2_FIX_CHECK_20261114.md](N1_N2_FIX_CHECK_20261114.md) | The check of the fixes in `84706a9`, unedited. Verdict: **FAIL** (one sequence could still reach `ACCEPTED`). What was done about it: evidence document section 4.4 |
 | [N1_N2_FINAL_CHECK_20261114.md](N1_N2_FINAL_CHECK_20261114.md) | The check of `6bcf142`, unedited. Verdict: **FAIL**, conditional on how one rule is read. What was done about it, and the open owner decision: evidence document section 4.5 |

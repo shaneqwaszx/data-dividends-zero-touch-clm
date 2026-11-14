@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **Implemented and tested locally against mocks. Never run against the Lightsail host or GHCR.** Not installed anywhere. Changes no existing gate. An independent review of the first candidate returned **FAIL**; its findings were then addressed, and that remediation has **not** been independently re-reviewed (`TEST_EVIDENCE_AND_LIMITATIONS.md`) |
+| Status | **Implemented and tested locally against mocks. Never run against the Lightsail host or GHCR.** Not installed anywhere. Changes no existing gate. It has been through several independent reviews, each followed by fixes; the latest on the last code commit is **PASS WITH NOTES**, and no single review covers the whole toolchain at the head (`TEST_EVIDENCE_AND_LIMITATIONS.md` sections 4.7 and 4.8). Not cleared for use against the host or the registry |
 | Scope | One reusable, Windows-friendly release toolchain for the single-host AWS demo (`clm-staging` on one Lightsail instance). No Kubernetes, Terraform, other cloud or new infrastructure |
 | Depends on GitHub Actions | No. Every step runs from this repository on the developer machine |
 | Code | `tools/release/` (Python 3.12, standard library only), entry point `tools/release.ps1` |
@@ -286,7 +286,8 @@ changes nothing.
             | verified on previous images    | verified on release images      | anything else,
             v                                v and smoke as expected           v or host unreadable
         ROLLED_BACK              was the release awaiting acceptance    ROLLBACK_INTERRUPTED
-                                 when its FIRST rollback began?         (unknown stays unknown)
+                                 when the current rollback episode      (unknown stays unknown)
+                                 began?
                                    | yes                    | no (its deployment stopped on a
                                    v                        v  failure, or acceptance failed)
                      DEPLOYED_AWAITING_ACCEPTANCE       FAILED_HELD
@@ -308,26 +309,28 @@ host looks.
 What can still be accepted afterwards is a **new, complete deployment** of the same release:
 a new `deploy --execute` with a new, unused owner deploy approval that passes the whole
 preflight, apply and post-deploy verification produces a new `DEPLOYED_AWAITING_ACCEPTANCE`
-record. In practice that follows a rollback, because preflight refuses while the host still
-runs the release; the code does not require a `ROLLED_BACK` record as such. That path existed before this change and is left as it
+record. In practice that follows a rollback, because the run stops while the host still runs
+the release: at preflight when the manifest names a rollback target, otherwise at the pin step
+(`NOTHING_TO_DEPLOY`, after the approval has been used). The code does not require a
+`ROLLED_BACK` record as such. That path existed before this change and is left as it
 is, because removing it would change what an owner approval can do. The new record carries
 `previously_failed_acceptance: true`, and every earlier record stays in its numbered file.
 **The flag is stored in the record and printed in the full `deploy` output only.** The
 `accept` command, the browser runsheet and `status` do not show it today, so the owner must
 read the record (or the numbered results) before accepting; surfacing it in those three
-places is an open follow-up. Whether a release that once failed
-acceptance should ever be redeployed under the same release id, rather than as a new release,
-is an owner decision.
+places is an open follow-up. Whether and how a release that once failed acceptance may be
+deployed again was decided by the owner on 2026-11-15: see section 3.8, which also says which
+parts of that decision the code does not yet enforce.
 
 A `deploy` or dry-run of a release whose rollback has no verified outcome is refused
 (`ROLLBACK_INCOMPLETE`) before anything is written or contacted. More generally, a run that
 changes nothing (refused, stopped before any change, or a dry-run) is kept as a numbered
 result but never replaces the standing record (`result.json`) of a release that is live on
 the host (`DEPLOYED_AWAITING_ACCEPTANCE`, `ACCEPTED`, `ACCEPTANCE_FAILED`, `FAILED_HELD` or
-an unfinished rollback), so `accept`, `rollback` and `recover` keep working from the last
-record of a run that changed the host. That record can itself be out of date if the host was
-changed by hand since; the tool does not notice that until `rollback` or `recover` reads the
-host. One known gap: an interrupt at the instant the first `compose.env` pin is written is
+an unfinished rollback), so `accept`, `rollback` and `recover` keep working from the standing
+record. That record can be out of date if the host was changed by hand since: `accept` never
+reads the host, and the tool notices only when `deploy`, `rollback` or `recover` next reads
+it. One known gap: an interrupt at the instant the first `compose.env` pin is written is
 recorded as `FAILED_NO_CHANGE` (the flag is set after the command returns), and when a live
 standing record is kept, `status` shows no trace of that attempt; it is in the numbered
 result and the audit log.
@@ -336,7 +339,9 @@ Rules the code enforces:
 
 - `ROLLBACK_IN_PROGRESS` is written and flushed to disk **before** any service is stopped or
   replaced and before `compose.env` is touched for the rollback. If that record cannot be
-  written, the rollback does not start (`FAILED_HELD`, "rollback was not started").
+  written, the rollback does not start: the automatic path ends `FAILED_HELD` ("rollback was
+  not started"); the owner-requested path is refused (`ROLLBACK_NOT_RECORDED`), the record is
+  left as it was and the rollback approval stays unused.
 - Each rollback step is appended to `rollback-journal.jsonl` and to the latest record
   **before** it is issued (`STARTED`), then marked `DONE`. A step that may stop ingress
   (stopping it, starting it, or recreating the frontend, which is the ingress) sets
@@ -376,6 +381,29 @@ itself, before any rollback, there is no in-progress record: the previous result
 stands, as limitation 4b says. A stale local lock and possibly a stale host lock remain.
 The operator's procedure is runbook section 7.
 
+
+### 3.8 Owner decision: redeploying after a failed acceptance (2026-11-15)
+
+**Decision (owner, 2026-11-15):** "A release that previously failed acceptance MAY be deployed
+again, but only as a NEW release attempt."
+
+The decision has six requirements. Their enforcement at this head is as an independent review
+found it (`PIPELINE_FINAL_DELTA_REVIEW.md`, Part C, held by the release coordinator).
+**Requirements 1 to 4 are NOT fully implemented.** The changes listed are future work; none is
+implemented here, and each would need its own review.
+
+| # | Requirement | Status at this head | What holds today | Gap, and the smallest change proposed (future work) |
+|---|---|---|---|---|
+| 1 | The prior failed attempt and its audit history are immutable | **PARTLY** | The tool never rewrites a numbered result; the audit log and the rollback journal are append-only; an approval file is never overwritten | Immutable by convention only: plain files, no hash chain. The next file number is "count + 1", so if a numbered result is removed by hand the next write overwrites the newest one. Proposed: in `write_result` use the highest existing number + 1 and create the file exclusively, with one test. Tamper evidence (each record carrying the hash of the one before) would be a further, separate change |
+| 2 | The new attempt has a distinct attempt identity | **NOT ENFORCED** | There is no attempt identifier. A new attempt differs from the old one only by a new approval id, a timestamp and its file number, and carries the boolean `previously_failed_acceptance`. The known-good pointer names the release id and manifest hash only | Proposed: an `attempt_id` set when a run starts, written in every record of that attempt, restored from the record by an owner-requested rollback, and added (with the approval id) to the known-good pointer; extend the redeploy test to assert two different ids |
+| 3 | A new owner approval is required | **PARTLY** | An approval that has been used is refused | "New" means "unused", not "given after the failure": a deploy approval issued **before** the failed attempt and still unused inside its window is accepted for the redeploy. Nothing in an approval says the owner knows of the failure, and approvals are not signed. Proposed: `accept` records when acceptance failed; that time is carried forward with the history flag; in execute mode a deploy approval whose `approved_at` is not later is refused; one test |
+| 4 | Current source and image identity and host compatibility are checked | **PARTLY** | Every new deployment starts clean and re-runs manifest validation, approval binding to the manifest hash, deployability, the offline configuration render, the whole preflight, image transfer with its identity check, and the running-image check after apply | (i) Source identity is checked at preparation only (`verify-source`); `deploy` trusts the commit recorded in the manifest and does not check it is still on the baseline. Whether a redeploy must re-verify source is itself an owner question; if yes, one call for execute mode and one test. (ii) With `rollback.target_image: null`, preflight does not compare the current pin; proposed: treat a null target as a preflight failure in execute mode, one test |
+| 5 | A failed or interrupted rollback can never be accepted retroactively | **ENFORCED** | `accept` refuses an unfinished, interrupted or failed rollback; `ROLLED_BACK` is written only after verification; `recover` never turns unknown into success. Two behaviours the owner should confirm are intended: `recover` can record `ROLLED_BACK` after a failed rollback once it verifies every service on its previous image, and it can return a release that was awaiting acceptance (and never failed it) to awaiting acceptance once it verifies the host fully on the release. In both the failed rollback attempt stays recorded as failed | None found |
+| 6 | No reuse of a failed attempt's approval or acceptance state | **ENFORCED** | A used approval is refused; a new deployment's record is built from scratch and carries no acceptance state, rollback block or recovery attempts from the earlier one; `accept` refuses a record marked `acceptance_failed`. To know: an approval is used up at the first `compose.env` change, so an attempt that stopped earlier leaves it usable; one approval naming both `deploy` and `rollback` serves once for each | None found |
+
+**Until requirements 1 to 4 are implemented and reviewed, do not redeploy a release after a
+failed acceptance with this tool.** Prepare it as a new release (a new release id and manifest)
+instead. The path itself still exists in the code, as described in 3.7.
 
 ## 4. Local state
 
@@ -421,6 +449,13 @@ history; `consumed-approvals.json`; `release.lock`. It holds no credential.
 4f. The Docker-socket invariant matches the text `docker.sock`. A bind of its parent directory
    or of another runtime socket is refused only as an undeclared change; an explicit
    declaration approved by the owner would let it through.
+4g. During the deployment itself (before any rollback), the only sign that the tool died is
+   `lock_held: true` in `status` plus the audit log. The audit log gets a line only after a
+   command returns, so the command that was running when the tool died is not in it.
+4h. An interrupt during a service's `up` leaves `FAILED_HELD` with an empty `applied` list
+   (the flag is set after the command returns) while the container may already run the
+   release image. `rollback` and `recover` both refuse that record; recovery is by hand
+   (runbook section 7).
 4c. A client-side SSH timeout is reported as a failure while the remote command may still be
    running. The record will say `FAILED_HELD` or `FAILED_NO_CHANGE` from what the tool saw;
    check the host before acting.

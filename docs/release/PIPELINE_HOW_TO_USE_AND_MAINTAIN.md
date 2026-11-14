@@ -7,9 +7,10 @@
 `tools/release/` is a Python 3.12 package (standard library only) with one PowerShell entry
 point, `tools/release.ps1`. It prepares, publishes and deploys the AWS demo stack without
 GitHub Actions. It has been tested only against mocks: it has never contacted the Lightsail
-host or GHCR. An independent review of the first candidate returned FAIL; the findings were
-addressed afterwards and that remediation has not been independently re-reviewed, so get a
-fresh review before anyone relies on it. All existing owner gates still apply; the tool makes
+host or GHCR. It has been through six independent reviews and checks; the latest, on the last
+code commit, is PASS WITH NOTES (`TEST_EVIDENCE_AND_LIMITATIONS.md` section 4.7). No reviewer
+has reviewed the whole toolchain at the head in one pass, and it is not cleared for use
+against the host or the registry. All existing owner gates still apply; the tool makes
 the mechanical work repeatable, it does not grant authority.
 
 Full detail: `docs/release/PIPELINE_ARCHITECTURE.md` (design and limitations),
@@ -107,7 +108,9 @@ Design rules to keep:
 `ROLLBACK_IN_PROGRESS` and `ROLLBACK_INTERRUPTED` (diagram: `PIPELINE_ARCHITECTURE.md` 3.7).
 `ROLLBACK_IN_PROGRESS` is written before the first rollback step; found at rest it means the
 tool died mid-rollback and the host state is unknown. Only `recover` (read-only, run by a
-person) can move a release out of an unfinished rollback, and only on what it verified. Never
+person) or a further `rollback` attempt under a new approval can move a release out of an
+unfinished rollback, and only `recover` can return it to awaiting acceptance, on what it
+verified. Never
 report a release as rolled back, or the previous service as restored, from anything but a
 `ROLLED_BACK` record.
 
@@ -118,8 +121,9 @@ final verification. `tests/release/test_rollback_interruption.py` holds those ru
 
 ## Known gaps (do not assume they work)
 
-Never run against the real host or registry; the remediation of the review findings is not
-independently re-reviewed; approval records are not signed; "compatible" is a declaration the
+Never run against the real host or registry; no single review covers the whole toolchain at
+the head; the owner's 2026-11-15 rule on redeploying after a failed acceptance is only partly
+enforced (`PIPELINE_ARCHITECTURE.md` 3.8); approval records are not signed; "compatible" is a declaration the
 tool cannot verify; the configuration summary does not cover every Compose field; archive
 transfer is unproven on the host's image store; installing changed Compose files or host
 units is manual; Mongo, GoldTier egress and firewall changes are manual; the backup check
