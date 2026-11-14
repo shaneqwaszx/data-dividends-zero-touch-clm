@@ -18,7 +18,7 @@ from ai_assistant.config import AiAssistantSettings
 from ai_assistant.key_sources import ENV_FILE
 from ai_assistant.llm import is_local_model_url
 
-from . import eligibility
+from . import eligibility, provider
 
 # The chat baseline points at the discard port on the container's own loopback. Nothing listens
 # there, so every model call fails at once and the answer comes from the case data. Model
@@ -105,6 +105,7 @@ def refusals(
     environ: Mapping[str, str] | None = None,
     *,
     env_files: tuple[Path, ...] = (ENV_FILE, Path(".env")),
+    resolve: provider.Resolver | None = None,
 ) -> list[str]:
     """Every reason this configuration may not run as a Stage A service (empty: it may)."""
 
@@ -148,4 +149,6 @@ def refusals(
         found.append("EMPTY_PROFILES_FILE_REQUIRED")
     # RD-1: a hosted service serves only the approved cases, so it needs the list and cutoff.
     found.extend(eligibility.config_codes(env))
+    # R2.2: the Claude provider mode, when named, and only on top of every check above.
+    found.extend(provider.config_codes(settings, env, resolve=resolve))
     return sorted(set(found))

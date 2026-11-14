@@ -64,7 +64,7 @@ dca() {
 }
 ```
 
-Dashboard AI insights (PR #178) are refused by the hosted assistant (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`); no model writes them on this host.
+Dashboard AI insights (PR #178) are refused by the hosted assistant (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`); no model writes them on this host. c2 (D-130 amendment, DRAFT, disabled): a fifth hosted Claude path for insights is prepared but off (`config.HOSTED_INSIGHTS_DECISION = None`); while it is off every insights route stays refused. When a reviewed change enables it, only `GET .../insights/mode` and an explicit `POST .../insights/generate` (server-derived counts and labels from R2.1-eligible cases, 3 per user and 10 site-wide per Singapore day) are allowed; the merged route stays refused.
 
 Users reach the assistant only when two things are both true: the assistant is running, and the frontend image's Caddyfile routes `/api/assistant/*` to it. The OP-4 frontend answers every assistant route with a fixed 503. The R2 frontend returns the same 503 while the assistant is absent or stopped. Assistant startup and route activation are separate operations, and each needs its own owner approval.
 

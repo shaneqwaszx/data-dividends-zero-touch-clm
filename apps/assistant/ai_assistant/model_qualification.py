@@ -90,6 +90,14 @@ BASIS_FILES = (
     # D-115 refinement 2: copilot evidence and structured claim checks (local model only).
     "claims.py",
     "evidence.py",
+    # D-130: Support's chat, now answered by hosted Claude too; the decision and its paths
+    # (config, QG N1); what of the user a Claude-bound prompt may carry (OD-G8).
+    "support_chat.py",
+    "config.py",
+    "provider_payload.py",
+    # D-130 amendment draft: the fifth hosted path's prompt and derived findings.
+    "hosted_insights.py",
+    "dashboard_insights.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = (
@@ -98,6 +106,18 @@ BASIS_FIXTURES = (
     "gold.json",
     "gold.lock.json",
     "phase_b_questions.json",
+    # D-130: the hosted chat paths' qualification turns.
+    "hosted_paths.json",
+)
+# D-130 (QG N1): every fixture a qualification prompt is built from (the qualification
+# harness's case inputs), relative to the assistant directory. The image keeps the same layout
+# (deploy/assistant.Dockerfile), so a hosted basis equals a development checkout's.
+BASIS_HARNESS = (
+    "tests/fixtures/garden_address_conflict_summary.json",
+    "tests/fixtures/garden_documents.json",
+    "tests/fixtures/garden_waiting_for_documents_summary.json",
+    "tests/fixtures/me_client_onboarder.json",
+    "../backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf",
 )
 
 G4_MAX_UNAVAILABLE = 0.05
@@ -132,10 +152,13 @@ def qualification_basis() -> str:
     for pattern in BASIS_GLOBS:
         paths.extend(sorted(PACKAGE_DIR.glob(pattern)))
     paths.extend(EVAL_FIXTURES / name for name in BASIS_FIXTURES)
-    for path in paths:
-        digest.update(b"\0" + path.relative_to(ASSISTANT_DIR).as_posix().encode("utf-8") + b"\0")
+    named = [(path.relative_to(ASSISTANT_DIR).as_posix(), path) for path in paths]
+    named.extend((name, ASSISTANT_DIR / name) for name in BASIS_HARNESS)
+    for name, path in named:
+        digest.update(b"\0" + name.encode("utf-8") + b"\0")
         try:
-            digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+            data = path.read_bytes()
+            digest.update(data if path.suffix == ".pdf" else data.replace(b"\r\n", b"\n"))
         except OSError:
             digest.update(b"missing")
     return digest.hexdigest()
@@ -336,7 +359,7 @@ class WatchedModel:
             # (the synthetic boundary or the D-095 eligibility check, with its ticket), so the
             # harness model shows itself as the external model it wraps.
             self.requires_synthetic_boundary = getattr(inner, "requires_synthetic_boundary", False)
-            for name in ("development_mode", "notices"):
+            for name in ("development_mode", "notices", "hosted_claude", "anthropic_bound"):
                 if hasattr(inner, name):
                     setattr(self, name, getattr(inner, name))
             if not hasattr(self, "development_mode") and development is not None:

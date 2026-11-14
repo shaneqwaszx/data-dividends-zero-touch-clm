@@ -1109,6 +1109,30 @@ describe("Editing how the AI should respond", () => {
     await flush();
     expect(calls[1].body).toMatchObject({ kind: "guidance", blocker_codes: ["DOCUMENT_SOURCE_CONFLICT", "ADDRESS_MISMATCH"] });
   });
+
+  it("shows the external-data notice (P2-3) before the change is tried, linked to the Try button", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    point5Backend(calls);
+    const view = render();
+    await flush();
+    const request = await openFix(view, 7);
+    const notice = request.querySelector<HTMLElement>('[data-testid="external-ai-notice"]');
+    expect(notice?.id).toBe("knowledge-review-try-notice-7");
+    expect(notice?.dataset.surface).toBe("try");
+    expect(notice?.textContent).toContain(
+      "When Claude (Anthropic) is asked for Try with this change, the title and text of this change, the conversation's first question and this case's details are sent to Anthropic",
+    );
+    expect(notice?.textContent).toContain("They are sent even if no Claude answer is shown to you.");
+    expect(notice?.textContent).toContain("Use synthetic test data only.");
+    expect(notice?.textContent).toContain("Automatic removal covers only some known identifiers, not everything you type.");
+    const tryButton = button(request, "Try with this change");
+    expect(tryButton.getAttribute("aria-describedby")).toBe(notice?.id);
+    // Shown before anything is tried: no request has been made for the trial yet.
+    expect(calls.filter((call) => call.url.endsWith("/try"))).toEqual([]);
+    expect(notice && notice.compareDocumentPosition(tryButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The notice adds no field: the change's inputs are unchanged.
+    expect(notice?.querySelector("input, textarea, select")).toBeNull();
+  });
 });
 
 describe("age", () => {

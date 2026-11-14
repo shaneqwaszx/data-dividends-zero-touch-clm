@@ -32,6 +32,7 @@ import {
 } from "../aiAssistant";
 import RequestPage from "./RequestPage";
 import "./AiAssistantPanel.css";
+import ExternalAiNotice from "./ExternalAiNotice";
 
 /** The fix Support is writing for a conversation's request. */
 interface FixDraft {
@@ -758,8 +759,16 @@ export default function KnowledgeReview({
               </section>
             );
           })()}
+          {/* P2-3: the external-data notice, before the change is tried. */}
+          <ExternalAiNotice id={`knowledge-review-try-notice-${gap.id}`} surface="try" />
           <div className="knowledge-review-actions">
-            <button type="button" className="btn btn-secondary" disabled={disabled || !fix.body.trim()} onClick={() => void tryChange(conversation, gap)}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              aria-describedby={`knowledge-review-try-notice-${gap.id}`}
+              disabled={disabled || !fix.body.trim()}
+              onClick={() => void tryChange(conversation, gap)}
+            >
               Try with this change
             </button>
             <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => void saveDraft(conversation, gap)}>

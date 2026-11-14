@@ -1622,7 +1622,7 @@ query keyed by the signed-in user; if it fails, only that card says so.
   a time and results are cached per user for 30 minutes. Directors get Director findings
   (recovery cases, policy proposals, team gaps) first. Advisory only: no case, approval or
   GoldTier effect, and the CLM backend stays model-free. Class: Local (the API-key path is
-  covered by tests with fake models only; no paid call was made). On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden.
+  covered by tests with fake models only; no paid call was made). On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden. c2 (D-130 amendment, DRAFT, disabled): a fifth hosted Claude path for insights is prepared but off (`config.HOSTED_INSIGHTS_DECISION = None`); while it is off every insights route stays refused. When a reviewed change enables it, only `GET .../insights/mode` and an explicit `POST .../insights/generate` (server-derived counts and labels from R2.1-eligible cases, 3 per user and 10 site-wide per Singapore day) are allowed; the merged route stays refused.
 - **Not included.** Dashboard chat and recommended actions. Weekly targets and workload
   utilisation have no defined target or capacity data.
 - **Sample data.** The fixed, unlabelled sample portfolio mirrors every new figure. A

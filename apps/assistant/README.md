@@ -169,8 +169,8 @@ lives in `apps/assistant/data/knowledge/` (not in Git).
 | GET | `/assistant/knowledge/conversations?page=&resolved=&satisfaction=&status=` | Support | Rated conversations, 10 a page, high, medium, low, then no priority |
 | GET | `/assistant/knowledge/conversations/{id}` | Support | Rating, comment, the whole chat (views logged), its request and the saved draft |
 | PUT / DELETE | `/assistant/knowledge/conversations/{id}/draft` | Support | Save (redacted) or discard the draft fix of an open request |
-| POST | `/assistant/knowledge/conversations/{id}/try` | Support | Preview: the user's question answered with an unsaved rule change offered as if approved (local model only; nothing saved, published or recorded) |
-| POST | `/assistant/support/chat` | Support | A question about the approved rules and the active policy, no case (local model only) |
+| POST | `/assistant/knowledge/conversations/{id}/try` | Support | Preview: the user's question answered with an unsaved rule change offered as if approved (local model only, or hosted Claude on the registered hosted deployment under D-130; nothing saved, published or recorded) |
+| POST | `/assistant/support/chat` | Support | A question about the approved rules and the active policy, no case (local model only, or hosted Claude under D-130) |
 | POST | `/assistant/cases/{case_id}/feedback` | RM on the case | (Kept for compatibility; the panel no longer sends it, D-105.) "Yes, helpful" (records the rating) or "Not helpful" with a required note (an enhancement request; an empty note is a 422). `answer_id` names the answer rated when it has a record; when sent it must be the caller's own unrated, unexpired answer on this case, otherwise 404 "No such answer." "Not helpful" without one is still accepted: the reviewer then sees only the note |
 | GET | `/assistant/answers/{answer_id}` | the RM who asked | Their own answer record (view logged); HR gets 403, anyone else 404 |
 | GET | `/assistant/knowledge/me` | anyone signed in | Whether the user can review or propose guidance, and whether single-reviewer mode is on |
@@ -239,6 +239,9 @@ client details in past answers show as placeholders). Knowledge review is not
 in the panel: Support users (`KNOWLEDGE_REVIEW`) review on the **Knowledge Review** tab (D-103);
 Directors no longer review knowledge. With no case open, Support gets a chat about the approved
 rules and the active policy (`POST /assistant/support/chat`, local model only, exact-line rule).
+On the registered hosted deployment (D-130) the activated Claude configuration also answers
+the general chat, Support's chat and "Try with this change", with boundary-approved repository
+knowledge only and every case-chat control; anywhere else they stay local-only (D-115, D-105).
 
 ### Demo script
 

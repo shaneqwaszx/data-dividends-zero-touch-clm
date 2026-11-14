@@ -35,6 +35,20 @@ APPROVED_QUALIFICATION_COUNT = 2
 # checks still bound every answer. Set only in a reviewed change, never by a teammate.
 CONVERSATIONAL_DECISION: str | None = "D-122"
 
+# D-130 (OD-G, owner-approved 2026-11-13): on the registered hosted Claude deployment only
+# (anthropic_runtime.hosted_deployment), the general chat, Support's chat and "Try with this
+# change" may use the activated Claude configuration, under every control the case chat has
+# (D-106 key, D-107, qualification, D-102/D-118 limits, the per-call ticket). It amends D-115
+# and D-105 for that deployment only: local models, development machines and every other
+# provider keep them unchanged. Set only in a reviewed change, never by a setting.
+HOSTED_CHAT_DECISION: str | None = "D-130"
+HOSTED_CHAT_PATHS: frozenset[str] = frozenset({"general", "support", "try_change"})
+# D-130 amendment (DRAFT, owner-directed 2026-11-14 for local preparation only): dashboard AI
+# insights as a fifth hosted Claude path (hosted_insights.py). DISABLED: None keeps the hosted
+# service refusing every insights route. Set only in a reviewed change, after the D-129
+# privacy amendment, the notice, the QG, egress, qualification and the owner's activation.
+HOSTED_INSIGHTS_DECISION: str | None = None
+
 
 def conversational(settings: "AiAssistantSettings") -> bool:
     """True when answers are written in the model's own words (checked sentence by sentence)."""

@@ -23,7 +23,8 @@ from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from dataclasses import replace as replaced
-from datetime import datetime
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
@@ -32,7 +33,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, R
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import copilot
+from . import copilot, hosted_insights
 from .answer_records import (
     ANSWER_ID,
     AnswerRecorder,
@@ -44,7 +45,7 @@ from .answer_records import (
 )
 from .answer_records import FallbackReason as RecordReason
 from .anthropic_runtime import NOTICES as CLAUDE_NOTICES
-from .anthropic_runtime import Notices
+from .anthropic_runtime import Notices, hosted_chat, hosted_deployment
 from .briefing import fallback_answer, opening_message, suggested_questions
 from .case_contexts import CONTEXT_ID, ContextRefused, ContextStore, Ticket
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
@@ -53,10 +54,12 @@ from .config import conversational as config_conversational
 from .context import build_case_facts
 from .dashboard_insights import (
     DashboardInsights,
+    InsightFinding,
     InsightsRejected,
     InsightsRequest,
     InsightsResponse,
     InsightsUnavailable,
+    check_reply,
 )
 from .data_access import REFUSAL_NOTICES as POLICY_REFUSALS
 from .guardrails import (
@@ -90,12 +93,14 @@ from .llm import (
     ModelUsage,
     OpenAICompatibleChatModel,
     Piece,
+    collect_stream,
     is_local_model_url,
     micro_usd,
 )
 from .model_admin import Active, model_admin_router, open_selector
 from .model_factory import build_chat_model
 from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
+from .provider_payload import anthropic_bound, identities, provider_facts, scrub, scrub_text
 from .remote_test import is_remote_test_model
 from .small_talk import small_talk_reply
 from .support_chat import answer_support_question
@@ -338,6 +343,8 @@ class Prepared:
     # Written in the model's own words and checked sentence by sentence (copilot), not
     # selected from offered lines.
     conversational: bool = False
+    # D-130 OD-G8: the identifiers kept out of a Claude-bound prompt (None: not Claude-bound).
+    provider_names: tuple[str, ...] | None = None
 
     def sources(self, answer: str) -> list[KnowledgeSource]:
         return [
@@ -696,9 +703,12 @@ def create_app(
         remote: bool = False,
         trial: Entry | None = None,
         history: list[dict[str, str]] | None = None,
+        names: tuple[str, ...] | None = None,
     ) -> Prepared:
         """``remote``: the active model is the D-094 remote test model, so only repository
-        guidance and the synthetic seed, unchanged, may be used (synthetic_boundary.py)."""
+        guidance and the synthetic seed, unchanged, may be used (synthetic_boundary.py).
+        ``names``: D-130 OD-G8, the prompt goes to Anthropic, so it carries the viewer's role
+        only and none of these identifiers (provider_payload)."""
 
         started = time.monotonic()
         facts = build_case_facts(snapshot)
@@ -711,9 +721,11 @@ def create_app(
             began = time.monotonic()
             try:
                 retrieval = retriever.retrieve(question, case_context(facts), role=role, team=team)
-                tagged = approved_knowledge(tag_hits(retrieval), role=role, team=team)
+                found = approved_knowledge(tag_hits(retrieval), role=role, team=team)
                 if remote:
-                    tagged = [item for item in tagged if approved_entry(item.hit.entry)]
+                    # Filtered before it is kept: a failing check leaves no knowledge at all.
+                    found = [item for item in found if approved_entry(item.hit.entry)]
+                tagged = found
                 use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
             except Exception:  # knowledge is optional: never let it break an answer
                 log.exception("knowledge retrieval failed")
@@ -740,14 +752,15 @@ def create_app(
         for suggestion in [*shown.follow_ups, *base[3:]]:
             if suggestion not in suggestions:
                 suggestions.append(suggestion)
+        messages = build_messages(
+            facts if names is None else provider_facts(facts, names),
+            history_of(body) if history is None else history,
+            question,
+            knowledge=knowledge_message(tagged, shown),
+        )
         prepared = Prepared(
             facts=facts,
-            messages=build_messages(
-                facts,
-                history_of(body) if history is None else history,
-                question,
-                knowledge=knowledge_message(tagged, shown),
-            ),
+            messages=messages if names is None else scrub(messages, names),
             fallback=fallback,
             suggestions=suggestions[:6],
             tagged=tagged,
@@ -757,10 +770,19 @@ def create_app(
             retrieval_ms=retrieval_ms,
             question=question,
             started=started,
+            provider_names=names,
         )
         if on_prepared is not None:
             on_prepared(prepared)
         return prepared
+
+    def names_for(model: ChatModel | None, *profiles: Any, extra: tuple[Any, ...] = ()) -> (
+        tuple[str, ...] | None
+    ):
+        # D-130 OD-G8: the identifiers to keep out of this model's prompt, if it is Claude-bound.
+        if not anthropic_bound(model):
+            return None
+        return identities(*profiles, extra=extra)
 
     def emit(route: Route, started: float, outcome: _Outcome, prep: Prepared | None) -> None:
         """Record this answer's content-free metrics (only built when telemetry is on)."""
@@ -844,7 +866,8 @@ def create_app(
         if external_conversational(config):
             # D-122: any case. The per-call ticket stays, so only these exact messages go.
             synthetic_eligibility_approve(prep.messages)
-            return active.model, None
+            # R2.2: a hosted Claude answer names its model (only on what the model wrote).
+            return active.model, getattr(active.model, "attribution", None)
         entries = [item.hit.entry for item in prep.tagged]
         # D-104 A1: a model that decides D-095 mode itself (Claude, a policy-restricted model)
         # does so on the shared interlocks; GPT-OSS keeps the OpenRouter-ready mode.
@@ -867,8 +890,11 @@ def create_app(
         return active.model, notices.answered
 
     def answer_with_model(
-        prep: Prepared, outcome: _Outcome, lead: str | None = None
+        prep: Prepared, outcome: _Outcome, lead: str | None = None, *, collect: bool = False
     ) -> ChatResponse:
+        """``collect``: D-130, the model is streaming only (hosted Claude), so its whole
+        streamed answer is taken (llm.collect_stream) and checked exactly like a reply."""
+
         notice = FALLBACK_NOTICE
         model = outcome.model
         if model is None and lead is not None and lead.startswith(_REMOTE_REFUSALS):
@@ -878,7 +904,11 @@ def create_app(
             outcome.fallback_reason = "model_disabled"
         else:
             try:
-                reply = model.complete(prep.messages)
+                reply = (
+                    collect_stream(model, prep.messages)
+                    if collect
+                    else model.complete(prep.messages)
+                )
                 outcome.reported(reply)
                 validation = validate_answer(
                     reply.text, prep.facts, knowledge_lines=prep.shown.lines
@@ -1109,12 +1139,15 @@ def create_app(
         return _Outcome(fallback_reason="remote_boundary" if refused else "model_disabled")
 
     def copilot_prep(prep: Prepared, history: list[dict[str, str]]) -> tuple[Prepared, list[str]]:
+        names = prep.provider_names
         messages = copilot.build_messages(
-            prep.facts,
+            prep.facts if names is None else provider_facts(prep.facts, names),
             history,
             prep.question,
             knowledge=copilot.knowledge_message(prep.tagged, prep.shown),
         )
+        if names is not None:
+            messages = scrub(messages, names)
         line = copilot.read_only_line(prep.question)
         prepared = replaced(prep, messages=messages, plan=None, conversational=True)
         if on_prepared is not None:
@@ -1348,7 +1381,11 @@ def create_app(
     def general_chat_stream(body: GeneralChatRequest, request: Request) -> StreamingResponse:
         """D-115: the general onboarding chat. No case is read and none is remembered: the
         answer uses approved knowledge and the model's general reasoning, with the local model
-        only. Nothing is recorded as an answer record."""
+        only. Nothing is recorded as an answer record.
+
+        D-130: on the registered hosted Claude deployment the activated Claude configuration
+        answers too, with boundary-approved repository knowledge only and the per-call ticket
+        for the exact messages (as the hosted case chat, D-122)."""
 
         started = time.monotonic()
         check_origin(request)
@@ -1373,21 +1410,32 @@ def create_app(
             emit("stream", started, _Outcome(fallback_reason="off_domain"), None)
             # An unrelated question is not kept in the chat (as in a case chat).
             return stream_of(single(off_domain([])))
+        hosted = (
+            copilot_for(active)
+            and active.model is not None
+            and hosted_chat(active.model, "general")
+        )
         tagged: list[TaggedHit] = []
         use: KnowledgeUse | None = None
         if retriever is not None:
             try:
                 retrieval = retriever.retrieve(question, case_context({}), role=role, team=team)
-                tagged = approved_knowledge(tag_hits(retrieval), role=role, team=team)
+                found = approved_knowledge(tag_hits(retrieval), role=role, team=team)
+                if hosted:
+                    # Filtered before it is kept: a failing check leaves no knowledge at all.
+                    found = [item for item in found if approved_entry(item.hit.entry)]
+                tagged = found
                 use = KnowledgeUse(confidence=retrieval.confidence, degraded=retrieval.degraded)
             except Exception:  # knowledge is optional: never let it break an answer
                 log.exception("knowledge retrieval failed")
         shown = shown_knowledge(tagged, {})
+        messages = copilot.build_messages(
+            None, history, question, knowledge=copilot.knowledge_message(tagged, shown)
+        )
+        names = names_for(active.model, profile) if hosted else None
         prep = Prepared(
             facts={},
-            messages=copilot.build_messages(
-                None, history, question, knowledge=copilot.knowledge_message(tagged, shown)
-            ),
+            messages=messages if names is None else scrub(messages, names),
             fallback=guidance_summary(tagged, shown) or copilot.GENERAL_FALLBACK,
             suggestions=[],
             tagged=tagged,
@@ -1398,6 +1446,13 @@ def create_app(
         )
         line = copilot.read_only_line(question)
         required = [line] if line else []
+        if hosted and active.model is not None:
+            # D-130: only these exact messages may go (the model admits them by this ticket).
+            synthetic_eligibility_approve(prep.messages)
+            lead = getattr(active.model, "attribution", None)
+            return stream_of(
+                copilot_stream(prep, started, remember, active.model, required, lead=lead)
+            )
         if (
             copilot_for(active)
             and active.model is not None
@@ -1416,7 +1471,11 @@ def create_app(
     ) -> dict[str, Any]:
         """D-105: Support previews how the user's question would be answered with an unsaved
         rule change. Nothing is saved or published, no record is kept, and only the local
-        model is used (the remote test model's gates admit only approved repository text)."""
+        model is used (the remote test model's gates admit only approved repository text).
+
+        D-130: on the registered hosted Claude deployment the activated Claude configuration
+        answers too, on a case the R2.1 gate admitted (load_case), with boundary-approved
+        repository knowledge plus the redacted unsaved change, and the per-call ticket."""
 
         check_origin(request)
         session = request.cookies.get(SESSION_COOKIE_NAME)
@@ -1458,10 +1517,36 @@ def create_app(
             author=str(profile.get("user_id") or ""),
         )
         question = (body.question or row["title"]).strip()[: config.max_question_chars]
-        prep = prepare(ChatRequest(message=question), snapshot, question, trial=trial)
         active = selector.current()
-        model = None if is_remote_test_model(active.model) else active.model
-        reply = answer_with_model(prep, _Outcome(model=model))
+        # D-130 also needs the hosted case gate in place (it admitted this case in load_case).
+        hosted = (
+            active.model is not None
+            and hosted_chat(active.model, "try_change")
+            and getattr(request.app.state, "case_gate", None) is not None
+        )
+        # D-130 OD-G8: neither Support nor the conversation's owner is named to Anthropic, not
+        # in the case facts, the stored question or Support's unsaved rule.
+        names = names_for(active.model, profile, extra=(row["user_id"],)) if hosted else None
+        if names is not None:
+            trial = replaced(
+                trial, title=scrub_text(trial.title, names), body=scrub_text(trial.body, names)
+            )
+        prep = prepare(
+            ChatRequest(message=question),
+            snapshot,
+            question,
+            trial=trial,
+            remote=hosted,
+            names=names,
+        )
+        lead: str | None = None
+        if hosted:
+            model = active.model
+            synthetic_eligibility_approve(prep.messages)
+            lead = getattr(model, "attribution", None)
+        else:
+            model = None if is_remote_test_model(active.model) else active.model
+        reply = answer_with_model(prep, _Outcome(model=model), lead, collect=hosted)
         tag = prep.tagged[0].tag if prep.tagged else None
         offered = [line for line in prep.shown.lines if tag and line.endswith(f" [{tag}]")]
         return {
@@ -1497,6 +1582,9 @@ def create_app(
             {"role": turn.role, "content": turn.content}
             for turn in body.history[-config.max_history_messages :]
         ] if config.max_history_messages else []
+        model = selector.current().model
+        # D-130: hosted Claude answers Support too; every other remote model stays refused.
+        hosted = model is not None and hosted_chat(model, "support")
         reply = answer_support_question(
             question,
             history,
@@ -1504,7 +1592,10 @@ def create_app(
             team=profile.get("team_id"),
             retriever=retriever,
             catalogue=catalogue,
-            model=selector.current().model,
+            model=model,
+            hosted=hosted,
+            lead=getattr(model, "attribution", None) if hosted else None,
+            names=names_for(model, profile) if hosted else None,
         )
         return ChatResponse(
             answer=reply.answer,
@@ -1573,7 +1664,10 @@ def create_app(
                 active.model,
                 active.base_url,
                 fallback=(fallback.model, fallback.base_url),
-                external=external_conversational(config),
+                # Integration with R2.2/D-130: on the registered hosted deployment no paid model
+                # writes dashboard insights. Hosted Claude is approved only for the four chat paths
+                # (D-130 HOSTED_CHAT_PATHS, D-129 payloads), so this path stays off it there.
+                external=external_conversational(config) and hosted_deployment() is None,
             )
         except InsightsUnavailable:
             raise HTTPException(
@@ -1585,6 +1679,142 @@ def create_app(
                 502,
                 detail={"code": "DASHBOARD_INSIGHTS_REJECTED", "message": INSIGHTS_UNAVAILABLE},
             ) from None
+
+    # --- the fifth hosted Claude path: dashboard AI insights (D-130 amendment draft) ----------
+    # Only on the hosted service (the hardening flag), only with the owner's decision in the code
+    # (config.HOSTED_INSIGHTS_DECISION, None by default), only for hosted Claude, and only
+    # after an explicit "Generate" request. Everywhere else PR #178's route above is unchanged.
+
+    insights_limits: list[hosted_insights.DailyLimits] = []
+    insights_cache: dict[tuple[str, str], tuple[float, InsightsResponse]] = {}
+    insights_lock = threading.Lock()
+
+    def daily_limits() -> hosted_insights.DailyLimits:
+        with insights_lock:
+            if not insights_limits:
+                folder = Path(config.model_admin_db_path).parent
+                store = folder / "dashboard_insights_limits.sqlite3"
+                insights_limits.append(hosted_insights.DailyLimits(store))
+            return insights_limits[0]
+
+    def insights_profile(request: Request) -> dict[str, Any]:
+        try:
+            profile = backend.load_actor(request.cookies.get(SESSION_COOKIE_NAME))["profile"]
+        except ClmBackendError as exc:
+            raise backend_error(exc) from None
+        if "CASE_ACCESS" not in (profile.get("capabilities") or []):
+            raise HTTPException(
+                403, detail={"code": "FORBIDDEN", "message": "You are not allowed to do this."}
+            )
+        return dict(profile)
+
+    def hosted_insights_model(request: Request) -> ChatModel | None:
+        # Hosted service + decision + hosted Claude active + the case gate in place.
+        active = selector.current()
+        if (
+            getattr(request.app.state, "dashboard_insights_disabled", False)
+            and getattr(request.app.state, "case_gate", None) is not None
+            and active.model is not None
+            and hosted_chat(active.model, "dashboard_insights")
+        ):
+            return active.model
+        return None
+
+    def insights_unavailable() -> HTTPException:
+        return HTTPException(
+            503, detail={"code": "DASHBOARD_INSIGHTS_UNAVAILABLE", "message": INSIGHTS_UNAVAILABLE}
+        )
+
+    class InsightsMode(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        # auto: PR #178's automatic panel; generate: hosted, an explicit action; off: hidden.
+        mode: Literal["auto", "generate", "off"]
+        remaining_user: int | None = None
+        remaining_site: int | None = None
+
+    class HostedInsights(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        insights: InsightsResponse
+        findings: tuple[InsightFinding, ...]
+
+    @app.get("/assistant/dashboard/insights/mode", response_model=InsightsMode)
+    def dashboard_insights_mode(request: Request) -> InsightsMode:
+        """How the dashboard offers AI insights here (no model is called)."""
+
+        if not getattr(request.app.state, "dashboard_insights_disabled", False):
+            return InsightsMode(mode="auto")
+        profile = insights_profile(request)
+        if hosted_insights_model(request) is None:
+            return InsightsMode(mode="off")
+        used_user, used_site = daily_limits().used(str(profile.get("user_id") or ""))
+        return InsightsMode(
+            mode="generate",
+            remaining_user=max(0, hosted_insights.USER_DAILY_LIMIT - used_user),
+            remaining_site=max(0, hosted_insights.SITE_DAILY_LIMIT - used_site),
+        )
+
+    @app.post("/assistant/dashboard/insights/generate", response_model=HostedInsights)
+    def dashboard_insights_generate(request: Request) -> HostedInsights:
+        """The fifth hosted path: findings derived on the server from the user's R2.1-eligible
+        cases (labels and counts only), written by hosted Claude after an explicit request."""
+
+        if not getattr(request.app.state, "dashboard_insights_disabled", False):
+            raise HTTPException(404, detail={"code": "NOT_FOUND", "message": "Not found."})
+        check_origin(request)
+        profile = insights_profile(request)
+        model = hosted_insights_model(request)
+        if model is None:
+            raise insights_unavailable()
+        user = str(profile.get("user_id") or "")
+        session = request.cookies.get(SESSION_COOKIE_NAME)
+        gate = request.app.state.case_gate
+        try:
+            listed = backend.list_cases(session)
+        except ClmBackendError as exc:
+            raise backend_error(exc) from None
+        eligible = hosted_insights.eligible_items(
+            listed,
+            gate,
+            frozenset(getattr(gate, "refs", frozenset())),
+            lambda case_id: backend.load_case(case_id, session).summary,
+        )
+        findings = hosted_insights.derive(eligible, datetime.now(UTC))
+        if findings is None:
+            raise insights_unavailable()
+        messages = hosted_insights.build_messages(findings)
+        key = (user, hashlib.sha256(json.dumps(messages).encode("utf-8")).hexdigest())
+        now = time.monotonic()
+        with insights_lock:
+            cached = insights_cache.get(key)
+        if cached is not None and now - cached[0] < hosted_insights.CACHE_SECONDS:
+            return HostedInsights(insights=cached[1], findings=findings.findings)
+        try:
+            daily_limits().reserve(user)
+        except hosted_insights.LimitReached as reached:
+            raise HTTPException(
+                429,
+                detail={
+                    "code": "DASHBOARD_INSIGHTS_LIMIT",
+                    "message": "The daily limit for AI insights is reached."
+                    if reached.scope == "user"
+                    else "The site's daily limit for AI insights is reached.",
+                },
+            ) from None
+        # Only these exact messages may go (the model admits them by this ticket); one attempt.
+        synthetic_eligibility_approve(messages)
+        try:
+            answer = collect_stream(model, messages)
+            insights = check_reply(findings, answer.text, model.name)
+        except (LlmUnavailableError, InsightsRejected):
+            raise insights_unavailable() from None
+        with insights_lock:
+            insights_cache[key] = (now, insights)
+            for stale in [k for k, (at, _) in insights_cache.items() if now - at > 3600]:
+                del insights_cache[stale]
+        return HostedInsights(insights=insights, findings=findings.findings)
+
 
     @app.get("/assistant/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -1640,7 +1870,14 @@ def create_app(
             return off_domain(suggested_questions(facts))
         if copilot_for(active) and active.model is not None:
             remote = is_remote_test_model(active.model)
-            prepared = prepare(body, snapshot, question, remote=remote, history=history)
+            prepared = prepare(
+                body,
+                snapshot,
+                question,
+                remote=remote,
+                history=history,
+                names=names_for(active.model, snapshot.actor.get("profile")),
+            )
             owned = local_ownership(prepared, case_id, request, remote)
             prep, required = copilot_prep(owned, history)
             # The exact prompt is checked (D-095) before any external call, as in exact lines.
@@ -1661,6 +1898,7 @@ def create_app(
                 question,
                 remote=is_remote_test_model(active.model),
                 history=history,
+                names=names_for(active.model, snapshot.actor.get("profile")),
             )
             model, lead = remote_gate(
                 active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)
@@ -1720,7 +1958,14 @@ def create_app(
             return stream_of(single(off_domain(suggestions)))
         if copilot_for(active) and active.model is not None:
             remote = is_remote_test_model(active.model)
-            prepared = prepare(body, snapshot, question, remote=remote, history=history)
+            prepared = prepare(
+                body,
+                snapshot,
+                question,
+                remote=remote,
+                history=history,
+                names=names_for(active.model, snapshot.actor.get("profile")),
+            )
             owned = local_ownership(prepared, case_id, request, remote)
             prep, required = copilot_prep(owned, history)
             model, lead = remote_gate(
@@ -1735,7 +1980,12 @@ def create_app(
                 return stream_of(single(reply))
             return stream_of(copilot_stream(prep, started, finish, model, required, lead=lead))
         prep = prepare(
-            body, snapshot, question, remote=is_remote_test_model(active.model), history=history
+            body,
+            snapshot,
+            question,
+            remote=is_remote_test_model(active.model),
+            history=history,
+            names=names_for(active.model, snapshot.actor.get("profile")),
         )
         model, lead = remote_gate(
             active, snapshot, prep, case_id, request.cookies.get(SESSION_COOKIE_NAME)

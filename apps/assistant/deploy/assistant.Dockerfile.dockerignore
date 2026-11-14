@@ -4,6 +4,14 @@
 !apps/assistant/assistant_hosting
 !apps/assistant/assistant_hosting/**
 !apps/assistant/scripts/storage/backup_stores.py
+!apps/assistant/assistant_eval
+!apps/assistant/assistant_eval/*.py
+!apps/assistant/scripts/qualify_model.py
+!apps/assistant/tests/fixtures/garden_address_conflict_summary.json
+!apps/assistant/tests/fixtures/garden_documents.json
+!apps/assistant/tests/fixtures/garden_waiting_for_documents_summary.json
+!apps/assistant/tests/fixtures/me_client_onboarder.json
+!apps/backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf
 !apps/assistant/tests/fixtures/eval/scenarios.json
 !apps/assistant/tests/fixtures/eval/snapshots.json
 !apps/assistant/tests/fixtures/eval/gold.json
@@ -19,3 +27,4 @@
 **/*.pfx
 **/*.p12
 **/*.sqlite3
+!apps/assistant/tests/fixtures/eval/hosted_paths.json

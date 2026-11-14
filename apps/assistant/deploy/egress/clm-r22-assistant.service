@@ -1,0 +1,23 @@
+# R2.2 assistant start gate (P2-1; D-129 PROPOSED, E1 LOCAL DESIGN CANDIDATE). Install:
+# /etc/systemd/system/. The ONLY thing that starts the assistant: Docker never does (restart "no"
+# in compose.assistant-provider.yml). It starts it once the host table is loaded, its watcher is
+# running and the live table equals the reviewed file; if any of them is missing, failed or
+# masked (a broken table file, no nft, a masked unit), the assistant is never started. Stopping
+# the table unit or this unit stops the assistant; a Docker restart restarts this unit, which
+# checks the table again before starting the assistant.
+[Unit]
+Description=CLM R2.2 assistant start gate (only behind a verified inet clm_r22)
+Requires=clm-r22-assistant-firewall.service clm-r22-firewall-watch.service docker.service
+BindsTo=clm-r22-assistant-firewall.service
+After=clm-r22-assistant-firewall.service clm-r22-firewall-watch.service docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/python3 -I /usr/local/lib/clm-r22/clm_r22_watch.py --table-file /etc/clm/r22/clm_r22.nft --containers clm-staging-assistant --check-only
+ExecStartPre=/usr/bin/systemctl is-active -q clm-r22-firewall-watch.service
+ExecStart=/usr/bin/docker start clm-staging-assistant
+ExecStop=/usr/local/lib/clm-r22/clm_r22_stop_assistant.sh gate-stop
+
+[Install]
+WantedBy=multi-user.target

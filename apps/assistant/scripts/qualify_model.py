@@ -50,6 +50,28 @@ def take_handoff(raw: bytes) -> bool:
     return True
 
 
+def hosted_ready() -> bool:
+    """R2.2: in the hosted Claude mode this process registers the hosted deployment as the
+    service did, after the same startup refusals (a fresh process starts unregistered). False
+    stops the run. A development checkout without the mode is unchanged."""
+
+    try:
+        from assistant_hosting import profile as hosting_profile
+        from assistant_hosting import provider as hosting_provider
+    except ImportError:
+        return True
+    if not hosting_provider.mode():
+        return True
+    service_settings = AiAssistantSettings()
+    if hosting_profile.refusals(service_settings):
+        return False
+    try:
+        hosting_provider.install(service_settings)
+    except ValueError:
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qualification-id", required=True)
@@ -59,6 +81,8 @@ def main() -> int:
     if not re.fullmatch(r"[0-9a-f]{32}", args.qualification_id):
         return 2
     if not take_handoff(sys.stdin.buffer.read(MAX_HANDOFF_BYTES + 1)):
+        return 2
+    if not hosted_ready():
         return 2
     settings = AiAssistantSettings(model_profiles_file=args.profiles, model_admin_db_path=args.db)
     run_job(args.qualification_id, settings)

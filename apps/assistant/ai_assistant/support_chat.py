@@ -17,6 +17,12 @@ The D-094/D-095 remote test model is never called here: its gates only admit ver
 synthetic case prompts. With it active the answer is built without a model and says so; the
 messages are the same OpenAI-style chat messages as the case chat, so a model approved for
 this chat later needs no other change.
+
+D-130 (``hosted``): on the registered hosted Claude deployment, with the owner's decision in the
+code, the activated Claude configuration answers here too. Only boundary-approved repository
+entries are offered (as in the hosted case chat), a question outside the onboarding domain gets
+``NOTHING_FOUND`` without a call, and the exact messages get the per-call ticket the model
+admits them by. The exact-line rule above is unchanged.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import copilot
 from .guardrails import knowledge_lines
 from .knowledge.retrieval import CaseContext, Retriever
 from .knowledge_answers import (
@@ -36,8 +43,11 @@ from .knowledge_answers import (
     sources_for,
     tag_hits,
 )
-from .llm import ChatModel, LlmUnavailableError
+from .llm import ChatModel, LlmUnavailableError, collect_stream
+from .provider_payload import scrub
 from .remote_test import is_remote_test_model
+from .synthetic_boundary import approved_entry
+from .synthetic_eligibility import approve as approve_messages
 
 log = logging.getLogger("ai_assistant")
 
@@ -54,6 +64,7 @@ UNVERIFIED_NOTICE = (
     "The model response could not be verified, so this answer lists the matching approved "
     "rules and policy directly."
 )
+CUT_SHORT = "This answer was cut short."
 MAX_LINES = 6
 MAX_POLICY_LINES = 60
 MAX_FALLBACK_LINES = 4
@@ -77,6 +88,35 @@ _STOP = frozenset(
     }
 )
 _MARKER = re.compile(r"^(?:[-*•]|\d{1,3}[.)])\s+")
+
+
+# D-130: Support's chat is about the rules and the policy. A question is sent to hosted
+# Claude only when it is about onboarding (copilot's domain words), or names the rules or the
+# policy AND something the approved rules or the active policy actually speak about. Arithmetic
+# and everyday topics never are. Judged on the question alone: the history the browser sends
+# is untrusted (OD-G5), so it can never widen the scope.
+_SUPPORT_TOPIC = re.compile(
+    r"\b(?:polic(?:y|ies)|rules?|guidance|resolutions?|settings?|configur\w*)\b", re.I
+)
+
+
+def in_scope(question: str, allowed: list[str]) -> bool:
+    text = question.lower().replace("\u2019", "'").strip()
+    if copilot._ARITHMETIC_ONLY.match(text):
+        return False
+    domain = bool(copilot._DOMAIN.search(text))
+    if copilot._OFF_TOPIC.search(text) and not domain:
+        return False
+    if domain:
+        return True
+    if not _SUPPORT_TOPIC.search(text):
+        return False
+    asked = _terms(_SUPPORT_TOPIC.sub(" ", text))
+    known: set[str] = set()
+    for line in allowed:
+        if line != NOTHING_FOUND:
+            known |= _terms(_SUPPORT_TOPIC.sub(" ", line))
+    return bool(asked & known)
 
 
 @dataclass(frozen=True)
@@ -195,12 +235,22 @@ def answer_support_question(
     catalogue: dict[str, Any] | None,
     model: ChatModel | None,
     on_messages: Callable[[list[dict[str, str]]], None] | None = None,
+    hosted: bool = False,
+    lead: str | None = None,
+    names: tuple[str, ...] | None = None,
 ) -> SupportAnswer:
+    """``hosted``: D-130 hosted Claude answers (main.support_chat decides); ``lead``: the
+    notice naming that model, on its own answers only."""
+
     tagged: list[TaggedHit] = []
     if retriever is not None:
         try:
             retrieval = retriever.retrieve(question, CaseContext(), role=role, team=team)
-            tagged = approved_knowledge(tag_hits(retrieval), role=role, team=team)
+            found = approved_knowledge(tag_hits(retrieval), role=role, team=team)
+            if hosted:
+                # Filtered before it is kept: a failing check leaves no knowledge at all.
+                found = [item for item in found if approved_entry(item.hit.entry)]
+            tagged = found
         except Exception:  # knowledge is optional: never let it break an answer
             log.exception("support chat retrieval failed")
     rules = knowledge_lines({}, [(item.tag, item.hit.entry.body) for item in tagged])
@@ -208,7 +258,15 @@ def answer_support_question(
         lines=rules, titles={item.tag: item.hit.entry.title for item in tagged}
     )
     allowed = [*rules, *policy_lines(catalogue), NOTHING_FOUND]
+    if hosted and not in_scope(question, allowed):
+        # Not about the rules or the policy: nothing is sent to the model.
+        return SupportAnswer(
+            answer=NOTHING_FOUND, answered_by="case_data", model=None, notice=None, sources=[]
+        )
     messages = build_messages(question, history, allowed, shown.titles)
+    if names is not None:
+        # D-130 OD-G8: no user identifier goes to Anthropic.
+        messages = scrub(messages, names)
     if on_messages is not None:
         on_messages(messages)
 
@@ -226,22 +284,29 @@ def answer_support_question(
 
     if model is None:
         return without_model(NO_MODEL_NOTICE)
-    if is_remote_test_model(model):
+    if is_remote_test_model(model) and not hosted:
         return without_model(REMOTE_NOTICE)
     try:
-        reply = model.complete(messages)
+        if hosted:
+            approve_messages(messages)
+            reply = collect_stream(model, messages)
+        else:
+            reply = model.complete(messages)
     except LlmUnavailableError:
         return without_model(NO_MODEL_NOTICE)
     chosen, left_out = select_lines(reply.text, allowed)
     if not chosen:
         return without_model(UNVERIFIED_NOTICE, left_out)
     text = "\n".join(chosen)
-    notice = (
+    removed = (
         f"I left out {left_out} {'statement' if left_out == 1 else 'statements'} that "
         "were not approved wording."
         if left_out
         else None
     )
+    # Only hosted Claude's answers carry the notice (QG N2); other answers are unchanged.
+    cut = CUT_SHORT if hosted and reply.cut_short else None
+    notice = " ".join(part for part in (lead, removed, cut) if part) or None
     return SupportAnswer(
         answer=text,
         answered_by="model",

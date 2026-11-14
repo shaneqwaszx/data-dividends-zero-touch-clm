@@ -2570,6 +2570,46 @@ Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
 | I6 | **Privacy.** No customer names, registration numbers, documents or case identifiers are sent to the model, and prompt and answer text are not stored. |
 | I7 | **API-key models (owner-directed 2026-11-13, "when i connect to the api key i can use both the dashboard ai and ai assistant ai chatbot"; "fall back to local model if one is available").** This supersedes I3's refusal of remote profiles. When the active model is an API-key model (Claude, GPT-OSS) and external models may answer in their own words (D-122), it writes the insights. Each call gets the single-use ticket for exactly its messages and passes that model's own readiness, spending limits and ledger, unchanged. A paid model gets one try. If it refuses, fails or its reply is rejected, the local baseline model writes them, when one is configured on a loopback URL; otherwise the panel is hidden (I5). Without D-122 only the local model is used. An IT-configured model on another endpoint is never used. **Shared allowance (owner-accepted 2026-11-13, "share the API key"):** a paid dashboard call is recorded in that provider's ledger as a chat call, so it counts against the same call limit and spending allowance as the chatbot. Claude runs one paid call at a time, so a chatbot question sent while a dashboard call runs may be refused as busy; the reverse falls back to the local model. The chatbot's code is unchanged. I4 and I6 are unchanged: only findings are sent, never customer data. D-122 A4 applies: synthetic POC data only. |
 
+## D-129 - Hosted Claude data transmission (PROPOSED, NOT ACTIVE)
+
+Status: `PROPOSED`, awaiting the owner's acceptance. Nothing is sent to Anthropic from the hosted
+service until the owner records it. Draft: `outputs/r22-d130r2-20261113/D129_DRAFT_R3_1_HOSTED_CLAUDE_DATA_TRANSMISSION.md`
+(not tracked). It defines the exact payloads of the four hosted Claude chat paths, the OD-G8
+identity rule, the synthetic-only input restriction and the spending caps.
+
+## D-130 - Hosted Claude on the general chat, Support chat and "Try with this change" (OWNER-APPROVED FOR LOCAL IMPLEMENTATION 2026-11-13)
+
+Status: `USER_AUTHORIZED_POC`, approved for local implementation and testing only. Not activated.
+Not sponsor-confirmed. On the registered hosted Claude deployment only, the general chat, Support
+chat and "Try with this change" may use the activated Claude configuration under every control
+the case chat has. It amends D-115 and D-105 for that deployment only.
+
+Owner decisions:
+- OD-G1: all three paths.
+- OD-G2: approved lines only for Support and "Try".
+- OD-G3: repository-approved knowledge only.
+- OD-G4: redacted synthetic draft rules.
+- OD-G5: browser history as untrusted input.
+- OD-G6: a five-call Balanced qualification.
+- OD-G7: one combined release.
+- OD-G8: no user identifiers to Anthropic, role only.
+
+In code: `config.HOSTED_CHAT_DECISION` and `HOSTED_CHAT_PATHS`. Dashboard insights (D-128 I7)
+are not among the hosted paths: on the hosted deployment the hosting layer refuses the insights
+route outright (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`), so no model of any kind is reached there.
+
+Amendment (DRAFT, owner-directed 2026-11-14, local preparation only; not active): dashboard AI
+insights as a fifth hosted Claude path. In code it is prepared and disabled
+(`config.HOSTED_INSIGHTS_DECISION = None`); it is set only in a reviewed change after the D-129
+fifth-path amendment, the notice, the independent QG, egress, the six-call qualification and the
+owner's activation. When enabled: generation only on an explicit request
+(`POST /assistant/dashboard/insights/generate`), never on load; the service derives enumerated
+counts and labels itself from R2.1-eligible cases (no names, teams, case identifiers or case
+text); Claude only, no fallback; 3 calls per user and 10 site-wide per Singapore day, inside the
+shared spending cap. The merged `POST /assistant/dashboard/insights` stays refused on the hosted
+deployment. Draft: `outputs/r22-integration-c2-20261114/D129_D130_FIFTH_PATH_AMENDMENT_DRAFT.md`
+(not tracked).
+
 ## D-131 - R3 GoldTier secure egress: restricted CONNECT egress for the staging backend (OWNER-DIRECTED 2026-11-12; drafted as D-127)
 
 Number note (alias): this decision was drafted and implemented as **D-127** on 2026-11-12, before `origin/main` assigned D-127 to the provisional dashboard SLA rules (#178). It is renumbered **D-131** in documentation only. Every `D-127` reference in the R3 product, deployment, test, image and host files (`apps/backend/app/config.py`, `apps/backend/app/connectors/goldtier_xpi.py`, `deploy/compose.goldtier-egress.yml`, `deploy/egress/**`, `deploy/LIGHTSAIL_RUNTIME.md`, `deploy/README.md`, `tests/deploy/**` and the R3 backend tests) means **D-131**. Those files are deliberately left byte-identical to the reviewed `68e621d` content and the published images. Text from `R3_G1_DECISION_RECORD.md` section 5, with the G2 owner decisions recorded below it.
