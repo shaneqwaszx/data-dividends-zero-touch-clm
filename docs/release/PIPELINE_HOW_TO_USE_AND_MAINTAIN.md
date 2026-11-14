@@ -7,8 +7,9 @@
 `tools/release/` is a Python 3.12 package (standard library only) with one PowerShell entry
 point, `tools/release.ps1`. It prepares, publishes and deploys the AWS demo stack without
 GitHub Actions. It has been tested only against mocks: it has never contacted the Lightsail
-host or GHCR. It has been through six independent reviews and checks; the latest, on the last
-code commit, is PASS WITH NOTES (`TEST_EVIDENCE_AND_LIMITATIONS.md` section 4.7). No reviewer
+host or GHCR. It has been through several independent reviews and checks; the latest on code, at
+the last code commit, is PASS WITH NOTES (`TEST_EVIDENCE_AND_LIMITATIONS.md` sections 4.7 to
+4.9). No reviewer
 has reviewed the whole toolchain at the head in one pass, and it is not cleared for use
 against the host or the registry. All existing owner gates still apply; the tool makes
 the mechanical work repeatable, it does not grant authority.
@@ -119,11 +120,26 @@ every step journalled before it is issued, and keep `rollback()` returning only 
 final verification. `tests/release/test_rollback_interruption.py` holds those rules.
 
 
+## Redeploying after a failed acceptance (owner decision, 2026-11-15)
+
+Exact words: "A release that previously failed acceptance MAY be redeployed under the same release_id, but only as a new, independently identifiable and authorised deployment attempt. The same release_id identifies the qualified release; the new attempt must have its own immutable attempt_id."
+
+`release_id` = the qualified release; `attempt_id` = one deployment attempt of it; a retry keeps
+the `release_id` and gets a new `attempt_id`. The tool has no `attempt_id` today. Until the
+mandatory follow-up engineering in `PIPELINE_ARCHITECTURE.md` section 3.8 (requirements 1 to
+4) is implemented, tested and independently reviewed, **do not deploy a release again after a
+failed acceptance**, and do not build that retry path as a side effect of other work: it is a
+piece of engineering of its own, with its own review. For now a failed release is replaced by
+a new release with a new `release_id`.
+
 ## Known gaps (do not assume they work)
 
 Never run against the real host or registry; no single review covers the whole toolchain at
-the head; the owner's 2026-11-15 rule on redeploying after a failed acceptance is only partly
-enforced (`PIPELINE_ARCHITECTURE.md` 3.8); approval records are not signed; "compatible" is a declaration the
+the head; **redeploying a release after a failed acceptance is prohibited for now**: the owner's
+2026-11-15 decision allows it only as a new attempt with its own `attempt_id`, which the tool
+does not have, and four of its six requirements are not fully enforced
+(`PIPELINE_ARCHITECTURE.md` 3.8, "mandatory follow-up engineering"); the tool does not block
+it, so the rule is procedural; approval records are not signed; "compatible" is a declaration the
 tool cannot verify; the configuration summary does not cover every Compose field; archive
 transfer is unproven on the host's image store; installing changed Compose files or host
 units is manual; Mongo, GoldTier egress and firewall changes are manual; the backup check

@@ -229,8 +229,8 @@ the owner decision was open at that time (decided on 2026-11-15, section 4.8). I
 reproduced **unedited** in
 [N1_N2_CLOSING_CHECK_20261114.md](N1_N2_CLOSING_CHECK_20261114.md).
 
-**This is the latest independent verdict on code. The commit after it changes documents
-only** (this section and the corrections below) and was not itself reviewed.
+**This is the latest independent verdict on code.** The commits after it change documents
+only; their reviews are in sections 4.8 and 4.9.
 
 | Note | What was done |
 |---|---|
@@ -252,7 +252,9 @@ only** (this section and the corrections below) and was not itself reviewed.
 | `84706a9` | fixes | FAIL (one sequence still reached `ACCEPTED`) |
 | `6bcf142` | fixes | FAIL, conditional on the reading of one rule |
 | `ed38d16` | fixes | **PASS WITH NOTES** (closing check) |
-| head | documents only, after `ed38d16` | not reviewed (documents only) |
+| `b97fa59` | documents only | PASS WITH NOTES (section 4.8) |
+| `1cfa9bd` | documents only | PASS WITH NOTES (section 4.9) |
+| head | documents only, after `1cfa9bd` | see section 4.9 |
 
 No reviewer has reviewed the whole toolchain at the head in one pass: the first review covered
 everything at `728cf1e`, and each later review covered a delta. Nothing here is evidence from
@@ -277,18 +279,47 @@ Its P2 (A-1): the runbook sent a `FAILED_HELD` record with an empty `applied` li
 Its P3 rows that gave replacement wording for a false or overstated sentence (A-2 to A-11,
 A-13) are applied. Notes that need code are left alone.
 
-**Owner decision, 2026-11-15** (A-12): "A release that previously failed acceptance MAY be
-deployed again, but only as a NEW release attempt." Recorded in
-`PIPELINE_ARCHITECTURE.md` section 3.8 with the enforcement status of each of its six
-requirements as that review found it: (1) PARTLY, (2) NOT ENFORCED, (3) PARTLY, (4) PARTLY,
-(5) ENFORCED, (6) ENFORCED. **Requirements 1 to 4 are not fully implemented.** The smallest
-change proposed for each is listed there as future work; none was implemented. Until they are
-implemented and reviewed, a release must not be redeployed after a failed acceptance with this
-tool (runbook section 7; checklist step E1a).
+**Owner decision** (A-12): recorded in that pass with the wording the owner first gave ("only
+as a NEW release attempt"). The owner refined the decision the same day; the exact text and the
+six requirements are in section 4.9 and in `PIPELINE_ARCHITECTURE.md` section 3.8.
 
-This pass changed documents only: no code, test, schema or sample. Its independent check:
+This pass changed documents only: no code, test, schema or sample.
 
-@@CHECK7@@
+### 4.9 Check of that pass, and the owner's refined decision
+
+A fresh reviewer checked commit `1cfa9bd2ded24081d6ba4f8410023c5381bfcb9b` (tree
+`6fb569429b7d323c1accf9d2af8b1d1ab4f3e28f`, six documents, nothing outside `docs/release/`):
+**PASS WITH NOTES** (P1 0, P2 1, P3 7). All thirteen wording rows are applied and true against
+the code; A-1 was confirmed by reading the code and by a probe; the owner decision as then
+worded was quoted verbatim with the six statuses as instructed. Its report is reproduced
+**unedited** in [DOCS_FINAL_CHECK_20261115.md](DOCS_FINAL_CHECK_20261115.md).
+
+Its P2: two added sentences said that after an interrupt during `up`, `rollback` and `recover`
+both refuse the record. That is true for a frontend or assistant that goes first, and false
+for a backend, where ingress was already stopped and `rollback` stays available. Both are
+corrected with the checker's wording (architecture limitation 4h; checklist section F). Its
+seven P3 wording notes are applied as well.
+
+**Owner decision, refined on 2026-11-15, exact words:** "A release that previously failed acceptance MAY be redeployed under the same release_id, but only as a new, independently identifiable and authorised deployment attempt. The same release_id identifies the qualified release; the new attempt must have its own immutable attempt_id."
+
+Requirements: (1) preserve the complete history of every previous attempt, including failures,
+approvals, results and rollback evidence; (2) allocate a unique, non-reusable `attempt_id`;
+(3) require a fresh owner approval issued after the failed acceptance, specifically
+authorising the new attempt; (4) reverify current source and image identity, host
+compatibility and rollback readiness; (5) never retroactively accept a failed attempt;
+(6) never reuse a previous attempt's approval or acceptance. Enforcement at this head:
+(1) PARTLY, (2) NOT ENFORCED, (3) PARTLY, (4) PARTLY, (5) ENFORCED, (6) ENFORCED.
+
+**The current pipeline does not fully enforce requirements 1 to 4, and `attempt_id` does not
+exist in the tool. Redeployment after a failed acceptance is prohibited until those safeguards
+are implemented, tested and independently reviewed.** They are recorded as mandatory follow-up
+engineering in `PIPELINE_ARCHITECTURE.md` section 3.8, each with the smallest change proposed.
+None was implemented. The tool does not block such a redeploy today, so the prohibition is
+procedural (runbook section 7; checklist steps E1a and E1b).
+
+The commit that records this (documents only) and its independent check:
+
+@@CHECK8@@
 
 ## 5. What the evidence does not show
 

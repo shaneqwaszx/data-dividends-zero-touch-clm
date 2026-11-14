@@ -212,10 +212,12 @@ Then the owner decides one of:
 - **Roll back**: if the record is `ROLLBACK_INTERRUPTED`, a stale `ROLLBACK_IN_PROGRESS`, or
   `FAILED_HELD` **with a non-empty `applied` list or `ingress_stopped: true`**,
   `release.ps1 rollback` with a **new** `rollback` approval, subject to the usual eligibility.
-  If `applied` is empty, the tool refuses (`ROLLBACK_NOT_APPLICABLE`) even when a container
+  If `applied` is empty and `ingress_stopped` is false, the tool refuses
+  (`ROLLBACK_NOT_APPLICABLE`) even when a container
   was being recreated at the moment of the interrupt: check each container's image on the
   host. Restore by hand following `deploy/LIGHTSAIL_RUNTIME.md` (copy the backup named in
-  `env_backup` over `compose.env`, then the service's own wrapper
+  `env_backup` over `compose.env`, then the service's own wrapper, `dc` for the frontend or
+  backend (`dcg` for the backend when the GoldTier overlay is active), `dca` for the assistant:
   `up -d --no-build --no-deps --wait <service>`). `recover` does not apply to this record; it
   stays `FAILED_HELD` until a later run changes the host.
 - **Go forward**: fix the cause and run a new release with a new approval. Preflight will
@@ -286,17 +288,32 @@ command it lost contact with is still running, or verify data written by a backe
 briefly.
 
 
-### Deploying again after a failed acceptance
+### Deploying again after a failed acceptance: PROHIBITED for now
 
-Owner decision, 2026-11-15: a release that failed acceptance may be deployed again only as a
-**new release attempt** (`PIPELINE_ARCHITECTURE.md` section 3.8). The tool does not yet enforce
-four of the six requirements of that decision. Until it does, and that has been reviewed:
+Owner decision, 2026-11-15, exact words: "A release that previously failed acceptance MAY be redeployed under the same release_id, but only as a new, independently identifiable and authorised deployment attempt. The same release_id identifies the qualified release; the new attempt must have its own immutable attempt_id."
 
-- **do not redeploy the same release** after a failed acceptance; prepare a new release (a new
-  release id and manifest) and take it through the whole procedure;
-- before any `accept`, open the release's `result.json` (or read the `deploy` output). If
+`release_id` is the qualified release; `attempt_id` is one deployment attempt of it; a retry
+keeps the `release_id` and gets a new `attempt_id`. **`attempt_id` does not exist in the tool
+today**, and the tool does not fully enforce four of the decision's six requirements (history
+preservation, attempt identity, an approval issued after the failure for that attempt, and
+re-verification of source, images, host and rollback readiness): one is not enforced at all
+and three only partly (`PIPELINE_ARCHITECTURE.md` section 3.8).
+
+**Interim rule. Until those four requirements are implemented, tested and independently
+reviewed, a release that failed acceptance must not be deployed again with this tool, under
+the same or any attempt.** The tool does **not** block it today, so this is a procedural rule
+that the operator and the owner must keep:
+
+- Do not run `deploy --execute` for a release whose records show a failed acceptance
+  (`acceptance_failed: true` in any numbered result, or state `ACCEPTANCE_FAILED`).
+- Before any `accept`, open the release's `result.json` (or read the `deploy` output). If
   `previously_failed_acceptance` is `true`, an earlier deployment of this release failed
-  acceptance. `accept`, the runsheet and `status` do not show this.
+  acceptance: **stop, do not accept**, tell the owner, and roll the release back under a new
+  `rollback` approval. `accept`, the runsheet and `status` do not show this flag.
+- The only permitted route for now is a **new release**: a new `release_id` and manifest, taken
+  through the full preparation, checks and independent review (sections 1 to 5). This is an
+  interim rule, not the owner's eventual model, which is a retry of the same `release_id`
+  under a new `attempt_id`.
 
 Names you may meet: `accept` refuses with `ACCEPTANCE_ALREADY_FAILED` for a record whose
 acceptance failed; a run that changed nothing while a release was live carries

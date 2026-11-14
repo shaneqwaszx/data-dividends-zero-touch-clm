@@ -55,7 +55,8 @@
 | # | Step | Pass condition |
 |---|---|---|
 | E1 | `[owner]` works through `BROWSER_ACCEPTANCE_RUNSHEET.md` | Every row as expected |
-| E1a | `[owner]` Before `accept`, open the release's `result.json` in the state folder (or read the `deploy` output) and look for `previously_failed_acceptance`. `accept`, the runsheet and `status` do not show it | Absent or `false` on a first use. If `true`, an earlier deployment of this release failed acceptance: **stop**. Do not accept, and do not redeploy a release after a failed acceptance, until requirements 1 to 4 of the owner's 2026-11-15 decision (`PIPELINE_ARCHITECTURE.md` 3.8) are implemented and reviewed |
+| E1a | `[owner]` Before `accept`, open the release's `result.json` in the state folder (or read the `deploy` output) and look for `previously_failed_acceptance`. `accept`, the runsheet and `status` do not show it | Absent or `false` on a first use. If `true`, an earlier deployment of this release failed acceptance: **stop and do not accept**; tell the owner; roll back under a new `rollback` approval (runbook section 6) |
+| E1b | **Interim rule (owner decision, 2026-11-15).** A release that failed acceptance must not be deployed again with this tool, under the same or any attempt, until requirements 1 to 4 in `PIPELINE_ARCHITECTURE.md` section 3.8 are implemented, tested and independently reviewed. The tool does not block this, so the rule is procedural. The only permitted route for now is a new release (new `release_id`) through the full preparation and review | Acknowledged by the owner and the host operator before the window |
 | E2 | `[owner]` `release.ps1 accept --manifest ... --result pass --accepted-by <owner>` | `known_good` now names this release |
 | E3 | Copy the release's state folder (manifest, approvals, plan, results, audit log, runsheet) into the release evidence | Contains no credential (`check_secrets.py` passes on the copy) |
 | E4 | Note every difference between what the tool reported and what the host showed | Each one becomes a fix or a documented limitation before the second use |
@@ -69,7 +70,7 @@
 | `ROLLED_BACK` | The tool confirmed every service healthy and public `/health` 200 on the previous image. Check the site by hand as well. Stop; investigate; a new attempt needs a new approval |
 | A traceback or an unexpected exit code | The run was interrupted. Runbook section 7, "After an interrupted run" |
 | `ROLLBACK_IN_PROGRESS` (no command running) or `ROLLBACK_INTERRUPTED`, or `FAILED_HELD` with `rollback.status: FAILED` | A rollback has no verified outcome; the host state is unknown and the site may be down. **Do not run `accept`** (it is refused). Runbook section 7, "After an interrupted or failed rollback": `release.ps1 recover` first |
-| `FAILED_HELD` with an empty `applied` list after an interrupt | The interrupt may have landed during the service's `up`: the container may already run the release image although nothing is recorded as applied. `rollback` and `recover` both refuse this record. Check the container's image on the host and restore by hand (runbook section 7, "After an interrupted run") |
+| `FAILED_HELD` with an empty `applied` list and `ingress_stopped: false` after an interrupt | The interrupt may have landed during the service's `up`: the container may already run the release image although nothing is recorded as applied. `rollback` and `recover` both refuse this record. Check the container's image on the host and restore by hand (runbook section 7, "After an interrupted run") |
 | `FAILED_HELD` | **Run nothing else.** Tell the owner the `held_reason`. For an assistant: `dca stop assistant` is the safe action. For a frontend: the previous digest is in `pins_before` |
 
 ## G. Not for the first use

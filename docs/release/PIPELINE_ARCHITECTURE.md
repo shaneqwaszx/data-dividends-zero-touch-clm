@@ -319,8 +319,9 @@ is, because removing it would change what an owner approval can do. The new reco
 `accept` command, the browser runsheet and `status` do not show it today, so the owner must
 read the record (or the numbered results) before accepting; surfacing it in those three
 places is an open follow-up. Whether and how a release that once failed acceptance may be
-deployed again was decided by the owner on 2026-11-15: see section 3.8, which also says which
-parts of that decision the code does not yet enforce.
+deployed again was decided by the owner on 2026-11-15: see section 3.8. **Until the mandatory
+follow-up engineering listed there is done, such a redeploy is prohibited**, although the code
+path described in this paragraph still exists and the tool does not block it.
 
 A `deploy` or dry-run of a release whose rollback has no verified outcome is refused
 (`ROLLBACK_INCOMPLETE`) before anything is written or contacted. More generally, a run that
@@ -384,26 +385,41 @@ The operator's procedure is runbook section 7.
 
 ### 3.8 Owner decision: redeploying after a failed acceptance (2026-11-15)
 
-**Decision (owner, 2026-11-15):** "A release that previously failed acceptance MAY be deployed
-again, but only as a NEW release attempt."
+**Decision (owner, 2026-11-15), exact words:**
 
-The decision has six requirements. Their enforcement at this head is as an independent review
-found it (`PIPELINE_FINAL_DELTA_REVIEW.md`, Part C, held by the release coordinator).
-**Requirements 1 to 4 are NOT fully implemented.** The changes listed are future work; none is
-implemented here, and each would need its own review.
+> A release that previously failed acceptance MAY be redeployed under the same release_id, but only as a new, independently identifiable and authorised deployment attempt. The same release_id identifies the qualified release; the new attempt must have its own immutable attempt_id.
 
-| # | Requirement | Status at this head | What holds today | Gap, and the smallest change proposed (future work) |
+**The model.** `release_id` identifies the qualified release: one exact source commit and one
+exact set of images, described by one manifest. `attempt_id` identifies one deployment attempt
+of that release. A retry after a failed acceptance keeps the `release_id` and gets a new
+`attempt_id`. **`attempt_id` does not exist in the tool today**: no record, approval, journal or
+known-good pointer carries one. Two attempts of the same release can be told apart only by
+their approval id, their timestamps and the number of the result file.
+
+> ## MANDATORY FOLLOW-UP ENGINEERING BEFORE ANY RETRY AFTER A FAILED ACCEPTANCE
+>
+> **The current pipeline does not fully enforce requirements 1 to 4 below. Redeployment after
+> a failed acceptance is PROHIBITED until those safeguards are implemented, tested and
+> independently reviewed.** The tool itself does **not** block such a redeploy today (the path
+> described in 3.7 still exists in the code), so until then the prohibition is a procedural
+> rule: runbook section 7 and checklist step E1a. The only permitted route for now is a new
+> release (a new `release_id`) taken through the full preparation and review; that is an
+> interim rule, not the owner's eventual model.
+
+The six requirements, with enforcement at this head as an independent review found it
+(`PIPELINE_FINAL_DELTA_REVIEW.md`, Part C, held by the release coordinator; that review
+assessed the earlier wording of the decision, and the notes below say where the refined
+wording asks for more). Nothing listed as a change is implemented here; each needs its own
+tests and review.
+
+| # | Requirement (owner's wording) | Status at this head | What holds today | Gap, and the smallest change proposed (mandatory follow-up) |
 |---|---|---|---|---|
-| 1 | The prior failed attempt and its audit history are immutable | **PARTLY** | The tool never rewrites a numbered result; the audit log and the rollback journal are append-only; an approval file is never overwritten | Immutable by convention only: plain files, no hash chain. The next file number is "count + 1", so if a numbered result is removed by hand the next write overwrites the newest one. Proposed: in `write_result` use the highest existing number + 1 and create the file exclusively, with one test. Tamper evidence (each record carrying the hash of the one before) would be a further, separate change |
-| 2 | The new attempt has a distinct attempt identity | **NOT ENFORCED** | There is no attempt identifier. A new attempt differs from the old one only by a new approval id, a timestamp and its file number, and carries the boolean `previously_failed_acceptance`. The known-good pointer names the release id and manifest hash only | Proposed: an `attempt_id` set when a run starts, written in every record of that attempt, restored from the record by an owner-requested rollback, and added (with the approval id) to the known-good pointer; extend the redeploy test to assert two different ids |
-| 3 | A new owner approval is required | **PARTLY** | An approval that has been used is refused | "New" means "unused", not "given after the failure": a deploy approval issued **before** the failed attempt and still unused inside its window is accepted for the redeploy. Nothing in an approval says the owner knows of the failure, and approvals are not signed. Proposed: `accept` records when acceptance failed; that time is carried forward with the history flag; in execute mode a deploy approval whose `approved_at` is not later is refused; one test |
-| 4 | Current source and image identity and host compatibility are checked | **PARTLY** | Every new deployment starts clean and re-runs manifest validation, approval binding to the manifest hash, deployability, the offline configuration render, the whole preflight, image transfer with its identity check, and the running-image check after apply | (i) Source identity is checked at preparation only (`verify-source`); `deploy` trusts the commit recorded in the manifest and does not check it is still on the baseline. Whether a redeploy must re-verify source is itself an owner question; if yes, one call for execute mode and one test. (ii) With `rollback.target_image: null`, preflight does not compare the current pin; proposed: treat a null target as a preflight failure in execute mode, one test |
-| 5 | A failed or interrupted rollback can never be accepted retroactively | **ENFORCED** | `accept` refuses an unfinished, interrupted or failed rollback; `ROLLED_BACK` is written only after verification; `recover` never turns unknown into success. Two behaviours the owner should confirm are intended: `recover` can record `ROLLED_BACK` after a failed rollback once it verifies every service on its previous image, and it can return a release that was awaiting acceptance (and never failed it) to awaiting acceptance once it verifies the host fully on the release. In both the failed rollback attempt stays recorded as failed | None found |
-| 6 | No reuse of a failed attempt's approval or acceptance state | **ENFORCED** | A used approval is refused; a new deployment's record is built from scratch and carries no acceptance state, rollback block or recovery attempts from the earlier one; `accept` refuses a record marked `acceptance_failed`. To know: an approval is used up at the first `compose.env` change, so an attempt that stopped earlier leaves it usable; one approval naming both `deploy` and `rollback` serves once for each | None found |
-
-**Until requirements 1 to 4 are implemented and reviewed, do not redeploy a release after a
-failed acceptance with this tool.** Prepare it as a new release (a new release id and manifest)
-instead. The path itself still exists in the code, as described in 3.7.
+| 1 | Preserve the complete history of every previous attempt, including failures, approvals, results and rollback evidence | **PARTLY** | The tool never rewrites a numbered result; the audit log and the rollback journal are append-only; an approval file is never overwritten | Preserved by convention only: plain files, no hash chain. The next file number is "count + 1", so if a numbered result is removed by hand the next write overwrites the newest one. Proposed: in `write_result` use the highest existing number + 1 and create the file exclusively, with one test. Tamper evidence (each record carrying the hash of the one before) would be a further, separate change |
+| 2 | Allocate a unique, non-reusable `attempt_id` | **NOT ENFORCED** | There is no attempt identifier. A new attempt differs from the old one only by a new approval id, a timestamp and its file number, and carries the boolean `previously_failed_acceptance`. The known-good pointer names the release id and manifest hash only | Proposed: an `attempt_id` set when a run starts, written in every record of that attempt, restored from the record by an owner-requested rollback, and added (with the approval id) to the known-good pointer; extend the redeploy test to assert two different ids. "Non-reusable" additionally needs the allocation to be checked against every earlier attempt of the release |
+| 3 | Require a fresh owner approval issued AFTER the failed acceptance, specifically authorising the new attempt | **PARTLY** | An approval that has been used is refused | "Fresh" means only "unused" today: a deploy approval issued **before** the failed acceptance and still unused inside its window is accepted for the redeploy. Nothing in an approval names an attempt or says the owner knows of the failure, and approvals are not signed. Proposed: `accept` records when acceptance failed; that time is carried forward with the history flag; in execute mode a deploy approval whose `approved_at` is not later is refused; one test. "Specifically authorising the new attempt" additionally needs the approval record to name the `attempt_id` (depends on requirement 2) |
+| 4 | Reverify current source and image identity, host compatibility and rollback readiness | **PARTLY** | Every new deployment starts clean and re-runs manifest validation, approval binding to the manifest hash, deployability, the offline configuration render, the whole preflight (including that the rollback image is cached on the host), image transfer with its identity check, and the running-image check after apply | (i) Source identity is checked at preparation only (`verify-source`); `deploy` trusts the commit recorded in the manifest and does not check it is still on the baseline. Proposed: one call for execute mode and one test. (ii) Rollback readiness: with `rollback.target_image: null`, preflight does not compare the current pin with a named rollback target; proposed: treat a null target as a preflight failure in execute mode, one test |
+| 5 | Never retroactively accept a failed attempt | **ENFORCED** | `accept` refuses an unfinished, interrupted or failed rollback and a record marked `acceptance_failed`; `ROLLED_BACK` is written only after verification; `recover` never turns unknown into success. Two behaviours the owner should confirm are intended: `recover` can record `ROLLED_BACK` after a failed rollback once it verifies every service on its previous image, and it can return a release that was awaiting acceptance (and never failed it) to awaiting acceptance once it verifies the host fully on the release. In both the failed rollback attempt stays recorded as failed | None found |
+| 6 | Never reuse a previous attempt's approval or acceptance | **ENFORCED** | A used approval is refused; a new deployment's record is built from scratch and carries no acceptance state, rollback block or recovery attempts from the earlier one. To know: an approval is used up at the first `compose.env` change, so an attempt that stopped earlier leaves it usable; one approval naming both `deploy` and `rollback` serves once for each | None found |
 
 ## 4. Local state
 
@@ -452,10 +468,13 @@ history; `consumed-approvals.json`; `release.lock`. It holds no credential.
 4g. During the deployment itself (before any rollback), the only sign that the tool died is
    `lock_held: true` in `status` plus the audit log. The audit log gets a line only after a
    command returns, so the command that was running when the tool died is not in it.
-4h. An interrupt during a service's `up` leaves `FAILED_HELD` with an empty `applied` list
-   (the flag is set after the command returns) while the container may already run the
-   release image. `rollback` and `recover` both refuse that record; recovery is by hand
-   (runbook section 7).
+4h. An interrupt during a service's `up` is recorded `FAILED_HELD` without that service in
+   `applied` (the flag is set after the command returns), while its container may already run
+   the release image. When `applied` is empty and `ingress_stopped` is false (a frontend or
+   assistant that goes first), `rollback` refuses the record (`ROLLBACK_NOT_APPLICABLE`),
+   `recover` refuses it (`RECOVERY_NOT_APPLICABLE`) and recovery is by hand (runbook section
+   7). For a backend, ingress was already stopped, so `ingress_stopped` is true and `rollback`
+   stays available under a new approval.
 4c. A client-side SSH timeout is reported as a failure while the remote command may still be
    running. The record will say `FAILED_HELD` or `FAILED_NO_CHANGE` from what the tool saw;
    check the host before acting.
