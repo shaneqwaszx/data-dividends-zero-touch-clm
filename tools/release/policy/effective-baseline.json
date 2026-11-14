@@ -1,0 +1,1402 @@
+{
+ "assistant": {
+  "networks": {
+   "database": {
+    "external": false,
+    "internal": true
+   },
+   "default": {
+    "external": false,
+    "internal": false
+   },
+   "proxy": {
+    "external": false,
+    "internal": true
+   }
+  },
+  "project": "clm-staging",
+  "services": {
+   "assistant": {
+    "addresses": {
+     "proxy": "172.30.240.4"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "AI_ASSISTANT_ALLOWED_ORIGINS",
+     "AI_ASSISTANT_CLM_BACKEND_URL",
+     "AI_ASSISTANT_DATA_DIR",
+     "AI_ASSISTANT_EMBED_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_BASE_URL",
+     "AI_ASSISTANT_LLM_ENABLED",
+     "AI_ASSISTANT_LLM_MODEL",
+     "AI_ASSISTANT_LLM_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_WARM_UP",
+     "AI_ASSISTANT_MODEL_PROFILES_FILE",
+     "ASSISTANT_HOSTING_DATA_QUOTA_MB",
+     "ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS",
+     "ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE",
+     "ASSISTANT_HOSTING_MIN_FREE_MB",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "AI_ASSISTANT_LLM_BASE_URL": "http://127.0.0.1:9/v1",
+     "AI_ASSISTANT_LLM_MODEL": "no-model-configured",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC": "false"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-assistant",
+     "init": true,
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "volume:assistant-data:/data:rw"
+    ]
+   },
+   "backend": {
+    "addresses": {
+     "database": "",
+     "proxy": "172.30.240.3"
+    },
+    "depends_on": [
+     "mongo"
+    ],
+    "environment": [
+     "ACRA_CONNECTOR_MODE",
+     "APP_ENV",
+     "CLM_PERSISTENCE_MODE",
+     "DEMO_CONTROLS_ENABLED",
+     "FORWARDED_ALLOW_IPS",
+     "GOLDTIER_CONNECTOR_MODE",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES",
+     "IDP_CONNECTOR_MODE",
+     "LOCAL_OCR_EXECUTABLE",
+     "MONGO_DATABASE",
+     "MONGO_URI",
+     "PHASE13_COOKIE_SECURE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "ACRA_CONNECTOR_MODE": "mock",
+     "APP_ENV": "staging",
+     "CLM_PERSISTENCE_MODE": "mongo",
+     "DEMO_CONTROLS_ENABLED": "false",
+     "GOLDTIER_CONNECTOR_MODE": "mock",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES": "false",
+     "IDP_CONNECTOR_MODE": "local_pdf_text",
+     "MONGO_DATABASE": "clm_staging",
+     "PHASE13_COOKIE_SECURE": "true"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-backend",
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro"
+    ]
+   },
+   "frontend": {
+    "addresses": {
+     "default": "",
+     "proxy": "172.30.240.2"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "CLM_SITE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "default",
+     "proxy"
+    ],
+    "ports": [
+     "443:443/tcp",
+     "80:80/tcp"
+    ],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "volume:tls-config:/config:rw",
+     "volume:tls-data:/data:rw"
+    ]
+   },
+   "mongo": {
+    "addresses": {
+     "database": ""
+    },
+    "depends_on": [],
+    "environment": [],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database"
+    ],
+    "ports": [],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro",
+     "bind::/run/clm/mongo-server.pem:ro",
+     "volume:mongo-data:/data/db:rw"
+    ]
+   }
+  },
+  "volumes": {
+   "assistant-data": {
+    "external": true
+   },
+   "mongo-data": {
+    "external": true
+   },
+   "tls-config": {
+    "external": false
+   },
+   "tls-data": {
+    "external": false
+   }
+  }
+ },
+ "assistant-provider": {
+  "networks": {
+   "assistant-uplink": {
+    "external": false,
+    "internal": false
+   },
+   "database": {
+    "external": false,
+    "internal": true
+   },
+   "default": {
+    "external": false,
+    "internal": false
+   },
+   "proxy": {
+    "external": false,
+    "internal": true
+   }
+  },
+  "project": "clm-staging",
+  "services": {
+   "assistant": {
+    "addresses": {
+     "assistant-uplink": "172.30.243.2",
+     "proxy": "172.30.240.4"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "AI_ASSISTANT_ALLOWED_ORIGINS",
+     "AI_ASSISTANT_CLM_BACKEND_URL",
+     "AI_ASSISTANT_DATA_DIR",
+     "AI_ASSISTANT_EMBED_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_BASE_URL",
+     "AI_ASSISTANT_LLM_ENABLED",
+     "AI_ASSISTANT_LLM_MODEL",
+     "AI_ASSISTANT_LLM_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_WARM_UP",
+     "AI_ASSISTANT_MODEL_PROFILES_FILE",
+     "ASSISTANT_HOSTING_CLAUDE_LIFETIME_CAP_MICRO_USD",
+     "ASSISTANT_HOSTING_DATA_QUOTA_MB",
+     "ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS",
+     "ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE",
+     "ASSISTANT_HOSTING_MIN_FREE_MB",
+     "ASSISTANT_HOSTING_PROVIDER",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC"
+    ],
+    "extra_hosts": [
+     "api.anthropic.com"
+    ],
+    "image": "",
+    "networks": [
+     "assistant-uplink",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "AI_ASSISTANT_LLM_BASE_URL": "http://127.0.0.1:9/v1",
+     "AI_ASSISTANT_LLM_MODEL": "no-model-configured",
+     "ASSISTANT_HOSTING_PROVIDER": "anthropic",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC": "false"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-assistant",
+     "dns": [
+      "192.0.2.53"
+     ],
+     "init": true,
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "no",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "volume:assistant-data:/data:rw"
+    ]
+   },
+   "backend": {
+    "addresses": {
+     "database": "",
+     "proxy": "172.30.240.3"
+    },
+    "depends_on": [
+     "mongo"
+    ],
+    "environment": [
+     "ACRA_CONNECTOR_MODE",
+     "APP_ENV",
+     "CLM_PERSISTENCE_MODE",
+     "DEMO_CONTROLS_ENABLED",
+     "FORWARDED_ALLOW_IPS",
+     "GOLDTIER_CONNECTOR_MODE",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES",
+     "IDP_CONNECTOR_MODE",
+     "LOCAL_OCR_EXECUTABLE",
+     "MONGO_DATABASE",
+     "MONGO_URI",
+     "PHASE13_COOKIE_SECURE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "ACRA_CONNECTOR_MODE": "mock",
+     "APP_ENV": "staging",
+     "CLM_PERSISTENCE_MODE": "mongo",
+     "DEMO_CONTROLS_ENABLED": "false",
+     "GOLDTIER_CONNECTOR_MODE": "mock",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES": "false",
+     "IDP_CONNECTOR_MODE": "local_pdf_text",
+     "MONGO_DATABASE": "clm_staging",
+     "PHASE13_COOKIE_SECURE": "true"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-backend",
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro"
+    ]
+   },
+   "frontend": {
+    "addresses": {
+     "default": "",
+     "proxy": "172.30.240.2"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "CLM_SITE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "default",
+     "proxy"
+    ],
+    "ports": [
+     "443:443/tcp",
+     "80:80/tcp"
+    ],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "volume:tls-config:/config:rw",
+     "volume:tls-data:/data:rw"
+    ]
+   },
+   "mongo": {
+    "addresses": {
+     "database": ""
+    },
+    "depends_on": [],
+    "environment": [],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database"
+    ],
+    "ports": [],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro",
+     "bind::/run/clm/mongo-server.pem:ro",
+     "volume:mongo-data:/data/db:rw"
+    ]
+   }
+  },
+  "volumes": {
+   "assistant-data": {
+    "external": true
+   },
+   "mongo-data": {
+    "external": true
+   },
+   "tls-config": {
+    "external": false
+   },
+   "tls-data": {
+    "external": false
+   }
+  }
+ },
+ "base": {
+  "networks": {
+   "database": {
+    "external": false,
+    "internal": true
+   },
+   "default": {
+    "external": false,
+    "internal": false
+   },
+   "proxy": {
+    "external": false,
+    "internal": true
+   }
+  },
+  "project": "clm-staging",
+  "services": {
+   "backend": {
+    "addresses": {
+     "database": "",
+     "proxy": "172.30.240.3"
+    },
+    "depends_on": [
+     "mongo"
+    ],
+    "environment": [
+     "ACRA_CONNECTOR_MODE",
+     "APP_ENV",
+     "CLM_PERSISTENCE_MODE",
+     "DEMO_CONTROLS_ENABLED",
+     "FORWARDED_ALLOW_IPS",
+     "GOLDTIER_CONNECTOR_MODE",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES",
+     "IDP_CONNECTOR_MODE",
+     "LOCAL_OCR_EXECUTABLE",
+     "MONGO_DATABASE",
+     "MONGO_URI",
+     "PHASE13_COOKIE_SECURE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "ACRA_CONNECTOR_MODE": "mock",
+     "APP_ENV": "staging",
+     "CLM_PERSISTENCE_MODE": "mongo",
+     "DEMO_CONTROLS_ENABLED": "false",
+     "GOLDTIER_CONNECTOR_MODE": "mock",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES": "false",
+     "IDP_CONNECTOR_MODE": "local_pdf_text",
+     "MONGO_DATABASE": "clm_staging",
+     "PHASE13_COOKIE_SECURE": "true"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-backend",
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro"
+    ]
+   },
+   "frontend": {
+    "addresses": {
+     "default": "",
+     "proxy": "172.30.240.2"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "CLM_SITE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "default",
+     "proxy"
+    ],
+    "ports": [
+     "443:443/tcp",
+     "80:80/tcp"
+    ],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "volume:tls-config:/config:rw",
+     "volume:tls-data:/data:rw"
+    ]
+   },
+   "mongo": {
+    "addresses": {
+     "database": ""
+    },
+    "depends_on": [],
+    "environment": [],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database"
+    ],
+    "ports": [],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro",
+     "bind::/run/clm/mongo-server.pem:ro",
+     "volume:mongo-data:/data/db:rw"
+    ]
+   }
+  },
+  "volumes": {
+   "mongo-data": {
+    "external": true
+   },
+   "tls-config": {
+    "external": false
+   },
+   "tls-data": {
+    "external": false
+   }
+  }
+ },
+ "full-assistant-goldtier": {
+  "networks": {
+   "database": {
+    "external": false,
+    "internal": true
+   },
+   "default": {
+    "external": false,
+    "internal": false
+   },
+   "goldtier-control": {
+    "external": false,
+    "internal": true
+   },
+   "goldtier-uplink": {
+    "external": false,
+    "internal": false
+   },
+   "proxy": {
+    "external": false,
+    "internal": true
+   }
+  },
+  "project": "clm-staging",
+  "services": {
+   "assistant": {
+    "addresses": {
+     "proxy": "172.30.240.4"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "AI_ASSISTANT_ALLOWED_ORIGINS",
+     "AI_ASSISTANT_CLM_BACKEND_URL",
+     "AI_ASSISTANT_DATA_DIR",
+     "AI_ASSISTANT_EMBED_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_BASE_URL",
+     "AI_ASSISTANT_LLM_ENABLED",
+     "AI_ASSISTANT_LLM_MODEL",
+     "AI_ASSISTANT_LLM_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_WARM_UP",
+     "AI_ASSISTANT_MODEL_PROFILES_FILE",
+     "ASSISTANT_HOSTING_DATA_QUOTA_MB",
+     "ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS",
+     "ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE",
+     "ASSISTANT_HOSTING_MIN_FREE_MB",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "AI_ASSISTANT_LLM_BASE_URL": "http://127.0.0.1:9/v1",
+     "AI_ASSISTANT_LLM_MODEL": "no-model-configured",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC": "false"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-assistant",
+     "init": true,
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "volume:assistant-data:/data:rw"
+    ]
+   },
+   "backend": {
+    "addresses": {
+     "database": "",
+     "goldtier-control": "172.30.241.3",
+     "proxy": "172.30.240.3"
+    },
+    "depends_on": [
+     "mongo"
+    ],
+    "environment": [
+     "ACRA_CONNECTOR_MODE",
+     "APP_ENV",
+     "CLM_PERSISTENCE_MODE",
+     "DEMO_CONTROLS_ENABLED",
+     "FORWARDED_ALLOW_IPS",
+     "GOLDTIER_CONNECTOR_MODE",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES",
+     "GOLDTIER_SANDBOX_EGRESS_FQDN",
+     "GOLDTIER_SANDBOX_EGRESS_PROXY_URL",
+     "IDP_CONNECTOR_MODE",
+     "LOCAL_OCR_EXECUTABLE",
+     "MONGO_DATABASE",
+     "MONGO_URI",
+     "PHASE13_COOKIE_SECURE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database",
+     "goldtier-control",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "ACRA_CONNECTOR_MODE": "mock",
+     "APP_ENV": "staging",
+     "CLM_PERSISTENCE_MODE": "mongo",
+     "DEMO_CONTROLS_ENABLED": "false",
+     "GOLDTIER_CONNECTOR_MODE": "mock",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES": "false",
+     "IDP_CONNECTOR_MODE": "local_pdf_text",
+     "MONGO_DATABASE": "clm_staging",
+     "PHASE13_COOKIE_SECURE": "true"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-backend",
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro"
+    ]
+   },
+   "frontend": {
+    "addresses": {
+     "default": "",
+     "proxy": "172.30.240.2"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "CLM_SITE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "default",
+     "proxy"
+    ],
+    "ports": [
+     "443:443/tcp",
+     "80:80/tcp"
+    ],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "volume:tls-config:/config:rw",
+     "volume:tls-data:/data:rw"
+    ]
+   },
+   "goldtier-dns": {
+    "addresses": {
+     "goldtier-control": "172.30.241.4",
+     "goldtier-uplink": "172.30.242.3"
+    },
+    "depends_on": [],
+    "environment": [
+     "CLM_EGRESS_FQDN",
+     "CLM_EGRESS_ROLE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "goldtier-control",
+     "goldtier-uplink"
+    ],
+    "ports": [],
+    "safe_values": {
+     "CLM_EGRESS_ROLE": "resolver"
+    },
+    "settings": {
+     "cap_add": [
+      "NET_ADMIN",
+      "SETGID",
+      "SETPCAP",
+      "SETUID"
+     ],
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-goldtier-dns",
+     "dns": [
+      "172.30.241.4"
+     ],
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ],
+     "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "53"
+     }
+    },
+    "volumes": []
+   },
+   "goldtier-egress": {
+    "addresses": {
+     "goldtier-control": "172.30.241.2",
+     "goldtier-uplink": "172.30.242.2"
+    },
+    "depends_on": [
+     "goldtier-dns"
+    ],
+    "environment": [
+     "CLM_EGRESS_DST_V4",
+     "CLM_EGRESS_FQDN",
+     "CLM_EGRESS_ROLE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "goldtier-control",
+     "goldtier-uplink"
+    ],
+    "ports": [],
+    "safe_values": {
+     "CLM_EGRESS_ROLE": "proxy"
+    },
+    "settings": {
+     "cap_add": [
+      "NET_ADMIN",
+      "SETGID",
+      "SETPCAP",
+      "SETUID"
+     ],
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-goldtier-egress",
+     "dns": [
+      "172.30.241.4"
+     ],
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": []
+   },
+   "mongo": {
+    "addresses": {
+     "database": ""
+    },
+    "depends_on": [],
+    "environment": [],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database"
+    ],
+    "ports": [],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro",
+     "bind::/run/clm/mongo-server.pem:ro",
+     "volume:mongo-data:/data/db:rw"
+    ]
+   }
+  },
+  "volumes": {
+   "assistant-data": {
+    "external": true
+   },
+   "mongo-data": {
+    "external": true
+   },
+   "tls-config": {
+    "external": false
+   },
+   "tls-data": {
+    "external": false
+   }
+  }
+ },
+ "full-provider-goldtier": {
+  "networks": {
+   "assistant-uplink": {
+    "external": false,
+    "internal": false
+   },
+   "database": {
+    "external": false,
+    "internal": true
+   },
+   "default": {
+    "external": false,
+    "internal": false
+   },
+   "goldtier-control": {
+    "external": false,
+    "internal": true
+   },
+   "goldtier-uplink": {
+    "external": false,
+    "internal": false
+   },
+   "proxy": {
+    "external": false,
+    "internal": true
+   }
+  },
+  "project": "clm-staging",
+  "services": {
+   "assistant": {
+    "addresses": {
+     "assistant-uplink": "172.30.243.2",
+     "proxy": "172.30.240.4"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "AI_ASSISTANT_ALLOWED_ORIGINS",
+     "AI_ASSISTANT_CLM_BACKEND_URL",
+     "AI_ASSISTANT_DATA_DIR",
+     "AI_ASSISTANT_EMBED_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_BASE_URL",
+     "AI_ASSISTANT_LLM_ENABLED",
+     "AI_ASSISTANT_LLM_MODEL",
+     "AI_ASSISTANT_LLM_TIMEOUT_SECONDS",
+     "AI_ASSISTANT_LLM_WARM_UP",
+     "AI_ASSISTANT_MODEL_PROFILES_FILE",
+     "ASSISTANT_HOSTING_CLAUDE_LIFETIME_CAP_MICRO_USD",
+     "ASSISTANT_HOSTING_DATA_QUOTA_MB",
+     "ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS",
+     "ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE",
+     "ASSISTANT_HOSTING_MIN_FREE_MB",
+     "ASSISTANT_HOSTING_PROVIDER",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC"
+    ],
+    "extra_hosts": [
+     "api.anthropic.com"
+    ],
+    "image": "",
+    "networks": [
+     "assistant-uplink",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "AI_ASSISTANT_LLM_BASE_URL": "http://127.0.0.1:9/v1",
+     "AI_ASSISTANT_LLM_MODEL": "no-model-configured",
+     "ASSISTANT_HOSTING_PROVIDER": "anthropic",
+     "ASSISTANT_HOSTING_SEED_SYNTHETIC": "false"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-assistant",
+     "dns": [
+      "192.0.2.53"
+     ],
+     "init": true,
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "no",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "volume:assistant-data:/data:rw"
+    ]
+   },
+   "backend": {
+    "addresses": {
+     "database": "",
+     "goldtier-control": "172.30.241.3",
+     "proxy": "172.30.240.3"
+    },
+    "depends_on": [
+     "mongo"
+    ],
+    "environment": [
+     "ACRA_CONNECTOR_MODE",
+     "APP_ENV",
+     "CLM_PERSISTENCE_MODE",
+     "DEMO_CONTROLS_ENABLED",
+     "FORWARDED_ALLOW_IPS",
+     "GOLDTIER_CONNECTOR_MODE",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES",
+     "GOLDTIER_SANDBOX_EGRESS_FQDN",
+     "GOLDTIER_SANDBOX_EGRESS_PROXY_URL",
+     "IDP_CONNECTOR_MODE",
+     "LOCAL_OCR_EXECUTABLE",
+     "MONGO_DATABASE",
+     "MONGO_URI",
+     "PHASE13_COOKIE_SECURE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database",
+     "goldtier-control",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "ACRA_CONNECTOR_MODE": "mock",
+     "APP_ENV": "staging",
+     "CLM_PERSISTENCE_MODE": "mongo",
+     "DEMO_CONTROLS_ENABLED": "false",
+     "GOLDTIER_CONNECTOR_MODE": "mock",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES": "false",
+     "IDP_CONNECTOR_MODE": "local_pdf_text",
+     "MONGO_DATABASE": "clm_staging",
+     "PHASE13_COOKIE_SECURE": "true"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-backend",
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro"
+    ]
+   },
+   "frontend": {
+    "addresses": {
+     "default": "",
+     "proxy": "172.30.240.2"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "CLM_SITE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "default",
+     "proxy"
+    ],
+    "ports": [
+     "443:443/tcp",
+     "80:80/tcp"
+    ],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "volume:tls-config:/config:rw",
+     "volume:tls-data:/data:rw"
+    ]
+   },
+   "goldtier-dns": {
+    "addresses": {
+     "goldtier-control": "172.30.241.4",
+     "goldtier-uplink": "172.30.242.3"
+    },
+    "depends_on": [],
+    "environment": [
+     "CLM_EGRESS_FQDN",
+     "CLM_EGRESS_ROLE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "goldtier-control",
+     "goldtier-uplink"
+    ],
+    "ports": [],
+    "safe_values": {
+     "CLM_EGRESS_ROLE": "resolver"
+    },
+    "settings": {
+     "cap_add": [
+      "NET_ADMIN",
+      "SETGID",
+      "SETPCAP",
+      "SETUID"
+     ],
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-goldtier-dns",
+     "dns": [
+      "172.30.241.4"
+     ],
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ],
+     "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "53"
+     }
+    },
+    "volumes": []
+   },
+   "goldtier-egress": {
+    "addresses": {
+     "goldtier-control": "172.30.241.2",
+     "goldtier-uplink": "172.30.242.2"
+    },
+    "depends_on": [
+     "goldtier-dns"
+    ],
+    "environment": [
+     "CLM_EGRESS_DST_V4",
+     "CLM_EGRESS_FQDN",
+     "CLM_EGRESS_ROLE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "goldtier-control",
+     "goldtier-uplink"
+    ],
+    "ports": [],
+    "safe_values": {
+     "CLM_EGRESS_ROLE": "proxy"
+    },
+    "settings": {
+     "cap_add": [
+      "NET_ADMIN",
+      "SETGID",
+      "SETPCAP",
+      "SETUID"
+     ],
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-goldtier-egress",
+     "dns": [
+      "172.30.241.4"
+     ],
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": []
+   },
+   "mongo": {
+    "addresses": {
+     "database": ""
+    },
+    "depends_on": [],
+    "environment": [],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database"
+    ],
+    "ports": [],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro",
+     "bind::/run/clm/mongo-server.pem:ro",
+     "volume:mongo-data:/data/db:rw"
+    ]
+   }
+  },
+  "volumes": {
+   "assistant-data": {
+    "external": true
+   },
+   "mongo-data": {
+    "external": true
+   },
+   "tls-config": {
+    "external": false
+   },
+   "tls-data": {
+    "external": false
+   }
+  }
+ },
+ "goldtier": {
+  "networks": {
+   "database": {
+    "external": false,
+    "internal": true
+   },
+   "default": {
+    "external": false,
+    "internal": false
+   },
+   "goldtier-control": {
+    "external": false,
+    "internal": true
+   },
+   "goldtier-uplink": {
+    "external": false,
+    "internal": false
+   },
+   "proxy": {
+    "external": false,
+    "internal": true
+   }
+  },
+  "project": "clm-staging",
+  "services": {
+   "backend": {
+    "addresses": {
+     "database": "",
+     "goldtier-control": "172.30.241.3",
+     "proxy": "172.30.240.3"
+    },
+    "depends_on": [
+     "mongo"
+    ],
+    "environment": [
+     "ACRA_CONNECTOR_MODE",
+     "APP_ENV",
+     "CLM_PERSISTENCE_MODE",
+     "DEMO_CONTROLS_ENABLED",
+     "FORWARDED_ALLOW_IPS",
+     "GOLDTIER_CONNECTOR_MODE",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES",
+     "GOLDTIER_SANDBOX_EGRESS_FQDN",
+     "GOLDTIER_SANDBOX_EGRESS_PROXY_URL",
+     "IDP_CONNECTOR_MODE",
+     "LOCAL_OCR_EXECUTABLE",
+     "MONGO_DATABASE",
+     "MONGO_URI",
+     "PHASE13_COOKIE_SECURE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database",
+     "goldtier-control",
+     "proxy"
+    ],
+    "ports": [],
+    "safe_values": {
+     "ACRA_CONNECTOR_MODE": "mock",
+     "APP_ENV": "staging",
+     "CLM_PERSISTENCE_MODE": "mongo",
+     "DEMO_CONTROLS_ENABLED": "false",
+     "GOLDTIER_CONNECTOR_MODE": "mock",
+     "GOLDTIER_SANDBOX_ALLOW_WRITES": "false",
+     "IDP_CONNECTOR_MODE": "local_pdf_text",
+     "MONGO_DATABASE": "clm_staging",
+     "PHASE13_COOKIE_SECURE": "true"
+    },
+    "settings": {
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-backend",
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro"
+    ]
+   },
+   "frontend": {
+    "addresses": {
+     "default": "",
+     "proxy": "172.30.240.2"
+    },
+    "depends_on": [
+     "backend"
+    ],
+    "environment": [
+     "CLM_SITE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "default",
+     "proxy"
+    ],
+    "ports": [
+     "443:443/tcp",
+     "80:80/tcp"
+    ],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "volume:tls-config:/config:rw",
+     "volume:tls-data:/data:rw"
+    ]
+   },
+   "goldtier-dns": {
+    "addresses": {
+     "goldtier-control": "172.30.241.4",
+     "goldtier-uplink": "172.30.242.3"
+    },
+    "depends_on": [],
+    "environment": [
+     "CLM_EGRESS_FQDN",
+     "CLM_EGRESS_ROLE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "goldtier-control",
+     "goldtier-uplink"
+    ],
+    "ports": [],
+    "safe_values": {
+     "CLM_EGRESS_ROLE": "resolver"
+    },
+    "settings": {
+     "cap_add": [
+      "NET_ADMIN",
+      "SETGID",
+      "SETPCAP",
+      "SETUID"
+     ],
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-goldtier-dns",
+     "dns": [
+      "172.30.241.4"
+     ],
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ],
+     "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "53"
+     }
+    },
+    "volumes": []
+   },
+   "goldtier-egress": {
+    "addresses": {
+     "goldtier-control": "172.30.241.2",
+     "goldtier-uplink": "172.30.242.2"
+    },
+    "depends_on": [
+     "goldtier-dns"
+    ],
+    "environment": [
+     "CLM_EGRESS_DST_V4",
+     "CLM_EGRESS_FQDN",
+     "CLM_EGRESS_ROLE"
+    ],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "goldtier-control",
+     "goldtier-uplink"
+    ],
+    "ports": [],
+    "safe_values": {
+     "CLM_EGRESS_ROLE": "proxy"
+    },
+    "settings": {
+     "cap_add": [
+      "NET_ADMIN",
+      "SETGID",
+      "SETPCAP",
+      "SETUID"
+     ],
+     "cap_drop": [
+      "ALL"
+     ],
+     "container_name": "clm-staging-goldtier-egress",
+     "dns": [
+      "172.30.241.4"
+     ],
+     "platform": "linux/amd64",
+     "read_only": true,
+     "restart": "unless-stopped",
+     "security_opt": [
+      "no-new-privileges:true"
+     ]
+    },
+    "volumes": []
+   },
+   "mongo": {
+    "addresses": {
+     "database": ""
+    },
+    "depends_on": [],
+    "environment": [],
+    "extra_hosts": [],
+    "image": "",
+    "networks": [
+     "database"
+    ],
+    "ports": [],
+    "safe_values": {},
+    "settings": {
+     "platform": "linux/amd64",
+     "restart": "unless-stopped"
+    },
+    "volumes": [
+     "bind::/run/clm/mongo-ca.pem:ro",
+     "bind::/run/clm/mongo-server.pem:ro",
+     "volume:mongo-data:/data/db:rw"
+    ]
+   }
+  },
+  "volumes": {
+   "mongo-data": {
+    "external": true
+   },
+   "tls-config": {
+    "external": false
+   },
+   "tls-data": {
+    "external": false
+   }
+  }
+ }
+}

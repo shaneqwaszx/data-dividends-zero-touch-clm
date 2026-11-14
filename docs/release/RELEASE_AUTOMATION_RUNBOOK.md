@@ -1,0 +1,173 @@
+# Release automation runbook
+
+| Field | Value |
+|---|---|
+| Status | Tooling implemented and tested locally. **This runbook authorises nothing.** Every existing owner gate stays in force until the owner approves a revised procedure (`RISK_BASED_APPROVAL_PROPOSAL.md`) |
+| Who runs it | Preparation: any engineering session on the Windows machine. Publication and deployment: only the session that owns the host, in an owner-approved window |
+| Entry point | `.\tools\release.ps1 <command>` from the repository root (PowerShell 7). From Git Bash: `python -m tools.release <command>` |
+
+Commands that could change something take `--plan-only`, `--dry-run` (the default) or
+`--execute`. Without `--execute` and an approval record nothing is written to the host or the
+registry.
+
+## 1. Prepare (no approval needed; nothing leaves this machine)
+
+1. Fetch and check out the exact approved commit in a clean checkout.
+
+   ```powershell
+   git fetch origin
+   .\tools\release.ps1 verify-source --commit <40-character commit> --tree <40-character tree>
+   ```
+
+   Refused: an abbreviated commit, another `HEAD`, another tree, any uncommitted or untracked
+   file (allow a known path with `--allow-untracked outputs/`), or a commit that is not in
+   `origin/main` as last fetched.
+
+2. Run the local mirror of the CI jobs for the change classes of the release.
+
+   ```powershell
+   .\tools\release.ps1 checks --change-class FRONTEND_UI --list     # see what would run
+   .\tools\release.ps1 checks --change-class FRONTEND_UI
+   ```
+
+   Classes are those of `docs/DEVELOPMENT_WORKFLOW.md`, plus `ASSISTANT` for the assistant
+   job. `tests/deploy` is launched through Git Bash automatically. The CI jobs with no
+   automatic mirror (`local-ocr`, `phase12-mongo`, `e2e`, `demo-lifecycle-windows`) are always
+   listed as `NOT_RUN`; run them by hand when the class needs them and attach the evidence.
+
+3. Accept the existing image candidates by id, or build.
+
+   ```powershell
+   .\tools\release.ps1 image --service frontend --commit <commit> `
+       --reference clm-rc-frontend:d0142d8 --image-id sha256:<64 hex>
+   ```
+
+   The image is accepted only if its id is exactly that value and it is `linux/amd64`. The
+   command then compares the reviewed source files inside the image with the commit and, for
+   the assistant, computes the qualification fingerprint in the image (networking disabled).
+   `--build` exports the commit with `git archive` and builds from that export. **Never build
+   again after an image has been qualified:** the backend and frontend base images float.
+
+4. Write a release request (see `samples/release-request.assistant-only.sample.json`) and
+   assemble the manifest. The request states what a person must decide: services, change
+   classes, risk class, rollback target and compatibility per service, coupling, smoke
+   expectations, quality-gate verdicts, evidence.
+
+   ```powershell
+   .\tools\release.ps1 manifest --request <request.json>
+   .\tools\release.ps1 validate --manifest <manifest.json>
+   ```
+
+   Or drop the request in `<state-dir>\inbox\` and run `.\tools\release.ps1 controller tick`
+   (`LOCAL_RELEASE_CONTROLLER.md`).
+
+5. Read the plan. It lists exactly which services change, which must not, the host commands
+   in order, the rollback order and the stop conditions.
+
+   ```powershell
+   .\tools\release.ps1 plan --manifest <manifest.json>
+   ```
+
+## 2. Independent review
+
+The manifest, the plan and the image evidence go to an independent Quality Gate, as today.
+Record its verdict in the request (`quality_gates`). Publication is refused while a gate is
+`FAIL` or `NOT RUN`, while a recorded check is `FAIL`, or while an image's file equality is not
+`PASS`.
+
+## 3. Publish (owner approval; registry write)
+
+```powershell
+.\tools\release.ps1 approve --manifest <manifest.json> --service frontend --action publish `
+    --not-before 2026-11-20T02:00:00Z --expires-at 2026-11-20T04:00:00Z --approved-by <owner>
+.\tools\release.ps1 publish --manifest <manifest.json> --approval <approval.json> --dry-run
+.\tools\release.ps1 publish --manifest <manifest.json> --approval <approval.json> --execute
+```
+
+`approve` is typed by the owner at an interactive terminal. `publish --execute` reads the
+publish token from the Windows Credential Manager, logs in with a throwaway Docker
+configuration, pushes each image under `rc-<commit12>-<config12>` (never `latest`), reads the
+registry manifest back, checks that its config digest is the qualified image and that the
+manifest hashes to the pushed digest, logs out and removes the configuration. It writes
+`manifest.published.json`. **Use that file from here on.**
+
+## 4. Deploy (owner approval; host change)
+
+Operator configuration is a JSON file outside the repository, for example
+`%LOCALAPPDATA%\DataDividendsCLM\release-operator.json`:
+
+```json
+{"ssh_destination": "<user@host alias>", "identity_file": "<path to the operator key>",
+ "port": 22, "backup_dir": "<host directory holding the Mongo archives>"}
+```
+
+```powershell
+.\tools\release.ps1 approve --manifest <manifest.published.json> --service frontend `
+    --action deploy --auto-rollback `
+    --not-before 2026-11-20T05:00:00Z --expires-at 2026-11-20T07:00:00Z --approved-by <owner>
+
+.\tools\release.ps1 deploy --manifest <manifest.published.json> --approval <approval.json> `
+    --operator-config <operator.json> --dry-run      # read-only preflight, no change
+.\tools\release.ps1 deploy --manifest <manifest.published.json> --approval <approval.json> `
+    --operator-config <operator.json> --execute
+```
+
+`--auto-rollback` is the owner's consent to roll back automatically; it only has effect for a
+service the manifest proves compatible. One approval covers the whole mechanical run: preflight,
+transfer, apply, verification. No further decision is asked per command.
+
+Exit code 0: `DEPLOYED_AWAITING_ACCEPTANCE` (or `DRY_RUN_OK`). Exit code 2: stopped; read
+`state`, `stop_code` and `events` in the output. Exit code 3: refused before starting.
+
+## 5. Browser acceptance (owner)
+
+The run writes `BROWSER_ACCEPTANCE_RUNSHEET.md` in the release's state folder and stops. The
+owner works through it, then:
+
+```powershell
+.\tools\release.ps1 accept --manifest <manifest.published.json> --result pass --accepted-by <owner>
+```
+
+`pass` moves the known-good pointer and records the previous one. `fail` records the failure
+and changes nothing on the host.
+
+## 6. Rollback and stop conditions per service
+
+| Service | Automatic rollback | Manual / owner-requested | Stop conditions |
+|---|---|---|---|
+| frontend | Yes, when approved: stateless. `compose.env` restored, `dc up ... frontend` on the previous image, verified | `release.ps1 rollback --manifest ... --approval ... --operator-config ... --execute` | Roll the frontend back first, or together with the backend: a new frontend with an older backend breaks the Dashboard |
+| assistant | Only if the manifest proves the stores are compatible. Default: **held** | Fastest safe action is `dca stop assistant` (every assistant route then returns the fixed 503). Pointing an older image at the volume needs a store-compatibility check first | Never remove the assistant data volume |
+| backend | Only with both schema versions equal, the target confirmed on the host, and owner consent. Default: **held**, ingress stopped | Owner decision after reading the target ledger state. Never a schema-19 build after a schema-20 backend has written | Exactly one backend writer. Never roll back blindly |
+| mongo, goldtier-egress, goldtier-dns | Never touched by the toolchain | Their own runbooks | A release naming them is refused |
+
+`release.ps1 rollback` applies the same eligibility rules as the automatic path and needs an
+approval that is still inside its window (or a new one). It refuses an ineligible service and
+says why.
+
+Explicit stop conditions for every run are printed in the plan (`stop_conditions`).
+
+## 7. After a stop
+
+- `FAILED_NO_CHANGE`: fix the cause, then run again. If the stop came before any host change
+  the same approval is still usable inside its window.
+- `ROLLED_BACK`: the host is on the previous images. The approval is used; a new attempt needs
+  a new approval.
+- `FAILED_HELD`: **do not run anything else.** Read `held_reason`. If it says ingress is
+  stopped, the site is down until the owner decides between a rollback and a forward fix.
+- A stale local lock after a crash: confirm on the host that nothing is running, then
+  `.\tools\release.ps1 unlock`.
+
+## 8. Never
+
+`compose down`, `-v` / `--volumes`, `--remove-orphans`, volume removal, `compose rm`, a second
+backend, a rebuild after qualification, a floating runtime tag, a credential on a command line
+or in a file, a build or an untrusted workflow on the production host. The toolchain cannot
+express the first six; do not work around it by hand.
+
+## 9. Status
+
+```powershell
+.\tools\release.ps1 status          # known-good release, lock, result of each release
+.\tools\release.ps1 creds status    # identities, expiry (never a token)
+.\tools\release.ps1 baseline        # does the reviewed baseline still match the Compose files?
+```

@@ -1,0 +1,21 @@
+{
+  "actions": [
+    "deploy"
+  ],
+  "approval_id": "apr-9d3fe8f57895-20260101T000000Z",
+  "approved_at": "2026-01-01T00:00:00Z",
+  "approved_by": "SAMPLE - not an approval",
+  "auto_rollback": false,
+  "expires_at": "2026-01-01T04:00:00Z",
+  "manifest_sha256": "9d3fe8f5789528546366c828ba166f72decbed3b99fb1a62f3e2b722cab5c5ce",
+  "not_before": "2026-01-01T00:00:00Z",
+  "release_id": "rel-d0142d8-20261114-01",
+  "risk_class": "HIGH",
+  "schema_version": 1,
+  "services": [
+    "assistant",
+    "backend",
+    "frontend"
+  ],
+  "statement": "SAMPLE ONLY. This window ended before the sample was written, so the toolchain refuses it."
+}

@@ -1,0 +1,243 @@
+{
+  "change_classes": [
+    "BACKEND_API",
+    "FRONTEND_UI",
+    "ASSISTANT"
+  ],
+  "checks": [
+    {
+      "detail": "rendered offline for overlay sets assistant and base; no undeclared network, port or variable",
+      "name": "effective-compose-config",
+      "status": "PASS"
+    },
+    {
+      "detail": "sample: the product checks for d0142d8 were run for PR #180, not by this toolchain",
+      "name": "product-checks",
+      "status": "NOT_RUN"
+    },
+    {
+      "detail": "hosted CI did not execute (billing block)",
+      "name": "ci-job:e2e",
+      "status": "NOT_RUN"
+    }
+  ],
+  "compose_files": [
+    {
+      "path": "deploy/compose.yml",
+      "sha256": "1f1e02b0bbb68156eb488da602c3447592c346edb023d4e9ae250b3dc0c448aa"
+    },
+    {
+      "path": "deploy/compose.mongo.yml",
+      "sha256": "3deda2da6f3e0c9a536966d93f000ce24501becb780acf535bd0f441f0dc221c"
+    },
+    {
+      "path": "apps/assistant/deploy/compose.assistant.yml",
+      "sha256": "3c847a7401bf1acad162ef14b06156af9029f841635a8be3c8367a95270d6aa0"
+    }
+  ],
+  "coupling": [
+    {
+      "reason": "the frontend needs the Dashboard fields added to the backend by PR #178",
+      "requires": "backend",
+      "satisfied_by": "this-release",
+      "service": "frontend"
+    }
+  ],
+  "created_at": "2026-11-14T09:30:00Z",
+  "declared_config_changes": {},
+  "evidence": [
+    {
+      "kind": "image-candidates-handoff",
+      "path": "outputs/release-images-d0142d8-20261114/IMAGE_CANDIDATES_HANDOFF.md",
+      "sha256": "0dc590f73d2a2eaeb2302124376a79fa0cf642e984ed135c63a3bd13ddf099c2"
+    },
+    {
+      "kind": "independent-image-qg",
+      "path": "outputs/release-images-d0142d8-20261114/INDEPENDENT_IMAGE_QG.md",
+      "sha256": "71b39bcc0d7571da42956cae3b4f7c24690a1b55e486b10a09ef7e46f0a4fce5"
+    },
+    {
+      "kind": "local-image-ids",
+      "path": "outputs/release-images-d0142d8-20261114/evidence/local-image-ids.txt",
+      "sha256": "833e7871639c245587864757c8fc1167a351132181702681509cc866ed534e0b"
+    }
+  ],
+  "images": {
+    "assistant": {
+      "assistant_fingerprint": "d6955c9d2f97e3cba8b96409a5d4e3951691a156b822baef1acabb5974c6d281",
+      "build": {
+        "dockerfile": "apps/assistant/deploy/assistant.Dockerfile",
+        "floating_base": false,
+        "mode": "accepted-existing",
+        "rebuilt_after_qualification": false
+      },
+      "config_digest": "sha256:e98a00b298514b75a6a40379d2f266847968c78edcc4fe65869ba3fd547bbd12",
+      "file_equality": {
+        "detail": "byte-identical to the commit",
+        "files_compared": 97,
+        "mismatches": 0,
+        "status": "PASS"
+      },
+      "local_image_id": "sha256:e98a00b298514b75a6a40379d2f266847968c78edcc4fe65869ba3fd547bbd12",
+      "local_ref": "clm-rc-assistant:d0142d8",
+      "platform": "linux/amd64",
+      "registry_manifest_digest": null,
+      "registry_tag": null,
+      "repository": "ghcr.io/shaneqwaszx/clm-aws-demo-assistant",
+      "snapshot_schema_writes": null
+    },
+    "backend": {
+      "assistant_fingerprint": null,
+      "build": {
+        "dockerfile": "deploy/backend.Dockerfile",
+        "floating_base": true,
+        "mode": "accepted-existing",
+        "rebuilt_after_qualification": false
+      },
+      "config_digest": "sha256:7d36daa3291cb21a0a8addb25b1bae351c8eb8be1a01f980eb2a00e4113c792c",
+      "file_equality": {
+        "detail": "byte-identical to the commit",
+        "files_compared": 142,
+        "mismatches": 0,
+        "status": "PASS"
+      },
+      "local_image_id": "sha256:7d36daa3291cb21a0a8addb25b1bae351c8eb8be1a01f980eb2a00e4113c792c",
+      "local_ref": "clm-rc-backend:d0142d8",
+      "platform": "linux/amd64",
+      "registry_manifest_digest": null,
+      "registry_tag": null,
+      "repository": "ghcr.io/shaneqwaszx/clm-aws-demo-backend",
+      "snapshot_schema_writes": 20
+    },
+    "frontend": {
+      "assistant_fingerprint": null,
+      "build": {
+        "dockerfile": "deploy/frontend.Dockerfile",
+        "floating_base": true,
+        "mode": "accepted-existing",
+        "rebuilt_after_qualification": false
+      },
+      "config_digest": "sha256:5d566ea577356cf6b63e0e08ef5f351d67109109d96bb65673c87d7d1c57f129",
+      "file_equality": {
+        "detail": "byte-identical to the commit",
+        "files_compared": 1,
+        "mismatches": 0,
+        "status": "PASS"
+      },
+      "local_image_id": "sha256:5d566ea577356cf6b63e0e08ef5f351d67109109d96bb65673c87d7d1c57f129",
+      "local_ref": "clm-rc-frontend:d0142d8",
+      "platform": "linux/amd64",
+      "registry_manifest_digest": null,
+      "registry_tag": null,
+      "repository": "ghcr.io/shaneqwaszx/clm-aws-demo-frontend",
+      "snapshot_schema_writes": null
+    }
+  },
+  "notes": [
+    "SAMPLE ONLY. Not approved, not published, not deployed.",
+    "Registry manifest digests are unknown: these three images exist only as local candidates.",
+    "Image entries were produced by `release.ps1 image` against the local candidates on 2026-11-14."
+  ],
+  "overlay": {
+    "active_host_overlays": [
+      "assistant"
+    ],
+    "order": [
+      "deploy/compose.yml",
+      "deploy/compose.mongo.yml",
+      "apps/assistant/deploy/compose.assistant.yml"
+    ],
+    "validation_set": "assistant"
+  },
+  "previous_known_good": null,
+  "quality_gates": [
+    {
+      "open_findings": [
+        "F-1 (P2): confirm on the host that the running backend is a schema-20 build before any backend swap"
+      ],
+      "report": "outputs/release-images-d0142d8-20261114/INDEPENDENT_IMAGE_QG.md",
+      "reviewed_identity": "local image ids in evidence/local-image-ids.txt",
+      "scope": "three d0142d8 image candidates",
+      "verdict": "PASS WITH NOTES"
+    }
+  ],
+  "release_id": "rel-d0142d8-20261114-01",
+  "risk_class": "HIGH",
+  "risk_reasons": [
+    "HIGH: service backend",
+    "MEDIUM: service assistant"
+  ],
+  "rollback": {
+    "assistant": {
+      "automatic": false,
+      "basis": "a newer assistant image may have upgraded a store on the external volume; check store compatibility before pointing the older image (expected R2 0c1bd5b5) at it",
+      "data_compatible": "unproven",
+      "stop_conditions": [
+        "fastest safe action is to stop the assistant (every assistant route then returns the fixed 503)",
+        "never remove the assistant data volume"
+      ],
+      "target_image": null,
+      "target_snapshot_schema_writes": null,
+      "target_source_commit": null
+    },
+    "backend": {
+      "automatic": false,
+      "basis": "image QG F-1: the running backend's digest, source commit and schema-20 status are not yet confirmed on the host; a schema-19 build (4c1db49) must never be a rollback target",
+      "data_compatible": "unproven",
+      "stop_conditions": [
+        "never roll a backend back automatically; the owner decides after reading the target ledger state",
+        "exactly one backend writer at any time"
+      ],
+      "target_confirmed_on_host": false,
+      "target_image": null,
+      "target_snapshot_schema_writes": null,
+      "target_source_commit": null
+    },
+    "frontend": {
+      "automatic": true,
+      "basis": "stateless Caddy image; the previous pin is read from compose.env at preflight (expected: the R2 frontend 6df0dd8f once Approval B has completed)",
+      "data_compatible": true,
+      "stop_conditions": [
+        "roll the frontend back first, or together with the backend: the new frontend with an older backend breaks the Dashboard"
+      ],
+      "target_image": null,
+      "target_snapshot_schema_writes": null,
+      "target_source_commit": null
+    }
+  },
+  "schema_version": 1,
+  "services_changed": [
+    "backend",
+    "assistant",
+    "frontend"
+  ],
+  "services_unchanged": [
+    "mongo"
+  ],
+  "smoke": [
+    {
+      "expect_status": 200,
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "expect_status": 200,
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "expect_status": 401,
+      "method": "GET",
+      "note": "signed out, once the R2 route is active (Approval B evidence B8)",
+      "path": "/api/assistant/health"
+    }
+  ],
+  "source": {
+    "base_ref": "origin/main",
+    "clean": true,
+    "commit": "d0142d8e8d74ea8002a72ec63bad8bbaf0f59410",
+    "pull_request": 180,
+    "repository": "shaneqwaszx/data-dividends-zero-touch-clm",
+    "tree": "3c43d97a90d59b06e8109e45c8ffbee0392dc679"
+  }
+}

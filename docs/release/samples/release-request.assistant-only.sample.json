@@ -1,0 +1,88 @@
+{
+  "active_host_overlays": [
+    "assistant"
+  ],
+  "candidates": {
+    "assistant": {
+      "local_image_id": "sha256:e98a00b298514b75a6a40379d2f266847968c78edcc4fe65869ba3fd547bbd12",
+      "local_ref": "clm-rc-assistant:d0142d8"
+    }
+  },
+  "change_classes": [
+    "ASSISTANT"
+  ],
+  "commit": "d0142d8e8d74ea8002a72ec63bad8bbaf0f59410",
+  "coupling": [],
+  "declared_config_changes": {},
+  "evidence": [
+    {
+      "kind": "image-candidates-handoff",
+      "path": "outputs/release-images-d0142d8-20261114/IMAGE_CANDIDATES_HANDOFF.md",
+      "sha256": "0dc590f73d2a2eaeb2302124376a79fa0cf642e984ed135c63a3bd13ddf099c2"
+    },
+    {
+      "kind": "independent-image-qg",
+      "path": "outputs/release-images-d0142d8-20261114/INDEPENDENT_IMAGE_QG.md",
+      "sha256": "71b39bcc0d7571da42956cae3b4f7c24690a1b55e486b10a09ef7e46f0a4fce5"
+    },
+    {
+      "kind": "local-image-ids",
+      "path": "outputs/release-images-d0142d8-20261114/evidence/local-image-ids.txt",
+      "sha256": "833e7871639c245587864757c8fc1167a351132181702681509cc866ed534e0b"
+    }
+  ],
+  "notes": [
+    "SAMPLE request for an assistant-only release."
+  ],
+  "pull_request": 180,
+  "quality_gates": [
+    {
+      "open_findings": [
+        "F-1 (P2): confirm on the host that the running backend is a schema-20 build before any backend swap"
+      ],
+      "report": "outputs/release-images-d0142d8-20261114/INDEPENDENT_IMAGE_QG.md",
+      "reviewed_identity": "local image ids in evidence/local-image-ids.txt",
+      "scope": "three d0142d8 image candidates",
+      "verdict": "PASS WITH NOTES"
+    }
+  ],
+  "request_id": "req-assistant-only-example",
+  "risk_class": "MEDIUM",
+  "rollback": {
+    "assistant": {
+      "automatic": false,
+      "basis": "a newer assistant image may have upgraded a store on the external volume; check store compatibility before pointing the older image (expected R2 0c1bd5b5) at it",
+      "data_compatible": "unproven",
+      "stop_conditions": [
+        "fastest safe action is to stop the assistant (every assistant route then returns the fixed 503)",
+        "never remove the assistant data volume"
+      ],
+      "target_image": null,
+      "target_snapshot_schema_writes": null,
+      "target_source_commit": null
+    }
+  },
+  "sequence": 1,
+  "services_changed": [
+    "assistant"
+  ],
+  "smoke": [
+    {
+      "expect_status": 200,
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "expect_status": 200,
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "expect_status": 401,
+      "method": "GET",
+      "note": "signed out, once the R2 route is active (Approval B evidence B8)",
+      "path": "/api/assistant/health"
+    }
+  ],
+  "tree": "3c43d97a90d59b06e8109e45c8ffbee0392dc679"
+}

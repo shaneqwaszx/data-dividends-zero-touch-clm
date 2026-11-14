@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://data-dividends.invalid/release/approval-record.schema.json",
+  "title": "Owner approval record for one release",
+  "description": "Binds one owner decision to one manifest hash, one exact service list and one time window. It is single-use and is never extended: a new window needs a new record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "approval_id",
+    "release_id",
+    "manifest_sha256",
+    "services",
+    "risk_class",
+    "actions",
+    "auto_rollback",
+    "not_before",
+    "expires_at",
+    "approved_by",
+    "approved_at",
+    "statement"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "approval_id": {"type": "string", "pattern": "^apr-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z$"},
+    "release_id": {"type": "string"},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["frontend", "backend", "assistant"]}
+    },
+    "risk_class": {"enum": ["LOW", "MEDIUM", "HIGH"]},
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["publish", "deploy"]}
+    },
+    "auto_rollback": {"type": "boolean"},
+    "not_before": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "expires_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "approved_by": {"type": "string", "pattern": "."},
+    "approved_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "statement": {"type": "string"}
+  }
+}
