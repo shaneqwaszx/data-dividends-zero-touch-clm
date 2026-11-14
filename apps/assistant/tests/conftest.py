@@ -166,6 +166,8 @@ def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     monkeypatch.setattr(key_sources, "_SESSION_CHECK", None)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     synthetic_eligibility._tickets.clear()  # D-095 tickets never carry over between tests
+    # R2.2: no test starts as a registered hosted deployment (a fresh process starts none).
+    monkeypatch.setattr(anthropic_runtime, "_hosted", None)
 
 
 @pytest.fixture(autouse=True)

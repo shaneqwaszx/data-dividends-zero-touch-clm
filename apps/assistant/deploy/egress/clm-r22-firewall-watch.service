@@ -1,0 +1,20 @@
+# R2.2 assistant host-table watcher (D-129 PROPOSED, E1 LOCAL DESIGN CANDIDATE). Install:
+# /etc/systemd/system/. Detects loss or change of `table inet clm_r22` (nft monitor events plus a
+# 1 s periodic check) and stops the assistant. It never re-applies the table or restarts the
+# assistant: recovery is an operator action. Killing or stopping the watcher also stops it.
+[Unit]
+Description=CLM R2.2 assistant host-table watcher (fail closed)
+After=clm-r22-assistant-firewall.service docker.service
+# P2-1: never give up restarting. Each exit (a crash, an unreadable table file) stops the
+# assistant again (ExecStopPost), so it cannot run while the watcher cannot watch.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /usr/local/lib/clm-r22/clm_r22_watch.py --table-file /etc/clm/r22/clm_r22.nft --containers clm-staging-assistant
+ExecStopPost=/usr/local/lib/clm-r22/clm_r22_stop_assistant.sh watcher-stop
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

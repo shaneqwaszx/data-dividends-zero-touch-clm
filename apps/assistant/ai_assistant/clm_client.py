@@ -92,6 +92,15 @@ class ClmBackendClient:
             )
         return actor
 
+    def list_cases(self, session_token: str | None) -> list[Any]:
+        """The cases this user may see in the portfolio list, as the backend reports them (GET
+        only, the user's own session). Used only for hosted dashboard insights, which keep the
+        R2.1-eligible ones."""
+
+        with self._client(session_token) as client:
+            cases = self._get(client, "/api/clm/zero-touch/cases")
+        return cases if isinstance(cases, list) else []
+
     def load_policies(self, session_token: str | None) -> dict[str, Any] | None:
         """D-105: the active policy catalogue as the backend shows it to this user (GET only),
         or None when it cannot be read."""

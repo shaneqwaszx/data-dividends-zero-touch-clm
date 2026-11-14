@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from ai_assistant.config import AiAssistantSettings
 
+from . import provider
 from .harden import harden
 from .profile import refusals
 
@@ -22,6 +23,9 @@ def build() -> FastAPI:
     codes = refusals(settings)
     if codes:
         raise HostedConfigurationError(codes)
+    # R2.2: before the service is built, so a restored Claude activation sees the same
+    # hosted deployment as every later call.
+    provider.install(settings)
     from ai_assistant.main import app as service
 
     return harden(service, settings)

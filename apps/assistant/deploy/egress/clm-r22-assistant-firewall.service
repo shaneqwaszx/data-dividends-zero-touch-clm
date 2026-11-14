@@ -1,0 +1,20 @@
+# R2.2 assistant egress host table (D-129 PROPOSED, E1 LOCAL DESIGN CANDIDATE). Install:
+# /etc/systemd/system/. Loads ONLY `table inet clm_r22`, before Docker. Stopping this unit stops
+# the assistant BEFORE the table is removed, so the uplink is never open without the table.
+[Unit]
+Description=CLM R2.2 assistant egress host table (inet clm_r22)
+DefaultDependencies=no
+After=local-fs.target
+Before=docker.service network-pre.target shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/clm/r22/clm_r22.nft
+ExecStop=/usr/local/lib/clm-r22/clm_r22_stop_assistant.sh firewall-stop
+ExecStop=/usr/sbin/nft delete table inet clm_r22
+
+[Install]
+WantedBy=multi-user.target

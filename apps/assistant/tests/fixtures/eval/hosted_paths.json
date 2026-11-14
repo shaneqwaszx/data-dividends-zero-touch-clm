@@ -1,0 +1,52 @@
+{
+ "schema": 1,
+ "note": "D-130 (OD-G6, owner-approved five-call Balanced plan): the hosted chat paths' paid qualification turns, one call each, on the synthetic Garden case, a synthetic RM and a synthetic Support user. Synthetic only; no real data.",
+ "turns": {
+  "H-G1": {
+   "path": "general",
+   "question": "What documents does onboarding usually need before GoldTier submission?"
+  },
+  "H-S1": {
+   "path": "support",
+   "question": "What is the UBO threshold?"
+  },
+  "H-T1": {
+   "path": "try_change",
+   "setup_question": "Why is Garden Business blocked?",
+   "change": {
+    "kind": "guidance",
+    "title": "Address proof",
+    "body": "Ask the client for a recent utility bill that shows the registered address."
+   }
+  },
+  "H-D1": {
+   "path": "dashboard_insights"
+  }
+ },
+ "support_actor": {
+  "profile": {
+   "user_id": "sam-support",
+   "display_name": "Sam Support",
+   "role": "SUPPORT",
+   "team_id": null,
+   "capabilities": ["POLICY_VIEW", "KNOWLEDGE_REVIEW", "KNOWLEDGE_CASE_READ"]
+  },
+  "csrf_token": "synthetic-test-token"
+ },
+ "policies": {
+  "rules": [
+   {
+    "policy_id": "ownership.ubo_threshold_percent",
+    "name": "UBO threshold",
+    "description": "Ownership at or above this percentage makes a beneficial owner.",
+    "value": {"type": "DECIMAL", "value": "25.000000"}
+   },
+   {
+    "policy_id": "registry.cache_enabled",
+    "name": "Registry cache",
+    "description": "Reuse a fresh registry snapshot.",
+    "value": {"type": "BOOLEAN", "value": true}
+   }
+  ]
+ }
+}

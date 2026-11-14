@@ -380,6 +380,76 @@ export function fetchDashboardInsights(body: DashboardInsightsRequest, signal?: 
   return request<DashboardInsights>("/dashboard/insights", body, signal);
 }
 
+/**
+ * How the service offers AI insights here (D-130 amendment draft). "auto": the panel above, as
+ * merged; "generate": the hosted deployment, where only an explicit request calls the model;
+ * "off": no panel. The hosted service refuses this route while the fifth path is disabled.
+ */
+export interface DashboardInsightsMode {
+  mode: "auto" | "generate" | "off";
+  remaining_user: number | null;
+  remaining_site: number | null;
+}
+
+/** How long the mode check may take before it counts as failed (c2r1, P3-3). */
+export const DASHBOARD_INSIGHTS_MODE_TIMEOUT_MS = 10_000;
+
+const INSIGHTS_MODES: ReadonlySet<string> = new Set(["auto", "generate", "off"]);
+
+function remainingCount(value: unknown): value is number | null | undefined {
+  return value === null || value === undefined || (typeof value === "number" && Number.isInteger(value) && value >= 0);
+}
+
+/**
+ * The mode check (c2r1, P3-3). It fails closed: a network failure, a timeout, an error status, a
+ * malformed body or an unrecognised mode is an `AiAssistantError`, never a usable mode, so the
+ * panel can never fall back to another AI mode because the check failed.
+ */
+export async function fetchDashboardInsightsMode(signal?: AbortSignal): Promise<DashboardInsightsMode> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, DASHBOARD_INSIGHTS_MODE_TIMEOUT_MS);
+  const forward = () => controller.abort();
+  signal?.addEventListener("abort", forward);
+  let body: unknown;
+  try {
+    body = await request<unknown>("/dashboard/insights/mode", undefined, controller.signal);
+  } catch (error) {
+    if (timedOut) throw new AiAssistantError("The AI insights check timed out.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forward);
+  }
+  const value = body as Partial<Record<keyof DashboardInsightsMode, unknown>> | null;
+  if (
+    !value || typeof value !== "object" || Array.isArray(value)
+    || typeof value.mode !== "string" || !INSIGHTS_MODES.has(value.mode)
+    || !remainingCount(value.remaining_user) || !remainingCount(value.remaining_site)
+  ) {
+    throw new AiAssistantError("The AI insights check returned an unrecognised answer.");
+  }
+  return {
+    mode: value.mode as DashboardInsightsMode["mode"],
+    remaining_user: value.remaining_user ?? null,
+    remaining_site: value.remaining_site ?? null,
+  };
+}
+
+/** The hosted insights: the reply plus the findings the server derived (labels and counts). */
+export interface HostedDashboardInsights {
+  insights: DashboardInsights;
+  findings: InsightFinding[];
+}
+
+/** One explicit, user-triggered generation (never on page load; not retried). */
+export function generateDashboardInsights(): Promise<HostedDashboardInsights> {
+  return request<HostedDashboardInsights>("/dashboard/insights/generate", {});
+}
+
 export function fetchAiAssistantBrief(caseId: string, signal?: AbortSignal): Promise<AiAssistantBrief> {
   return request<AiAssistantBrief>(`/cases/${encodeURIComponent(caseId)}/brief`, undefined, signal);
 }

@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal
 from ipaddress import ip_address
@@ -467,3 +468,29 @@ class OpenAICompatibleChatModel:
                 client.post(self._url, json=payload, headers=self._headers())
         except httpx.HTTPError:
             return
+
+
+def collect_stream(model: ChatModel, messages: list[dict[str, str]]) -> ModelAnswer:
+    """D-130: a streaming-only model's whole answer, for a request/response route (Support's
+    chat, "Try with this change"). The stream runs to its end in a new event loop on this
+    worker thread, so the model's own admission and ledger settlement run exactly as in the
+    chat. A failure is the model's own ``LlmUnavailableError``; nothing is retried."""
+
+    async def collect() -> ModelAnswer:
+        parts: list[str] = []
+        cut_short = False
+        last = Piece()
+        async with aclosing(model.stream(messages)) as source:
+            async for piece in source:
+                parts.append(piece.text)
+                cut_short = cut_short or piece.cut_short
+                last = piece
+        return ModelAnswer(
+            text="".join(parts),
+            cut_short=cut_short,
+            usage=last.usage,
+            finish_reason=last.finish_reason,
+            budget=last.budget,
+        )
+
+    return anyio.run(collect)

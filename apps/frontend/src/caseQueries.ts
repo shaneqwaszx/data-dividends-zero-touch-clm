@@ -17,7 +17,7 @@ import {
   type CaseActivityFilters,
   type CasePortfolioFilters,
 } from "./api";
-import { fetchDashboardInsights, type DashboardInsightsRequest } from "./aiAssistant";
+import { fetchDashboardInsights, fetchDashboardInsightsMode, type DashboardInsightsRequest } from "./aiAssistant";
 import type {
   AuthenticatedProfile,
   AutomationStatus,
@@ -44,6 +44,7 @@ export const caseQueryKeys = {
   auth: (userId: string) => ["auth", userId] as const,
   policyCatalogue: (userId: string) => ["auth", userId, "policies"] as const,
   dashboardInsights: (userId: string, request: DashboardInsightsRequest) => ["auth", userId, "dashboard-insights", request] as const,
+  dashboardInsightsMode: (userId: string) => ["auth", userId, "dashboard-insights-mode"] as const,
   dashboards: (userId: string) => ["auth", userId, "dashboard"] as const,
   dashboard: (userId: string, teamFilter?: string, scope?: "team" | "mine", dateRange?: DashboardDateRange) => [
     ...caseQueryKeys.dashboards(userId),
@@ -215,6 +216,18 @@ export function dashboardInsightsQueryOptions(userId: string, request: Dashboard
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboardInsights(request, signal),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 30 * 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  };
+}
+
+/** How AI insights are offered here: automatic, explicit generation (hosted service) or off. */
+export function dashboardInsightsModeQueryOptions(userId: string) {
+  return {
+    queryKey: caseQueryKeys.dashboardInsightsMode(userId),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboardInsightsMode(signal),
+    staleTime: 60_000,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

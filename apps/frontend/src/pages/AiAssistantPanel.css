@@ -249,6 +249,25 @@
   padding: 2px 14px 10px;
 }
 
+/* P2-3: the external-data notice on every chat surface that can reach hosted Claude. */
+.ai-external-notice {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--color-accent-500, #c28d41);
+  background: var(--color-accent-100, #fff3e4);
+  color: var(--color-neutral-800, #444141);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-assistant-thread > .ai-external-notice {
+  margin: 0 14px 6px;
+}
+
+.knowledge-review-fix > .ai-external-notice {
+  margin: 8px 0;
+}
+
 /* Keep the app's global dark-green button hover off the AI assistant's own buttons. */
 .ai-assistant-launcher:hover:not(:disabled) {
   background: var(--color-accent-700, #7d5411);

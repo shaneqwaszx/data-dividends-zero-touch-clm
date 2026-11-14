@@ -827,3 +827,116 @@ describe("AiAssistantPanel case memory (D-115)", () => {
     expect(log.find((item) => item.url.endsWith("/general/chat/stream"))?.body).toEqual({ message: "What is a UBO?", context_id: CONTEXT_A });
   });
 });
+
+describe("AiAssistantPanel external-data notice (P2-3)", () => {
+  const notice = (view: HTMLElement) => view.querySelector<HTMLElement>('[data-testid="external-ai-notice"]');
+
+  function expectNoticeBeforeTyping(view: HTMLElement, surface: string, sends: string): void {
+    const shown = notice(view);
+    expect(shown?.id).toBeTruthy();
+    expect(shown?.dataset.surface).toBe(surface);
+    expect(shown?.textContent).toContain("Claude (Anthropic)");
+    expect(shown?.textContent).toContain("sent to Anthropic, an external AI provider outside this application");
+    expect(shown?.textContent).toContain("They are sent even if no Claude answer is shown to you.");
+    expect(shown?.textContent).toContain("Use synthetic test data only.");
+    expect(shown?.textContent).toContain(sends);
+    // It never claims that personal information is removed.
+    expect(shown?.textContent).toContain("Automatic removal covers only some known identifiers, not everything you type.");
+    // Screen readers hear it with the question box, and it sits before the box.
+    const box = view.querySelector("textarea");
+    expect(box?.getAttribute("aria-describedby")).toBe(shown?.id);
+    expect(shown && box && shown.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+
+  it("is shown on the case chat before the question is typed, and changes nothing that is sent", async () => {
+    const sent: unknown[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/cases/case-1/brief")) return json(brief("GARDEN BUSINESS", "Summary."));
+      if (url.endsWith("/cases/case-1/chat/stream")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ answer: "Answer.", answered_by: "model", model: "m", notice: null, suggested_questions: [] });
+      }
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expectNoticeBeforeTyping(view, "case", "your question, this chat's earlier messages and this case's details");
+    typeInto(view.querySelector("textarea"), "Why is this case blocked?");
+    click(view.querySelector(".ai-assistant-send"));
+    await flush();
+    expect(sent).toEqual([{ message: "Why is this case blocked?", history: [] }]);
+    // Still shown while the conversation goes on.
+    expect(notice(view)?.dataset.surface).toBe("case");
+  });
+
+  it("still says the data is sent when the answer shown is not Claude's (N1)", async () => {
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/cases/case-1/brief")) return json(brief("GARDEN BUSINESS", "Summary."));
+      if (url.endsWith("/cases/case-1/chat/stream")) {
+        return json({
+          answer: "The document address differs from ACRA.",
+          answered_by: "case_data",
+          model: null,
+          notice: "The model response could not be verified, so this answer comes from the case data.",
+          suggested_questions: [],
+        });
+      }
+      return json({}, 404);
+    });
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    typeInto(view.querySelector("textarea"), "Why is this case blocked?");
+    click(view.querySelector(".ai-assistant-send"));
+    await flush();
+    expect(view.querySelector('[data-testid="case-data-label"]')?.textContent).toContain("Case-data guidance, not AI-generated.");
+    expect(notice(view)?.textContent).toContain("They are sent even if no Claude answer is shown to you.");
+  });
+
+  it("is shown on Support chat with what Support chat sends", async () => {
+    stubFetch(async () => json({}, 404));
+    const view = render(null, noop, true);
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expectNoticeBeforeTyping(view, "support", "your question, this chat's earlier messages and the active policy rules");
+    // The existing Support disclaimer is kept.
+    expect(view.textContent).toContain("The Policy tab and the approved rules are the source of truth.");
+  });
+
+  it("is shown on the general chat, even when the service reports a local model", async () => {
+    stubFetch(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/health")
+        ? json({ status: "ok", llm_enabled: true, model: "local", answer_mode: "copilot", general_chat: true })
+        : json({}, 404),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<AiAssistantPanel caseId={null} onOpenCases={noop} canGeneralChat />));
+    click(container.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expect(container.textContent).toContain("General onboarding help");
+    expectNoticeBeforeTyping(container, "general", "your question and this chat's earlier messages");
+  });
+
+  it("is not shown where nothing can be asked: no case open, or the past chats list", async () => {
+    stubFetch(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/brief") ? json(brief("GARDEN BUSINESS", "Summary.")) : json({ items: [], total: 0, page: 1, page_size: 20 }),
+    );
+    const view = render(null);
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expect(view.textContent).toContain("Go to Cases");
+    expect(notice(view)).toBeNull();
+    rerender("case-1");
+    await flush();
+    expect(notice(view)).not.toBeNull();
+    click(buttonNamed(view, "History"));
+    await flush();
+    expect(view.querySelector("textarea")).toBeNull();
+    expect(notice(view)).toBeNull();
+  });
+});

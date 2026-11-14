@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DashboardInsights } from "../aiAssistant";
+import { AiAssistantError, DASHBOARD_INSIGHTS_MODE_TIMEOUT_MS, fetchDashboardInsightsMode, type DashboardInsights } from "../aiAssistant";
 import { caseQueryKeys, dashboardQueryOptions } from "../caseQueries";
 import { createSessionQueryClient } from "../queryClient";
 import type { AuthenticatedProfile, AutomationStage, DashboardSnapshot } from "../types";
@@ -139,6 +141,8 @@ function render(dashboard: DashboardSnapshot, actor: AuthenticatedProfile, reply
   const findings = buildInsightFindings(source, { ...options(actor), dateRange: "all" });
   if (shown.allTime) client.setQueryData(dashboardQueryOptions(actor.user_id, "all", "team", "all").queryKey, shown.allTime);
   if (reply && findings) client.setQueryData(caseQueryKeys.dashboardInsights(actor.user_id, findings.request), reply);
+  // c2r1: the merged automatic panel runs only once the service has confirmed mode "auto".
+  client.setQueryData(caseQueryKeys.dashboardInsightsMode(actor.user_id), { mode: "auto", remaining_user: null, remaining_site: null });
   const markup = renderToStaticMarkup(
     <QueryClientProvider client={client}><MemoryRouter>
       <AiInsights dashboard={dashboard} actor={actor} dateRange={shown.dateRange} teamFilter="all" stageLabels={STAGE_LABELS} />
@@ -208,5 +212,239 @@ describe("AI insights panel", () => {
     const key = caseQueryKeys.dashboardInsights("olivia-koh", findings.request);
     expect(key.slice(0, 3)).toEqual(["auth", "olivia-koh", "dashboard-insights"]);
     expect(caseQueryKeys.dashboardInsights("maya-lim", findings.request)).not.toEqual(key);
+  });
+});
+
+// D-130 amendment draft (fifth hosted Claude path): the panel when the service offers explicit
+// generation. Nothing reaches a model on load; one click is one request; the notice is always shown.
+describe("AI insights panel: hosted generation (fifth path)", () => {
+  type Call = { url: string; method: string; body: unknown };
+  let calls: Call[] = [];
+  let root: Root | null = null;
+  let container: HTMLDivElement | null = null;
+  const HOSTED_REPLY = {
+    insights: {
+      summary: "1 of 2 open cases is overdue.",
+      notes: [{ id: "F1", text: "1 open case is past the 10 days target." }, { id: "F9", text: "Not a returned finding." }],
+      actions: [{ id: "F1", text: "Clear the overdue case first." }],
+      model: "claude-sonnet-5-5",
+    },
+    findings: [{ id: "F1", topic: "SLA_OVERDUE", severity: "CRITICAL", actionable: true, facts: { open_cases: 2, overdue_cases: 1, target: "10 days" } }],
+  };
+
+  function serve(routes: Record<string, () => Response>) {
+    calls = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      const route = routes[`${method} ${url.replace(/^.*\/api\/assistant/, "")}`];
+      return route ? route() : new Response(JSON.stringify({ detail: "not found" }), { status: 404 });
+    }));
+  }
+  const json = (body: unknown, status = 200) => () => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const mode = (value: string, remaining = 3) => json({ mode: value, remaining_user: remaining, remaining_site: 10 });
+  const settle = async () => {
+    for (let index = 0; index < 6; index += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  };
+  const paths = () => calls.map((call) => `${call.method} ${call.url.replace(/^.*\/api\/assistant/, "")}`);
+
+  async function unmount() {
+    if (root) await act(async () => root?.unmount());
+    container?.remove();
+    root = null;
+    container = null;
+  }
+
+  async function mount(actor: AuthenticatedProfile): Promise<HTMLDivElement> {
+    const host = document.createElement("div");
+    document.body.append(host);
+    container = host;
+    root = createRoot(host);
+    const client = createSessionQueryClient();
+    await act(async () => root!.render(
+      <QueryClientProvider client={client}><MemoryRouter>
+        <AiInsights dashboard={withOnboardingSample(emptyLive(actor), actor)} actor={actor} dateRange="all" teamFilter="all" stageLabels={STAGE_LABELS} />
+      </MemoryRouter></QueryClientProvider>,
+    ));
+    await settle();
+    return host;
+  }
+
+  beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+  afterEach(async () => {
+    await unmount();
+    vi.unstubAllGlobals();
+  });
+
+  it("asks nothing on load, shows the notice, and sends one request per click with no dashboard data", async () => {
+    serve({ "GET /dashboard/insights/mode": mode("generate"), "POST /dashboard/insights/generate": json(HOSTED_REPLY) });
+    const host = await mount(olivia);
+    expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
+    const panel = host.querySelector('[aria-label="AI insights"]')!;
+    const notice = panel.querySelector('[data-testid="external-ai-notice"]')!;
+    expect(notice.getAttribute("data-surface")).toBe("insights");
+    expect(notice.textContent).toContain("sent to Anthropic");
+    const button = panel.querySelector("button")!;
+    expect(button.textContent).toBe("Generate AI Insights");
+    expect(button.getAttribute("aria-describedby")).toBe(notice.id);
+    expect(panel.textContent).toContain("3 left today");
+    expect(panel.querySelector(".ai-list")).toBeNull();
+
+    await act(async () => button.click());
+    await settle();
+    const generated = calls.filter((call) => call.url.endsWith("/dashboard/insights/generate"));
+    expect(generated).toHaveLength(1);
+    // The service derives the figures itself: the browser sends an empty body.
+    expect(generated[0]).toMatchObject({ method: "POST", body: {} });
+    expect(paths()).not.toContain("POST /dashboard/insights");
+    const notes = Array.from(panel.querySelectorAll("ul.ai-list li")).map((item) => item.textContent);
+    expect(notes).toEqual(["1 open case is past the 10 days target.open cases 2 · overdue cases 1 · target 10 days"]);
+    expect(panel.querySelector("ul.ai-list li i")!.className).toContain("ai-dot--critical");
+    expect(panel.querySelector("ol.ai-list li")!.textContent).toContain("Clear the overdue case first.");
+    // No case links: the hosted findings carry no case identifiers.
+    expect(panel.querySelectorAll("a")).toHaveLength(0);
+    // The remaining count is read again after the request.
+    expect(paths().filter((item) => item === "GET /dashboard/insights/mode")).toHaveLength(2);
+  });
+
+  it("says when the daily limit is reached, and disables the button with none left", async () => {
+    serve({
+      "GET /dashboard/insights/mode": mode("generate", 1),
+      "POST /dashboard/insights/generate": json({ detail: { code: "DASHBOARD_INSIGHTS_LIMIT", message: "limit" } }, 429),
+    });
+    const host = await mount(olivia);
+    await act(async () => host.querySelector("button")!.click());
+    await settle();
+    expect(host.textContent).toContain("The daily limit for AI insights has been reached.");
+    expect(calls.filter((call) => call.url.endsWith("/generate"))).toHaveLength(1);
+    await unmount();
+
+    serve({ "GET /dashboard/insights/mode": mode("generate", 0) });
+    const exhausted = await mount(olivia);
+    expect(exhausted.querySelector("button")!.disabled).toBe(true);
+  });
+
+  it("says insights are unavailable when the service refuses, without retrying", async () => {
+    serve({
+      "GET /dashboard/insights/mode": mode("generate"),
+      "POST /dashboard/insights/generate": json({ detail: { code: "DASHBOARD_INSIGHTS_UNAVAILABLE", message: "x" } }, 503),
+    });
+    const host = await mount(olivia);
+    await act(async () => host.querySelector("button")!.click());
+    await settle();
+    expect(host.textContent).toContain("AI insights are unavailable right now.");
+    expect(calls.filter((call) => call.url.endsWith("/generate"))).toHaveLength(1);
+  });
+
+  it("shows nothing and asks nothing more when insights are off", async () => {
+    serve({ "GET /dashboard/insights/mode": mode("off") });
+    const host = await mount(olivia);
+    expect(host.querySelector('[aria-label="AI insights"]')).toBeNull();
+    expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
+  });
+
+  it("keeps the merged automatic panel when the service confirms the mode is auto", async () => {
+    serve({ "GET /dashboard/insights/mode": mode("auto"), "POST /dashboard/insights": json(REPLY) });
+    const host = await mount(olivia);
+    expect(paths().filter((item) => item === "POST /dashboard/insights")).toHaveLength(1);
+    expect(host.querySelector('[data-testid="external-ai-notice"]')).toBeNull();
+    expect(host.querySelector("button")).toBeNull();
+  });
+
+  // c2r1 (P3-3): a failed, malformed or unrecognised mode check fails closed. Nothing is
+  // generated, no dashboard figures are sent, and no other AI mode is used: the only request is
+  // the mode check itself, and the panel shows a controlled unavailable state with a retry.
+  const text = (body: string, status = 200) => () => new Response(body, { status, headers: { "Content-Type": "application/json" } });
+  it.each([
+    ["not found (404)", json({ detail: "not found" }, 404)],
+    ["unavailable (503)", json({ detail: { code: "DASHBOARD_INSIGHTS_UNAVAILABLE", message: "x" } }, 503)],
+    ["a server error (500)", text("oops", 500)],
+    ["malformed JSON", text("{not json")],
+    ["an empty body", text("")],
+    ["a JSON array", json(["auto"])],
+    ["JSON null", json(null)],
+    ["no mode", json({ remaining_user: 3, remaining_site: 10 })],
+    ["an unrecognised mode", json({ mode: "automatic", remaining_user: 3, remaining_site: 10 })],
+    ["an upper-case mode", json({ mode: "AUTO", remaining_user: null, remaining_site: null })],
+    ["a non-string mode", json({ mode: 1, remaining_user: null, remaining_site: null })],
+    ["a malformed remaining count", json({ mode: "generate", remaining_user: "3", remaining_site: 10 })],
+    ["a negative remaining count", json({ mode: "generate", remaining_user: -1, remaining_site: 10 })],
+  ])("fails closed when the mode check returns %s", async (_label, answer) => {
+    serve({ "GET /dashboard/insights/mode": answer, "POST /dashboard/insights": json(REPLY), "POST /dashboard/insights/generate": json(HOSTED_REPLY) });
+    const host = await mount(olivia);
+    expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
+    const panel = host.querySelector('[aria-label="AI insights"]')!;
+    expect(panel.textContent).toContain("AI insights are unavailable right now.");
+    expect(panel.querySelector(".ai-list")).toBeNull();
+    expect(panel.querySelector('[data-testid="external-ai-notice"]')).toBeNull();
+    expect(Array.from(panel.querySelectorAll("button")).map((item) => item.textContent)).toEqual(["Try again"]);
+  });
+
+  it("fails closed when the mode check cannot reach the service", async () => {
+    calls = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), method: init?.method ?? "GET", body: undefined });
+      throw new TypeError("Failed to fetch");
+    }));
+    const host = await mount(olivia);
+    expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
+    expect(host.textContent).toContain("AI insights are unavailable right now.");
+  });
+
+  it("retries only the mode check, and then follows the confirmed mode", async () => {
+    serve({ "GET /dashboard/insights/mode": text("{bad") });
+    const host = await mount(olivia);
+    serve({ "GET /dashboard/insights/mode": mode("generate") });
+    await act(async () => host.querySelector("button")!.click());
+    await settle();
+    expect(paths()).toEqual(["GET /dashboard/insights/mode"]);
+    expect(host.querySelector('[data-testid="external-ai-notice"]')!.getAttribute("data-surface")).toBe("insights");
+    expect(host.querySelector("button")!.textContent).toBe("Generate AI Insights");
+  });
+
+  it("never switches to the automatic route when the re-check after a generation fails", async () => {
+    let checks = 0;
+    serve({
+      "GET /dashboard/insights/mode": () => (checks++ === 0 ? mode("generate")() : new Response("bad gateway", { status: 502 })),
+      "POST /dashboard/insights/generate": json(HOSTED_REPLY),
+      "POST /dashboard/insights": json(REPLY),
+    });
+    const host = await mount(olivia);
+    await act(async () => host.querySelector("button")!.click());
+    await settle();
+    expect(paths()).toEqual(["GET /dashboard/insights/mode", "POST /dashboard/insights/generate", "GET /dashboard/insights/mode"]);
+    expect(paths()).not.toContain("POST /dashboard/insights");
+    // The confirmed hosted panel and its reply stay; nothing else is asked.
+    expect(host.querySelector("ul.ai-list li")!.textContent).toContain("1 open case is past the 10 days target.");
+    expect(host.querySelector('[data-testid="external-ai-notice"]')).not.toBeNull();
+  });
+});
+
+describe("AI insights mode check (c2r1, P3-3)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("returns a recognised mode with its counts", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ mode: "generate", remaining_user: 2, remaining_site: 9 }), { status: 200 })));
+    await expect(fetchDashboardInsightsMode()).resolves.toEqual({ mode: "generate", remaining_user: 2, remaining_site: 9 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ mode: "auto" }), { status: 200 })));
+    await expect(fetchDashboardInsightsMode()).resolves.toEqual({ mode: "auto", remaining_user: null, remaining_site: null });
+  });
+
+  it("times out as a failed check, not a usable mode", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    })));
+    const pending = fetchDashboardInsightsMode().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(DASHBOARD_INSIGHTS_MODE_TIMEOUT_MS);
+    const error = await pending;
+    expect(error).toBeInstanceOf(AiAssistantError);
+    expect((error as AiAssistantError).message).toContain("timed out");
   });
 });

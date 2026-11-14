@@ -1908,6 +1908,9 @@ def model_admin_router(
             log.error("spending view unavailable for the qualification estimate")
             view = {"refusal": "LEDGER_UNAVAILABLE", "effective_remaining_micro_usd": 0}
         calls = len(manifest) if manifest else None
+        if calls is not None and entry.deployment == "anthropic":
+            # D-130: one more turn for each hosted chat path the run also qualifies.
+            calls += len(anthropic_runtime.hosted_qualification_turns())
         reservation = view.get("reservation_micro_usd")
         estimate = (
             calls * reservation if calls is not None and isinstance(reservation, int) else None
@@ -2642,7 +2645,7 @@ def model_admin_router(
         # The lower of the D-102 lifetime ceiling and the owner-confirmed workspace limit
         # (D-107: HR's record when there is one, else the environment's attestation).
         return min(
-            anthropic_runtime.LIFETIME_CEILING_MICRO_USD,
+            anthropic_runtime.lifetime_ceiling(),
             anthropic_runtime.workspace_limit(settings),
         )
 
@@ -3211,7 +3214,7 @@ def model_admin_router(
         # opens at zero; earlier workspace spend is bounded by Anthropic's own workspace limit.
         if anthropic_runtime.ledger_file(settings).exists():
             return None
-        return min(anthropic_runtime.LIFETIME_CEILING_MICRO_USD, limit)
+        return min(anthropic_runtime.lifetime_ceiling(), limit)
 
     @router.put("/provider/anthropic")
     def put_anthropic_enablement(

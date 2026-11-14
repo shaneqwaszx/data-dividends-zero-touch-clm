@@ -231,7 +231,7 @@ Expect one `BOOTSTRAP` line in the logs and `guidance_added: 9` on a new volume.
 | 75 | `REFUSED DATA_ROOT_IN_USE`: another writer holds the volume | Stop the other container |
 | 70 | `REFUSED STORE_DAMAGED <store>` | Restore from a backup. Nothing is repaired automatically |
 
-Dashboard AI insights (PR #178): On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden. After deployment, check that `POST /api/assistant/dashboard/insights` answers 503 `DASHBOARD_INSIGHTS_UNAVAILABLE`.
+Dashboard AI insights (PR #178): On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden. After deployment, check that `POST /api/assistant/dashboard/insights` answers 503 `DASHBOARD_INSIGHTS_UNAVAILABLE`. c2 (D-130 amendment, DRAFT, disabled): a fifth hosted Claude path for insights is prepared but off (`config.HOSTED_INSIGHTS_DECISION = None`); while it is off every insights route stays refused. When a reviewed change enables it, only `GET .../insights/mode` and an explicit `POST .../insights/generate` (server-derived counts and labels from R2.1-eligible cases, 3 per user and 10 site-wide per Singapore day) are allowed; the merged route stays refused.
 
 ## Verify after deployment
 

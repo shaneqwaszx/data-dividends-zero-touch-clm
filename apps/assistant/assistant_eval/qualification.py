@@ -53,6 +53,7 @@ from ai_assistant.remote_test import RemoteTestModel, connection_check, qualific
 from ai_assistant.synthetic_eligibility import mode as synthetic_dev_mode
 
 from . import gold as gold_mod
+from .hosted_paths import run_paths
 from .runner import EMBEDDER, Workspace, run
 from .runner import settings as runner_settings
 from .scenarios import load_scenarios
@@ -278,7 +279,13 @@ class RemoteQualificationJob:
         started = time.monotonic()
         scenarios = load_scenarios(PHASE_B_QUESTIONS)
         expected = len(self.manifest)
-        self.store.heartbeat(self.qualification_id, 0, total_turns=expected)
+        # D-130: hosted Claude also answers one turn on each hosted chat path it enables.
+        hosted_keys = (
+            anthropic_runtime.hosted_qualification_turns()
+            if isinstance(self.model, anthropic_runtime.ClaudeTestModel)
+            else ()
+        )
+        self.store.heartbeat(self.qualification_id, 0, total_turns=expected + len(hosted_keys))
         connection = (
             self.connection()
             if self.connection is not None
@@ -349,9 +356,21 @@ class RemoteQualificationJob:
                 verified_documents=answers_freely,
                 turns=frozenset(self.manifest),
             )
+            hosted_turns = (
+                run_paths(
+                    watched,
+                    hosted_keys,
+                    workspace=workspace,
+                    harness_settings=harness,
+                    verified_documents=answers_freely,
+                    begin=lambda key: watched.begin(key, 0),
+                )
+                if hosted_keys
+                else []
+            )
         turns = list(result.turns)
         # The final turn count (each turn's own heartbeat is taken before it is asked).
-        self._stop(len(turns))
+        self._stop(len(turns) + len(hosted_turns))
         overall = label_free(turns)
         verification = self.model.verify_now()
         calls = self.model.calls_since_start()
@@ -399,6 +418,19 @@ class RemoteQualificationJob:
             },
             self.g8_rule,
         )
+        if hosted_keys:
+            summary["hosted_paths"] = [turn.to_dict() for turn in hosted_turns]
+            summary["reproducibility"]["hosted_turns"] = ",".join(hosted_keys)
+            summary["gates"].append(
+                {
+                    "gate": "G-9",
+                    "rule": "each hosted chat path (D-130) answered by the model, not cut short",
+                    "value": f"{sum(t.passed for t in hosted_turns)}/{len(hosted_keys)}",
+                    "passed": len(hosted_turns) == len(hosted_keys)
+                    and all(turn.passed for turn in hosted_turns),
+                    "gating": True,
+                }
+            )
         summary["reproducibility"]["prompt_version"] = result.manifest.get("prompt_version")
         summary["duration_ms"] = round((time.monotonic() - started) * 1000)
         failed = [

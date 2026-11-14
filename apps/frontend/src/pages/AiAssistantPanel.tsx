@@ -11,6 +11,7 @@ import "./AiAssistantPanel.css";
 import { AiAssistantText } from "./aiAssistantText";
 import { goToCaseSection } from "./caseSections";
 import { ConversationHistory, EndConversationForm } from "./ConversationFeedback";
+import ExternalAiNotice from "./ExternalAiNotice";
 import {
   AiAssistantError,
   type AiAssistantSource,
@@ -724,8 +725,11 @@ export default function AiAssistantPanel({
             </div>
           )}
 
+          {/* P2-3: the external-data notice, above the box where the question is typed. */}
+          <ExternalAiNotice id="ai-assistant-external-notice" surface={supportChat ? "support" : generalChat ? "general" : "case"} />
           <ComposerPrimitive.Root className="ai-assistant-input">
             <ComposerPrimitive.Input
+              aria-describedby="ai-assistant-external-notice"
               rows={1}
               maxRows={5}
               maxLength={600}

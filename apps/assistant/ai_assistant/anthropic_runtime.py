@@ -69,12 +69,14 @@ from contextlib import aclosing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
+from urllib.parse import urlsplit
 
 import anyio
 import httpx
 from pydantic import SecretStr
 
 from . import anthropic_profiles, key_sources, remote_test, synthetic_eligibility
+from . import config as assistant_config
 from .anthropic_chat import (
     LIVE_NETWORK,
     WORKSPACE_HEADER,
@@ -158,6 +160,10 @@ NOTICES = Notices(
 )
 
 
+# R2.2: the hosted deployment's lead notice on a conversational Claude answer.
+HOSTED_ANSWERED = "Answered by Claude Sonnet 5.5 through Anthropic."
+
+
 def attestations(settings: AiAssistantSettings) -> frozenset[str]:
     return frozenset(
         part.strip() for part in settings.anthropic_owner_attests.split(",") if part.strip()
@@ -188,9 +194,95 @@ def valid_workspace(value: str) -> bool:
     return bool(_WORKSPACE.fullmatch(value or ""))
 
 
+class HostedDeployment(NamedTuple):
+    # R2.2 (D-129 proposed): the hosted service's one browser origin and its own lifetime
+    # ceiling, registered by the hosting layer once every startup refusal passed. Never read
+    # from a setting: a development machine cannot become a hosted deployment by configuration.
+    origin: str
+    lifetime_ceiling_micro_usd: int
+
+
+_hosted: HostedDeployment | None = None
+_hosted_lock = threading.Lock()
+
+
+def register_hosted_deployment(origin: str, lifetime_ceiling_micro_usd: int) -> None:
+    # Once per process, with the same values only; anything else is refused (fail closed).
+    global _hosted
+    parts = urlsplit(origin)
+    if (
+        parts.scheme != urlsplit(anthropic_profiles.BASE_URL).scheme
+        or not parts.hostname
+        or is_local_model_url(origin)
+        or origin != f"{parts.scheme}://{parts.netloc}"
+        or not _bounded(lifetime_ceiling_micro_usd, 1, LIFETIME_CEILING_MICRO_USD)
+    ):
+        raise ValueError
+    wanted = HostedDeployment(origin, lifetime_ceiling_micro_usd)
+    with _hosted_lock:
+        if _hosted is not None and _hosted != wanted:
+            raise ValueError
+        _hosted = wanted
+
+
+def hosted_deployment() -> HostedDeployment | None:
+    return _hosted
+
+
+# D-130: the paid qualification's extra turns, one per hosted chat path it enables (OD-G6).
+HOSTED_QUALIFICATION_TURNS: tuple[tuple[str, str], ...] = (
+    ("H-G1", "general"),
+    ("H-S1", "support"),
+    ("H-T1", "try_change"),
+    # Fifth path (D-130 amendment draft): only while HOSTED_INSIGHTS_DECISION is set.
+    ("H-D1", "dashboard_insights"),
+)
+
+
+def hosted_paths() -> frozenset[str]:
+    # D-130: the chat paths hosted Claude may answer besides the case chat. Empty unless the
+    # owner's decision is in the code and this process is the registered hosted deployment.
+    if assistant_config.HOSTED_CHAT_DECISION is None or _hosted is None:
+        return frozenset()
+    paths = set(assistant_config.HOSTED_CHAT_PATHS)
+    if assistant_config.HOSTED_INSIGHTS_DECISION is not None:
+        paths.add("dashboard_insights")
+    return frozenset(paths)
+
+
+def hosted_chat(model: object, path: str) -> bool:
+    # D-130: hosted Claude (and nothing else) may answer this path. Every per-call control
+    # (readiness, the HR session key, the ledger, the preflight, the ticket) is still checked
+    # by the model itself for the very messages sent.
+    return path in hosted_paths() and getattr(model, "hosted_claude", False) is True
+
+
+def hosted_qualification_turns() -> tuple[str, ...]:
+    paths = hosted_paths()
+    return tuple(key for key, path in HOSTED_QUALIFICATION_TURNS if path in paths)
+
+
+def lifetime_ceiling() -> int:
+    # D-102's ceiling, lowered on a hosted deployment to the owner's hosted ceiling (its ledger
+    # counts only its own calls, so the hosted and local ledgers share no cap).
+    hosted = _hosted
+    if hosted is None:
+        return LIFETIME_CEILING_MICRO_USD
+    return min(LIFETIME_CEILING_MICRO_USD, hosted.lifetime_ceiling_micro_usd)
+
+
 def local_deployment(settings: AiAssistantSettings) -> bool:
     # The approved local development deployment: the model switched on, a literal loopback
-    # CLM backend and only local browser origins (as remote_test checks for GPT-OSS).
+    # CLM backend and only local browser origins (as remote_test checks for GPT-OSS). R2.2: or
+    # the registered hosted deployment, served to its one exact origin and never on loopback.
+    hosted = _hosted
+    if hosted is not None:
+        return (
+            settings.llm_enabled
+            and list(settings.allowed_origins) == [hosted.origin]
+            and not is_local_model_url(settings.clm_backend_url)
+            and urlsplit(settings.clm_backend_url).hostname != "localhost"
+        )
     return (
         settings.llm_enabled
         and is_local_model_url(settings.clm_backend_url)
@@ -427,7 +519,7 @@ def check_cap_change(
     # the US$30.00 lifetime ceiling, and a raise only within 24 hours of a reconciliation.
     if ledger.status().profile_id != LEDGER_PROFILE_ID:
         raise LedgerError("INVALID_INPUT", "not the Anthropic ledger")
-    if cap_micro_usd > LIFETIME_CEILING_MICRO_USD:
+    if cap_micro_usd > lifetime_ceiling():
         raise LedgerError("CAP_RAISE_REFUSED", "above the Anthropic lifetime ceiling")
     # D-118 amendment P4: a session store (provider-capped) needs no reconciliation to raise.
     if (
@@ -479,7 +571,7 @@ def check_ledger(
         not status.breaker_open and status.open_calls == 0,
         f"breaker {status.breaker_code or 'closed'}, open calls {status.open_calls}",
     )
-    ceiling = min(LIFETIME_CEILING_MICRO_USD, workspace_limit(settings))
+    ceiling = min(lifetime_ceiling(), workspace_limit(settings))
     report.add(
         "ledger.cap_within_ceiling",
         status.opening_usage < status.cap <= ceiling,
@@ -682,7 +774,7 @@ def budget_status(
         "timezone": "Asia/Singapore",
         "daily_cap_micro_usd": settings.anthropic_daily_cap_micro_usd,
         "workspace_limit_micro_usd": workspace_limit(settings),
-        "lifetime_ceiling_micro_usd": LIFETIME_CEILING_MICRO_USD,
+        "lifetime_ceiling_micro_usd": lifetime_ceiling(),
     }
     key, credential, key_code = resolve_key(environ, env_file=env_file)
     view["credential"] = credential.view()
@@ -735,7 +827,7 @@ def budget_status(
     view["effective_remaining_micro_usd"] = effective
     view["effective_remaining_usd"] = _usd(effective)
     view["reservation_micro_usd"] = reservation
-    ceiling = min(LIFETIME_CEILING_MICRO_USD, workspace_limit(settings))
+    ceiling = min(lifetime_ceiling(), workspace_limit(settings))
     checks = (
         (key_code, key_code),
         (status.profile_id != LEDGER_PROFILE_ID, "LEDGER_PROFILE_MISMATCH"),
@@ -772,6 +864,21 @@ class ClaudeTestModel:
     # The chat checks the synthetic boundary before it sends anything to this model.
     requires_synthetic_boundary = True
     notices = NOTICES
+
+    @property
+    def attribution(self) -> str | None:
+        # R2.2: on the hosted deployment a conversational answer (D-122) names the model that
+        # wrote it; an answer this model did not write never carries it (main.remote_gate).
+        return HOSTED_ANSWERED if _hosted is not None else None
+
+    # D-130 OD-G8: every prompt this model sends goes to Anthropic, so it carries no user
+    # identifier (provider_payload); the role stays where the case facts need it.
+    anthropic_bound = True
+
+    @property
+    def hosted_claude(self) -> bool:
+        # D-130: this model runs on the registered hosted deployment (hosted_chat).
+        return _hosted is not None
 
     def development_mode(self) -> bool:
         # D-104 A1: D-095 mode never depends on OpenRouter's endpoint, reasoning settings or

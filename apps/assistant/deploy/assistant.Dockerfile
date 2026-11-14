@@ -9,6 +9,12 @@ COPY apps/assistant/deploy/model_profiles.hosted.json deploy/
 COPY apps/assistant/ai_assistant ai_assistant
 COPY apps/assistant/assistant_hosting assistant_hosting
 COPY apps/assistant/scripts/storage/backup_stores.py scripts/storage/backup_stores.py
+# R2.2: the qualification harness the service starts for a paid Claude qualification (D-093).
+COPY apps/assistant/assistant_eval assistant_eval
+COPY apps/assistant/scripts/qualify_model.py scripts/qualify_model.py
+# The synthetic Garden fixtures its Phase B questions run against (assistant_eval/variants.py).
+COPY apps/assistant/tests/fixtures/garden_address_conflict_summary.json apps/assistant/tests/fixtures/garden_documents.json apps/assistant/tests/fixtures/garden_waiting_for_documents_summary.json apps/assistant/tests/fixtures/me_client_onboarder.json tests/fixtures/
+COPY apps/backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf /opt/backend/tests/fixtures/uat/
 # Hashed into the qualification basis, so the hosted basis equals a development checkout's.
 COPY apps/assistant/tests/fixtures/eval tests/fixtures/eval
 RUN mkdir /data && chown 10001:10001 /data

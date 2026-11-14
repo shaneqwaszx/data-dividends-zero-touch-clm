@@ -1,0 +1,48 @@
+# R2.2 hosted Claude provider overlay (D-129 PROPOSED; E1 LOCAL DESIGN CANDIDATE, not approved
+# for AWS). Apply LAST, after compose.assistant.yml:
+#   compose.yml -> compose.mongo.yml -> apps/assistant/deploy/compose.assistant.yml -> this file
+#
+# - Claude Sonnet 5.5 through Anthropic only. HR sets it up in AI Models (D-107); the key is
+#   entered there and held in memory for that HR session (D-106). No key, decision or
+#   attestation is configured here, and the service refuses to start with one.
+# - The assistant gets ONE extra network, assistant-uplink (bridge clm-as-up, IPv4 only), used
+#   only for HTTPS to the pinned Anthropic address. The host table `inet clm_r22`
+#   (egress/clm_r22.nft, loaded before Docker) drops everything else that enters or leaves that
+#   bridge, so the only flow is assistant -> pinned Anthropic IPv4 -> tcp/443.
+# - Name resolution: api.anthropic.com comes from the hosts file (extra_hosts), never DNS. The
+#   container's DNS server is a TEST-NET-1 address that the host table drops, so the embedded
+#   resolver can never forward a lookup (no DNS exfiltration path); container names on the
+#   internal proxy network still resolve.
+# - TLS: unchanged. The client verifies the certificate chain (certifi) and the host name
+#   api.anthropic.com; a pinned address only decides where the connection goes.
+# - The pinned set must equal ANTHROPIC_DST_V4 in egress/clm_r22.vars and the table, and lie inside
+#   Anthropic's published inbound ranges (the service checks that itself at startup).
+# - P2-1 (boot fails closed): Docker never starts the assistant by itself (restart "no"); only
+#   clm-r22-assistant.service starts it, after the host table and its watcher are up and the live
+#   table equals the reviewed file. Docker does not masquerade clm-as-up either, so the table's
+#   own NAT rule is the only translation: without the table the uplink has no internet path.
+#   Create the container with `up --no-start`, then `systemctl start clm-r22-assistant`.
+services:
+  assistant:
+    environment:
+      ASSISTANT_HOSTING_PROVIDER: anthropic
+      # OD-P4: the owner's hosted lifetime ceiling in micro-USD (at most 30000000). No default.
+      ASSISTANT_HOSTING_CLAUDE_LIFETIME_CAP_MICRO_USD: "${ASSISTANT_CLAUDE_LIFETIME_CAP_MICRO_USD:?owner hosted Claude ceiling required}"
+    extra_hosts:
+      - "api.anthropic.com:${ASSISTANT_ANTHROPIC_PINNED_V4:?pinned Anthropic IPv4 required}"
+    dns: [192.0.2.53]
+    restart: "no"
+    networks:
+      assistant-uplink:
+        ipv4_address: 172.30.243.2
+
+networks:
+  assistant-uplink:
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: clm-as-up
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+    ipam:
+      config:
+        - subnet: 172.30.243.0/29
+          gateway: 172.30.243.1
