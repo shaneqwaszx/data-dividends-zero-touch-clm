@@ -306,12 +306,16 @@ whose acceptance failed, can never become acceptable through `recover`, however 
 host looks.
 
 What can still be accepted afterwards is a **new, complete deployment** of the same release:
-after a verified `ROLLED_BACK`, a new `deploy --execute` with a new owner deploy approval that
-passes the whole preflight, apply and post-deploy verification produces a new
-`DEPLOYED_AWAITING_ACCEPTANCE` record. That path existed before this change and is left as it
+a new `deploy --execute` with a new, unused owner deploy approval that passes the whole
+preflight, apply and post-deploy verification produces a new `DEPLOYED_AWAITING_ACCEPTANCE`
+record. In practice that follows a rollback, because preflight refuses while the host still
+runs the release; the code does not require a `ROLLED_BACK` record as such. That path existed before this change and is left as it
 is, because removing it would change what an owner approval can do. The new record carries
-`previously_failed_acceptance: true` so the owner sees the history at acceptance time, and
-every earlier record stays in its numbered file. Whether a release that once failed
+`previously_failed_acceptance: true`, and every earlier record stays in its numbered file.
+**The flag is stored in the record and printed in the full `deploy` output only.** The
+`accept` command, the browser runsheet and `status` do not show it today, so the owner must
+read the record (or the numbered results) before accepting; surfacing it in those three
+places is an open follow-up. Whether a release that once failed
 acceptance should ever be redeployed under the same release id, rather than as a new release,
 is an owner decision.
 
@@ -320,8 +324,13 @@ A `deploy` or dry-run of a release whose rollback has no verified outcome is ref
 changes nothing (refused, stopped before any change, or a dry-run) is kept as a numbered
 result but never replaces the standing record (`result.json`) of a release that is live on
 the host (`DEPLOYED_AWAITING_ACCEPTANCE`, `ACCEPTED`, `ACCEPTANCE_FAILED`, `FAILED_HELD` or
-an unfinished rollback), so `accept`, `rollback` and `recover` keep working from the record
-that describes the host.
+an unfinished rollback), so `accept`, `rollback` and `recover` keep working from the last
+record of a run that changed the host. That record can itself be out of date if the host was
+changed by hand since; the tool does not notice that until `rollback` or `recover` reads the
+host. One known gap: an interrupt at the instant the first `compose.env` pin is written is
+recorded as `FAILED_NO_CHANGE` (the flag is set after the command returns), and when a live
+standing record is kept, `status` shows no trace of that attempt; it is in the numbered
+result and the audit log.
 
 Rules the code enforces:
 

@@ -219,7 +219,45 @@ NOTES. Its report is reproduced **unedited** in
 | F-3 (P3) after the new N-2 check fails, the never-applied service must be recreated by hand before a retry can succeed | Not changed; stated in the runbook | |
 | P3 test gaps | Tests added for the refusal over a `FAILED_HELD` record whose rollback failed, and for the origin test inside `_may_return_to_acceptance` | `test_a_new_run_is_refused_over_a_held_record_whose_rollback_failed`, `test_recover_needs_the_awaiting_acceptance_origin_even_without_other_marks` |
 
-@@CHECK6@@
+### 4.6 Closing check
+
+A sixth fresh reviewer checked commit `ed38d160c224aa4e6326ae15a0adfdb8e8d15ca2` (tree
+`419b08f1deac6669961c420be97dc525ccd1d8a8`): **PASS WITH NOTES** (P0 0, P1 0, P2 1, P3 6).
+F-2 confirmed fixed (8 reproduced cases; 5,773 no-change runs in a random driver never
+replaced a live standing record). On F-1 the reviewer assessed the choice on its merits:
+keeping the new-deployment path is consistent with "no change to deployment approval policy";
+within one deployment a failed acceptance never reached `ACCEPTED` in 3,300 random sequences;
+the owner decision stays open. Its report is reproduced **unedited** in
+[N1_N2_CLOSING_CHECK_20261114.md](N1_N2_CLOSING_CHECK_20261114.md).
+
+**This is the latest independent verdict on code. The commit after it changes documents
+only** (this section and the corrections below) and was not itself reviewed.
+
+| Note | What was done |
+|---|---|
+| N-1 (P2, claim) the documents said the owner "sees the history at acceptance time", but `accept`, the runsheet and `status` do not show `previously_failed_acceptance` | Statement corrected in architecture 3.7: the flag is in the record and the `deploy` output only. Showing it in `accept`, the runsheet and `status` is an **open follow-up** (a code change, so it would need its own check) |
+| N-2 (P3) an interrupt at the instant of the first pin is recorded `FAILED_NO_CHANGE`; with a live standing record kept, `status` shows no trace | Not changed (the flag lag in the deployment path predates this work). Now stated in architecture 3.7 |
+| N-3 (P3) "the record that describes the host" overstated | Wording corrected |
+| N-4 (P3) the kept path does not strictly require a `ROLLED_BACK` record | Wording corrected |
+| N-5 (P3) `_record` reads the standing record before each write with no retry; a read failure fails closed but can lose the attempt's record | Not changed |
+| N-6 (P3) four surviving mutants (replacement of a non-live record, `DRY_RUN_OK` over a live record, `ACCEPTED` in the live set, the history-flag carry-over) | Not changed: open test gaps |
+| N-7 (P3) wording; the runbook's hand command named `dc`, which cannot start the assistant | Runbook corrected to name the service's own wrapper |
+
+### 4.7 Where the verdicts stand
+
+| Commit | Content | Independent verdict |
+|---|---|---|
+| `728cf1e` | first candidate | FAIL (first review) |
+| `7fa9146` | F1 to F19 remediation | PASS WITH NOTES (re-review; raised N1, N2) |
+| `37f3aa6` | N1, N2 | FAIL (N1 and N2 fixed; new P1 in `recover`) |
+| `84706a9` | fixes | FAIL (one sequence still reached `ACCEPTED`) |
+| `6bcf142` | fixes | FAIL, conditional on the reading of one rule |
+| `ed38d16` | fixes | **PASS WITH NOTES** (closing check) |
+| head | documents only, after `ed38d16` | not reviewed (documents only) |
+
+No reviewer has reviewed the whole toolchain at the head in one pass: the first review covered
+everything at `728cf1e`, and each later review covered a delta. Nothing here is evidence from
+a real host or registry.
 
 
 ## 5. What the evidence does not show

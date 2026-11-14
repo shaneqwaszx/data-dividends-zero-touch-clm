@@ -261,7 +261,9 @@ back. `accept` refuses until the state is verified.
      are repeated and verified. If the rollback stops with "the container is not running its
      previous image" for a service that was never applied, someone started that service by
      hand on the release image: the host operator recreates it by hand on the previous image
-     (`dc up -d --no-build --no-deps --wait <service>` with the line already changed back),
+     (the service's own wrapper from `deploy/LIGHTSAIL_RUNTIME.md`: `dc` for the frontend or
+     backend, `dca` for the assistant; `up -d --no-build --no-deps --wait <service>`, with the
+     line already changed back),
      then runs `recover`.
    - **Recover by hand** following `deploy/LIGHTSAIL_RUNTIME.md` (start order: Mongo, backend,
      assistant, frontend; never `down`, never a volume removal), then run `recover` again so
