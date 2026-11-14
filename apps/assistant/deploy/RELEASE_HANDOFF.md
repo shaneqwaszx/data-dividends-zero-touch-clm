@@ -26,7 +26,8 @@ Browser ──HTTPS──▶ Caddy ──▶ forward_auth ──▶ backend GET 
 | `HostedGuard` | Serves only `/assistant/*`, keeps `/internal/*` to loopback, needs a session cookie, needs one allowed Origin on unsafe methods, and refuses provider and paid console actions before reading the body |
 | Backend | The only authority on identity, role, team and case access. The assistant forwards the user's own session and only sends `GET` |
 | Docker | Non-root, read-only root filesystem, all capabilities dropped, one internal network, and CPU, memory, PID and log limits |
-| `refusals()` | The service will not start if any remote decision, provider key, proxy setting, `.env` file, loopback backend URL or local origin is present |
+| `refusals()` | The service will not start if any remote decision, provider key, proxy setting, `.env` file, loopback backend URL or local origin is present, or if the RD-1 case list or cutoff is missing or malformed |
+| RD-1 case gate (R2.1) | Serves only an exact owner-approved list of existing synthetic Mock ACRA cases, created before a fixed UTC cutoff. It runs after the backend has allowed the read, so 401 and 404 are unchanged. Any other case gets `403 ASSISTANT_CASE_NOT_ELIGIBLE` before anything is written. This is a bounded POC rule, not a general provenance check: the browser summary cannot tell Mock ACRA from ACRA Marketplace Mock |
 
 No model means every question gets the deterministic case-data answer. The baseline points at
 the container's own discard port, so model calls fail at once and the existing fallback
@@ -171,7 +172,14 @@ Add to `/etc/clm/compose.env`:
 ASSISTANT_IMAGE=<registry>/clm-assistant@sha256:<digest>
 ASSISTANT_BROWSER_ORIGIN=https://<approved hostname>
 ASSISTANT_DATA_VOLUME=clm-staging-assistant-data
+ASSISTANT_ELIGIBLE_CASE_REFS=<comma list of approved 12-hex case references>
+ASSISTANT_ELIGIBLE_CREATED_BEFORE=<approved UTC cutoff, for example 2026-11-12T05:07:25Z>
 ```
+
+A case reference is the first 12 hex characters of the SHA-256 of the server case id (lowercase,
+hyphenated UUID). The cutoff must end in `Z` or `+00:00`. Both values are required, with no
+fallback value. Use only values the owner approved for the release, after the historical ACRA
+mode and the creation boundary are verified on the host.
 
 `ASSISTANT_BROWSER_ORIGIN` must equal the backend's `PHASE13_BROWSER_ORIGIN` exactly. Optional
 values and their defaults are `ASSISTANT_CPUS=0.75`, `ASSISTANT_MEM_LIMIT=512m`,
@@ -219,9 +227,11 @@ Expect one `BOOTSTRAP` line in the logs and `guidance_added: 9` on a new volume.
 
 | Code | Meaning | Action |
 |---|---|---|
-| 78 | `REFUSED <codes>`: configuration refused | Fix the named setting. Never add a key or decision to get past it |
+| 78 | `REFUSED <codes>`: configuration refused | Fix the named setting. Never add a key or decision to get past it. `CASE_ELIGIBILITY_REQUIRED` and `CASE_ELIGIBILITY_INVALID` name the RD-1 list and cutoff |
 | 75 | `REFUSED DATA_ROOT_IN_USE`: another writer holds the volume | Stop the other container |
 | 70 | `REFUSED STORE_DAMAGED <store>` | Restore from a backup. Nothing is repaired automatically |
+
+Dashboard AI insights (PR #178): On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden. After deployment, check that `POST /api/assistant/dashboard/insights` answers 503 `DASHBOARD_INSIGHTS_UNAVAILABLE`.
 
 ## Verify after deployment
 
@@ -354,6 +364,25 @@ docker run --rm --user 0:0 --network none -v clm-staging-assistant-recovery:/res
 Run the `chown` step and start the service only after the restore printed `RESTORED`. Set
 `ASSISTANT_DATA_VOLUME` to the recovery volume, then run `dca up -d --no-build --no-deps --wait
 assistant`. Keep the original volume until the restore is accepted.
+
+## R2.1 assistant update (RD-1 case gate)
+
+A separate owner approval, after approval B. It changes only the assistant image and the two
+RD-1 values; the frontend, backend, Mongo and Caddy stay as they are.
+
+1. Back up `/etc/clm/compose.env`. Add the two RD-1 values and set `ASSISTANT_IMAGE` to the
+   reviewed R2.1 digest.
+2. Install the reviewed overlay, keeping the previous one for rollback. `dca config --quiet` must
+   pass. Confirm the frontend, backend and Mongo configuration is unchanged.
+3. `dca pull assistant`, then `dca up -d --no-build --no-deps --wait assistant` (same volume).
+4. Accept: no `REFUSED` line and readiness `ready`; frontend, backend and Mongo container IDs and
+   assistant store row counts unchanged; an approved case answers; an unlisted or newly created
+   case shows the not-available message (403 `ASSISTANT_CASE_NOT_ELIGIBLE`); another team still
+   gets a 404.
+
+Rollback: restore the `compose.env` backup (the previous `ASSISTANT_IMAGE`) and the previous
+overlay, then `dca up -d --no-build --no-deps --wait assistant`. Or stop it: `dca stop assistant`.
+The volume is never removed.
 
 ## Rollback
 

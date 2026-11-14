@@ -64,6 +64,8 @@ dca() {
 }
 ```
 
+Dashboard AI insights (PR #178) are refused by the hosted assistant (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`); no model writes them on this host.
+
 Users reach the assistant only when two things are both true: the assistant is running, and the frontend image's Caddyfile routes `/api/assistant/*` to it. The OP-4 frontend answers every assistant route with a fixed 503. The R2 frontend returns the same 503 while the assistant is absent or stopped. Assistant startup and route activation are separate operations, and each needs its own owner approval.
 
 ### Preflight (no service change)
@@ -72,7 +74,7 @@ Do this after the reviewed files are on the host and before any other `dca` comm
 
 1. Append `ASSISTANT_IMAGE` (the approved AMD64 registry digest), `ASSISTANT_BROWSER_ORIGIN` (equal to the backend's `PHASE13_BROWSER_ORIGIN`) and `ASSISTANT_DATA_VOLUME` to `/etc/clm/compose.env`. Leave `FRONTEND_IMAGE` at the OP-4 digest. `dc` ignores these values.
 2. Create the assistant volume once with `docker volume create` and the approved name, then run `docker volume inspect` on it. Compose validation does not check that an external volume exists.
-3. Run `dc config --quiet` and then `dca config --quiet`. Both must pass. `dca config` fails until all three values are set.
+3. Run `dc config --quiet` and then `dca config --quiet`. Both must pass. `dca config` fails until all three values are set. From the R2.1 overlay on, it also needs the RD-1 values `ASSISTANT_ELIGIBLE_CASE_REFS` and `ASSISTANT_ELIGIBLE_CREATED_BEFORE` (see `apps/assistant/deploy/RELEASE_HANDOFF.md`).
 4. Confirm that `dca config` shows the assistant on the `proxy` network only, at `CLM_ASSISTANT_PROXY_IPV4`, with no published port.
 5. Run `dca pull assistant`.
 
@@ -95,6 +97,10 @@ dc up -d --no-build --no-deps --wait frontend
 ```
 
 This is the only user-visible change. Run the load and acceptance checks afterwards.
+
+### R2.1 assistant update (separate owner approval)
+
+The RD-1 case gate limits the assistant to an exact owner-approved list of existing synthetic Mock ACRA cases created before a fixed UTC cutoff; every other case gets a 403 before anything is written. It is an assistant-only change: back up `compose.env`, add the two RD-1 values, set `ASSISTANT_IMAGE` to the reviewed R2.1 digest, install the reviewed overlay (keep the previous one), run `dca config --quiet`, then `dca up -d --no-build --no-deps --wait assistant`. The steps, acceptance and rollback are in `apps/assistant/deploy/RELEASE_HANDOFF.md`. Do not run an ACRA window that can create cases before R2.1 is accepted; if one must run, stop the assistant for the whole window.
 
 ### Operating alongside the CLM stack
 

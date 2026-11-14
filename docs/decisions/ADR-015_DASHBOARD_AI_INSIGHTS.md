@@ -111,6 +111,8 @@ Current boundaries this must respect:
 - One more endpoint and module in the assistant service. No new dependency, persistence,
   configuration mode or provider.
 
+Hosted deployment: On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden.
+
 ## Architecture invariants affected
 
 - Preserved: the CLM backend stays model-free and authoritative for data and RBAC. The

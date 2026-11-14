@@ -561,9 +561,21 @@ def create_app(
     def load_case(case_id: UUID, request: Request) -> CaseSnapshot:
         check_origin(request)
         try:
-            return backend.load_case(case_id, request.cookies.get(SESSION_COOKIE_NAME))
+            snapshot = backend.load_case(case_id, request.cookies.get(SESSION_COOKIE_NAME))
         except ClmBackendError as exc:
             raise backend_error(exc) from None
+        # RD-1: a hosted deployment may limit the cases the assistant serves. The check runs
+        # only on a case the backend let this user read, and before anything is written.
+        gate = getattr(request.app.state, "case_gate", None)
+        if gate is not None and gate(case_id, snapshot.summary) is not None:
+            raise HTTPException(
+                403,
+                detail={
+                    "code": "ASSISTANT_CASE_NOT_ELIGIBLE",
+                    "message": "The assistant is not available for this case.",
+                },
+            )
+        return snapshot
 
     Snapshot = Annotated[CaseSnapshot, Depends(load_case)]
 
@@ -1536,6 +1548,13 @@ def create_app(
         under D-122, with the local model as fallback, D-128 I7). Read-only: no case is read,
         nothing is stored, and the browser hides the panel on any refusal."""
 
+        # The hosted service's hardening sets this: refused before the origin,
+        # the session or any model is looked at, so no model is ever reached there.
+        if getattr(request.app.state, "dashboard_insights_disabled", False):
+            raise HTTPException(
+                503,
+                detail={"code": "DASHBOARD_INSIGHTS_UNAVAILABLE", "message": INSIGHTS_UNAVAILABLE},
+            )
         check_origin(request)
         try:
             profile = backend.load_actor(request.cookies.get(SESSION_COOKIE_NAME))["profile"]

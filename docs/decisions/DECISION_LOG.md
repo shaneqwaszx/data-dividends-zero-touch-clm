@@ -2605,3 +2605,48 @@ Fast-track staging owner decisions (2026-11-13, A1 and A2; a temporary academic 
 | FT-CRED | The owner authorises reuse of the existing locally tested Sandbox endpoint, `user_id` header method and connector from AWS staging (authority `USER_AUTHORIZED_POC`). No new credential is requested. **This is the owner's authorisation, not sponsor permission.** Any sponsor-specific permission for hosted-origin use, and source-IP allow-listing, are **UNVERIFIED** (Q-020 parts 2 and 6). A provider 401/403 or a refused connection on the first call is treated as that permission being absent: stop and roll back to Mock |
 
 Not authorised by this record: G3a, G3b, G3c and G4; any AWS, host or production change; image publication; GoldTier calls; commit, push, PR or merge.
+
+## D-132 - R2.1 hosted assistant case eligibility (RD-1): an exact approved case list and a creation cutoff (OWNER-DIRECTED 2026-11-13)
+
+Number note: drafted as D-128 on 2026-11-13, when the last number on `origin/main` (b7cb6a7) was D-126.
+PR #178 (3f9f6f4) then used D-127 (dashboard SLA) and D-128 (dashboard AI insights). D-129 and D-130
+are reserved for the hosted Claude work (R2.2) and D-131 for the GoldTier R3 secure-egress
+documentation (PR #177), so this decision is D-132 (no change of substance). Earlier R2.1
+handoffs and evidence that say "D-128" for the case gate mean this decision.
+
+Dashboard insights (D-128) on the hosted service: the hosting layer refuses the insights route
+outright (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`) before any session, origin or route check, so no
+model is reached there; the browser hides the panel (D-128 I5).
+
+Status: owner-directed on 2026-11-13 for the R2.1 assistant-only release (approvals A1 to A4 on
+the RD-1 I-0 finding). Authority: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. It applies only
+when the hosted service (`assistant_hosting`) is running. Local and development use are
+unchanged, and so are D-095, D-099, D-107 and D-126. It does not enable hosted inference.
+
+| # | Decision |
+| --- | --- |
+| E1 | **Backend first.** The backend's 401, 404, roles and team scope are unchanged. The gate runs only on a case summary the backend returned to this user. |
+| E2 | **Exact approved cases.** The summary's own `case.case_id` must equal the requested id, and `sha256(case_id)[:12]` must be in `ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS`. |
+| E3 | **Created before the cutoff.** `case.created_at` must be timezone-aware and strictly before `ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE` (UTC). |
+| E4 | **ACRA in MOCK.** `case.entity.source` must be `ACRA` / `MOCK`; a missing entity or source refuses. |
+| E5 | **Marketplace tokens refuse.** The exact tokens `ACRA_API_MARKETPLACE_MOCK` and `api_marketplace_mock` refuse. Their absence is not treated as provenance. |
+| E6 | **Not provenance.** `registry_evidence_binding` is not required, and `freshness_policy_id` is not a provenance marker; either lane can produce both. |
+| E7 | **Refusal.** `403 ASSISTANT_CASE_NOT_ELIGIBLE` ("The assistant is not available for this case."), raised in the one `load_case()` every case-bearing route uses, before any context, answer, conversation, feedback or view record is written. The reason is logged with the case reference only. |
+| E8 | **Startup.** A missing value gives `CASE_ELIGIBILITY_REQUIRED`. A malformed or duplicate reference, or a cutoff that is not UTC, gives `CASE_ELIGIBILITY_INVALID`. Either exits with code 78. The overlay requires both values, with no fallback. |
+
+Basis (I-0 finding, `outputs/rd1-assistant-eligibility-20261113/RD1_I0_FINDING.md`): the browser
+summary cannot tell Mock ACRA from ACRA Marketplace Mock. Both serve ACRA / MOCK, and the
+data-set namespace is dropped in `OnboardingCaseResponse.from_domain`. So Marketplace exclusion
+rests on E2 and E3. **This is a bounded FYP POC rule, not a general source-provenance check.**
+
+Approved references: `0ff73a514d12`, `125743b9c5e0`, `fa1aab4d6f68`. The cutoff
+`2026-11-12T05:07:25Z` is provisional, for local implementation and tests only.
+
+Open before the R2.1 AWS release: the release lead must verify, read-only on the host, that the
+backend ran `acra_connector_mode=mock` up to the cutoff, and must confirm the exact creation
+boundary. If either cannot be established, the release stops; the rule is not weakened. No ACRA
+window that can create cases runs before R2.1 is deployed and accepted.
+
+Side effect: `ai_assistant/main.py` is a model-qualification basis file, so the local paid-model
+qualification basis changes. Local Claude or GPT-OSS use from a checkout with this change needs
+requalification first; the hosted service has no model.

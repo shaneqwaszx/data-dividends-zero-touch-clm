@@ -30,7 +30,7 @@ from ai_assistant.llm import LlmUnavailableError, ModelAnswer
 from ai_assistant.main import create_app
 from ai_assistant.model_catalog import load_catalogue
 from ai_assistant.model_qualification import ASSISTANT_DIR
-from assistant_hosting import backup, probe, profile, run
+from assistant_hosting import backup, eligibility, probe, profile, run
 from assistant_hosting.guard import ADMIN_CHANGES, ADMIN_PREFIX
 from assistant_hosting.harden import harden
 from assistant_hosting.profile import NO_MODEL_NAME, NO_MODEL_URL, refusals
@@ -46,6 +46,11 @@ PROFILES = ASSISTANT_DIR / "deploy" / "model_profiles.hosted.json"
 CADDYFILE = ASSISTANT_DIR / "deploy" / "Caddyfile.candidate"
 SHARED_CADDYFILE = ASSISTANT_DIR.parent.parent / "deploy" / "Caddyfile"
 COMPOSE = ASSISTANT_DIR / "deploy" / "compose.assistant.yml"
+# RD-1: the hosted service needs its approved case list; here, the fixture case is the one.
+ELIGIBLE = {
+    eligibility.REFS_VARIABLE: eligibility.case_ref(CASE_ID),
+    eligibility.CUTOFF_VARIABLE: "2026-11-12T05:07:25Z",
+}
 
 
 def actor(user: str, role: str, team: str, *capabilities: str) -> dict[str, Any]:
@@ -161,12 +166,12 @@ def knowledge(settings: AiAssistantSettings) -> KnowledgeBase:
 
 def service(root: Path, clm: Clm, **overrides: Any) -> TestClient:
     settings = hosted_settings(root, **overrides)
-    assert refusals(settings, {}, env_files=no_files()) == []
+    assert refusals(settings, ELIGIBLE, env_files=no_files()) == []
     kb = knowledge(settings)
     ingest_guidance(kb)
     transport = httpx.MockTransport(clm.handler)
     app = create_app(settings, clm_transport=transport, knowledge=kb)
-    harden(app, settings, transport=transport)
+    harden(app, settings, environ=ELIGIBLE, transport=transport)
     return TestClient(
         app, base_url="http://clm-assistant-proxy:8100", raise_server_exceptions=False
     )
@@ -199,7 +204,7 @@ def test_the_compose_environment_is_a_valid_stage_a_configuration(tmp_path: Path
     assert f"AI_ASSISTANT_LLM_BASE_URL: {NO_MODEL_URL}" in text
     assert f"AI_ASSISTANT_LLM_MODEL: {NO_MODEL_NAME}" in text
     assert f"AI_ASSISTANT_CLM_BACKEND_URL: {BACKEND}" in text
-    assert refusals(hosted_settings(tmp_path), {}, env_files=no_files()) == []
+    assert refusals(hosted_settings(tmp_path), ELIGIBLE, env_files=no_files()) == []
 
 
 @pytest.mark.parametrize(
@@ -233,7 +238,7 @@ def test_the_compose_environment_is_a_valid_stage_a_configuration(tmp_path: Path
 def test_a_setting_that_could_open_a_remote_path_stops_the_service(
     tmp_path: Path, overrides: dict[str, Any], code: str
 ) -> None:
-    assert code in refusals(hosted_settings(tmp_path, **overrides), {}, env_files=no_files())
+    assert code in refusals(hosted_settings(tmp_path, **overrides), ELIGIBLE, env_files=no_files())
 
 
 @pytest.mark.parametrize(
@@ -248,7 +253,9 @@ def test_a_setting_that_could_open_a_remote_path_stops_the_service(
 def test_a_key_or_proxy_in_the_environment_stops_the_service(
     tmp_path: Path, variable: str, code: str
 ) -> None:
-    found = refusals(hosted_settings(tmp_path), {variable: "value"}, env_files=no_files())
+    found = refusals(
+        hosted_settings(tmp_path), {**ELIGIBLE, variable: "value"}, env_files=no_files()
+    )
     assert found == [code]
 
 
@@ -263,7 +270,7 @@ def test_a_refusal_never_contains_the_value(tmp_path: Path) -> None:
 def test_an_env_file_stops_the_service(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text("X=1\n", encoding="utf-8")
-    found = refusals(hosted_settings(tmp_path), {}, env_files=(env_file,))
+    found = refusals(hosted_settings(tmp_path), ELIGIBLE, env_files=(env_file,))
     assert found == ["ENV_FILE_REFUSED"]
 
 
@@ -274,7 +281,7 @@ def test_a_profiles_file_that_lists_a_model_stops_the_service(tmp_path: Path) ->
         encoding="utf-8",
     )
     settings = hosted_settings(tmp_path, model_profiles_file=str(listed))
-    assert refusals(settings, {}, env_files=no_files()) == ["EMPTY_PROFILES_FILE_REQUIRED"]
+    assert refusals(settings, ELIGIBLE, env_files=no_files()) == ["EMPTY_PROFILES_FILE_REQUIRED"]
 
 
 def test_the_shipped_profiles_file_is_valid_and_lists_only_the_fixed_entries(

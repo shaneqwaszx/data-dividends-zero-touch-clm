@@ -1,5 +1,7 @@
 """What the hosted service adds to the existing one, without changing any route, gate or answer."""
 
+import os
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI
@@ -7,12 +9,25 @@ from fastapi.responses import JSONResponse
 
 from ai_assistant.config import AiAssistantSettings
 
+from .eligibility import CaseGate
 from .guard import HostedGuard
 from .profile import limits
 from .readiness import Readiness
 
 
-def harden(app: FastAPI, settings: AiAssistantSettings, **readiness: Any) -> FastAPI:
+def harden(
+    app: FastAPI,
+    settings: AiAssistantSettings,
+    *,
+    environ: Mapping[str, str] | None = None,
+    **readiness: Any,
+) -> FastAPI:
+    # RD-1: every case the assistant loads must be an approved one (load_case in
+    # ai_assistant.main). Malformed settings raise here; refusals() stops them before this.
+    app.state.case_gate = CaseGate.from_env(os.environ if environ is None else environ)
+    # PR #178 dashboard insights: the route refuses itself on the hosted service, whatever
+    # reaches it (the guard refuses it first; QG F-1). No model is selected or called.
+    app.state.dashboard_insights_disabled = True
     selector = app.state.model_selector
     checks = Readiness(
         settings,
