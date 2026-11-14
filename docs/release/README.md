@@ -2,8 +2,9 @@
 
 An Actions-independent release toolchain for the single-host AWS demo. **Implemented and
 tested locally against mocks; never run against the host or the registry; changes no existing
-owner gate. The one independent review returned FAIL; its findings were addressed but the fixes
-are not independently re-reviewed, so this is not yet cleared for use.**
+owner gate. It has been through three independent reviews (FAIL, PASS WITH NOTES, FAIL), each followed
+by fixes; see `TEST_EVIDENCE_AND_LIMITATIONS.md` section 4 for exactly which commit each
+verdict applies to. It is not cleared for use against the host or the registry.**
 
 | Document | What it is for |
 |---|---|
@@ -16,6 +17,7 @@ are not independently re-reviewed, so this is not yet cleared for use.**
 | [PIPELINE_HOW_TO_USE_AND_MAINTAIN.md](PIPELINE_HOW_TO_USE_AND_MAINTAIN.md) | Section to paste into an engineering handoff |
 | [TEST_EVIDENCE_AND_LIMITATIONS.md](TEST_EVIDENCE_AND_LIMITATIONS.md) | What was run, the counts, the independent review, what is not proven |
 | [INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md) | The independent review of the first candidate, unedited. Verdict: **FAIL**. The fixes made afterwards are not re-reviewed |
+| [N1_N2_INDEPENDENT_REVIEW_20261114.md](N1_N2_INDEPENDENT_REVIEW_20261114.md) | The independent review of the interrupted-rollback change (`37f3aa6`), unedited. Verdict: **FAIL** (N1 and N2 fixed; one new P1 in `recover`). What was done about it: evidence document section 4.3 |
 
 | Artefact | Path |
 |---|---|

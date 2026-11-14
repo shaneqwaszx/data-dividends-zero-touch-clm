@@ -242,12 +242,23 @@ back. `accept` refuses until the state is verified.
    `ROLLED_BACK` (every service healthy on its previous image, public `/health` 200) or
    `DEPLOYED_AWAITING_ACCEPTANCE` (every service healthy on this release's image, `/health`
    200 and the release's smoke requests as expected; owner browser acceptance is still
-   required). Exit code 2 means the state could not be established: the record stays
-   `ROLLBACK_INTERRUPTED`, host state `unknown`. Unknown is never turned into success.
-4. If it stays unknown, the owner chooses:
+   required). The second is only possible for a release that was awaiting acceptance when
+   its first rollback began.
+
+   Exit code 2 means one of:
+   - the state could not be established: the record becomes (or stays)
+     `ROLLBACK_INTERRUPTED`, host state `unknown`. Unknown is never turned into success;
+   - the host is healthy on this release's images, but the release's own deployment had
+     stopped on a failure, or its acceptance had failed: the record is `FAILED_HELD`
+     (`rollback.status: RECOVERED_ON_RELEASE_NOT_ACCEPTABLE`). **Read the original
+     `stop_code` in the record.** Such a release cannot be accepted, whatever `recover`
+     sees. The owner chooses another rollback attempt or a new release.
+4. If it stays unknown or held, the owner chooses:
    - **Try the rollback again**: a new `rollback` approval (each attempt needs its own), then
      `release.ps1 rollback ... --execute`. A line of `compose.env` that already shows the
-     previous pin is accepted; the stops and recreates are repeated and verified.
+     previous pin is accepted; a line still on the release is changed back for every service
+     of the release, including one that was pinned but never applied; the stops and recreates
+     are repeated and verified.
    - **Recover by hand** following `deploy/LIGHTSAIL_RUNTIME.md` (start order: Mongo, backend,
      assistant, frontend; never `down`, never a volume removal), then run `recover` again so
      the record reflects what was verified.

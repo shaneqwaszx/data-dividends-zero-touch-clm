@@ -234,7 +234,7 @@ public `/health` returns 200.
 | Approval expired after a container changed | `FAILED_HELD` | Stopped before the next change; no rollback |
 | Approval expired after the `compose.env` edit, before any container changed | `FAILED_NO_CHANGE` | `compose.env` restored |
 | Deployment interrupted by something Python can catch (Ctrl-C, an unexpected error), outside a rollback | `FAILED_HELD` if the host was touched, else `FAILED_NO_CHANGE`; the error is re-raised | Unverified. The record holds the backup path, the previous pins and the services already applied |
-| Rollback interrupted (automatic or owner-requested), by anything Python can catch | `ROLLBACK_INTERRUPTED`, host state `unknown`; the error is re-raised | Unknown. The journal names the step that was running. Never reported as rolled back |
+| Rollback interrupted (automatic or owner-requested), by anything Python can catch | `ROLLBACK_INTERRUPTED`, host state `unknown`; the error is re-raised. In three narrow windows (while the interrupted record itself is being written, or on the lock-release command after the last step) the record instead stays `ROLLBACK_IN_PROGRESS`, or is `FAILED_HELD`; none of these is acceptable and none says "rolled back" | Unknown. The journal names the step that was running. Never reported as rolled back |
 | The tool dies during a rollback with no handler (kill, power loss) | The record already on disk: `ROLLBACK_IN_PROGRESS` | Unknown. Treated exactly like `ROLLBACK_INTERRUPTED` |
 | A rollback step fails, or its final verification fails | `FAILED_HELD` with `rollback.status: FAILED` | Whatever the failed step left; `ingress_stopped` says whether the site may be down. The previous service is **not** confirmed restored |
 
@@ -285,9 +285,20 @@ changes nothing.
             +--------------------------------+-----------+---------------------+
             | verified on previous images    | verified on release images      | anything else,
             v                                v and smoke as expected           v or host unreadable
-        ROLLED_BACK              DEPLOYED_AWAITING_ACCEPTANCE          ROLLBACK_INTERRUPTED
-                                 (acceptance still required)           (unknown stays unknown)
+        ROLLED_BACK              was the release awaiting acceptance    ROLLBACK_INTERRUPTED
+                                 when its FIRST rollback began?         (unknown stays unknown)
+                                   | yes                    | no (its deployment stopped on a
+                                   v                        v  failure, or acceptance failed)
+                     DEPLOYED_AWAITING_ACCEPTANCE       FAILED_HELD
+                     (acceptance still required)        (never acceptable; rollback again
+                                                         or a new release)
 ```
+
+`DEPLOYED_AWAITING_ACCEPTANCE` is reached only by a deployment that passed its own full
+post-deploy verification. `recover` can return a release to it only if the release was in that
+state when its first rollback attempt began (`state_before_rollback`, recorded once and kept
+across attempts). A deployment that stopped on a stop condition, or whose acceptance failed,
+can never become acceptable through `recover`, however healthy the host looks.
 
 Rules the code enforces:
 
@@ -295,11 +306,18 @@ Rules the code enforces:
   replaced and before `compose.env` is touched for the rollback. If that record cannot be
   written, the rollback does not start (`FAILED_HELD`, "rollback was not started").
 - Each rollback step is appended to `rollback-journal.jsonl` and to the latest record
-  **before** it is issued (`STARTED`), then marked `DONE`. A step that may stop ingress sets
-  `ingress_may_be_stopped` before the command is sent. So the record never under-reports by a
-  step.
+  **before** it is issued (`STARTED`), then marked `DONE`. A step that may stop ingress
+  (stopping it, starting it, or recreating the frontend, which is the ingress) sets
+  `ingress_may_be_stopped` before the command is sent, so within a rollback the flag does not
+  lag the host by a step. The deployment path before any rollback still sets its flags after a
+  command returns.
+- The state files are written by write-then-rename with a flush to disk. On Windows the
+  rename can briefly fail with "Access is denied" while another process holds the file; it is
+  retried for about two seconds. If it still fails, the step is not taken and the rollback
+  ends `FAILED_HELD`.
 - A rollback is `ROLLED_BACK` only after every service is confirmed healthy on its previous
-  image and public `/health` returns 200. An interrupt, an unexpected error, a failed step or
+  image, every image line of the release in `compose.env` shows its previous pin (including a
+  service that was pinned but never applied), and public `/health` returns 200. An interrupt, an unexpected error, a failed step or
   an unreadable host can never produce `ROLLED_BACK`, and no record says the previous service
   was restored unless that was verified.
 - `accept` refuses (`ROLLBACK_INCOMPLETE`) while the latest record is `ROLLBACK_IN_PROGRESS` or

@@ -714,3 +714,338 @@ def test_automatic_rollback_runs_while_the_host_lock_is_still_held(tmp_path: Pat
     world.on_command = lock_during_rollback
     assert deploy.run(ctx)["state"] == records.ROLLED_BACK
     assert held == [True] and world.host_lock is False
+
+
+# =============================================================================================
+# Review of 37f3aa6 (N1_N2_INDEPENDENT_REVIEW.md): findings 1 to 4 and its uncovered mutants
+# =============================================================================================
+
+
+def recover_now(
+    ctx: Any, world: FakeWorld, tmp_path: Path, manifest: dict[str, Any]
+) -> dict[str, Any]:
+    return deploy.recover(
+        reader(ctx, world, tmp_path),
+        manifest["release_id"],
+        recovered_by="operator",
+        interactive=True,
+    )
+
+
+def refuse_accept(ctx: Any, manifest: dict[str, Any]) -> str:
+    with pytest.raises(StopCondition) as refused:
+        deploy.accept(ctx.store, manifest, passed=True, accepted_by="owner", interactive=True)
+    return refused.value.code
+
+
+# -- finding 1 (P1): recover never makes a failed deployment or failed acceptance acceptable ---
+
+
+@pytest.mark.parametrize(
+    ("knob", "value", "stop_code"),
+    [
+        ("extra_backend", True, "SECOND_BACKEND"),
+        ("volume_changes_after_up", True, "VOLUME_IDENTITY_CHANGED"),
+        ("restarts_after_up", 3, "HEALTH_CHECK_FAILED"),
+    ],
+)
+def test_recover_keeps_a_deployment_that_stopped_on_a_stop_condition_held(
+    tmp_path: Path, knob: str, value: Any, stop_code: str
+) -> None:
+    manifest = make_manifest(["backend"], automatic={"backend": True})
+    world = FakeWorld(manifest)
+    setattr(world, knob, value)
+    world.restore_fails = True  # the automatic rollback fails at its first step
+    ctx, world = make_context(manifest, tmp_path, world=world)
+    outcome = deploy.run(ctx)
+    assert outcome["state"] == records.FAILED_HELD and outcome["stop_code"] == stop_code
+    assert outcome["state_before_rollback"] == deploy.DEPLOYMENT_STOPPED
+    world.containers["frontend"].running = True  # ingress started by hand, as the runbook allows
+    world.containers["backend"].restarts = 0
+    recovered = recover_now(ctx, world, tmp_path, manifest)
+    assert recovered["recovery_attempts"][-1]["services"]["backend"]["position"] == "release"
+    assert recovered["state"] == records.FAILED_HELD, "healthy on the release is not acceptable"
+    assert recovered["rollback"]["status"] == "RECOVERED_ON_RELEASE_NOT_ACCEPTABLE"
+    assert (
+        stop_code in recovered["held_reason"] and "cannot be accepted" in recovered["held_reason"]
+    )
+    assert refuse_accept(ctx, manifest) == "ACCEPTANCE_NOT_PENDING"
+    assert ctx.store.known_good() is None
+    assert records.DEPLOYED_AWAITING_ACCEPTANCE not in result_states(ctx, manifest)
+
+
+def test_recover_never_turns_a_failed_acceptance_into_an_acceptable_release(tmp_path: Path) -> None:
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    deploy.accept(ctx.store, manifest, passed=False, accepted_by="owner", interactive=True)
+    ctx.approval = rollback_approval(manifest, "130000")
+    interrupt(world, lambda c: " sed -i " in c.argv[-1], KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    assert latest(ctx, manifest)["state_before_rollback"] == records.ACCEPTANCE_FAILED
+    recovered = recover_now(ctx, world, tmp_path, manifest)
+    assert recovered["state"] == records.FAILED_HELD
+    assert "ACCEPTANCE_FAILED" in recovered["held_reason"]
+    assert (
+        refuse_accept(ctx, manifest) == "ACCEPTANCE_NOT_PENDING" and ctx.store.known_good() is None
+    )
+    ctx.approval = rollback_approval(manifest, "130500")
+    assert deploy.manual_rollback(ctx, manifest["release_id"])["state"] == records.ROLLED_BACK
+
+
+def test_the_origin_state_survives_repeated_attempts(tmp_path: Path) -> None:
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    for issued in ("131000", "131500"):
+        ctx.approval = rollback_approval(manifest, issued)
+        interrupt(world, lambda c: " up " in c.argv[-1], KeyboardInterrupt)
+        with pytest.raises(KeyboardInterrupt):
+            deploy.manual_rollback(ctx, manifest["release_id"])
+        record = latest(ctx, manifest)
+        assert record["state_before_rollback"] == records.DEPLOYED_AWAITING_ACCEPTANCE
+    assert len(record["rollback_history"]) == 1 and record["rollback"]["attempt"] == 2
+
+
+# -- finding 2 (P2): a transient sharing violation on the state file is retried ---------------
+
+
+def test_state_file_rename_is_retried_after_a_transient_access_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.release import core
+
+    real, failures = Path.replace, {"left": 3}
+
+    def flaky(self: Path, target: Any) -> Any:
+        if failures["left"]:
+            failures["left"] -= 1
+            raise PermissionError(13, "Access is denied")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky)
+    monkeypatch.setattr(core.time, "sleep", lambda seconds: None)
+    core.write_json(tmp_path / "result.json", {"state": "ok"})
+    assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8")) == {"state": "ok"}
+    assert failures["left"] == 0
+    failures["left"] = 10_000
+    with pytest.raises(PermissionError):
+        core.write_json(tmp_path / "result.json", {"state": "never"})
+    assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8")) == {"state": "ok"}
+
+
+def test_a_rollback_survives_transient_state_file_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.release import core
+
+    real, calls = Path.replace, {"n": 0}
+
+    def every_third_fails(self: Path, target: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] % 3 == 0:
+            raise PermissionError(13, "Access is denied")
+        return real(self, target)
+
+    ctx, world, manifest = failing_release(tmp_path, ["backend", "frontend"])
+    monkeypatch.setattr(Path, "replace", every_third_fails)
+    monkeypatch.setattr(core.time, "sleep", lambda seconds: None)
+    outcome = deploy.run(ctx)
+    assert outcome["state"] == records.ROLLED_BACK and calls["n"] > 6
+    assert all(c.running and c.health == "healthy" for c in world.containers.values())
+
+
+# -- finding 3 (P2): a service that was pinned but never applied is unpinned too --------------
+
+
+def partly_applied(tmp_path: Path) -> tuple[Any, FakeWorld, dict[str, Any]]:
+    """Backend + frontend release; the backend comes up unhealthy, so only it was applied while
+    both lines of compose.env already pin the release. The automatic rollback then fails."""
+
+    manifest = make_manifest(["backend", "frontend"], automatic={"backend": True})
+    world = FakeWorld(manifest)
+    world.unhealthy_after_up = {"backend"}
+    world.restore_fails = True
+    ctx, world = make_context(manifest, tmp_path, world=world)
+    outcome = deploy.run(ctx)
+    assert outcome["state"] == records.FAILED_HELD and outcome["applied"] == ["backend"]
+    assert world.env["FRONTEND_IMAGE"] == new_reference(manifest, "frontend")
+    world.unhealthy_after_up, world.restore_fails = set(), False
+    return ctx, world, manifest
+
+
+def test_owner_rollback_of_a_partly_applied_release_restores_every_pin(tmp_path: Path) -> None:
+    ctx, world, manifest = partly_applied(tmp_path)
+    ctx.approval = rollback_approval(manifest, "132000")
+    rolled = deploy.manual_rollback(ctx, manifest["release_id"])
+    assert rolled["state"] == records.ROLLED_BACK
+    assert world.env["BACKEND_IMAGE"] == OLD["backend"]
+    assert world.env["FRONTEND_IMAGE"] == OLD["frontend"], (
+        "the never-applied service is unpinned too"
+    )
+    assert world.containers["frontend"].container_id == "frontend-c0", "and was not recreated"
+    assert "pin frontend back to its previous image" in journal(ctx, manifest)
+    assert all(c.running and c.health == "healthy" for c in world.containers.values())
+
+
+def test_rollback_is_not_verified_while_any_release_pin_remains(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx, world, manifest = partly_applied(tmp_path)
+
+    def unpin_the_backend_only(ctx_: Any, state: Any, touched: set[str], *, retry: bool) -> None:
+        world.env["BACKEND_IMAGE"] = OLD["backend"]  # the frontend line is left on the release
+
+    monkeypatch.setattr(deploy, "_unpin", unpin_the_backend_only)
+    ctx.approval = rollback_approval(manifest, "132500")
+    outcome = deploy.manual_rollback(ctx, manifest["release_id"])
+    assert outcome["state"] == records.FAILED_HELD, (
+        "a leftover release pin is not a verified rollback"
+    )
+    assert outcome["rollback"]["failure"]["message"] == (
+        "frontend: compose.env does not show the previous image pin"
+    )
+
+
+# -- finding 4 (P2): recreating the frontend may stop ingress ----------------------------------
+
+
+def test_frontend_recreate_is_flagged_as_possibly_stopping_ingress(tmp_path: Path) -> None:
+    ctx, world, manifest = failing_release(tmp_path, ["frontend"])
+    flags: list[bool] = []
+
+    def flag_at_the_up(command: Command) -> None:
+        if in_rollback(world) and " up " in command.argv[-1]:
+            flags.append(latest(ctx, manifest)["rollback"]["ingress_may_be_stopped"])
+            world.up_fails = {"frontend"}
+
+    world.on_command = flag_at_the_up
+    outcome = deploy.run(ctx)
+    assert flags == [True], "on disk before the command is sent"
+    assert outcome["state"] == records.FAILED_HELD and outcome["ingress_stopped"] is True
+    assert outcome["rollback"]["ingress_may_be_stopped"] is True
+
+
+def test_failed_owner_requested_rollback_reports_that_ingress_may_be_stopped(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = deployed(tmp_path, ["backend"])
+    ctx.approval = rollback_approval(manifest, "133000")
+    world.up_fails = {"backend"}
+    outcome = deploy.manual_rollback(ctx, manifest["release_id"])
+    assert outcome["state"] == records.FAILED_HELD and outcome["ingress_stopped"] is True
+    assert not world.containers["frontend"].running
+    assert "NOT confirmed restored" in outcome["held_reason"]
+
+
+# -- uncovered mutants named by the review -----------------------------------------------------
+
+
+def rolled_back_but_unrecorded(tmp_path: Path) -> tuple[Any, FakeWorld, dict[str, Any]]:
+    ctx, world, manifest = failing_release(tmp_path, ["backend", "frontend"])
+    interrupt(world, lambda c: in_rollback(world) and c.argv[0] == "curl", Killed)
+    with pytest.raises(Killed):
+        deploy.run(ctx)
+    world.smoke.clear()
+    return ctx, world, manifest
+
+
+@pytest.mark.parametrize("fault", ["other-container-down", "public-health", "pin-only"])
+def test_recover_does_not_report_rolled_back_unless_everything_is_verified(
+    tmp_path: Path, fault: str
+) -> None:
+    ctx, world, manifest = rolled_back_but_unrecorded(tmp_path)
+    if fault == "other-container-down":
+        world.containers["assistant"].running = False
+    elif fault == "public-health":
+        world.smoke["/health"] = "503"
+    else:  # compose.env shows the previous pin but the container still runs the release image
+        world.containers["backend"].image = world.images[new_reference(manifest, "backend")]
+    outcome = recover_now(ctx, world, tmp_path, manifest)
+    assert outcome["state"] == records.ROLLBACK_INTERRUPTED
+    assert outcome["rollback"]["host_state"] == "unknown"
+    assert refuse_accept(ctx, manifest) == "ROLLBACK_INCOMPLETE"
+
+
+def test_recover_applies_to_a_failed_rollback_and_unknown_becomes_interrupted(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = failing_release(tmp_path, ["backend", "frontend"])
+
+    def backend_fails(command: Command) -> None:
+        if restore_command(command):
+            world.up_fails = {"backend"}
+
+    world.on_command = backend_fails
+    held = deploy.run(ctx)
+    assert held["state"] == records.FAILED_HELD and held["rollback"]["status"] == "FAILED"
+    outcome = recover_now(ctx, world, tmp_path, manifest)
+    assert outcome["state"] == records.ROLLBACK_INTERRUPTED, "unknown is its own recorded state"
+    assert (
+        outcome["rollback"]["status"] == "FAILED" and outcome["rollback"]["host_state"] == "unknown"
+    )
+
+
+def test_retry_is_allowed_from_a_stale_in_progress_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx, world, manifest = failing_release(tmp_path, ["frontend"])
+    interrupt(world, lambda c: in_rollback(world) and " up " in c.argv[-1], Killed)
+    real = deploy._interrupted
+
+    def no_handler(state: Any, crash: BaseException) -> dict[str, Any]:
+        raise Killed()
+
+    monkeypatch.setattr(deploy, "_interrupted", no_handler)
+    with pytest.raises(Killed):
+        deploy.run(ctx)
+    monkeypatch.setattr(deploy, "_interrupted", real)
+    assert latest(ctx, manifest)["state"] == records.ROLLBACK_IN_PROGRESS
+    world.smoke.clear()
+    ctx.approval = rollback_approval(manifest, "134000")
+    retried = deploy.manual_rollback(ctx, manifest["release_id"])
+    assert retried["state"] == records.ROLLED_BACK and retried["rollback"]["attempt"] == 2
+    assert retried["rollback_history"][0]["status"] == "IN_PROGRESS", "the stale attempt is kept"
+
+
+def test_a_stop_while_handling_a_stop_marks_the_running_rollback_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx, world, manifest = failing_release(tmp_path, ["frontend"])
+
+    def begin_then_escape(ctx_: Any, state: Any, stop: StopCondition) -> dict[str, Any]:
+        deploy._begin_rollback(ctx_, state, "automatic")
+        raise StopCondition("APPROVAL_EXPIRED", "window ended while rolling back")
+
+    monkeypatch.setattr(deploy, "_stopped", begin_then_escape)
+    outcome = deploy.run(ctx)
+    assert outcome["state"] == records.FAILED_HELD
+    assert outcome["rollback"]["status"] == "FAILED"
+    assert outcome["rollback"]["failure"]["code"] == "APPROVAL_EXPIRED"
+    assert refuse_accept(ctx, manifest) == "ROLLBACK_INCOMPLETE"
+
+
+def test_the_in_progress_record_exists_before_the_rollback_approval_is_consumed(
+    tmp_path: Path,
+) -> None:
+    ctx, world, manifest = deployed(tmp_path, ["frontend"])
+    ctx.approval = rollback_approval(manifest, "135000")
+    seen: list[str] = []
+    real_consume = ctx.store.consume_approval
+
+    def consume(approval_id: str, action: str) -> None:
+        seen.append(latest(ctx, manifest)["state"])
+        raise KeyboardInterrupt()
+
+    ctx.store.consume_approval = consume  # type: ignore[method-assign]
+    with pytest.raises(KeyboardInterrupt):
+        deploy.manual_rollback(ctx, manifest["release_id"])
+    ctx.store.consume_approval = real_consume  # type: ignore[method-assign]
+    assert seen == [records.ROLLBACK_IN_PROGRESS]
+    record = latest(ctx, manifest)
+    assert record["state"] == records.ROLLBACK_INTERRUPTED, "recorded, not left in progress"
+    assert world.host_lock is False and world.env["FRONTEND_IMAGE"] != OLD["frontend"]
+
+
+def test_recovered_record_does_not_keep_a_contradicting_failure_text(tmp_path: Path) -> None:
+    ctx, world, manifest = rolled_back_but_unrecorded(tmp_path)
+    recovered = recover_now(ctx, world, tmp_path, manifest)
+    assert recovered["state"] == records.ROLLED_BACK and "held_reason" not in recovered
+    assert "UNKNOWN" in recovered["held_reason_before_recovery"], "kept as evidence, relabelled"

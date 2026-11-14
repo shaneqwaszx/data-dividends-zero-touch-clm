@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -71,12 +72,19 @@ class StateStore:
 
         directory = self.release_dir(release_id)
         line = json.dumps({**entry, "at": format_utc(self.clock())}, sort_keys=True)
-        with (directory / "rollback-journal.jsonl").open(
-            "a", encoding="utf-8", newline="\n"
-        ) as handle:
-            handle.write(line + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        for attempt in range(40):  # same transient Windows sharing violation as write_json
+            try:
+                with (directory / "rollback-journal.jsonl").open(
+                    "a", encoding="utf-8", newline="\n"
+                ) as handle:
+                    handle.write(line + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                break
+            except PermissionError:
+                if attempt == 39:
+                    raise
+                time.sleep(0.05)
         latest = directory / "result.json"
         if latest.exists():
             current = read_json(latest)

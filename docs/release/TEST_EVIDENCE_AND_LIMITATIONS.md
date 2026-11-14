@@ -9,7 +9,7 @@
 
 ## 1. Automated tests (`tests/release`)
 
-`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **283 passed, 1 skipped** (6 test files, 184 test functions; the count includes parametrised cases).
+`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **302 passed, 1 skipped** (6 test files, 203 test functions; the count includes parametrised cases).
 The one skipped test is the opt-in Windows Credential Manager round trip
 (`CLM_RELEASE_WINCRED_SELFTEST=1`); it was run once by hand and passed (it writes and removes
 one throwaway entry holding a sentinel value).
@@ -153,7 +153,34 @@ rollback approval, the early ingress flag, both `recover` conditions, the lock s
 retry rule): **16 of 16 killed** by `tests/release`. This is a targeted check written by the
 implementer, not a repeat of either reviewer's mutation run.
 
-@@REVIEW3@@
+### 4.3 Independent review of the N1/N2 change, and what was done about it
+
+A third fresh reviewer reviewed commit `37f3aa6835c894d6efbe3fbff0a9bbf9a863008c` (tree
+`7dcf54de74e1e8e7c402ad413cc9da435fdb791e`): **FAIL**. N1 and N2 were confirmed **fixed**
+(378 automatic-rollback and 666 owner-requested-rollback interruption cases probed), but the
+new `recover` step introduced one P1, and there were three P2 and seven P3 findings. The
+report is reproduced **unedited** in
+[N1_N2_INDEPENDENT_REVIEW_20261114.md](N1_N2_INDEPENDENT_REVIEW_20261114.md).
+
+| Finding | What was done | Tests |
+|---|---|---|
+| 1 (P1) `recover` could return a deployment that stopped on a stop condition, or whose acceptance failed, to `DEPLOYED_AWAITING_ACCEPTANCE`, and `accept` then passed | The release's state when its first rollback began is recorded once (`state_before_rollback`) and kept across attempts. `recover` returns a release to awaiting acceptance only if it was in that state then; otherwise a host verified on the release is recorded `FAILED_HELD` / `RECOVERED_ON_RELEASE_NOT_ACCEPTABLE` and `accept` refuses | `test_recover_keeps_a_deployment_that_stopped_on_a_stop_condition_held` (3), `test_recover_never_turns_a_failed_acceptance_into_an_acceptable_release`, `test_the_origin_state_survives_repeated_attempts` |
+| 2 (P2) a transient Windows "Access is denied" on the state-file rename aborted a rollback and made the suite flaky | The rename and the journal append are retried for about two seconds | `test_state_file_rename_is_retried_*`, `test_a_rollback_survives_transient_state_file_failures`. 12 consecutive full runs of `tests/release` after the fix: 12 of 12 passed |
+| 3 (P2) owner rollback of a partly applied release ended `ROLLED_BACK` with a never-applied service still pinned to the release | The owner-requested path now changes back every line of the release that still shows its pin, and the final verification on both paths requires every line to show the previous pin | `test_owner_rollback_of_a_partly_applied_release_restores_every_pin`, `test_rollback_is_not_verified_while_any_release_pin_remains` |
+| 4 (P2, claim) the ingress flag was not set when the frontend itself was recreated | Recreating the frontend sets the flag before the command; the sentence in the architecture document is corrected and scoped to rollback | `test_frontend_recreate_is_flagged_as_possibly_stopping_ingress`, `test_failed_owner_requested_rollback_reports_that_ingress_may_be_stopped` |
+| 5 (P3) stale failure text in a verified record | Moved to `held_reason_before_recovery` | `test_recovered_record_does_not_keep_a_contradicting_failure_text` |
+| 6 (P3) three interrupt windows not ending `ROLLBACK_INTERRUPTED` | The approval is now consumed inside the recorded section. The other windows are unchanged, conservative, and now stated in architecture 3.6 | `test_the_in_progress_record_exists_before_the_rollback_approval_is_consumed` |
+| 7, 8, 9 (P3) host lock leak just after `mkdir`; `compose.env` restored after expiry before the rollback stops; record read before the local lock | Not changed. All predate this change or are conservative; the stale-host-lock step in the runbook covers the first | |
+| 10 (P3) runbook wording | Corrected | |
+| 11 (P3) nine uncovered mutants | Tests added for all nine (M07, M10, M11, M13, M21, M22, M24, M25, M33) | `test_recover_does_not_report_rolled_back_unless_everything_is_verified` (3) and others in the same file |
+
+The reviewer could not reproduce the implementer's earlier "16 of 16 killed" for `recover`'s
+previous-images branch; that claim was too broad (the mutant used made `recover` say "rolled
+back" unconditionally, which is easier to kill than the reviewer's finer mutants). After the
+tests above, the implementer's second spot check (15 mutants: the six fixes above and the nine
+the reviewer named) is 15 of 15 killed. Both are the implementer's own targeted checks.
+
+@@CHECK4@@
 
 
 ## 5. What the evidence does not show

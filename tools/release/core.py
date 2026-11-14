@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -488,7 +489,25 @@ def write_json(path: Path, document: Any) -> None:
         handle.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
         handle.flush()
         os.fsync(handle.fileno())  # on disk before the caller takes its next step
-    temporary.replace(path)
+    replace_with_retry(temporary, path)
+
+
+def replace_with_retry(source: Path, target: Path, attempts: int = 40) -> None:
+    """Rename over the target, retrying a transient Windows sharing violation.
+
+    On Windows another process (an indexer, a virus scanner) can hold the just-written file
+    open for a moment, and the rename then fails with "Access is denied". That is not a reason
+    to abandon a rollback, so it is retried for about two seconds before giving up.
+    """
+
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05)
 
 
 def short(digest: str, length: int = 12) -> str:

@@ -613,6 +613,10 @@ class RunState:
     rollback_history: list[dict[str, Any]] = field(default_factory=list)
     carried: dict[str, Any] = field(default_factory=dict)
     deploy_approval_id: str | None = None
+    # The release's state when its FIRST rollback attempt began. Only a release that was
+    # deployed, verified and awaiting acceptance at that moment can ever be returned to an
+    # acceptable state by ``recover``.
+    state_before_rollback: str | None = None
 
 
 def run(ctx: Context) -> dict[str, Any]:
@@ -658,6 +662,7 @@ def _record(ctx: Context, state: RunState, outcome: dict[str, Any]) -> dict[str,
             "approval_id": state.deploy_approval_id or (ctx.approval or {}).get("approval_id"),
             "rollback": state.rollback,
             "rollback_history": state.rollback_history,
+            "state_before_rollback": state.state_before_rollback,
         }
     )
     ctx.store.write_result(ctx.manifest["release_id"], outcome)
@@ -1162,6 +1167,9 @@ def _stopped(ctx: Context, state: RunState, stop: StopCondition) -> dict[str, An
 # -- rollback bookkeeping ---------------------------------------------------------------------
 
 
+DEPLOYMENT_STOPPED = "DEPLOYMENT_STOPPED"
+
+
 def _begin_rollback(ctx: Context, state: RunState, kind: str) -> None:
     """Write the rollback-in-progress record to disk before any service is stopped or replaced.
 
@@ -1169,6 +1177,9 @@ def _begin_rollback(ctx: Context, state: RunState, kind: str) -> None:
     """
 
     touched = sorted(_touched(ctx, state))
+    if state.state_before_rollback is None:
+        # An automatic rollback only ever follows a deployment that stopped on a failure.
+        state.state_before_rollback = DEPLOYMENT_STOPPED
     state.rollback = {
         "status": "IN_PROGRESS",
         "kind": kind,
@@ -1307,21 +1318,27 @@ def _restore_env(ctx: Context, state: RunState) -> bool:
     return restored.skipped or restored.returncode == 0
 
 
-def _unpin(ctx: Context, state: RunState, services: list[str], *, retry: bool) -> None:
-    """Owner-requested rollback: change back only this release's lines, and only if the host
-    still shows this release's pins. Later edits to compose.env are left alone. On a repeated
-    attempt a line that already shows the previous pin is accepted as done."""
+def _unpin(ctx: Context, state: RunState, touched: set[str], *, retry: bool) -> None:
+    """Owner-requested rollback: change back this release's lines in compose.env.
+
+    Every service of the release is covered, including one that was pinned but never applied,
+    so the file cannot be left pinning the release for a service that runs its previous image.
+    A line is changed only if it still shows this release's pin. A line already showing the
+    previous pin is accepted for a service that was never applied, and for any service on a
+    repeated attempt. Anything else means the host has moved on: nothing is changed. Later
+    edits to other lines are left alone.
+    """
 
     env_file = shlex.quote(ctx.host.profile.compose_env)
     todo: list[str] = []
-    for name in services:
+    for name in [s for s in catalog.ROLLBACK_ORDER if s in ctx.changed]:
         variable = catalog.service(name).image_variable
         assert variable is not None
         new, old = safe(state.references[name]), safe(state.pins_before[name])
         current = ctx.host.env_value(variable)
         if current == new:
             todo.append(name)
-        elif not (retry and current == old):
+        elif not (current == old and (retry or name not in touched)):
             raise StopCondition(
                 "HOST_STATE_UNEXPECTED",
                 f"{name}: compose.env no longer pins this release; nothing was changed",
@@ -1341,6 +1358,18 @@ def _unpin(ctx: Context, state: RunState, services: list[str], *, retry: bool) -
         _step_done(state)
 
 
+def _pins_restored(ctx: Context, state: RunState) -> None:
+    """Part of the final verification: every line of the release shows its previous pin."""
+
+    for name in ctx.changed:
+        variable = catalog.service(name).image_variable
+        assert variable is not None
+        if ctx.host.env_value(variable) != state.pins_before.get(name):
+            raise StopCondition(
+                "ROLLBACK_FAILED", f"{name}: compose.env does not show the previous image pin"
+            )
+
+
 def rollback(ctx: Context, state: RunState, *, manual: bool = False, retry: bool = False) -> None:
     """Return every touched service to its previous image and verify the site is serving.
 
@@ -1356,7 +1385,7 @@ def rollback(ctx: Context, state: RunState, *, manual: bool = False, retry: bool
     assert state.rollback is not None, "the in-progress record must exist before any step"
     touched = _touched(ctx, state)
     if manual:
-        _unpin(ctx, state, [s for s in catalog.ROLLBACK_ORDER if s in touched], retry=retry)
+        _unpin(ctx, state, touched, retry=retry)
     else:
         _intent(ctx, state, "restore compose.env from the backup")
         if not _restore_env(ctx, state):
@@ -1384,7 +1413,7 @@ def rollback(ctx: Context, state: RunState, *, manual: bool = False, retry: bool
         wrapper = ctx.wrapper(name)
         quiet = host.read(host.compose_config_quiet(wrapper), "validate the restored configuration")
         _must(quiet, "the restored configuration is invalid")
-        _intent(ctx, state, f"recreate {name} on its previous image")
+        _intent(ctx, state, f"recreate {name} on its previous image", ingress=name == "frontend")
         result = host.write(
             host.compose_up(wrapper, name),
             f"roll {name} back to its previous image",
@@ -1411,6 +1440,7 @@ def rollback(ctx: Context, state: RunState, *, manual: bool = False, retry: bool
     health = ctx.gate.run(_curl(host.profile.site + "/health", "GET"))
     if health.skipped or health.stdout.strip() != "200":
         raise StopCondition("ROLLBACK_FAILED", "the public health check does not return 200")
+    _pins_restored(ctx, state)
     _others_unchanged(ctx, touched | ({"frontend"} if with_backend else set()))
     _step_done(state)
     state.events.append("rollback verified: every service healthy and the site serving")
@@ -1475,6 +1505,7 @@ def manual_rollback(ctx: Context, release_id: str) -> dict[str, Any]:
         rollback_history=earlier,
         carried=carried,
         deploy_approval_id=previous.get("approval_id"),
+        state_before_rollback=previous.get("state_before_rollback") or previous["state"],
     )
     host = ctx.host
     with ctx.store.lock(release_id):
@@ -1483,11 +1514,11 @@ def manual_rollback(ctx: Context, release_id: str) -> dict[str, Any]:
             raise StopCondition("ROLLBACK_REFUSED", "; ".join(reasons))
         if not _touched(ctx, state):
             raise StopCondition("ROLLBACK_NOT_APPLICABLE", "no service of this release changed")
-        for name in sorted(_touched(ctx, state)):
+        for name in ctx.changed:
             variable = catalog.service(name).image_variable
             assert variable is not None
             allowed = {state.references.get(name)}
-            if retry:
+            if retry or name not in _touched(ctx, state):
                 allowed.add(state.pins_before.get(name))
             if host.env_value(variable) not in allowed:
                 raise StopCondition(
@@ -1504,8 +1535,8 @@ def manual_rollback(ctx: Context, release_id: str) -> dict[str, Any]:
         try:
             # From here the record is not an acceptable deployment, whatever happens next.
             _begin_rollback(ctx, state, "manual")
-            ctx.store.consume_approval(ctx.approval["approval_id"], "rollback")
             try:
+                ctx.store.consume_approval(ctx.approval["approval_id"], "rollback")
                 rollback(ctx, state, manual=True, retry=retry)
             except StopCondition as failure:
                 state.events.append(f"ROLLBACK STOP {failure.code}: {failure.message}")
@@ -1623,14 +1654,37 @@ def recover(
                 ingress_may_be_stopped=False,
             )
             outcome.update(state=records.ROLLED_BACK, ingress_stopped=False)
+            outcome["held_reason_before_recovery"] = outcome.pop("held_reason", None)
         elif positions == {"release"} and others_ok and health_ok and smoke_ok:
-            attempt["conclusion"] = "verified on this release's images; acceptance still needed"
             rollback_block.update(
-                status="RECOVERED_VERIFIED_ON_RELEASE",
-                host_state="verified-on-release-images",
-                ingress_may_be_stopped=False,
+                host_state="verified-on-release-images", ingress_may_be_stopped=False
             )
-            outcome.update(state=records.DEPLOYED_AWAITING_ACCEPTANCE, ingress_stopped=False)
+            if previous.get("state_before_rollback") == records.DEPLOYED_AWAITING_ACCEPTANCE:
+                # The deployment had passed its own full verification before the rollback
+                # was requested, and the host is verified back on it.
+                attempt["conclusion"] = "verified on this release's images; acceptance still needed"
+                rollback_block["status"] = "RECOVERED_VERIFIED_ON_RELEASE"
+                outcome.update(state=records.DEPLOYED_AWAITING_ACCEPTANCE, ingress_stopped=False)
+                outcome["held_reason_before_recovery"] = outcome.pop("held_reason", None)
+            else:
+                # The deployment itself stopped on a failure, or its acceptance failed.
+                # Recovery never makes such a release acceptable: it stays held.
+                attempt["conclusion"] = (
+                    "serving this release's images, but the release was not in an acceptable "
+                    "state before the rollback; it stays held"
+                )
+                rollback_block["status"] = "RECOVERED_ON_RELEASE_NOT_ACCEPTABLE"
+                outcome.update(
+                    state=records.FAILED_HELD,
+                    ingress_stopped=False,
+                    held_reason=(
+                        "the host is serving this release's images and is healthy, but the "
+                        f"release was {previous.get('state_before_rollback') or 'not accepted'} "
+                        f"(stop code {previous.get('stop_code') or 'none'}) before the rollback "
+                        "began. It cannot be accepted. Owner decision: a new rollback attempt "
+                        "or a new release"
+                    ),
+                )
         else:
             attempt["conclusion"] = "host state could not be established"
             rollback_block.update(host_state="unknown")
