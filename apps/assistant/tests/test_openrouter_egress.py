@@ -16,6 +16,7 @@ No provider, no key, no network beyond a loopback stand-in for the proxy; synthe
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import re
 import socket
 import ssl
@@ -58,7 +59,8 @@ from tests.test_hosting import CASE_ID, ORIGIN, hosted_settings, no_files, sessi
 
 ASSISTANT_DIR = Path(__file__).resolve().parents[1]
 REPO = ASSISTANT_DIR.parents[1]
-EGRESS = ASSISTANT_DIR / "deploy" / "egress"
+DEPLOY = ASSISTANT_DIR / "deploy"
+EGRESS = DEPLOY / "egress"
 R3 = REPO / "deploy" / "egress"
 
 
@@ -73,9 +75,9 @@ def refusals(tmp_path: Path, env: dict[str, str], **kwargs: Any) -> list[str]:
 @pytest.mark.parametrize(
     "text",
     [
-        "http://172.30.244.2:4750",
-        "http://172.30.244.4:4750",
-        "http://172.30.244.6:4750",
+        "http://172.30.246.2:4750",
+        "http://172.30.246.4:4750",
+        "http://172.30.246.6:4750",
     ],
 )
 def test_the_proxy_setting_accepts_one_spelling_inside_the_internal_network(text: str) -> None:
@@ -86,23 +88,23 @@ def test_the_proxy_setting_accepts_one_spelling_inside_the_internal_network(text
     "text",
     [
         "",
-        "172.30.244.2:4750",  # no scheme
-        "https://172.30.244.2:4750",  # a TLS proxy is not the reviewed one
-        "http://172.30.244.2",  # no port
-        "http://172.30.244.2:4751",  # another port
-        "http://172.30.244.2:04750",
-        "http://172.30.244.2:4750/",  # a path
-        "http://user@172.30.244.2:4750",  # userinfo
+        "172.30.246.2:4750",  # no scheme
+        "https://172.30.246.2:4750",  # a TLS proxy is not the reviewed one
+        "http://172.30.246.2",  # no port
+        "http://172.30.246.2:4751",  # another port
+        "http://172.30.246.2:04750",
+        "http://172.30.246.2:4750/",  # a path
+        "http://user@172.30.246.2:4750",  # userinfo
         "http://clm-openrouter-egress:4750",  # a name: it would need DNS
-        "http://172.30.244.0:4750",  # the network address
-        "http://172.30.244.1:4750",  # the gateway
-        "http://172.30.244.7:4750",  # the broadcast address
-        "http://172.30.244.8:4750",  # outside the /29
-        "http://172.30.245.2:4750",  # the uplink, never the control network
+        "http://172.30.246.0:4750",  # the network address
+        "http://172.30.246.1:4750",  # the gateway
+        "http://172.30.246.7:4750",  # the broadcast address
+        "http://172.30.246.8:4750",  # outside the /29
+        "http://172.30.247.2:4750",  # the uplink, never the control network
         "http://172.030.244.2:4750",  # a leading zero
         "http://[::1]:4750",
-        " http://172.30.244.2:4750",
-        "http://172.30.244.2:4750\n",
+        " http://172.30.246.2:4750",
+        "http://172.30.246.2:4750\n",
     ],
 )
 def test_the_proxy_setting_refuses_every_other_value(text: str) -> None:
@@ -136,11 +138,11 @@ def test_the_proxy_registers_only_with_every_decision_in_the_code(
 
 def test_the_proxy_registers_once_with_the_same_value_only(approved: None) -> None:
     with pytest.raises(ValueError):
-        openrouter.register_hosted_proxy("http://172.30.244.9:4750")
+        openrouter.register_hosted_proxy("http://172.30.246.9:4750")
     openrouter.register_hosted_proxy(PROXY)
     openrouter.register_hosted_proxy(PROXY)
     with pytest.raises(ValueError):
-        openrouter.register_hosted_proxy("http://172.30.244.4:4750")
+        openrouter.register_hosted_proxy("http://172.30.246.4:4750")
     assert openrouter.hosted_proxy() == PROXY
 
 
@@ -162,7 +164,7 @@ def test_the_live_transport_uses_only_the_registered_proxy_and_verifies_tls(
         pool = _pool(transport)
         assert type(pool).__name__ in {"HTTPProxy", "AsyncHTTPProxy"}
         url = pool._proxy_url  # noqa: SLF001
-        assert (url.scheme, url.host, url.port) == (b"http", b"172.30.244.2", 4750)
+        assert (url.scheme, url.host, url.port) == (b"http", b"172.30.246.2", 4750)
         assert pool._proxy_ssl_context is None  # noqa: SLF001 - a plain proxy hop
         context = pool._ssl_context  # noqa: SLF001
         assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
@@ -349,7 +351,7 @@ def test_a_fully_configured_mode_passes_and_registers_the_proxy_first(
     assert remote_test.hosted_deployment() == (ORIGIN, DAILY)
 
 
-@pytest.mark.parametrize("value", ["", "http://172.30.244.1:4750", "http://10.0.0.2:4750"])
+@pytest.mark.parametrize("value", ["", "http://172.30.246.1:4750", "http://10.0.0.2:4750"])
 def test_a_missing_or_wrong_proxy_setting_stops_the_mode(
     tmp_path: Path, approved: None, value: str
 ) -> None:
@@ -368,8 +370,8 @@ def test_a_missing_or_wrong_proxy_setting_stops_the_mode(
         None,  # no route at all
         "172.30.243.2",  # through E1's uplink and its gateway
         "192.168.1.20",  # through any other interface
-        "172.30.244.2",  # the proxy's own address (a loop, not the assistant)
-        "172.30.244.1",  # the gateway's address
+        "172.30.246.2",  # the proxy's own address (a loop, not the assistant)
+        "172.30.246.1",  # the gateway's address
         "not-an-address",
         "::1",
     ],
@@ -388,10 +390,10 @@ def test_the_route_probe_asks_for_the_configured_address_and_port(
 
     def probe(address: str, port: int) -> str:
         asked.append((address, port))
-        return "172.30.244.3"
+        return "172.30.246.3"
 
     assert refusals(tmp_path, GPTOSS_ENV, local_source=probe) == []
-    assert asked == [("172.30.244.2", 4750)]
+    assert asked == [("172.30.246.2", 4750)]
 
 
 def test_the_system_route_probe_answers_the_kernels_source_address() -> None:
@@ -452,7 +454,7 @@ def test_harden_refuses_a_proxy_registration_that_does_not_match(
     settings = hosted_settings(tmp_path, **OR_SETTINGS)
     assert provider.install(settings, GPTOSS_ENV) is True
     app = create_app(settings, clm_transport=httpx.MockTransport(lambda r: httpx.Response(404)))
-    monkeypatch.setattr(openrouter, "_hosted_proxy", "http://172.30.244.4:4750")
+    monkeypatch.setattr(openrouter, "_hosted_proxy", "http://172.30.246.4:4750")
     with pytest.raises(ValueError):
         harden(app, settings, environ=GPTOSS_ENV)
     monkeypatch.setattr(openrouter, "_hosted_proxy", None)
@@ -610,17 +612,17 @@ def test_the_proxy_layer_n_admits_only_the_assistant_and_tcp_443_out(guard: Modu
     table = guard.render_layer_n("proxy", "eth0", "eth1")
     assert "policy drop" in table and table.count("counter accept") == 5
     assert (
-        'iifname "eth0" ip saddr 172.30.244.3 ip daddr 172.30.244.2 tcp dport 4750 ct state new'
+        'iifname "eth0" ip saddr 172.30.246.3 ip daddr 172.30.246.2 tcp dport 4750 ct state new'
         in table
     )
     assert (
-        'oifname "eth1" ip saddr 172.30.245.2 ip daddr != @no_egress_v4 tcp dport 443 ct state new'
+        'oifname "eth1" ip saddr 172.30.247.2 ip daddr != @no_egress_v4 tcp dport 443 ct state new'
         in table
     )
-    assert 'oifname "eth0" ip saddr 172.30.244.2 ip daddr 172.30.244.4' in table
+    assert 'oifname "eth0" ip saddr 172.30.246.2 ip daddr 172.30.246.4' in table
     assert "dport 80" not in table and "goldtier" not in table
     resolver = guard.render_layer_n("resolver", "eth0", "eth1")
-    assert 'oifname "eth1" ip saddr 172.30.245.3 ip daddr 172.26.0.2' in resolver
+    assert 'oifname "eth1" ip saddr 172.30.247.3 ip daddr 172.26.0.2' in resolver
     assert "dport 443" not in resolver
     with pytest.raises(guard.GuardError):
         guard.render_layer_n("proxy", "eth0;drop", "eth1")
@@ -677,7 +679,7 @@ def test_the_host_table_matches_the_vars_and_the_guard(guard: ModuleType) -> Non
     order = [
         table.index(x)
         for x in (
-            "ip saddr 172.30.245.3 counter drop",
+            "ip saddr 172.30.247.3 counter drop",
             "@no_egress_v4 counter drop",
             "tcp dport 443 counter accept",
         )
@@ -689,7 +691,7 @@ def test_the_e1_and_r3_tables_are_untouched_by_this_lane() -> None:
     e1 = (EGRESS / "clm_r22.nft").read_text("utf-8")
     r3 = (R3 / "host" / "clm_r3.nft").read_text("utf-8")
     for other in (e1, r3):
-        assert "clm-ao-" not in other and "172.30.244." not in other and "172.30.245." not in other
+        assert "clm-ao-" not in other and "172.30.246." not in other and "172.30.247." not in other
 
 
 def test_the_watcher_is_e1s_with_only_the_table_containers_and_events_renamed() -> None:
@@ -797,3 +799,36 @@ def test_the_image_reuses_r3s_pins_and_entrypoint() -> None:
     assert "go test -count=1 ./r3egress" in mine
     assert "openrouter_egress_guard.py" in mine and "goldtier_egress_guard.py" not in mine
     assert "--unsafe" not in mine
+
+
+# --- OI-1 (2026-11-15): the A1 networks overlap no other deployment network -------------------
+
+# Networks declared outside this repository on the staging host (recorded, not discoverable from
+# the code): the ACRA window lane's acra-uplink and acra-control (D2 package), the R2.2 Claude
+# uplink, the main overlay's proxy networks and the Lightsail VPC.
+RECORDED_HOST_NETWORKS = (
+    "172.30.244.0/29",  # ACRA acra-uplink (D2)
+    "172.30.245.0/29",  # ACRA acra-control (D2)
+    "172.30.243.0/29",  # R2.2 assistant-uplink (clm-as-up)
+    "172.30.249.0/29",  # A6 W-1b probe bridge (temporary, window-only)
+    "172.26.0.0/16",  # Lightsail VPC (resolver 172.26.0.2)
+)
+
+
+def _declared_subnets(text: str) -> list[ipaddress.IPv4Network]:
+    found = re.findall(r"subnet:\s*\"?(\d+\.\d+\.\d+\.\d+/\d+)", text)
+    return [ipaddress.IPv4Network(item) for item in found]
+
+
+def test_the_a1_networks_overlap_no_other_deployment_network() -> None:
+    ours = _declared_subnets((DEPLOY / "compose.assistant-openrouter.yml").read_text("utf-8"))
+    assert {str(n) for n in ours} == {"172.30.246.0/29", "172.30.247.0/29"}
+    assert str(openrouter.HOSTED_PROXY_NETWORK) == "172.30.246.0/29"
+    others: list[ipaddress.IPv4Network] = [ipaddress.IPv4Network(n) for n in RECORDED_HOST_NETWORKS]
+    for path in [*REPO.joinpath("deploy").glob("compose*.yml"), *DEPLOY.glob("compose*.yml")]:
+        if path.name not in ("compose.assistant-openrouter.yml", "compose.assistant-both.yml"):
+            others.extend(_declared_subnets(path.read_text("utf-8")))
+    assert others, "no other network found to compare with"
+    for mine in ours:
+        for other in others:
+            assert not mine.overlaps(other), f"{mine} overlaps {other}"

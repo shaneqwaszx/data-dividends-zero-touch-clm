@@ -17,7 +17,7 @@ UPLINK=$(val UPLINK_IF "$VARS")
 ip link show "$UPLINK" >/dev/null 2>&1 && ok "uplink interface $UPLINK present" || no "uplink interface $UPLINK absent"
 grep -q "\"$UPLINK\"" "$TABLE" && ok "table names the uplink interface" || no "table does not name $UPLINK"
 # The table never pins or allows any other source, and never a port other than 443 and 53.
-grep -q 'ip saddr 172.30.245.2 oifname "'"$UPLINK"'" tcp dport 443 counter accept' "$TABLE" \
+grep -q 'ip saddr 172.30.247.2 oifname "'"$UPLINK"'" tcp dport 443 counter accept' "$TABLE" \
   && ok "table allows the proxy to tcp/443 only" || no "table proxy rule differs"
 if sudo nft list table inet clm_r22o >/dev/null 2>&1; then
   ok "table inet clm_r22o loaded"
@@ -49,15 +49,15 @@ INTERNAL=$(sudo docker network ls --filter driver=bridge -q | xargs -r sudo dock
 # The assistant: on the control network at .3, and openrouter.ai does not resolve inside it.
 A=${ASSISTANT_CONTAINER:-clm-staging-assistant}
 NETS=$(sudo docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$v.IPAddress}} {{end}}' "$A" 2>/dev/null)
-echo "$NETS" | grep -qw 172.30.244.3 && ok "assistant on clm-ao-ctl at 172.30.244.3" || no "assistant not at 172.30.244.3"
-echo "$NETS" | grep -qw 172.30.245.2 && no "assistant is on the uplink" || ok "assistant is not on the uplink"
+echo "$NETS" | grep -qw 172.30.246.3 && ok "assistant on clm-ao-ctl at 172.30.246.3" || no "assistant not at 172.30.246.3"
+echo "$NETS" | grep -qw 172.30.247.2 && no "assistant is on the uplink" || ok "assistant is not on the uplink"
 sudo docker exec "$A" python -I -c "import socket,sys
 try: socket.getaddrinfo('openrouter.ai', 443)
 except OSError: sys.exit(0)
 sys.exit(1)" && ok "openrouter.ai does not resolve inside the assistant" || no "openrouter.ai resolves inside the assistant"
 # The proxy refuses another host (403 from the gate; no lookup, nothing leaves).
 CODE=$(sudo docker exec "$A" python -I -c "import socket
-s=socket.create_connection(('172.30.244.2',4750),5)
+s=socket.create_connection(('172.30.246.2',4750),5)
 s.sendall(b'CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n')
 print(s.recv(64).split(b' ')[1].decode())" 2>/dev/null)
 [ "$CODE" = "403" ] && ok "proxy refuses CONNECT example.com:443" || no "proxy answered '$CODE' to another host"

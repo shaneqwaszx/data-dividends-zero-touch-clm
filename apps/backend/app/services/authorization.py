@@ -45,6 +45,9 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/admin/profiles", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/profiles", RouteAccess.ACTOR_ONLY),
     RoutePolicy("PATCH", "/api/admin/profiles/{user_id}", RouteAccess.ACTOR_ONLY),
+    # D-140: HR password reset and SF-006 disable; IDENTITY_ADMIN is rechecked in the store lock.
+    RoutePolicy("POST", "/api/admin/profiles/{user_id}/password", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/admin/profiles/{user_id}/disable", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies/classifier-benchmark", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies/proposals/{proposal_id}/impact", RouteAccess.ACTOR_ONLY),

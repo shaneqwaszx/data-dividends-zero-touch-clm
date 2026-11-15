@@ -1,11 +1,46 @@
 """Bound local child processes without collecting unbounded stdout or private stderr."""
 
+import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from threading import Event, Thread
 
 from app.connectors.idp import LocalDocumentProcessingError
+
+# SF-001: a document worker or OCR child never inherits the backend environment (Mongo URI,
+# provider credentials, settings). It receives only these names, when the parent has them.
+CHILD_ENVIRONMENT_ALLOWLIST = frozenset(
+    {
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "PYTHONPATH",
+        "TESSDATA_PREFIX",
+        "OMP_THREAD_LIMIT",
+        # Windows needs these for the interpreter itself (tests and local runs only).
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "SYSTEMDRIVE",
+    }
+)
+
+
+def child_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The minimal environment for a local processing child; no secret can pass through."""
+
+    parent = os.environ if source is None else source
+    allowed = {name.upper() for name in CHILD_ENVIRONMENT_ALLOWLIST}
+    env = {name: value for name, value in parent.items() if name.upper() in allowed}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONNOUSERSITE"] = "1"
+    return env
 
 
 def run_bounded_process(
@@ -31,6 +66,7 @@ def run_bounded_process(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             shell=False,
+            env=child_environment(),
             creationflags=(
                 int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if sys.platform == "win32" else 0
             ),

@@ -1100,6 +1100,31 @@ export async function updateAdminProfile(
   return parseResponse<AdminProfile>(response);
 }
 
+/** D-140: HR replaces a non-HR user's password. The value is sent once and never returned. */
+export async function resetAdminProfilePassword(
+  userId: string,
+  input: { expected_version: number; new_password: string },
+): Promise<AdminProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/profiles/${encodeURIComponent(userId)}/password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminProfile>(response);
+}
+
+export async function disableAdminProfileSignIn(
+  userId: string,
+  expectedVersion: number,
+): Promise<AdminProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/profiles/${encodeURIComponent(userId)}/disable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expected_version: expectedVersion }),
+  });
+  return parseResponse<AdminProfile>(response);
+}
+
 export async function fetchPolicies(signal?: AbortSignal): Promise<PolicyCatalogue> {
   return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies`, { signal }));
 }

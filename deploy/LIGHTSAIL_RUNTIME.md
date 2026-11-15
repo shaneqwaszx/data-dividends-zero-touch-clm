@@ -176,3 +176,18 @@ passes, and every item D-137 lists before a window is met.
   console status must show writes disabled. Record each write's ledger outcome and readback.
 - Never use `dc` or `dca` for the backend. While a window is open, the release pipeline's drift
   check refuses any deployment, so run no pipeline release until the window is closed.
+
+## ST-7 GoldTier Sandbox daily read budget
+
+Staging defaults to zero Sandbox reads. The backend runtime setting
+`GOLDTIER_SANDBOX_DAILY_READ_LIMIT` applies an explicit cap per UTC day. A
+claim consumes one slot before an outbound Search, including exact-ID
+readback and recheck. Failed outbound requests still consume that slot.
+Mongo holds the daily count across backend restarts. An exhausted or
+unavailable budget refuses outbound reads. The HR Sandbox status endpoint
+shows the limit and current usage when the count is available.
+
+This limit governs the existing Sandbox read path under D-126 provenance
+checks and D-131 egress controls. D-137 continues to govern writes and their
+ledger ordering. A staging limit above zero requires separate owner
+authorization. ST-7 implementation tests use synthetic transport.

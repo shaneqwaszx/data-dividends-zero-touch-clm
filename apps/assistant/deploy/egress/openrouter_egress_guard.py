@@ -5,8 +5,8 @@ Adapted from R3's deploy/egress/goldtier_egress_guard.py (D-127, reviewed in the
 structure, the order of the steps and the fail-closed supervision are R3's; what differs is
 listed here and nothing else:
 
-- the addresses: the internal network openrouter-control (172.30.244.0/29: proxy .2, the
-  assistant .3, resolver .4) and the uplink openrouter-uplink (172.30.245.0/29: proxy .2,
+- the addresses: the internal network openrouter-control (172.30.246.0/29: proxy .2, the
+  assistant .3, resolver .4) and the uplink openrouter-uplink (172.30.247.0/29: proxy .2,
   resolver .3, gateway .1);
 - the FQDN is a reviewed constant, openrouter.ai. The environment must name exactly it;
 - there is NO destination address pin. OpenRouter publishes no fixed inbound range, and
@@ -51,12 +51,12 @@ from pathlib import Path
 
 # --- Reviewed constants (must match compose.assistant-openrouter.yml and clm_r22o.vars) -------
 OPENROUTER_FQDN = "openrouter.ai"
-PROXY_CTL_IP = "172.30.244.2"
-CLIENT_CTL_IP = "172.30.244.3"  # the assistant
-RESOLVER_CTL_IP = "172.30.244.4"
-PROXY_UP_IP = "172.30.245.2"
-RESOLVER_UP_IP = "172.30.245.3"
-UPLINK_GATEWAY_IP = "172.30.245.1"
+PROXY_CTL_IP = "172.30.246.2"
+CLIENT_CTL_IP = "172.30.246.3"  # the assistant
+RESOLVER_CTL_IP = "172.30.246.4"
+PROXY_UP_IP = "172.30.247.2"
+RESOLVER_UP_IP = "172.30.247.3"
+UPLINK_GATEWAY_IP = "172.30.247.1"
 VPC_RESOLVER_IP = "172.26.0.2"
 IMDS_IP = "169.254.169.254"
 PROXY_PORT = 4750

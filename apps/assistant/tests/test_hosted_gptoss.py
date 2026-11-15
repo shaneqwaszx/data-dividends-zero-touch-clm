@@ -80,8 +80,8 @@ DAILY = GPT_OSS_DAILY_CEILING_MICRO_USD
 # TEST-NET-3 (RFC 5737): a documentation address, never a real provider address.
 OR_PIN = "203.0.113.10"
 # D-138 A1: the reviewed proxy address, and the assistant's own address on that network.
-PROXY = "http://172.30.244.2:4750"
-ASSISTANT_CTL = "172.30.244.3"
+PROXY = "http://172.30.246.2:4750"
+ASSISTANT_CTL = "172.30.246.3"
 # The remote profile exactly as the OpenRouter mode needs it named (test_remote_test.D094).
 OR_SETTINGS: dict[str, Any] = {
     name: D094[name]
@@ -115,7 +115,7 @@ def resolve(host: str) -> list[str]:
 
 def on_internal_network(address: str, port: int) -> str | None:
     # The kernel reaches the proxy directly from the assistant's own internal address.
-    return ASSISTANT_CTL if address == "172.30.244.2" else None
+    return ASSISTANT_CTL if address == "172.30.246.2" else None
 
 
 @pytest.fixture
