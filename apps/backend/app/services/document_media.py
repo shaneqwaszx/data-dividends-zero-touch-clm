@@ -10,7 +10,11 @@ from zipfile import BadZipFile, ZipFile
 
 from app.connectors.idp import LocalDocumentProcessingError
 from app.connectors.local_document_runtime import validate_local_media
-from app.services.document_errors import DocumentRequestError
+from app.services.document_errors import (
+    DOCUMENT_REJECTION_MESSAGES,
+    DOCUMENT_UNREADABLE_MESSAGE,
+    DocumentRequestError,
+)
 
 PDF_MEDIA_TYPE = "application/pdf"
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -110,7 +114,15 @@ class DocumentMediaRouter:
         except LocalDocumentProcessingError as error:
             raise DocumentRequestError(
                 code=error.code,
-                message="The uploaded document could not pass the bounded local structure checks.",
+                message=(
+                    DOCUMENT_REJECTION_MESSAGES.get(error.code)
+                    or (
+                        DOCUMENT_UNREADABLE_MESSAGE
+                        if error.code == "DOCUMENT_STRUCTURE_INVALID"
+                        else "The uploaded document could not pass the bounded local "
+                        "structure checks."
+                    )
+                ),
             ) from None
 
     def _extract_docx_text(self, content: bytes) -> str:

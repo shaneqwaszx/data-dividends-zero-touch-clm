@@ -29,6 +29,7 @@ import {
   deleteZeroTouchCase,
   fetchTeamOptions,
 } from "./api";
+import { type IntakeUploadFailure, type UploadRejection, uploadRejectionPresentation } from "./uploadRejection";
 import {
   MAX_CASE_UPLOAD_BYTES,
   MAX_UPLOAD_FILE_BYTES,
@@ -1841,6 +1842,8 @@ export default function App({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+  // Structured form of the latest upload failure; used only while requestError still shows it.
+  const [uploadRejection, setUploadRejection] = useState<UploadRejection | null>(null);
   const [intakeProgress, setIntakeProgress] = useState<string | null>(null);
   const [pollingWarning, setPollingWarning] = useState<string | null>(null);
   const journeyGeneration = useRef(0);
@@ -1962,6 +1965,7 @@ export default function App({
       intakeCase: LiveIntakeOperation & { caseId: string },
     ): Promise<boolean> => {
       const failures: string[] = [];
+      const uploadFailures: IntakeUploadFailure[] = [];
       for (const [index, file] of intakeCase.files.entries()) {
         if (!isCurrentIntakeOperation(intakeCase)) return false;
         setIntakeProgress(`Uploading document ${index + 1} of ${intakeCase.files.length}…`);
@@ -1976,6 +1980,7 @@ export default function App({
           if (record.state === "FAILED") {
             failedIntakeDocumentsRef.current.set(key, record.document_id);
             failures.push(`${file.name}: ${record.error?.message ?? "processing failed"}`);
+            uploadFailures.push({ fileName: file.name, message: record.error?.message ?? "processing failed", code: record.error?.code ?? null, rejectedBeforeStorage: false });
           } else {
             failedIntakeDocumentsRef.current.delete(key);
             successfulIntakeFilesRef.current.add(key);
@@ -1986,12 +1991,20 @@ export default function App({
             failedIntakeDocumentsRef.current.set(key, uploadError.detail.document_id);
           }
           failures.push(`${file.name}: ${uploadError instanceof Error ? uploadError.message : "upload failed"}`);
+          uploadFailures.push({
+            fileName: file.name,
+            message: uploadError instanceof Error ? uploadError.message : "upload failed",
+            code: uploadError instanceof ApiError ? uploadError.code : null,
+            // A stored failed document keeps its existing retry/replace flow.
+            rejectedBeforeStorage: uploadError instanceof ApiError && !failedIntakeDocumentsRef.current.has(key),
+          });
         }
       }
       if (!isCurrentIntakeOperation(intakeCase)) return false;
       if (failures.length > 0) {
         const failurePresentation = targetedIntakeFailurePresentation(intakeCase.caseId, failures);
         setIntakeProgress(failurePresentation.progress);
+        setUploadRejection(uploadRejectionPresentation(failurePresentation.message, uploadFailures));
         setRequestError(failurePresentation.message);
         return false;
       }
@@ -2223,6 +2236,7 @@ export default function App({
     setLegalName("");
     setDirectorTeamId("");
     setDeleteCurrentCaseOpen(false);
+    setUploadRejection(null);
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
@@ -2394,6 +2408,7 @@ export default function App({
                 busy: isSubmitting,
                 progress: intakeProgress,
                 error: requestError,
+                rejection: uploadRejection && uploadRejection.forMessage === requestError ? uploadRejection : null,
                 onUpload: () => void beginJourney(),
                 onDiscard: resetOnboardingForm,
               } : undefined}

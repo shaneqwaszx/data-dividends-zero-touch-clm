@@ -2880,3 +2880,18 @@ Unchanged:
 Owner confirmation needed at adoption. D-129 term (b) said "eligible synthetic cases" under the R2.1 list; under D-139 it means cases that pass the R3 check.
 
 Side effect: `main.py` and `synthetic_eligibility.py` are qualification-basis files. The qualification basis changes, so the hosted 5-call qualification runs on the integrated image.
+
+## D-140 - Specific, plain reasons when an upload fails the local document checks (PROPOSED, 2026-11-16)
+
+Status: `PROPOSED`. Needs Shane's acceptance. Every limit and rule is unchanged; only the reason reaches the RM.
+
+Problem: the isolated worker rejected for a specific reason, but the runtime mapped every reason to `DOCUMENT_STRUCTURE_INVALID` and one fixed sentence. A Tableau "Save as PDF" with hyperlinks showed "could not pass the bounded local structure checks", and "Try upload again" re-sent the same file.
+
+| # | Rule |
+|---|---|
+| R1 | **Fixed reasons only.** The worker (`local_document_worker.py`) reports a rejection only as a fixed exit code: 10 `TOO_MANY_PAGES`, 11 `ENCRYPTED`, 12 `ACTIVE_CONTENT` (the `_UNSAFE_PDF_KEYS` and `/F` filespec rule), 13 `PAGE_TOO_LARGE` (dimension, per-page pixels or Pillow's pixel guard), 14 `CONTENT_TOO_LARGE` (total pixels or text). Everything else stays exit 2 (`DOCUMENT_STRUCTURE_INVALID`). No document content, file name, object id or library text leaves the child. Exit codes 0, 1 and 2 and negative (signal) codes are not reused |
+| R2 | **API codes.** The runtime maps those to `DOCUMENT_TOO_MANY_PAGES`, `DOCUMENT_ENCRYPTED`, `DOCUMENT_ACTIVE_CONTENT`, `DOCUMENT_PAGE_TOO_LARGE`, `DOCUMENT_CONTENT_TOO_LARGE`. Any unmapped non-zero exit falls back to `DOCUMENT_STRUCTURE_INVALID`. `DOCUMENT_TOO_LARGE` is not reused: it already means over the 5 MB upload limit (HTTP 413) |
+| R3 | **Wording.** One backend table (`document_errors.DOCUMENT_REJECTION_MESSAGES`) gives each code a plain message with a next step, including `DOCUMENT_PROCESSING_TIMEOUT` and `DOCUMENT_RUNTIME_UNAVAILABLE` (codes and retry unchanged). A malformed file at upload says "This file isn't a readable PDF or image…" |
+| R4 | **Banner.** The case page shows the plain message; the case ID, retry wording and code move into a collapsed Technical details. When every failed file was rejected for its own content before storage, the action is **Choose a different file**: the existing Discard, then focus on the case's existing "Upload required document". No new retry or replace path, and the "retry the same selection" guard is unchanged. Timeouts, runtime-unavailable and stored failed documents keep **Try upload again** |
+
+Unchanged: every page, size, pixel, text and active-content limit; accepted file types and sizes; the wrong-document warning (#135); the stored-document retry and replace flow.

@@ -635,7 +635,7 @@ def test_fake_marker_only_pdf_is_a_bounded_client_error_not_503() -> None:
     assert response.status_code != 503
     assert response.json()["detail"] == {
         "code": "DOCUMENT_STRUCTURE_INVALID",
-        "message": "The uploaded document could not pass the bounded local structure checks.",
+        "message": "This file isn't a readable PDF or image. Re-export it and upload it again.",
     }
 
 

@@ -104,6 +104,7 @@ import UenRouteNote from "./UenRouteNote";
 import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
 import GovernmentStatusPanel from "./GovernmentStatusPanel";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
+import type { UploadRejection } from "../uploadRejection";
 import PolicyRebindPanel, { PolicyRebindDetails } from "./PolicyRebindPanel";
 import { isWaitingForEarlierSteps } from "../stageDisplay";
 
@@ -159,12 +160,21 @@ export interface PendingDocuments {
   busy: boolean;
   progress: string | null;
   error: string | null;
+  /** Structured form of `error` for an upload failure on the retained case. */
+  rejection?: UploadRejection | null;
   onUpload: () => void;
   onDiscard: () => void;
 }
 
-export function PendingDocumentsBanner({ pending }: { pending: PendingDocuments }) {
+export function PendingDocumentsBanner({ pending, onChooseDifferentFile }: {
+  pending: PendingDocuments;
+  /** Discards the rejected file and moves to the case's own upload control. */
+  onChooseDifferentFile?: () => void;
+}) {
   const count = pending.fileNames.length;
+  const rejection = pending.error ? pending.rejection ?? null : null;
+  // Re-sending a file rejected for its own content cannot succeed; offer another file instead.
+  const chooseDifferentFile = Boolean(rejection?.fileProblem && onChooseDifferentFile);
   return (
     <section className="ds-banner pending-documents" aria-labelledby="pending-documents-title" role="status">
       {/* An upload in progress has not stopped or failed; show only its progress. */}
@@ -174,15 +184,25 @@ export function PendingDocumentsBanner({ pending }: { pending: PendingDocuments 
       </> : pending.error ? <>
         {/* The upload reached the backend and was refused; say so instead of implying it never ran. */}
         <h3 id="pending-documents-title">{count === 1 ? "Your document couldn't be uploaded" : `${count} documents couldn't be uploaded`}</h3>
-        <p>{pending.fileNames.join(", ")} — the upload was rejected. Fix the cause below, then try again.</p>
-        <p className="control-help pending-documents__error">{pending.error}</p>
+        {rejection ? <>
+          {rejection.lines.map(line => <p key={line} className="pending-documents__error">{line}</p>)}
+          <details className="evidence-details pending-documents__technical">
+            <summary>Technical details</summary>
+            <p className="control-help">{rejection.technical}</p>
+          </details>
+        </> : <>
+          <p>{pending.fileNames.join(", ")} — the upload was rejected. Fix the cause below, then try again.</p>
+          <p className="control-help pending-documents__error">{pending.error}</p>
+        </>}
       </> : <>
         <h3 id="pending-documents-title">{count === 1 ? "1 document is waiting to upload" : `${count} documents are waiting to upload`}</h3>
         <p>{pending.fileNames.join(", ")} — not uploaded yet because the case stopped before document intake. Fix the issue above (for example, complete the company details), then upload.</p>
         {pending.progress && <p className="control-help">{pending.progress}</p>}
       </>}
       {!pending.busy && <div className="pending-documents__actions">
-        <button type="button" className="btn btn-primary" onClick={pending.onUpload}>{pending.error ? "Try upload again" : "Upload now"}</button>
+        {chooseDifferentFile
+          ? <button type="button" className="btn btn-primary" onClick={onChooseDifferentFile}>Choose a different file</button>
+          : <button type="button" className="btn btn-primary" onClick={pending.onUpload}>{pending.error ? "Try upload again" : "Upload now"}</button>}
         <button type="button" className="btn btn-ghost" onClick={pending.onDiscard}>Discard</button>
       </div>}
     </section>
@@ -1464,7 +1484,11 @@ export default function CaseDetail({
         {identityConflict && <p className="ds-banner ds-banner-warn uen-conflict-indicator" role="status">
           <strong>UEN conflict — review required.</strong> Entered UEN and document UEN differ — confirm which to use in Registry verification.
         </p>}
-        {pendingDocuments && <PendingDocumentsBanner pending={pendingDocuments} />}
+        {pendingDocuments && <PendingDocumentsBanner pending={pendingDocuments} onChooseDifferentFile={() => {
+          // The existing Discard, then the case's own upload control (no new retry or replace path).
+          pendingDocuments.onDiscard();
+          focusActionControl(document.getElementById("case-document-upload") ? "case-document-upload" : EVIDENCE_TARGET_IDS.documents, "input[type=file]:not([disabled])");
+        }} />}
 
 
         {isBusy && busyLabel && (
