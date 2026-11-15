@@ -57,6 +57,7 @@ from app.domain.ownership import (
 )
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
+    GoldTierExecutionLedgerEntry,
     GoldTierExecutionLedgerState,
     GoldTierExecutionReceipt,
     GoldTierOperationMarker,
@@ -461,6 +462,22 @@ class ClmOrchestrationService:
             )
         )
 
+    def target_write_started(self, *, case_id: UUID) -> bool:
+        """Whether this case's frozen submission already has a GoldTier write retained.
+
+        Read only from persisted CLM and ledger state, under the case lock; no request
+        input can make it true. A case with no record, no snapshot or only a Search has
+        not started sending.
+        """
+
+        with self._lock_for(case_id):
+            record = self._repository.get_for_case(case_id)
+            if record is None or record.submission_snapshot is None:
+                return False
+            return _target_write_started(
+                self._cases.get_target_execution_entry(record.submission_snapshot.submission_id)
+            )
+
     def evaluate(self, *, case_id: UUID) -> ClmOrchestrationRecord:
         with self._lock_for(case_id):
             record = self._require_record(case_id)
@@ -651,13 +668,7 @@ class ClmOrchestrationService:
             entry = self._cases.get_target_execution_entry(snapshot.submission_id)
             # A retained Search-only intent has not dispatched a write either.
             # Restart must not bypass first-dispatch evidence/version validation.
-            before_first_write = entry is None or (
-                entry.target_outcome is None and entry.receipt is None
-                and not any(operation in entry.attempted_operations for operation in (
-                    GoldTierOperationMarker.SHELL, GoldTierOperationMarker.POLICY,
-                    GoldTierOperationMarker.AMEND,
-                ))
-            )
+            before_first_write = not _target_write_started(entry)
             if before_first_write and (
                 not self._submission_snapshot_is_current(record)
                 or not self._cases.has_valid_target_dispatch_confirmation(
@@ -1916,6 +1927,25 @@ def _readiness_with_search(
             "blockers": blockers,
         },
         deep=True,
+    )
+
+
+def _target_write_started(entry: GoldTierExecutionLedgerEntry | None) -> bool:
+    """A GoldTier write for the frozen submission is retained in the persisted ledger.
+
+    A Search-only intent, or a snapshot with no ledger entry, has dispatched no write.
+    """
+    return entry is not None and (
+        entry.target_outcome is not None
+        or entry.receipt is not None
+        or any(
+            operation in entry.attempted_operations
+            for operation in (
+                GoldTierOperationMarker.SHELL,
+                GoldTierOperationMarker.POLICY,
+                GoldTierOperationMarker.AMEND,
+            )
+        )
     )
 
 
