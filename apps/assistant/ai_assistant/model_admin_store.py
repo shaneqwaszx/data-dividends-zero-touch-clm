@@ -55,7 +55,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .budget import daily_ceiling
 from .config import AiAssistantSettings
+from .model_profiles import OPENROUTER_PROFILE_ID
 
 MAX_EVENTS = 5000
 MAX_REFUSED_EVENTS = 1000
@@ -259,7 +261,9 @@ def apply_controls(
     settings: AiAssistantSettings, controls: SpendingControls | None, *, calls: bool = True
 ) -> AiAssistantSettings:
     """The settings with the HR spending controls in place of the environment defaults.
-    ``None`` (the controls could not be read) fails closed: no daily allowance."""
+    ``None`` (the controls could not be read) fails closed: no daily allowance. D-134: never
+    above this deployment's registered hard daily ceiling, whatever is stored or configured
+    (the ledger holds every admission to it too)."""
 
     if controls is None:
         return settings.model_copy(update={"budget_daily_cap_micro_usd": 0})
@@ -268,6 +272,10 @@ def apply_controls(
         update["budget_daily_cap_micro_usd"] = controls.daily_cap_micro_usd
     if calls and controls.max_calls is not None:
         update["local_api_test_max_calls"] = controls.max_calls
+    ceiling = daily_ceiling(OPENROUTER_PROFILE_ID)
+    daily = update.get("budget_daily_cap_micro_usd", settings.budget_daily_cap_micro_usd)
+    if ceiling is not None and daily > ceiling:
+        update["budget_daily_cap_micro_usd"] = ceiling
     return settings.model_copy(update=update) if update else settings
 
 

@@ -33,6 +33,16 @@ the strictest of the daily, lifetime and key limits wins); the key may come from
 process environment, the git-ignored .env or an HR administrator (key_sources.py), and when it
 changes the model is rebuilt with it and the full preflight runs again before the next call.
 ``budget_status`` is the read-only spending view for the AI Models page.
+
+D-134 (proposed, not active): a hosted deployment may register itself here
+(``register_hosted_deployment``), only while config.HOSTED_OPENROUTER_DECISION is set in the
+code. Then the environment condition above is that deployment (its one HTTPS origin, a backend
+that is not loopback) in place of a development machine; every other condition, the preflight,
+the per-call verification and the ledger are unchanged. The registration also registers the
+ledger's hard daily ceiling (budget.register_daily_ceiling, at most US$3.00 a Singapore day),
+and the session's fixed chat-call count is then not applied: the daily budget, the session and
+lifetime money limits, the per-call token caps, one call at a time and the chat's per-user
+request rate (request_rate.py) bound it instead.
 """
 
 import hashlib
@@ -45,11 +55,12 @@ from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import aclosing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
 import anyio
 
+from . import config as assistant_config
 from . import key_sources, synthetic_eligibility
 from .budget import (
     DEFAULT_DAILY_CAP_MICRO_USD,
@@ -57,7 +68,9 @@ from .budget import (
     BudgetLedger,
     ClosedCall,
     LedgerError,
+    daily_ceiling,
     next_singapore_reset_ms,
+    register_daily_ceiling,
     singapore_day_start_ms,
 )
 from .config import AiAssistantSettings, external_conversational
@@ -100,15 +113,81 @@ def _local_origin(origin: str) -> bool:
         return False
 
 
+class HostedDeployment(NamedTuple):
+    # D-134 (proposed): the hosted service's one browser origin and its hard daily ceiling,
+    # registered by the hosting layer once every start-up refusal passed. Never read from a
+    # setting: a development machine cannot become a hosted deployment by configuration.
+    origin: str
+    daily_ceiling_micro_usd: int
+
+
+# D-134: the hosted deployment's lead notice on a conversational GPT-OSS answer.
+HOSTED_ANSWERED = "Answered by GPT-OSS 120B through OpenRouter."
+_hosted: HostedDeployment | None = None
+_hosted_lock = threading.Lock()
+
+
+def register_hosted_deployment(origin: str, daily_ceiling_micro_usd: int) -> None:
+    # Once per process, with the same values only, and only while the owner's decision is in
+    # the code; anything else is refused (fail closed). The ledger ceiling is registered first,
+    # so a deployment is never registered without it.
+    global _hosted
+    parts = urlsplit(origin)
+    if (
+        assistant_config.HOSTED_OPENROUTER_DECISION is None
+        # D-129: no hosted deployment before the owner's acceptance is recorded in the code.
+        or assistant_config.HOSTED_TRANSMISSION_DECISION is None
+        # D-138 A1: and OpenRouter's own transmission decision (D-129 covers Anthropic only).
+        or assistant_config.HOSTED_OPENROUTER_TRANSMISSION_DECISION is None
+        or parts.scheme != "https"
+        or not parts.hostname
+        or is_local_model_url(origin)
+        or parts.hostname in _LOCAL_HOSTS
+        or origin != f"{parts.scheme}://{parts.netloc}"
+    ):
+        raise ValueError
+    wanted = HostedDeployment(origin, daily_ceiling_micro_usd)
+    with _hosted_lock:
+        if _hosted is not None and _hosted != wanted:
+            raise ValueError
+        try:
+            register_daily_ceiling(daily_ceiling_micro_usd)
+        except LedgerError:
+            raise ValueError from None
+        _hosted = wanted
+
+
+def hosted_deployment() -> HostedDeployment | None:
+    return _hosted
+
+
+def _approved_environment(settings: AiAssistantSettings) -> bool:
+    # A development machine (a literal loopback backend, local http origins only), or (D-134)
+    # the registered hosted deployment: its one exact origin and a backend that is not loopback.
+    hosted = _hosted
+    if hosted is not None:
+        return (
+            assistant_config.HOSTED_OPENROUTER_DECISION is not None
+            and list(settings.allowed_origins) == [hosted.origin]
+            and not is_local_model_url(settings.clm_backend_url)
+            and urlsplit(settings.clm_backend_url).hostname != "localhost"
+        )
+    return is_local_model_url(settings.clm_backend_url) and bool(
+        settings.allowed_origins and all(map(_local_origin, settings.allowed_origins))
+    )
+
+
 def attestations(settings: AiAssistantSettings) -> frozenset[str]:
     return frozenset(
         part.strip() for part in settings.local_api_test_owner_attests.split(",") if part.strip()
     )
 
 
-def readiness(settings: AiAssistantSettings) -> str | None:
+def readiness(settings: AiAssistantSettings, *, environment: bool = True) -> str | None:
     """None when the test mode may be offered; otherwise the first closed reason."""
 
+    # D-134: ``environment=False`` (the hosting layer's start-up check, before any
+    # registration) leaves out only the environment condition; every call and listing checks it.
     if settings.local_api_test_decision != TEST_DECISION_ID:
         return "REMOTE_NOT_AUTHORISED"
     if not settings.llm_enabled:
@@ -118,9 +197,7 @@ def readiness(settings: AiAssistantSettings) -> str | None:
         or settings.remote_live_decision != LIVE_DECISION_ID
     ):
         return "DECISION_INTERLOCK"
-    if not is_local_model_url(settings.clm_backend_url) or not (
-        settings.allowed_origins and all(map(_local_origin, settings.allowed_origins))
-    ):
+    if environment and not _approved_environment(settings):
         return "NOT_DEVELOPMENT_ENVIRONMENT"
     if attestations(settings) != OWNER_ATTESTATIONS:
         return "OWNER_ATTESTATION_MISSING"
@@ -367,6 +444,25 @@ class RemoteTestModel:
     def endpoint_slug(self) -> str:
         return self._endpoint.slug
 
+    @property
+    def attribution(self) -> str | None:
+        # D-134: on the hosted deployment a conversational answer names the model that wrote it.
+        return HOSTED_ANSWERED if _hosted is not None else None
+
+    def worst_case_reservation(self) -> int:
+        # The usual worst-case reservation of one call (the 32 KiB prompt limit), as the
+        # spending view and the preflight use it; the chat's per-user rate is derived from it.
+        return typical_reservation(
+            self._endpoint,
+            self._settings.llm_max_answer_tokens + self._settings.llm_reasoning_allowance_tokens,
+        )
+
+    @property
+    def provider_bound(self) -> bool:
+        # D-134: on the hosted deployment the prompt carries no user identifier
+        # (provider_payload.py), as for hosted Claude.
+        return _hosted is not None
+
     def _refuse(self, reason: str) -> ModelCallError:
         log.warning("remote test call refused: %s", reason)
         return ModelCallError("budget_refused")
@@ -402,9 +498,11 @@ class RemoteTestModel:
             # D-118: chat calls in the open session, open ones included; they are read from
             # the ledger, so a restart or re-activation never resets them.
             session = ledger.session()
-            limit = self._settings.local_api_test_max_calls
+            # D-134: on the hosted deployment the fixed chat-call count is not applied; the
+            # ledger's daily ceiling and the session and lifetime money limits bound it.
+            limit = None if _hosted is not None else self._settings.local_api_test_max_calls
             chat = self._purpose == "chat"
-            if chat and session is not None and session.chat_calls >= limit:
+            if chat and limit is not None and session is not None and session.chat_calls >= limit:
                 raise self._refuse("call limit")
             if isinstance(self._inner, BudgetedChatModel):
                 self._inner.purpose = self._purpose
@@ -517,6 +615,9 @@ def budget_status(
         "timezone": "Asia/Singapore",
         "daily_cap_default_micro_usd": DEFAULT_DAILY_CAP_MICRO_USD,
         "daily_cap_micro_usd": settings.budget_daily_cap_micro_usd,
+        # D-134: the registered hard daily ceiling (None: none on this deployment).
+        "daily_ceiling_micro_usd": daily_ceiling(OPENROUTER_PROFILE_ID),
+        "hosted": _hosted is not None,
     }
     key, credential = key_sources.resolve(environ)
     view["credential"] = credential.view()
@@ -583,6 +684,10 @@ def budget_status(
         "remaining_micro_usd": daily.remaining,
         "remaining_usd": _usd(daily.remaining),
         "day_started_at": _iso(singapore_day_start_ms(int(now * 1000)) / 1000),
+        # D-134: the ceiling the cap was held to, and whether today has no room for one more
+        # call of the usual worst-case size (the ledger still decides each admission).
+        "ceiling_micro_usd": daily.ceiling,
+        "exhausted": daily.cap == 0 or (reservation is not None and daily.remaining < reservation),
     }
     limits = [daily.remaining, max(status.headroom, 0)]
     if provider.get("remaining_micro_usd") is not None:

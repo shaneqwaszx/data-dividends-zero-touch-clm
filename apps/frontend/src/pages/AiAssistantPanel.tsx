@@ -16,6 +16,7 @@ import {
   AiAssistantError,
   type AiAssistantSource,
   type ConversationDetail,
+  type ExternalAiStatus,
   type AiAssistantTurn,
   askAiAssistantStreaming,
   askGeneralAssistantStreaming,
@@ -59,6 +60,8 @@ interface Thread {
   conversationId: string | null;
   /** Shown above a chat reopened from History. */
   resumedNote?: string | null;
+  /** D-138 A1: the service's external AI report from this case's brief (the notice's wording). */
+  externalAi?: ExternalAiStatus | null;
 }
 
 interface AiAssistantPanelProps {
@@ -248,6 +251,8 @@ export default function AiAssistantPanel({
   const supportChat = !activeCaseId && canChatWithoutCase;
   // D-115: the service says whether it offers the general chat (copilot mode only).
   const [generalOffered, setGeneralOffered] = useState(false);
+  // D-138 A1: the service's external AI report from the health reply (general chat notice).
+  const [generalExternalAi, setGeneralExternalAi] = useState<ExternalAiStatus | null>(null);
   const generalChat = !activeCaseId && !supportChat && canGeneralChat && generalOffered;
   const threadKey = activeCaseId ?? (supportChat ? SUPPORT_THREAD : generalChat ? GENERAL_THREAD : null);
   const [open, setOpen] = useState(false);
@@ -352,7 +357,10 @@ export default function AiAssistantPanel({
     if (!open || activeCaseId || supportChat || !canGeneralChat) return undefined;
     const controller = new AbortController();
     fetchAssistantHealth(controller.signal)
-      .then((health) => setGeneralOffered(Boolean(health.general_chat)))
+      .then((health) => {
+        setGeneralOffered(Boolean(health.general_chat));
+        setGeneralExternalAi(health.external_ai ?? null);
+      })
       .catch(() => undefined);
     return () => controller.abort();
   }, [open, activeCaseId, supportChat, canGeneralChat]);
@@ -387,6 +395,7 @@ export default function AiAssistantPanel({
           ],
           suggestions: brief.suggested_questions,
           badge: brief.blocker_count,
+          externalAi: brief.external_ai ?? null,
         }));
       })
       .catch((reason: unknown) => {
@@ -726,7 +735,11 @@ export default function AiAssistantPanel({
           )}
 
           {/* P2-3: the external-data notice, above the box where the question is typed. */}
-          <ExternalAiNotice id="ai-assistant-external-notice" surface={supportChat ? "support" : generalChat ? "general" : "case"} />
+          <ExternalAiNotice
+            id="ai-assistant-external-notice"
+            surface={supportChat ? "support" : generalChat ? "general" : "case"}
+            status={supportChat ? null : generalChat ? generalExternalAi : thread.externalAi}
+          />
           <ComposerPrimitive.Root className="ai-assistant-input">
             <ComposerPrimitive.Input
               aria-describedby="ai-assistant-external-notice"

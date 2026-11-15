@@ -324,7 +324,7 @@ def cmd_runs(args: argparse.Namespace) -> int:
 def cmd_resolve_report(args: argparse.Namespace) -> int:
     path = _path(args)
     recon = _reconciler(args, path)
-    run = recon.runs.get(args.run)
+    run = recon.runs.get(args.run_id)
     if run is None:
         raise reconciliation.ReconcileRefused("RUN_UNKNOWN")
     if run["status"] != reconciliation.REQUESTED:
@@ -346,7 +346,10 @@ def cmd_resolve_report(args: argparse.Namespace) -> int:
 def cmd_owner_close(args: argparse.Namespace) -> int:
     path = _path(args)
     result = _reconciler(args, path).owner_close(
-        args.run, by=args.by, reference=args.reference, acknowledged_event_id=args.acknowledge_event
+        args.run_id,
+        by=args.by,
+        reference=args.reference,
+        acknowledged_event_id=args.acknowledge_event,
     )
     print(json.dumps(result, indent=1))
     return 0
@@ -410,11 +413,12 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("runs").set_defaults(run=cmd_runs)
 
     report = commands.add_parser("resolve-report")
-    report.add_argument("run")
+    # The run id is stored as run_id: "run" holds each subcommand's handler.
+    report.add_argument("run_id", metavar="RUN")
     report.set_defaults(run=cmd_resolve_report)
 
     close = commands.add_parser("owner-close")
-    close.add_argument("run")
+    close.add_argument("run_id", metavar="RUN")
     close.add_argument("--reference", required=True)
     close.add_argument("--acknowledge-event", type=int, default=None)
     close.add_argument("--by", default="owner")

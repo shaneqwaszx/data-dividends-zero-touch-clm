@@ -565,6 +565,46 @@ describe("AiModelManagement HR spending controls (D-096)", () => {
     for (const bad of ["", "-1", "1e3", "0.0000001", "abc", "1,5", "0x10"]) expect(toMicroUsd(bad)).toBeNull();
   });
 
+  it("shows a fixed daily ceiling, an exhausted day and no call count where none applies (D-134 proposed)", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const hosted = controlled({
+      daily_cap_micro_usd: 3_000_000, daily_cap_max_micro_usd: 3_000_000,
+      daily_ceiling_micro_usd: 3_000_000, max_calls_applies: false, calls_used: 41, calls_remaining: 0,
+    });
+    const daily = hosted.daily!;
+    const data = {
+      ...overview, profiles: [profile({}), remoteSelectable],
+      budget: {
+        ...hosted,
+        daily: { ...daily, cap_micro_usd: 3_000_000, ceiling_micro_usd: 3_000_000, exhausted: true },
+        refusal: "DAILY_ALLOWANCE_EXHAUSTED",
+      },
+    };
+    const view = mount(controlsServer(data, calls), "spending");
+    await waitFor(() => expect(view.textContent).toContain("Fixed daily ceiling"));
+    expect(view.textContent).toContain("US$3.00 a Singapore day for this deployment");
+    expect(view.textContent).toContain("used up for today: no room for another call until the next daily reset");
+    expect(view.textContent).toContain("41 used (no call count applies here");
+    expect(view.textContent).not.toContain("remaining of 20");
+    expect(view.textContent).toContain("Today's allowance (Singapore day) has no room for another call.");
+    expect(view.textContent).toContain("(midnight, Singapore)");
+    // The daily limit cannot be typed above the ceiling.
+    typeInto(input(view, "daily-limit-input"), "3.01");
+    expect((button(view, "Save Limits") as HTMLButtonElement).disabled).toBe(true);
+    typeInto(input(view, "daily-limit-input"), "3");
+    expect((button(view, "Save Limits") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows no ceiling row and the usual call count without a ceiling", async () => {
+    const calls: Array<{ method: string; url: string; body: string | null }> = [];
+    const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };
+    const view = mount(controlsServer(data, calls), "spending");
+    await waitFor(() => expect(view.textContent).toContain("Chat calls this session"));
+    expect(view.textContent).not.toContain("Fixed daily ceiling");
+    expect(view.textContent).not.toContain("used up for today");
+    expect(view.textContent).toContain("20 used, 0 remaining of 20");
+  });
+
   it("shows calls used and remaining, the effective allowance, and saves both limits", async () => {
     const calls: Array<{ method: string; url: string; body: string | null }> = [];
     const data = { ...overview, profiles: [profile({}), remoteSelectable], budget: controlled() };

@@ -139,6 +139,19 @@ def insights_replies(monkeypatch: pytest.MonkeyPatch, hosted_replies: Any) -> An
     return hosted_replies
 
 
+class _ListGate:
+    """The fifth path's case filter for these tests. Under D-139 the hosted policy admits no
+    case to dashboard insights (it has no per-answer check; HOSTED_INSIGHTS_DECISION is None),
+    so the path's own mechanics are tested with this explicit one-case filter."""
+
+    def __init__(self) -> None:
+        self.refs = frozenset({hashlib.sha256(str(test_hosting.CASE_ID).encode()).hexdigest()[:12]})
+
+    def __call__(self, case_id: object, summary: object) -> str | None:
+        ref = hashlib.sha256(str(case_id).encode()).hexdigest()[:12]
+        return None if ref in self.refs else "NOT_LISTED"
+
+
 def _hosted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -> Hosted:
     if enabled:
         monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
@@ -146,7 +159,24 @@ def _hosted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -
     hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
     hosted.setup_claude()
     hosted.qualify_and_activate()
+    if enabled:
+        hosted.client.app.state.case_gate = _ListGate()  # type: ignore[attr-defined]
     return hosted
+
+
+def test_under_d139_the_hosted_policy_admits_no_case_to_insights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, insights_replies: Any
+) -> None:
+    monkeypatch.setattr("ai_assistant.config.HOSTED_INSIGHTS_DECISION", DECISION)
+    monkeypatch.setattr(test_hosted_claude, "QUALIFICATION_CALLS", 6)
+    hosted = Hosted(tmp_path, monkeypatch, InsightsClm())
+    hosted.setup_claude()
+    hosted.qualify_and_activate()
+    before = len(insights_bodies(hosted))
+    reply = hosted.client.post(GENERATE, headers=post_headers("rm-a"))
+    assert reply.status_code == 503
+    assert reply.json()["detail"]["code"] == "DASHBOARD_INSIGHTS_UNAVAILABLE"
+    assert len(insights_bodies(hosted)) == before
 
 
 @pytest.fixture
@@ -466,3 +496,8 @@ def test_derive_uses_only_the_enumerated_fields() -> None:
     assert facts["ZERO_TOUCH"] == {"completed_cases": 1, "zero_touch_rate": "100%"}
     assert all(isinstance(f, InsightFinding) for f in request.findings)
     assert hosted_insights.derive([], now) is None
+
+
+# D-139: these tests treat the fixture case as verified synthetic (the seam in conftest);
+# test_hosted_case_policy.py runs the real provenance check.
+pytestmark = pytest.mark.usefixtures("hosted_case_eligible")

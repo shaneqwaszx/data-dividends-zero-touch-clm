@@ -1,0 +1,142 @@
+# Hosted GPT-OSS 120B provider overlay (D-134 + D-138 A1, PROPOSED; LOCAL DESIGN CANDIDATE, not
+# approved for AWS). Apply LAST, after compose.assistant.yml:
+#   compose.yml -> compose.mongo.yml -> apps/assistant/deploy/compose.assistant.yml -> this file
+# For both hosted models put compose.assistant-provider.yml (E1, Claude) before this file and
+# compose.assistant-both.yml after it.
+#
+# Nothing here activates anything: the OpenRouter mode refuses to start while
+# config.HOSTED_OPENROUTER_DECISION or config.HOSTED_OPENROUTER_TRANSMISSION_DECISION is None
+# (both None in the shipped code). HR sets GPT-OSS up in AI Models; the key is entered there and
+# held in memory for that HR session (D-106). No key is configured here, and the service refuses
+# to start with one.
+#
+# Egress (OpenRouter publishes no fixed address range, so no address is pinned):
+# - The assistant joins ONE extra network, openrouter-control (bridge clm-ao-ctl, internal: no
+#   route out), and on it reaches only the proxy, http://172.30.244.2:4750. Only on this hosted
+#   deployment does its code use that proxy (openrouter.py); every proxy variable, .netrc and
+#   certificate override stays ignored, and TLS is verified end to end for openrouter.ai.
+#   openrouter.ai never resolves inside the assistant (dns below); the service refuses to
+#   start if it does (OPENROUTER_DIRECT_PATH_REFUSED) or if the proxy is not on-link
+#   (OPENROUTER_PROXY_NOT_INTERNAL).
+# - openrouter-egress (Smokescreen behind R3's exact-host gate) accepts only
+#   CONNECT openrouter.ai:443 from the assistant's address; openrouter-dns forwards only
+#   `openrouter.ai. IN A` to the VPC resolver. Both run under openrouter_egress_guard.py with
+#   their own default-deny Layer N, as R3's egress does.
+# - Only those two containers join openrouter-uplink (bridge clm-ao-up). Docker does not
+#   masquerade it; the host table `inet clm_r22o` (egress/clm_r22o.nft) is the only translation
+#   and allows exactly proxy -> public IPv4 tcp/443 and resolver -> VPC resolver 53.
+# - Boot fails closed (as E1 P2-1): restart "no" on both, and only clm-r22o-egress.service
+#   starts them, after the table and its watcher are up and the live table equals the reviewed
+#   file. Create them with `up --no-start`, then `systemctl start clm-r22o-egress`.
+services:
+  assistant:
+    environment:
+      ASSISTANT_HOSTING_PROVIDER: openrouter
+      # The owner's hosted daily ceiling in micro-USD (1 to 3000000, D-138 R2). No default.
+      ASSISTANT_HOSTING_GPTOSS_DAILY_CAP_MICRO_USD: "${ASSISTANT_GPTOSS_DAILY_CAP_MICRO_USD:?owner hosted GPT-OSS daily ceiling required}"
+      ASSISTANT_HOSTING_OPENROUTER_PROXY: http://172.30.244.2:4750
+      # The remote profile, named exactly (D-091, D-092, D-094, the approved endpoint, the
+      # owner's two attestations, the reasoning settings). Checked by the service
+      # (remote_test.readiness), never accepted as given. No defaults.
+      AI_ASSISTANT_LOCAL_API_TEST_DECISION: "${ASSISTANT_GPTOSS_TEST_DECISION:?D-094 decision name required}"
+      AI_ASSISTANT_REMOTE_INFERENCE_DECISION: "${ASSISTANT_GPTOSS_INFERENCE_DECISION:?D-091 decision name required}"
+      AI_ASSISTANT_REMOTE_LIVE_DECISION: "${ASSISTANT_GPTOSS_LIVE_DECISION:?D-092 decision name required}"
+      AI_ASSISTANT_OPENROUTER_ENDPOINT: "${ASSISTANT_GPTOSS_ENDPOINT:?approved endpoint required}"
+      AI_ASSISTANT_LOCAL_API_TEST_OWNER_ATTESTS: "${ASSISTANT_GPTOSS_OWNER_ATTESTS:?owner attestations required}"
+      AI_ASSISTANT_LLM_REASONING_EFFORT: "${ASSISTANT_GPTOSS_REASONING_EFFORT:?reasoning effort required}"
+      AI_ASSISTANT_LLM_REASONING_ALLOWANCE_TOKENS: "${ASSISTANT_GPTOSS_REASONING_ALLOWANCE:?reasoning allowance required}"
+    # TEST-NET-1: nothing answers, so no external name resolves (container names still do).
+    dns: [192.0.2.53]
+    dns_opt: ["timeout:1", "attempts:1"]
+    networks:
+      openrouter-control:
+        ipv4_address: 172.30.244.3
+
+  openrouter-dns:
+    image: ${OPENROUTER_EGRESS_IMAGE:?egress image required}
+    platform: linux/amd64
+    container_name: clm-staging-openrouter-dns
+    environment:
+      CLM_EGRESS_ROLE: resolver
+      CLM_EGRESS_FQDN: openrouter.ai
+    networks:
+      openrouter-control:
+        ipv4_address: 172.30.244.4
+      openrouter-uplink:
+        ipv4_address: 172.30.245.3
+    # R3 G2 U-1: a non-internal container without dns: has its embedded-DNS queries forwarded
+    # from the host namespace; pointing it at itself keeps that path closed.
+    dns: [172.30.244.4]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "53"
+    read_only: true
+    tmpfs:
+      - /run/r22o:rw,nosuid,nodev,noexec,mode=0755,size=1m
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 0.25
+    mem_limit: 96m
+    memswap_limit: 96m
+    pids_limit: 64
+    logging: &r22o-logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    stop_grace_period: 10s
+    restart: "no"
+    healthcheck: &r22o-health
+      test: ["CMD", "/usr/local/bin/python3", "-I", "/opt/egress/openrouter_egress_guard.py", "--health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+
+  openrouter-egress:
+    image: ${OPENROUTER_EGRESS_IMAGE:?egress image required}
+    platform: linux/amd64
+    container_name: clm-staging-openrouter-egress
+    environment:
+      CLM_EGRESS_ROLE: proxy
+      CLM_EGRESS_FQDN: openrouter.ai
+    networks:
+      openrouter-control:
+        ipv4_address: 172.30.244.2
+      openrouter-uplink:
+        ipv4_address: 172.30.245.2
+    dns: [172.30.244.4]
+    read_only: true
+    tmpfs:
+      - /run/r22o:rw,nosuid,nodev,noexec,mode=0755,size=1m
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 0.5
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 64
+    logging: *r22o-logging
+    stop_grace_period: 10s
+    restart: "no"
+    healthcheck: *r22o-health
+
+networks:
+  openrouter-control:
+    internal: true
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: clm-ao-ctl
+    ipam:
+      config:
+        - subnet: 172.30.244.0/29
+          gateway: 172.30.244.1
+  openrouter-uplink:
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: clm-ao-up
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+    ipam:
+      config:
+        - subnet: 172.30.245.0/29
+          gateway: 172.30.245.1

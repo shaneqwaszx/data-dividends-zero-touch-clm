@@ -30,8 +30,10 @@ from tests.remote_fixtures import ENDPOINT, new_ledger
 
 @pytest.fixture(autouse=True)
 def no_daily_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The session is under test here; the D-095 daily allowance has its own tests.
+    # The session is under test here; the D-095 daily allowance and the standing US$3.00
+    # GPT-OSS day (test_gptoss_daily_ceiling, test_real_inference_controls) have their own tests.
     monkeypatch.setattr("ai_assistant.budget.DEFAULT_DAILY_CAP_MICRO_USD", MAX_MICRO_USD)
+    monkeypatch.setattr("ai_assistant.budget.STANDING_DAILY_CEILINGS", {})
 
 
 class Clock:
@@ -208,6 +210,7 @@ def test_qualification_and_chat_share_the_money_allowance(tmp_path: Path) -> Non
 
 def _race_worker(args: tuple[str, int]) -> int:
     path, attempts = args
+    budget.STANDING_DAILY_CEILINGS.clear()  # a spawned process: as no_daily_cap does above
     ledger = BudgetLedger(Path(path))
     admitted = 0
     for _ in range(attempts):

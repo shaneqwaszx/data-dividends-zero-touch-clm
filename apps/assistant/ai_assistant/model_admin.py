@@ -88,6 +88,7 @@ from .budget import (
     BudgetLedger,
     LedgerError,
     LedgerStatus,
+    daily_ceiling,
 )
 from .clm_client import SESSION_COOKIE_NAME, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
@@ -245,6 +246,11 @@ MESSAGES = {
         " Nothing changed."
     ),
     "DAILY_CONFIRMATION_REQUIRED": "Confirm the new daily limit to raise it. Nothing changed.",
+    # D-134 (proposed): the deployment's hard daily ceiling for GPT-OSS.
+    "DAILY_CEILING_EXCEEDED": (
+        "The daily limit cannot be set above this deployment's fixed daily ceiling."
+        " Nothing changed."
+    ),
     "PROVIDER_LIMIT_REQUIRED": (
         "The OpenRouter key must have its own finite spending limit that never resets before"
         " the app's spending limits can be raised. Nothing changed."
@@ -2445,6 +2451,7 @@ def model_admin_router(
         controls = selector.spending_controls()
         effective = apply_controls(settings, controls)
         view = budget_status(effective, environ=selector.environ)
+        ceiling = daily_ceiling(OPENROUTER_PROFILE_ID)
         try:
             used = selector.calls_used()
         except LedgerError:
@@ -2468,7 +2475,13 @@ def model_admin_router(
             "revision": controls.revision if controls is not None else None,
             "readable": controls is not None,
             "daily_cap_micro_usd": effective.budget_daily_cap_micro_usd,
-            "daily_cap_max_micro_usd": DAILY_CAP_MAX_MICRO_USD,
+            # D-134: the registered hard daily ceiling where there is one (HR may set the daily
+            # limit at or below it, never above); otherwise D-098's technical bound.
+            "daily_cap_max_micro_usd": DAILY_CAP_MAX_MICRO_USD if ceiling is None else ceiling,
+            "daily_ceiling_micro_usd": ceiling,
+            # False: the fixed chat-call count is not applied here (the daily budget, the money
+            # limits and the per-user request rate bound hosted GPT-OSS instead).
+            "max_calls_applies": not view.get("hosted", False),
             "daily_cap_default_micro_usd": DEFAULT_DAILY_CAP_MICRO_USD,
             # D-098: what a raise of either limit needs (shown on the page before HR asks).
             "raise_requires": ["confirmation", "finite_provider_limit"],
@@ -2693,6 +2706,12 @@ def model_admin_router(
         if not valid_controls(body.daily_cap_micro_usd, body.max_calls):
             audit(profile, action, "refused", code="CONTROLS_INVALID")
             raise _refusal(400, "CONTROLS_INVALID")
+        # D-134: never above the deployment's registered hard daily ceiling (it is not stored,
+        # so a later restart without the ceiling cannot inherit a higher HR value from here).
+        ceiling = daily_ceiling(OPENROUTER_PROFILE_ID)
+        if ceiling is not None and body.daily_cap_micro_usd > ceiling:
+            audit(profile, action, "refused", code="DAILY_CEILING_EXCEEDED")
+            raise _refusal(400, "DAILY_CEILING_EXCEEDED")
         with selector.change_lock:
             recheck(request, profile, action)
             # The allowance in force now (unreadable controls read as none: any value raises).
