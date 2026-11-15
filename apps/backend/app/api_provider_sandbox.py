@@ -68,6 +68,9 @@ class GoldTierSandboxStatusResponse(BaseModel):
     classification: Literal["MOCK", "SANDBOX_PARTIAL"]
     safe_host: str | None
     writes_enabled: bool
+    # ST-7: counts only; None when Sandbox reads are not counted.
+    daily_read_limit: int | None = None
+    reads_used_today: int | None = None
     timeout_seconds: float
     max_response_bytes: int
     last_diagnostic_at: datetime | None
@@ -202,6 +205,9 @@ def build_provider_sandbox_router(
             else "GOLDTIER_SANDBOX_WRITE_REQUIRES_CASE_LEDGER"
         )
         current = snapshot()
+        read_limit, reads_used = (
+            onboarding.target_read_budget_usage(datetime.now(UTC)) if configured else (None, None)
+        )
         return GoldTierSandboxStatusResponse(
             configured=configured,
             mode="SANDBOX" if configured else "MOCK",
@@ -210,6 +216,8 @@ def build_provider_sandbox_router(
                 urlsplit(settings.goldtier_sandbox_base_url).hostname if configured else None
             ),
             writes_enabled=configured and writes_open,
+            daily_read_limit=read_limit,
+            reads_used_today=reads_used,
             timeout_seconds=settings.goldtier_sandbox_timeout_seconds,
             max_response_bytes=settings.goldtier_sandbox_max_response_bytes,
             last_diagnostic_at=(current[-1].occurred_at if current else None),

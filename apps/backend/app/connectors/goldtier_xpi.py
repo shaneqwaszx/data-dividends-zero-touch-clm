@@ -30,6 +30,7 @@ from app.connectors.goldtier_models import (
     GoldTierSearchOutcome,
     GoldTierSearchResult,
 )
+from app.connectors.goldtier_read_budget import GoldTierReadBudget, UnlimitedGoldTierReadBudget
 from app.connectors.goldtier_write_policy import GoldTierSandboxWritePolicy
 from app.connectors.goldtier_xpi_models import (
     XpiAmendCustomerRequest,
@@ -107,6 +108,23 @@ class GoldTierXpiRateLimitedError(GoldTierXpiObservedStatusError):
     public_message = "The GoldTier sandbox rate-limited the request."
 
 
+class GoldTierXpiReadBudgetUnavailableError(GoldTierXpiServiceUnavailableError):
+    """The local budget could not confirm a claim and no request was sent."""
+
+    code = "GT_XPI_READ_BUDGET_UNAVAILABLE"
+    public_message = "The GoldTier sandbox read budget is unavailable."
+
+
+class GoldTierXpiReadBudgetExhaustedError(GoldTierXpiRateLimitedError):
+    """ST-7: the backend's own daily Sandbox read budget refused the read; nothing was sent.
+
+    A rate-limit subclass, so every caller keeps its existing recoverable-failure path.
+    """
+
+    code = "GT_XPI_READ_BUDGET_EXHAUSTED"
+    public_message = "The daily GoldTier sandbox read budget is used up."
+
+
 XPI_SEARCH_FAILURE_CODES = frozenset({"GT_XPI_SEARCH_INVALID", "GT_XPI_SERVICE_UNAVAILABLE"})
 
 _TRUSTED_XPI_SEARCH_ERRORS: tuple[tuple[type[ConnectorError], PublicConnectorError], ...] = (
@@ -122,6 +140,13 @@ _TRUSTED_XPI_SEARCH_ERRORS: tuple[tuple[type[ConnectorError], PublicConnectorErr
         PublicConnectorError(
             code="GT_XPI_TIMEOUT",
             message="The GoldTier sandbox request timed out.",
+        ),
+    ),
+    (
+        GoldTierXpiReadBudgetUnavailableError,
+        PublicConnectorError(
+            code="GT_XPI_READ_BUDGET_UNAVAILABLE",
+            message="The GoldTier sandbox read budget is unavailable.",
         ),
     ),
     (
@@ -143,6 +168,13 @@ _TRUSTED_XPI_SEARCH_ERRORS: tuple[tuple[type[ConnectorError], PublicConnectorErr
         PublicConnectorError(
             code="GT_XPI_AUTHORIZATION_FAILED",
             message="The GoldTier sandbox did not authorize the request.",
+        ),
+    ),
+    (
+        GoldTierXpiReadBudgetExhaustedError,
+        PublicConnectorError(
+            code="GT_XPI_READ_BUDGET_EXHAUSTED",
+            message="The daily GoldTier sandbox read budget is used up.",
         ),
     ),
     (
@@ -447,10 +479,16 @@ class GoldTierXpiSandboxConnector:
         connection: GoldTierXpiSandboxConnection,
         transport: GoldTierXpiHttpTransport | None = None,
         clock: Callable[[], datetime] | None = None,
+        read_budget: GoldTierReadBudget | None = None,
     ) -> None:
         self._connection = connection
         self._transport = transport or HttpxGoldTierXpiTransport()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._read_budget: GoldTierReadBudget = read_budget or UnlimitedGoldTierReadBudget()
+
+    @property
+    def read_budget(self) -> GoldTierReadBudget:
+        return self._read_budget
 
     @property
     def writes_enabled(self) -> bool:
@@ -480,6 +518,14 @@ class GoldTierXpiSandboxConnector:
             )
         ):
             raise GoldTierXpiWritesDisabledError
+        if not mutation:
+            # ST-7: a read is counted before it leaves; an unavailable budget refuses it.
+            try:
+                claimed = self._read_budget.claim(self._clock())
+            except Exception:  # noqa: BLE001 - fail closed at the budget boundary
+                raise GoldTierXpiReadBudgetUnavailableError from None
+            if not claimed:
+                raise GoldTierXpiReadBudgetExhaustedError
         try:
             response = self._transport.request(
                 method,

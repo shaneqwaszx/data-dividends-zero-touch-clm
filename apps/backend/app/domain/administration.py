@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
@@ -159,3 +159,25 @@ def audit_is_prefix(
     candidate: tuple[AdministrationAuditEvent, ...],
 ) -> bool:
     return len(candidate) == len(previous) + 1 and candidate[: len(previous)] == previous
+
+
+# D-140: credential operations are recorded as PROFILE_UPDATED events tagged by
+# ``metadata["operation"]``. No new audit action or persisted field is introduced, so a
+# rollback to an image without D-140 still decodes every profile.
+CREDENTIAL_OPERATION_KEY = "operation"
+PASSWORD_RESET_OPERATION: Final = "PASSWORD_RESET"
+SIGN_IN_DISABLED_OPERATION: Final = "SIGN_IN_DISABLED"
+CredentialOperation = Literal["PASSWORD_RESET", "SIGN_IN_DISABLED"]
+
+
+def sign_in_disabled(record: UserAccountRecord) -> bool:
+    """True when the latest credential operation discarded the credential (SF-006)."""
+
+    for event in reversed(record.audit_events):
+        operation = event.metadata.get(CREDENTIAL_OPERATION_KEY)
+        if event.action == "PROFILE_UPDATED" and operation in {
+            PASSWORD_RESET_OPERATION,
+            SIGN_IN_DISABLED_OPERATION,
+        }:
+            return operation == SIGN_IN_DISABLED_OPERATION
+    return False

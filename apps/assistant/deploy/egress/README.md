@@ -141,14 +141,14 @@ the exact-host proxy replaces it for the OpenRouter mode only.
 
 ## Flows
 
-    clm-staging-assistant (172.30.244.3) -> openrouter-egress (172.30.244.2:4750)   clm-ao-ctl, internal
-    openrouter-egress (172.30.245.2)     -> public IPv4 tcp/443                    clm-ao-up, CONNECT openrouter.ai:443 only
-    openrouter-dns (172.30.245.3)        -> VPC resolver 172.26.0.2:53             only `openrouter.ai. IN A`
+    clm-staging-assistant (172.30.246.3) -> openrouter-egress (172.30.246.2:4750)   clm-ao-ctl, internal
+    openrouter-egress (172.30.247.2)     -> public IPv4 tcp/443                    clm-ao-up, CONNECT openrouter.ai:443 only
+    openrouter-dns (172.30.247.3)        -> VPC resolver 172.26.0.2:53             only `openrouter.ai. IN A`
 
 - **Assistant.** Joins only `clm-ao-ctl` (internal, no route out) on top of the Stage A proxy
   network. openrouter.ai never resolves inside it (DNS `192.0.2.53`); the service refuses to
   start if it does (`OPENROUTER_DIRECT_PATH_REFUSED`), if `ASSISTANT_HOSTING_OPENROUTER_PROXY` is
-  not exactly `http://<IPv4 in 172.30.244.0/29>:4750` (`OPENROUTER_PROXY_REQUIRED`), or if the
+  not exactly `http://<IPv4 in 172.30.246.0/29>:4750` (`OPENROUTER_PROXY_REQUIRED`), or if the
   kernel would reach that address other than directly from the same network
   (`OPENROUTER_PROXY_NOT_INTERNAL`). Its code uses that proxy for every live OpenRouter request
   (chat, account checks, public listing) only once the hosted deployment registered it;
@@ -194,7 +194,7 @@ transmission decision), alongside the E1-style VM matrices for this lane.
 
 ## Install (AWS host operator only, after the owner's approval)
 
-1. Host preflight: `UPLINK_IF` is the uplink (`ens5`); `172.30.244.0/29` and `172.30.245.0/29`
+1. Host preflight: `UPLINK_IF` is the uplink (`ens5`); `172.30.246.0/29` and `172.30.247.0/29`
    are free (`ip -4 route`, `docker network ls`); the VPC resolver is `172.26.0.2`.
 2. Build the image from the repository root and record its digest:
    `docker buildx build --platform linux/amd64 --build-context r3=deploy/egress -f apps/assistant/deploy/egress/openrouter-egress.Dockerfile -t <image> apps/assistant/deploy/egress`.

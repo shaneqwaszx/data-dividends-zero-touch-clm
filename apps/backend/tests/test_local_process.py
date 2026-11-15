@@ -74,6 +74,7 @@ def test_platform_creation_flags_preserve_bounded_process_contract(
                 "stdout": process_module.PIPE,
                 "stderr": process_module.DEVNULL,
                 "shell": False,
+                "env": local_process.child_environment(),
                 "creationflags": expected_flags,
             },
         )

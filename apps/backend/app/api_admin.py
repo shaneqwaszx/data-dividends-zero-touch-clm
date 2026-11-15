@@ -7,11 +7,11 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.api_auth import TeamResponse
 from app.domain.access import AuthenticatedActor, Role, TeamId
-from app.domain.administration import TeamRecord, UserAccountRecord
+from app.domain.administration import TeamRecord, UserAccountRecord, sign_in_disabled
 from app.persistence.errors import PersistenceUnavailableError
 from app.services.admin_repository import (
     AdministrationAuditCapacityError,
@@ -67,6 +67,8 @@ class AdminProfileResponse(BaseModel):
     updated_at: datetime
     created_by: str
     updated_by: str
+    # D-140 / SF-006: derived from the audit trail; not a persisted field.
+    sign_in_disabled: bool = False
 
 
 class CreateTeamRequest(BaseModel):
@@ -103,6 +105,23 @@ class UpdateProfileRequest(BaseModel):
     display_name: Annotated[str | None, Field(default=None, min_length=2, max_length=80)]
     role: Role | None = None
     team_id: TeamId | None = None
+
+
+class ResetPasswordRequest(BaseModel):
+    """D-140 body. The new password is a SecretStr: never echoed, logged or returned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
+    new_password: Annotated[SecretStr, Field(min_length=12, max_length=128, repr=False)]
+
+
+class DisableSignInRequest(BaseModel):
+    """D-140 / SF-006 body: only the expected version; the server discards the credential."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
 
 
 def build_admin_router(service: AdministrationService) -> APIRouter:
@@ -205,6 +224,35 @@ def build_admin_router(service: AdministrationService) -> APIRouter:
             )
         )
 
+    @router.post("/api/admin/profiles/{user_id}/password", response_model=AdminProfileResponse)
+    def reset_profile_password(
+        user_id: str, body: ResetPasswordRequest, request: Request
+    ) -> AdminProfileResponse:
+        actor = _actor(request)
+        return _admin_call(
+            lambda: _profile_response(
+                service.reset_password(
+                    actor,
+                    user_id,
+                    expected_version=body.expected_version,
+                    new_password=body.new_password,
+                ),
+                service,
+            )
+        )
+
+    @router.post("/api/admin/profiles/{user_id}/disable", response_model=AdminProfileResponse)
+    def disable_profile_sign_in(
+        user_id: str, body: DisableSignInRequest, request: Request
+    ) -> AdminProfileResponse:
+        actor = _actor(request)
+        return _admin_call(
+            lambda: _profile_response(
+                service.disable_sign_in(actor, user_id, expected_version=body.expected_version),
+                service,
+            )
+        )
+
     return router
 
 
@@ -223,6 +271,7 @@ def _profile_response(
         updated_at=account.updated_at,
         created_by=account.created_by,
         updated_by=account.updated_by,
+        sign_in_disabled=sign_in_disabled(account),
     )
 
 

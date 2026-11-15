@@ -126,6 +126,7 @@ from app.domain.zero_touch import (
 )
 from app.persistence.composition import (
     PersistenceBundle,
+    build_goldtier_read_budget,
     build_persistence_bundle,
     build_workflow_persistence,
 )
@@ -669,6 +670,9 @@ def create_app(
     active_acra_connector: AcraConnector | None = None
     if onboarding_service is None:
         active_acra_connector = acra_connector or build_acra_connector(active_settings)
+        # ST-7: the daily Sandbox read budget (None when reads are not counted).
+        read_budget = build_goldtier_read_budget(active_settings)
+        application.router.add_event_handler("shutdown", read_budget.close)
         service = build_onboarding_service(
             catalogue,
             active_settings,
@@ -683,6 +687,7 @@ def create_app(
             policy_snapshot_provider=policy_management.case_snapshot,
             registry_snapshot_repository=persistence.registry_snapshots,
             goldtier_transport=goldtier_transport,
+            goldtier_read_budget=read_budget.budget,
         )
     else:
         service = onboarding_service

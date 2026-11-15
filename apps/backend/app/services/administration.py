@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -10,16 +11,21 @@ from pydantic import SecretStr, ValidationError
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability, Role, TeamId
 from app.domain.administration import (
     MAX_AUDIT_EVENTS,
+    PASSWORD_RESET_OPERATION,
+    SIGN_IN_DISABLED_OPERATION,
     AdministrationAuditEvent,
+    CredentialOperation,
     TeamRecord,
     UserAccountRecord,
     normalize_display_name,
     normalize_user_id,
 )
 from app.services.admin_repository import (
+    AdministrationActorNotAuthorizedError,
     AdministrationAuditCapacityError,
     AdministrationAuthorityInvariantError,
     AdministrationConflictError,
+    AdministrationCredentialTargetRefusedError,
     ProfileRepository,
     TeamRepository,
     generate_team_id,
@@ -321,6 +327,75 @@ class AdministrationService:
             persisted = self.profiles.update(candidate, expected_version=expected_version)
         except ValidationError:
             raise AdministrationValidationError from None
+        return persisted
+
+    def reset_password(
+        self,
+        actor: AuthenticatedActor,
+        user_id: str,
+        *,
+        expected_version: int,
+        new_password: SecretStr,
+    ) -> UserAccountRecord:
+        """D-140: HR replaces a non-HR account credential and revokes its sessions.
+
+        The plaintext is hashed immediately and never logged, stored, audited or returned.
+        """
+
+        self.require_hr(actor)
+        plaintext = (
+            new_password.get_secret_value() if isinstance(new_password, SecretStr) else None
+        )
+        if not isinstance(plaintext, str) or not 12 <= len(plaintext) <= 128:
+            raise AdministrationValidationError
+        return self._replace_credential(
+            actor, user_id, expected_version, plaintext, PASSWORD_RESET_OPERATION
+        )
+
+    def disable_sign_in(
+        self, actor: AuthenticatedActor, user_id: str, *, expected_version: int
+    ) -> UserAccountRecord:
+        """SF-006 / D-140: lock a non-HR account by replacing its credential with the hash
+        of a random value that is discarded at once. A later password reset re-enables it."""
+
+        self.require_hr(actor)
+        return self._replace_credential(
+            actor,
+            user_id,
+            expected_version,
+            secrets.token_urlsafe(48),
+            SIGN_IN_DISABLED_OPERATION,
+        )
+
+    def _replace_credential(
+        self,
+        actor: AuthenticatedActor,
+        user_id: str,
+        expected_version: int,
+        plaintext: str,
+        operation: CredentialOperation,
+    ) -> UserAccountRecord:
+        current = self.profiles.get(user_id)
+        if current is None:
+            raise AdministrationNotFoundError
+        if current.role == Role.HR:
+            raise AdministrationForbiddenError
+        encoded = SecretStr(generate_scrypt_password_hash(plaintext))
+        try:
+            persisted = self.profiles.replace_credential(
+                actor_user_id=actor.profile.user_id,
+                user_id=current.user_id,
+                expected_version=expected_version,
+                credential_hash=encoded,
+                operation=operation,
+                updated_at=self._clock(),
+            )
+        except (
+            AdministrationActorNotAuthorizedError,
+            AdministrationCredentialTargetRefusedError,
+        ):
+            raise AdministrationForbiddenError from None
+        self._revoke_sessions(persisted.user_id)
         return persisted
 
     def _validate_role_team(self, role: Role, team_id: TeamId | None) -> None:

@@ -15,8 +15,8 @@ dependencies = [
     "httpx==0.28.1",
     "pymongo==4.15.1",
     "pydantic-settings==2.15.0",
-    "pypdf==5.6.1",
-    "Pillow==12.3.0",
+    "pypdf==6.21.4",
+    "Pillow==13.0.0",
     "pypdfium2==5.13.0",
     # FastAPI accepts any Starlette >=0.46; pinned to the version every suite is validated on
     # (a fresh resolve took 1.10.0, whose TestClient changes how an interrupted request ends).

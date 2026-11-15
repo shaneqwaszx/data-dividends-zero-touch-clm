@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
@@ -30,6 +31,10 @@ class RecordingSandboxSearch:
     @property
     def target_provider_mode(self) -> GoldTierProviderMode:
         return GoldTierProviderMode.SANDBOX
+
+    def target_read_budget_usage(self, now: datetime) -> tuple[int, int]:
+        assert now.tzinfo is UTC
+        return 8, 3
 
     def search_sandbox_target(
         self,
@@ -150,6 +155,8 @@ async def test_hr_status_search_and_dry_run_are_safe_and_bounded() -> None:
     assert status_response.status_code == 200
     status_projection = status_response.json()
     assert status_projection["classification"] == "SANDBOX_PARTIAL"
+    assert status_projection["daily_read_limit"] == 8
+    assert status_projection["reads_used_today"] == 3
     assert status_projection["safe_host"] == "sandbox.goldtier.invalid"
     assert status_projection["customer_operations"] == "PARTIAL"
     assert status_projection["related_party_operations"] == "BLOCKED_CONTRACT"
