@@ -208,7 +208,7 @@ A separate three-entity demonstration on the same OPQ root. Select it explicitly
 `ACRA_MARKETPLACE_OPQ_SCENARIO=garden_sim_lim_chain` (default `five_layer_simulation`)
 together with `ACRA_CONNECTOR_MODE=api_marketplace_mock` and
 `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay`. Only one OPQ scenario is active
-per runtime.
+per runtime for new cases; an existing case keeps its recorded scenario (D-086a, section 7c).
 
 | Level | Entity | Identity evidence | Link to parent |
 |---|---|---|---|
@@ -257,6 +257,51 @@ variant; the default and the 100% variant are unchanged.
 The businessProfile row returned no status; treating it as current is the recorded D-088
 assumption. It applies only because the row exactly equals ABC's single issued class.
 The offline transport uses a synthetic holder name in the observed shape.
+
+## 7c. Staging (D-086a): three demonstrations, case-sticky scenario
+
+The staging demo shows three synthetic ownership demonstrations side by side. None
+overwrites another's stored analysis.
+
+| Demo | Root case | Scenario recorded on the case |
+|---|---|---|
+| OPQ -> GARDEN BUSINESS -> SIM LIM (primary, D-086) | OPQ `201511222D` | `garden_sim_lim_chain` |
+| GARDEN BUSINESS -> SIM LIM (independent case) | GARDEN BUSINESS `11111999A` | Garden direct overlay |
+| Five-layer demonstration (D-077) | OPQ `201511222D` | `five_layer_simulation` |
+
+**Case-sticky rule.** The operator selector chooses the OPQ variant only at a case's
+**first** overlay analysis. That case keeps its recorded variant
+(`discovery.overlay_scenario_id`) on every later analysis, whichever variant the
+selector names then. A new case follows the current selector. A recorded variant that is
+unknown, uncatalogued or for a different root gives no overlay, never a fallback to the
+selector. The official-evidence gate still applies first and unchanged: missing or stale
+official Marketplace Mock entity evidence gives no overlay, recorded variant or not. The
+selector is an operator setting only, never user-supplied and never a case field written
+by a user. Garden's direct scenario is the same in every selector state.
+
+**Selector.** The repository overlay `deploy/compose.acra-ownership.yml` sets
+`ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay` and
+`ACRA_MARKETPLACE_OPQ_SCENARIO` from the operator variable `CLM_ACRA_OPQ_SCENARIO`
+(default `garden_sim_lim_chain`). It is applied by the operator after the Marketplace
+overlay, and never in the Mock baseline file set: the backend refuses
+`hybrid_direct_overlay` unless `ACRA_CONNECTOR_MODE=api_marketplace_mock`.
+
+**Demo runbook.**
+
+1. With the default (`CLM_ACRA_OPQ_SCENARIO` unset, so `garden_sim_lim_chain`), onboard
+   an OPQ case `201511222D`. It records and keeps the chain.
+2. Onboard GARDEN BUSINESS `11111999A` as its own case (Garden direct overlay).
+3. The operator restarts the backend with `CLM_ACRA_OPQ_SCENARIO=five_layer_simulation`
+   and onboards a second OPQ case. It records and keeps the five-layer scenario.
+4. Existing cases keep their recorded scenario after any later selector change or
+   re-analysis. Returning the selector to the default changes only new OPQ cases.
+
+**Provenance labels (unchanged).** Overlay links stay `LOCAL_SYNTHETIC_RELATIONSHIP`
+from `LOCAL_HYBRID_OVERLAY`, with `LOCAL_SYNTHETIC_IDENTITY` names below the root where
+no official profile exists. Official rows keep their official Marketplace source
+reference. An artificial relationship is never presented as official ACRA data, and the
+Marketplace Mock stays classified MOCK (no Live claim). D-112 O7: no catalogue scenario
+declares POC acceptance, and a hybrid analysis never qualifies for it.
 
 ## 8. Garden under the same concept
 

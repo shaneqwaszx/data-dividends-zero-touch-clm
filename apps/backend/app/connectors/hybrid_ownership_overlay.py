@@ -595,7 +595,13 @@ def official_marketplace_root_is_eligible(case: OnboardingCase, uen: str, now: d
 
 
 class HybridOwnershipOverlayCatalogue:
-    """Resolve the whitelisted scenario for one eligible official root, or nothing."""
+    """Resolve the whitelisted scenario for one eligible official root, or nothing.
+
+    D-086a: the per-root map (Garden plus the operator-selected OPQ variant) chooses the
+    scenario of a case's first overlay analysis only. A separate by-id map holds every
+    catalogued scenario and resolves nothing but a recorded ``overlay_scenario_id``, so a
+    case keeps its recorded variant after the operator selector changes.
+    """
 
     def __init__(self, scenarios: Iterable[HybridOverlayScenario] | None = None) -> None:
         catalogue: dict[str, HybridOverlayScenario] = {}
@@ -604,22 +610,58 @@ class HybridOwnershipOverlayCatalogue:
                 raise ValueError("hybrid overlay roots must be unique")
             catalogue[scenario.root_uen] = scenario
         self._by_root: Mapping[str, HybridOverlayScenario] = catalogue
+        # This composition's own scenarios take precedence; every other trusted catalogue
+        # declaration is added by id only, never as a root for a new analysis.
+        by_id: dict[str, HybridOverlayScenario] = {
+            item.scenario_id: item for item in catalogue.values()
+        }
+        for item in catalogued_hybrid_overlay_scenarios():
+            by_id.setdefault(item.scenario_id, item)
+        self._by_id: Mapping[str, HybridOverlayScenario] = by_id
 
     @property
     def scenarios(self) -> tuple[HybridOverlayScenario, ...]:
+        """The scenarios a new analysis can select: one per root."""
+
         return tuple(self._by_root.values())
+
+    @property
+    def catalogued_scenarios(self) -> tuple[HybridOverlayScenario, ...]:
+        """Every scenario a recorded ``overlay_scenario_id`` may resolve to."""
+
+        return tuple(self._by_id.values())
 
     def scenario(self, scenario_id: str | None) -> HybridOverlayScenario | None:
         """The catalogue's own declaration for a recorded scenario id, or nothing."""
 
-        return next(
-            (item for item in self._by_root.values() if item.scenario_id == scenario_id), None
-        )
+        return None if scenario_id is None else self._by_id.get(scenario_id)
 
-    def root_scenario(self, case: OnboardingCase, now: datetime) -> HybridOverlayScenario | None:
-        scenario = self._by_root.get(case.requested_uen.strip().upper())
-        if scenario is None or not official_marketplace_root_is_eligible(
-            case, scenario.root_uen, now
+    def root_scenario(
+        self,
+        case: OnboardingCase,
+        now: datetime,
+        *,
+        recorded_scenario_id: str | None = None,
+    ) -> HybridOverlayScenario | None:
+        """The overlay for this case's next analysis, or nothing.
+
+        The official-evidence gate always applies, unchanged, and a recorded id never
+        bypasses it. With no recorded scenario the operator-selected per-root scenario
+        applies (a first overlay analysis). A recorded scenario id is case-sticky: it
+        resolves only to a catalogued scenario with this case's own root, and an unknown id
+        or another root gives no overlay, never a fallback to the selector.
+        """
+
+        root = case.requested_uen.strip().upper()
+        scenario = (
+            self._by_root.get(root)
+            if recorded_scenario_id is None
+            else self._by_id.get(recorded_scenario_id)
+        )
+        if (
+            scenario is None
+            or scenario.root_uen != root
+            or not official_marketplace_root_is_eligible(case, scenario.root_uen, now)
         ):
             return None
         return scenario
@@ -823,6 +865,16 @@ def hybrid_overlay_scenarios(
     """The trusted catalogue: Garden plus exactly one operator-selected OPQ scenario."""
 
     return (GARDEN_DIRECT_SCENARIO, _OPQ_VARIANTS[opq_variant])
+
+
+def catalogued_hybrid_overlay_scenarios() -> tuple[HybridOverlayScenario, ...]:
+    """D-086a: every trusted catalogue declaration (Garden plus all OPQ variants).
+
+    Used only to resolve a recorded ``overlay_scenario_id``; never to choose the scenario
+    of a new analysis, which stays with ``hybrid_overlay_scenarios``.
+    """
+
+    return (GARDEN_DIRECT_SCENARIO, *_OPQ_VARIANTS.values())
 
 
 HYBRID_OVERLAY_SCENARIOS: tuple[HybridOverlayScenario, ...] = hybrid_overlay_scenarios()

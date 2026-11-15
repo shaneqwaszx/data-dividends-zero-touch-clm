@@ -108,12 +108,16 @@ def names(record: OwnershipAnalysisRecord) -> dict[str, str]:
 def test_the_five_layer_simulation_stays_the_default_and_the_variant_is_explicit() -> None:
     assert lane().acra_marketplace_opq_scenario == "five_layer_simulation"
     default = HybridOwnershipOverlayCatalogue()
-    assert default.scenario(FIVE_LAYER_SCENARIO_ID) is not None
-    assert default.scenario(OPQ_GARDEN_SIM_LIM_SCENARIO_ID) is None
+    assert {item.scenario_id for item in default.scenarios} == {
+        GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
+        FIVE_LAYER_SCENARIO_ID,
+    }
     selected = HybridOwnershipOverlayCatalogue(hybrid_overlay_scenarios("garden_sim_lim_chain"))
+    # D-086a: a recorded id resolves any catalogued scenario (case-sticky) ...
     assert selected.scenario(OPQ_GARDEN_SIM_LIM_SCENARIO_ID) is not None
-    # Exactly one OPQ scenario at a time: never an ambiguous automatic choice.
-    assert selected.scenario(FIVE_LAYER_SCENARIO_ID) is None
+    assert selected.scenario(FIVE_LAYER_SCENARIO_ID) is not None
+    # ... but a new analysis selects exactly one OPQ scenario at a time: never an
+    # ambiguous automatic choice.
     assert {item.scenario_id for item in selected.scenarios} == {
         GARDEN_DIRECT_OVERLAY_SCENARIO_ID,
         OPQ_GARDEN_SIM_LIM_SCENARIO_ID,
