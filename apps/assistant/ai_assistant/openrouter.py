@@ -117,7 +117,7 @@ def require_allowed_transport(transport: object) -> httpx.MockTransport | None:
 # apps/assistant/deploy/compose.assistant-openrouter.yml; the address comes from the hosting
 # layer's own setting and must lie inside the network (never its network address, gateway or
 # broadcast address). Comments only: every string constant here joins the synthetic boundary.
-HOSTED_PROXY_NETWORK = ipaddress.IPv4Network("172.30.244.0/29")
+HOSTED_PROXY_NETWORK = ipaddress.IPv4Network("172.30.246.0/29")
 HOSTED_PROXY_PORT = 4750
 _PROXY_FORM = re.compile(r"http://([0-9.]{7,15}):([0-9]{1,5})")
 _hosted_proxy: str | None = None
