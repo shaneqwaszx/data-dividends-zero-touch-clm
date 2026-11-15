@@ -2472,6 +2472,9 @@ Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
 Periodic review remains an extension: this provides a way to define such a workflow, not
 an ageing, scheduling or OCDD engine. Q-014 reviewer separation is unchanged.
 
+Superseded in part (2026-11-15): W5 and W8 by D-136. The rows above are kept as the
+historical record.
+
 ## D-124 - The advisory UBO review applies with GoldTier Sandbox (OWNER-DIRECTED 2026-11-05)
 
 Numbering: drafted in PR 163 as D-123, and renumbered because main took D-123 for Director-managed workflows.
@@ -2690,3 +2693,32 @@ window that can create cases runs before R2.1 is deployed and accepted.
 Side effect: `ai_assistant/main.py` is a model-qualification basis file, so the local paid-model
 qualification basis changes. Local Claude or GPT-OSS use from a checkout with this change needs
 requalification first; the hosted service has no model.
+
+## D-136 - Every send path enforces stored required workflow stages (C1/C2; OWNER-APPROVED 2026-11-15)
+
+Status: `USER_AUTHORIZED_POC`, owner-approved on 2026-11-15 for the isolated C1/C2 fix.
+Not sponsor-confirmed, not production-qualified. Numbering is provisional: D-133 to
+D-135 are held by open proposals, so renumber at integration if another entry lands
+first. It supersedes D-123 W5 and W8. Those rows stay above as history. Design:
+[ADR-014](ADR-014_DIRECTOR_MANAGED_WORKFLOWS.md).
+
+Review provenance: the independent Quality Gate result PASS WITH NOTES (2026-11-15)
+applies only to the original frozen six-file C1/C2 implementation candidate
+`1d25f23b77a0a0c2a4cba645b4a0061574cae8503189f9c2c8c57bfe0029c4b8`. It does not cover
+this entry or the related ADR-014 and ARCHITECTURE.md wording. That documentation delta
+needs its own independent review.
+
+| # | Decision |
+|---|---|
+| E1 | **Three send paths, one check.** The zero-touch target confirmation, the legacy `/api/clm/cases/{case_id}/target-confirmation` and the legacy `/submit` each refuse while a stored required added stage is not confirmed. On the legacy routes the check runs inside the CLM case lock, after reauthorization and the D-124 continuation check, and before any Search, snapshot, confirmation or GoldTier call. It returns `WORKFLOW_STAGE_INCOMPLETE`. Supersedes W5's accepted limit. |
+| E2 | **Fail closed.** An empty workflow store (no definition, or no active version) holds nothing. An unavailable or corrupt store refuses every send path with `WORKFLOW_STAGE_CHECK_UNAVAILABLE`, except the E3 continuation of a legacy Submit whose GoldTier write is already recorded. No new send starts when the check cannot be read. |
+| E3 | **In-flight exception, legacy Submit only.** Submit continues a send only when the persisted target-execution ledger already shows a GoldTier write for its frozen submission: an attempted Shell, Policy or Amend, or a retained target outcome or receipt. This keeps ledger ordering and no-replay recovery. A frozen snapshot alone, a Search-only entry, a missing CLM record or anything in the request never qualifies. Target confirmation has no in-flight exception. |
+| E4 | **Manager switch.** `WORKFLOW_MANAGER_ENABLED=false` and `VITE_WORKFLOW_MANAGER_ENABLED=false` remove the workflow routes, screens, upload suggestions and workflow-data deletion. They do not disable enforcement of previously stored required stages. Supersedes W8's "remove the feature entirely". While the switch is off, every stored required stage that is not yet confirmed keeps blocking every send path, and it cannot be filled, confirmed or changed. A required stage that is already confirmed does not block. To proceed, switch it back on and restart, then have the RM or onboarder complete and confirm the outstanding stages. An unconfirmed required stage is never bypassed. |
+| E5 | **Governance unchanged by this entry.** The owner's workflow governance policy stands: HR may edit workflow proposals; exactly one Director approves or rejects each workflow change; workflow stages are never removed or skipped; reordering is allowed only where dependencies permit; incomplete required stages are completed, not bypassed. It is recorded in the provisional D-135 draft and is not yet implemented. Removing or skipping workflow stages is prohibited by owner policy. The current code follows D-123 W1: a Director edits and activates alone, and the code does not technically stop a Director from activating a version that drops an added stage, which would remove it from open cases (W4). That is a known implementation gap, not permission to remove stages. No technical enforcement of the prohibition exists yet. Until the governance fix is implemented, no workflow publication that removes an existing stage is authorised. This fix does not change that behaviour. Existing onboarding stages stay locked in the orchestrator. |
+| E6 | **Residual risks, accepted for the isolated FYP staging POC only, and OPEN.** R1: a workflow publish does not take the case lock, so a required stage activated after the last check and before a target step is not seen. The window is narrowed on legacy Submit, not closed, and the zero-touch route has the same window. R2: a case sent through the legacy routes is not counted as sent for workflow versions. N3: in Mongo mode the backend now needs the workflow store reachable at startup, whatever the switch says. None of these is fixed or production-qualified. This acceptance does not extend to the stage-removal governance gap (E5), production readiness or any race-free enforcement claim. |
+| E7 | **Conditions.** R1 needs a separate decision before any claim of race-free enforcement. R2 must be fixed, or the legacy routes retired, before broader reliance on them. N3 is a deployment and availability dependency of staging: the workflow store must be reachable for the backend to start. |
+
+Also disclosed by the gate and fail-closed: inside the R1 window, legacy Submit can answer
+`503 CLM_SUBMISSION_UNEXPECTED_FAILURE` instead of the 409 hold code (N1), and a
+persistence error while reading the in-flight state surfaces as a 500 (N4). In both
+cases nothing is written to GoldTier.

@@ -505,6 +505,17 @@ class ZeroTouchOrchestrator:
     def automation_repository(self) -> ZeroTouchAutomationRepository:
         return self._repository
 
+    def workflow_send_hold(self, case_id: UUID) -> str | None:
+        """D-123 send check shared by every send route: why the case may not be sent.
+
+        The hold itself fails closed (an unreadable store returns a hold code). None means
+        no required added stage is open, or no hold was wired into this orchestrator.
+        """
+
+        if self._workflow_send_hold is None:
+            return None
+        return self._workflow_send_hold(case_id)
+
     def attach_document(
         self,
         *,
@@ -2408,8 +2419,8 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_TARGET_CONFIRMATION_NOT_ALLOWED",
                     message="Target confirmation is not accepted at the current stage.",
                 )
-            if self._workflow_send_hold is not None:  # D-123: absent unless switched on.
-                hold_code = self._workflow_send_hold(case_id)
+            if self._workflow_send_hold is not None:  # D-123: absent only if not wired.
+                hold_code = self.workflow_send_hold(case_id)
                 if hold_code is not None:
                     raise ZeroTouchRequestError(
                         code=hold_code,
