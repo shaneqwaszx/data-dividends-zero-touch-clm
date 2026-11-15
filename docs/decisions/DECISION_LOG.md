@@ -2754,7 +2754,7 @@ Before any window is opened, all of the following are required:
 - the read-only A7 proof succeeds;
 - the sponsor's written write permission and the exact test operation and case are recorded;
 - every listed case is a synthetic test case whose identity is official Marketplace Mock evidence;
-- the D-126 open items are closed (paused-state wording, Sandbox prior-case ledger proof, the
+- the D-126 open items are closed or owner-accepted (paused-state wording, Sandbox prior-case ledger proof, the
   stale `initial_target_search` read model after a void, the recovery exception);
 - the reviewed compose change for the window;
 - explicit owner authorisation for that window;

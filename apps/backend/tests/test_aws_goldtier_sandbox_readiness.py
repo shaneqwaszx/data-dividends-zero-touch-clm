@@ -868,16 +868,34 @@ def test_a_finalized_ledger_from_another_mode_is_not_reuse_proof() -> None:
     ledger = cases._target_executions  # noqa: SLF001
     entries = ledger.list_for_case(prior.case_id)
     assert entries
-    as_mock = tuple(
-        entry.model_copy(
+    from app.domain.target_submission import GoldTierProviderMode
+    from app.services.onboarding import _idempotency_fingerprint, _submission_fingerprint
+
+    def recorded_under_mock(entry: Any) -> Any:
+        # Re-bind every fingerprint to the Mock input, so only the provider mode differs.
+        submission = entry.submission_input.model_copy(
+            update={"provider_mode": GoldTierProviderMode.MOCK}
+        )
+        fingerprint = _submission_fingerprint(submission)
+        return entry.model_copy(
             update={
-                "submission_input": entry.submission_input.model_copy(
-                    update={"provider_mode": "MOCK"}
-                )
+                "submission_input": submission,
+                "receipt": entry.receipt.model_copy(update={"input_fingerprint": fingerprint}),
+                "target_outcome": entry.target_outcome.model_copy(
+                    update={
+                        "input_fingerprint": fingerprint,
+                        "idempotency_fingerprint": _idempotency_fingerprint(submission),
+                    }
+                ),
             }
         )
-        for entry in entries
+
+    as_mock = tuple(recorded_under_mock(entry) for entry in entries)
+    # Control: the same re-binding without the mode change is still reuse proof.
+    ledger.list_for_case = lambda _case_id: tuple(
+        entry.model_copy(update={"submission_input": entry.submission_input}) for entry in entries
     )
+    assert cases._find_verified_target_case(**REUSE) is not None  # noqa: SLF001
     ledger.list_for_case = lambda _case_id: as_mock
     assert cases._find_verified_target_case(**REUSE) is None  # noqa: SLF001
 

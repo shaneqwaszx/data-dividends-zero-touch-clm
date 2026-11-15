@@ -97,9 +97,10 @@ A recheck that ends in review waits for review. The case stays in review, so exi
 customer confirmation is refused until a registry-verified correction returns it to
 validated. A further recheck is safe and clears only if the provider answer changes.
 
-Before a write qualification, also correct the paused wording. A paused case currently
-shows the existing `RECOVERY_PENDING` text about finalization, which does not describe a
-refused write. Staging cannot reach this state while writes are refused at startup.
+Paused wording: a paused case shows the existing `RECOVERY_PENDING` text about finalization,
+which does not describe a refused write. Under D-137 W4, staging reaches this state when a
+window ends or the next operation is outside it. The owner accepted the current wording for
+the staging qualification (2026-11-15). A clearer message stays a follow-up.
 
 Status of these items under D-137 (2026-11-15):
 - Paused wording, the void read model, and the recovery exception: the owner accepted them
