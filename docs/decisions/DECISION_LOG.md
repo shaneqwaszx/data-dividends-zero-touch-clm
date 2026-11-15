@@ -963,6 +963,10 @@ acceptance and independent gate. Not ACRA ownership, a verified holding, legal U
 (Q-004), Marketplace relationship or denominator semantics (Q-012), person identity (Q-019)
 or Live evidence.
 
+## D-086a - case-sticky OPQ ownership scenario (amends D-086; candidate)
+
+Owner-approved isolated assignment (G4). The operator selector chooses the OPQ variant only at a case's first overlay analysis; that case keeps its recorded variant on every later analysis. An unknown recorded variant gives no overlay. Stickiness is bounded: the recorded variant is read from the record and its four prior-analysis snapshots, and once five or more consecutive analyses without an overlay (including manual declarations) have pushed it out, the next source load uses the current selector. A case without a durable D-120 ledger then relies on that history for POC replay refusal, so a change of the effective selector (including first applying `deploy/compose.acra-ownership.yml`) is permitted only after the pre-change checks of `docs/demo/FIVE_LAYER_ACRA_HYBRID_DEMO.md` section 7c, and is blocked while any ledgerless OPQ case exists or that cannot be confirmed. A binding beyond that history needs a durable field (owner decision, not taken). The selector is never user-supplied and never a case field written by a user. Official-evidence gate, provenance labels and D-112 O7 unchanged.
+
 ## D-087 - declared intermediate issuer officer roles as POC descriptive context (candidate)
 
 Owner decision, 2026-10-25, before PR #111 merges. It extends the D-085 scenario-declared

@@ -1887,7 +1887,13 @@ class OwnershipAnalysisService:
                 and metadata.provider_name == "ACRA_REGISTRY_ACQUISITION"
                 and metadata.environment == OwnershipEnvironment.MOCK
             ):
-                overlay = self._hybrid_overlay.root_scenario(parent, self._clock())
+                # D-086a: the operator selector chooses the variant only at a case's
+                # first overlay analysis; a recorded variant is kept on every later one.
+                overlay = self._hybrid_overlay.root_scenario(
+                    parent,
+                    self._clock(),
+                    recorded_scenario_id=_recorded_overlay_scenario_id(previous),
+                )
                 if overlay is not None:
                     source = self._apply_hybrid_root_overlay(source, record, parent, overlay)
                     record.source_classification = HYBRID_SOURCE_CLASSIFICATION
@@ -3067,6 +3073,24 @@ def _replays_poc_interest(
         for edge in source.relationships
         for item in interests
     )
+
+
+def _recorded_overlay_scenario_id(previous: OwnershipAnalysisRecord | None) -> str | None:
+    """D-086a: the latest overlay scenario this case's persisted analyses recorded.
+
+    Read only from the existing record and its bounded prior-analysis snapshots, newest
+    first, so an intervening failed or non-overlay load does not reselect the variant.
+    """
+
+    if previous is None:
+        return None
+    for discovery in (
+        previous.discovery,
+        *(item.discovery for item in reversed(previous.prior_analyses)),
+    ):
+        if discovery is not None and discovery.overlay_scenario_id:
+            return discovery.overlay_scenario_id
+    return None
 
 
 def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipAnalysisSnapshot:
