@@ -10,14 +10,23 @@ from typing import Protocol
 
 from pydantic import SecretStr
 
-from app.domain.access import SYNTHETIC_USER_PROFILES, Role, TeamId
+from app.domain.access import (
+    ROLE_CAPABILITIES,
+    SYNTHETIC_USER_PROFILES,
+    Capability,
+    Role,
+    TeamId,
+)
 from app.domain.administration import (
+    CREDENTIAL_OPERATION_KEY,
     MAX_AUDIT_EVENTS,
     AdministrationAuditEvent,
+    CredentialOperation,
     TeamRecord,
     UserAccountRecord,
     audit_is_prefix,
     normalize_display_name,
+    sign_in_disabled,
 )
 from app.domain.policy import PolicyCatalogue
 
@@ -36,6 +45,14 @@ class AdministrationAuditCapacityError(AdministrationConflictError):
 
 class AdministrationAuthorityInvariantError(Exception):
     """A profile authority mutation would violate a global safety invariant."""
+
+
+class AdministrationActorNotAuthorizedError(Exception):
+    """The acting account no longer holds identity-administration authority (D-140)."""
+
+
+class AdministrationCredentialTargetRefusedError(Exception):
+    """The credential target is outside the HR password-reset scope (D-140)."""
 
 
 class TeamRepository(Protocol):
@@ -59,6 +76,16 @@ class ProfileRepository(Protocol):
         display_name: str,
         role: Role,
         team_id: TeamId | None,
+        updated_at: datetime,
+    ) -> UserAccountRecord: ...
+    def replace_credential(
+        self,
+        *,
+        actor_user_id: str,
+        user_id: str,
+        expected_version: int,
+        credential_hash: SecretStr,
+        operation: CredentialOperation,
         updated_at: datetime,
     ) -> UserAccountRecord: ...
 
@@ -199,6 +226,33 @@ class InMemoryProfileRepository:
                 display_name=display_name,
                 role=role,
                 team_id=team_id,
+                updated_at=updated_at,
+            )
+            self._records[user_id] = candidate.model_copy(deep=True)
+            return candidate.model_copy(deep=True)
+
+    def replace_credential(
+        self,
+        *,
+        actor_user_id: str,
+        user_id: str,
+        expected_version: int,
+        credential_hash: SecretStr,
+        operation: CredentialOperation,
+        updated_at: datetime,
+    ) -> UserAccountRecord:
+        """D-140: reauthorize the actor and CAS-replace one credential under the owning lock."""
+
+        with self._lock:
+            check_credential_reset_actor(self._records.get(actor_user_id))
+            current = self._records.get(user_id)
+            if current is None or current.version != expected_version:
+                raise AdministrationConflictError
+            candidate = build_credential_reset_candidate(
+                current,
+                actor_user_id=actor_user_id,
+                credential_hash=credential_hash,
+                operation=operation,
                 updated_at=updated_at,
             )
             self._records[user_id] = candidate.model_copy(deep=True)
@@ -382,6 +436,8 @@ def build_profile_authority_candidate(
     team_id: TeamId | None,
     updated_at: datetime,
 ) -> UserAccountRecord:
+    if role == Role.HR and sign_in_disabled(current):
+        raise AdministrationAuthorityInvariantError
     if len(current.audit_events) >= MAX_AUDIT_EVENTS:
         raise AdministrationAuditCapacityError
     authority_changed = role != current.role or team_id != current.team_id
@@ -401,6 +457,63 @@ def build_profile_authority_candidate(
                 "role": role,
                 "team_id": team_id,
                 "security_version": current.security_version + (1 if authority_changed else 0),
+                "version": next_version,
+                "updated_at": updated_at,
+                "updated_by": actor_user_id,
+                "audit_events": (*current.audit_events, event),
+            },
+            deep=True,
+        )
+    )
+
+
+def check_credential_reset_actor(actor: UserAccountRecord | None) -> None:
+    """Re-read authority inside the lock: the acting account must still be identity admin."""
+
+    if actor is None or Capability.IDENTITY_ADMIN not in ROLE_CAPABILITIES[actor.role]:
+        raise AdministrationActorNotAuthorizedError
+
+
+def build_credential_reset_candidate(
+    current: UserAccountRecord,
+    *,
+    actor_user_id: str,
+    credential_hash: SecretStr,
+    operation: CredentialOperation,
+    updated_at: datetime,
+) -> UserAccountRecord:
+    """Replace only the credential, bump both versions, and append a secret-free audit event.
+
+    HR accounts (including the actor's own) are refused: the HR credential stays
+    owner-managed (D-140). ``security_version`` moves so every existing session is revoked.
+    The event reuses ``PROFILE_UPDATED`` tagged with the operation, so it stays decodable
+    by images that predate D-140.
+    """
+
+    if current.role == Role.HR:
+        raise AdministrationCredentialTargetRefusedError
+    if len(current.audit_events) >= MAX_AUDIT_EVENTS:
+        raise AdministrationAuditCapacityError
+    next_version = current.version + 1
+    next_security_version = current.security_version + 1
+    event = _admin_event(
+        action="PROFILE_UPDATED",
+        actor=actor_user_id,
+        target=current.user_id,
+        timestamp=updated_at,
+        version=next_version,
+        metadata={
+            CREDENTIAL_OPERATION_KEY: operation,
+            "previous_version": current.version,
+            # security_version as an epoch: metadata keys may not contain "uri".
+            "resulting_access_epoch": next_security_version,
+        },
+    )
+    return UserAccountRecord.model_validate(
+        current.model_copy(
+            update={
+                "credential_hash": credential_hash,
+                "security_version": next_security_version,
                 "version": next_version,
                 "updated_at": updated_at,
                 "updated_by": actor_user_id,

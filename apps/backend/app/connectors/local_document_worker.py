@@ -20,6 +20,9 @@ MAX_DOCUMENT_PIXELS = 64_000_000
 MAX_TEXT = 64_000
 RENDER_DPI = 150
 MIN_NATIVE_TEXT_CHARACTERS = 40
+# SF-002: bound the child's address space (POSIX), so a crafted PDF or image cannot exhaust
+# host memory inside the 20-second window.
+MAX_WORKER_ADDRESS_SPACE = 1536 * 1024 * 1024
 _UNSAFE_PDF_KEYS = frozenset(
     {
         "/JS",
@@ -131,7 +134,8 @@ def _image(
         raise ValueError("image signature")
     Image.MAX_IMAGE_PIXELS = MAX_PAGE_PIXELS
     warnings.simplefilter("error", Image.DecompressionBombWarning)
-    with Image.open(BytesIO(content)) as image:
+    # SF-001: only the one expected decoder plugin may run on uploaded bytes.
+    with Image.open(BytesIO(content), formats=[expected]) as image:
         if image.format != expected:
             raise ValueError("decoded format")
         frames = getattr(image, "n_frames", 1)
@@ -157,8 +161,21 @@ def _image(
     return pages
 
 
+def _limit_memory() -> None:
+    if sys.platform == "win32":  # Windows development only; the deployed worker runs on Linux
+        return
+    import resource
+
+    _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    limit = MAX_WORKER_ADDRESS_SPACE
+    if hard != resource.RLIM_INFINITY:
+        limit = min(limit, hard)
+    resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
+
+
 def main() -> int:
     try:
+        _limit_memory()
         operation, media_type, input_name, directory_name = sys.argv[1:]
         if operation not in {"validate", "extract"}:
             return 2

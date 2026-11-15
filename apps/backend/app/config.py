@@ -220,6 +220,9 @@ class Settings(BaseSettings):
     goldtier_sandbox_write_operations: str = "SHELL,POLICY,AMEND"
     goldtier_sandbox_write_case_references: str = ""
     goldtier_sandbox_writes_not_after: datetime | None = None
+    # ST-7 standing read: Sandbox reads per UTC day (Search, exact-ID readback, recheck).
+    # Unset means 0 in staging (no read until set) and unlimited elsewhere.
+    goldtier_sandbox_daily_read_limit: int | None = Field(default=None, ge=0, le=500)
     goldtier_sandbox_egress_proxy_url: str = ""
     goldtier_sandbox_egress_fqdn: str = ""
     goldtier_sandbox_tls_ca_file: str = ""
@@ -265,6 +268,12 @@ class Settings(BaseSettings):
     )
     mongo_workflow_runs_collection: str = Field(
         default="clm_workflow_runs",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    mongo_goldtier_read_budget_collection: str = Field(
+        default="clm_goldtier_read_budget",
         min_length=1,
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",
@@ -339,6 +348,12 @@ class Settings(BaseSettings):
             case_references=items(self.goldtier_sandbox_write_case_references),
             not_after=self.goldtier_sandbox_writes_not_after,
         )
+
+    def goldtier_sandbox_effective_read_limit(self) -> int | None:
+        """ST-7: the daily Sandbox read limit in force; None means reads are not counted."""
+        if self.goldtier_sandbox_daily_read_limit is not None:
+            return self.goldtier_sandbox_daily_read_limit
+        return 0 if self.app_env == "staging" else None
 
     @field_validator("goldtier_sandbox_writes_not_after", mode="before")
     @classmethod

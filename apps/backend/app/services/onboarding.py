@@ -488,6 +488,16 @@ class OnboardingService:
         """False only for a target that refuses mutations; Search stays available."""
         return bool(getattr(self._goldtier, "writes_enabled", True))
 
+    def target_read_budget_usage(self, now: datetime) -> tuple[int | None, int | None]:
+        """ST-7: (daily read limit, reads used today); (None, None) when reads are not counted."""
+        budget = getattr(self._goldtier, "read_budget", None)
+        if budget is None or budget.limit is None:
+            return None, None
+        try:
+            return budget.limit, budget.used(now)
+        except Exception:
+            return budget.limit, None
+
     def target_writes_permitted(
         self, source_case_id: str, operation: str | None = None
     ) -> bool:

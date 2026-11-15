@@ -29,6 +29,7 @@ from app.main import create_app
 from app.mongo import create_mongo_client
 from app.persistence.composition import (
     PersistenceBundle,
+    build_goldtier_read_budget,
     build_persistence_bundle,
     build_workflow_persistence,
 )
@@ -1217,11 +1218,11 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 104
+    assert len(expected) == len(ROUTE_POLICIES) == 106
     assert counts == {
         RouteAccess.PUBLIC: 2,
-        # P1 adds the read-only onboarding execution plan GET.
-        RouteAccess.ACTOR_ONLY: 43,
+        # P1 adds the read-only onboarding execution plan GET; D-140 HR password reset and disable.
+        RouteAccess.ACTOR_ONLY: 45,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
@@ -1367,14 +1368,20 @@ def _staging_settings(**overrides: object) -> Settings:
 
 
 @pytest.fixture
-def offline_staging_workflow_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
+def offline_staging_auxiliary_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.main.build_workflow_persistence",
         lambda _: build_workflow_persistence(ordinary_test_settings()),
     )
+    monkeypatch.setattr(
+        "app.main.build_goldtier_read_budget",
+        lambda settings: build_goldtier_read_budget(
+            settings.model_copy(update={"clm_persistence_mode": "memory"})
+        ),
+    )
 
 
-@pytest.mark.usefixtures("offline_staging_workflow_persistence")
+@pytest.mark.usefixtures("offline_staging_auxiliary_persistence")
 @pytest.mark.parametrize(
     ("acra_mode", "target_mode"),
     [
@@ -1413,7 +1420,7 @@ def test_staging_starts_with_approved_provider_modes_offline(
     assert settings.goldtier_sandbox_allow_writes is False
 
 
-@pytest.mark.usefixtures("offline_staging_workflow_persistence")
+@pytest.mark.usefixtures("offline_staging_auxiliary_persistence")
 def test_staging_cookies_origin_and_csrf(
     runtime_credentials: tuple[str, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
 ) -> None:

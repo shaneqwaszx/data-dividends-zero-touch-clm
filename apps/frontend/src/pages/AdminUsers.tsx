@@ -1,6 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { ApiError, createAdminProfile, fetchAdminProfiles, fetchTeamOptions, updateAdminProfile } from "../api";
+import {
+  ApiError,
+  createAdminProfile,
+  disableAdminProfileSignIn,
+  fetchAdminProfiles,
+  fetchTeamOptions,
+  resetAdminProfilePassword,
+  updateAdminProfile,
+} from "../api";
 import type { AdminProfile, AuthenticatedTeam, Role, TeamId } from "../types";
 
 export default function AdminUsers() {
@@ -13,6 +21,13 @@ export default function AdminUsers() {
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // D-140: one reset form at a time; the page is already IDENTITY_ADMIN-gated and the
+  // backend decides (HR accounts stay owner-managed, so their rows offer no reset).
+  const [resetTarget, setResetTarget] = useState<AdminProfile | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmation, setResetConfirmation] = useState("");
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
+  const [credentialPending, setCredentialPending] = useState(false);
   const needsTeam = role === "CLIENT_ONBOARDER" || role === "RELATIONSHIP_MANAGER";
 
   useEffect(() => {
@@ -76,9 +91,91 @@ export default function AdminUsers() {
     }
   }
 
+  function openReset(profile: AdminProfile) {
+    setResetTarget(profile);
+    setResetPassword("");
+    setResetConfirmation("");
+    setResetNotice(null);
+    setError(null);
+  }
+
+  function closeReset() {
+    setResetTarget(null);
+    setResetPassword("");
+    setResetConfirmation("");
+  }
+
+  async function reset(event: FormEvent) {
+    event.preventDefault();
+    if (!resetTarget || credentialPending) return;
+    const target = resetTarget;
+    const nextPassword = resetPassword;
+    const matches = nextPassword === resetConfirmation;
+    setResetPassword("");
+    setResetConfirmation("");
+    if (!matches) {
+      setError("Password confirmation does not match.");
+      return;
+    }
+    setCredentialPending(true);
+    setError(null);
+    try {
+      const changed = await resetAdminProfilePassword(target.user_id, { expected_version: target.version, new_password: nextPassword });
+      setProfiles((current) => current.map((item) => item.user_id === changed.user_id ? changed : item));
+      setResetTarget(null);
+      setError(null);
+      setResetNotice(`Password reset for ${changed.user_id}. Their existing sessions were signed out.`);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) {
+        const refreshed = await fetchAdminProfiles().catch(() => null);
+        if (refreshed) {
+          setProfiles(refreshed);
+          setResetTarget(refreshed.find((item) => item.user_id === target.user_id && item.role !== "HR") ?? null);
+        }
+      }
+      setResetNotice(null);
+      setError(reason instanceof ApiError ? reason.message : "Password reset failed.");
+    } finally {
+      setCredentialPending(false);
+    }
+  }
+
+  async function disableSignIn(profile: AdminProfile) {
+    if (credentialPending || !globalThis.confirm(
+      `Disable sign-in for ${profile.user_id}? This signs them out. Reset their password to restore access.`,
+    )) return;
+    closeReset();
+    setResetNotice(null);
+    setError(null);
+    setCredentialPending(true);
+    try {
+      const changed = await disableAdminProfileSignIn(profile.user_id, profile.version);
+      setProfiles((current) => current.map((item) => item.user_id === changed.user_id ? changed : item));
+      setResetNotice(`Sign-in disabled for ${changed.user_id}.`);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) {
+        const refreshed = await fetchAdminProfiles().catch(() => null);
+        if (refreshed) setProfiles(refreshed);
+      }
+      setError(reason instanceof ApiError ? reason.message : "Could not disable sign-in.");
+    } finally {
+      setCredentialPending(false);
+    }
+  }
+
   return <div className="ds-root ds-page">
     <h1>Users</h1><p className="text-muted">Passwords are hashed immediately and never returned by the API.</p>
     {error && <div className="ds-banner ds-banner-warn">{error}</div>}
+    {resetNotice && <div className="ds-banner" role="status">{resetNotice}</div>}
+    {resetTarget && <form className="card form-stack" aria-label={`Reset password for ${resetTarget.user_id}`} onSubmit={(event) => void reset(event)}>
+      <h3>Reset password for {resetTarget.display_name}</h3>
+      <p className="text-muted">{resetTarget.sign_in_disabled
+        ? "Resetting the password restores sign-in."
+        : `${resetTarget.user_id} will be signed out of any existing session.`}</p>
+      <label>New password<input type="password" value={resetPassword} minLength={12} maxLength={128} required disabled={credentialPending} autoComplete="new-password" onChange={(event) => setResetPassword(event.target.value)} /></label>
+      <label>Confirm new password<input type="password" value={resetConfirmation} minLength={12} maxLength={128} required disabled={credentialPending} autoComplete="new-password" onChange={(event) => setResetConfirmation(event.target.value)} /></label>
+      <div><button type="submit" className="btn btn-primary" disabled={credentialPending}>Reset password</button> <button type="button" className="btn btn-ghost" disabled={credentialPending} onClick={closeReset}>Cancel</button></div>
+    </form>}
     <form className="card form-stack" onSubmit={(event) => void create(event)}>
       <h3>Create user</h3>
       <label>User ID<input value={userId} pattern="[a-z][a-z0-9-]{2,31}" required onChange={(event) => setUserId(event.target.value)} /></label>
@@ -90,7 +187,20 @@ export default function AdminUsers() {
       <button type="submit" className="btn btn-primary">Create user</button>
     </form>
     <div className="table-card table-scroll" tabIndex={0}><table className="table"><thead><tr><th>User</th><th>Role</th><th>Team</th><th>Version</th><th>Action</th></tr></thead><tbody>
-      {profiles.map((profile) => <tr key={profile.user_id}><td><strong>{profile.display_name}</strong><div className="text-muted">{profile.user_id}</div></td><td>{profile.role.replaceAll("_", " ")}</td><td>{profile.team_display_name ?? "Global"}</td><td>{profile.version}</td><td><button type="button" className="btn btn-ghost" onClick={() => void edit(profile)}>Edit</button></td></tr>)}
+      {profiles.map((profile) => <tr key={profile.user_id}>
+        <td><strong>{profile.display_name}</strong><div className="text-muted">{profile.user_id}</div></td>
+        <td>{profile.role.replaceAll("_", " ")}</td>
+        <td>{profile.team_display_name ?? "Global"}</td>
+        <td>{profile.version}</td>
+        <td>
+          {profile.sign_in_disabled && <div>Sign-in disabled</div>}
+          <button type="button" className="btn btn-ghost" disabled={credentialPending} onClick={() => void edit(profile)}>Edit</button>
+          {profile.role !== "HR" && <>
+            <button type="button" className="btn btn-ghost" disabled={credentialPending} aria-label={`Reset password for ${profile.user_id}`} onClick={() => openReset(profile)}>Reset password</button>
+            {!profile.sign_in_disabled && <button type="button" className="btn btn-ghost" disabled={credentialPending} aria-label={`Disable sign-in for ${profile.user_id}`} onClick={() => void disableSignIn(profile)}>Disable sign-in</button>}
+          </>}
+        </td>
+      </tr>)}
     </tbody></table></div>
   </div>;
 }

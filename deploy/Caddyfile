@@ -3,6 +3,19 @@
 }
 
 {$CLM_SITE} {
+    # SF-003 security headers (all responses, including the API and the assistant route).
+    # The CSP is REPORT-ONLY until the Workflow Designer and AI pages are observed clean in a browser;
+    # the other headers are enforced. Fonts come from Google Fonts (index CSS @import).
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+        -Server
+    }
+
     @assistant path /api/assistant /api/assistant/*
     handle @assistant {
         route {

@@ -5,8 +5,8 @@
 # "flush ruleset": the first two lines replace this table alone and leave Docker's tables, R3's
 # `inet clm_r3` and E1's `inet clm_r22` untouched. Values: clm_r22o.vars. The filter chains are
 # drop-only: an accept here ends only this chain; Docker's chains still run.
-# The only flows: the proxy (172.30.245.2) -> a public IPv4 -> tcp/443, and the resolver
-# (172.30.245.3) -> the VPC resolver -> 53. The internal control bridge forwards nothing, so the
+# The only flows: the proxy (172.30.247.2) -> a public IPv4 -> tcp/443, and the resolver
+# (172.30.247.3) -> the VPC resolver -> 53. The internal control bridge forwards nothing, so the
 # assistant's only way out is CONNECT openrouter.ai:443 through the proxy.
 # P2-1 (as E1): Docker does not masquerade clm-ao-up (compose.assistant-openrouter.yml), so this
 # table's NAT rules are the only translation. Without the table nothing from clm-ao-up leaves
@@ -29,11 +29,11 @@ table inet clm_r22o {
     oifname "clm-ao-up" counter drop
     iifname "clm-ao-up" meta nfproto ipv6 counter drop
     iifname "clm-ao-up" ct state invalid counter drop
-    iifname "clm-ao-up" ip saddr != { 172.30.245.2, 172.30.245.3 } counter drop
-    iifname "clm-ao-up" ip saddr 172.30.245.3 ip daddr 172.26.0.2 meta l4proto { udp, tcp } th dport 53 oifname "ens5" counter accept
-    iifname "clm-ao-up" ip saddr 172.30.245.3 counter drop
+    iifname "clm-ao-up" ip saddr != { 172.30.247.2, 172.30.247.3 } counter drop
+    iifname "clm-ao-up" ip saddr 172.30.247.3 ip daddr 172.26.0.2 meta l4proto { udp, tcp } th dport 53 oifname "ens5" counter accept
+    iifname "clm-ao-up" ip saddr 172.30.247.3 counter drop
     iifname "clm-ao-up" ip daddr @no_egress_v4 counter drop
-    iifname "clm-ao-up" ip saddr 172.30.245.2 oifname "ens5" tcp dport 443 counter accept
+    iifname "clm-ao-up" ip saddr 172.30.247.2 oifname "ens5" tcp dport 443 counter accept
     iifname "clm-ao-up" counter drop
   }
   chain input {
@@ -43,7 +43,7 @@ table inet clm_r22o {
   }
   chain postrouting {
     type nat hook postrouting priority srcnat; policy accept;
-    ip saddr 172.30.245.2 ip daddr != @no_egress_v4 oifname "ens5" tcp dport 443 counter masquerade
-    ip saddr 172.30.245.3 ip daddr 172.26.0.2 oifname "ens5" meta l4proto { udp, tcp } th dport 53 counter masquerade
+    ip saddr 172.30.247.2 ip daddr != @no_egress_v4 oifname "ens5" tcp dport 443 counter masquerade
+    ip saddr 172.30.247.3 ip daddr 172.26.0.2 oifname "ens5" meta l4proto { udp, tcp } th dport 53 counter masquerade
   }
 }

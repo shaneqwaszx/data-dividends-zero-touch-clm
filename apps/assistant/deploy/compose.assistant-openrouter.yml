@@ -12,7 +12,7 @@
 #
 # Egress (OpenRouter publishes no fixed address range, so no address is pinned):
 # - The assistant joins ONE extra network, openrouter-control (bridge clm-ao-ctl, internal: no
-#   route out), and on it reaches only the proxy, http://172.30.244.2:4750. Only on this hosted
+#   route out), and on it reaches only the proxy, http://172.30.246.2:4750. Only on this hosted
 #   deployment does its code use that proxy (openrouter.py); every proxy variable, .netrc and
 #   certificate override stays ignored, and TLS is verified end to end for openrouter.ai.
 #   openrouter.ai never resolves inside the assistant (dns below); the service refuses to
@@ -34,7 +34,7 @@ services:
       ASSISTANT_HOSTING_PROVIDER: openrouter
       # The owner's hosted daily ceiling in micro-USD (1 to 3000000, D-138 R2). No default.
       ASSISTANT_HOSTING_GPTOSS_DAILY_CAP_MICRO_USD: "${ASSISTANT_GPTOSS_DAILY_CAP_MICRO_USD:?owner hosted GPT-OSS daily ceiling required}"
-      ASSISTANT_HOSTING_OPENROUTER_PROXY: http://172.30.244.2:4750
+      ASSISTANT_HOSTING_OPENROUTER_PROXY: http://172.30.246.2:4750
       # The remote profile, named exactly (D-091, D-092, D-094, the approved endpoint, the
       # owner's two attestations, the reasoning settings). Checked by the service
       # (remote_test.readiness), never accepted as given. No defaults.
@@ -50,7 +50,7 @@ services:
     dns_opt: ["timeout:1", "attempts:1"]
     networks:
       openrouter-control:
-        ipv4_address: 172.30.244.3
+        ipv4_address: 172.30.246.3
 
   openrouter-dns:
     image: ${OPENROUTER_EGRESS_IMAGE:?egress image required}
@@ -61,12 +61,12 @@ services:
       CLM_EGRESS_FQDN: openrouter.ai
     networks:
       openrouter-control:
-        ipv4_address: 172.30.244.4
+        ipv4_address: 172.30.246.4
       openrouter-uplink:
-        ipv4_address: 172.30.245.3
+        ipv4_address: 172.30.247.3
     # R3 G2 U-1: a non-internal container without dns: has its embedded-DNS queries forwarded
     # from the host namespace; pointing it at itself keeps that path closed.
-    dns: [172.30.244.4]
+    dns: [172.30.246.4]
     sysctls:
       net.ipv4.ip_unprivileged_port_start: "53"
     read_only: true
@@ -102,10 +102,10 @@ services:
       CLM_EGRESS_FQDN: openrouter.ai
     networks:
       openrouter-control:
-        ipv4_address: 172.30.244.2
+        ipv4_address: 172.30.246.2
       openrouter-uplink:
-        ipv4_address: 172.30.245.2
-    dns: [172.30.244.4]
+        ipv4_address: 172.30.247.2
+    dns: [172.30.246.4]
     read_only: true
     tmpfs:
       - /run/r22o:rw,nosuid,nodev,noexec,mode=0755,size=1m
@@ -129,8 +129,8 @@ networks:
       com.docker.network.bridge.name: clm-ao-ctl
     ipam:
       config:
-        - subnet: 172.30.244.0/29
-          gateway: 172.30.244.1
+        - subnet: 172.30.246.0/29
+          gateway: 172.30.246.1
   openrouter-uplink:
     enable_ipv6: false
     driver_opts:
@@ -138,5 +138,5 @@ networks:
       com.docker.network.bridge.enable_ip_masquerade: "false"
     ipam:
       config:
-        - subnet: 172.30.245.0/29
-          gateway: 172.30.245.1
+        - subnet: 172.30.247.0/29
+          gateway: 172.30.247.1
