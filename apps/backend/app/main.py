@@ -684,23 +684,27 @@ def create_app(
         )
     else:
         service = onboarding_service
-    workflows: WorkflowManagementService | None = None
-    if active_settings.workflow_manager_enabled:
-        workflow_persistence = build_workflow_persistence(active_settings)
-        application.router.add_event_handler("shutdown", workflow_persistence.close)
-        workflows = WorkflowManagementService(
-            definitions=workflow_persistence.definitions,
-            runs=workflow_persistence.runs,
-            cases=service,
-            case_is_sent=lambda case_id: _automation_is_sent(
-                persistence.automation.get_for_case(case_id)
-            ),
-            case_is_onboarded=lambda case_id: _automation_is_complete(
-                persistence.automation.get_for_case(case_id)
-            ),
-            case_data=lambda case_id: _onboarded_values(persistence, service, case_id),
-            clock=active_clock,
-        )
+    # C2: the stored workflows always back the send check, so switching the manager off
+    # never drops a required stage an earlier activation put on open cases. The flag only
+    # turns off the workflow routes, upload suggestions and workflow-data deletion.
+    workflow_persistence = build_workflow_persistence(active_settings)
+    application.router.add_event_handler("shutdown", workflow_persistence.close)
+    workflow_enforcement = WorkflowManagementService(
+        definitions=workflow_persistence.definitions,
+        runs=workflow_persistence.runs,
+        cases=service,
+        case_is_sent=lambda case_id: _automation_is_sent(
+            persistence.automation.get_for_case(case_id)
+        ),
+        case_is_onboarded=lambda case_id: _automation_is_complete(
+            persistence.automation.get_for_case(case_id)
+        ),
+        case_data=lambda case_id: _onboarded_values(persistence, service, case_id),
+        clock=active_clock,
+    )
+    workflows: WorkflowManagementService | None = (
+        workflow_enforcement if active_settings.workflow_manager_enabled else None
+    )
     active_acra_diagnostics = acra_diagnostic_service or (
         build_acra_diagnostic_service(active_acra_connector, active_settings)
         if active_acra_connector is not None
@@ -766,7 +770,7 @@ def create_app(
         durable_provider_bindings=persistence.mode == "mongo",
         clock=active_clock,
         intelligence_evaluator=intelligence_projection.evaluate,
-        workflow_send_hold=None if workflows is None else workflows.send_hold_code,
+        workflow_send_hold=workflow_enforcement.send_hold_code,
     )
     application.router.add_event_handler("startup", zero_touch.release_advisory_holds)
     if e2e_portfolio_seed_count:
@@ -1666,7 +1670,7 @@ def create_app(
                     actor_id=actor.profile.user_id,
                     expected_clm_version=confirmation.expected_clm_version,
                     expected_case_event_count=confirmation.expected_case_event_count,
-                    reauthorize=_refusing_pending_continuation(
+                    reauthorize=_refusing_unsendable_case(
                         build_case_reauthorizer(
                             request, authentication, access_policy, service, case_id
                         ),
@@ -1693,12 +1697,15 @@ def create_app(
             return clm_response(
                 active_clm.submit(
                     case_id=case_id,
-                    reauthorize=_refusing_pending_continuation(
+                    reauthorize=_refusing_unsendable_case(
                         build_case_reauthorizer(
                             request, authentication, access_policy, service, case_id
                         ),
                         active_zero_touch,
                         case_id,
+                        target_write_started=lambda: active_clm.target_write_started(
+                            case_id=case_id
+                        ),
                     ),
                 )
             )
@@ -3703,14 +3710,20 @@ def _ownership_http_error(exc: OwnershipRequestError) -> HTTPException:
     )
 
 
-def _refusing_pending_continuation(
+def _refusing_unsendable_case(
     reauthorize: Callable[[], None],
     zero_touch: ZeroTouchOrchestrator,
     case_id: UUID,
+    *,
+    target_write_started: Callable[[], bool] | None = None,
 ) -> Callable[[], None]:
-    """D-124: the direct CLM target routes never pass a hold that needs an explicit resume.
+    """The direct CLM target routes never pass a hold that blocks sending.
 
-    It runs inside the CLM lock, with the reauthorization.
+    D-124: a hold that needs an explicit resume. D-123 (C1): a required added workflow
+    stage that is not confirmed, or a send check that cannot be read. It runs inside the
+    CLM case lock, after the reauthorization, before every target step. Only Submit
+    passes ``target_write_started``: a send whose first GoldTier write is already in the
+    persisted ledger keeps going, so recovery never replays or strands it.
     """
 
     def check() -> None:
@@ -3721,6 +3734,18 @@ def _refusing_pending_continuation(
                 code="CLM_NOT_READY",
                 message="Continue onboarding first; no GoldTier target mutation was attempted.",
             )
+        hold_code = zero_touch.workflow_send_hold(case_id)
+        if hold_code is None:
+            return
+        if target_write_started is not None and target_write_started():
+            return
+        raise ClmRequestError(
+            code=hold_code,
+            message=(
+                "Complete and confirm the added workflow stages before sending; no GoldTier "
+                "target mutation was attempted."
+            ),
+        )
 
     return check
 
