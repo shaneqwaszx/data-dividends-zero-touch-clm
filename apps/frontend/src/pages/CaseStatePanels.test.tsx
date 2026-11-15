@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   DocumentProcessingRecord, ProcessingNode, ZeroTouchCaseSummary } from "../types";
@@ -16,8 +16,10 @@ import {
   processingNodeFocusTarget,
   RegistryStatePanel,
   registryPresentation,
+  stageStatusFor,
 } from "./CaseStatePanels";
 import RegistryProvenancePanel from "./RegistryProvenancePanel";
+import StageDisclosure from "./StageDisclosure";
 
 function processingNode(
   nodeId: string,
@@ -848,5 +850,92 @@ describe("stages waiting for earlier steps (presentation only)", () => {
     expect(inspector).not.toContain("Waiting for earlier steps");
     expect(inspector.match(/aria-label="Status: BLOCKED"/g)).toHaveLength(5);
     expect(details).toContain("2 of 7 stages done");
+  });
+});
+
+// D-137 (amends D-121 display only): an advisory ownership review is amber "Review advised", never green.
+describe("Ownership & UBO advisory review display", () => {
+  type OwnershipState = "blocking" | "advised" | "complete";
+  function ownershipSummary(state: OwnershipState): ZeroTouchCaseSummary {
+    const ownership: ProcessingNode = {
+      ...processingNode("OWNERSHIP_UBO", "Ownership & UBO", state === "blocking" ? "REVIEW_REQUIRED" : "COMPLETE"),
+      advisory_review: state === "advised" ? true : null,
+    };
+    const summary = summaryWithPipeline([
+      processingNode("ACRA_REGISTRY", "Registry verification", "COMPLETE"),
+      processingNode("DOCUMENT_IDP", "Document verification", "COMPLETE"),
+      ownership,
+      processingNode("ADVISORY", "Risk assessment", "NOT_REACHED"),
+    ]);
+    summary.current_stage = state === "blocking" ? "OWNERSHIP" : "READINESS";
+    summary.completed_stages = state === "blocking" ? ["REGISTRY", "DOCUMENT"] : ["REGISTRY", "DOCUMENT", "OWNERSHIP"];
+    return summary;
+  }
+  const header = (summary: ZeroTouchCaseSummary) => {
+    // Server rendering only: silence React's useLayoutEffect notice for the client-side disclosure.
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      return renderToStaticMarkup(
+        <StageDisclosure title="Ownership & UBO" status={stageStatusFor(summary, ["OWNERSHIP_UBO"])} summary="Ownership summary." scopeKey="case" main={<p>Body</p>} />,
+      );
+    } finally {
+      quiet.mockRestore();
+    }
+  };
+  const railStep = (summary: ZeroTouchCaseSummary) => {
+    const rail = renderToStaticMarkup(<PipelineRail summary={summary} />);
+    const start = rail.indexOf('data-node-id="OWNERSHIP_UBO"');
+    return rail.slice(start, rail.indexOf('data-node-id="ADVISORY"', start));
+  };
+
+  it("shows a blocking review as the existing red Review required", () => {
+    const summary = ownershipSummary("blocking");
+    expect(stageStatusFor(summary, ["OWNERSHIP_UBO"])).toEqual({ tone: "attention", label: "Review required" });
+    expect(header(summary)).toContain('data-tone="attention"');
+    expect(header(summary)).toContain(">Review required<");
+    const step = railStep(summary);
+    expect(step).toContain("ds-stage-node attention");
+    expect(step).not.toContain("advised");
+    expect(step).not.toContain("Review advised");
+  });
+
+  it("shows an advisory review as amber Review advised, never a green Complete", () => {
+    const summary = ownershipSummary("advised");
+    expect(stageStatusFor(summary, ["OWNERSHIP_UBO"])).toEqual({ tone: "advised", label: "Review advised" });
+    const chip = header(summary);
+    expect(chip).toContain('data-tone="advised"');
+    expect(chip).not.toContain('data-tone="done"');
+    // The chip carries the words, not colour alone.
+    expect(chip).toMatch(/class="stage-disclosure__status"[^>]*>Review advised</);
+    const step = railStep(summary);
+    expect(step).toMatch(/^data-node-id="OWNERSHIP_UBO" data-status="COMPLETE" data-display-state="advised"/);
+    expect(step).toContain("ds-stage-node advised");
+    expect(step).not.toContain("ds-stage-node done");
+    expect(step).not.toContain("✓");
+    // The sidebar marker is accompanied by visible status text.
+    expect(step).toContain('<div class="text-muted">Review advised</div>');
+    expect(step).toContain("<strong>Status:</strong> Review advised");
+    expect(step).not.toContain(">Complete<");
+  });
+
+  it("shows the advisory review on the progress tile with amber state and a Review action", () => {
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={ownershipSummary("advised")} onStageActivate={() => undefined} />);
+    const start = markup.indexOf('aria-label="Open details for Ownership &amp; UBO"');
+    const tileStart = markup.lastIndexOf("<li", start);
+    const tile = markup.slice(tileStart, markup.indexOf("</li>", start));
+    expect(tile).toContain('data-status="COMPLETE"');
+    expect(tile).toContain('data-display-state="advised"');
+    expect(tile).toContain(">Review advised<");
+    expect(tile).not.toContain(">Complete<");
+  });
+
+  it("keeps green Complete when there is no open review", () => {
+    const summary = ownershipSummary("complete");
+    expect(stageStatusFor(summary, ["OWNERSHIP_UBO"])).toEqual({ tone: "done", label: "Complete" });
+    expect(header(summary)).toContain('data-tone="done"');
+    const step = railStep(summary);
+    expect(step).toContain("ds-stage-node done");
+    expect(step).not.toContain("advised");
+    expect(step).toContain('<div class="text-muted">Complete</div>');
   });
 });

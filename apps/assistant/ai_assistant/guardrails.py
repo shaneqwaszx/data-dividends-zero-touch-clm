@@ -67,6 +67,7 @@ from .guide import (
     OFFICERS_NOT_RETRIEVED,
     OUT_OF_SCOPE,
     OWNER,
+    OWNERSHIP_REVIEW_ADVISED,
     READINESS_EXPLANATIONS,
     READINESS_NEEDS,
     RULE_PLAIN,
@@ -118,7 +119,10 @@ def ubo_check_not_run(facts: dict[str, Any]) -> bool:
 
 # Ownership states in which the UBO check is not complete (backend ReadinessStageStatus for
 # the ownership stage; READY means the analysis is complete or POC-accepted, D-082).
-_OWNERSHIP_INCOMPLETE = frozenset({"MISSING", "IN_PROGRESS", "REVIEW_REQUIRED", "FAILED"})
+# REVIEW_ADVISED (D-137) is the assistant's own name for READY on an advisory review.
+_OWNERSHIP_INCOMPLETE = frozenset(
+    {"MISSING", "IN_PROGRESS", "REVIEW_REQUIRED", "REVIEW_ADVISED", "FAILED"}
+)
 # An offered action that would complete or accept ownership (none exists today; fail closed).
 _UBO_COMPLETION_LABEL = re.compile(
     r"\b(?:mark|accept|confirm|complete|approve|sign off|finali[sz]e|close|finish|resolve"
@@ -126,6 +130,13 @@ _UBO_COMPLETION_LABEL = re.compile(
     r"|\b(?:ubos?|beneficial owners?|ownership)\b[^.]{0,40}"
     r"\b(?:complete|completed|accepted|confirmed|approved|resolved|closed|finished|ready)\b"
 )
+
+
+def ownership_review_advised(facts: dict[str, Any]) -> bool:
+    """D-137: ownership is complete for readiness only because its review is advisory."""
+
+    sections = (facts.get("readiness") or {}).get("sections") or {}
+    return sections.get("ownership") == "REVIEW_ADVISED"
 
 
 def ubo_completion_not_offered(facts: dict[str, Any]) -> bool:
@@ -310,6 +321,8 @@ def allowed_guidance(facts: dict[str, Any]) -> list[str]:
         allowed.append(UBO_CHECK_NOT_RUN)
     if ubo_completion_not_offered(facts):
         allowed.append(UBO_COMPLETION_NOT_OFFERED)
+    if ownership_review_advised(facts):
+        allowed.append(OWNERSHIP_REVIEW_ADVISED)
     # The non-live registry source, only when the backend's own source says ACRA (<env>).
     source_line = registry_source_line(facts, acra_only=True)
     if source_line is not None:

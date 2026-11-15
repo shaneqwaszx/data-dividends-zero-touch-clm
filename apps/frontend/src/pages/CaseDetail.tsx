@@ -105,7 +105,7 @@ import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
 import GovernmentStatusPanel from "./GovernmentStatusPanel";
 import { UPLOAD_ACCEPT, UPLOAD_HELP_TEXT } from "../uploadLimits";
 import PolicyRebindPanel, { PolicyRebindDetails } from "./PolicyRebindPanel";
-import { isWaitingForEarlierSteps } from "../stageDisplay";
+import { ADVISED_STAGE_SUMMARY, isWaitingForEarlierSteps } from "../stageDisplay";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
   identity: "case-identity-correction",
@@ -1339,7 +1339,11 @@ export default function CaseDetail({
   // instead of an ownership analysis; the stage keeps its title so AI Assistant section links match.
   const governmentBasis = summary.entity_type_basis?.entity_type === "GOVERNMENT" ? summary.entity_type_basis : null;
   const partnershipPendingLabel = summary.entity_type_basis?.partnership_state === "AWAITING_RM_CONFIRMATION" ? summary.entity_type_basis.label : null;
-  const ownershipHeaderStatus = ownership?.poc_basis_accepted && !stageNeedsAttention(["OWNERSHIP"])
+  // D-137: complete for readiness, but the D-121 advisory review is still open.
+  const ownershipStageAdvised = stageStatusFor(summary, ["OWNERSHIP_UBO"])?.tone === "advised";
+  const ownershipHeaderStatus = ownershipStageAdvised
+    ? ADVISED_STAGE_SUMMARY
+    : ownership?.poc_basis_accepted && !stageNeedsAttention(["OWNERSHIP"])
     ? "Ownership calculated — POC basis accepted."
     : ownership
     ? "Ownership: " + ownership.state.replaceAll("_", " ") + ". " + (stageNeedsAttention(["OWNERSHIP"]) || ["REVIEW_REQUIRED", "FAILED"].includes(ownership.state) || ownership.issues.length > 0 ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis.")

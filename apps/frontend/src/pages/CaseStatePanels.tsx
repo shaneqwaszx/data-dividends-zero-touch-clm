@@ -1,5 +1,5 @@
 import { withWorkflowStages, workflowStageElementId } from "../workflowPipeline";
-import { isWaitingForEarlierSteps, WAITING_STAGE_LABEL } from "../stageDisplay";
+import { ADVISED_STAGE_LABEL, isAdvisoryReview, isWaitingForEarlierSteps, WAITING_STAGE_LABEL } from "../stageDisplay";
 import type { WorkflowRun } from "../workflowApi";
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 
@@ -53,28 +53,36 @@ function progressStateLabel(state: RegistryProgressState): string {
   return state.replaceAll("_", " ").toLowerCase();
 }
 
-function pipelineRailState(status: ProcessingNodeStatus): "done" | "now" | "attention" | "" {
+type RailState = "done" | "now" | "attention" | "advised" | "";
+
+function pipelineRailState(status: ProcessingNodeStatus): Exclude<RailState, "advised"> {
   if (status === "COMPLETE" || status === "EMPTY" || status === "SKIPPED") return "done";
   if (status === "IN_PROGRESS") return "now";
   if (status === "REVIEW_REQUIRED" || status === "BLOCKED" || status === "FAILED") return "attention";
   return "";
 }
 
-/** Presentation of one backend stage: a BLOCKED stage that is only waiting for earlier steps is neutral. */
-function memberDisplay(member: ProcessingNode, summary?: ZeroTouchCaseSummary) {
+/**
+ * Presentation of one backend stage: a BLOCKED stage that is only waiting for earlier steps is neutral.
+ * D-137: a stage complete only because its ownership review is advisory (D-121) is amber "Review advised".
+ */
+function memberDisplay(member: ProcessingNode, summary?: ZeroTouchCaseSummary): { waiting: boolean; advised: boolean; label: string; rail: RailState } {
   const waiting = summary ? isWaitingForEarlierSteps(member, summary) : false;
+  const advised = !waiting && isAdvisoryReview(member);
   return {
     waiting,
-    label: waiting ? WAITING_STAGE_LABEL : PROGRESS_STATUS_LABELS[member.status],
-    rail: waiting ? "" as const : pipelineRailState(member.status),
+    advised,
+    label: waiting ? WAITING_STAGE_LABEL : advised ? ADVISED_STAGE_LABEL : PROGRESS_STATUS_LABELS[member.status],
+    rail: waiting ? "" : advised ? "advised" : pipelineRailState(member.status),
   };
 }
 
 /** Rail marker for a step; a grouped step uses its member that needs the user most (as before). */
-function stepRailState(node: ProcessingNode, members: ProcessingNode[], summary?: ZeroTouchCaseSummary): ReturnType<typeof pipelineRailState> {
+function stepRailState(node: ProcessingNode, members: ProcessingNode[], summary?: ZeroTouchCaseSummary): RailState {
   if (members.length === 1 && members[0] === node) return memberDisplay(node, summary).rail;
   const rails = members.map(member => memberDisplay(member, summary).rail);
   if (rails.includes("attention")) return "attention";
+  if (rails.includes("advised")) return "advised";
   if (rails.includes("now")) return "now";
   if (rails.length && rails.every(rail => rail === "done")) return "done";
   return rails.length ? "" : pipelineRailState(node.status);
@@ -154,7 +162,7 @@ function BusinessStageFacts({ node, members, nextAction, summary }: {
   </div>)}</>;
 }
 
-export interface StageStatus { tone: "attention" | "current" | "done" | "pending"; label: string }
+export interface StageStatus { tone: "attention" | "advised" | "current" | "done" | "pending"; label: string }
 
 /** Summarise the backend status of the pipeline nodes behind one case section. */
 export function stageStatusFor(summary: ZeroTouchCaseSummary, nodeIds: string[]): StageStatus | undefined {
@@ -163,6 +171,8 @@ export function stageStatusFor(summary: ZeroTouchCaseSummary, nodeIds: string[])
   const display = (node: ProcessingNode) => memberDisplay(node, summary);
   const attention = nodes.find(node => display(node).rail === "attention");
   if (attention) return { tone: "attention", label: display(attention).label };
+  const advised = nodes.find(node => display(node).rail === "advised");
+  if (advised) return { tone: "advised", label: display(advised).label };
   const current = nodes.find(node => node.status === "IN_PROGRESS");
   if (current) return { tone: "current", label: display(current).label };
   if (nodes.every(node => display(node).rail === "done")) return { tone: "done", label: display(nodes[0]).label };
@@ -184,7 +194,7 @@ export function PipelineRail({ summary, onStageActivate, renderAttention, workfl
         const state = stepRailState(node, members, summary);
         return (
           <div className="ds-stage" key={node.node_id} data-node-id={node.node_id} data-status={node.status}
-            data-display-state={stepWaiting(members, summary) ? "waiting" : undefined}>
+            data-display-state={stepWaiting(members, summary) ? "waiting" : state === "advised" ? "advised" : undefined}>
             <div className="ds-stage-marker">
               <span className={`ds-stage-node ${state}`}>
                 {state === "done" ? "✓" : index + 1}
@@ -576,21 +586,22 @@ export function OnboardingProgressPanel({
               && (!availableFocusTargets || availableFocusTargets.has(target) || workflowStageElementId(node.node_id) !== null),
             );
             const waiting = waitingStep(node);
+            const advised = !waiting && stepRailState(node, businessStageMembers(stagePipeline, node), summary) === "advised";
             const content = <>
               <span className="onboarding-progress__title-row">
-                <span className="onboarding-progress__symbol" aria-hidden="true">{waiting ? PROGRESS_STATUS_SYMBOLS.NOT_REACHED : PROGRESS_STATUS_SYMBOLS[node.status]}</span>
+                <span className="onboarding-progress__symbol" aria-hidden="true">{waiting ? PROGRESS_STATUS_SYMBOLS.NOT_REACHED : advised ? PROGRESS_STATUS_SYMBOLS.REVIEW_REQUIRED : PROGRESS_STATUS_SYMBOLS[node.status]}</span>
                 <span className="onboarding-progress__stage-label">{node.label}</span>
               </span>
               <span className="onboarding-progress__stage-status">{stageStatusText(businessStageMembers(stagePipeline, node), node, summary)}</span>
               {node.node_id === "ADVISORY" && <span className="control-help">Bounded POC advisory</span>}
-              <span className="onboarding-progress__stage-action">{navigable && !waiting && node.status === "REVIEW_REQUIRED" ? "Review" : navigable && !waiting && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
+              <span className="onboarding-progress__stage-action">{navigable && !waiting && (node.status === "REVIEW_REQUIRED" || advised) ? "Review" : navigable && !waiting && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
             </>;
             return (
               <li
                 key={node.node_id}
                 className="onboarding-progress__stage onboarding-progress__stage--actionable"
                 data-status={node.status}
-                data-display-state={waiting ? "waiting" : undefined}
+                data-display-state={waiting ? "waiting" : advised ? "advised" : undefined}
               >
                 <button type="button" onClick={() => {
                   setInspected({ caseId: summary.case.case_id, nodeId: node.node_id });

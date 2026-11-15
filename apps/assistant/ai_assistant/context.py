@@ -21,6 +21,7 @@ from .guide import (
     RULE_PLAIN,
     SCREEN_TERMS,
     SOURCE_DECISION_GROUP,
+    STEP_REVIEW_ADVISED,
     STEP_STATUS,
     field_label,
 )
@@ -98,6 +99,16 @@ def _company(summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _advisory_review(node: dict[str, Any]) -> bool:
+    """D-137: the backend's own flag, only on a complete OWNERSHIP_UBO node."""
+
+    return (
+        node.get("advisory_review") is True
+        and node.get("node_id") == "OWNERSHIP_UBO"
+        and node.get("status") == "COMPLETE"
+    )
+
+
 def _steps(summary: dict[str, Any]) -> list[dict[str, Any]]:
     steps = []
     for node in _list(summary.get("processing_pipeline")):
@@ -106,7 +117,10 @@ def _steps(summary: dict[str, Any]) -> list[dict[str, Any]]:
         steps.append(
             {
                 "step": data.get("label"),
-                "status": STEP_STATUS.get(status, status.lower() or "unknown"),
+                # D-137: complete for readiness only because the ownership review is advisory.
+                "status": STEP_REVIEW_ADVISED
+                if _advisory_review(data)
+                else STEP_STATUS.get(status, status.lower() or "unknown"),
                 "result": _text(data.get("safe_result"), 160),
                 "blocker_code": data.get("blocker_code"),
             }
@@ -331,6 +345,11 @@ def _readiness(summary: dict[str, Any]) -> dict[str, Any]:
         for name in ("registry", "document", "ownership", "goldtier")
         if readiness.get(name) is not None
     }
+    # D-137: ownership is READY only because its open review is advisory (D-121).
+    if sections.get("ownership") == "READY" and any(
+        _advisory_review(_dict(node)) for node in _list(summary.get("processing_pipeline"))
+    ):
+        sections["ownership"] = "REVIEW_ADVISED"
     return {
         "sections": sections,
         "blockers": _list(readiness.get("blockers")),

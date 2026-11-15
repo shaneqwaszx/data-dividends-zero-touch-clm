@@ -11,6 +11,7 @@ from .guardrails import approval_not_offered, who_resolves_lines
 from .guide import (
     APPROVAL_NOT_OFFERED,
     NO_CONTACT,
+    OWNERSHIP_REVIEW_ADVISED,
     READINESS_EXPLANATIONS,
     SAME_ISSUE,
     SCREEN_TERMS,
@@ -110,6 +111,13 @@ def next_pending_step(facts: dict[str, Any]) -> str | None:
     return None
 
 
+def ownership_advised(facts: dict[str, Any]) -> bool:
+    """D-137: ownership is complete for readiness only because its review is advisory."""
+
+    sections = (facts.get("readiness") or {}).get("sections") or {}
+    return sections.get("ownership") == "REVIEW_ADVISED"
+
+
 def opening_message(facts: dict[str, Any]) -> str:
     company = facts["company"].get("legal_name") or "this company"
     blockers = facts["blockers"]
@@ -166,6 +174,8 @@ def opening_message(facts: dict[str, Any]) -> str:
             pending = next_pending_step(facts)
             if pending:
                 lines.append(f"Next step: {pending}.")
+    if ownership_advised(facts):
+        lines.append(OWNERSHIP_REVIEW_ADVISED)
     lines.append("")
     lines.append(progress_line(facts))
     return "\n".join(lines).strip()

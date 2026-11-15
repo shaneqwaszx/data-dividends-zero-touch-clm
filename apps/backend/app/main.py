@@ -1383,6 +1383,14 @@ def create_app(
                 target_operations=target_operations,
                 retained_goldtier_id=retained_goldtier_id,
                 target_submission=target_submission,
+                # D-137: same service instance and current record the readiness check reads;
+                # the projection also requires readiness to reference this analysis.
+                ownership=ownership_record,
+                ownership_review_advisory=(
+                    ownership_record is not None
+                    and ownership.review_is_advisory(ownership_record)
+                    and not ownership.poc_basis_accepted(ownership_record)
+                ),
             ),
             team=administration.directory.get(case.team_id),
             ownership=ownership_record,

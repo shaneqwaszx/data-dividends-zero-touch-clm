@@ -527,6 +527,14 @@ _COMPLETED = re.compile(
     r"\b(?:the )?(?:case|onboarding|application|workflow|automation)\b[^.;]{0,25}"
     r"\b(?:is|has been|was) (?:now |fully |already )*(?:completed?|finished|closed|finali[sz]ed)\b"
 )
+# D-137: ownership or the UBO check said to be finished. Only the backend's READY ownership
+# readiness supports it; an advisory (REVIEW_ADVISED), open, missing or failed one does not.
+_OWNERSHIP_DONE = re.compile(
+    r"\b(?:ownership|ubos?|ubo check|beneficial owners?|beneficial ownership)"
+    r"(?: (?:and ubo|& ubo|check|step|stage|analysis|review|section))*\b[^.;]{0,25}"
+    r"\b(?:is|are|has been|have been|was|were) (?:now |fully |already |all )*"
+    r"(?:complete|completed|done|finished|resolved|cleared|settled|verified|sorted)\b"
+)
 _STAGE = re.compile(
     r"\b(?:current(?:ly)? (?:at |in )?(?:the )?|now (?:at|in) the |is (?:at|in) the )"
     r"([a-z]+(?: [a-z]+)?) (?:stage|step)\b"
@@ -697,6 +705,9 @@ def status_problem(sentence: str, facts: dict[str, Any] | None) -> str | None:
             return "unsupported_status"
     overall = facts.get("overall") or {}
     if stated(_COMPLETED) and "completed" not in _state_text(overall.get("status")):
+        return "unsupported_status"
+    ownership = str((readiness.get("sections") or {}).get("ownership") or "").upper()
+    if stated(_OWNERSHIP_DONE) and ownership != "READY":
         return "unsupported_status"
     stage = claimed(_STAGE)
     if stage:
