@@ -1889,12 +1889,10 @@ class OwnershipAnalysisService:
             ):
                 # D-086a: the operator selector chooses the variant only at a case's
                 # first overlay analysis; a recorded variant is kept on every later one.
-                recorded_id, history_complete = _recorded_overlay_scenario(previous)
                 overlay = self._hybrid_overlay.root_scenario(
                     parent,
                     self._clock(),
-                    recorded_scenario_id=recorded_id,
-                    history_complete=history_complete,
+                    recorded_scenario_id=_recorded_overlay_scenario_id(previous),
                 )
                 if overlay is not None:
                     source = self._apply_hybrid_root_overlay(source, record, parent, overlay)
@@ -3077,33 +3075,22 @@ def _replays_poc_interest(
     )
 
 
-# The bounded prior-analysis history (``OwnershipAnalysisRecord.prior_analyses``).
-_PRIOR_ANALYSIS_LIMIT: Final = 4
-
-
-def _recorded_overlay_scenario(
-    previous: OwnershipAnalysisRecord | None,
-) -> tuple[str | None, bool]:
-    """D-086a: the latest recorded overlay scenario, and whether "none" is established.
+def _recorded_overlay_scenario_id(previous: OwnershipAnalysisRecord | None) -> str | None:
+    """D-086a: the latest overlay scenario this case's persisted analyses recorded.
 
     Read only from the existing record and its bounded prior-analysis snapshots, newest
     first, so an intervening failed or non-overlay load does not reselect the variant.
-    Every load appends one snapshot, so a history shorter than the bound is the case's
-    complete history. At the bound older analyses may have been trimmed: without a
-    recorded id there, "no earlier overlay analysis" is not established (False), and the
-    caller must not treat the case as a first overlay analysis.
     """
 
     if previous is None:
-        return None, True
+        return None
     for discovery in (
         previous.discovery,
         *(item.discovery for item in reversed(previous.prior_analyses)),
     ):
         if discovery is not None and discovery.overlay_scenario_id:
-            return discovery.overlay_scenario_id, True
-    return None, len(previous.prior_analyses) < _PRIOR_ANALYSIS_LIMIT
-
+            return discovery.overlay_scenario_id
+    return None
 
 
 def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipAnalysisSnapshot:

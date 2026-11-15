@@ -642,28 +642,22 @@ class HybridOwnershipOverlayCatalogue:
         now: datetime,
         *,
         recorded_scenario_id: str | None = None,
-        history_complete: bool = True,
     ) -> HybridOverlayScenario | None:
         """The overlay for this case's next analysis, or nothing.
 
         The official-evidence gate always applies, unchanged, and a recorded id never
-        bypasses it. With no recorded scenario and a complete case history, the
-        operator-selected per-root scenario applies (a first overlay analysis). A recorded
-        scenario id is case-sticky: it resolves only to a catalogued scenario with this
-        case's own root, and an unknown id or another root gives no overlay, never a
-        fallback to the selector. When the case's retained history may have been trimmed
-        (``history_complete`` false) and holds no recorded id, an earlier overlay analysis
-        cannot be excluded: a root with more than one catalogued scenario then gives no
-        overlay rather than a selector choice, so a case never silently switches variant.
+        bypasses it. With no recorded scenario the operator-selected per-root scenario
+        applies (a first overlay analysis). A recorded scenario id is case-sticky: it
+        resolves only to a catalogued scenario with this case's own root, and an unknown id
+        or another root gives no overlay, never a fallback to the selector.
         """
 
         root = case.requested_uen.strip().upper()
-        if recorded_scenario_id is not None:
-            scenario = self._by_id.get(recorded_scenario_id)
-        elif history_complete or self._root_is_unambiguous(root):
-            scenario = self._by_root.get(root)
-        else:
-            scenario = None
+        scenario = (
+            self._by_root.get(root)
+            if recorded_scenario_id is None
+            else self._by_id.get(recorded_scenario_id)
+        )
         if (
             scenario is None
             or scenario.root_uen != root
@@ -671,11 +665,6 @@ class HybridOwnershipOverlayCatalogue:
         ):
             return None
         return scenario
-
-    def _root_is_unambiguous(self, root: str) -> bool:
-        """Exactly one catalogued scenario exists for this root, so no selector can differ."""
-
-        return sum(1 for item in self._by_id.values() if item.root_uen == root) == 1
 
 
 def _garden_direct_issuer() -> OverlayIssuer:

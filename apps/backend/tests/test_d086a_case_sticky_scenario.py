@@ -39,10 +39,8 @@ from app.domain.ownership import (
     OwnershipEnvironment,
 )
 from app.services.ownership_analysis import (
-    _PRIOR_ANALYSIS_LIMIT,
-    HYBRID_SOURCE_CLASSIFICATION,
     OwnershipAnalysisService,
-    _recorded_overlay_scenario,
+    _recorded_overlay_scenario_id,
 )
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
 
@@ -297,22 +295,24 @@ def test_the_recorded_id_is_the_latest_overlay_id_of_the_persisted_record(
 ) -> None:
     lane_ = Lane(CHAIN)
     case_id, first = lane_.first(FIVE_LAYER_ROOT_UEN, CHAIN)
-    assert _recorded_overlay_scenario(None) == (None, True)
-    assert _recorded_overlay_scenario(first) == (OPQ_GARDEN_SIM_LIM_SCENARIO_ID, True)
+    assert _recorded_overlay_scenario_id(None) is None
+    assert _recorded_overlay_scenario_id(first) == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
     assert first.discovery is not None
     # An intervening load without discovery (for example a terminal failure) keeps the
     # recorded variant through the bounded prior-analysis snapshots.
     later = lane_.reanalysed(case_id, FIVE_LAYER, monkeypatch)
     without = later.model_copy(update={"discovery": None})
-    assert _recorded_overlay_scenario(without) == (OPQ_GARDEN_SIM_LIM_SCENARIO_ID, True)
+    assert _recorded_overlay_scenario_id(without) == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
     no_overlay = first.model_copy(
         update={"discovery": first.discovery.model_copy(update={"overlay_scenario_id": None})}
     )
-    # A short history is the complete history: "no earlier overlay" is established.
-    assert _recorded_overlay_scenario(no_overlay) == (None, True)
+    assert _recorded_overlay_scenario_id(no_overlay) is None
 
 
-# --- Beyond the four-snapshot history bound ---------------------------------------------
+# --- The four-snapshot history bound ------------------------------------------------------
+
+# ``OwnershipAnalysisRecord.prior_analyses`` keeps at most four snapshots.
+PRIOR_ANALYSIS_LIMIT = 4
 
 
 def _without_official_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -341,11 +341,9 @@ def _no_overlay_reloads(
     return record
 
 
-def test_the_history_bound_matches_the_persisted_record_bound() -> None:
+def test_the_history_bound_is_the_persisted_record_bound() -> None:
     field = OwnershipAnalysisRecord.model_fields["prior_analyses"]
-    assert any(
-        getattr(item, "max_length", None) == _PRIOR_ANALYSIS_LIMIT for item in field.metadata
-    )
+    assert any(getattr(item, "max_length", None) == PRIOR_ANALYSIS_LIMIT for item in field.metadata)
 
 
 def test_within_the_bound_a_recorded_variant_survives_no_overlay_analyses(
@@ -355,40 +353,30 @@ def test_within_the_bound_a_recorded_variant_survives_no_overlay_analyses(
     case_id, first = lane_.first(FIVE_LAYER_ROOT_UEN, CHAIN)
     assert scenario_of(first) == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
     # Four consecutive no-overlay analyses: the chain is still in the retained snapshots.
-    _no_overlay_reloads(lane_, case_id, _PRIOR_ANALYSIS_LIMIT, monkeypatch)
+    _no_overlay_reloads(lane_, case_id, PRIOR_ANALYSIS_LIMIT, monkeypatch)
     again = lane_.reanalysed(case_id, FIVE_LAYER, monkeypatch)
     assert scenario_of(again) == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
     assert aggregates(again) == EXPECTED
 
 
-@pytest.mark.parametrize("selector", [FIVE_LAYER, CHAIN])
-def test_beyond_the_bound_an_opq_case_never_silently_switches_variant(
-    selector: str, monkeypatch: pytest.MonkeyPatch
+def test_beyond_the_bound_an_unchanged_selector_reloads_the_case_scenario(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """D-120: a source reload past the bound must reload the same POC evidence.
+
+    Never "no overlay" for an unestablished history: that would drop the reloaded POC
+    links an evidence upload relies on (test_poc_evidence_identity_guard).
+    """
+
     lane_ = Lane(CHAIN)
     case_id, first = lane_.first(FIVE_LAYER_ROOT_UEN, CHAIN)
-    assert scenario_of(first) == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
-    # Five consecutive no-overlay analyses push the chain analysis out of the history.
-    last = _no_overlay_reloads(lane_, case_id, _PRIOR_ANALYSIS_LIMIT + 1, monkeypatch)
-    assert len(last.prior_analyses) == _PRIOR_ANALYSIS_LIMIT
-    assert all(
-        item.discovery is None or item.discovery.overlay_scenario_id is None
-        for item in (last, *last.prior_analyses)
-    )
-    assert _recorded_overlay_scenario(last) == (None, False)
-    # Fresh official evidence again: never a selector choice (neither five-layer nor a
-    # silent re-selection of the chain); the analysis stays without an overlay.
-    after = lane_.reanalysed(case_id, selector, monkeypatch)
-    assert scenario_of(after) is None
-    assert after.source_classification != HYBRID_SOURCE_CLASSIFICATION
-    assert not any(
-        edge.provenance.provider == OVERLAY_RELATIONSHIP_PROVIDER for edge in after.relationships
-    )
-    # A new OPQ case still follows the current selector.
-    _, fresh = lane_.first(FIVE_LAYER_ROOT_UEN, selector)
-    assert scenario_of(fresh) == (
-        FIVE_LAYER_SCENARIO_ID if selector == FIVE_LAYER else OPQ_GARDEN_SIM_LIM_SCENARIO_ID
-    )
+    last = _no_overlay_reloads(lane_, case_id, PRIOR_ANALYSIS_LIMIT + 1, monkeypatch)
+    assert len(last.prior_analyses) == PRIOR_ANALYSIS_LIMIT
+    assert _recorded_overlay_scenario_id(last) is None
+    after = lane_.reanalysed(case_id, CHAIN, monkeypatch)
+    assert scenario_of(after) == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
+    assert aggregates(after) == aggregates(first) == EXPECTED
+    assert labels(after) == labels(first)
 
 
 def test_beyond_the_bound_garden_keeps_its_only_catalogued_scenario(
@@ -397,24 +385,7 @@ def test_beyond_the_bound_garden_keeps_its_only_catalogued_scenario(
     lane_ = Lane(CHAIN)
     case_id, first = lane_.first(GARDEN_UEN, CHAIN)
     assert scenario_of(first) == GARDEN_DIRECT_OVERLAY_SCENARIO_ID
-    _no_overlay_reloads(lane_, case_id, _PRIOR_ANALYSIS_LIMIT + 1, monkeypatch)
+    _no_overlay_reloads(lane_, case_id, PRIOR_ANALYSIS_LIMIT + 1, monkeypatch)
     after = lane_.reanalysed(case_id, FIVE_LAYER, monkeypatch)
-    # One catalogued scenario for the root: no selector can differ, so nothing switches.
     assert scenario_of(after) == GARDEN_DIRECT_OVERLAY_SCENARIO_ID
     assert aggregates(after) == aggregates(first)
-
-
-def test_an_unestablished_history_gives_no_overlay_for_an_ambiguous_root() -> None:
-    onboarding = Lane(CHAIN).onboarding
-    opq = onboarding.create_staged_case(FIVE_LAYER_ROOT_UEN)
-    garden = onboarding.create_staged_case(GARDEN_UEN)
-    now = datetime.now(UTC)
-    catalogue = HybridOwnershipOverlayCatalogue(hybrid_overlay_scenarios(CHAIN))
-    assert catalogue.root_scenario(opq, now, history_complete=False) is None
-    kept = catalogue.root_scenario(garden, now, history_complete=False)
-    assert kept is not None and kept.scenario_id == GARDEN_DIRECT_OVERLAY_SCENARIO_ID
-    # A recorded id is still resolved (and gated) whatever the history state.
-    recorded = catalogue.root_scenario(
-        opq, now, recorded_scenario_id=FIVE_LAYER_SCENARIO_ID, history_complete=False
-    )
-    assert recorded is not None and recorded.scenario_id == FIVE_LAYER_SCENARIO_ID

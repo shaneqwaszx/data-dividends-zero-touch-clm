@@ -965,7 +965,7 @@ or Live evidence.
 
 ## D-086a - case-sticky OPQ ownership scenario (amends D-086; candidate)
 
-Owner-approved isolated assignment (G4). The operator selector chooses the OPQ variant only at a case's first overlay analysis; that case keeps its recorded variant on every later analysis. An unknown recorded variant gives no overlay. If the retained history (the record plus its four prior-analysis snapshots) no longer shows whether an earlier overlay analysis existed, a root with more than one catalogued scenario gets no overlay rather than a selector choice; a full-history binding would need a durable field (owner decision). The selector is never user-supplied and never a case field written by a user. Official-evidence gate, provenance labels and D-112 O7 unchanged.
+Owner-approved isolated assignment (G4). The operator selector chooses the OPQ variant only at a case's first overlay analysis; that case keeps its recorded variant on every later analysis. An unknown recorded variant gives no overlay. The recorded variant is read from the record and its four prior-analysis snapshots; once five or more consecutive analyses without an overlay (including manual declarations) have pushed it out, the next source load uses the selector again, so it reloads the same POC evidence (D-120) unless the selector was changed. A binding beyond that history needs a durable field (owner decision, not taken). The selector is never user-supplied and never a case field written by a user. Official-evidence gate, provenance labels and D-112 O7 unchanged.
 
 ## D-087 - declared intermediate issuer officer roles as POC descriptive context (candidate)
 

@@ -278,9 +278,9 @@ selector. The official-evidence gate still applies first and unchanged: missing 
 official Marketplace Mock entity evidence gives no overlay, recorded variant or not. The
 recorded variant is read from the case's retained history: the current analysis and its
 four prior-analysis snapshots. After five or more consecutive analyses without an overlay
-(for example, repeatedly stale evidence), an OPQ case can no longer show which variant it
-had, so it gets no overlay rather than the selector's variant; onboard a new case to
-demonstrate again. Garden has one catalogued scenario, so it is unaffected. The
+(for example, manual declarations or repeatedly stale evidence), the next source load of an
+OPQ case uses the current selector again. Do not change the selector while such a case is
+still being demonstrated; Garden has one catalogued scenario, so it is unaffected. The
 selector is an operator setting only, never user-supplied and never a case field written
 by a user. Garden's direct scenario is the same in every selector state.
 
