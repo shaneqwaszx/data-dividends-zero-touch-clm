@@ -1217,10 +1217,11 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 103
+    assert len(expected) == len(ROUTE_POLICIES) == 104
     assert counts == {
         RouteAccess.PUBLIC: 2,
-        RouteAccess.ACTOR_ONLY: 42,
+        # P1 adds the read-only onboarding execution plan GET.
+        RouteAccess.ACTOR_ONLY: 43,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
