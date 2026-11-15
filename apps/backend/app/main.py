@@ -24,6 +24,7 @@ from app.api_auth import (
     build_case_reauthorizer,
     install_auth_boundary,
 )
+from app.api_execution_plan import build_execution_plan_router
 from app.api_intelligence import build_intelligence_router
 from app.api_models import (
     BrowserTargetOperationEvidence,
@@ -174,6 +175,7 @@ from app.services.manual_ownership_evidence import (
     SafeReviewText,
 )
 from app.services.onboarding import OnboardingService
+from app.services.onboarding_execution_plan import ExecutionPlanService
 from app.services.onboarding_intelligence import OnboardingIntelligenceProjectionService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_errors import (
@@ -831,6 +833,18 @@ def create_app(
             service,
             active_settings.idp_max_upload_bytes,
             _read_bounded_body,
+        )
+    )
+    # P1: read-only view of what actually runs; outside the manager switch (D-136 E4).
+    application.include_router(
+        build_execution_plan_router(
+            ExecutionPlanService(
+                settings=active_settings,
+                search_follows_registry=service.search_follows_registry,
+                target_provider_mode=service.target_provider_mode,
+                workflows=workflow_enforcement,
+            ),
+            authentication,
         )
     )
     application.include_router(

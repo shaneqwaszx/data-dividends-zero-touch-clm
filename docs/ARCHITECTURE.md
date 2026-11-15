@@ -664,6 +664,7 @@ surface is currently verified by this repository.
 | Mongo | persistence adapters | optional explicit mode | repository/schema skill, never routes |
 | Camunda | none | not implemented | new bounded phase and ADR if introduced |
 | Director workflows | `WorkflowManagementService` (ADR-014, D-123, D-136) | add-on, inert until a stage is activated; stored required stages are enforced on every send path, also with the manager switched off | added stages and new use-case workflows only; existing stages stay in the orchestrator |
+| Workflow designer (P1, read-only) | `ExecutionPlanService` (ADR-016 proposed) | `GET /api/workflows/onboarding/execution-plan`, HR and Director only; reads the stored workflow without initialising it; no case data | P2 editing and D-135 governance need separate approval; never reorders mandatory stages |
 | Identity provider | authentication service | local POC | production security/authority phase |
 
 ## 17. Architecture invariants

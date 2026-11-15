@@ -475,6 +475,15 @@ class OnboardingService:
         return self._goldtier_mapper.environment
 
     @property
+    def search_follows_registry(self) -> bool:
+        """Read-only: True when the GoldTier Search waits for the accepted registry identity.
+
+        With a target identity policy (staging Sandbox) the typed name is never sent and
+        Search runs after ACRA; without one, case creation searches first (ADR-006).
+        """
+        return self._target_identity_policy is not None
+
+    @property
     def target_writes_enabled(self) -> bool:
         """False only for a target that refuses mutations; Search stays available."""
         return bool(getattr(self._goldtier, "writes_enabled", True))

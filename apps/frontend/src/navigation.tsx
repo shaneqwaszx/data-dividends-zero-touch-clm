@@ -10,6 +10,7 @@ import {
 } from "react-router";
 
 import type { AuthenticatedProfile, Capability } from "./types";
+import { canViewExecutionPlan } from "./workflowExecutionPlan";
 import { workflowManagerEnabled } from "./workflowFlags";
 import { WorkflowTabLinks } from "./pages/WorkflowTab";
 import { sampleCaseUrlId } from "./pages/mockDashboards/onboardingSample";
@@ -28,6 +29,7 @@ export const routePatterns = {
   audit: "/audit",
   auditCase: "/audit/:caseId",
   policy: "/policy",
+  workflowDesigner: "/policy/workflow-designer",
   workflows: "/workflows",
   workflowTab: "/workflow-tabs/:workflowId",
   workflowCases: "/workflow-tabs/:workflowId/cases",
@@ -69,6 +71,7 @@ export const paths = {
   audit: routePatterns.audit,
   auditCase: (caseId: string) => buildCasePath(routePatterns.audit, caseId),
   policy: routePatterns.policy,
+  workflowDesigner: routePatterns.workflowDesigner,
   workflows: routePatterns.workflows,
   workflowTab: (workflowId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}`,
   workflowCases: (workflowId: string) => `/workflow-tabs/${encodeURIComponent(workflowId)}/cases`,
@@ -131,6 +134,8 @@ const routeCapabilities: Array<{ pattern: string; capability: Capability; casePa
   { pattern: routePatterns.audit, capability: "CASE_ACCESS" },
   { pattern: routePatterns.auditCase, capability: "CASE_ACCESS", caseParam: true },
   { pattern: routePatterns.policy, capability: "POLICY_VIEW" },
+  // The page shows HR and Directors the plan; the backend refuses every other role.
+  { pattern: routePatterns.workflowDesigner, capability: "POLICY_VIEW" },
   { pattern: routePatterns.workflows, capability: "POLICY_APPROVE" },
   { pattern: routePatterns.workflowTab, capability: "CASE_ACCESS" },
   { pattern: routePatterns.workflowCases, capability: "CASE_ACCESS" },
@@ -188,6 +193,17 @@ function CapabilityRoute({
   return actor.capabilities.includes(capability)
     ? children
     : <UnavailableRoute actor={actor} />;
+}
+
+/** Policy & Workflow sub-tabs, shown only to HR and Directors (cosmetic; backend decides). */
+function PolicySectionTabs() {
+  const tab = ({ isActive }: { isActive: boolean }) => `btn ${isActive ? "btn-primary" : "btn-secondary"}`;
+  return (
+    <nav className="ds-root policy-section-tabs" aria-label="Policy and Workflow">
+      <NavLink to={paths.policy} end className={tab}>Policy rules</NavLink>
+      <NavLink to={paths.workflowDesigner} end className={tab}>Workflow designer</NavLink>
+    </nav>
+  );
 }
 
 function LandingRoute({ actor }: { actor: AuthenticatedProfile }) {
@@ -283,6 +299,7 @@ export interface WorkspaceRoutesProps {
   caseDetail: (caseId: string) => ReactNode;
   audit: (caseId: string | null) => ReactNode;
   policy: ReactNode;
+  workflowDesigner?: ReactNode;
   adminUsers: ReactNode;
   adminTeams: ReactNode;
   goldtierSandbox: ReactNode;
@@ -306,6 +323,7 @@ export function WorkspaceRoutes({
   caseDetail,
   audit,
   policy,
+  workflowDesigner,
   adminUsers,
   adminTeams,
   goldtierSandbox,
@@ -319,6 +337,12 @@ export function WorkspaceRoutes({
 }: WorkspaceRoutesProps) {
   const caseAccess = (content: ReactNode) => (
     <CapabilityRoute actor={actor} capability="CASE_ACCESS">{content}</CapabilityRoute>
+  );
+  const policySection = (content: ReactNode) => (
+    <CapabilityRoute actor={actor} capability="POLICY_VIEW">
+      {workflowDesigner && canViewExecutionPlan(actor) && <PolicySectionTabs />}
+      {content}
+    </CapabilityRoute>
   );
   return (
     <Routes>
@@ -355,10 +379,10 @@ export function WorkspaceRoutes({
         path={routePatterns.auditCase}
         element={caseAccess(<CaseParamRoute actor={actor} render={(caseId) => audit(caseId)} />)}
       />
-      <Route
-        path={routePatterns.policy}
-        element={<CapabilityRoute actor={actor} capability="POLICY_VIEW">{policy}</CapabilityRoute>}
-      />
+      <Route path={routePatterns.policy} element={policySection(policy)} />
+      {workflowDesigner && (
+        <Route path={routePatterns.workflowDesigner} element={policySection(workflowDesigner)} />
+      )}
       <Route
         path={routePatterns.adminUsers}
         element={<CapabilityRoute actor={actor} capability="IDENTITY_ADMIN">{adminUsers}</CapabilityRoute>}

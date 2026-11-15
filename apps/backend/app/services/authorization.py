@@ -62,6 +62,8 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/workflows/startable", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/workflows/{workflow_id}", RouteAccess.ACTOR_ONLY),
+    # P1: read-only execution plan; HR or Director capability is checked in the handler.
+    RoutePolicy("GET", "/api/workflows/onboarding/execution-plan", RouteAccess.ACTOR_ONLY),
     RoutePolicy("PUT", "/api/workflows/{workflow_id}/draft", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/activate", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),
