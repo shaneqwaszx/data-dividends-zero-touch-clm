@@ -192,11 +192,13 @@ def build_provider_sandbox_router(
             settings.goldtier_connector_mode == "sandbox"
             and onboarding.target_provider_mode == GoldTierProviderMode.SANDBOX
         )
+        writes_open = settings.goldtier_sandbox_write_policy().open_at(datetime.now(UTC))
         blocker = (
             "GOLDTIER_SANDBOX_NOT_CONFIGURED"
             if not configured
             else "GOLDTIER_SANDBOX_WRITES_DISABLED"
-            if not settings.goldtier_sandbox_allow_writes
+            # D-137: reports the live write window, so an ended window reads as disabled.
+            if not writes_open
             else "GOLDTIER_SANDBOX_WRITE_REQUIRES_CASE_LEDGER"
         )
         current = snapshot()
@@ -207,7 +209,7 @@ def build_provider_sandbox_router(
             safe_host=(
                 urlsplit(settings.goldtier_sandbox_base_url).hostname if configured else None
             ),
-            writes_enabled=configured and settings.goldtier_sandbox_allow_writes,
+            writes_enabled=configured and writes_open,
             timeout_seconds=settings.goldtier_sandbox_timeout_seconds,
             max_response_bytes=settings.goldtier_sandbox_max_response_bytes,
             last_diagnostic_at=(current[-1].occurred_at if current else None),

@@ -4,6 +4,7 @@ import ipaddress
 import os
 import re
 import warnings
+from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -15,6 +16,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
 from pymongo.errors import PyMongoError
 from pymongo.uri_parser import parse_uri, split_options
 
+from app.connectors.goldtier_write_policy import (
+    MAX_WRITE_WINDOW,
+    GoldTierSandboxWritePolicy,
+    GoldTierWritePolicyError,
+)
 from app.domain.ownership import OwnershipPercent
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -210,6 +216,10 @@ class Settings(BaseSettings):
     goldtier_sandbox_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
     goldtier_sandbox_max_response_bytes: int = Field(default=128 * 1024, ge=1024, le=1024 * 1024)
     goldtier_sandbox_allow_writes: bool = False
+    # D-137 write window. Comma-separated; staging must set every one of these explicitly.
+    goldtier_sandbox_write_operations: str = "SHELL,POLICY,AMEND"
+    goldtier_sandbox_write_case_references: str = ""
+    goldtier_sandbox_writes_not_after: datetime | None = None
     goldtier_sandbox_egress_proxy_url: str = ""
     goldtier_sandbox_egress_fqdn: str = ""
     goldtier_sandbox_tls_ca_file: str = ""
@@ -315,6 +325,27 @@ class Settings(BaseSettings):
             )
         return self
 
+    def goldtier_sandbox_write_policy(self) -> GoldTierSandboxWritePolicy:
+        """The D-137 write window these settings describe; it holds no secret."""
+
+        def items(value: str) -> frozenset[str]:
+            return frozenset(item.strip() for item in value.split(",") if item.strip())
+
+        return GoldTierSandboxWritePolicy(
+            enabled=self.goldtier_sandbox_allow_writes,
+            operations=frozenset(
+                item.upper() for item in items(self.goldtier_sandbox_write_operations)
+            ),
+            case_references=items(self.goldtier_sandbox_write_case_references),
+            not_after=self.goldtier_sandbox_writes_not_after,
+        )
+
+    @field_validator("goldtier_sandbox_writes_not_after", mode="before")
+    @classmethod
+    def blank_write_window_end_is_unset(cls, value: object) -> object:
+        """D-137: an empty variable means no end time, in every environment."""
+        return None if isinstance(value, str) and not value.strip() else value
+
     @field_validator("acra_connector_mode", mode="before")
     @classmethod
     def validate_acra_connector_mode(cls, value: object) -> object:
@@ -353,9 +384,28 @@ class Settings(BaseSettings):
             }
             if len(collections) != 5:
                 raise ValueError("registry cache collection must be distinct")
-        # Staging Sandbox is read-only until a reviewed write qualification lifts this.
-        if self.app_env == "staging" and self.goldtier_sandbox_allow_writes:
-            raise ValueError("staging does not permit GoldTier sandbox writes")
+        try:
+            write_policy = self.goldtier_sandbox_write_policy()
+        except GoldTierWritePolicyError as exc:
+            raise ValueError(str(exc)) from None
+        # D-126 P1 / D-137: staging Sandbox stays read-only unless one bounded write window
+        # is configured in full. A window that has already ended is accepted at startup (a
+        # restart must not take the site down) and simply keeps writes off.
+        if (
+            self.app_env == "staging"
+            and self.goldtier_sandbox_allow_writes
+            and not (
+                "goldtier_sandbox_write_operations" in self.model_fields_set
+                and write_policy.operations
+                and write_policy.case_references
+                and write_policy.not_after is not None
+                and write_policy.not_after - datetime.now(UTC) <= MAX_WRITE_WINDOW
+            )
+        ):
+            raise ValueError(
+                "staging does not permit GoldTier sandbox writes without a complete "
+                "D-137 write window (operations, case references, end time within 24h)"
+            )
         if self.goldtier_connector_mode == "sandbox":
             parsed = urlsplit(self.goldtier_sandbox_base_url)
             valid_base = (

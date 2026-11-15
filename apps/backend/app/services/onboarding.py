@@ -488,9 +488,28 @@ class OnboardingService:
         """False only for a target that refuses mutations; Search stays available."""
         return bool(getattr(self._goldtier, "writes_enabled", True))
 
-    def _require_target_writes(self) -> None:
+    def target_writes_permitted(
+        self, source_case_id: str, operation: str | None = None
+    ) -> bool:
+        """D-137: the write window admits this case (and operation), not just some case."""
+        if not self.target_writes_enabled:
+            return False
+        permits = getattr(self._goldtier, "writes_permitted", None)
+        return permits is None or bool(
+            permits(source_case_id=source_case_id, operation=operation)
+        )
+
+    def _require_target_writes(
+        self,
+        submission_input: GoldTierSubmissionInput | None = None,
+        operation: str | None = None,
+    ) -> None:
         """Stop before the ledger marks an attempt, so a refused write burns nothing."""
         if not self.target_writes_enabled:
+            raise TargetWritesDisabledError
+        if submission_input is not None and not self.target_writes_permitted(
+            submission_input.source_case_id, operation
+        ):
             raise TargetWritesDisabledError
 
     def _holds_accepted_identity(self, case: OnboardingCase) -> bool:
@@ -533,7 +552,7 @@ class OnboardingService:
         party_id: str,
         candidate: GoldTierSearchCandidate | None = None,
     ) -> OnboardingCase | None:
-        """Keep Mock reuse subordinate to the existing case and finalized ledger."""
+        """Keep target reuse subordinate to the existing case and its finalized ledger (D-137)."""
         prior = self._repository.find_verified_target_case(
             registration_number=registration_number,
             legal_name=legal_name,
@@ -546,8 +565,8 @@ class OnboardingService:
             and not self._holds_accepted_identity(prior)
         ):
             return None
-        if prior is None or self.target_provider_mode != GoldTierProviderMode.MOCK:
-            return prior
+        if prior is None:
+            return None
         if (
             prior.state not in {WorkflowState.GT_ENRICHED, WorkflowState.COMPLETED}
             or prior.goldtier_result is None
@@ -558,7 +577,7 @@ class OnboardingService:
             outcome = entry.target_outcome
             if (
                 entry.state == GoldTierExecutionLedgerState.FINALIZED
-                and entry.submission_input.provider_mode == GoldTierProviderMode.MOCK
+                and entry.submission_input.provider_mode == self.target_provider_mode
                 and entry.receipt is not None
                 and entry.receipt.classification == GoldTierExecutionClassification.SUCCESS
                 and entry.receipt.result is not None
@@ -2782,7 +2801,10 @@ class OnboardingService:
                 raise ValueError("Target dispatch requires a current frozen-review confirmation")
 
             self._require_target_registry_provenance(case)
-            self._require_target_writes()
+            # D-137: this one-shot path cannot pause between steps, so the window must admit
+            # every operation it may run before the ledger records anything.
+            for operation in ("SHELL", "POLICY", "AMEND"):
+                self._require_target_writes(submission_input, operation)
             self._start_execution(submission_input)
             outcome_uncertain = False
             try:
@@ -2903,7 +2925,7 @@ class OnboardingService:
             entry = self._stored_execution_entry(submission_input)
             if entry is None:
                 if search_resolution == GoldTierSearchResolution.NO_MATCH:
-                    self._require_target_writes()
+                    self._require_target_writes(submission_input, "SHELL")
                 self._start_incremental_execution(
                     submission_input,
                     search_resolution=search_resolution,
@@ -3028,7 +3050,7 @@ class OnboardingService:
         submission_input: GoldTierSubmissionInput,
         entry: GoldTierExecutionLedgerEntry,
     ) -> GoldTierExecutionReceipt | None:
-        self._require_target_writes()
+        self._require_target_writes(submission_input, "SHELL")
         request = self._goldtier_mapper.build_shell_request(submission_input)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.SHELL)
         try:
@@ -3113,7 +3135,7 @@ class OnboardingService:
         entry: GoldTierExecutionLedgerEntry,
         party_id: str,
     ) -> GoldTierExecutionReceipt | None:
-        self._require_target_writes()
+        self._require_target_writes(submission_input, "POLICY")
         request = self._goldtier_mapper.build_policy_request(submission_input, party_id)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.POLICY)
         try:
@@ -3232,7 +3254,7 @@ class OnboardingService:
                 "AMEND_NOT_REQUIRED",
             )
             return None
-        self._require_target_writes()
+        self._require_target_writes(submission_input, "AMEND")
         request = self._goldtier_mapper.build_amend_request(submission_input, party_id)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
         try:
