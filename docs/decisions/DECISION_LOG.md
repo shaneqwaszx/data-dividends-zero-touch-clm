@@ -2722,3 +2722,42 @@ Also disclosed by the gate and fail-closed: inside the R1 window, legacy Submit 
 `503 CLM_SUBMISSION_UNEXPECTED_FAILURE` instead of the 409 hold code (N1), and a
 persistence error while reading the in-flight state surfaces as a 500 (N4). In both
 cases nothing is written to GoldTier.
+
+## D-137 - GoldTier Sandbox write qualification: one bounded write window, disabled by default (OWNER-APPROVED 2026-11-15, NOT ACTIVE)
+
+Status: owner-approved on 2026-11-15 as the controlled GoldTier Sandbox write capability for
+the FYP staging environment. Authority: `USER_AUTHORIZED_POC`. **Not active and not
+sponsor-confirmed. It authorises no Sandbox write:** the deployment and each write window
+are authorised separately. Numbering: D-133 to D-135 are held by open proposals. It narrows
+D-126 P1. All other D-126 rows stand. It also leaves D-131 (R3 egress) and D-136 (workflow
+send hold) unchanged.
+
+D-126 open items, as decided by the owner on 2026-11-15:
+- Item 2 (Sandbox prior-case ledger proof) is closed by W6.
+- Items 1 (paused-state wording), 3 (stale `initial_target_search` read model after a void) and
+  4 (the read-only recovery exception for `check_uncertain_target_status` and
+  `verify_completed_target`) are accepted under the stated staging limitations. Item 4 keeps
+  the exception: one read-only Search, bound to the case's own ledger entry.
+- Related-party Policy and Amend stay blocked (`BLOCKED_CHILD_ID_LIFECYCLE`, Q-006 open) until
+  the `childId` contract is established from existing evidence or authoritative documentation.
+
+| # | Decision |
+|---|---|
+| W1 | **One window, four parts.** In staging, a Sandbox write needs all four: `GOLDTIER_SANDBOX_ALLOW_WRITES=true`; `GOLDTIER_SANDBOX_WRITE_OPERATIONS`, set explicitly (a subset of `SHELL`, `POLICY`, `AMEND`); `GOLDTIER_SANDBOX_WRITE_CASE_REFERENCES`, 1 to 10 exact `source_case_id` values; and `GOLDTIER_SANDBOX_WRITES_NOT_AFTER`, a time-zoned end no more than 24 hours after startup. A missing or malformed part refuses startup. Related-party operations are not admitted. Outside staging, the plain switch behaves exactly as before. |
+| W2 | **Default off.** Every default keeps writes off. In addition, `deploy/compose.yml` and `deploy/compose.goldtier-egress.yml` pin `GOLDTIER_SANDBOX_ALLOW_WRITES: "false"` in the backend environment. Opening a window on the host therefore also needs the window overlay `deploy/compose.goldtier-write-window.yml`, applied only for that window with the `dcgw` helper. That overlay changes only these four backend values; its three window values are required and come from a separate window env file, never from `compose.env`. Closing the window recreates the backend through `dcg`, which restores the literal `"false"`. |
+| W3 | **Checked before the ledger.** The window is checked before any confirmation is recorded and before the ledger marks an attempt. That covers the two orchestration send checks and every incremental Shell, Policy and Amend step. The legacy one-shot path cannot pause between steps, so it starts only when the window admits all three operations for the case. An unlisted case is refused with `CLM_TARGET_WRITES_DISABLED`; nothing is recorded or burned and no request leaves. The connector repeats the case and operation check as defence in depth. It does not repeat the end-time check, so an expiry between the two checks can never become a burned, failed operation. |
+| W4 | **Ending is a pause, not a failure.** When the window ends, or the next operation is outside it, the next mutation is refused and the submission pauses in `RECOVERY_PENDING`, exactly as in D-126 P1. The same submission resumes without replay in a later window. Search, exact-ID readback, recheck and uncertain-outcome reconciliation stay read-only and are never limited by the window. A window that has already ended is accepted at startup, so a restart never takes the site down; it simply keeps writes off. An empty end-time variable means no end time in every environment, so staging still refuses it. |
+| W5 | **Unchanged.** The target ledger, idempotency keys, no-replay, uncertain-outcome handling, D-126 P2 evidence binding (only official Marketplace Mock identities reach Sandbox), RM and HR/Director governance, D-136 and backend-only credentials. The HR console status now reports the live window. |
+| W6 | **Prior-case reuse needs ledger proof in every mode** (closes D-126 open item 2). Sandbox previously reused a prior case on accepted evidence alone. Now a prior case is reused only when it holds a finalized, read-back-verified ledger entry for the *current* provider mode, bound to that case and party. That is the same proof Mock already required. Otherwise the case follows the normal Search outcome. |
+
+Before any window is opened, all of the following are required:
+- the read-only A7 proof succeeds;
+- the sponsor's written write permission and the exact test operation and case are recorded;
+- every listed case is a synthetic test case whose identity is official Marketplace Mock evidence;
+- the D-126 open items are closed (paused-state wording, Sandbox prior-case ledger proof, the
+  stale `initial_target_search` read model after a void, the recovery exception);
+- the reviewed compose change for the window;
+- explicit owner authorisation for that window;
+- a closing step: the backend is recreated through `dcg` without the window overlay (restoring
+  `"false"`), the window env file is removed, and each write's ledger outcome and readback are
+  recorded.

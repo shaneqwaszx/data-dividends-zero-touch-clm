@@ -141,3 +141,38 @@ must equal `GOLDTIER_DST_V4` in `/etc/clm/r3/clm_r3.vars`; the verify script com
 the running proxy. Never enable `nftables.service`
 or ufw, and never run `iptables-legacy` on the host (facts SE-1). The R3 containers stay stopped
 after the watcher acts; start them only after the table is restored and verified.
+
+## D-137 GoldTier Sandbox write window (PROPOSED; each window needs owner authorisation)
+
+The window overlay is never part of `dc()`, `dca()` or `dcg()`. It is applied only for one
+owner-authorised window, after the R3 overlay, through its own helper:
+
+```sh
+dcgw() {
+  docker compose --env-file /etc/clm/compose.env --env-file /etc/clm/goldtier-write-window.env \
+    -f deploy/compose.yml -f deploy/compose.mongo.yml \
+    -f deploy/compose.goldtier-egress.yml -f deploy/compose.goldtier-write-window.yml "$@"
+}
+```
+
+`/etc/clm/goldtier-write-window.env` (root-owned, mode 600, created for the window and removed
+when it closes) holds exactly three lines:
+`CLM_GOLDTIER_WRITE_OPERATIONS`, `CLM_GOLDTIER_WRITE_CASE_REFERENCES` (exact `source_case_id`
+values) and `CLM_GOLDTIER_WRITES_NOT_AFTER` (time-zoned, at most 24 hours ahead). It holds no
+secret. The overlay changes only the backend's four write values. No other service, network,
+port, volume or image changes.
+
+Preconditions: GoldTier mode is Sandbox (`CLM_GOLDTIER_CONNECTOR_MODE`), `verify_host_firewall.sh`
+passes, and every item D-137 lists before a window is met.
+
+- Open: confirm `grep -c '^CLM_GOLDTIER_WRITE_' /etc/clm/compose.env` prints `0` and the shell
+  exports no `CLM_GOLDTIER_WRITE_*` variable. Then run `dcgw config --quiet` and
+  `dcgw up -d --no-build --no-deps --wait backend`. The HR console status must show
+  `writes_enabled: true`. Confirm the three window values from the backend container's
+  environment filtered to `^GOLDTIER_SANDBOX_WRITE` only, never a full environment or `config`
+  render. The backend refuses to start on an incomplete window.
+- Close (also at the end time, and after any stop condition):
+  `dcg up -d --no-build --no-deps --wait backend`, then remove the window env file. The HR
+  console status must show writes disabled. Record each write's ledger outcome and readback.
+- Never use `dc` or `dca` for the backend. While a window is open, the release pipeline's drift
+  check refuses any deployment, so run no pipeline release until the window is closed.

@@ -200,3 +200,58 @@ def test_c5_base_and_mongo_render_is_untouched_by_r3(env: dict[str, str]) -> Non
     assert not any(k.startswith("GOLDTIER_SANDBOX_EGRESS") for k in backend["environment"])
     text = json.dumps(base)
     assert "goldtier-egress" not in text and "clm-gt-" not in text
+
+
+# D-137 write window overlay (deploy/compose.goldtier-write-window.yml). Never part of dc, dca or
+# dcg; applied only for an owner-authorised window, after the R3 overlay.
+WINDOW = DEPLOY / "compose.goldtier-write-window.yml"
+WINDOW_VALUES = {
+    "CLM_GOLDTIER_WRITE_OPERATIONS": "SHELL",
+    "CLM_GOLDTIER_WRITE_CASE_REFERENCES": "case-w1-synthetic",
+    "CLM_GOLDTIER_WRITES_NOT_AFTER": "2099-01-01T00:00:00+00:00",
+}
+WINDOW_KEYS = {
+    "GOLDTIER_SANDBOX_ALLOW_WRITES": "true",
+    "GOLDTIER_SANDBOX_WRITE_OPERATIONS": "SHELL",
+    "GOLDTIER_SANDBOX_WRITE_CASE_REFERENCES": "case-w1-synthetic",
+    "GOLDTIER_SANDBOX_WRITES_NOT_AFTER": "2099-01-01T00:00:00+00:00",
+}
+
+
+def test_w1_window_changes_only_four_backend_values(env: dict[str, str]) -> None:
+    closed = render(env | WINDOW_VALUES, *BASE, OVERLAY)
+    opened = render(env | WINDOW_VALUES, *BASE, OVERLAY, WINDOW)
+    assert opened["networks"] == closed["networks"]
+    assert opened.get("volumes") == closed.get("volumes")
+    assert set(opened["services"]) == set(closed["services"])
+    for name, svc in opened["services"].items():
+        if name != "backend":
+            assert svc == closed["services"][name], name
+    before, after = closed["services"]["backend"], opened["services"]["backend"]
+    assert {k: v for k, v in after.items() if k != "environment"} == {
+        k: v for k, v in before.items() if k != "environment"
+    }
+    changed = {
+        k: v for k, v in after["environment"].items() if before["environment"].get(k) != v
+    }
+    assert changed == WINDOW_KEYS
+    assert before["environment"]["GOLDTIER_SANDBOX_ALLOW_WRITES"] == "false"
+    assert not any(k.startswith("GOLDTIER_SANDBOX_WRITE") for k in before["environment"]
+                   if k != "GOLDTIER_SANDBOX_ALLOW_WRITES")
+
+
+@pytest.mark.parametrize("missing", sorted(WINDOW_VALUES))
+def test_w2_window_values_are_required(env: dict[str, str], missing: str) -> None:
+    values = {k: v for k, v in WINDOW_VALUES.items() if k != missing}
+    out = render(env | values, *BASE, OVERLAY, WINDOW, expect_ok=False)
+    assert missing in out["stderr"]
+
+
+def test_w3_window_overlay_is_in_no_standing_helper() -> None:
+    runtime = (DEPLOY / "LIGHTSAIL_RUNTIME.md").read_text(encoding="utf-8")
+    for helper in ("dc() {", "dca() {", "dcg() {"):
+        start = runtime.index(helper)
+        body = runtime[start : runtime.index("}", start)]
+        assert "write-window" not in body, helper
+    for name in ("compose.yml", "compose.mongo.yml", "compose.goldtier-egress.yml"):
+        assert "write-window" not in (DEPLOY / name).read_text(encoding="utf-8")

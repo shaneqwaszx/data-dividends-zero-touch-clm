@@ -2,7 +2,8 @@
 
 Status: offline preparation. No genuine Sandbox call, GoldTier write or new customer was
 made. `GOLDTIER_XPI` stays `PARTIAL / SANDBOX_PARTIAL`. This is not Live evidence. The
-decision record is D-126.
+decision records are D-126 and D-137 (the bounded write window, owner-approved 2026-11-15, not
+active).
 
 ## What staging does
 
@@ -10,7 +11,8 @@ decision record is D-126.
 |---|---|
 | `GOLDTIER_CONNECTOR_MODE=mock` (default) | Unchanged |
 | `sandbox`, writes off | Search and exact-ID readback run. Final Review & Send is refused with `CLM_TARGET_WRITES_DISABLED` |
-| `GOLDTIER_SANDBOX_ALLOW_WRITES=true` in `APP_ENV=staging` | The backend refuses to start |
+| `GOLDTIER_SANDBOX_ALLOW_WRITES=true` in `APP_ENV=staging` without a complete D-137 window | The backend refuses to start |
+| A complete D-137 window: listed operations, 1 to 10 exact case references, an end time at most 24 h ahead | Only those operations, for those cases, until the end time. Everything else is refused before the ledger with `CLM_TARGET_WRITES_DISABLED`, and an ending window pauses in `RECOVERY_PENDING`. The window is applied only through `deploy/compose.goldtier-write-window.yml` (`dcgw`) |
 | `sandbox`, identity has no evidence from an accepted source | No provider request is made, for Search or mutation. The case records a failed Search with `CLM_TARGET_REGISTRY_PROVENANCE_UNSUPPORTED`, or `REGISTRY_PROVENANCE_UNSUPPORTED` on a recheck. Existing-customer confirmation and Send are refused |
 
 `ACRA_CONNECTOR_MODE` and `GOLDTIER_CONNECTOR_MODE` stay independent. With local ACRA Mock
@@ -68,7 +70,8 @@ Provide these in the protected runtime file, never in Git, a frontend variable o
 | `GOLDTIER_SANDBOX_TIMEOUT_SECONDS` | Optional | At most 30 |
 | `GOLDTIER_SANDBOX_MAX_RESPONSE_BYTES` | Optional | At most 1 MiB |
 
-Do not set `GOLDTIER_SANDBOX_ALLOW_WRITES` for staging. The future `PINGFED_*` and
+Do not set `GOLDTIER_SANDBOX_ALLOW_WRITES` for staging outside a separately authorised D-137
+window, and then only through the window overlay. The future `PINGFED_*` and
 `GOLDTIER_CLIENT_*` placeholders are not used by this adapter.
 
 ## Read-only readiness
@@ -98,7 +101,13 @@ Before a write qualification, also correct the paused wording. A paused case cur
 shows the existing `RECOVERY_PENDING` text about finalization, which does not describe a
 refused write. Staging cannot reach this state while writes are refused at startup.
 
-Three more items must close before a write qualification:
+Status of these items under D-137 (2026-11-15):
+- Paused wording, the void read model, and the recovery exception: the owner accepted them
+  under the stated staging limitations.
+- Prior-case ledger proof: closed by D-137 W6. Reuse now needs a finalized, verified ledger
+  entry for the current mode.
+
+The items as originally recorded:
 
 - `_find_verified_target_case` reuses a prior case in Sandbox without proving its ledger
   or provider mode. Under the policy a prior case without accepted evidence is ignored, but

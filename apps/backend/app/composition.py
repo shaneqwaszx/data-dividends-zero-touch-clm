@@ -215,6 +215,7 @@ def build_onboarding_service(
                 timeout_seconds=active_settings.goldtier_sandbox_timeout_seconds,
                 max_response_bytes=active_settings.goldtier_sandbox_max_response_bytes,
                 allow_writes=active_settings.goldtier_sandbox_allow_writes,
+                write_policy=active_settings.goldtier_sandbox_write_policy(),
             ),
             transport=goldtier_transport
             or HttpxGoldTierXpiTransport(

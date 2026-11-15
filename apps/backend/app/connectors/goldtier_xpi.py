@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import re
 import ssl
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal, Protocol
 from urllib.parse import urlencode, urlsplit
 
@@ -29,6 +30,7 @@ from app.connectors.goldtier_models import (
     GoldTierSearchOutcome,
     GoldTierSearchResult,
 )
+from app.connectors.goldtier_write_policy import GoldTierSandboxWritePolicy
 from app.connectors.goldtier_xpi_models import (
     XpiAmendCustomerRequest,
     XpiCreateCustomerPolicyRequest,
@@ -285,8 +287,18 @@ class GoldTierXpiSandboxConnection:
     timeout_seconds: float = 10.0
     max_response_bytes: int = 128 * 1024
     allow_writes: bool = False
+    # D-137: the full write window. None keeps the plain switch above, as before.
+    write_policy: GoldTierSandboxWritePolicy | None = None
+
+    @property
+    def effective_write_policy(self) -> GoldTierSandboxWritePolicy:
+        if self.write_policy is not None:
+            return self.write_policy
+        return GoldTierSandboxWritePolicy(enabled=self.allow_writes)
 
     def __post_init__(self) -> None:
+        if self.write_policy is not None and self.write_policy.enabled != self.allow_writes:
+            raise GoldTierXpiConfigurationError
         parsed = urlsplit(self.base_url)
         user_id = self.user_id.get_secret_value()
         if not (
@@ -434,13 +446,22 @@ class GoldTierXpiSandboxConnector:
         *,
         connection: GoldTierXpiSandboxConnection,
         transport: GoldTierXpiHttpTransport | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._connection = connection
         self._transport = transport or HttpxGoldTierXpiTransport()
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     @property
     def writes_enabled(self) -> bool:
-        return self._connection.allow_writes
+        """True while the D-137 write window is open for some operation and case."""
+        return self._connection.effective_write_policy.open_at(self._clock())
+
+    def writes_permitted(self, *, source_case_id: str, operation: str | None) -> bool:
+        """The pre-ledger check: this case, this operation (None: any), now."""
+        return self._connection.effective_write_policy.permits(
+            source_case_id=source_case_id, operation=operation, now=self._clock()
+        )
 
     def _request(
         self,
@@ -450,8 +471,14 @@ class GoldTierXpiSandboxConnector:
         metadata: GoldTierRequestMetadata,
         body: object | None = None,
         mutation: bool = False,
+        operation: Literal["SHELL", "POLICY", "AMEND"] | None = None,
     ) -> GoldTierXpiHttpResponse:
-        if mutation and not self._connection.allow_writes:
+        if mutation and (
+            operation is None
+            or not self._connection.effective_write_policy.permits_statically(
+                source_case_id=metadata.source_case_id, operation=operation
+            )
+        ):
             raise GoldTierXpiWritesDisabledError
         try:
             response = self._transport.request(
@@ -580,6 +607,7 @@ class GoldTierXpiSandboxConnector:
             metadata=metadata,
             body=request.model_dump(by_alias=True, exclude_none=True),
             mutation=True,
+            operation="SHELL",
         )
         if response.status_code != 200:
             return GoldTierOperationResult(
@@ -625,6 +653,7 @@ class GoldTierXpiSandboxConnector:
             metadata=metadata,
             body=request.model_dump(by_alias=True, exclude_none=True),
             mutation=True,
+            operation="POLICY",
         )
         if response.status_code != 200:
             return GoldTierOperationResult(
@@ -670,6 +699,7 @@ class GoldTierXpiSandboxConnector:
             metadata=metadata,
             body=request.model_dump(by_alias=True, exclude_none=True),
             mutation=True,
+            operation="AMEND",
         )
         if response.status_code != 200:
             return GoldTierOperationResult(

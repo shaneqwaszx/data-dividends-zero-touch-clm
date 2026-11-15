@@ -1,0 +1,21 @@
+# D-137 GoldTier Sandbox write window. NOT part of dc, dca or dcg. Apply ONLY for an
+# owner-authorised window, after the R3 overlay:
+#   compose.yml -> compose.mongo.yml -> compose.goldtier-egress.yml -> this file
+# Helper (window only): dcgw, in deploy/LIGHTSAIL_RUNTIME.md. To close the window, recreate the
+# backend through dcg, which returns GOLDTIER_SANDBOX_ALLOW_WRITES to the literal "false".
+#
+# - It changes four backend environment values and nothing else: no image, network, port,
+#   volume, capability or other service.
+# - The three window values come from a separate window env file, never from compose.env.
+#   Each one is required and has no default, so a missing value refuses the render.
+# - The backend validates the window itself at startup (D-137). Staging refuses to start unless
+#   the operations are a subset of SHELL, POLICY and AMEND, there are 1 to 10 exact case
+#   references, and the end time is time-zoned and at most 24 hours ahead. Every write is then
+#   checked against the window before the ledger.
+services:
+  backend:
+    environment:
+      GOLDTIER_SANDBOX_ALLOW_WRITES: "true"
+      GOLDTIER_SANDBOX_WRITE_OPERATIONS: ${CLM_GOLDTIER_WRITE_OPERATIONS:?D-137 window operations required}
+      GOLDTIER_SANDBOX_WRITE_CASE_REFERENCES: ${CLM_GOLDTIER_WRITE_CASE_REFERENCES:?D-137 window case references required}
+      GOLDTIER_SANDBOX_WRITES_NOT_AFTER: ${CLM_GOLDTIER_WRITES_NOT_AFTER:?D-137 window end time required}
