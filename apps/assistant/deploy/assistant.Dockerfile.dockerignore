@@ -4,6 +4,8 @@
 !apps/assistant/assistant_hosting
 !apps/assistant/assistant_hosting/**
 !apps/assistant/scripts/storage/backup_stores.py
+!apps/assistant/scripts/budget_ledger.py
+!apps/assistant/scripts/storage/archive_accounting_stores.py
 !apps/assistant/assistant_eval
 !apps/assistant/assistant_eval/*.py
 !apps/assistant/scripts/qualify_model.py

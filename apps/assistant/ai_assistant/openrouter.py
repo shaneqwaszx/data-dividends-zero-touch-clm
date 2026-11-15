@@ -13,13 +13,24 @@ What it sends (fixed, not configurable): one ``POST /chat/completions`` per ques
 headers, user or session identifiers, tools, plugins or files. No retries; ``warm`` sends
 nothing. Proxies, ``.netrc`` and certificate environment overrides are ignored.
 
+D-138 A1 (proposed, not active): on the hosted deployment only, every live request (the chat,
+the account checks and the public listing) goes through the one exact-host egress proxy the
+service registered at start-up (``register_hosted_proxy``): an IPv4 address inside the reviewed
+internal network, on the reviewed port, and only while the owner's OpenRouter decision and
+both data decisions (D-129, OpenRouter's own) are in the code. The tunnel is ``CONNECT
+openrouter.ai:443``; TLS stays end to end and is verified for openrouter.ai (certifi, host name
+checked). No other proxy source is read (``trust_env=False`` on both the client and the
+transport), and there is no retry or fallback.
+
 What it reads: content only before the first ``stop``/``length`` finish, then the stream to
 ``[DONE]`` for OpenRouter's usage chunk. Reasoning text is never yielded, stored or logged.
 Errors become ``ModelCallError`` with a closed class; provider error text is never kept.
 """
 
+import ipaddress
 import json
 import re
+import threading
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import replace
@@ -30,6 +41,7 @@ import anyio
 import httpx
 from pydantic import SecretStr
 
+from . import config as assistant_config
 from .llm import (
     MAX_STREAM_BYTES,
     LlmUnavailableError,
@@ -99,6 +111,78 @@ def require_allowed_transport(transport: object) -> httpx.MockTransport | None:
     if transport is LIVE_NETWORK:
         return None
     return require_offline_transport(transport)
+
+
+# D-138 A1: the hosted egress proxy. The network and port are the reviewed values of
+# apps/assistant/deploy/compose.assistant-openrouter.yml; the address comes from the hosting
+# layer's own setting and must lie inside the network (never its network address, gateway or
+# broadcast address). Comments only: every string constant here joins the synthetic boundary.
+HOSTED_PROXY_NETWORK = ipaddress.IPv4Network("172.30.244.0/29")
+HOSTED_PROXY_PORT = 4750
+_PROXY_FORM = re.compile(r"http://([0-9.]{7,15}):([0-9]{1,5})")
+_hosted_proxy: str | None = None
+_hosted_proxy_lock = threading.Lock()
+
+
+def parse_hosted_proxy(text: str) -> str | None:
+    # The proxy URL in its one accepted spelling, or None: no name, userinfo, path, IPv6,
+    # leading zero or other port.
+    match = _PROXY_FORM.fullmatch(text)
+    if match is None:
+        return None
+    try:
+        address = ipaddress.IPv4Address(match.group(1))
+    except ValueError:
+        return None
+    network = HOSTED_PROXY_NETWORK
+    if (
+        str(address) != match.group(1)
+        or address not in network
+        or address in (network.network_address, network.network_address + 1)
+        or address == network.broadcast_address
+        or match.group(2) != str(HOSTED_PROXY_PORT)
+    ):
+        return None
+    return text
+
+
+def register_hosted_proxy(url: str) -> None:
+    # Once per process, with the same value only, and only while both owner decisions are in
+    # the code; anything else is refused (fail closed).
+    global _hosted_proxy
+    if (
+        assistant_config.HOSTED_OPENROUTER_DECISION is None
+        or assistant_config.HOSTED_TRANSMISSION_DECISION is None
+        or assistant_config.HOSTED_OPENROUTER_TRANSMISSION_DECISION is None
+        or parse_hosted_proxy(url) is None
+    ):
+        raise ValueError
+    with _hosted_proxy_lock:
+        if _hosted_proxy is not None and _hosted_proxy != url:
+            raise ValueError
+        _hosted_proxy = url
+
+
+def hosted_proxy() -> str | None:
+    return _hosted_proxy
+
+
+def live_transport() -> httpx.HTTPTransport | None:
+    # The transport of a live request: None (httpx's own, as before) unless the hosted proxy
+    # is registered; then that proxy and nothing else, certificates verified, no retries.
+    proxy = _hosted_proxy
+    if proxy is None:
+        return None
+    return httpx.HTTPTransport(proxy=httpx.Proxy(proxy), verify=True, trust_env=False, retries=0)
+
+
+def live_async_transport() -> httpx.AsyncHTTPTransport | None:
+    proxy = _hosted_proxy
+    if proxy is None:
+        return None
+    return httpx.AsyncHTTPTransport(
+        proxy=httpx.Proxy(proxy), verify=True, trust_env=False, retries=0
+    )
 
 
 def _reject_constant(name: str) -> Any:
@@ -330,7 +414,7 @@ class OpenRouterChatModel:
         try:
             with httpx.Client(
                 timeout=self._timeout,
-                transport=self._transport,
+                transport=live_transport() if self._live else self._transport,
                 trust_env=False,
                 follow_redirects=False,
             ) as client:
@@ -423,7 +507,7 @@ class OpenRouterChatModel:
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._timeout),
-                transport=self._transport,
+                transport=live_async_transport() if self._live else self._transport,
                 trust_env=False,
                 follow_redirects=False,
             ) as client:

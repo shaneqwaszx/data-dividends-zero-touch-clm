@@ -30,7 +30,7 @@ from ai_assistant.llm import LlmUnavailableError, ModelAnswer
 from ai_assistant.main import create_app
 from ai_assistant.model_catalog import load_catalogue
 from ai_assistant.model_qualification import ASSISTANT_DIR
-from assistant_hosting import backup, eligibility, probe, profile, run
+from assistant_hosting import backup, probe, profile, run
 from assistant_hosting.guard import ADMIN_CHANGES, ADMIN_PREFIX
 from assistant_hosting.harden import harden
 from assistant_hosting.profile import NO_MODEL_NAME, NO_MODEL_URL, refusals
@@ -46,11 +46,9 @@ PROFILES = ASSISTANT_DIR / "deploy" / "model_profiles.hosted.json"
 CADDYFILE = ASSISTANT_DIR / "deploy" / "Caddyfile.candidate"
 SHARED_CADDYFILE = ASSISTANT_DIR.parent.parent / "deploy" / "Caddyfile"
 COMPOSE = ASSISTANT_DIR / "deploy" / "compose.assistant.yml"
-# RD-1: the hosted service needs its approved case list; here, the fixture case is the one.
-ELIGIBLE = {
-    eligibility.REFS_VARIABLE: eligibility.case_ref(CASE_ID),
-    eligibility.CUTOFF_VARIABLE: "2026-11-12T05:07:25Z",
-}
+# D-139: the hosted service needs no case list (the D-132 variables are retired, and refused
+# when set), so the valid hosted environment adds nothing here.
+ELIGIBLE: dict[str, str] = {}
 
 
 def actor(user: str, role: str, team: str, *capabilities: str) -> dict[str, Any]:
@@ -97,6 +95,12 @@ class Clm:
             return httpx.Response(200, json=SUMMARY)
         if path == f"/api/onboarding/cases/{CASE_ID}/documents":
             return httpx.Response(200, json=DOCUMENTS)
+        if path == f"/api/onboarding/cases/{CASE_ID}/document-digests":
+            # D-139: the backend's digests of the synthetic fixture documents, so the hosted
+            # external-inference check can verify this case as synthetic (as the harness does).
+            from assistant_eval.runner import _digests
+
+            return httpx.Response(200, json=_digests(DOCUMENTS))
         return httpx.Response(404, json={"detail": "not found"})
 
 

@@ -51,6 +51,7 @@ from .model_profiles import (
     ApprovedEndpoint,
     ProfileConfigError,
 )
+from .openrouter import live_transport
 from .openrouter_account import AccountCheckError, GenerationFacts, KeyStatus, OpenRouterAccount
 
 # Owner directive (Phase B initial batch): at most US$1 of inference credits.
@@ -99,7 +100,13 @@ def _usd(micro: int) -> str:
 def fetch_public(path: str) -> Any:
     """An unauthenticated GET of OpenRouter's public model listing (no key, no content)."""
 
-    with httpx.Client(timeout=_PUBLIC_TIMEOUT, trust_env=False, follow_redirects=False) as client:
+    # D-138 A1: through the hosted egress proxy when one is registered (else as before).
+    with httpx.Client(
+        timeout=_PUBLIC_TIMEOUT,
+        transport=live_transport(),
+        trust_env=False,
+        follow_redirects=False,
+    ) as client:
         response = client.get(OPENROUTER_BASE_URL + path)
         response.raise_for_status()
         return json.loads(response.text, parse_float=Decimal)

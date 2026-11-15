@@ -581,7 +581,7 @@ def test_try_change_answers_with_claude_on_the_eligible_case_and_saves_nothing(
 
 
 def test_try_change_is_refused_on_an_ineligible_or_other_teams_conversation(
-    live: Hosted, monkeypatch: pytest.MonkeyPatch
+    live: Hosted, hosted_case_eligible: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     hosted = live
     conversation = ended_conversation(hosted)
@@ -591,15 +591,19 @@ def test_try_change_is_refused_on_an_ineligible_or_other_teams_conversation(
     # An RM or HR: no Support capability.
     assert try_change(hosted, conversation, token="rm-a").status_code == 403
     assert try_change(hosted, conversation, token="hr").status_code == 403
-    # A case outside the R2.1 list: the hosted gate refuses before any prompt is built.
-    gate = hosted.client.app.state.case_gate
-    hosted.client.app.state.case_gate = lambda case_id, summary: "NOT_APPROVED"
+    # D-139: a case whose data is not verified synthetic still gets the preview from the case
+    # data, labelled, and nothing goes to Claude.
+    seam = hosted_case_eligible
+    seam.refusal = "SYNTHETIC_DOCUMENT_NOT_VERIFIED"
     try:
         refused = try_change(hosted, conversation)
     finally:
-        hosted.client.app.state.case_gate = gate
-    assert refused.status_code == 403
-    assert refused.json()["detail"]["code"] == "ASSISTANT_CASE_NOT_ELIGIBLE"
+        seam.refusal = None
+    assert refused.status_code == 200
+    assert refused.json()["answered_by"] == "case_data"
+    assert "verified synthetic" in refused.json()["notice"]
+    assert "SYNTHETIC_DOCUMENT_NOT_VERIFIED" in refused.json()["notice"]
+    assert seam.calls[-1]["viewer"] is False
     # An unknown conversation.
     assert try_change(hosted, "x" * 22).status_code == 404
     assert hosted.claude.posts == posts
@@ -767,3 +771,8 @@ def test_a_case_outside_the_list_never_opens_a_general_or_support_path_to_it(
     posts = hosted.claude.posts
     status, _ = hosted.ask(case_id=uuid4())
     assert status in (403, 404) and hosted.claude.posts == posts
+
+
+# D-139: these tests treat the fixture case as verified synthetic (the seam in conftest);
+# test_hosted_case_policy.py runs the real provenance check.
+pytestmark = pytest.mark.usefixtures("hosted_case_eligible")

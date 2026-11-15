@@ -21,8 +21,9 @@ Only data is changed, never the service's own text:
 Deterministic matching cannot remove arbitrary personal information a person types (a first
 name alone, someone else's name): synthetic-only input stays mandatory (D-129).
 
-Used only for models that send to Anthropic (``anthropic_bound``); every other model's prompt
-is unchanged.
+Used only for models that send to Anthropic (``anthropic_bound``) and, D-134 (proposed), for
+GPT-OSS on its registered hosted deployment (``provider_bound``); every other model's prompt is
+unchanged.
 """
 
 from __future__ import annotations
@@ -40,6 +41,11 @@ WRITTEN_ROLES = frozenset({"user", "assistant"})
 
 def anthropic_bound(model: object) -> bool:
     return getattr(model, "anthropic_bound", False) is True
+
+
+def provider_bound(model: object) -> bool:
+    # A model whose prompt leaves for a hosted provider: Claude, or hosted GPT-OSS (D-134).
+    return anthropic_bound(model) or getattr(model, "provider_bound", False) is True
 
 
 def identities(*profiles: Mapping[str, Any] | None, extra: Iterable[Any] = ()) -> tuple[str, ...]:

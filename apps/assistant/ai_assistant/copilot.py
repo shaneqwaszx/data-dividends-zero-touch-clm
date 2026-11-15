@@ -192,8 +192,31 @@ READ_ONLY_LINE = (
 )
 
 
+# D-134 (proposed): a request to be told something that only starts with one of those verbs
+# ("Update me on this case", "Confirm whether the UBO check has run", "Verify which documents
+# are missing"). It asks for an explanation, so it does not get the fixed "I can't make that
+# change" reply. Narrow on purpose: the verb must be followed at once by "me/us on|about" or
+# by a question word, and nothing after it may ask for a change (a later change verb, "for me",
+# "on my behalf"). Everything else is a change request exactly as before; the model's own
+# rules and the sentence checks are unchanged either way.
+_ASKS_TO_BE_TOLD = re.compile(
+    r"^(?:(?:ok(?:ay)?|hi|hey|so|now|then|and)[ ,]+)*(?:please[ ,]+)?"
+    r"(?:(?:can|could|would|will|pls|kindly) you (?:please |just |now )?)?"
+    r"(?:update (?:me|us) (?:on|about)"
+    r"|(?:confirm|verify|record|clear up|set out|mark out)"
+    r" (?:whether|if|what|which|who|why|how|when|where))\b"
+)
+_CHANGE_AFTERWARDS = re.compile(rf"\b{_CHANGE_VERB}\b|\b(?:for me|on my behalf)\b")
+
+
+def asks_to_be_told(text: str) -> bool:
+    told = _ASKS_TO_BE_TOLD.match(text)
+    return told is not None and not _CHANGE_AFTERWARDS.search(text[told.end() :])
+
+
 def asks_for_change(question: str) -> bool:
-    return bool(_ASKS_ASSISTANT.search(" ".join(question.lower().split())))
+    text = " ".join(question.lower().split())
+    return bool(_ASKS_ASSISTANT.search(text)) and not asks_to_be_told(text)
 
 
 def read_only_line(question: str) -> str | None:

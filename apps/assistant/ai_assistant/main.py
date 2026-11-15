@@ -100,8 +100,17 @@ from .llm import (
 from .model_admin import Active, model_admin_router, open_selector
 from .model_factory import build_chat_model
 from .prompts import TopicPlan, build_messages, prefix_messages, topic_plan
-from .provider_payload import anthropic_bound, identities, provider_facts, scrub, scrub_text
+from .provider_payload import (
+    anthropic_bound,
+    identities,
+    provider_bound,
+    provider_facts,
+    scrub,
+    scrub_text,
+)
+from .remote_test import hosted_deployment as gptoss_hosted_deployment
 from .remote_test import is_remote_test_model
+from .request_rate import MINUTE_LIMIT, UserRate, hourly_limit
 from .small_talk import small_talk_reply
 from .support_chat import answer_support_question
 from .synthetic_boundary import approved_entry
@@ -306,7 +315,20 @@ REMOTE_NOTICES = Notices(
     dev_answered=REMOTE_DEV_NOTICE,
     eligibility=REMOTE_ELIGIBILITY_NOTICE,
 )
+# D-139: on the hosted service a case's content goes to an external provider only when its data
+# is verified synthetic by provenance; otherwise the answer comes from the case data.
+HOSTED_ELIGIBILITY_NOTICES = {
+    "anthropic": (
+        "Claude Sonnet 5.5 through Anthropic is used only on cases whose data is verified "
+        "synthetic, so this answer comes straight from the case data."
+    ),
+    "openrouter": (
+        "GPT-OSS 120B through OpenRouter is used only on cases whose data is verified "
+        "synthetic, so this answer comes straight from the case data."
+    ),
+}
 _REMOTE_REFUSALS = (
+    *HOSTED_ELIGIBILITY_NOTICES.values(),
     REMOTE_BOUNDARY_NOTICE,
     REMOTE_ELIGIBILITY_NOTICE,
     CLAUDE_NOTICES.boundary,
@@ -571,17 +593,9 @@ def create_app(
             snapshot = backend.load_case(case_id, request.cookies.get(SESSION_COOKIE_NAME))
         except ClmBackendError as exc:
             raise backend_error(exc) from None
-        # RD-1: a hosted deployment may limit the cases the assistant serves. The check runs
-        # only on a case the backend let this user read, and before anything is written.
-        gate = getattr(request.app.state, "case_gate", None)
-        if gate is not None and gate(case_id, snapshot.summary) is not None:
-            raise HTTPException(
-                403,
-                detail={
-                    "code": "ASSISTANT_CASE_NOT_ELIGIBLE",
-                    "message": "The assistant is not available for this case.",
-                },
-            )
+        # D-139: model-free guidance serves every case the backend let this user read (its 401,
+        # 403 and safe 404 above decide). Whether this case's content may go to an external
+        # model is decided separately, per answer, before any call (hosted_refusal).
         return snapshot
 
     Snapshot = Annotated[CaseSnapshot, Depends(load_case)]
@@ -779,8 +793,9 @@ def create_app(
     def names_for(model: ChatModel | None, *profiles: Any, extra: tuple[Any, ...] = ()) -> (
         tuple[str, ...] | None
     ):
-        # D-130 OD-G8: the identifiers to keep out of this model's prompt, if it is Claude-bound.
-        if not anthropic_bound(model):
+        # D-130 OD-G8: the identifiers to keep out of this model's prompt, if it is Claude-bound
+        # (D-134: or GPT-OSS on its registered hosted deployment).
+        if not provider_bound(model):
             return None
         return identities(*profiles, extra=extra)
 
@@ -847,6 +862,54 @@ def create_app(
 
         recorder.record(build)
 
+    gptoss_rate = UserRate()
+
+    def gptoss_rate_refused(model: ChatModel | None, user: str) -> bool:
+        # D-134 (proposed): hosted GPT-OSS only. Claude, local models and a development machine
+        # are never rate-limited here.
+        hosted = gptoss_hosted_deployment()
+        reservation = getattr(model, "worst_case_reservation", None)
+        if hosted is None or reservation is None:
+            return False
+        return not gptoss_rate.admit(
+            user,
+            per_minute=MINUTE_LIMIT,
+            per_hour=hourly_limit(hosted.daily_ceiling_micro_usd, reservation()),
+        )
+
+    def hosted_refusal(
+        model: ChatModel | None,
+        snapshot: CaseSnapshot,
+        prep: Prepared,
+        case_id: UUID,
+        session: str | None,
+        *,
+        trial: Entry | None = None,
+    ) -> str | None:
+        """D-139: None when this case's exact messages may go to the hosted external model (they
+        then hold a ticket); otherwise the lead notice, ending in the closed reason code. The
+        document digests are read only here, with the user's own session."""
+
+        try:
+            digests = backend.load_document_digests(case_id, session) if snapshot.documents else []
+        except ClmBackendError:
+            digests = None
+        # Try with this change: Support's unsaved rule is governed by D-130's redaction and
+        # exact-line rules, not by the approved-knowledge list; everything else is checked.
+        entries = [item.hit.entry for item in prep.tagged if item.hit.entry is not trial]
+        refusal = synthetic_eligibility_check(
+            snapshot, prep.facts, prep.messages, entries, digests=digests, viewer=trial is None
+        )
+        if refusal is None:
+            return None
+        record = getattr(app.state.case_gate, "record", None)
+        if callable(record):
+            record(case_id, refusal)
+        else:
+            log.info("external inference not used: %s", refusal)
+        provider = "anthropic" if anthropic_bound(model) else "openrouter"
+        return f"{HOSTED_ELIGIBILITY_NOTICES[provider]} Reason: {refusal}."
+
     def remote_gate(
         active: Active,
         snapshot: CaseSnapshot,
@@ -862,7 +925,19 @@ def create_app(
 
         if not is_remote_test_model(active.model):
             return active.model, None
+        if gptoss_rate_refused(active.model, user_of(snapshot)):
+            # D-134: over this user's request rate. Nothing is sent or reserved; the answer is
+            # the case-data one, as when no model is available.
+            log.info("hosted GPT-OSS not used: request rate")
+            return None, None
         notices: Notices = getattr(active.model, "notices", REMOTE_NOTICES)
+        if getattr(app.state, "case_gate", None) is not None:
+            # D-139: the hosted service sends this case only when its data is verified synthetic
+            # (the D-095 check, which issues the per-call ticket for these exact messages).
+            refusal = hosted_refusal(active.model, snapshot, prep, case_id, session)
+            if refusal is not None:
+                return None, refusal
+            return active.model, getattr(active.model, "attribution", None)
         if external_conversational(config):
             # D-122: any case. The per-call ticket stays, so only these exact messages go.
             synthetic_eligibility_approve(prep.messages)
@@ -1540,10 +1615,17 @@ def create_app(
             names=names,
         )
         lead: str | None = None
-        if hosted:
+        refused = (
+            hosted_refusal(active.model, snapshot, prep, UUID(row["case_id"]), session, trial=trial)
+            if hosted and active.model is not None
+            else None
+        )
+        if hosted and refused is None:
+            # D-139: the D-095 check passed and issued the ticket for these exact messages.
             model = active.model
-            synthetic_eligibility_approve(prep.messages)
             lead = getattr(model, "attribution", None)
+        elif refused is not None:
+            model, lead = None, refused
         else:
             model = None if is_remote_test_model(active.model) else active.model
         reply = answer_with_model(prep, _Outcome(model=model), lead, collect=hosted)

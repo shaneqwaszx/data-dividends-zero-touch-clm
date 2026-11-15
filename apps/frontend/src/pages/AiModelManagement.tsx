@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router";
 import {
   activateModel,
   AiAssistantError,
+  ledgerRefusal,
   applyClaudeReconciliation,
   fetchClaudeReconciliation,
   previewClaudeReconciliation,
@@ -552,13 +553,15 @@ function SpendingLimits({ budget, busy, onChanged }: { budget: ModelBudgetStatus
       <dl className="acra-detail-list">
         <div><dt>Settled today</dt><dd>{daily ? usd(daily.settled_today_usd) : LEDGER_UNREAD}</dd></div>
         <div><dt>In flight</dt><dd>{daily ? `${usd(daily.in_flight_usd)} (${daily.in_flight_calls} call${daily.in_flight_calls === 1 ? "" : "s"})` : LEDGER_UNREAD}</dd></div>
-        <div><dt>Remaining today</dt><dd>{daily ? usd(daily.remaining_usd) : LEDGER_UNREAD}</dd></div>
+        <div><dt>Remaining today</dt><dd>{daily ? `${usd(daily.remaining_usd)}${daily.exhausted ? " (used up for today: no room for another call until the next daily reset)" : ""}` : LEDGER_UNREAD}</dd></div>
+        {typeof daily?.ceiling_micro_usd === "number" && <div><dt>Fixed daily ceiling</dt><dd>{usd(dollars(daily.ceiling_micro_usd))} a Singapore day for this deployment (HR can lower the daily limit, never raise it above this)</dd></div>}
         <div><dt>Lifetime headroom</dt><dd>{budget.ledger ? usd(budget.ledger.headroom_usd) : LEDGER_UNREAD}</dd></div>
         <div><dt>OpenRouter key limit</dt><dd>{budget.provider ? <>{usd(budget.provider.remaining_usd)} remaining{budget.provider.limit_usd ? ` of ${usd(budget.provider.limit_usd)}` : ""}{budget.provider.usage_usd ? `, ${usd(budget.provider.usage_usd)} used` : ""} ({budget.provider.passed ? "checks passed" : "checks failed"}, read {formatTimestamp(budget.provider.checked_at)})</> : "Not checked yet"}</dd></div>
         {budget.provider && <div><dt>Key limit resets</dt><dd>{budget.provider.limit_reset ? `Yes (${budget.provider.limit_reset}): not accepted, a lifetime key limit is required` : "Never (a lifetime key limit, as required)"}</dd></div>}
         {budget.provider && <div><dt>Account credits</dt><dd>Not read. The key's own limit above is what applies; only the key's owner can change it at OpenRouter.</dd></div>}
         <div><dt>Available now</dt><dd><strong>{usd(budget.effective_remaining_usd)}</strong> (the strictest of today's allowance, the lifetime headroom and the OpenRouter key limit)</dd></div>
-        {controls && <div><dt>Chat calls this session</dt><dd>{controls.calls_used === null ? `GPT-OSS is not the active model (limit ${controls.max_calls} per session)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls} (counted in the open paid session; a restart does not reset them)`}</dd></div>}
+        {controls && controls.max_calls_applies !== false && <div><dt>Chat calls this session</dt><dd>{controls.calls_used === null ? `GPT-OSS is not the active model (limit ${controls.max_calls} per session)` : `${controls.calls_used} used, ${controls.calls_remaining} remaining of ${controls.max_calls} (counted in the open paid session; a restart does not reset them)`}</dd></div>}
+        {controls && controls.max_calls_applies === false && <div><dt>Chat calls this session</dt><dd>{controls.calls_used === null ? "GPT-OSS is not the active model" : `${controls.calls_used} used`} (no call count applies here: the daily limit, the session and lifetime money limits and a per-user request rate bound GPT-OSS chat)</dd></div>}
         <div><dt>Next daily reset</dt><dd>{formatTimestamp(budget.next_reset_at)} (midnight, Singapore)</dd></div>
         <div><dt>Status</dt><dd>{budget.ledger?.breaker_open ? `Stopped: ${readable(budget.ledger.breaker_code)} (see Set up AI: HR resumes a financial stop; the owner reviews a routing stop)` : budget.refusal ? readable(budget.refusal) : "Calls allowed"}</dd></div>
       </dl>
@@ -932,7 +935,16 @@ function connectionText(item: ModelProfileView): string {
   const test = item.connection_test;
   if (!test) return "Not run";
   const when = test.at ? `, ${formatTimestamp(test.at)}${test.by_user ? ` by ${test.by_user}` : ""}` : "";
-  return `${readable(test.outcome)}${test.code ? ` · ${readable(test.code, item.deployment)}` : ""}${when}`;
+  return `${readable(test.outcome)}${test.code ? ` · ${testCodeText(item)}` : ""}${when}`;
+}
+
+// The failed checks, plus what the spending store itself refused (D-138 R4), when it did.
+function testCodeText(item: ModelProfileView): string {
+  const test = item.connection_test;
+  if (!test?.code) return "";
+  const ledger = ledgerRefusal(test);
+  const base = readable(test.code, item.deployment);
+  return ledger ? `${base}. Spending store: ${readable(ledger, item.deployment)}` : base;
 }
 
 /** The provider's configurations, each with its own availability and last connection test. */
@@ -1910,8 +1922,8 @@ function OverviewSummary({ overview }: { overview: ModelOverview }) {
       {controls && !claude && (
         <Link className="console-stat" to={{ search: sectionSearch("spending") }}>
           <span className="console-label">Chat calls this session{gptOnly}</span>
-          <span className="console-stat__value console-number">{controls.calls_used ?? "—"} <small>/ {controls.max_calls}</small></span>
-          <span className="console-stat__note">{controls.calls_used === null ? "GPT-OSS is not the active model" : `${controls.calls_remaining} remaining`}</span>
+          <span className="console-stat__value console-number">{controls.calls_used ?? "—"}{controls.max_calls_applies !== false && <> <small>/ {controls.max_calls}</small></>}</span>
+          <span className="console-stat__note">{controls.calls_used === null ? "GPT-OSS is not the active model" : controls.max_calls_applies === false ? "No call count here; the daily limit applies" : `${controls.calls_remaining} remaining`}</span>
         </Link>
       )}
       <Link className="console-stat" to={{ search: sectionSearch("qualifications") }}>
@@ -2054,7 +2066,7 @@ function ModelInspector({ item, overview, busy, inspectorRef, onTest, onQualify,
         <li><span className="console-label">Availability</span><strong>{STATUS_LABEL[item.status]}</strong>{item.reason && <> · {readable(item.reason, item.deployment)}</>}</li>
         <li>
           <span className="console-label">Connection test</span>
-          {item.connection_test ? <><strong>{readable(item.connection_test.outcome)}</strong>{item.connection_test.code && <> · {readable(item.connection_test.code, item.deployment)}</>}</> : "Not tested"}
+          {item.connection_test ? <><strong>{readable(item.connection_test.outcome)}</strong>{item.connection_test.code && <> · {testCodeText(item)}</>}</> : "Not tested"}
         </li>
         <li className={technical.tone === "warn" || technical.tone === "block" ? "is-attention" : undefined}>
           <span className="console-label">Technical qualification</span>
@@ -2113,7 +2125,7 @@ function ConfigurationDetails({ overview }: { overview: ModelOverview }) {
                   <td>{item.endpoint ?? "Not shown"}</td>
                   <td><small>Context {item.context_window_tokens ? `${item.context_window_tokens.toLocaleString()} (declared)` : "—"} · answer {value(item.max_answer_tokens)} · temp {value(item.temperature)}</small></td>
                   <td><span className={`tag ${item.status === "selectable" ? "tag-accent" : "tag-warn"}`}>{STATUS_LABEL[item.status]}</span>{item.reason && <><br /><small>{readable(item.reason, item.deployment)}</small></>}</td>
-                  <td>{item.connection_test ? <>{readable(item.connection_test.outcome)}{item.connection_test.code && <><br /><small>{readable(item.connection_test.code, item.deployment)}</small></>}</> : "Not tested"}</td>
+                  <td>{item.connection_test ? <>{readable(item.connection_test.outcome)}{item.connection_test.code && <><br /><small>{testCodeText(item)}</small></>}</> : "Not tested"}</td>
                   <td>{qualification ? `${readable(qualification.status)}${!qualification.current ? " (out of date)" : ""}` : "Not run"}</td>
                 </tr>
               );

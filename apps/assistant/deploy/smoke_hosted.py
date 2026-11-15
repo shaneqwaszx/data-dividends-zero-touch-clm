@@ -10,7 +10,6 @@ generated for the run and never printed.
 """
 
 import concurrent.futures
-import hashlib
 import http.cookiejar
 import json
 import os
@@ -448,9 +447,6 @@ def smoke(backend: str, frontend: str, assistant: str, report_path: str | None) 
             ASSISTANT_CONTAINER_NAME=f"clm-assistant-smoke-{nonce}",
             ASSISTANT_DATA_VOLUME=data_volume,
             ASSISTANT_BROWSER_ORIGIN=origin,
-            # RD-1: a well-formed list naming no case of this run; set to the run's case below.
-            ASSISTANT_ELIGIBLE_CASE_REFS="000000000000",
-            ASSISTANT_ELIGIBLE_CREATED_BEFORE="2099-01-01T00:00:00Z",
             BACKEND_ENV_FILE=str(runtime),
             CLM_SITE="localhost",
             MONGO_URI="mongodb://mongo:27017/?tls=true&tlsCAFile=/certificates/mongo.crt",
@@ -583,23 +579,10 @@ def smoke(backend: str, frontend: str, assistant: str, report_path: str | None) 
             case_id = created["case"]["case_id"]
             assistant_case = f"/api/assistant/cases/{case_id}"
 
-            # RD-1: the assistant started with no case of this run on its list, so the new
-            # case is refused (another team still gets the backend's 404). The assistant alone
-            # is then recreated with this case listed, as an R2.1 cutover changes only it.
-            refused = maya.json(assistant_case + "/brief", 403)
-            check(
-                refused["detail"]["code"] == "ASSISTANT_CASE_NOT_ELIGIBLE",
-                f"eligibility: {refused}",
-            )
-            maya.request(assistant_case + "/chat", 403, {"message": "What is blocking this case?"})
-            maya.request("/api/assistant/contexts", 403, {"case_id": case_id})
+            # D-139: a case created just now gets model-free guidance at once (no list, no
+            # recreate); another team still gets the backend's safe 404.
             ryan.request(assistant_case + "/brief", 404)
-            env["ASSISTANT_ELIGIBLE_CASE_REFS"] = hashlib.sha256(case_id.encode()).hexdigest()[:12]
-            compose(
-                "up", "-d", "--no-build", "--no-deps", "--wait", "--wait-timeout", "240",
-                "assistant",
-            )  # fmt: skip
-            passed("RD-1: an unlisted new case gets 403; listed after an assistant-only recreate")
+            passed("D-139: a new case gets guidance; another team still gets 404")
 
             health = maya.json("/api/assistant/health")
             check(health["llm_enabled"] is False and health["model"] is None, f"health: {health}")

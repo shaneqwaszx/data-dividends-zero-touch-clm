@@ -289,10 +289,13 @@ def check(
     entries: Iterable[Entry],
     *,
     digests: list[dict[str, Any]] | None = None,
+    viewer: bool = True,
 ) -> str | None:
     """None when the question may go to the remote model (the messages then hold a ticket);
     otherwise a closed reason. ``digests``: the backend's document-digests reply for this case
-    (None when it could not be read)."""
+    (None when it could not be read). ``viewer=False``: D-139, only for the hosted Try with this
+    change, where D-130 decides who may ask (the Support capability and team scope) and the
+    viewer is removed from the prompt (OD-G8); every other rule still applies."""
 
     try:
         approved = manifest()
@@ -314,7 +317,7 @@ def check(
         for observation in _list(_dict(item).get("observations"))
     ):
         return "SYNTHETIC_DOCUMENT_NOT_VERIFIED"
-    if str(_dict(facts.get("viewer")).get("name") or "") not in approved.viewers:
+    if viewer and str(_dict(facts.get("viewer")).get("name") or "") not in approved.viewers:
         return "SYNTHETIC_VIEWER_NOT_APPROVED"
     goldtier_id = _dict(facts.get("goldtier")).get("goldtier_id")
     if goldtier_id not in (None, "") and not _MOCK_GOLDTIER_ID.fullmatch(str(goldtier_id)):

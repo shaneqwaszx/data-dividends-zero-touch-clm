@@ -98,6 +98,8 @@ BASIS_FILES = (
     # D-130 amendment draft: the fifth hosted path's prompt and derived findings.
     "hosted_insights.py",
     "dashboard_insights.py",
+    # D-134 (proposed): hosted GPT-OSS's per-user request rate.
+    "request_rate.py",
 )
 BASIS_GLOBS = ("instructions/*.md", "knowledge/guidance/*.md")
 BASIS_FIXTURES = (
@@ -373,6 +375,13 @@ class WatchedModel:
     @property
     def name(self) -> str:
         return self.inner.name
+
+    @property
+    def provider_bound(self) -> bool:
+        # D-138 (review P2-1): read live from the wrapped model, so a hosted GPT-OSS
+        # qualification keeps user identifiers out of its prompts exactly as the chat does
+        # (D-130 OD-G8, D-134 M5) and qualifies the payload production sends.
+        return getattr(self.inner, "provider_bound", False) is True
 
     def begin(self, key: str, rep: int) -> None:
         self._stop(self.turns)

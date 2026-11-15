@@ -540,11 +540,15 @@ def test_the_strictest_limit_wins_and_a_higher_daily_limit_cannot_bypass_the_lif
 ) -> None:
     journey = Journey(tmp_path, monkeypatch)
     _key(journey, 5.0, 5.0)
-    assert _daily(journey, 4_000_000, confirm=4_000_000).status_code == 200
+    # D-138 R2: a daily value above the standing US$3.00 ceiling is refused, never applied.
+    refused = _daily(journey, 4_000_000, confirm=4_000_000)
+    assert refused.status_code == 400
+    assert refused.json()["detail"]["code"] == "DAILY_CEILING_EXCEEDED"
+    assert _daily(journey, 2_500_000, confirm=2_500_000).status_code == 200
     journey.client.post(f"{API}/budget/provider-refresh")
     view = journey.client.get(f"{API}/budget").json()
-    # Daily US$4, key US$5, lifetime cap US$1 (the ledger): US$1 is what may be spent.
-    assert view["daily"]["remaining_micro_usd"] == 4_000_000
+    # Daily US$2.50, key US$5, lifetime cap US$1 (the ledger): US$1 is what may be spent.
+    assert view["daily"]["remaining_micro_usd"] == 2_500_000
     assert view["ledger"]["headroom_micro_usd"] == 1_000_000
     assert view["effective_remaining_micro_usd"] == 1_000_000
 

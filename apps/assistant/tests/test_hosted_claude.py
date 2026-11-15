@@ -878,3 +878,8 @@ def test_the_watcher_and_units_name_only_the_assistant_table() -> None:
     assert "--containers clm-staging-assistant" in watch
     stop = (EGRESS / "clm_r22_stop_assistant.sh").read_text(encoding="utf-8")
     assert "docker stop --time 0 clm-staging-assistant" in stop
+
+
+# D-139: these tests treat the fixture case as verified synthetic (the seam in conftest);
+# test_hosted_case_policy.py runs the real provenance check.
+pytestmark = pytest.mark.usefixtures("hosted_case_eligible")

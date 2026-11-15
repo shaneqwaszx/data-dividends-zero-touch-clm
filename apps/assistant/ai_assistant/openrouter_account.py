@@ -25,7 +25,7 @@ import httpx
 from pydantic import SecretStr
 
 from .model_profiles import OPENROUTER_BASE_URL
-from .openrouter import GENERATION_REF, require_allowed_transport
+from .openrouter import GENERATION_REF, live_transport, require_allowed_transport
 
 MAX_BODY_BYTES = 64 * 1024
 # Generation metadata usually appears within seconds of the answer. Within the caller's own
@@ -108,6 +108,8 @@ class OpenRouterAccount:
     ) -> None:
         self._credential = credential
         self._transport = require_allowed_transport(transport)
+        # D-138 A1: a live check goes through the hosted egress proxy when one is registered.
+        self._live = self._transport is None
         self._timeout = timeout_seconds
         self._sleep = sleep
 
@@ -118,7 +120,7 @@ class OpenRouterAccount:
         try:
             with httpx.Client(
                 timeout=self._timeout,
-                transport=self._transport,
+                transport=live_transport() if self._live else self._transport,
                 trust_env=False,
                 follow_redirects=False,
             ) as client:

@@ -18,7 +18,7 @@ from ai_assistant.config import AiAssistantSettings
 from ai_assistant.key_sources import ENV_FILE
 from ai_assistant.llm import is_local_model_url
 
-from . import eligibility, provider
+from . import eligibility, ledger_health, provider
 
 # The chat baseline points at the discard port on the container's own loopback. Nothing listens
 # there, so every model call fails at once and the answer comes from the case data. Model
@@ -106,6 +106,7 @@ def refusals(
     *,
     env_files: tuple[Path, ...] = (ENV_FILE, Path(".env")),
     resolve: provider.Resolver | None = None,
+    local_source: provider.LocalSource | None = None,
 ) -> list[str]:
     """Every reason this configuration may not run as a Stage A service (empty: it may)."""
 
@@ -132,7 +133,13 @@ def refusals(
         found.append("CLM_BACKEND_LOOPBACK_REFUSED")
     if not settings.allowed_origins or not all(map(_https_origin, settings.allowed_origins)):
         found.append("HTTPS_ORIGIN_REQUIRED")
-    if any(str(getattr(settings, name)).strip() for name in REMOTE_SETTINGS):
+    # D-134 (proposed): only when the OpenRouter mode is named are its own remote settings not
+    # refused here; provider.config_codes then requires every one of them, with exact values,
+    # and refuses the mode itself while the owner's decision is not in the code.
+    named = provider.OPENROUTER_SETTINGS if provider.openrouter_enabled(env) else frozenset()
+    if any(
+        str(getattr(settings, name)).strip() for name in REMOTE_SETTINGS if name not in named
+    ):
         found.append("REMOTE_SETTING_REFUSED")
     if (
         settings.anthropic_workspace_limit_micro_usd
@@ -147,8 +154,11 @@ def refusals(
         found.append("ENV_FILE_REFUSED")
     if not settings.model_profiles_file or not _profiles_empty(settings.model_profiles_file):
         found.append("EMPTY_PROFILES_FILE_REQUIRED")
-    # RD-1: a hosted service serves only the approved cases, so it needs the list and cutoff.
+    # D-139: the retired D-132 case-list settings refuse the start (CASE_ALLOWLIST_RETIRED).
     found.extend(eligibility.config_codes(env))
-    # R2.2: the Claude provider mode, when named, and only on top of every check above.
-    found.extend(provider.config_codes(settings, env, resolve=resolve))
+    # R2.2 and D-134: the provider modes, when named, and only on top of every check above.
+    found.extend(provider.config_codes(settings, env, resolve=resolve, local_source=local_source))
+    # D-138 R4: each named provider's spending store is usable (or absent, created on first
+    # use), so a broken store stops the deployment before HR sets up or activates a model.
+    found.extend(ledger_health.config_codes(settings, env))
     return sorted(set(found))
