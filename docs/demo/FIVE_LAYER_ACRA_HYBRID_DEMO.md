@@ -208,7 +208,8 @@ A separate three-entity demonstration on the same OPQ root. Select it explicitly
 `ACRA_MARKETPLACE_OPQ_SCENARIO=garden_sim_lim_chain` (default `five_layer_simulation`)
 together with `ACRA_CONNECTOR_MODE=api_marketplace_mock` and
 `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay`. Only one OPQ scenario is active
-per runtime for new cases; an existing case keeps its recorded scenario (D-086a, section 7c).
+per runtime for new cases; an existing case keeps its recorded scenario only within its retained
+history (D-086a, bounded; see section 7c before any selector change).
 
 | Level | Entity | Identity evidence | Link to parent |
 |---|---|---|---|
@@ -258,7 +259,7 @@ The businessProfile row returned no status; treating it as current is the record
 assumption. It applies only because the row exactly equals ABC's single issued class.
 The offline transport uses a synthetic holder name in the observed shape.
 
-## 7c. Staging (D-086a): three demonstrations, case-sticky scenario
+## 7c. Staging (D-086a): three demonstrations, bounded case-sticky scenario
 
 The staging demo shows three synthetic ownership demonstrations side by side. None
 overwrites another's stored analysis.
@@ -269,37 +270,100 @@ overwrites another's stored analysis.
 | GARDEN BUSINESS -> SIM LIM (independent case) | GARDEN BUSINESS `11111999A` | Garden direct overlay |
 | Five-layer demonstration (D-077) | OPQ `201511222D` | `five_layer_simulation` |
 
-**Case-sticky rule.** The operator selector chooses the OPQ variant only at a case's
-**first** overlay analysis. That case keeps its recorded variant
-(`discovery.overlay_scenario_id`) on every later analysis, whichever variant the
-selector names then. A new case follows the current selector. A recorded variant that is
+**Case-sticky rule (bounded).** The operator selector chooses the OPQ variant at a
+case's **first** overlay analysis. A later analysis keeps the variant recorded in
+`discovery.overlay_scenario_id` **only while that record is in the case's retained
+history**: the current analysis and its four prior-analysis snapshots. After five or more
+consecutive analyses without an overlay id (manual declarations, stale-evidence loads),
+the next source load uses the **current** selector. There is no unconditional
+stickiness guarantee. A new case follows the current selector. A recorded variant that is
 unknown, uncatalogued or for a different root gives no overlay, never a fallback to the
-selector. The official-evidence gate still applies first and unchanged: missing or stale
-official Marketplace Mock entity evidence gives no overlay, recorded variant or not. The
-recorded variant is read from the case's retained history: the current analysis and its
-four prior-analysis snapshots. After five or more consecutive analyses without an overlay
-(for example, manual declarations or repeatedly stale evidence), the next source load of an
-OPQ case uses the current selector again. Do not change the selector while such a case is
-still being demonstrated; Garden has one catalogued scenario, so it is unaffected. The
-selector is an operator setting only, never user-supplied and never a case field written
-by a user. Garden's direct scenario is the same in every selector state.
+selector. The official-evidence gate applies first and is unchanged. The selector is an
+operator setting only, never user-supplied and never a case field written by a user.
+Garden has one catalogued scenario, so it is the same in every selector state.
+
+**Why a selector change needs checks (D-120).** POC replay protection rests on the case's
+durable D-120 ledger. A case without one (`poc_interest_ledger` absent: any case whose
+ownership was last written by a pre-schema-19 build and not re-established since) relies
+on its retained history instead. If such an OPQ case's recorded variant has left that
+history and it is reloaded under a different selector, the reload omits the original
+variant's POC links and a replay of those POC values may no longer be refused. The ledger
+is backend-only and not visible in the UI or API, so this cannot be checked from the
+product.
 
 **Selector.** The repository overlay `deploy/compose.acra-ownership.yml` sets
 `ACRA_MARKETPLACE_OWNERSHIP_OVERLAY=hybrid_direct_overlay` and
 `ACRA_MARKETPLACE_OPQ_SCENARIO` from the operator variable `CLM_ACRA_OPQ_SCENARIO`
 (default `garden_sim_lim_chain`). It is applied by the operator after the Marketplace
 overlay, and never in the Mock baseline file set: the backend refuses
-`hybrid_direct_overlay` unless `ACRA_CONNECTOR_MODE=api_marketplace_mock`.
+`hybrid_direct_overlay` unless `ACRA_CONNECTOR_MODE=api_marketplace_mock`. The backend's
+own default is `five_layer_simulation`, so **first applying this file can itself change
+the effective selector** and is treated as a selector change below.
+
+**Selector change: mandatory pre-change checks.** A selector change is any change of the
+effective `ACRA_MARKETPLACE_OPQ_SCENARIO`, including first applying
+`compose.acra-ownership.yml`. Before it, all must hold:
+
+- P1. The effective selector of the running backend is recorded (value and time). If it
+  cannot be established, STOP.
+- P2. The host lane confirms by a read-only check of the staging case store that **no
+  case rooted at OPQ `201511222D` has an ownership record without a D-120 ledger**
+  (absent or null `poc_interest_ledger`; this includes every record last written at case
+  snapshot schema 18 or lower). If any exists, or the check cannot be run, STOP.
+- P3. The running backend image is built from the merged D-086a commit.
+- P4. The OPQ cases to be demonstrated were onboarded on that build (so they have a
+  ledger), and each one's current analysis shows its expected recorded scenario.
+
+**Operator restrictions.**
+
+- Only the operator changes `CLM_ACRA_OPQ_SCENARIO`, one value per backend restart, and
+  records every value and time.
+- During a switched window, presenters onboard only the new five-layer case. Nobody
+  uploads documents, declares ownership or corrects identity on any existing OPQ case.
+- The operator restores the default (`garden_sim_lim_chain`) immediately after that
+  onboarding, then runs the post-change check.
+- A case's scenario is read from its own analysis, never inferred from the selector.
+- Ledgerless OPQ cases (P2) are never used in a selector-switch demonstration. Their
+  original selector is not reliably established from the product (prior snapshots do not
+  expose it), and other users can reload a case at any time, so it cannot be guaranteed
+  to be restored before every reload.
+
+**Concurrent users.** The product has no case-level freeze: any user with access to a case
+can trigger a reload (document upload, ownership declaration, identity correction) at any
+time. D-120 safety under concurrent use therefore rests on P2, not on scheduling. With
+every OPQ case holding a durable, append-only ledger, a reload under any selector still
+refuses a POC replay, because the ledger keeps the original variant's POC interests. What
+concurrency can still change is presentation only: a long-reviewed case whose recorded
+variant has left its history may reload under the switched selector. The post-change
+check catches that. **If P2 cannot be satisfied, a selector change is blocked**, since
+concurrent reloads of a ledgerless OPQ case cannot be prevented operationally.
+
+**Post-change check.** After every restart, each demonstrated case's current analysis
+shows its expected scenario id. If any differs or shows none: stop presenting that case,
+do not re-analyse it, and onboard a new case under the correct selector.
+
+**STOP conditions.** Make no selector change, and keep the selector recorded in P1, when:
+
+- the effective selector is unknown (P1);
+- any ledgerless OPQ case exists, or P2 cannot be run;
+- the running image is not the merged D-086a build (P3);
+- a demonstrated case does not show its expected scenario (P4, or the post-change check);
+- any provenance label is not as stated below, or any hybrid analysis shows a POC
+  acceptance.
 
 **Demo runbook.**
 
-1. With the default (`CLM_ACRA_OPQ_SCENARIO` unset, so `garden_sim_lim_chain`), onboard
-   an OPQ case `201511222D`. It records and keeps the chain.
+1. Run P1 to P3. With the default (`CLM_ACRA_OPQ_SCENARIO` unset, so
+   `garden_sim_lim_chain`), onboard an OPQ case `201511222D`. It records the chain.
 2. Onboard GARDEN BUSINESS `11111999A` as its own case (Garden direct overlay).
-3. The operator restarts the backend with `CLM_ACRA_OPQ_SCENARIO=five_layer_simulation`
-   and onboards a second OPQ case. It records and keeps the five-layer scenario.
-4. Existing cases keep their recorded scenario after any later selector change or
-   re-analysis. Returning the selector to the default changes only new OPQ cases.
+3. Only if P1 to P4 hold: the operator restarts the backend with
+   `CLM_ACRA_OPQ_SCENARIO=five_layer_simulation`. The new five-layer OPQ case is onboarded
+   under the restrictions above. The operator then restores the default and runs the
+   post-change check. If a STOP condition holds, skip this step: the five-layer
+   demonstration waits.
+4. A case keeps its recorded scenario only while that record is in its retained history.
+   An existing case is not re-analysed for the demonstration after a selector change. A
+   case that shows an unexpected scenario is replaced by a new case, never re-analysed.
 
 **Provenance labels (unchanged).** Overlay links stay `LOCAL_SYNTHETIC_RELATIONSHIP`
 from `LOCAL_HYBRID_OVERLAY`, with `LOCAL_SYNTHETIC_IDENTITY` names below the root where
