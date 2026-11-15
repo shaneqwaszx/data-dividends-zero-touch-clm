@@ -18,11 +18,12 @@ $root = Split-Path -Parent $PSScriptRoot
 # A linked worktree has no .venv of its own: fall back to the main checkout's.
 $common = (& git -C $root rev-parse --path-format=absolute --git-common-dir 2>$null)
 $main = if ($common) { Split-Path -Parent $common } else { $root }
-$candidates = @(
+# The outer @() keeps a single match an array; otherwise $candidates[0] is its first character.
+$candidates = @(@(
     $env:CLM_RELEASE_PYTHON,
     (Join-Path $root '.venv\Scripts\python.exe'),
     (Join-Path $main '.venv\Scripts\python.exe')
-) | Where-Object { $_ -and (Test-Path $_) }
+) | Where-Object { $_ -and (Test-Path $_) })
 $python = if ($candidates) { $candidates[0] } else { 'python' }
 
 Push-Location $root

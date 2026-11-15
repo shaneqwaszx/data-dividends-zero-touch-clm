@@ -9,7 +9,7 @@
 
 ## 1. Automated tests (`tests/release`)
 
-`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **321 passed, 1 skipped** (6 test files, 212 test functions; the count includes parametrised cases).
+`python -m pytest tests/release -q -p no:cacheprovider` on the final tree: **335 passed, 1 skipped** (7 test files, 219 test functions; the count includes parametrised cases). Before P-1 (section 4.10) it was 321 passed, 1 skipped (6 files, 212 functions).
 The one skipped test is the opt-in Windows Credential Manager round trip
 (`CLM_RELEASE_WINCRED_SELFTEST=1`); it was run once by hand and passed (it writes and removes
 one throwaway entry holding a sentinel value).
@@ -254,7 +254,9 @@ only; their reviews are in sections 4.8 and 4.9.
 | `ed38d16` | fixes | **PASS WITH NOTES** (closing check) |
 | `b97fa59` | documents only | PASS WITH NOTES (section 4.8) |
 | `1cfa9bd` | documents only | PASS WITH NOTES (section 4.9) |
-| head | documents only, after `1cfa9bd` | see section 4.9 |
+| `d5193ba` | documents only | PASS WITH NOTES (section 4.9) |
+| `20f1e63` | documents only | not separately reviewed (see section 4.9) |
+| P-1 | launcher fix D-1, its tests, owner sentence | see section 4.10 |
 
 No reviewer has reviewed the whole toolchain at the head in one pass: the first review covered
 everything at `728cf1e`, and each later review covered a delta. Nothing here is evidence from
@@ -334,6 +336,39 @@ state after a failed acceptance and a rollback. Both now carry the checker's sen
 to the prohibition. **That two-sentence correction, and this paragraph, are the only changes
 after the checked commit and were not themselves reviewed.** Its seven P3 notes (cross
 references, heading structure, where step E1b sits, wording) are not applied.
+
+### 4.10 P-1: launcher fix D-1 and the owner's sentence (2026-11-15)
+
+**D-1.** `tools/release.ps1` failed when exactly one Python candidate existed (for example a
+linked worktree with no `.venv` of its own and no `CLM_RELEASE_PYTHON`): PowerShell unwrapped
+the one-element result of `Where-Object` to a string, so `$candidates[0]` was its first
+character and the launcher stopped with "The term 'C' is not recognized". It failed closed;
+nothing ran. Fix: the filtered list is wrapped in `@()`. The order of candidates
+(`CLM_RELEASE_PYTHON`, the checkout's `.venv`, the main checkout's `.venv`, then `python`) is
+unchanged.
+
+`tests/release/test_launcher.py` runs the real launcher under each PowerShell found (`pwsh`
+and Windows PowerShell 5.1 here) in throwaway Git checkouts whose paths contain spaces, with
+real virtual environments and a stand-in `tools.release` package that reports the interpreter.
+Cases: one candidate (main checkout's `.venv` from a linked worktree; override only), several
+candidates (own `.venv` before main's; main checkout), override wins over every `.venv`, a
+missing override path is skipped, arguments with spaces and the exit code pass through. With
+the launcher of `20f1e63` the 8 one-candidate runs fail and the 6 others pass; with the fix all
+14 pass.
+
+**Owner sentence.** "Do not use a new release_id as a shortcut to bypass unresolved host or
+rollback safety conditions." is now in runbook section 7 (the interim prohibition) and in
+checklist step E1b, verbatim. The interim prohibition itself is unchanged.
+
+Independent focused review of the P-1 delta (fresh session, on the exact uncommitted delta,
+sha256 `995c212298789df2...`): **PASS WITH NOTES** (P0 0, P1 0, P2 0, P3 3). It confirmed the
+fix in `pwsh` and Windows PowerShell 5.1 for zero, one and several candidates, reproduced the
+8 failed / 6 passed result against the old launcher outside the repository, and found the
+owner's sentence verbatim in both places with the prohibition otherwise unchanged. P3 notes:
+(1) the `20f1e63` row in section 4.7 claimed a verification this section did not record;
+corrected. (2) The zero-candidate fallback to `python` has no test; the reviewer checked it by
+hand in both shells. (3) The tests inherit `GIT_*` variables and the user's global Git
+configuration; harmless here, not fully hermetic. (2) and (3) are not applied.
 
 ## 5. What the evidence does not show
 

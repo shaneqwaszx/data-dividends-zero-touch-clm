@@ -315,6 +315,8 @@ that the operator and the owner must keep:
   through the full preparation, checks and independent review (sections 1 to 5). This is an
   interim rule, not the owner's eventual model, which is a retry of the same `release_id`
   under a new `attempt_id`.
+- Owner, 2026-11-15: **"Do not use a new release_id as a shortcut to bypass unresolved host or
+  rollback safety conditions."**
 
 Names you may meet: `accept` refuses with `ACCEPTANCE_ALREADY_FAILED` for a record whose
 acceptance failed; a run that changed nothing while a release was live carries
