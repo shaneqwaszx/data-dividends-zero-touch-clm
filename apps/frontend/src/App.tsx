@@ -67,6 +67,7 @@ import GoldTierSandbox from "./pages/GoldTierSandbox";
 import AcraDiagnostics from "./pages/AcraDiagnostics";
 import AiModelManagement from "./pages/AiModelManagement";
 import WorkflowManager from "./pages/WorkflowManager";
+import WorkflowDesigner from "./pages/WorkflowDesigner";
 import WorkflowTab, { WorkflowCasesPage, WorkflowRunPage } from "./pages/WorkflowTab";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
@@ -2400,6 +2401,7 @@ export default function App({
           )}
           audit={(caseId) => <AuditTrail actor={actor} caseId={caseId} />}
           policy={<PolicyRules actor={actor} />}
+          workflowDesigner={<WorkflowDesigner key={actor.user_id} actor={actor} />}
           adminUsers={<AdminUsers />}
           adminTeams={<AdminTeams />}
           goldtierSandbox={<GoldTierSandbox key={actor.user_id} actor={actor} />}
