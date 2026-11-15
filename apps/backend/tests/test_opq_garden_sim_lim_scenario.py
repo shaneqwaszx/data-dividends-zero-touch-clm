@@ -10,6 +10,7 @@ GoldTier. Nothing here is an observed ACRA response.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -46,6 +47,7 @@ from app.connectors.hybrid_ownership_overlay import (
 from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
 from app.persistence.composition import build_persistence_bundle
 from app.services.ownership_analysis import (
+    eligible_poc_acceptance,
     simulation_calculation_complete,
 )
 
@@ -461,9 +463,21 @@ def test_no_composition_or_selector_grants_the_chain_authority() -> None:
     # D-112 (O7): enabled or not, the scenario chain is never accepted.
     assert record.poc_acceptance is None
     assert not ownership.poc_basis_accepted(record)
-    # The same persisted analysis under a five-layer composition: its scenario is gone.
+    # The same persisted analysis under a five-layer composition. D-086a: its recorded
+    # scenario still resolves (case-sticky), and resolution grants no authority (D-112 O7).
     _, reverted = service_lane("accept_eligible_poc", opq_transport(OBSERVED_OPQ_POSITIONS))
-    assert reverted._poc_scenario(record) is None
+    resolved = reverted._poc_scenario(record)
+    assert resolved is not None and resolved.scenario_id == OPQ_GARDEN_SIM_LIM_SCENARIO_ID
+    assert resolved.poc_acceptance is None
+    assert (
+        eligible_poc_acceptance(
+            record,
+            scenario=resolved,
+            accepted_at=datetime.now(UTC),
+            ownership_version=record.version,
+        )
+        is None
+    )
     assert not reverted.poc_basis_accepted(record)
     # The same analysis under a composition with the policy disabled.
     _, off = service_lane("disabled", opq_transport(OBSERVED_OPQ_POSITIONS), **CHAIN)
