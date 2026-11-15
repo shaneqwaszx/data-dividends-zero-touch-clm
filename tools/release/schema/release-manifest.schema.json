@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://data-dividends.invalid/release/release-manifest.schema.json",
+  "title": "Zero-Touch CLM release manifest",
+  "description": "One release candidate: the exact source, the exact images, what changes on the host and how each change is undone. An owner approval binds to the SHA-256 of this document in canonical JSON form.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "created_at",
+    "source",
+    "risk_class",
+    "risk_reasons",
+    "change_classes",
+    "services_changed",
+    "services_unchanged",
+    "overlay",
+    "images",
+    "compose_files",
+    "declared_config_changes",
+    "checks",
+    "evidence",
+    "quality_gates",
+    "coupling",
+    "rollback",
+    "smoke",
+    "previous_known_good"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "release_id": {"type": "string", "pattern": "^rel-[0-9a-f]{7,40}-[0-9]{8}-[0-9]{2}$"},
+    "created_at": {"$ref": "#/$defs/utc"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "base_ref", "clean"],
+      "properties": {
+        "repository": {"type": "string"},
+        "commit": {"$ref": "#/$defs/git40"},
+        "tree": {"$ref": "#/$defs/git40"},
+        "base_ref": {"type": "string"},
+        "clean": {"const": true},
+        "pull_request": {"type": ["integer", "null"]}
+      }
+    },
+    "risk_class": {"enum": ["LOW", "MEDIUM", "HIGH"]},
+    "risk_reasons": {"type": "array", "items": {"type": "string"}},
+    "change_classes": {"type": "array", "items": {"type": "string"}},
+    "services_changed": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/service"}
+    },
+    "services_unchanged": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/service"}
+    },
+    "overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_host_overlays", "validation_set", "order"],
+      "properties": {
+        "active_host_overlays": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["assistant", "assistant-provider", "goldtier"]}
+        },
+        "validation_set": {"type": "string"},
+        "order": {"type": "array", "minItems": 2, "items": {"type": "string"}}
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(frontend|backend|assistant|goldtier-egress)$": {"$ref": "#/$defs/image"}
+      }
+    },
+    "compose_files": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string"},
+          "sha256": {"$ref": "#/$defs/hex64"}
+        }
+      }
+    },
+    "declared_config_changes": {
+      "description": "Per service: networks, published ports, environment variable names and other settings this release adds relative to the reviewed baseline. Anything rendered but not declared is refused.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "networks": {"type": "array", "items": {"type": "string"}},
+          "ports": {"type": "array", "items": {"type": "string"}},
+          "environment": {"type": "array", "items": {"type": "string"}},
+          "settings": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status"],
+        "properties": {
+          "name": {"type": "string"},
+          "status": {"enum": ["PASS", "FAIL", "NOT_RUN", "SKIPPED"]},
+          "detail": {"type": "string"}
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {"type": "string"},
+          "path": {"type": "string"},
+          "sha256": {"anyOf": [{"$ref": "#/$defs/hex64"}, {"type": "null"}]}
+        }
+      }
+    },
+    "quality_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "verdict", "report"],
+        "properties": {
+          "scope": {"type": "string"},
+          "verdict": {"enum": ["PASS", "PASS WITH NOTES", "FAIL", "NOT RUN"]},
+          "report": {"type": "string"},
+          "reviewed_identity": {"type": "string"},
+          "open_findings": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "coupling": {
+      "description": "A changed service that needs a particular version of another service.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["service", "requires", "satisfied_by", "reason"],
+        "properties": {
+          "service": {"$ref": "#/$defs/service"},
+          "requires": {"$ref": "#/$defs/service"},
+          "satisfied_by": {"enum": ["this-release", "already-deployed"]},
+          "deployed_image": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(frontend|backend|assistant|goldtier-egress)$": {"$ref": "#/$defs/rollback"}
+      }
+    },
+    "smoke": {
+      "description": "Unauthenticated public requests and the exact status each must return after the change.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["method", "path", "expect_status"],
+        "properties": {
+          "method": {"enum": ["GET", "POST"]},
+          "path": {"type": "string", "pattern": "^/"},
+          "expect_status": {"type": "integer"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "previous_known_good": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["release_id", "manifest_sha256"],
+          "properties": {
+            "release_id": {"type": "string"},
+            "manifest_sha256": {"$ref": "#/$defs/hex64"},
+            "note": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "candidate_manifest_sha256": {
+      "description": "Set by publication: the hash of the manifest before the registry digests were filled in.",
+      "$ref": "#/$defs/hex64"
+    },
+    "notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "utc": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "git40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "hex64": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "service": {"enum": ["frontend", "backend", "assistant", "mongo", "goldtier-egress", "goldtier-dns"]},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "local_ref",
+        "local_image_id",
+        "config_digest",
+        "registry_manifest_digest",
+        "platform",
+        "build",
+        "file_equality",
+        "assistant_fingerprint"
+      ],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^ghcr\\.io/[a-z0-9._/-]+$"},
+        "local_ref": {"type": "string"},
+        "local_image_id": {"$ref": "#/$defs/digest"},
+        "config_digest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "registry_manifest_digest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "registry_tag": {"type": ["string", "null"]},
+        "platform": {"const": "linux/amd64"},
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "rebuilt_after_qualification"],
+          "properties": {
+            "mode": {"enum": ["accepted-existing", "built"]},
+            "dockerfile": {"type": "string"},
+            "floating_base": {"type": "boolean"},
+            "rebuilt_after_qualification": {"const": false}
+          }
+        },
+        "file_equality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "files_compared", "mismatches"],
+          "properties": {
+            "status": {"enum": ["PASS", "FAIL", "NOT_RUN"]},
+            "files_compared": {"type": "integer"},
+            "mismatches": {"type": "integer"},
+            "detail": {"type": "string"}
+          }
+        },
+        "assistant_fingerprint": {"anyOf": [{"$ref": "#/$defs/hex64"}, {"type": "null"}]},
+        "snapshot_schema_writes": {"type": ["integer", "null"]}
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_image", "data_compatible", "basis", "automatic", "stop_conditions"],
+      "properties": {
+        "target_image": {
+          "description": "The registry reference the service returns to, or null when it must be read from the host at preflight.",
+          "type": ["string", "null"]
+        },
+        "target_source_commit": {
+          "anyOf": [{"type": "string", "pattern": "^[0-9a-f]{7,40}$"}, {"type": "null"}]
+        },
+        "target_snapshot_schema_writes": {"type": ["integer", "null"]},
+        "target_confirmed_on_host": {"type": "boolean"},
+        "data_compatible": {"enum": [true, false, "unproven"]},
+        "basis": {"type": "string"},
+        "automatic": {"type": "boolean"},
+        "stop_conditions": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    }
+  }
+}

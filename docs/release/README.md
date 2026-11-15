@@ -1,0 +1,39 @@
+# Release pipeline documents
+
+An Actions-independent release toolchain for the single-host AWS demo. **Implemented and
+tested locally against mocks; never run against the host or the registry; changes no existing
+owner gate. It has been through several independent reviews and checks, each followed by fixes; the latest
+on code, at the last code commit, is PASS WITH NOTES; see `TEST_EVIDENCE_AND_LIMITATIONS.md` section 4 for exactly which commit each
+verdict applies to. It is not cleared for use against the host or the registry.**
+
+**Redeploying a release after a failed acceptance is prohibited** until the mandatory follow-up
+engineering in `PIPELINE_ARCHITECTURE.md` section 3.8 is done. The tool does not block it, so
+this is a procedural rule (runbook section 7; checklist steps E1a and E1b).
+
+| Document | What it is for |
+|---|---|
+| [PIPELINE_ARCHITECTURE.md](PIPELINE_ARCHITECTURE.md) | Design, what is reused, the gate, manifest, approval, configuration check, sequence, limitations |
+| [RELEASE_AUTOMATION_RUNBOOK.md](RELEASE_AUTOMATION_RUNBOOK.md) | The commands, in order, with rollback and stop conditions per service |
+| [FIRST_AUTOMATED_RELEASE_CHECKLIST.md](FIRST_AUTOMATED_RELEASE_CHECKLIST.md) | The simplest first real use, through the existing host operator |
+| [GHCR_CREDENTIAL_GUIDE.md](GHCR_CREDENTIAL_GUIDE.md) | Publish and pull identities, bootstrap, rotation, expiry, revocation; pull compared with archive transfer |
+| [RISK_BASED_APPROVAL_PROPOSAL.md](RISK_BASED_APPROVAL_PROPOSAL.md) | Proposal only: LOW / MEDIUM / HIGH and the approvals each would need |
+| [LOCAL_RELEASE_CONTROLLER.md](LOCAL_RELEASE_CONTROLLER.md) | The local controller and the evaluation of an always-on runner |
+| [PIPELINE_HOW_TO_USE_AND_MAINTAIN.md](PIPELINE_HOW_TO_USE_AND_MAINTAIN.md) | Section to paste into an engineering handoff |
+| [TEST_EVIDENCE_AND_LIMITATIONS.md](TEST_EVIDENCE_AND_LIMITATIONS.md) | What was run, the counts, the independent review, what is not proven |
+| [INDEPENDENT_PIPELINE_REVIEW_20261114.md](INDEPENDENT_PIPELINE_REVIEW_20261114.md) | The independent review of the first candidate, unedited. Verdict: **FAIL**. The later reviews of the fixes are in the evidence document, sections 4.1 to 4.8 |
+| [N1_N2_INDEPENDENT_REVIEW_20261114.md](N1_N2_INDEPENDENT_REVIEW_20261114.md) | The independent review of the interrupted-rollback change (`37f3aa6`), unedited. Verdict: **FAIL** (N1 and N2 fixed; one new P1 in `recover`). What was done about it: evidence document section 4.3 |
+| [N1_N2_FIX_CHECK_20261114.md](N1_N2_FIX_CHECK_20261114.md) | The check of the fixes in `84706a9`, unedited. Verdict: **FAIL** (one sequence could still reach `ACCEPTED`). What was done about it: evidence document section 4.4 |
+| [N1_N2_FINAL_CHECK_20261114.md](N1_N2_FINAL_CHECK_20261114.md) | The check of `6bcf142`, unedited. Verdict: **FAIL**, conditional on how one rule is read. What was done about it: evidence document section 4.5. The owner decision it raised was made on 2026-11-15 (architecture section 3.8) |
+| [N1_N2_CLOSING_CHECK_20261114.md](N1_N2_CLOSING_CHECK_20261114.md) | The check of `ed38d16`, unedited. Verdict: **PASS WITH NOTES**. Evidence document sections 4.6 and 4.7 |
+| [DOCS_FINAL_CHECK_20261115.md](DOCS_FINAL_CHECK_20261115.md) | The check of the documents-only commit `1cfa9bd`, unedited. Verdict: **PASS WITH NOTES**. Evidence document section 4.9 |
+| [DOCS_REFINED_DECISION_CHECK_20261115.md](DOCS_REFINED_DECISION_CHECK_20261115.md) | The check of the documents-only commit `d5193ba` (owner's refined decision), unedited. Verdict: **PASS WITH NOTES**. Evidence document section 4.9 |
+
+| Artefact | Path |
+|---|---|
+| Release manifest schema | `tools/release/schema/release-manifest.schema.json` |
+| Approval record schema | `tools/release/schema/approval-record.schema.json` |
+| Sample manifest for the three `d0142d8` candidates (registry digests unknown) | [samples/release-manifest.d0142d8.sample.json](samples/release-manifest.d0142d8.sample.json) |
+| Sample approval record (already expired, so it is refused) | [samples/approval-record.sample.json](samples/approval-record.sample.json) |
+| Sample release request (assistant-only) | [samples/release-request.assistant-only.sample.json](samples/release-request.assistant-only.sample.json) |
+| Reviewed effective-configuration baseline | `tools/release/policy/effective-baseline.json` |
+| Code and tests | `tools/release/`, `tools/release.ps1`, `tests/release/` |
