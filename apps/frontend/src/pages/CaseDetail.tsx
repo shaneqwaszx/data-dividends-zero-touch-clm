@@ -1339,7 +1339,7 @@ export default function CaseDetail({
   // instead of an ownership analysis; the stage keeps its title so AI Assistant section links match.
   const governmentBasis = summary.entity_type_basis?.entity_type === "GOVERNMENT" ? summary.entity_type_basis : null;
   const partnershipPendingLabel = summary.entity_type_basis?.partnership_state === "AWAITING_RM_CONFIRMATION" ? summary.entity_type_basis.label : null;
-  // D-137: complete for readiness, but the D-121 advisory review is still open.
+  // D-141: complete for readiness, but the D-121 advisory review is still open.
   const ownershipStageAdvised = stageStatusFor(summary, ["OWNERSHIP_UBO"])?.tone === "advised";
   const ownershipHeaderStatus = ownershipStageAdvised
     ? ADVISED_STAGE_SUMMARY

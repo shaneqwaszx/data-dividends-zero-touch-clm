@@ -1,4 +1,4 @@
-"""D-137: the OWNERSHIP_UBO node says when its completion rests on an advisory review (D-121).
+"""D-141: the OWNERSHIP_UBO node says when its completion rests on an advisory review (D-121).
 
 Presentation only: the node status, readiness, the audit code and blocking mode are unchanged.
 """

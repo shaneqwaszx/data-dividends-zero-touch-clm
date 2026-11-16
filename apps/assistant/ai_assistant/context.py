@@ -100,7 +100,7 @@ def _company(summary: dict[str, Any]) -> dict[str, Any]:
 
 
 def _advisory_review(node: dict[str, Any]) -> bool:
-    """D-137: the backend's own flag, only on a complete OWNERSHIP_UBO node."""
+    """D-141: the backend's own flag, only on a complete OWNERSHIP_UBO node."""
 
     return (
         node.get("advisory_review") is True
@@ -117,7 +117,7 @@ def _steps(summary: dict[str, Any]) -> list[dict[str, Any]]:
         steps.append(
             {
                 "step": data.get("label"),
-                # D-137: complete for readiness only because the ownership review is advisory.
+                # D-141: complete for readiness only because the ownership review is advisory.
                 "status": STEP_REVIEW_ADVISED
                 if _advisory_review(data)
                 else STEP_STATUS.get(status, status.lower() or "unknown"),
@@ -345,7 +345,7 @@ def _readiness(summary: dict[str, Any]) -> dict[str, Any]:
         for name in ("registry", "document", "ownership", "goldtier")
         if readiness.get(name) is not None
     }
-    # D-137: ownership is READY only because its open review is advisory (D-121).
+    # D-141: ownership is READY only because its open review is advisory (D-121).
     if sections.get("ownership") == "READY" and any(
         _advisory_review(_dict(node)) for node in _list(summary.get("processing_pipeline"))
     ):

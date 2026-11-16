@@ -1,4 +1,4 @@
-"""D-137 (amends D-121 display only): an advisory ownership review is "review advised", not done.
+"""D-141 (amends D-121 display only): an advisory ownership review is "review advised", not done.
 
 The backend marks the complete OWNERSHIP_UBO node ``advisory_review``; the assistant must not
 call ownership done or let a model sentence say it is complete.

@@ -6,7 +6,7 @@ import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.co
 import { openStage } from "./stage-disclosures";
 
 /*
- * D-137 (amends D-121 display only). The browser harness runs the blocking review mode
+ * D-141 (amends D-121 display only). The browser harness runs the blocking review mode
  * (scripts/e2e_backend_server.py), so a real case reaches a complete Ownership & UBO stage and
  * this spec sets or clears only the backend's presentation flag `advisory_review` on that node
  * in the case read. The flag itself is pinned against the official Mock lane in

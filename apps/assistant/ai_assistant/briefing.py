@@ -112,7 +112,7 @@ def next_pending_step(facts: dict[str, Any]) -> str | None:
 
 
 def ownership_advised(facts: dict[str, Any]) -> bool:
-    """D-137: ownership is complete for readiness only because its review is advisory."""
+    """D-141: ownership is complete for readiness only because its review is advisory."""
 
     sections = (facts.get("readiness") or {}).get("sections") or {}
     return sections.get("ownership") == "REVIEW_ADVISED"

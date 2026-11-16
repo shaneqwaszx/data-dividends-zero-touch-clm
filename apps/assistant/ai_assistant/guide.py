@@ -248,7 +248,7 @@ UBO_CHECK_NOT_RUN = "This case cannot name any UBOs yet because the UBO check ha
 # complete and no action that completes it is offered (guardrails.ubo_completion_not_offered);
 # topic-only: the model sees it only in the steering message for a request to complete it.
 UBO_COMPLETION_NOT_OFFERED = "Marking the UBO check as complete is not offered to you on this case."
-# D-137 (amends D-121 display only, PROPOSED): the backend marks OWNERSHIP_UBO
+# D-141 (amends D-121 display only, PROPOSED): the backend marks OWNERSHIP_UBO
 # ``advisory_review`` when ownership is complete for readiness only because a current review is
 # advisory. The step is then "review advised", never "done", and this line is offered only
 # while readiness reports ownership as REVIEW_ADVISED (context._readiness).

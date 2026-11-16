@@ -408,7 +408,7 @@ a.nav-brand:hover { color: var(--color-accent-800); }
 .ds-stage-copy { padding-bottom: 14px; font-size: 12.5px; }
 .ds-stage-copy .text-muted { font-size: 11px; }
 .ds-stage-node.attention { border-color: #8c3a2e; color: #8c3a2e; background: #f9efec; border-width: 1.5px; }
-/* D-137: complete for readiness, advisory review still open. Reuses the dashboard amber (.tag-amber, .ai-dot--warning). */
+/* D-141: complete for readiness, advisory review still open. Reuses the dashboard amber (.tag-amber, .ai-dot--warning). */
 .ds-stage-node.advised { border-color: #8a5a00; color: #8a5a00; background: #fdf0d8; border-width: 1.5px; }
 .state-composition { margin: 0 0 var(--space-6); }
 .state-composition__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-3); }

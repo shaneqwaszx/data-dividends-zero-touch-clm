@@ -853,7 +853,7 @@ describe("stages waiting for earlier steps (presentation only)", () => {
   });
 });
 
-// D-137 (amends D-121 display only): an advisory ownership review is amber "Review advised", never green.
+// D-141 (amends D-121 display only): an advisory ownership review is amber "Review advised", never green.
 describe("Ownership & UBO advisory review display", () => {
   type OwnershipState = "blocking" | "advised" | "complete";
   function ownershipSummary(state: OwnershipState): ZeroTouchCaseSummary {

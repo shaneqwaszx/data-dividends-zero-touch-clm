@@ -119,7 +119,7 @@ def ubo_check_not_run(facts: dict[str, Any]) -> bool:
 
 # Ownership states in which the UBO check is not complete (backend ReadinessStageStatus for
 # the ownership stage; READY means the analysis is complete or POC-accepted, D-082).
-# REVIEW_ADVISED (D-137) is the assistant's own name for READY on an advisory review.
+# REVIEW_ADVISED (D-141) is the assistant's own name for READY on an advisory review.
 _OWNERSHIP_INCOMPLETE = frozenset(
     {"MISSING", "IN_PROGRESS", "REVIEW_REQUIRED", "REVIEW_ADVISED", "FAILED"}
 )
@@ -133,7 +133,7 @@ _UBO_COMPLETION_LABEL = re.compile(
 
 
 def ownership_review_advised(facts: dict[str, Any]) -> bool:
-    """D-137: ownership is complete for readiness only because its review is advisory."""
+    """D-141: ownership is complete for readiness only because its review is advisory."""
 
     sections = (facts.get("readiness") or {}).get("sections") or {}
     return sections.get("ownership") == "REVIEW_ADVISED"

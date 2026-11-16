@@ -64,7 +64,7 @@ function pipelineRailState(status: ProcessingNodeStatus): Exclude<RailState, "ad
 
 /**
  * Presentation of one backend stage: a BLOCKED stage that is only waiting for earlier steps is neutral.
- * D-137: a stage complete only because its ownership review is advisory (D-121) is amber "Review advised".
+ * D-141: a stage complete only because its ownership review is advisory (D-121) is amber "Review advised".
  */
 function memberDisplay(member: ProcessingNode, summary?: ZeroTouchCaseSummary): { waiting: boolean; advised: boolean; label: string; rail: RailState } {
   const waiting = summary ? isWaitingForEarlierSteps(member, summary) : false;

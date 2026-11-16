@@ -527,7 +527,7 @@ _COMPLETED = re.compile(
     r"\b(?:the )?(?:case|onboarding|application|workflow|automation)\b[^.;]{0,25}"
     r"\b(?:is|has been|was) (?:now |fully |already )*(?:completed?|finished|closed|finali[sz]ed)\b"
 )
-# D-137: ownership or the UBO check said to be finished. Only the backend's READY ownership
+# D-141: ownership or the UBO check said to be finished. Only the backend's READY ownership
 # readiness supports it; an advisory (REVIEW_ADVISED), open, missing or failed one does not.
 _OWNERSHIP_DONE = re.compile(
     r"\b(?:ownership|ubos?|ubo check|beneficial owners?|beneficial ownership)"

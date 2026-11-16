@@ -1212,7 +1212,7 @@ export interface ProcessingNode {
   record_count?: number | null;
   blocker_code?: string | null;
   retained_goldtier_id?: string | null;
-  /** D-137: OWNERSHIP_UBO is complete for readiness while a D-121 advisory review stays open. */
+  /** D-141: OWNERSHIP_UBO is complete for readiness while a D-121 advisory review stays open. */
   advisory_review?: boolean | null;
   children: ProcessingNode[];
 }

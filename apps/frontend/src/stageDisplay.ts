@@ -109,7 +109,7 @@ export function isWaitingForEarlierSteps(node: ProcessingNode, summary: ZeroTouc
 export const WAITING_STAGE_LABEL = "Waiting for earlier steps";
 
 /**
- * D-137 (amends D-121 display only): a stage that is complete for readiness while an advisory
+ * D-141 (amends D-121 display only): a stage that is complete for readiness while an advisory
  * ownership review stays open. Shown amber, never as green "Complete"; the backend status is unchanged.
  */
 export const ADVISED_STAGE_LABEL = "Review advised";

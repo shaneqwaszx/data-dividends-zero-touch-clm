@@ -1450,7 +1450,7 @@ class BrowserProcessingNode(BaseModel):
     record_count: int | None = Field(default=None, ge=0, le=128)
     blocker_code: str | None = Field(default=None, max_length=64)
     retained_goldtier_id: str | None = Field(default=None, min_length=1, max_length=96)
-    # D-137 presentation only: OWNERSHIP_UBO is complete for readiness because a current
+    # D-141 presentation only: OWNERSHIP_UBO is complete for readiness because a current
     # review is advisory under D-121; the review stays open. None everywhere else.
     advisory_review: bool | None = None
     children: tuple["BrowserProcessingNode", ...] = Field(default_factory=tuple, max_length=12)
@@ -2059,7 +2059,7 @@ def project_processing_pipeline(
 ) -> tuple[BrowserProcessingNode, ...]:
     """Build the exact, presentation-safe workflow order from retained backend facts.
 
-    D-137: ``ownership_review_advisory`` is the caller's verdict on ``ownership`` (D-121
+    D-141: ``ownership_review_advisory`` is the caller's verdict on ``ownership`` (D-121
     advisory and not POC-accepted). It is shown only when readiness is complete for that
     same analysis, so the flag can never disagree with the node status.
     """
