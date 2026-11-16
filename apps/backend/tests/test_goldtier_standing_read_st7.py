@@ -146,8 +146,12 @@ def test_writes_are_not_counted_and_stay_window_governed() -> None:
     assert response.status_code == 200 and len(transport.calls) == 1
 
 
-def test_effective_limit_is_zero_in_staging_until_set() -> None:
-    assert staging_settings().goldtier_sandbox_effective_read_limit() == 0
+def test_effective_limit_is_unset_in_staging_until_configured() -> None:
+    assert staging_settings().goldtier_sandbox_effective_read_limit() is None
+    assert (
+        staging_settings(goldtier_sandbox_daily_read_limit=0)
+        .goldtier_sandbox_effective_read_limit() == 0
+    )
     assert (
         staging_settings(
             goldtier_sandbox_daily_read_limit=50
@@ -156,6 +160,21 @@ def test_effective_limit_is_zero_in_staging_until_set() -> None:
     )
     with pytest.raises(ValueError):
         staging_settings(goldtier_sandbox_daily_read_limit=501)
+
+
+def test_unset_staging_limit_wires_unlimited_without_mongo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_called(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("An unset Sandbox budget must not open a Mongo client")
+
+    monkeypatch.setattr("app.persistence.composition.create_mongo_client", fail_if_called)
+    binding = build_goldtier_read_budget(staging_settings())
+    assert isinstance(binding.budget, UnlimitedGoldTierReadBudget)
+    assert binding.budget.claim(NOW)
+    assert binding.budget.limit is None
+    assert binding.budget.used(NOW) == 0
+    binding.close()
 
 
 def test_build_binds_no_budget_for_mock_and_memory_budget_for_sandbox() -> None:

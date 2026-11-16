@@ -29,7 +29,7 @@ from app.services.admin_repository import (
     AdministrationConflictError,
     build_credential_reset_candidate,
     build_profile_authority_candidate,
-    check_credential_reset_actor,
+    check_credential_replacement_actor,
 )
 
 
@@ -232,12 +232,14 @@ class MongoProfileRepository:
         credential_hash: SecretStr,
         operation: CredentialOperation,
         updated_at: datetime,
+        expected_actor_security_version: int | None = None,
     ) -> UserAccountRecord:
         """D-140: reauthorize the actor, then version-CAS the credential-only replacement."""
 
         with self._store.lock:
-            check_credential_reset_actor(self.get(actor_user_id))
-            current = self.get(user_id)
+            actor = self.get(actor_user_id)
+            check_credential_replacement_actor(actor, operation, expected_actor_security_version)
+            current = actor if user_id == actor_user_id else self.get(user_id)
             if current is None or current.version != expected_version:
                 raise AdministrationConflictError
             candidate = build_credential_reset_candidate(

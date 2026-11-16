@@ -140,6 +140,18 @@ def parse_scrypt_password_hash(encoded: str) -> ScryptPasswordHash:
     return ScryptPasswordHash(salt=salt, digest=digest)
 
 
+def _matches_scrypt_password(credential: str, password_hash: ScryptPasswordHash) -> bool:
+    return hmac.compare_digest(_derive(credential, password_hash.salt), password_hash.digest)
+
+
+def verify_scrypt_password(credential: str, encoded: str) -> bool:
+    try:
+        password_hash = parse_scrypt_password_hash(encoded)
+    except ValueError:
+        return False
+    return _matches_scrypt_password(credential, password_hash)
+
+
 class AuthenticationService:
     """Authenticate repository accounts and own bounded process-local sessions."""
 
@@ -177,12 +189,8 @@ class AuthenticationService:
                 )
             except ValueError:
                 raise AuthenticationError from None
-        candidate = _derive(credential, password_hash.salt)
-        if (
-            account is None
-            or account.user_id != user_id
-            or not hmac.compare_digest(candidate, password_hash.digest)
-        ):
+        matches = _matches_scrypt_password(credential, password_hash)
+        if account is None or account.user_id != user_id or not matches:
             raise AuthenticationError
 
         actor = self._actor_for_account(account)

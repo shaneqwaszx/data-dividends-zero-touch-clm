@@ -68,8 +68,9 @@ class GoldTierSandboxStatusResponse(BaseModel):
     classification: Literal["MOCK", "SANDBOX_PARTIAL"]
     safe_host: str | None
     writes_enabled: bool
-    # ST-7: counts only; None when Sandbox reads are not counted.
-    daily_read_limit: int | None = None
+    daily_read_limit: int | None = Field(
+        default=None, description="Configured Sandbox with null has no application read limit."
+    )
     reads_used_today: int | None = None
     timeout_seconds: float
     max_response_bytes: int

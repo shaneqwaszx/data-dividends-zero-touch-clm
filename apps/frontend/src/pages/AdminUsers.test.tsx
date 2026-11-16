@@ -87,6 +87,33 @@ describe("D-140 HR password reset", () => {
     vi.restoreAllMocks();
   });
 
+  it("clears all own-password fields on mismatch, request failure and success", async () => {
+    const changePassword = vi.fn()
+      .mockRejectedValueOnce(new ApiError(
+        "The password change could not be verified.", 400, "CREDENTIAL_VERIFICATION_FAILED",
+      ))
+      .mockResolvedValueOnce(undefined);
+    await act(async () => { root.render(<AdminUsers onChangeOwnPassword={changePassword} />); });
+    const form = container.querySelector<HTMLFormElement>('form[aria-label="Change my password"]')!;
+    const fields = [...form.querySelectorAll<HTMLInputElement>('input[type="password"]')];
+    const current = "synthetic-current-value";
+    async function submit(confirmation: string) {
+      await act(async () => {
+        [fields[0].value, fields[1].value, fields[2].value] = [current, newPassword, confirmation];
+        form.requestSubmit();
+      });
+      expect(fields.map((field) => field.value)).toEqual(["", "", ""]);
+    }
+    await submit("different-confirmation");
+    expect(changePassword).not.toHaveBeenCalled();
+    await submit(newPassword);
+    expect(form.textContent).toContain("The password change could not be verified.");
+    await submit(newPassword);
+    expect(changePassword).toHaveBeenCalledTimes(2);
+    expect(changePassword).toHaveBeenLastCalledWith(current, newPassword);
+    expect(form.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("offers reset only for non-HR users and hides the form until asked", async () => {
     await render();
     expect(button("Reset password for synthetic-rm")).toBeDefined();

@@ -11,7 +11,11 @@ import {
 } from "../api";
 import type { AdminProfile, AuthenticatedTeam, Role, TeamId } from "../types";
 
-export default function AdminUsers() {
+type ChangeOwnPassword = (currentPassword: string, newPassword: string) => Promise<void>;
+
+export default function AdminUsers({
+  onChangeOwnPassword,
+}: { onChangeOwnPassword?: ChangeOwnPassword }) {
   const [profiles, setProfiles] = useState<AdminProfile[]>([]);
   const [teams, setTeams] = useState<AuthenticatedTeam[]>([]);
   const [userId, setUserId] = useState("");
@@ -167,6 +171,7 @@ export default function AdminUsers() {
     <h1>Users</h1><p className="text-muted">Passwords are hashed immediately and never returned by the API.</p>
     {error && <div className="ds-banner ds-banner-warn">{error}</div>}
     {resetNotice && <div className="ds-banner" role="status">{resetNotice}</div>}
+    {onChangeOwnPassword && <OwnPasswordForm changePassword={onChangeOwnPassword} />}
     {resetTarget && <form className="card form-stack" aria-label={`Reset password for ${resetTarget.user_id}`} onSubmit={(event) => void reset(event)}>
       <h3>Reset password for {resetTarget.display_name}</h3>
       <p className="text-muted">{resetTarget.sign_in_disabled
@@ -203,4 +208,46 @@ export default function AdminUsers() {
       </tr>)}
     </tbody></table></div>
   </div>;
+}
+
+function OwnPasswordForm({ changePassword }: { changePassword: ChangeOwnPassword }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    form.reset();
+    if (pending) return;
+    const current = String(values.get("current") ?? "");
+    const next = String(values.get("new") ?? "");
+    if ([current, next].some((password) => [...password].length < 12 || [...password].length > 128)) {
+      setError("Enter between 12 and 128 characters for each password.");
+      return;
+    }
+    if (next !== values.get("confirmation")) {
+      setError("Password confirmation does not match.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await changePassword(current, next);
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "Password change failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return <form className="card form-stack" aria-label="Change my password" noValidate onSubmit={(event) => void submit(event)}>
+    <h3>Change my password</h3>
+    <p className="text-muted">You will sign in again after changing your password.</p>
+    {error && <div role="alert" className="ds-banner ds-banner-warn">{error}</div>}
+    <label>Current password<input type="password" name="current" required maxLength={128} disabled={pending} autoComplete="current-password" /></label>
+    <label>New password<input type="password" name="new" required maxLength={128} disabled={pending} autoComplete="new-password" /></label>
+    <label>Confirm new password<input type="password" name="confirmation" required maxLength={128} disabled={pending} autoComplete="new-password" /></label>
+    <button type="submit" className="btn btn-primary" disabled={pending}>Change password</button>
+  </form>;
 }

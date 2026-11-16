@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.api_auth import TeamResponse
@@ -19,11 +19,14 @@ from app.services.admin_repository import (
     AdministrationUnavailableError,
 )
 from app.services.administration import (
+    AdministrationCredentialVerificationError,
     AdministrationForbiddenError,
     AdministrationNotFoundError,
     AdministrationService,
     AdministrationValidationError,
 )
+from app.services.authentication import AuthenticatedSession
+from app.services.login_admission import LoginAdmission, LoginAdmissionDenied
 
 
 class AdminTeamResponse(BaseModel):
@@ -107,6 +110,13 @@ class UpdateProfileRequest(BaseModel):
     team_id: TeamId | None = None
 
 
+class ChangeOwnPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: Annotated[SecretStr, Field(min_length=12, max_length=128, repr=False)]
+    new_password: Annotated[SecretStr, Field(min_length=12, max_length=128, repr=False)]
+
+
 class ResetPasswordRequest(BaseModel):
     """D-140 body. The new password is a SecretStr: never echoed, logged or returned."""
 
@@ -124,8 +134,11 @@ class DisableSignInRequest(BaseModel):
     expected_version: Annotated[int, Field(strict=True, ge=1)]
 
 
-def build_admin_router(service: AdministrationService) -> APIRouter:
+def build_admin_router(
+    service: AdministrationService, *, login_admission: LoginAdmission | None = None
+) -> APIRouter:
     router = APIRouter(tags=["administration"])
+    credential_admission = login_admission or LoginAdmission()
 
     @router.get("/api/teams/options", response_model=list[TeamResponse])
     def team_options(request: Request) -> list[TeamResponse]:
@@ -222,6 +235,45 @@ def build_admin_router(service: AdministrationService) -> APIRouter:
                 ),
                 service,
             )
+        )
+
+    @router.post("/api/admin/me/password", status_code=status.HTTP_204_NO_CONTENT)
+    def change_own_password(body: ChangeOwnPasswordRequest, request: Request) -> Response:
+        actor = _actor(request)
+        _admin_call(lambda: service.require_hr(actor))
+        session = getattr(request.state, "auth_session", None)
+        if not isinstance(session, AuthenticatedSession):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        try:
+            with credential_admission.admit(request.client.host if request.client else None):
+                _admin_call(
+                    lambda: service.change_own_password(
+                        actor,
+                        session_security_version=session.security_version,
+                        current_password=body.current_password,
+                        new_password=body.new_password,
+                    )
+                )
+        except LoginAdmissionDenied as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "LOGIN_RATE_LIMITED",
+                    "message": "Too many credential attempts. Try again later.",
+                },
+                headers={"Retry-After": str(exc.retry_after), "Cache-Control": "no-store"},
+            ) from None
+        except AdministrationCredentialVerificationError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "CREDENTIAL_VERIFICATION_FAILED",
+                    "message": "The password change could not be verified.",
+                },
+                headers={"Cache-Control": "no-store"},
+            ) from None
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT, headers={"Cache-Control": "no-store"}
         )
 
     @router.post("/api/admin/profiles/{user_id}/password", response_model=AdminProfileResponse)

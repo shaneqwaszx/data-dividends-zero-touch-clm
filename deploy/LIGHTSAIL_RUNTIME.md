@@ -179,13 +179,13 @@ passes, and every item D-137 lists before a window is met.
 
 ## ST-7 GoldTier Sandbox daily read budget
 
-Staging defaults to zero Sandbox reads. The backend runtime setting
-`GOLDTIER_SANDBOX_DAILY_READ_LIMIT` applies an explicit cap per UTC day. A
-claim consumes one slot before an outbound Search, including exact-ID
-readback and recheck. Failed outbound requests still consume that slot.
-Mongo holds the daily count across backend restarts. An exhausted or
-unavailable budget refuses outbound reads. The HR Sandbox status endpoint
-shows the limit and current usage when the count is available.
+An unset `GOLDTIER_SANDBOX_DAILY_READ_LIMIT` means no application read limit
+in any environment. Provider limits still apply. An explicit setting from 0 to
+500 caps reads per UTC day. A claim consumes one slot before an outbound Search,
+including exact-ID readback and recheck. Failed outbound requests still consume
+that slot. Mongo stores the count across restarts only when a cap is configured.
+An exhausted or unavailable configured budget refuses outbound reads. For configured
+Sandbox, null limit and usage fields in the HR status mean no application read limit.
 
 This limit governs the existing Sandbox read path under D-126 provenance
 checks and D-131 egress controls. D-137 continues to govern writes and their
