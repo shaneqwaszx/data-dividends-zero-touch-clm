@@ -3,7 +3,8 @@
 ## Status
 
 Proposed. Owner-authorised for local P1 implementation on 2026-11-15; not sponsor-confirmed.
-Governance for any future editing stays in the provisional D-135 draft and is not implemented.
+Governance for future editing is D-135 (owner-approved design, 2026-11-15) and ADR-017
+(Proposed); it is not implemented.
 
 ## Date
 

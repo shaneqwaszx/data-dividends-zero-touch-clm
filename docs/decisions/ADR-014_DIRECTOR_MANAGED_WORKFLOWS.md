@@ -80,7 +80,7 @@ first. The rail merges added stages at display time, outside
     versions.
   - N3: in Mongo mode the backend needs the workflow store reachable at startup.
 - Removing or skipping workflow stages is prohibited by owner policy (D-136 E5,
-  provisional D-135): HR proposes, exactly one Director approves or rejects, and stages
+  D-135: design approved 2026-11-15, ADR-017 Proposed, not implemented): HR proposes, exactly one Director approves or rejects, and stages
   are never removed or skipped. The current code does not yet enforce this. One
   Director edits and activates workflows with no second approver (D-123 W1), and
   nothing technically stops a version that drops an added stage, which would remove it

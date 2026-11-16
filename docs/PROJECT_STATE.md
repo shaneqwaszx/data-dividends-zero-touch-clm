@@ -1681,3 +1681,26 @@ published; conditional branches are not drawn because the backend has none.
 - **Evidence.** Class: Local. Backend `test_onboarding_execution_plan.py`; frontend
   `WorkflowDesigner.test.tsx`, `WorkflowDesignerAuth.test.tsx` and `ExecutionPlanDiagram.test.tsx`;
   Playwright `workflow-designer.e2e.ts`.
+
+## Workflow authoring and approval (D-135, ADR-017 proposed) - design only, 2026-11-15
+
+The owner approved the P2/P3 design: R1, RD-1 to RD-6, the G0 conditions, the conditional-write
+dispatch fence and the G0 remediation rulings. It is recorded as D-135 and ADR-017 (Proposed).
+Nothing is implemented, and current workflow behaviour is the D-123 editor plus the D-136 send
+hold.
+
+- **Planned:** HR authoring, single-Director approval, the required-obligation ratchet, a leased
+  send dispatch fence with durably acknowledged writes (R1/R2), and insert-only governance
+  history.
+- **P2-0 (needs its own approval):**
+  - the fence
+  - same-snapshot ledger compare-and-set
+  - the legacy activation freeze
+  - the `active_version` backfill
+  - legacy route changes
+  - a fail-closed amendment to D-136 E2 for a missing onboarding definition document
+- **Deployment stays one backend process per store.** The design relies on a standalone MongoDB
+  with journaling (staging, to be confirmed in P2-0) or a replica-set primary. No read concern is
+  relied on for correctness.
+- **Unchanged until implemented:** D-123 W1 Director activation, the interim F2 / D-136 E5
+  restriction, the legacy CLM routes, and R1/R2 as recorded in D-136 E6.
