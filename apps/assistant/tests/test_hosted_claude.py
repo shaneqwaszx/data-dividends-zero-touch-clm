@@ -269,7 +269,7 @@ def test_without_the_mode_stage_a_is_unchanged(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("change", "code"),
     [
-        ({provider.PROVIDER_VARIABLE: "openrouter"}, "PROVIDER_MODE_INVALID"),
+        ({provider.PROVIDER_VARIABLE: "open-router"}, "PROVIDER_MODE_INVALID"),
         ({provider.PROVIDER_VARIABLE: "Anthropic"}, "PROVIDER_MODE_INVALID"),
         ({provider.CEILING_VARIABLE: ""}, "HOSTED_CEILING_REQUIRED"),
         ({provider.CEILING_VARIABLE: "0"}, "HOSTED_CEILING_REQUIRED"),

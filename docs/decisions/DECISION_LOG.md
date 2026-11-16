@@ -2882,6 +2882,12 @@ Owner confirmation needed at adoption. D-129 term (b) said "eligible synthetic c
 
 Side effect: `main.py` and `synthetic_eligibility.py` are qualification-basis files. The qualification basis changes, so the hosted 5-call qualification runs on the integrated image.
 
+## ST-7 amendment - GoldTier Sandbox daily reads (owner-directed C9)
+
+| Decision | Owner scope |
+|---|---|
+| No application-imposed daily read quota by default. Provider limits apply. | All environments. An explicit limit from 0 to 500 still applies when configured. D-137 continues to govern writes. |
+
 ## D-140 - HR password management for non-HR accounts (owner-directed, awaiting review)
 
 The owner asked for HR password management on the deployed site using the smallest compatible change. HR could create users with a temporary password but could not reset one.
@@ -2898,3 +2904,27 @@ The owner asked for HR password management on the deployed site using the smalle
 | P8 | **Disable (SF-006).** `POST /api/admin/profiles/{user_id}/disable` takes `{expected_version}` and uses the same access, CAS and session revocation as reset. It replaces the stored hash with the hash of a discarded random value. `AdminProfileResponse.sign_in_disabled` is derived from the latest credential operation. The profile must be reset before it can become HR so a disabled account cannot count toward the last-HR invariant or become ineligible for reset. |
 
 Unchanged: password hashing, session validation, RBAC, the last-HR and self-demotion rules, the Mongo schema (no new fields), and every other admin route.
+
+### C9 amendment to D-140
+
+An authenticated HR actor may change their own password through `POST /api/admin/me/password`.
+The service verifies the current password. The store rechecks HR authority and the session's
+security version, then applies the existing credential CAS. The security version increments
+and requires a new sign-in. The existing `PROFILE_UPDATED` action records
+`PASSWORD_CHANGED_SELF` in operation metadata. Administrative reset and sign-in disabling
+continue to apply only to non-HR target accounts.
+
+## D-129A - Hosted GPT-OSS-120B (OpenRouter) data transmission and the A1-R3 residual (ACCEPTED 2026-11-16 by the owner)
+
+Status: `ACCEPTED` on 2026-11-16 by the owner (in chat: "Signing it now", after G-6 passed in run 272fc723). The signed text is in `outputs/real-inference-20261115/OPENROUTER_OWNER_DECISION.md`.
+It extends D-129 to OpenRouter for GPT-OSS-120B, under the same synthetic-only data categories and D-139 provider policy.
+It also accepts D-138 A1-R3: the CONNECT proxy admits only `openrouter.ai:443` but cannot inspect TLS.
+
+Recorded in code as `HOSTED_OPENROUTER_TRANSMISSION_DECISION = "D-129A"` and `HOSTED_OPENROUTER_DECISION = "D-134"`.
+The OpenRouter mode still starts only with all of these in place:
+- its daily cap (at most US$3.00 per Singapore day);
+- the registered egress proxy on 172.30.246.0/29;
+- the exact remote settings;
+- the host's `clm_r22o` install.
+
+`config.py` is a qualification-basis file. Every GPT-OSS and Claude qualification must run on the resulting fingerprint.

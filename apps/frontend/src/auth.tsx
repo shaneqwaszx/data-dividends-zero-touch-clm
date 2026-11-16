@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from "react-router";
 
 import {
   ApiError,
+  changeOwnPassword as requestPasswordChange,
   configureAuthenticatedTransport,
   fetchCurrentSession,
   fetchSessionEndReason,
@@ -70,6 +71,7 @@ interface AuthContextValue {
   notice: string | null;
   login: (userId: string, credential: string) => Promise<void>;
   logout: () => Promise<void>;
+  changeOwnPassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -78,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(createSessionQueryClient);
   const navigate = useNavigate();
   const location = useLocation();
+  const activeSession = useRef<AuthSession | null>(null);
   const pendingInteractiveSession = useRef<AuthSession | null>(null);
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -89,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const clearSession = useCallback((resetRoute = true, explain = true) => {
+    activeSession.current = null;
     pendingInteractiveSession.current = null;
     clearSessionQueries(queryClient);
     configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
@@ -107,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const acceptSession = useCallback((authenticated: AuthSession) => {
+    activeSession.current = authenticated;
     clearSessionQueries(queryClient);
     configureAuthenticatedTransport({
       csrfToken: authenticated.csrf_token,
@@ -148,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthState((state) => ({ ...state, error: null }));
     try {
       const authenticated = await requestLogin(userId, credential);
+      activeSession.current = null;
       clearSessionQueries(queryClient);
       configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
       pendingInteractiveSession.current = authenticated;
@@ -170,9 +176,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearSession]);
 
+  const changeOwnPassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const session = activeSession.current;
+    await requestPasswordChange(currentPassword, newPassword);
+    if (session && activeSession.current === session) {
+      clearSession(true, false);
+      setAuthState((state) => transitionAuthState(state, {
+        type: "SESSION_ENDED",
+        notice: "Password changed. Sign in with your new password.",
+      }));
+    }
+  }, [clearSession]);
+
   const value = useMemo(
-    () => ({ ...authState, notice: authState.notice ?? null, login, logout }),
-    [authState, login, logout],
+    () => ({ ...authState, notice: authState.notice ?? null, login, logout, changeOwnPassword }),
+    [authState, login, logout, changeOwnPassword],
   );
   return (
     <QueryClientProvider client={queryClient}>

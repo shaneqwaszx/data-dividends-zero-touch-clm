@@ -817,15 +817,16 @@ def create_app(
         release_demo_transients=zero_touch_demo.release_case_transients,
         delete_workflow_data=None if workflows is None else workflows.delete_case_data,
     )
+    login_admission = LoginAdmission()
     application.include_router(
         build_auth_router(
             authentication,
             administration.directory,
             cookie_secure=cookie_secure,
-            login_admission=LoginAdmission() if active_settings.app_env == "staging" else None,
+            login_admission=login_admission if active_settings.app_env == "staging" else None,
         )
     )
-    application.include_router(build_admin_router(administration))
+    application.include_router(build_admin_router(administration, login_admission=login_admission))
     application.include_router(build_provider_sandbox_router(service, active_settings))
     if active_acra_diagnostics is not None:
         application.include_router(build_acra_diagnostic_router(active_acra_diagnostics))

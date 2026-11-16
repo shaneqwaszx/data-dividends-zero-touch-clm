@@ -61,8 +61,9 @@ def test_the_code_ships_with_d129_recorded_and_openrouter_still_refused() -> Non
     }
     # The suite runs as if the OpenRouter decisions were taken (conftest); the code ships with
     # both still refused.
-    assert shipped["HOSTED_OPENROUTER_DECISION"] is None
-    assert shipped["HOSTED_OPENROUTER_TRANSMISSION_DECISION"] is None
+    # D-134 and D-129A accepted (owner): the OpenRouter decisions ship recorded.
+    assert shipped["HOSTED_OPENROUTER_DECISION"] == "D-134"
+    assert shipped["HOSTED_OPENROUTER_TRANSMISSION_DECISION"] == "D-129A"
     values = [
         node.value
         for node in ast.walk(tree)

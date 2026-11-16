@@ -20,6 +20,7 @@ from app.domain.access import (
 from app.domain.administration import (
     CREDENTIAL_OPERATION_KEY,
     MAX_AUDIT_EVENTS,
+    PASSWORD_CHANGED_SELF_OPERATION,
     AdministrationAuditEvent,
     CredentialOperation,
     TeamRecord,
@@ -87,6 +88,7 @@ class ProfileRepository(Protocol):
         credential_hash: SecretStr,
         operation: CredentialOperation,
         updated_at: datetime,
+        expected_actor_security_version: int | None = None,
     ) -> UserAccountRecord: ...
 
 
@@ -240,11 +242,14 @@ class InMemoryProfileRepository:
         credential_hash: SecretStr,
         operation: CredentialOperation,
         updated_at: datetime,
+        expected_actor_security_version: int | None = None,
     ) -> UserAccountRecord:
         """D-140: reauthorize the actor and CAS-replace one credential under the owning lock."""
 
         with self._lock:
-            check_credential_reset_actor(self._records.get(actor_user_id))
+            check_credential_replacement_actor(
+                self._records.get(actor_user_id), operation, expected_actor_security_version
+            )
             current = self._records.get(user_id)
             if current is None or current.version != expected_version:
                 raise AdministrationConflictError
@@ -467,10 +472,18 @@ def build_profile_authority_candidate(
     )
 
 
-def check_credential_reset_actor(actor: UserAccountRecord | None) -> None:
-    """Re-read authority inside the lock: the acting account must still be identity admin."""
-
+def check_credential_replacement_actor(
+    actor: UserAccountRecord | None,
+    operation: CredentialOperation,
+    expected_actor_security_version: int | None,
+) -> None:
+    """Require current HR authority and bind a self-change to the admitted session epoch."""
     if actor is None or Capability.IDENTITY_ADMIN not in ROLE_CAPABILITIES[actor.role]:
+        raise AdministrationActorNotAuthorizedError
+    if (
+        operation == PASSWORD_CHANGED_SELF_OPERATION
+        and actor.security_version != expected_actor_security_version
+    ):
         raise AdministrationActorNotAuthorizedError
 
 
@@ -484,13 +497,15 @@ def build_credential_reset_candidate(
 ) -> UserAccountRecord:
     """Replace only the credential, bump both versions, and append a secret-free audit event.
 
-    HR accounts (including the actor's own) are refused: the HR credential stays
-    owner-managed (D-140). ``security_version`` moves so every existing session is revoked.
-    The event reuses ``PROFILE_UPDATED`` tagged with the operation, so it stays decodable
-    by images that predate D-140.
+    HR can only change its own credential through the self-change operation.
+    The security epoch revokes every existing session. The existing audit action and
+    metadata shape remain decodable by older images.
     """
 
-    if current.role == Role.HR:
+    if operation == PASSWORD_CHANGED_SELF_OPERATION:
+        if current.role != Role.HR or current.user_id != actor_user_id:
+            raise AdministrationCredentialTargetRefusedError
+    elif current.role == Role.HR:
         raise AdministrationCredentialTargetRefusedError
     if len(current.audit_events) >= MAX_AUDIT_EVENTS:
         raise AdministrationAuditCapacityError

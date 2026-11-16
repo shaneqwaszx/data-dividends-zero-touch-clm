@@ -268,20 +268,22 @@ def both(
 # --- the mode does not exist in the shipped code ---------------------------------------------
 
 
-def test_the_decisions_are_absent_and_no_address_range_pins_openrouter() -> None:
-    assert assistant_config.HOSTED_OPENROUTER_DECISION is None
-    assert assistant_config.HOSTED_OPENROUTER_TRANSMISSION_DECISION is None or (
-        conftest.SHIPPED_OPENROUTER_TRANSMISSION_DECISION is None
-    )
+def test_the_decisions_are_recorded_and_no_address_range_pins_openrouter() -> None:
+    # D-134 and D-129A accepted (owner): both OpenRouter decisions ship recorded.
+    assert assistant_config.HOSTED_OPENROUTER_DECISION == "D-134"
+    assert conftest.SHIPPED_OPENROUTER_TRANSMISSION_DECISION == "D-129A"
     # D-138 A1: the empty pin is gone; the proxy check replaces it (no Cloudflare range).
     assert not hasattr(provider, "OPENROUTER_INBOUND_V4")
-    assert provider.known_modes() == ("anthropic",)
+    assert provider.known_modes() == ("anthropic", "openrouter")
 
 
 @pytest.mark.parametrize("value", ["openrouter", "anthropic,openrouter", "openrouter,anthropic"])
-def test_naming_the_openrouter_mode_stops_the_service_by_default(
-    tmp_path: Path, value: str
+def test_naming_the_openrouter_mode_stops_the_service_without_the_decision(
+    tmp_path: Path, value: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # D-129A: the decisions now ship recorded; this test keeps the gate itself covered.
+    monkeypatch.setattr(assistant_config, "HOSTED_OPENROUTER_DECISION", None)
+    monkeypatch.setattr(assistant_config, "HOSTED_OPENROUTER_TRANSMISSION_DECISION", None)
     env = {**BOTH_ENV, provider.PROVIDER_VARIABLE: value}
     found = refusals(tmp_path, env)
     assert "PROVIDER_MODE_INVALID" in found
@@ -294,7 +296,12 @@ def test_naming_the_openrouter_mode_stops_the_service_by_default(
     assert budget.daily_ceiling(OPENROUTER_PROFILE_ID) == DAILY  # standing ceiling
 
 
-def test_the_runtime_refuses_a_hosted_registration_by_default(tmp_path: Path) -> None:
+def test_the_runtime_refuses_a_hosted_registration_without_the_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # D-129A: the decisions now ship recorded; this test keeps the gate itself covered.
+    monkeypatch.setattr(assistant_config, "HOSTED_OPENROUTER_DECISION", None)
+    monkeypatch.setattr(assistant_config, "HOSTED_OPENROUTER_TRANSMISSION_DECISION", None)
     with pytest.raises(ValueError):
         remote_test.register_hosted_deployment(ORIGIN, DAILY)
     assert remote_test.hosted_deployment() is None

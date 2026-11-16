@@ -126,6 +126,15 @@ export async function fetchSessionEndReason(): Promise<SessionEndReason | null> 
   }
 }
 
+export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/me/password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!response.ok) await parseResponse<never>(response);
+}
+
 export async function logout(): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST" });
   if (!response.ok) await parseResponse<never>(response);

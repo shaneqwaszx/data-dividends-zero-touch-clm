@@ -111,12 +111,13 @@ def test_the_proxy_setting_refuses_every_other_value(text: str) -> None:
     assert openrouter.parse_hosted_proxy(text) is None
 
 
-def test_the_shipped_code_has_no_proxy_and_no_openrouter_decision() -> None:
+def test_the_shipped_code_has_no_proxy_until_one_is_registered() -> None:
     assert openrouter.hosted_proxy() is None
     assert openrouter.live_transport() is None and openrouter.live_async_transport() is None
-    assert assistant_config.HOSTED_OPENROUTER_DECISION is None
-    # The value the code ships with (the suite runs as if it were set; see conftest).
-    assert conftest.SHIPPED_OPENROUTER_TRANSMISSION_DECISION is None
+    # D-134 and D-129A accepted (owner): the decisions ship recorded; a proxy is still only
+    # ever registered by the hosted OpenRouter mode with its reviewed egress in place.
+    assert assistant_config.HOSTED_OPENROUTER_DECISION == "D-134"
+    assert conftest.SHIPPED_OPENROUTER_TRANSMISSION_DECISION == "D-129A"
 
 
 @pytest.mark.parametrize(
