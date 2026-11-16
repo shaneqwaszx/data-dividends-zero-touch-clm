@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from threading import RLock
 from typing import Protocol
 from uuid import UUID
@@ -55,18 +56,24 @@ class InMemoryWorkflowDefinitionRepository:
         with self._lock:
             if definition.workflow_id in self._items:
                 raise PersistenceConflictError
-            self._items[definition.workflow_id] = definition
-            return definition
+            stored = definition.model_copy(update={"write_nonce": secrets.token_hex(16)})
+            self._items[definition.workflow_id] = stored
+            return stored
 
     def update(
         self, definition: WorkflowDefinition, *, expected_revision: int
     ) -> WorkflowDefinition:
         with self._lock:
             current = self._items.get(definition.workflow_id)
-            if current is None or current.revision != expected_revision:
+            if (
+                current is None
+                or current.revision != expected_revision
+                or current.write_nonce != definition.write_nonce
+            ):
                 raise PersistenceConflictError
-            self._items[definition.workflow_id] = definition
-            return definition
+            stored = definition.model_copy(update={"write_nonce": secrets.token_hex(16)})
+            self._items[definition.workflow_id] = stored
+            return stored
 
 
 class InMemoryWorkflowRunRepository:

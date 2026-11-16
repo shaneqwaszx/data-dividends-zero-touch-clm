@@ -127,7 +127,9 @@ def test_partial_reconciliation_survives_physical_store_restart(
     snapshot = snapshot_of(zero, case_id)
     store = _open_store(isolated_mongo_settings)
     try:
-        assert store.create(snapshot) == snapshot
+        created = store.create(snapshot)
+        assert created.model_copy(update={"write_nonce": None}) == snapshot
+        snapshot = created  # the stored copy carries its nonce
     finally:
         store.close()
     restarted = _open_store(isolated_mongo_settings)
@@ -350,7 +352,7 @@ def test_mixed_reconciliation_retires_resolved_sibling_across_mongo_restart(
             assert physical_receipt is not None
             assert physical_receipt.evidence_fingerprint == conflict["evidence_fingerprint"]
             raw = store._collection.find_one({"_id": str(case_id)})  # noqa: SLF001
-            assert raw is not None and raw["schema_version"] == 20
+            assert raw is not None and raw["schema_version"] == 21
         finally:
             store.close()
     calls_after_resolution = dict(counters)

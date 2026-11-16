@@ -3033,6 +3033,7 @@ class OnboardingService:
                 raise ValueError("Target progress cannot skip an attempted operation")
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
+                workflow_dispatch=entry.workflow_dispatch,
                 state=entry.state,
                 attempted_operations=entry.attempted_operations,
                 completed_operations=completed,
@@ -3251,7 +3252,12 @@ class OnboardingService:
                 ):
                     raise MutationOutcomeUncertainError
                 skipped = GoldTierExecutionLedgerEntry.model_validate(
-                    {**current.model_dump(), "amend_status": "AMEND_NOT_REQUIRED"}
+                    {
+                        **current.model_dump(),
+                        "amend_status": "AMEND_NOT_REQUIRED",
+                        # Excluded from dumps; a copy must still carry the claim.
+                        "workflow_dispatch": current.workflow_dispatch,
+                    }
                 )
                 self._target_executions.replace(
                     skipped, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
@@ -3865,6 +3871,7 @@ class OnboardingService:
             self._active_target_submissions.add(submission_input.submission_id)
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
+                workflow_dispatch=entry.workflow_dispatch,
                 state=GoldTierExecutionLedgerState.IN_PROGRESS,
                 attempted_operations=attempted,
                 completed_operations=entry.completed_operations,
@@ -4031,6 +4038,7 @@ class OnboardingService:
             )
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
+                workflow_dispatch=entry.workflow_dispatch,
                 state=GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED,
                 attempted_operations=entry.attempted_operations,
                 completed_operations=definitive,
@@ -4069,6 +4077,7 @@ class OnboardingService:
                 raise ValueError("Receipt does not match the retained target outcome")
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
+                workflow_dispatch=entry.workflow_dispatch,
                 state=GoldTierExecutionLedgerState.FINALIZED,
                 attempted_operations=entry.attempted_operations,
                 completed_operations=entry.completed_operations,
@@ -4222,6 +4231,7 @@ class OnboardingService:
                 reauthorize()
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=submission_input.model_copy(deep=True),
+                workflow_dispatch=None if stored is None else stored.workflow_dispatch,
                 state=GoldTierExecutionLedgerState.IN_PROGRESS,
                 attempted_operations=(
                     GoldTierOperationMarker.SEARCH,
@@ -4450,6 +4460,7 @@ class OnboardingService:
             )
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=stored.submission_input,
+                workflow_dispatch=stored.workflow_dispatch,
                 state=GoldTierExecutionLedgerState.IN_PROGRESS,
                 attempted_operations=stored.attempted_operations,
                 completed_operations=stored.completed_operations,
@@ -4565,6 +4576,8 @@ class OnboardingService:
                     {
                         **stored.model_dump(mode="python"),
                         "provider_verified_amend_failure": failure,
+                        # Excluded from dumps; a copy must still carry the claim.
+                        "workflow_dispatch": stored.workflow_dispatch,
                     }
                 )
                 try:

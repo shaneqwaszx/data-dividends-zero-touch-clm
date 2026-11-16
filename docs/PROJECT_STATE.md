@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 20,
+  "case_envelope_schema_version": 21,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1704,3 +1704,24 @@ hold.
   relied on for correctness.
 - **Unchanged until implemented:** D-123 W1 Director activation, the interim F2 / D-136 E5
   restriction, the legacy CLM routes, and R1/R2 as recorded in D-136 E6.
+
+## ADR-017 P2-0 reader release - unmerged local candidate, 2026-11-16
+
+The owner authorised P2-0 local implementation (2026-11-16). This is the **first of two schema
+releases** (ADR-017 section 3.2). It is uncommitted, not deployed, and no database was migrated.
+
+- **Case envelope schema 21.** Adds an optional document-level `write_nonce` and an optional
+  backend-only `workflow_dispatch` claim on each GoldTier ledger entry. Schema <= 20 documents
+  still read strictly (a historical document carrying either field is rejected).
+- **Every case and workflow definition writer** now compare-and-sets on the revision **and** the
+  nonce it read and sets a new nonce (R4-4). A document no P2-0 writer has written matches an
+  absent nonce. A repository-wide test fails if a writer omits either guard.
+- **Round-trip only.** The reader release never creates a dispatch claim, attempt-marker record,
+  `active_version` or `latest_version`. It preserves them on every write, refuses a ledger write
+  that would change a claim, and refuses a definition write whose versions exceed a stored
+  `latest_version`.
+- **Rollback.** A plain revert below this release is safe only before it has written; afterwards
+  the reviewed, dry-run-first reverse migration (`scripts/adr017_reverse_migration.py`) is needed.
+  It refuses unfinalised entries with a write marker, deactivated workflows and P2-1 content.
+- **Unchanged:** dispatch behaviour, the D-136 send hold, legacy routes, activation, provider
+  modes, connectors, RBAC and the AI Assistant. The dispatch fence ships in the writer release.
