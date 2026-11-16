@@ -665,6 +665,7 @@ surface is currently verified by this repository.
 | Camunda | none | not implemented | new bounded phase and ADR if introduced |
 | Director workflows | `WorkflowManagementService` (ADR-014, D-123, D-136) | add-on, inert until a stage is activated; stored required stages are enforced on every send path, also with the manager switched off | added stages and new use-case workflows only; existing stages stay in the orchestrator |
 | Workflow designer (P1, read-only) | `ExecutionPlanService` (ADR-016 proposed) | `GET /api/workflows/onboarding/execution-plan`, HR and Director only; reads the stored workflow without initialising it; no case data | P2 editing and D-135 governance need separate approval; never reorders mandatory stages |
+| Workflow authoring and approval (P2/P3) | Not implemented: ADR-017 proposed, D-135 | Design only: HR proposes, one Director approves, required-obligation ratchet, send dispatch fence, insert-only governance history | Each phase (P2-0 onwards) needs separate approval; code-owned mandatory order unchanged; D-136 E1/E3/E4 kept, with a fail-closed E2 amendment and legacy route retirement planned for P2-0 (D-135 G12, G15) |
 | Identity provider | authentication service | local POC | production security/authority phase |
 
 ## 17. Architecture invariants
