@@ -1,0 +1,9 @@
+# Both hosted models (D-134 M3; PROPOSED, LOCAL DESIGN CANDIDATE). Apply LAST, after
+# compose.assistant-provider.yml (E1, Claude) and compose.assistant-openrouter.yml (GPT-OSS):
+# each of those names only its own mode, and this one names both. Naming both never joins them:
+# each keeps its own adapter, key, ledger, limits, qualification and egress; HR selects one
+# active model in AI Models, and nothing falls back from one provider to the other.
+services:
+  assistant:
+    environment:
+      ASSISTANT_HOSTING_PROVIDER: anthropic,openrouter

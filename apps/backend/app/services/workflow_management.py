@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from threading import RLock
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 from app.connectors.idp import LocalDocumentProcessingError
@@ -88,6 +88,15 @@ class CaseWorkflowView:
 
 def stage_blocks_send(stage: WorkflowStage) -> bool:
     return any(field.required for field in stage.fields)
+
+
+@dataclass(frozen=True)
+class ActiveOnboardingStages:
+    """What the send check would enforce on a new open onboarding case, read-only."""
+
+    state: Literal["ACTIVE", "NO_ACTIVE_WORKFLOW", "UNAVAILABLE"]
+    version: int | None
+    stages: tuple[WorkflowStage, ...]
 
 
 class WorkflowManagementService:
@@ -451,6 +460,27 @@ class WorkflowManagementService:
         except Exception:
             LOGGER.warning("workflow send check unavailable", extra={"case_id": str(case_id)})
             return HOLD_UNAVAILABLE
+
+    def active_onboarding_stages(self) -> ActiveOnboardingStages:
+        """Read the active onboarding version for display, never creating anything.
+
+        It reads the definition directly instead of `_baseline()`, which inserts the
+        onboarding definition on first use. An empty store, or a definition with no
+        active version, is "no active workflow"; any read or decode failure is
+        "unavailable", which the send check treats as a refusal (D-136 E2).
+        """
+
+        try:
+            definition = self._definitions.get(ONBOARDING_WORKFLOW_ID)
+        except Exception:
+            LOGGER.warning("workflow store unavailable for the execution plan")
+            return ActiveOnboardingStages(state="UNAVAILABLE", version=None, stages=())
+        version = definition.active_version if definition is not None else None
+        if version is None:
+            return ActiveOnboardingStages(state="NO_ACTIVE_WORKFLOW", version=None, stages=())
+        return ActiveOnboardingStages(
+            state="ACTIVE", version=version.version, stages=version.stages
+        )
 
     def suggest_from_document(
         self, *, case_id: UUID, document_id: UUID, content: bytes, media_type: str,

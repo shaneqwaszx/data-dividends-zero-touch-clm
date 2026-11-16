@@ -1,0 +1,23 @@
+# Hosted GPT-OSS egress start gate (D-138 A1 PROPOSED, LOCAL DESIGN CANDIDATE). Install:
+# /etc/systemd/system/. The ONLY thing that starts the egress resolver and proxy: Docker never
+# does (restart "no" in compose.assistant-openrouter.yml). It starts them once the host table is
+# loaded, its watcher is running and the live table equals the reviewed file; if any of them is
+# missing, failed or masked, they are never started. Stopping the table unit or this unit stops
+# them; a Docker restart restarts this unit, which checks the table again first. The resolver
+# starts first (the proxy's guard needs its canary answer).
+[Unit]
+Description=CLM hosted GPT-OSS egress start gate (only behind a verified inet clm_r22o)
+Requires=clm-r22o-egress-firewall.service clm-r22o-firewall-watch.service docker.service
+BindsTo=clm-r22o-egress-firewall.service
+After=clm-r22o-egress-firewall.service clm-r22o-firewall-watch.service docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/python3 -I /usr/local/lib/clm-r22o/clm_r22o_watch.py --table-file /etc/clm/r22o/clm_r22o.nft --containers clm-staging-openrouter-egress,clm-staging-openrouter-dns --check-only
+ExecStartPre=/usr/bin/systemctl is-active -q clm-r22o-firewall-watch.service
+ExecStart=/usr/bin/docker start clm-staging-openrouter-dns clm-staging-openrouter-egress
+ExecStop=/usr/local/lib/clm-r22o/clm_r22o_stop_egress.sh gate-stop
+
+[Install]
+WantedBy=multi-user.target

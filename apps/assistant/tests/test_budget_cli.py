@@ -51,8 +51,8 @@ def test_init_and_status_show_amounts_and_codes_only(
     assert "committed: 3.000000" in out and "headroom: 4.000000" in out
     assert "breaker: closed" in out and "key alias: key-01" in out
     # D-095: today's allowance, from the same ledger (nothing spent yet).
-    # D-118: US$5.00 by default.
-    assert "daily cap: 5.000000" in out and "remaining today: 5.000000" in out
+    # D-118: US$5.00 by default, held to the standing US$3.00 GPT-OSS day (D-138 R2).
+    assert "daily cap: 3.000000" in out and "remaining today: 3.000000" in out
     assert "next daily reset: " in out and "+08:00" in out
 
 
@@ -281,3 +281,19 @@ def test_a_refused_reset_breaker_writes_nothing_even_with_an_expired_lease(
     assert _run(path, "reset-breaker", "--code", "routing_anomaly") == 2
     assert "USE_RESUME_AFTER_REVIEW" in capsys.readouterr().err
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["owner-close", "RUN1", "--reference", "ticket-1"],
+        ["resolve-report", "RUN1"],
+    ],
+)
+def test_the_run_commands_reach_their_handler(tmp_path: Path, args: list[str]) -> None:
+    # D-138 R4 review N1: the run id used to overwrite the subcommand handler ("run"), so
+    # these commands crashed with a TypeError before doing anything. Now they reach their
+    # handler, which refuses cleanly on a ledger that does not exist (exit 2, nothing created).
+    path = tmp_path / "missing.sqlite3"
+    assert CLI.main(["--anthropic", "--ledger", str(path), *args]) == 2
+    assert not path.exists()

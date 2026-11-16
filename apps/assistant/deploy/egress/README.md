@@ -121,3 +121,110 @@ After any recovery, run `verify_assistant_egress.sh <compose.env>`; every line m
 The R2.2 local harness VM ran Docker 29.9.3, iptables-nft and kernel 7.0.0-1012-aws, with R3's
 table loaded alongside. The rows are in the R2.2 QG handoff (matrix A connectivity and matrix B
 robustness) and the D-130 QG handoff (matrix C boot rows and the start-gate rows).
+
+---
+
+# Hosted GPT-OSS egress (D-138 A1): LOCAL DESIGN CANDIDATE
+
+Status: D-138 A1 **PROPOSED**, not active, not independently VM-tested. The OpenRouter mode
+cannot start while `config.HOSTED_OPENROUTER_DECISION` or
+`config.HOSTED_OPENROUTER_TRANSMISSION_DECISION` is `None` (both are in the shipped code), and
+D-129's acceptance covers Anthropic only. Nothing here may be installed on AWS without the
+owner's approval and the sole AWS host operator. E1 (`inet clm_r22`) and R3 (`inet clm_r3`) are
+not changed by this lane.
+
+## Why no address pin
+
+OpenRouter publishes no fixed inbound address range. Cloudflare's ranges would admit any
+Cloudflare-fronted site, so they are rejected. D-134's empty `OPENROUTER_INBOUND_V4` is removed;
+the exact-host proxy replaces it for the OpenRouter mode only.
+
+## Flows
+
+    clm-staging-assistant (172.30.246.3) -> openrouter-egress (172.30.246.2:4750)   clm-ao-ctl, internal
+    openrouter-egress (172.30.247.2)     -> public IPv4 tcp/443                    clm-ao-up, CONNECT openrouter.ai:443 only
+    openrouter-dns (172.30.247.3)        -> VPC resolver 172.26.0.2:53             only `openrouter.ai. IN A`
+
+- **Assistant.** Joins only `clm-ao-ctl` (internal, no route out) on top of the Stage A proxy
+  network. openrouter.ai never resolves inside it (DNS `192.0.2.53`); the service refuses to
+  start if it does (`OPENROUTER_DIRECT_PATH_REFUSED`), if `ASSISTANT_HOSTING_OPENROUTER_PROXY` is
+  not exactly `http://<IPv4 in 172.30.246.0/29>:4750` (`OPENROUTER_PROXY_REQUIRED`), or if the
+  kernel would reach that address other than directly from the same network
+  (`OPENROUTER_PROXY_NOT_INTERNAL`). Its code uses that proxy for every live OpenRouter request
+  (chat, account checks, public listing) only once the hosted deployment registered it;
+  every proxy variable, `.netrc` and certificate override stays ignored, there is no retry
+  or fallback, and TLS is verified end to end for `openrouter.ai` (the proxy sees only the
+  tunnel).
+- **Proxy.** R3's reviewed Smokescreen build and entrypoint, unchanged
+  (`openrouter-egress.Dockerfile`, same pins as `deploy/egress/Dockerfile`), under
+  `openrouter_egress_guard.py`. The raw head gate admits only `CONNECT openrouter.ai:443
+  HTTP/1.1` with one exact `Host`; anything else gets 403 before any lookup. Smokescreen's ACL
+  allows one domain, `--deny-range` refuses every non-public IPv4 and all IPv6, and the guard's
+  Layer N admits only the assistant inbound and the resolver plus tcp/443 to a public IPv4
+  outbound.
+- **Resolver.** CoreDNS with R3's Corefile: forwards only `openrouter.ai. IN A`; everything else
+  REFUSED; no cache.
+- **Host table `inet clm_r22o`** (`clm_r22o.nft`, values in `clm_r22o.vars`). Drops all forwarding
+  from or to `clm-ao-ctl`; on `clm-ao-up` allows only the proxy to a public IPv4 tcp/443 and the
+  resolver to the VPC resolver on 53, plus replies, and NATs exactly those two flows. Docker does
+  not masquerade `clm-ao-up`, so without the table there is no internet path.
+- **Boot and loss fail closed.** As E1: both containers have restart `no`; only
+  `clm-r22o-egress.service` starts them, after `clm-r22o-egress-firewall` loaded the table,
+  `clm-r22o-firewall-watch` runs and the live table equals the reviewed file. The watcher
+  stops both within about a second when the table is removed or changed, or when it stops
+  itself. The assistant keeps running; a GPT-OSS call then fails and the answer comes from the
+  case data.
+
+**Residual risk, PROPOSED for the owner to accept (not yet accepted; QG P2-2).** The proxy
+admits only `CONNECT openrouter.ai:443` and then relays an opaque TLS tunnel to whatever public
+IPv4 the VPC resolver returns for `openrouter.ai` (a Cloudflare edge address). It cannot see or
+enforce the TLS server name inside that tunnel. So:
+
+- the reviewed client is protected: it verifies the certificate for `openrouter.ai`, so no request
+  data leaves without a valid `openrouter.ai` certificate, even after a poisoned DNS answer;
+- a buggy or compromised assistant process is not contained to OpenRouter: through the same
+  `CONNECT openrouter.ai:443` it could reach any other site fronted by the same Cloudflare edge by
+  sending a different TLS server name (domain fronting). The proxy limits the first hop, not the
+  final service;
+- the exact-host gate, the one-domain ACL, the exact-name resolver and the host table still stop
+  every other host, port, protocol and private or IPv6 range.
+
+The owner's acceptance of this residual is a pre-activation item (with the OpenRouter
+transmission decision), alongside the E1-style VM matrices for this lane.
+
+## Install (AWS host operator only, after the owner's approval)
+
+1. Host preflight: `UPLINK_IF` is the uplink (`ens5`); `172.30.246.0/29` and `172.30.247.0/29`
+   are free (`ip -4 route`, `docker network ls`); the VPC resolver is `172.26.0.2`.
+2. Build the image from the repository root and record its digest:
+   `docker buildx build --platform linux/amd64 --build-context r3=deploy/egress -f apps/assistant/deploy/egress/openrouter-egress.Dockerfile -t <image> apps/assistant/deploy/egress`.
+   The build runs R3's entrypoint tests and fails on any failure.
+3. Copy `clm_r22o.nft` and `clm_r22o.vars` to `/etc/clm/r22o/` (root, 0600); `clm_r22o_watch.py`
+   and `clm_r22o_stop_egress.sh` to `/usr/local/lib/clm-r22o/` (0755); the three `clm-r22o-*`
+   units to `/etc/systemd/system/`.
+4. `systemctl daemon-reload`, `systemctl enable --now clm-r22o-egress-firewall`,
+   `systemctl enable --now clm-r22o-firewall-watch`, `systemctl enable clm-r22o-egress`.
+5. Add to `compose.env`: `OPENROUTER_EGRESS_IMAGE` (by digest),
+   `ASSISTANT_GPTOSS_DAILY_CAP_MICRO_USD` and the remote-profile names the overlay lists. No key.
+6. `compose.yml`, `compose.mongo.yml`, `compose.assistant.yml`, `compose.assistant-openrouter.yml`
+   (for both models: `compose.assistant-provider.yml` before it and `compose.assistant-both.yml`
+   after it); `up -d --no-start openrouter-dns openrouter-egress`, then
+   `systemctl start clm-r22o-egress`; recreate the assistant as its own lane requires.
+7. `verify_openrouter_egress.sh`: every line PASS. Re-run R3's `verify_host_firewall.sh` and, for
+   both models, `verify_assistant_egress.sh <compose.env>`.
+
+## Recovery
+
+Neither container comes back on its own after a fail-closed stop. Look for
+`CLM_R22O_FIREWALL_LOSS`, `CLM_R22O_EGRESS_STOPPED` and the guard's
+`CLM_R22O_LAYER_N_FAIL_CLOSED` in `journalctl -u clm-r22o-egress-firewall -u
+clm-r22o-firewall-watch -u clm-r22o-egress` and `docker logs`. Restore the reviewed table if it
+changed, `systemctl restart clm-r22o-egress-firewall clm-r22o-firewall-watch`, then
+`systemctl restart clm-r22o-egress`, then `verify_openrouter_egress.sh`.
+
+## Evidence
+
+Local, mocked and static only (`tests/test_openrouter_egress.py`): guard rendering and refusals,
+table and vars agreement, the overlay, the client's proxy (a loopback stand-in checks the exact
+CONNECT head against R3's gate rules), and the start-up refusals. No VM harness run yet: the
+connectivity, robustness and boot matrices E1 ran must be run for this lane before installation.

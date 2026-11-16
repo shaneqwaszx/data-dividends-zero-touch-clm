@@ -16,6 +16,8 @@ from uuid import UUID
 import certifi
 import httpx
 import pytest
+from pydantic import SecretStr, ValidationError
+
 from app import composition
 from app.config import Settings
 from app.connectors import goldtier_xpi
@@ -30,7 +32,6 @@ from app.connectors.goldtier_xpi import (
     goldtier_tls_context,
 )
 from app.connectors.goldtier_xpi_models import XpiCreateCustomerRequest, XpiCustomerSearchRequest
-from pydantic import SecretStr, ValidationError
 
 FQDN = "goldtier.r3-test.invalid"
 PROXY = "http://clm-goldtier-egress:4750"
@@ -91,7 +92,7 @@ def _record_clients(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
     return created
 
 
-# --- B-1: the proxy URL reaches the GoldTier client only -------------------------------------------
+# --- B-1: the proxy URL reaches the GoldTier client only ------------------------------------------
 
 
 def test_b1_proxy_url_is_passed_to_the_goldtier_client(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -140,7 +141,7 @@ def test_b1_and_b7_egress_settings_are_read_only_by_the_goldtier_path() -> None:
     assert acra and all("proxy" not in p.read_text(encoding="utf-8").lower() for p in acra)
 
 
-# --- B-2: hostile environment is ignored -------------------------------------------------------------
+# --- B-2: hostile environment is ignored ----------------------------------------------------------
 
 HOSTILE_ENV = {
     "HTTP_PROXY": "http://10.0.0.66:3128",
@@ -184,7 +185,7 @@ def test_b2_trust_store_is_explicit_and_never_from_openssl_default_paths(
     assert default.cert_store_stats()["x509_ca"] > 0
 
 
-# --- B-3: TLS verification can never be disabled -----------------------------------------------------
+# --- B-3: TLS verification can never be disabled --------------------------------------------------
 
 
 @pytest.mark.parametrize("ca_file", [None, certifi.where()])
@@ -204,7 +205,7 @@ def test_b3_explicit_ca_file_replaces_rather_than_extends_the_bundle(tmp_path: P
     assert goldtier_tls_context(str(single)).cert_store_stats()["x509_ca"] == 1
 
 
-# --- B-4: unsafe egress configuration refuses to start -----------------------------------------------
+# --- B-4: unsafe egress configuration refuses to start --------------------------------------------
 
 
 def test_b4_complete_staging_egress_configuration_starts() -> None:
@@ -268,7 +269,7 @@ def test_b4_half_configured_local_egress_refuses_to_start(overrides: dict[str, o
         )
 
 
-# --- B-5: proxy failure is controlled, and only the proxy is ever contacted ---------------------------
+# --- B-5: proxy failure is controlled, and only the proxy is ever contacted -----------------------
 
 
 class _Proxy:
@@ -352,7 +353,7 @@ def test_b5_mutation_through_a_failing_proxy_is_uncertain_not_replayed(contacts:
     assert FQDN not in contacts
 
 
-# --- B-6: Mock ignores egress settings entirely -------------------------------------------------------
+# --- B-6: Mock ignores egress settings entirely ---------------------------------------------------
 
 
 def test_b6_mock_mode_builds_no_sandbox_client(monkeypatch: pytest.MonkeyPatch) -> None:

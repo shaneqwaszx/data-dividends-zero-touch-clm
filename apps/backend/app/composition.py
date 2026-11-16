@@ -32,6 +32,7 @@ from app.connectors.acra_sandbox import (
 )
 from app.connectors.errors import AcraConfigurationError
 from app.connectors.goldtier import GoldTierConnector, GoldTierRequestMapper
+from app.connectors.goldtier_read_budget import GoldTierReadBudget
 from app.connectors.goldtier_xpi import (
     GoldTierXpiConfigurationError,
     GoldTierXpiHttpTransport,
@@ -149,6 +150,7 @@ def build_onboarding_service(
     policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
     registry_snapshot_repository: RegistrySnapshotRepository | None = None,
     goldtier_transport: GoldTierXpiHttpTransport | None = None,
+    goldtier_read_budget: GoldTierReadBudget | None = None,
 ) -> OnboardingService:
     """Compose the explicitly configured GoldTier dialect with no runtime fallback."""
 
@@ -215,12 +217,14 @@ def build_onboarding_service(
                 timeout_seconds=active_settings.goldtier_sandbox_timeout_seconds,
                 max_response_bytes=active_settings.goldtier_sandbox_max_response_bytes,
                 allow_writes=active_settings.goldtier_sandbox_allow_writes,
+                write_policy=active_settings.goldtier_sandbox_write_policy(),
             ),
             transport=goldtier_transport
             or HttpxGoldTierXpiTransport(
                 proxy_url=active_settings.goldtier_sandbox_egress_proxy_url or None,
                 ca_file=active_settings.goldtier_sandbox_tls_ca_file or None,
             ),
+            read_budget=goldtier_read_budget,
         )
         goldtier_mapper = GoldTierXpiRequestMapper()
         entity_resolver = OnboardingIntelligenceService()

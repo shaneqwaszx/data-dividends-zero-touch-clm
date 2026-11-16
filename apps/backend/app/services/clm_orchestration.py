@@ -552,7 +552,7 @@ class ClmOrchestrationService:
                 )
             existing_confirmation = case.target_dispatch_confirmation
             self._refuse_unsupported_registry_evidence(case)
-            if not self._cases.target_writes_enabled and not any(
+            if not self._cases.target_writes_permitted(case.source_case_id) and not any(
                 operation in {"SHELL", "POLICY", "AMEND"}
                 for operation in self.attempted_target_operations(case_id=case_id)
             ):
@@ -681,7 +681,9 @@ class ClmOrchestrationService:
                     code="CLM_TARGET_CONFIRMATION_REQUIRED",
                     message="A current frozen-review confirmation is required.",
                 )
-            if before_first_write and not self._cases.target_writes_enabled:
+            if before_first_write and not self._cases.target_writes_permitted(
+                snapshot.target_input.source_case_id
+            ):
                 raise ClmRequestError(
                     code="CLM_TARGET_WRITES_DISABLED",
                     message=TargetWritesDisabledError.public_message,

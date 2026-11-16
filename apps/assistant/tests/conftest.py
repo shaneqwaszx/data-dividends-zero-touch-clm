@@ -131,10 +131,13 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
 from ai_assistant import (  # noqa: E402
     anthropic_runtime,
+    budget,
     key_sources,
+    openrouter,
     remote_test,
     synthetic_eligibility,
 )
+from ai_assistant import config as assistant_config  # noqa: E402
 from ai_assistant.config import AiAssistantSettings  # noqa: E402
 
 AiAssistantSettings.model_config = {**AiAssistantSettings.model_config, "env_file": None}
@@ -156,6 +159,27 @@ def exact_lines_unless_a_test_opts_in() -> Iterator[None]:
         yield
 
 
+# The value the code ships with, read before any test changes it (test_d129_transmission_gate).
+SHIPPED_TRANSMISSION_DECISION = assistant_config.HOSTED_TRANSMISSION_DECISION
+# D-138 A1: OpenRouter's own transmission decision, as shipped.
+SHIPPED_OPENROUTER_TRANSMISSION_DECISION = assistant_config.HOSTED_OPENROUTER_TRANSMISSION_DECISION
+
+
+@pytest.fixture(scope="session", autouse=True)
+def hosted_tests_run_as_if_d129_were_accepted() -> Iterator[None]:
+    """The code ships with D-129 recorded for Anthropic and OpenRouter's decision unset. Tests of
+    the hosted modes run as if both were accepted; the gate's own tests set None."""
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("ai_assistant.config.HOSTED_TRANSMISSION_DECISION", "D-129")
+        # D-138 A1: and as if OpenRouter's own transmission decision were recorded (its gate's
+        # tests set None).
+        patch.setattr(
+            "ai_assistant.config.HOSTED_OPENROUTER_TRANSMISSION_DECISION", "D-129-OPENROUTER-TEST"
+        )
+        yield
+
+
 @pytest.fixture(autouse=True)
 def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """Every test starts with no .env key, empty HR key stores and no HR session check."""
@@ -168,6 +192,11 @@ def fresh_credentials(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     synthetic_eligibility._tickets.clear()  # D-095 tickets never carry over between tests
     # R2.2: no test starts as a registered hosted deployment (a fresh process starts none).
     monkeypatch.setattr(anthropic_runtime, "_hosted", None)
+    # D-134 (proposed): nor as a registered hosted GPT-OSS deployment or with a daily ceiling.
+    monkeypatch.setattr(remote_test, "_hosted", None)
+    # D-138 A1 (proposed): nor with a registered hosted OpenRouter egress proxy.
+    monkeypatch.setattr(openrouter, "_hosted_proxy", None)
+    monkeypatch.setattr(budget, "_daily_ceilings", {})
 
 
 @pytest.fixture(autouse=True)
@@ -242,3 +271,30 @@ def no_remote_connections() -> Iterator[list[str]]:
         patch.setattr(asyncio.base_events.BaseEventLoop, "create_connection", create_connection)
         yield attempts
     assert attempts == [], "a test tried to reach a remote host"
+
+
+class HostedEligibility:
+    """D-139 test seam for the hosted service's external-inference check: ``refusal`` None
+    admits the case (and issues the D-095 ticket, as the real check does on success); a code
+    refuses it. The real provenance check is exercised in test_hosted_case_policy.py."""
+
+    def __init__(self) -> None:
+        self.refusal: str | None = None
+        self.calls: list[dict[str, object]] = []
+
+    def __call__(self, snapshot, facts, messages, entries, *, digests=None, viewer=True):  # type: ignore[no-untyped-def]
+        from ai_assistant.synthetic_eligibility import approve
+
+        self.calls.append({"viewer": viewer, "digests": digests})
+        if self.refusal is None:
+            approve(messages)
+        return self.refusal
+
+
+@pytest.fixture
+def hosted_case_eligible(monkeypatch: pytest.MonkeyPatch) -> HostedEligibility:
+    from ai_assistant import main as assistant_main
+
+    seam = HostedEligibility()
+    monkeypatch.setattr(assistant_main, "synthetic_eligibility_check", seam)
+    return seam

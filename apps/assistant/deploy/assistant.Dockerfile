@@ -9,6 +9,10 @@ COPY apps/assistant/deploy/model_profiles.hosted.json deploy/
 COPY apps/assistant/ai_assistant ai_assistant
 COPY apps/assistant/assistant_hosting assistant_hosting
 COPY apps/assistant/scripts/storage/backup_stores.py scripts/storage/backup_stores.py
+# D-138 R4: the operator's ledger commands (LEDGER_RECOVERY.md): reconcile, resume-after-review,
+# owner-close, and the non-destructive archive of a format-1 store.
+COPY apps/assistant/scripts/budget_ledger.py scripts/budget_ledger.py
+COPY apps/assistant/scripts/storage/archive_accounting_stores.py scripts/storage/archive_accounting_stores.py
 # R2.2: the qualification harness the service starts for a paid Claude qualification (D-093).
 COPY apps/assistant/assistant_eval assistant_eval
 COPY apps/assistant/scripts/qualify_model.py scripts/qualify_model.py

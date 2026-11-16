@@ -1,0 +1,19 @@
+# Hosted GPT-OSS egress host-table watcher (D-138 A1 PROPOSED, LOCAL DESIGN CANDIDATE). Install:
+# /etc/systemd/system/. Detects loss or change of `table inet clm_r22o` (nft monitor events plus
+# a 1 s periodic check) and stops the egress proxy and resolver. It never re-applies the table or
+# restarts them: recovery is an operator action. Killing or stopping the watcher also stops them.
+[Unit]
+Description=CLM hosted GPT-OSS egress host-table watcher (fail closed)
+After=clm-r22o-egress-firewall.service docker.service
+# As E1 P2-1: never give up restarting. Each exit stops the egress again (ExecStopPost).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /usr/local/lib/clm-r22o/clm_r22o_watch.py --table-file /etc/clm/r22o/clm_r22o.nft --containers clm-staging-openrouter-egress,clm-staging-openrouter-dns
+ExecStopPost=/usr/local/lib/clm-r22o/clm_r22o_stop_egress.sh watcher-stop
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

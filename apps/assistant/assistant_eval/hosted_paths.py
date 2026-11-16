@@ -126,7 +126,7 @@ def _list_item(case: CaseInputs) -> dict[str, Any]:
 
 
 class _FixtureGate:
-    """The hosted service's R2.1 gate, here admitting the one synthetic fixture case."""
+    """The hosted service's case policy object (D-139), here for the one synthetic fixture case."""
 
     def __init__(self, case_id: str) -> None:
         self.case_id = case_id

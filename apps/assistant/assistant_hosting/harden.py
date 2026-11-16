@@ -7,11 +7,11 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from ai_assistant import anthropic_runtime
+from ai_assistant import anthropic_runtime, openrouter, remote_test
 from ai_assistant.config import AiAssistantSettings
 
 from . import provider
-from .eligibility import CaseGate
+from .eligibility import CasePolicy
 from .guard import HostedGuard
 from .profile import limits
 from .readiness import Readiness
@@ -24,10 +24,10 @@ def harden(
     environ: Mapping[str, str] | None = None,
     **readiness: Any,
 ) -> FastAPI:
-    # RD-1: every case the assistant loads must be an approved one (load_case in
-    # ai_assistant.main). Malformed settings raise here; refusals() stops them before this.
+    # D-139: the hosted external-inference policy (main.py checks each answer's exact messages
+    # before any call; model-free guidance serves every case the backend lets the user read).
     env = os.environ if environ is None else environ
-    app.state.case_gate = CaseGate.from_env(env)
+    app.state.case_gate = CasePolicy.from_env(env)
     # PR #178 dashboard insights: the route refuses itself on the hosted service, whatever
     # reaches it (the guard refuses it first; QG F-1). No model is selected or called.
     app.state.dashboard_insights_disabled = True
@@ -42,6 +42,20 @@ def harden(
             or registered.lifetime_ceiling_micro_usd != provider.ceiling(env)
         )
     ):
+        raise ValueError("hosted provider registration does not match this configuration")
+    # D-134 (proposed): the same for the OpenRouter mode and its registered daily ceiling.
+    gptoss = provider.openrouter_enabled(env)
+    gptoss_registered = remote_test.hosted_deployment()
+    if gptoss != (gptoss_registered is not None) or (
+        gptoss_registered is not None
+        and (
+            [gptoss_registered.origin] != [o.rstrip("/") for o in settings.allowed_origins]
+            or gptoss_registered.daily_ceiling_micro_usd != provider.daily_cap(env)
+        )
+    ):
+        raise ValueError("hosted provider registration does not match this configuration")
+    # D-138 A1: and its egress proxy, registered exactly as configured, or not at all.
+    if openrouter.hosted_proxy() != (provider.openrouter_proxy(env) if gptoss else None):
         raise ValueError("hosted provider registration does not match this configuration")
     selector = app.state.model_selector
     checks = Readiness(
@@ -72,5 +86,6 @@ def harden(
         allowed_origins=frozenset(origin.rstrip("/") for origin in settings.allowed_origins),
         selector=selector,
         claude=claude,
+        openrouter=gptoss,
     )
     return app

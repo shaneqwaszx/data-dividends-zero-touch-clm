@@ -32,10 +32,22 @@ It is worked out from the call rows in the same ``BEGIN IMMEDIATE`` transaction 
 lifetime check, so it holds across threads, processes and restarts, survives reconciliation
 (which never deletes a call) and needs no schema change: the "reset" at midnight is only the
 window moving on; no row, total or event is erased. It does not depend on which key is used.
+
+Hard daily ceiling (D-134, proposed; standing since the owner's 2026-11-15 directive). The
+OpenRouter profile always has a standing ceiling of US$3.00 a Singapore day
+(STANDING_DAILY_CEILINGS, GPT_OSS_DAILY_CEILING_MICRO_USD), on a development machine too. A
+deployment may also register, once per process, a lower one (``register_daily_ceiling``). Every
+admission and every daily reading of a ledger of that profile then uses the lowest of the
+configured daily cap and the ceilings, inside the same transaction, so no HR value, setting or
+caller can admit more. ``attempts`` on an
+admission is how many times the caller may send the request (its retries included): the worst
+case counted is the reservation times the attempts. The Anthropic profile has no such ceiling
+here (D-102 is unchanged).
 """
 
 import secrets
 import sqlite3
+import threading
 import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing, closing, suppress
@@ -105,6 +117,10 @@ MAX_MICRO_USD = 10**12
 # nothing else is set. D-098: an HR or environment setting may be above or below it (no US$1
 # ceiling); the key's own verified limit and the lifetime cap still apply, the strictest wins.
 DEFAULT_DAILY_CAP_MICRO_USD = 1_000_000
+# D-134 (proposed): the most a deployment's registered GPT-OSS ceiling may be, per Singapore day.
+GPT_OSS_DAILY_CEILING_MICRO_USD = 3_000_000
+# The most times one admitted request may be sent (the adapters send once: no retries).
+MAX_ATTEMPTS = 4
 SINGAPORE = timezone(timedelta(hours=8), "Asia/Singapore")
 _MILLION = Decimal(1_000_000)
 
@@ -448,6 +464,46 @@ def next_singapore_reset_ms(now_ms: int) -> int:
     return int((start + timedelta(days=1)).timestamp() * 1000)
 
 
+_daily_ceilings: dict[str, int] = {}
+_daily_ceilings_lock = threading.Lock()
+# Owner directive 2026-11-15 (real inference): the GPT-OSS ledger never admits more than US$3.00
+# a Singapore day in ANY deployment, development machine included. This standing ceiling is not
+# process state: nothing registers, raises or removes it. A deployment may only register a lower
+# one (register_daily_ceiling); the lower of the two applies.
+STANDING_DAILY_CEILINGS: dict[str, int] = {OPENROUTER_PROFILE_ID: GPT_OSS_DAILY_CEILING_MICRO_USD}
+
+
+def register_daily_ceiling(micro_usd: int) -> None:
+    """D-134: this process's hard daily ceiling for the OpenRouter profile. Once per process and
+    with the same value only (a second, different value is refused, never applied); 1 micro-USD
+    to US$3.00. Nothing in the service changes it afterwards."""
+
+    if type(micro_usd) is not int or not 1 <= micro_usd <= GPT_OSS_DAILY_CEILING_MICRO_USD:
+        raise LedgerError("INVALID_INPUT", "the daily ceiling is 1 to 3,000,000 micro-USD")
+    with _daily_ceilings_lock:
+        current = _daily_ceilings.get(OPENROUTER_PROFILE_ID)
+        if current is not None and current != micro_usd:
+            raise LedgerError("CEILING_REGISTERED", "another daily ceiling is registered")
+        _daily_ceilings[OPENROUTER_PROFILE_ID] = micro_usd
+
+
+def daily_ceiling(profile_id: str) -> int | None:
+    """The hard daily ceiling of a ledger profile: the lower of its standing ceiling and any
+    ceiling this process registered (None: the profile has neither, as for Anthropic)."""
+
+    found = [
+        value
+        for value in (STANDING_DAILY_CEILINGS.get(profile_id), _daily_ceilings.get(profile_id))
+        if value is not None
+    ]
+    return min(found) if found else None
+
+
+def _within_ceiling(cap: int, profile_id: str) -> int:
+    ceiling = daily_ceiling(profile_id)
+    return cap if ceiling is None else min(cap, ceiling)
+
+
 def daily_cap_for(setting: int | None) -> int | None:
     """The daily cap to enforce: the default, or the configured value; None when the setting
     is not a micro-USD count within 0..MAX_MICRO_USD (the caller refuses)."""
@@ -469,6 +525,8 @@ class DailyStatus:
     open_calls: int
     day_started_at: int
     next_reset_at: int
+    # D-134: the registered hard ceiling the cap was held to (None: none for this ledger).
+    ceiling: int | None = None
 
     @property
     def committed(self) -> int:
@@ -883,13 +941,15 @@ class BudgetLedger:
             now = self._now()
             start = singapore_day_start_ms(now)
             settled, reserved, open_calls = _daily_committed(connection, start)
+            profile = self._meta(connection)["profile_id"]
             return DailyStatus(
-                cap=0 if cap is None else cap,
+                cap=0 if cap is None else _within_ceiling(cap, profile),
                 settled_today=settled,
                 open_reserved=reserved,
                 open_calls=open_calls,
                 day_started_at=start,
                 next_reset_at=next_singapore_reset_ms(now),
+                ceiling=daily_ceiling(profile),
             )
 
         result: DailyStatus = self._transaction(read)
@@ -954,6 +1014,7 @@ class BudgetLedger:
         profile_id: str | None = None,
         purpose: str = "chat",
         session_call_limit: int | None = None,
+        attempts: int = 1,
     ) -> str:
         """Admit one call atomically, or raise ``BudgetRefusedError`` with a closed outcome.
         The daily allowance (D-095) always applies: ``daily_cap_micro_usd`` (the default when
@@ -963,11 +1024,18 @@ class BudgetLedger:
         D-118 S2/S3: every call belongs to the open session and must fit its allowance; chat
         calls also fit ``session_call_limit`` (counted in the session, so a restart never
         resets it). The first session opens here only when the ledger never had one; an
-        exhausted session is never renewed here."""
+        exhausted session is never renewed here.
+
+        D-134: ``attempts`` is how many times the caller may send this request; the lifetime,
+        daily and session checks count the reservation that many times. A registered daily
+        ceiling for this ledger's profile applies inside this transaction."""
 
         daily_cap = daily_cap_for(daily_cap_micro_usd)
         if daily_cap is None:
             raise BudgetRefusedError("refused_daily_cap", reservation.micro_usd)
+        if type(attempts) is not int or not 1 <= attempts <= MAX_ATTEMPTS:
+            raise BudgetRefusedError("refused_reservation")
+        worst_case = reservation.micro_usd * attempts
         if not ENDPOINT_SLUG.fullmatch(endpoint_slug) or reservation.micro_usd <= 0:
             raise BudgetRefusedError("refused_reservation")
         if purpose not in PURPOSES or (
@@ -994,13 +1062,13 @@ class BudgetLedger:
                 refused = "refused_breaker"
             elif open_calls >= max_in_flight:
                 refused = "refused_busy"
-            elif committed + reservation.micro_usd > meta["cap_micro_usd"]:
+            elif committed + worst_case > meta["cap_micro_usd"]:
                 refused = "refused_cap"
             else:
                 settled, reserved, _ = _daily_committed(
                     connection, singapore_day_start_ms(self._now())
                 )
-                if settled + reserved + reservation.micro_usd > daily_cap:
+                if settled + reserved + worst_case > _within_ceiling(daily_cap, meta["profile_id"]):
                     refused = "refused_daily_cap"
             session = None
             if refused is None:
@@ -1011,7 +1079,7 @@ class BudgetLedger:
                 ):
                     self._start_session(connection, SESSION_DEFAULT_MICRO_USD)
                     session = _session_status(connection)
-                if session is None or session.committed + reservation.micro_usd > session.allowance:
+                if session is None or session.committed + worst_case > session.allowance:
                     refused = "refused_session_allowance"
                 elif (
                     purpose == "chat"
@@ -1502,6 +1570,7 @@ class BudgetedChatModel:
         daily_cap_micro_usd: int | None = None,
         purpose: str = "chat",
         session_call_limit: int | None = None,
+        attempts: int = 1,
     ) -> None:
         self._inner = inner
         self._ledger = ledger
@@ -1511,6 +1580,8 @@ class BudgetedChatModel:
         # D-118: what the call is for, and the chat-call limit of the session.
         self.purpose = purpose
         self.session_call_limit = session_call_limit
+        # D-134: how many times this model may send one request (the adapters send once).
+        self._attempts = attempts
 
     def __repr__(self) -> str:
         return f"BudgetedChatModel({self._inner!r})"
@@ -1544,6 +1615,7 @@ class BudgetedChatModel:
             profile_id=self.profile_id,
             purpose=self.purpose,
             session_call_limit=self.session_call_limit,
+            attempts=self._attempts,
         )
         return reservation_id, reservation
 

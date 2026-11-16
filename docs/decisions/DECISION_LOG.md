@@ -963,6 +963,10 @@ acceptance and independent gate. Not ACRA ownership, a verified holding, legal U
 (Q-004), Marketplace relationship or denominator semantics (Q-012), person identity (Q-019)
 or Live evidence.
 
+## D-086a - case-sticky OPQ ownership scenario (amends D-086; candidate)
+
+Owner-approved isolated assignment (G4). The operator selector chooses the OPQ variant only at a case's first overlay analysis; that case keeps its recorded variant on every later analysis. An unknown recorded variant gives no overlay. Stickiness is bounded: the recorded variant is read from the record and its four prior-analysis snapshots, and once five or more consecutive analyses without an overlay (including manual declarations) have pushed it out, the next source load uses the current selector. A case without a durable D-120 ledger then relies on that history for POC replay refusal, so a change of the effective selector (including first applying `deploy/compose.acra-ownership.yml`) is permitted only after the pre-change checks of `docs/demo/FIVE_LAYER_ACRA_HYBRID_DEMO.md` section 7c, and is blocked while any ledgerless OPQ case exists or that cannot be confirmed. A binding beyond that history needs a durable field (owner decision, not taken). The selector is never user-supplied and never a case field written by a user. Official-evidence gate, provenance labels and D-112 O7 unchanged.
+
 ## D-087 - declared intermediate issuer officer roles as POC descriptive context (candidate)
 
 Owner decision, 2026-10-25, before PR #111 merges. It extends the D-085 scenario-declared
@@ -2573,10 +2577,22 @@ Status: `USER_AUTHORIZED_POC`. Not sponsor-confirmed. Design in
 | I6 | **Privacy.** No customer names, registration numbers, documents or case identifiers are sent to the model, and prompt and answer text are not stored. |
 | I7 | **API-key models (owner-directed 2026-11-13, "when i connect to the api key i can use both the dashboard ai and ai assistant ai chatbot"; "fall back to local model if one is available").** This supersedes I3's refusal of remote profiles. When the active model is an API-key model (Claude, GPT-OSS) and external models may answer in their own words (D-122), it writes the insights. Each call gets the single-use ticket for exactly its messages and passes that model's own readiness, spending limits and ledger, unchanged. A paid model gets one try. If it refuses, fails or its reply is rejected, the local baseline model writes them, when one is configured on a loopback URL; otherwise the panel is hidden (I5). Without D-122 only the local model is used. An IT-configured model on another endpoint is never used. **Shared allowance (owner-accepted 2026-11-13, "share the API key"):** a paid dashboard call is recorded in that provider's ledger as a chat call, so it counts against the same call limit and spending allowance as the chatbot. Claude runs one paid call at a time, so a chatbot question sent while a dashboard call runs may be refused as busy; the reverse falls back to the local model. The chatbot's code is unchanged. I4 and I6 are unchanged: only findings are sent, never customer data. D-122 A4 applies: synthetic POC data only. |
 
-## D-129 - Hosted Claude data transmission (PROPOSED, NOT ACTIVE)
+## D-129 - Hosted Claude data transmission (ACCEPTED 2026-11-15, Anthropic only)
 
-Status: `PROPOSED`, awaiting the owner's acceptance. Nothing is sent to Anthropic from the hosted
-service until the owner records it. Draft: `outputs/r22-d130r2-20261113/D129_DRAFT_R3_1_HOSTED_CLAUDE_DATA_TRANSMISSION.md`
+Status: `ACCEPTED` by the owner on 2026-11-15 for Anthropic, terms (a) to (f) of
+`outputs/real-inference-20261115/OWNER_APPROVAL_PACKAGE.md` section 9:
+
+| Term | Accepted |
+|---|---|
+| a | Recipient Anthropic, `claude-sonnet-5-5` only |
+| b | The r3.1 section 2 payloads of eligible synthetic cases (under D-139, cases that pass its R3 check) and the enabled D-130 paths |
+| c | Never sent: user id and display name, staff-written knowledge, raw documents, Mongo data outside the facts, cookies, keys, telemetry, ineligible or unauthorised cases |
+| d | Hosted lifetime ceiling US$5.00, daily cap US$5.00, 20 calls per paid session, hosted workspace limit US$5.00 |
+| e | Synthetic-only input with the visible notice; standard Anthropic retention, no ZDR |
+| f | Egress E1 (`clm_r22`, single pin) |
+
+The owner also accepted C1 to C6 for the first restricted staging qualification (synthetic-only use, existing containment). OpenRouter and GPT-OSS are not covered: they need a D-129 amendment (`HOSTED_OPENROUTER_TRANSMISSION_DECISION`, D-138 A1). Recorded in code as `config.HOSTED_TRANSMISSION_DECISION = "D-129"` (D-138 R1). Before this, nothing was sent to Anthropic from the hosted
+service. This supersedes D-138 R1's and A1's "ships as `None`" statements for Anthropic only; `HOSTED_OPENROUTER_TRANSMISSION_DECISION` still ships as `None`. Recording D-129 does not close release-readiness item R-7: it stays OPEN until the owner's K-9, the C7 activation, and the hosted 5-call qualification on the integrated image. Draft: `outputs/r22-d130r2-20261113/D129_DRAFT_R3_1_HOSTED_CLAUDE_DATA_TRANSMISSION.md`
 (not tracked). It defines the exact payloads of the four hosted Claude chat paths, the OD-G8
 identity rule, the synthetic-only input restriction and the spending caps.
 
@@ -2723,7 +2739,197 @@ Also disclosed by the gate and fail-closed: inside the R1 window, legacy Submit 
 persistence error while reading the in-flight state surfaces as a 500 (N4). In both
 cases nothing is written to GoldTier.
 
-## D-137 - An advisory ownership review is shown as "Review advised", not green "Complete" (PROPOSED 2026-11-15; amends D-121 display only)
+## D-137 - GoldTier Sandbox write qualification: one bounded write window, disabled by default (OWNER-APPROVED 2026-11-15, NOT ACTIVE)
+
+Status: owner-approved on 2026-11-15 as the controlled GoldTier Sandbox write capability for
+the FYP staging environment. Authority: `USER_AUTHORIZED_POC`. **Not active and not
+sponsor-confirmed. It authorises no Sandbox write:** the deployment and each write window
+are authorised separately. Numbering: D-133 to D-135 are held by open proposals. It narrows
+D-126 P1. All other D-126 rows stand. It also leaves D-131 (R3 egress) and D-136 (workflow
+send hold) unchanged.
+
+D-126 open items, as decided by the owner on 2026-11-15:
+- Item 2 (Sandbox prior-case ledger proof) is closed by W6.
+- Items 1 (paused-state wording), 3 (stale `initial_target_search` read model after a void) and
+  4 (the read-only recovery exception for `check_uncertain_target_status` and
+  `verify_completed_target`) are accepted under the stated staging limitations. Item 4 keeps
+  the exception: one read-only Search, bound to the case's own ledger entry.
+- Related-party Policy and Amend stay blocked (`BLOCKED_CHILD_ID_LIFECYCLE`, Q-006 open) until
+  the `childId` contract is established from existing evidence or authoritative documentation.
+
+| # | Decision |
+|---|---|
+| W1 | **One window, four parts.** In staging, a Sandbox write needs all four: `GOLDTIER_SANDBOX_ALLOW_WRITES=true`; `GOLDTIER_SANDBOX_WRITE_OPERATIONS`, set explicitly (a subset of `SHELL`, `POLICY`, `AMEND`); `GOLDTIER_SANDBOX_WRITE_CASE_REFERENCES`, 1 to 10 exact `source_case_id` values; and `GOLDTIER_SANDBOX_WRITES_NOT_AFTER`, a time-zoned end no more than 24 hours after startup. A missing or malformed part refuses startup. Related-party operations are not admitted. Outside staging, the plain switch behaves exactly as before. |
+| W2 | **Default off.** Every default keeps writes off. In addition, `deploy/compose.yml` and `deploy/compose.goldtier-egress.yml` pin `GOLDTIER_SANDBOX_ALLOW_WRITES: "false"` in the backend environment. Opening a window on the host therefore also needs the window overlay `deploy/compose.goldtier-write-window.yml`, applied only for that window with the `dcgw` helper. That overlay changes only these four backend values; its three window values are required and come from a separate window env file, never from `compose.env`. Closing the window recreates the backend through `dcg`, which restores the literal `"false"`. |
+| W3 | **Checked before the ledger.** The window is checked before any confirmation is recorded and before the ledger marks an attempt. That covers the two orchestration send checks and every incremental Shell, Policy and Amend step. The legacy one-shot path cannot pause between steps, so it starts only when the window admits all three operations for the case. An unlisted case is refused with `CLM_TARGET_WRITES_DISABLED`; nothing is recorded or burned and no request leaves. The connector repeats the case and operation check as defence in depth. It does not repeat the end-time check, so an expiry between the two checks can never become a burned, failed operation. |
+| W4 | **Ending is a pause, not a failure.** When the window ends, or the next operation is outside it, the next mutation is refused and the submission pauses in `RECOVERY_PENDING`, exactly as in D-126 P1. The same submission resumes without replay in a later window. Search, exact-ID readback, recheck and uncertain-outcome reconciliation stay read-only and are never limited by the window. A window that has already ended is accepted at startup, so a restart never takes the site down; it simply keeps writes off. An empty end-time variable means no end time in every environment, so staging still refuses it. |
+| W5 | **Unchanged.** The target ledger, idempotency keys, no-replay, uncertain-outcome handling, D-126 P2 evidence binding (only official Marketplace Mock identities reach Sandbox), RM and HR/Director governance, D-136 and backend-only credentials. The HR console status now reports the live window. |
+| W6 | **Prior-case reuse needs ledger proof in every mode** (closes D-126 open item 2). Sandbox previously reused a prior case on accepted evidence alone. Now a prior case is reused only when it holds a finalized, read-back-verified ledger entry for the *current* provider mode, bound to that case and party. That is the same proof Mock already required. Otherwise the case follows the normal Search outcome. |
+
+Before any window is opened, all of the following are required:
+- the read-only A7 proof succeeds;
+- the sponsor's written write permission and the exact test operation and case are recorded;
+- every listed case is a synthetic test case whose identity is official Marketplace Mock evidence;
+- the D-126 open items are closed or owner-accepted (paused-state wording, Sandbox prior-case ledger proof, the
+  stale `initial_target_search` read model after a void, the recovery exception);
+- the reviewed compose change for the window;
+- explicit owner authorisation for that window;
+- a closing step: the backend is recreated through `dcg` without the window overlay (restoring
+  `"false"`), the window env file is removed, and each write's ledger outcome and readback are
+  recorded.
+
+## D-134 - Hosted model registry: GPT-OSS 120B as a second independently qualified hosted model, with a hard US$3.00 daily ceiling (PROPOSED, NOT ACTIVE)
+
+Status: `PROPOSED`. Local candidate only, mocked providers only, **not independently reviewed**. Nothing here is active: the hosted OpenRouter mode does not exist in the shipped code (`config.HOSTED_OPENROUTER_DECISION = None`, and `assistant_hosting/provider.py` records no pinned address range for `openrouter.ai`). No data was sent to any provider, no key was entered, no paid call was made and no egress file was changed. The owner approved OpenRouter `openai/gpt-oss-120b` for local adapter engineering and mocked tests only. What the owner must approve before any real use is in `outputs/gptoss-registry-20261114/OPENROUTER_RECIPIENT_AND_EGRESS_DECISION.md` (not tracked). D-133 is reserved by the pending eligibility provenance proposal, so this is D-134.
+
+Unchanged: D-091 to D-098 and D-118 on a development machine (decision names, attestations, preflight, per-call verification, ledger, session allowance, the per-session chat-call count); D-099, D-102, D-106, D-107 and D-110 for Claude (US$30.00 lifetime ceiling, US$5.00 daily ceiling, 20 chat calls a session); D-129 and D-130 (hosted Claude and its four chat paths); the dashboard-insights limits; D-132 (case eligibility); RBAC, the safe `404`, provenance and audit. D-098 decision 6a already keeps one active model and never replaces it automatically; that is the no-fallback rule this decision relies on.
+
+| # | Proposal |
+| --- | --- |
+| M1 | **A closed set of hosted provider modes.** `ASSISTANT_HOSTING_PROVIDER` names `anthropic`, `openrouter`, or both separated by a comma. Any other value, a repeated name or an empty part refuses the start (`PROVIDER_MODE_INVALID`). While `config.HOSTED_OPENROUTER_DECISION` is `None` the name `openrouter` is not a known mode at all, so today's behaviour is unchanged. The Anthropic mode's checks are the same conditions as before, and its existing tests pass unchanged |
+| M2 | **The OpenRouter mode starts only when fully configured.** Required, each with its own closed refusal code: the owner's hosted daily ceiling `ASSISTANT_HOSTING_GPTOSS_DAILY_CAP_MICRO_USD` (1 to 3,000,000); exactly one HTTPS origin; the whole remote profile named exactly (D-091, D-092, D-094, the two owner attestations, the approved endpoint `deepinfra/bf16`, valid reasoning settings); and `openrouter.ai` resolving only inside a pinned range recorded in the code. That range is empty, so the mode cannot start until a reviewed change supplies one or replaces the check with the exact-host proxy check. Every other remote, Anthropic, key, proxy and `.env` refusal still applies in this mode |
+| M3 | **One active model, independently qualified, no fallback.** GPT-OSS is selected in the existing AI Models console like any model. It is usable only with its own passing qualification for its current configuration fingerprint and the current qualification basis. Naming both modes never joins them: each keeps its own adapter, key, ledger, limits and qualification. On failure, refusal, a limit or an outage the answer is the existing case-data answer. Nothing calls the other provider |
+| M4 | **Scope: the case chat only.** Hosted GPT-OSS answers the case chat of an approved case (D-132), under D-122. The general chat, Support's chat, "Try with this change" and dashboard insights stay as they are (hosted Claude only where D-130 allows; otherwise no model) |
+| M5 | **No user identifier in a hosted GPT-OSS prompt.** The D-130 OD-G8 rule (`provider_payload.py`) applies to hosted GPT-OSS as to Claude: the viewer is reduced to the role, and the user id and display name are removed from the written turns |
+| B1 | **A hard daily ceiling in the ledger.** The hosting layer registers the ceiling once per process (`budget.register_daily_ceiling`, at most US$3.00, never replaced or raised). Every admission of an OpenRouter-profile ledger in that process then needs: charges of calls closed since the last Singapore midnight + the reservations of all open calls + this call's reservation times its attempts <= min(configured daily cap, ceiling), inside the same `BEGIN IMMEDIATE` transaction as the lifetime, session and one-at-a-time checks. An uncertain outcome is charged its whole reservation, as before. The Anthropic ledger has no such ceiling |
+| B2 | **HR may lower, never raise above the ceiling.** `PUT /budget/controls` refuses a daily limit above the ceiling (`DAILY_CEILING_EXCEEDED`, audited); a stored or configured value above it is never applied |
+| B3 | **The fixed chat-call count is replaced by the budget rule on the hosted deployment only.** There the per-session chat-call count (D-096, D-118) is not applied. The daily ceiling, the US$5.00 session allowance, the lifetime cap, the per-call token caps and one paid call at a time remain. A per-user request rate is added in the chat: 6 requests a minute, and per hour one quarter of the calls a worst-case day admits (ceiling // worst-case reservation // 4 = 3,000,000 // 21,278 // 4 = 35). Over the rate, nothing is sent or reserved and the answer is the case-data one. The rate numbers are a proposal for the owner to confirm; the minute figure is an engineering figure, not a cost figure |
+| C1 | **Console.** The existing GPT-OSS spending view also reports the ceiling, an exhausted day and that no call count applies. It already showed settled today, in flight, remaining today and the next reset (00:00 Asia/Singapore) |
+| Q1 | **Conversation quality, one bounded change.** A request to be told something that only starts with a change verb ("Update me on this case", "Confirm whether the UBO check has run") no longer gets the fixed "I can't make that change" reply. Every request to change, approve, submit or record something still gets it, including one placed behind an informational opening. The scope gate is not changed; its rigidity is recorded as a proposal only |
+
+Owner decisions open before any real use (O-1 to O-9 in the decision paper): the two recipients and the data sent; the egress restriction (no published fixed address range for `openrouter.ai` is recorded in this repository, and none was looked up); key handling; the hosted daily ceiling value; whether the ceiling should also apply on development machines; the rate numbers; the paid requalification; the user notice; activation.
+
+Side effect: `budget.py`, `config.py`, `copilot.py`, `main.py`, `provider_payload.py`, `remote_test.py` and the new `request_rate.py` are model-qualification basis files, so the basis changes from the c2r1 candidate's to `c834755ab5cf0646482638de034ce635d735e4736e50b2e4ad14f58f4ff3f317`. Every earlier Claude or GPT-OSS qualification is out of date on a checkout with this change and must be repeated before activation. The synthetic boundary file is unchanged. (Superseded by D-138 on its candidate: the basis there is `06f0b36248260c7f7da7726d18d1b4664b8da65aad5371d56d7df0c9f0732fcb` and the boundary file gains six benign words.)
+
+## D-138 - Real-inference controls: a D-129 code gate on every hosted provider mode and a standing US$3.00 GPT-OSS day on every deployment (PROPOSED, owner-directed 2026-11-15; renumbered from D-137, which is reserved for GoldTier writes)
+
+Status: `PROPOSED`. Local candidate only, mocked providers only, not yet independently reviewed.
+Owner directive 2026-11-15 ("PROCEED - REAL CLAUDE AND GPT-OSS INFERENCE"), carried on the D-134
+candidate. Not sponsor-confirmed; no provider status changes (nothing is Live).
+
+| # | Rule |
+|---|---|
+| R1 | `config.HOSTED_TRANSMISSION_DECISION` records the owner's acceptance of D-129. It ships as `None`: every hosted provider mode (Anthropic and OpenRouter) refuses the start with `TRANSMISSION_DECISION_REQUIRED`, and both hosted runtimes refuse a registration, so no case content can leave the hosted service. It is set only in a reviewed change that records the acceptance, never by a setting. The model-free hosted service is unaffected |
+| R2 | The GPT-OSS ledger profile has a standing hard ceiling of US$3.00 per Singapore calendar day on every deployment, development machines included (`budget.STANDING_DAILY_CEILINGS`). A deployment may register only a lower one. Admission counts settled spend today, every open reservation and this call's worst case times its attempts, in one `BEGIN IMMEDIATE` transaction (D-134), so on one ledger file concurrency, retries, restarts and a second process cannot exceed it (two launchers with different `BUDGET_LEDGER_PATH` values, or a ledger replaced mid-day by the owner, each count their own day; the provider key's own daily limit is the backstop). HR may lower the daily limit, never raise it above US$3.00. This supersedes D-134's hosted-only scope (its question O-6) and D-098's unbounded daily value for GPT-OSS |
+| R3 | Unchanged and re-asserted by tests: the model can neither change a case nor move money. The CLM backend client sends GET requests only, and no model request offers tools or functions. D-132's case gate, H5 permissions, team scope, the safe `404`, deterministic refusals and the model-free case-data fallback are unchanged. Claude's limits (D-102 US$30.00 lifetime ceiling, US$5.00 daily ceiling, at most 20 calls, the hosted lifetime ceiling) are unchanged |
+| R4 | **Spending-store health (owner request 2026-11-15).** A hosted provider mode starts only when each named provider's D-118 session store is usable or absent. The check is read-only (`assistant_hosting/ledger_health.py`, in `profile.refusals`): it never creates, recovers, migrates or resets a store. Absent is a genuine first start, and the store is created on first use by the existing guarded action (Enable Claude, or the first passing GPT-OSS Test Connection), because its cap needs HR's confirmed workspace limit. A store absent although the append-only model-admin audit shows a passed connection test for that provider is `LEDGER_MISSING_AFTER_USE`, which blocks, so a vanished store is never silently replaced at zero. Blocking codes (unwritable folder or file, corrupt, inconsistent, format-1 `LEGACY_STORE`, unsupported schema, another provider's store, unreadable) refuse the start with exit 78. An open breaker, an open call or an HR reconciliation marker is reported, never blocking. `python -m assistant_hosting.ledger_health` gives the operator the same report. Every code's recovery is in `apps/assistant/deploy/LEDGER_RECOVERY.md`, and none edits a database file. A damaged or missing store is restored alone, never the whole volume, then reconciled against the provider's own usage before paid calls resume. The image now carries `scripts/budget_ledger.py` and `scripts/storage/archive_accounting_stores.py`, so those commands run in a one-off container. The console now shows the store's own refusal behind a failed `ledger.healthy` check. Not a qualification-basis change |
+
+On a development machine D-104 and D-095 continue to govern what may be sent (owner attestations and the
+verified-synthetic eligibility check); D-129 governs the hosted service. Setting R1's constant changes
+`config.py`, a qualification basis file, so the paid qualification must run after it.
+
+### D-138 amendment A1 - Hosted GPT-OSS egress through an exact-host proxy, a provider-scoped transmission gate and a provider-naming notice (PROPOSED, local candidate 2026-11-15)
+
+Status: `PROPOSED`. Local engineering only: mocked providers, static and unit evidence, no VM
+harness run, not installed, not deployed, nothing activated. Not sponsor-confirmed; no provider
+status changes (nothing is Live). Owner direction 2026-11-15: both Claude and GPT-OSS-120B on the
+AWS staging assistant through AI Models, interchangeable, with every existing control kept. It
+implements the design in `outputs/real-inference-20261115/OWNER_APPROVAL_PACKAGE.md` §4.2. D-139 is
+not used.
+
+| # | Rule |
+|---|---|
+| A1-R1 | **No address pin for OpenRouter.** OpenRouter publishes no fixed inbound range, and Cloudflare's ranges would admit any Cloudflare-fronted site, so D-134's empty `OPENROUTER_INBOUND_V4` and `OPENROUTER_PIN_REQUIRED` are removed. For the OpenRouter mode only, the start-up check is instead: `ASSISTANT_HOSTING_OPENROUTER_PROXY` exactly `http://<IPv4 inside 172.30.246.0/29>:4750`, never the network, gateway or broadcast address (`OPENROUTER_PROXY_REQUIRED`); the kernel reaches that address directly from another address on that network (`OPENROUTER_PROXY_NOT_INTERNAL`); and `openrouter.ai` does not resolve inside the container (`OPENROUTER_DIRECT_PATH_REFUSED`). Codes stay closed, exit 78, no value printed. The Anthropic mode and its E1 pin are unchanged |
+| A1-R2 | **The client's one proxy.** `openrouter.register_hosted_proxy` is called by the hosting layer before the hosted deployment registers, once, with the same value only, and only while `HOSTED_OPENROUTER_DECISION`, `HOSTED_TRANSMISSION_DECISION` and `HOSTED_OPENROUTER_TRANSMISSION_DECISION` are all set. Then, and only then, every live OpenRouter request (chat, stream, account checks, public listing) uses that proxy (`CONNECT openrouter.ai:443`), with certificates verified for `openrouter.ai` (certifi, host name checked), `trust_env=False` on client and transport (no proxy variable, `.netrc` or certificate override is read) and no retries or fallback. Mock transports are never replaced. `harden` refuses a registration that differs from the configuration |
+| A1-R3 | **The egress lane** (`apps/assistant/deploy/egress/`, `compose.assistant-openrouter.yml`, `compose.assistant-both.yml`). The assistant joins only the internal `clm-ao-ctl` network on top of Stage A's. A proxy container (R3's reviewed Smokescreen build and exact-head entrypoint, unchanged, same pins) admits only `CONNECT openrouter.ai:443 HTTP/1.1` from the assistant's address; an exact-name resolver forwards only `openrouter.ai. IN A`. Both run under `openrouter_egress_guard.py` (R3's guard adapted: fixed FQDN, no destination pin, its own addresses). Host table `inet clm_r22o` lets only the proxy reach a public IPv4 on tcp/443 and the resolver the VPC resolver on 53; Docker does not masquerade the uplink; boot and table or watcher loss fail closed as E1 (restart `no`, start gate `clm-r22o-egress.service`, watcher). E1 `inet clm_r22` and R3 `inet clm_r3` are unchanged. Residual (PROPOSED for the owner to accept, not accepted): the proxy relays an opaque TLS tunnel to whatever public IPv4 the VPC resolver returns for `openrouter.ai` and cannot enforce the TLS server name inside it. The reviewed client verifies the `openrouter.ai` certificate, but a buggy or compromised assistant process could reach other sites on the same Cloudflare edge through that tunnel (domain fronting) |
+| A1-R4 | **A provider-scoped transmission gate.** The owner accepted D-129 for Anthropic only (2026-11-15). `config.HOSTED_OPENROUTER_TRANSMISSION_DECISION` (ships `None`) records OpenRouter's own transmission acceptance (a D-129 amendment for OpenRouter). While it is `None` the OpenRouter mode refuses the start (`OPENROUTER_TRANSMISSION_DECISION_REQUIRED`) and `remote_test` and `openrouter` refuse a hosted registration, even with `HOSTED_TRANSMISSION_DECISION = "D-129"`. The Anthropic path is unchanged when D-129 is recorded |
+| A1-R5 | **The notice names the provider that can serve.** The hosted guard adds `external_ai` (registered providers, the active model's provider class and each provider's surfaces, from code constants) to `GET /assistant/health` and to a successful `GET .../cases/<id>/brief`; any other reply passes through byte for byte. `ExternalAiNotice` names Anthropic for Claude, OpenRouter (routed to the one approved GPT-OSS-120B endpoint) for GPT-OSS on the case chat, and both providers whenever both may serve the surface (the active model never narrows it, because HR can switch it while a chat is open); with no report it keeps the Anthropic wording. Display data only: no frontend authorisation, the notice is always shown on the five surfaces |
+| A1-R6 | **Subnet move (owner-approved 2026-11-15, OI-1).** A1's `openrouter-control` and `openrouter-uplink` move from 172.30.244.0/29 and 172.30.245.0/29, which equal the ACRA window lane's `acra-uplink` and `acra-control`, to **172.30.246.0/29** and **172.30.247.0/29**. The move covers `openrouter.HOSTED_PROXY_NETWORK`, the overlay, `clm_r22o.vars` and `.nft`, the guard, the verify script, the README and the tests. A test now fails if any A1 network overlaps a subnet declared in the repository's compose files or a recorded host network (ACRA 244/245, R2.2 243, A6 probe 249, VPC 172.26.0.0/16). Not a qualification-basis change. The AWS host operator re-checks that 246 and 247 are free on the live host before any A1 install |
+
+Unchanged: D-138 R1 to R3 (the D-129 code gate, the standing US$3.00 GPT-OSS Singapore day,
+GET-only backend client, no tools in any model request); D-132's case gate (a temporary
+qualification restriction in the owner's words of 2026-11-15, not the final staging product
+requirement; not changed here); H5 RBAC and team scope; the safe `404`; deterministic refusals;
+the model-free fallback; every cost limit; the agent framework. `HOSTED_OPENROUTER_DECISION`
+and `HOSTED_TRANSMISSION_DECISION` stay `None`.
+
+Side effect: `remote_checks.py`, `remote_test.py` and `config.py` are qualification basis files
+(the public listing must use the proxy; the registration and the constant carry A1-R4), so the
+basis changes from `06f0b36248260c7f7da7726d18d1b4664b8da65aad5371d56d7df0c9f0732fcb` to
+`b4fee54456c35755cafb591bbcee261fcca4476866830efaaaf7a21462154860`. A qualification made against the earlier basis is out of date on a checkout with this
+change. The synthetic boundary file is unchanged.
+
+Before activation: the owner's OpenRouter transmission acceptance and `HOSTED_OPENROUTER_DECISION`
+in a reviewed change; the owner's acceptance of the A1-R3 residual; the D-134 owner questions O-1 to O-10; an independent QG of this delta; the
+E1-style VM matrices (connectivity, robustness, boot) for this lane; the AWS host operator's
+preflight and install; the paid requalification.
+
+## D-139 - Hosted assistant: model-free guidance for every authorised case, external inference by each provider's data-handling policy (PROPOSED; architectural direction owner-approved 2026-11-15)
+
+Status: `PROPOSED`. Local candidate only, mocked providers only. The owner approved the direction on 2026-11-15:
+- model-free assistance for every case the user is authorised to access;
+- external inference evaluated separately for each provider;
+- Marketplace Mock cases supported once they satisfy the policy;
+- the allowlist and cutoff retired once the replacement is qualified;
+- D-133 closed as superseded when D-139 is adopted.
+
+Not sponsor-confirmed. No provider status changes, and nothing is Live. It supersedes D-132 (RD-1) on the hosted service.
+
+| # | Rule |
+|---|---|
+| R1 | **Guidance.** The hosted assistant's model-free, deterministic answers serve every case the backend lets the signed-in user read. The backend's RBAC, team scope, `401` and safe `404` decide. The `403 ASSISTANT_CASE_NOT_ELIGIBLE` refusal and the case list are removed |
+| R2 | **External inference, per answer and per provider.** A case's content goes to an external provider only when this answer's exact messages pass that provider's data-handling policy, checked before any call or reservation in `remote_gate` (case chat) and in Try with this change. Otherwise the answer comes from the case data, with a notice naming the provider and a closed reason code. Each refusal is counted by reason, with the case reference only |
+| R3 | **The hosted policy, for Claude (D-129) and GPT-OSS (its amendment): verified synthetic data, by provenance.** This is the reviewed D-095 check (`synthetic_eligibility.check`), now on the hosted service. A case passes only when all of these hold:<br>• an approved synthetic company from ACRA in MOCK mode;<br>• every document a tracked synthetic fixture, by the backend's own digest;<br>• typed values grounded in those sources;<br>• a seeded viewer;<br>• approved knowledge only;<br>• a screened question.<br>A Mock ACRA or Marketplace Mock case passes once its data is eligible. On Try with this change only, the viewer rule is not applied: D-130 decides who may ask (the Support capability and team scope), and OD-G8 removes the viewer from the prompt. Every other rule applies |
+| R4 | **Retired settings.** `ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS` and `ASSISTANT_HOSTING_ELIGIBLE_CREATED_BEFORE` are retired. A service that still has either one refuses to start (`CASE_ALLOWLIST_RETIRED`, exit 78), so nobody believes a list still applies. A rollback to the H5 image restores them |
+| R5 | **The fifth path (dashboard insights) admits no case** under this policy. It reads many cases at once and has no per-answer check. It stays off (`HOSTED_INSIGHTS_DECISION` is None, and the guard refuses the route), and enabling it needs its own eligibility design |
+
+Unchanged:
+- D-129's payload inventory, the OD-G8 identity rule and the spending limits;
+- the D-138 read-only reach, the US$3.00 GPT-OSS day and the transmission gate;
+- every deterministic refusal and the model-free fallback.
+
+Owner confirmation needed at adoption. D-129 term (b) said "eligible synthetic cases" under the R2.1 list; under D-139 it means cases that pass the R3 check.
+
+Side effect: `main.py` and `synthetic_eligibility.py` are qualification-basis files. The qualification basis changes, so the hosted 5-call qualification runs on the integrated image.
+
+## ST-7 amendment - GoldTier Sandbox daily reads (owner-directed C9)
+
+| Decision | Owner scope |
+|---|---|
+| No application-imposed daily read quota by default. Provider limits apply. | All environments. An explicit limit from 0 to 500 still applies when configured. D-137 continues to govern writes. |
+
+## D-140 - HR password management for non-HR accounts (owner-directed, awaiting review)
+
+The owner asked for HR password management on the deployed site using the smallest compatible change. HR could create users with a temporary password but could not reset one.
+
+| # | Rule |
+|---|---|
+| P1 | **Route.** `POST /api/admin/profiles/{user_id}/password` takes `{expected_version, new_password}`. The password is 12 to 128 characters and is a `SecretStr`: it is never echoed, logged, stored, audited or returned. The response is the usual `AdminProfileResponse`. |
+| P2 | **Access.** The route is `ACTOR_ONLY` with CSRF, like the other admin routes. The service requires `IDENTITY_ADMIN` (403 `ADMINISTRATION_FORBIDDEN` otherwise). The store reauthorizes the actor inside its lock, so an actor who loses HR after sign-in is refused. `ROLE_CAPABILITIES` is unchanged, and HR still has no case or dashboard access. |
+| P3 | **Targets.** HR accounts are refused, including the actor's own (403). The `hr-admin` credential stays owner-managed. An unknown user gives 404. |
+| P4 | **Store.** Both stores gain `replace_credential`. It does a compare-and-set on `version` (Mongo also matches `security_version`), sets a new scrypt hash from `generate_scrypt_password_hash`, and increments `version` and `security_version`. A stale version gives 409. The existing `update()` credential guard is unchanged. |
+| P5 | **Sessions.** The `security_version` bump revokes every existing session of the target on its next request. The service also drops the session directly. |
+| P6 | **Audit and rollback.** Both operations append the existing `PROFILE_UPDATED` event with actor, target, timestamp, resulting version, and metadata `{operation, previous_version, resulting_access_epoch}`. The operation is `PASSWORD_RESET` or `SIGN_IN_DISABLED`. Neither plaintext nor hashes enter audit metadata. Older images can decode the records. |
+| P7 | **UI.** Each non-HR row in Users offers password reset. Active rows also offer confirmation before disabling sign-in. Disabled rows show their status and can be re-enabled by password reset. The two password fields clear on submission or cancellation. Version conflicts refresh the list and require a new submission. |
+| P8 | **Disable (SF-006).** `POST /api/admin/profiles/{user_id}/disable` takes `{expected_version}` and uses the same access, CAS and session revocation as reset. It replaces the stored hash with the hash of a discarded random value. `AdminProfileResponse.sign_in_disabled` is derived from the latest credential operation. The profile must be reset before it can become HR so a disabled account cannot count toward the last-HR invariant or become ineligible for reset. |
+
+Unchanged: password hashing, session validation, RBAC, the last-HR and self-demotion rules, the Mongo schema (no new fields), and every other admin route.
+
+### C9 amendment to D-140
+
+An authenticated HR actor may change their own password through `POST /api/admin/me/password`.
+The service verifies the current password. The store rechecks HR authority and the session's
+security version, then applies the existing credential CAS. The security version increments
+and requires a new sign-in. The existing `PROFILE_UPDATED` action records
+`PASSWORD_CHANGED_SELF` in operation metadata. Administrative reset and sign-in disabling
+continue to apply only to non-HR target accounts.
+
+## D-129A - Hosted GPT-OSS-120B (OpenRouter) data transmission and the A1-R3 residual (ACCEPTED 2026-11-16 by the owner)
+
+Status: `ACCEPTED` on 2026-11-16 by the owner (in chat: "Signing it now", after G-6 passed in run 272fc723). The signed text is in `outputs/real-inference-20261115/OPENROUTER_OWNER_DECISION.md`.
+It extends D-129 to OpenRouter for GPT-OSS-120B, under the same synthetic-only data categories and D-139 provider policy.
+It also accepts D-138 A1-R3: the CONNECT proxy admits only `openrouter.ai:443` but cannot inspect TLS.
+
+Recorded in code as `HOSTED_OPENROUTER_TRANSMISSION_DECISION = "D-129A"` and `HOSTED_OPENROUTER_DECISION = "D-134"`.
+The OpenRouter mode still starts only with all of these in place:
+- its daily cap (at most US$3.00 per Singapore day);
+- the registered egress proxy on 172.30.246.0/29;
+- the exact remote settings;
+- the host's `clm_r22o` install.
+
+`config.py` is a qualification-basis file. Every GPT-OSS and Claude qualification must run on the resulting fingerprint.
+
+## D-141 - An advisory ownership review is shown as "Review advised", not green "Complete" (PROPOSED 2026-11-15; amends D-121 display only)
 
 Status: proposed by Tasha on 2026-11-15; needs Shane's acceptance. Authority: `USER_AUTHORIZED_POC`.
 Evidence class: Mock. It amends the D-121 presentation only. No status, readiness rule, audit

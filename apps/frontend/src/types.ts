@@ -66,6 +66,7 @@ export interface AdminProfile {
   updated_at: string;
   created_by: string;
   updated_by: string;
+  sign_in_disabled?: boolean;
 }
 
 export type PolicyValue =

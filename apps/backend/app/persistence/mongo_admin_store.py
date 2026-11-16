@@ -15,14 +15,21 @@ from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.domain.access import Role, TeamId
-from app.domain.administration import TeamRecord, UserAccountRecord, audit_is_prefix
+from app.domain.administration import (
+    CredentialOperation,
+    TeamRecord,
+    UserAccountRecord,
+    audit_is_prefix,
+)
 from app.domain.policy import PolicyCatalogue
 from app.persistence.errors import PersistenceDataInvalidError, PersistenceUnavailableError
 from app.persistence.mongo_case_store import _reject_unknown_model_fields
 from app.services.admin_repository import (
     AdministrationAuthorityInvariantError,
     AdministrationConflictError,
+    build_credential_reset_candidate,
     build_profile_authority_candidate,
+    check_credential_replacement_actor,
 )
 
 
@@ -208,6 +215,47 @@ class MongoProfileRepository:
             try:
                 result = self._store.profiles.replace_one(
                     {"_id": candidate.user_id, "version": expected_version},
+                    _encode(candidate, candidate.user_id),
+                )
+            except PyMongoError:
+                raise PersistenceUnavailableError from None
+            if result.modified_count != 1:
+                raise AdministrationConflictError
+            return candidate.model_copy(deep=True)
+
+    def replace_credential(
+        self,
+        *,
+        actor_user_id: str,
+        user_id: str,
+        expected_version: int,
+        credential_hash: SecretStr,
+        operation: CredentialOperation,
+        updated_at: datetime,
+        expected_actor_security_version: int | None = None,
+    ) -> UserAccountRecord:
+        """D-140: reauthorize the actor, then version-CAS the credential-only replacement."""
+
+        with self._store.lock:
+            actor = self.get(actor_user_id)
+            check_credential_replacement_actor(actor, operation, expected_actor_security_version)
+            current = actor if user_id == actor_user_id else self.get(user_id)
+            if current is None or current.version != expected_version:
+                raise AdministrationConflictError
+            candidate = build_credential_reset_candidate(
+                current,
+                actor_user_id=actor_user_id,
+                credential_hash=credential_hash,
+                operation=operation,
+                updated_at=updated_at,
+            )
+            try:
+                result = self._store.profiles.replace_one(
+                    {
+                        "_id": candidate.user_id,
+                        "version": expected_version,
+                        "security_version": current.security_version,
+                    },
                     _encode(candidate, candidate.user_id),
                 )
             except PyMongoError:

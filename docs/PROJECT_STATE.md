@@ -1647,3 +1647,37 @@ is open. Update 2026-11-13: the fast-track R-1 pin and certifi declaration are i
 (implementation `68e621d`, independent QGs PASS WITH NOTES); the backend and egress images
 are published to private GHCR but **not deployed**. Read-only staging use is owner-gated
 (D-131 A3/FT-CRED); sponsor hosted-origin permission is unverified.
+
+## Workflow Designer P1, read-only (ADR-016 proposed) - local candidate, 2026-11-15
+
+Branch `feat/workflow-designer-p1-readonly` (local, uncommitted) on `afb016b`. HR Admin ›
+Policy & Workflow now has a "Workflow designer" sub-tab for HR and Directors. It shows the twelve
+mandatory onboarding stages in the order this backend runs them, their real prerequisites, the
+policy rules bound to each stage with values, ranges and enforcement classes, and any
+Director-added stages with how they hold the final send. Nothing can be edited, moved, saved or
+published; conditional branches are not drawn because the backend has none.
+
+- **Backend.** New `GET /api/workflows/onboarding/execution-plan` (`ACTOR_ONLY`, reauthorized,
+  `403` for other roles). The read never initialises a workflow definition and reports
+  `ACTIVE`, `NO_ACTIVE_WORKFLOW` or `UNAVAILABLE` for added stages. Provider lanes are labelled
+  Mock, Local or Partial, never Live. Route inventory: 104 routes, 43 `ACTOR_ONLY`.
+- **Frontend.** `@xyflow/react` 12.12.0 (exact pin), lazy-loaded; an accessible Outline view lists
+  the same stages. 12.12.0 lacks upstream ResizeObserver cleanup #6054; measured as two observers
+  per mount left on detached DOM, with no errors or warnings.
+- **Shared rules.** Each catalogue rule has one primary binding; stages that also read it show a
+  usage reference. The entity-resolution rules are defined under Risk assessment and referenced
+  by Existing-customer search and Final review & send, traced from every resolver call site
+  under `app/`. Risk assessment reads them only when demo candidate data is enabled; the panel
+  says so and shows whether that is the case in the running environment.
+- **Session transport.** The plan uses the app's authenticated transport, so a `401` ends the
+  session and clears session-scoped queries.
+- **Unchanged.** Mandatory stage order, orchestrator transitions, D-136 enforcement, policy
+  governance, entity-resolution rules and thresholds, GoldTier and ACRA behaviour, persistence
+  schemas, the AI Assistant and AWS. D-135 stays provisional.
+- **Limitations (QG P3, retained).** The added-stage state probes only the workflow definition
+  store; it does not verify per-case run-store availability. Local mode always draws search before
+  the registry (UEN-only cases differ; the text says so). `enforced_at_send` is true for an active
+  version without blocking stages. The persistence lane reads Local in Mongo mode (never Live).
+- **Evidence.** Class: Local. Backend `test_onboarding_execution_plan.py`; frontend
+  `WorkflowDesigner.test.tsx`, `WorkflowDesignerAuth.test.tsx` and `ExecutionPlanDiagram.test.tsx`;
+  Playwright `workflow-designer.e2e.ts`.

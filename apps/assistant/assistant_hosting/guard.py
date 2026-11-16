@@ -12,7 +12,9 @@ This layer only refuses earlier, and it never grants anything.
                        the process, because the request body is not read. R2.2: in the
                        Claude mode (provider.py) also the listed Claude setup, key, spending
                        and qualification routes; the HR key is then held in memory for that
-                       HR session only (D-106). OpenRouter's stay refused
+                       HR session only (D-106). OpenRouter's stay refused, except in the
+                       OpenRouter mode (D-134, proposed, off by default): then the listed
+                       GPT-OSS key, spending, session and qualification routes pass too
     control characters 404 for any path holding one (an encoded newline, NUL, ...), before
                        anything else: the router's `$` would otherwise match a path the exact
                        checks below do not see (QG F-1, F-4)
@@ -24,6 +26,13 @@ This layer only refuses earlier, and it never grants anything.
                        path (D-130 amendment draft): only while HOSTED_INSIGHTS_DECISION is
                        set in the code, exactly GET .../insights/mode and POST
                        .../insights/generate pass on to the normal checks; nothing else
+    external AI data   D-138 A1 (proposed): GET /assistant/health and a successful GET
+                       .../cases/<id>/brief also carry ``external_ai``: which hosted
+                       providers this deployment registered, which one the active model uses,
+                       and the surfaces each may serve (from the reviewed code constants). The
+                       browser's external-data notice names the provider from it. It is
+                       display data only: it grants nothing, and every other reply (a refusal,
+                       the safe 404, any error) passes through unchanged
 """
 
 import json
@@ -34,6 +43,7 @@ from typing import Any
 from starlette.requests import cookie_parser
 
 from ai_assistant import config as assistant_config
+from ai_assistant import data_access
 from ai_assistant.clm_client import SESSION_COOKIE_NAME
 
 from .profile import NO_MODEL_NAME
@@ -63,6 +73,11 @@ def _dashboard_insights(path: str) -> bool:
     folded = path.lower().rstrip("/")
     return folded == DASHBOARD_INSIGHTS or folded.startswith(DASHBOARD_INSIGHTS + "/")
 
+
+# D-138 A1: the case brief, whose successful reply also carries the external AI data.
+BRIEF_PATH = re.compile(r"/assistant/cases/[^/]+/brief")
+# The browser's notice surfaces each hosted chat path is shown on (config.HOSTED_CHAT_PATHS).
+CHAT_PATH_SURFACES = {"general": "general", "support": "support", "try_change": "try"}
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
@@ -95,9 +110,31 @@ CLAUDE_CHANGES = (
 )
 
 
-def _admin_change_allowed(method: str, path: str, *, claude: bool = False) -> bool:
+# D-134 (proposed): what HR needs to set up, fund, qualify and run GPT-OSS 120B (OpenRouter
+# mode only). Each keeps its own capability check, compare-and-set, rate limit and audit row.
+OPENROUTER_CHANGES = (
+    ("PUT", re.compile(r"/credential")),
+    ("DELETE", re.compile(r"/credential")),
+    ("PUT", re.compile(r"/budget/controls")),
+    ("PUT", re.compile(r"/budget/lifetime-cap")),
+    ("POST", re.compile(r"/budget/provider-refresh")),
+    ("POST", re.compile(r"/session/start")),
+    ("PUT", re.compile(r"/session/allowance")),
+    ("POST", re.compile(r"/budget/resume")),
+    ("POST", re.compile(r"/openrouter_gpt_oss_120b/qualifications")),
+    ("POST", re.compile(r"/qualifications/[^/]+/cancel")),
+)
+
+
+def _admin_change_allowed(
+    method: str, path: str, *, claude: bool = False, openrouter: bool = False
+) -> bool:
     tail = path[len(ADMIN_PREFIX) :]
-    changes = ADMIN_CHANGES + CLAUDE_CHANGES if claude else ADMIN_CHANGES
+    changes: tuple[tuple[str, re.Pattern[str]], ...] = ADMIN_CHANGES
+    if claude:
+        changes += CLAUDE_CHANGES
+    if openrouter:
+        changes += OPENROUTER_CHANGES
     return any(method == verb and shape.fullmatch(tail) for verb, shape in changes)
 
 
@@ -140,11 +177,13 @@ class HostedGuard:
         allowed_origins: frozenset[str],
         selector: Any,
         claude: bool = False,
+        openrouter: bool = False,
     ) -> None:
         self._app = app
         self._origins = allowed_origins
         self._selector = selector
         self._claude = claude
+        self._openrouter = openrouter
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "websocket":
@@ -184,13 +223,18 @@ class HostedGuard:
         if (
             method not in SAFE_METHODS
             and path.startswith(ADMIN_PREFIX + "/")
-            and not _admin_change_allowed(method, path, claude=self._claude)
+            and not _admin_change_allowed(
+                method, path, claude=self._claude, openrouter=self._openrouter
+            )
         ):
             self._audit_refusal()
             await _refuse(send, 403, "HOSTED_REMOTE_DISABLED", "This action is not available here.")
             return
         if method == "GET" and path == "/assistant/health":
             await self._health(scope, receive, send)
+            return
+        if method == "GET" and BRIEF_PATH.fullmatch(path):
+            await self._brief(scope, receive, send)
             return
         await self._app(scope, receive, send)
 
@@ -237,4 +281,61 @@ class HostedGuard:
         body = json.loads(b"".join(chunks))
         if body.get("model") == NO_MODEL_NAME:
             body.update(llm_enabled=False, model=None)
+        body["external_ai"] = self._external_ai()
         await _json(send, status.get("code", 200), body)
+
+    def _external_ai(self) -> dict[str, Any]:
+        # D-138 A1: what the notice needs to name the provider: the registered hosted modes,
+        # the active model's provider class (only if it is one of them) and each mode's
+        # surfaces, all from code constants and the selector, never from the request.
+        surfaces: dict[str, list[str]] = {}
+        if self._claude:
+            paths = (
+                assistant_config.HOSTED_CHAT_PATHS
+                if assistant_config.HOSTED_CHAT_DECISION is not None
+                else frozenset()
+            )
+            names = ["case"] + [
+                CHAT_PATH_SURFACES[p] for p in sorted(paths) if p in CHAT_PATH_SURFACES
+            ]
+            if assistant_config.HOSTED_INSIGHTS_DECISION is not None:
+                names.append("insights")
+            surfaces["anthropic"] = names
+        if self._openrouter:
+            surfaces["openrouter"] = ["case"]  # D-134 M4: the case chat only
+        try:
+            active = data_access.model_class(self._selector.current().model, None)
+        except Exception:  # noqa: BLE001 - unknown is reported as no active provider
+            active = None
+        return {
+            "providers": list(surfaces),
+            "active": active if active in surfaces else None,
+            "surfaces": surfaces,
+        }
+
+    async def _brief(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Only a 200 JSON object gains the field; anything else is replayed byte for byte.
+        messages: list[Message] = []
+
+        async def capture(message: Message) -> None:
+            messages.append(message)
+
+        await self._app(scope, receive, capture)
+        start = next((m for m in messages if m["type"] == "http.response.start"), None)
+        body = b"".join(m.get("body", b"") for m in messages if m["type"] == "http.response.body")
+        parsed: Any = None
+        if start is not None and start["status"] == 200:
+            try:
+                parsed = json.loads(body)
+            except ValueError:
+                parsed = None
+        if not isinstance(parsed, dict) or start is None:
+            for message in messages:
+                await send(message)
+            return
+        parsed["external_ai"] = self._external_ai()
+        payload = json.dumps(parsed, separators=(",", ":")).encode("ascii")
+        headers = [(k, v) for k, v in start.get("headers", []) if k.lower() != b"content-length"]
+        headers.append((b"content-length", str(len(payload)).encode("ascii")))
+        await send({"type": "http.response.start", "status": 200, "headers": headers})
+        await send({"type": "http.response.body", "body": payload})

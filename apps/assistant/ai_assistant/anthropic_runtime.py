@@ -211,7 +211,9 @@ def register_hosted_deployment(origin: str, lifetime_ceiling_micro_usd: int) -> 
     global _hosted
     parts = urlsplit(origin)
     if (
-        parts.scheme != urlsplit(anthropic_profiles.BASE_URL).scheme
+        # D-129: no hosted deployment before the owner's acceptance is recorded in the code.
+        assistant_config.HOSTED_TRANSMISSION_DECISION is None
+        or parts.scheme != urlsplit(anthropic_profiles.BASE_URL).scheme
         or not parts.hostname
         or is_local_model_url(origin)
         or origin != f"{parts.scheme}://{parts.netloc}"

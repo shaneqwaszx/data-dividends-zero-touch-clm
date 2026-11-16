@@ -24,6 +24,7 @@ from app.api_auth import (
     build_case_reauthorizer,
     install_auth_boundary,
 )
+from app.api_execution_plan import build_execution_plan_router
 from app.api_intelligence import build_intelligence_router
 from app.api_models import (
     BrowserTargetOperationEvidence,
@@ -125,6 +126,7 @@ from app.domain.zero_touch import (
 )
 from app.persistence.composition import (
     PersistenceBundle,
+    build_goldtier_read_budget,
     build_persistence_bundle,
     build_workflow_persistence,
 )
@@ -174,6 +176,7 @@ from app.services.manual_ownership_evidence import (
     SafeReviewText,
 )
 from app.services.onboarding import OnboardingService
+from app.services.onboarding_execution_plan import ExecutionPlanService
 from app.services.onboarding_intelligence import OnboardingIntelligenceProjectionService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_errors import (
@@ -667,6 +670,9 @@ def create_app(
     active_acra_connector: AcraConnector | None = None
     if onboarding_service is None:
         active_acra_connector = acra_connector or build_acra_connector(active_settings)
+        # ST-7: the daily Sandbox read budget (None when reads are not counted).
+        read_budget = build_goldtier_read_budget(active_settings)
+        application.router.add_event_handler("shutdown", read_budget.close)
         service = build_onboarding_service(
             catalogue,
             active_settings,
@@ -681,6 +687,7 @@ def create_app(
             policy_snapshot_provider=policy_management.case_snapshot,
             registry_snapshot_repository=persistence.registry_snapshots,
             goldtier_transport=goldtier_transport,
+            goldtier_read_budget=read_budget.budget,
         )
     else:
         service = onboarding_service
@@ -810,15 +817,16 @@ def create_app(
         release_demo_transients=zero_touch_demo.release_case_transients,
         delete_workflow_data=None if workflows is None else workflows.delete_case_data,
     )
+    login_admission = LoginAdmission()
     application.include_router(
         build_auth_router(
             authentication,
             administration.directory,
             cookie_secure=cookie_secure,
-            login_admission=LoginAdmission() if active_settings.app_env == "staging" else None,
+            login_admission=login_admission if active_settings.app_env == "staging" else None,
         )
     )
-    application.include_router(build_admin_router(administration))
+    application.include_router(build_admin_router(administration, login_admission=login_admission))
     application.include_router(build_provider_sandbox_router(service, active_settings))
     if active_acra_diagnostics is not None:
         application.include_router(build_acra_diagnostic_router(active_acra_diagnostics))
@@ -831,6 +839,18 @@ def create_app(
             service,
             active_settings.idp_max_upload_bytes,
             _read_bounded_body,
+        )
+    )
+    # P1: read-only view of what actually runs; outside the manager switch (D-136 E4).
+    application.include_router(
+        build_execution_plan_router(
+            ExecutionPlanService(
+                settings=active_settings,
+                search_follows_registry=service.search_follows_registry,
+                target_provider_mode=service.target_provider_mode,
+                workflows=workflow_enforcement,
+            ),
+            authentication,
         )
     )
     application.include_router(

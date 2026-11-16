@@ -269,7 +269,7 @@ def test_without_the_mode_stage_a_is_unchanged(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("change", "code"),
     [
-        ({provider.PROVIDER_VARIABLE: "openrouter"}, "PROVIDER_MODE_INVALID"),
+        ({provider.PROVIDER_VARIABLE: "open-router"}, "PROVIDER_MODE_INVALID"),
         ({provider.PROVIDER_VARIABLE: "Anthropic"}, "PROVIDER_MODE_INVALID"),
         ({provider.CEILING_VARIABLE: ""}, "HOSTED_CEILING_REQUIRED"),
         ({provider.CEILING_VARIABLE: "0"}, "HOSTED_CEILING_REQUIRED"),
@@ -878,3 +878,8 @@ def test_the_watcher_and_units_name_only_the_assistant_table() -> None:
     assert "--containers clm-staging-assistant" in watch
     stop = (EGRESS / "clm_r22_stop_assistant.sh").read_text(encoding="utf-8")
     assert "docker stop --time 0 clm-staging-assistant" in stop
+
+
+# D-139: these tests treat the fixture case as verified synthetic (the seam in conftest);
+# test_hosted_case_policy.py runs the real provenance check.
+pytestmark = pytest.mark.usefixtures("hosted_case_eligible")

@@ -896,6 +896,68 @@ describe("AiAssistantPanel external-data notice (P2-3)", () => {
     expect(notice(view)?.textContent).toContain("They are sent even if no Claude answer is shown to you.");
   });
 
+  // D-138 A1: the notice names the provider the service reports as serving.
+  const both = (active: string | null) => ({
+    providers: ["anthropic", "openrouter"],
+    active,
+    surfaces: { anthropic: ["case", "general", "support", "try"], openrouter: ["case"] },
+  });
+
+  it("names OpenRouter on the case chat when GPT-OSS-120B is the only hosted provider", async () => {
+    stubFetch(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/cases/case-1/brief")
+        ? json({
+            ...brief("GARDEN BUSINESS", "Summary."),
+            external_ai: { providers: ["openrouter"], active: "openrouter", surfaces: { openrouter: ["case"] } },
+          })
+        : json({}, 404),
+    );
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    const shown = notice(view);
+    expect(shown?.dataset.provider).toBe("openrouter");
+    expect(shown?.textContent).toContain("When GPT-OSS-120B (OpenRouter) is asked in this chat");
+    expect(shown?.textContent).toContain("are sent to OpenRouter, an external AI provider outside this application");
+    expect(shown?.textContent).toContain("routes them to the one approved GPT-OSS-120B endpoint");
+    expect(shown?.textContent).toContain("They are sent even if no GPT-OSS-120B answer is shown to you.");
+    expect(shown?.textContent).toContain("Use synthetic test data only.");
+    expect(shown?.textContent).not.toContain("Anthropic");
+    expect(view.querySelector("textarea")?.getAttribute("aria-describedby")).toBe(shown?.id);
+  });
+
+  for (const active of [null, "openrouter", "anthropic"]) {
+    it(`names both providers on the case chat when both may serve (active ${active}), so a switch never misnames`, async () => {
+      stubFetch(async (input: RequestInfo | URL) =>
+        String(input).endsWith("/cases/case-1/brief")
+          ? json({ ...brief("GARDEN BUSINESS", "Summary."), external_ai: both(active) })
+          : json({}, 404),
+      );
+      const view = render("case-1");
+      click(view.querySelector(".ai-assistant-launcher"));
+      await flush();
+      expect(notice(view)?.dataset.provider).toBe("either");
+      expect(notice(view)?.textContent).toContain("Anthropic for Claude, or OpenRouter");
+    });
+  }
+
+  it("keeps Anthropic on the general chat, which GPT-OSS-120B never serves", async () => {
+    stubFetch(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/health")
+        ? json({ status: "ok", llm_enabled: true, model: "m", answer_mode: "copilot", general_chat: true, external_ai: both("openrouter") })
+        : json({}, 404),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<AiAssistantPanel caseId={null} onOpenCases={noop} canGeneralChat />));
+    click(container.querySelector(".ai-assistant-launcher"));
+    await flush();
+    expect(notice(container)?.dataset.surface).toBe("general");
+    expect(notice(container)?.dataset.provider).toBe("anthropic");
+    expect(notice(container)?.textContent).toContain("When Claude (Anthropic) is asked in this chat");
+  });
+
   it("is shown on Support chat with what Support chat sends", async () => {
     stubFetch(async () => json({}, 404));
     const view = render(null, noop, true);

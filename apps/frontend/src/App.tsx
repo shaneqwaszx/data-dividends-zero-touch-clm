@@ -67,6 +67,7 @@ import GoldTierSandbox from "./pages/GoldTierSandbox";
 import AcraDiagnostics from "./pages/AcraDiagnostics";
 import AiModelManagement from "./pages/AiModelManagement";
 import WorkflowManager from "./pages/WorkflowManager";
+import WorkflowDesigner from "./pages/WorkflowDesigner";
 import WorkflowTab, { WorkflowCasesPage, WorkflowRunPage } from "./pages/WorkflowTab";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
@@ -1795,6 +1796,7 @@ export interface AppProps {
   demoControlsEnabled?: boolean;
   actor: AuthenticatedProfile;
   onLogout: () => void;
+  onChangeOwnPassword?: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 interface LiveIntakeOperation {
@@ -1809,6 +1811,7 @@ export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
   actor,
   onLogout,
+  onChangeOwnPassword,
 }: AppProps) {
   const [caseQueuePresentation, setCaseQueuePresentation] =
     useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
@@ -2400,7 +2403,10 @@ export default function App({
           )}
           audit={(caseId) => <AuditTrail actor={actor} caseId={caseId} />}
           policy={<PolicyRules actor={actor} />}
-          adminUsers={<AdminUsers />}
+          workflowDesigner={<WorkflowDesigner key={actor.user_id} actor={actor} />}
+          adminUsers={<AdminUsers
+            onChangeOwnPassword={actor.role === "HR" ? onChangeOwnPassword : undefined}
+          />}
           adminTeams={<AdminTeams />}
           goldtierSandbox={<GoldTierSandbox key={actor.user_id} actor={actor} />}
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}

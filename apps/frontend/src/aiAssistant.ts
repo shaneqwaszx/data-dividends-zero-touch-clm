@@ -7,6 +7,20 @@ import { authenticatedFetch } from "./api";
 
 const AI_ASSISTANT_BASE_URL = import.meta.env.VITE_AI_ASSISTANT_BASE_URL ?? "";
 
+/**
+ * D-138 A1 (proposed): what the hosted service reports about external AI providers, so the
+ * external-data notice can name the provider serving. Display data only: it grants nothing, and
+ * the service alone decides what is sent. Absent on a development machine.
+ */
+export interface ExternalAiStatus {
+  /** The hosted provider modes this deployment registered. */
+  providers: string[];
+  /** The provider the active model uses, when it is one of them. */
+  active: string | null;
+  /** The notice surfaces each provider may serve. */
+  surfaces: Record<string, string[]>;
+}
+
 export interface AiAssistantBrief {
   company: string | null;
   message: string;
@@ -14,6 +28,7 @@ export interface AiAssistantBrief {
   blocker_count: number;
   steps_done: number;
   steps_total: number;
+  external_ai?: ExternalAiStatus;
 }
 
 export interface AiAssistantTurn {
@@ -84,6 +99,7 @@ export interface AiAssistantHealth {
   model: string | null;
   answer_mode?: "exact_lines" | "copilot";
   general_chat?: boolean;
+  external_ai?: ExternalAiStatus;
 }
 
 /** The service refuses a chat context that ended (left case, timed out, another user's). */
@@ -243,6 +259,7 @@ const SAFE_ERROR_MESSAGES = new Set([
   // D-096: HR spending controls (apps/assistant/ai_assistant/model_admin.py).
   "The daily limit must be a non-negative US$ amount and the call limit 1 to 200. Nothing changed.",
   "Confirm the new daily limit to raise it. Nothing changed.",
+  "The daily limit cannot be set above this deployment's fixed daily ceiling. Nothing changed.",
   "The OpenRouter key must have its own finite spending limit that never resets before the app's spending limits can be raised. Nothing changed.",
   "The spending limits changed since this view. Refresh and try again.",
   "Too many spending changes. Wait a few minutes and try again.",
@@ -1022,6 +1039,16 @@ export interface ModelConnectionTest {
   first_piece_ms: number | null;
   at?: string;
   by_user?: string;
+  // The paid models' preflight checks, as the server stored them (codes and short details).
+  checks?: { check: string; ok: boolean; detail: string | null }[];
+}
+
+// D-138 R4: the spending store's own refusal code behind a failed "ledger.healthy" check
+// (for example LEGACY_STORE), so the console can say what to do, not only which check failed.
+export function ledgerRefusal(test: ModelConnectionTest | null | undefined): string | null {
+  const failed = test?.checks?.find((item) => item.check === "ledger.healthy" && !item.ok);
+  const match = failed?.detail ? /^refused: ([A-Z][A-Z0-9_]*)$/.exec(failed.detail) : null;
+  return match ? match[1] : null;
 }
 
 export interface ModelQualification {
@@ -1242,6 +1269,10 @@ export interface ModelBudgetStatus {
     remaining_micro_usd: number;
     remaining_usd: string;
     day_started_at: string;
+    /** D-134 (proposed): the deployment's fixed daily ceiling the limit is held to, if any. */
+    ceiling_micro_usd?: number | null;
+    /** D-134 (proposed): today has no room for one more call of the usual worst-case size. */
+    exhausted?: boolean;
   } | null;
   effective_remaining_micro_usd: number;
   effective_remaining_usd: string;
@@ -1358,8 +1389,13 @@ export interface ModelSpendingControls {
   revision: number | null;
   readable: boolean;
   daily_cap_micro_usd: number;
-  /** D-098: only the ledger's technical bound (no US$1 ceiling). */
+  /** D-098: only the ledger's technical bound (no US$1 ceiling). D-134 (proposed): the
+   *  deployment's fixed daily ceiling where one is registered. */
   daily_cap_max_micro_usd: number;
+  /** D-134 (proposed): the fixed daily ceiling (absent or null: none on this deployment). */
+  daily_ceiling_micro_usd?: number | null;
+  /** D-134 (proposed): false when the per-session chat-call count is not applied here. */
+  max_calls_applies?: boolean;
   daily_cap_default_micro_usd?: number;
   /** D-098: what raising either limit needs, as closed codes. */
   raise_requires?: string[];

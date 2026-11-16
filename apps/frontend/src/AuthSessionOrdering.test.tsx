@@ -202,6 +202,43 @@ afterEach(async () => {
 });
 
 describe("AuthProvider session ordering through the real authenticated transport", () => {
+  it("clears the signed-in cache and asks for a new sign-in after changing the password", async () => {
+    const transport = createControlledTransport();
+    const harness = await mountAuthProvider(false);
+    const [restoration] = await transport.waitFor("/api/auth/me", 1);
+    await resolve(restoration, jsonResponse(session("hr-admin", "csrf-first")));
+    const key = ["hr-admin", "synthetic-private-state"];
+    harness.queryClient().setQueryData(key, "test data");
+
+    const changed = harness.auth().changeOwnPassword("test-current-value", "test-replacement-value");
+    const [request] = await transport.waitFor("/api/admin/me/password", 1);
+    expect(request.init.method).toBe("POST");
+    expect(new Headers(request.init.headers).get("X-CSRF-Token")).toBe("csrf-first");
+    await resolve(request, new Response(null, { status: 204 }));
+    await changed;
+
+    expect(harness.status()).toBe("anonymous");
+    expect(harness.auth().notice).toBe("Password changed. Sign in with your new password.");
+    expect(harness.queryClient().getQueryData(key)).toBeUndefined();
+    expect(transport.byPath("/api/auth/logout")).toHaveLength(0);
+  });
+
+  it("keeps a newer session when an old password-change response arrives", async () => {
+    const transport = createControlledTransport();
+    const harness = await mountAuthProvider(false);
+    const [restoration] = await transport.waitFor("/api/auth/me", 1);
+    await resolve(restoration, jsonResponse(session("hr-admin", "csrf-first")));
+
+    const changed = harness.auth().changeOwnPassword("test-current-value", "test-replacement-value");
+    const [request] = await transport.waitFor("/api/admin/me/password", 1);
+    await completeLogin(harness.auth, transport, "sophia-ng", "csrf-second");
+    await resolve(request, new Response(null, { status: 204 }));
+    await changed;
+
+    expect(harness.user()).toBe("sophia-ng");
+    expect(harness.status()).toBe("authenticated");
+  });
+
   it("A preserves a successful login when an obsolete StrictMode restoration returns 401", async () => {
     const transport = createControlledTransport();
     const harness = await mountAuthProvider();

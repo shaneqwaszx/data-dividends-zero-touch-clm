@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import re
 import ssl
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal, Protocol
 from urllib.parse import urlencode, urlsplit
 
@@ -29,6 +30,8 @@ from app.connectors.goldtier_models import (
     GoldTierSearchOutcome,
     GoldTierSearchResult,
 )
+from app.connectors.goldtier_read_budget import GoldTierReadBudget, UnlimitedGoldTierReadBudget
+from app.connectors.goldtier_write_policy import GoldTierSandboxWritePolicy
 from app.connectors.goldtier_xpi_models import (
     XpiAmendCustomerRequest,
     XpiCreateCustomerPolicyRequest,
@@ -105,6 +108,23 @@ class GoldTierXpiRateLimitedError(GoldTierXpiObservedStatusError):
     public_message = "The GoldTier sandbox rate-limited the request."
 
 
+class GoldTierXpiReadBudgetUnavailableError(GoldTierXpiServiceUnavailableError):
+    """The local budget could not confirm a claim and no request was sent."""
+
+    code = "GT_XPI_READ_BUDGET_UNAVAILABLE"
+    public_message = "The GoldTier sandbox read budget is unavailable."
+
+
+class GoldTierXpiReadBudgetExhaustedError(GoldTierXpiRateLimitedError):
+    """ST-7: the backend's own daily Sandbox read budget refused the read; nothing was sent.
+
+    A rate-limit subclass, so every caller keeps its existing recoverable-failure path.
+    """
+
+    code = "GT_XPI_READ_BUDGET_EXHAUSTED"
+    public_message = "The daily GoldTier sandbox read budget is used up."
+
+
 XPI_SEARCH_FAILURE_CODES = frozenset({"GT_XPI_SEARCH_INVALID", "GT_XPI_SERVICE_UNAVAILABLE"})
 
 _TRUSTED_XPI_SEARCH_ERRORS: tuple[tuple[type[ConnectorError], PublicConnectorError], ...] = (
@@ -120,6 +140,13 @@ _TRUSTED_XPI_SEARCH_ERRORS: tuple[tuple[type[ConnectorError], PublicConnectorErr
         PublicConnectorError(
             code="GT_XPI_TIMEOUT",
             message="The GoldTier sandbox request timed out.",
+        ),
+    ),
+    (
+        GoldTierXpiReadBudgetUnavailableError,
+        PublicConnectorError(
+            code="GT_XPI_READ_BUDGET_UNAVAILABLE",
+            message="The GoldTier sandbox read budget is unavailable.",
         ),
     ),
     (
@@ -141,6 +168,13 @@ _TRUSTED_XPI_SEARCH_ERRORS: tuple[tuple[type[ConnectorError], PublicConnectorErr
         PublicConnectorError(
             code="GT_XPI_AUTHORIZATION_FAILED",
             message="The GoldTier sandbox did not authorize the request.",
+        ),
+    ),
+    (
+        GoldTierXpiReadBudgetExhaustedError,
+        PublicConnectorError(
+            code="GT_XPI_READ_BUDGET_EXHAUSTED",
+            message="The daily GoldTier sandbox read budget is used up.",
         ),
     ),
     (
@@ -285,8 +319,18 @@ class GoldTierXpiSandboxConnection:
     timeout_seconds: float = 10.0
     max_response_bytes: int = 128 * 1024
     allow_writes: bool = False
+    # D-137: the full write window. None keeps the plain switch above, as before.
+    write_policy: GoldTierSandboxWritePolicy | None = None
+
+    @property
+    def effective_write_policy(self) -> GoldTierSandboxWritePolicy:
+        if self.write_policy is not None:
+            return self.write_policy
+        return GoldTierSandboxWritePolicy(enabled=self.allow_writes)
 
     def __post_init__(self) -> None:
+        if self.write_policy is not None and self.write_policy.enabled != self.allow_writes:
+            raise GoldTierXpiConfigurationError
         parsed = urlsplit(self.base_url)
         user_id = self.user_id.get_secret_value()
         if not (
@@ -434,13 +478,28 @@ class GoldTierXpiSandboxConnector:
         *,
         connection: GoldTierXpiSandboxConnection,
         transport: GoldTierXpiHttpTransport | None = None,
+        clock: Callable[[], datetime] | None = None,
+        read_budget: GoldTierReadBudget | None = None,
     ) -> None:
         self._connection = connection
         self._transport = transport or HttpxGoldTierXpiTransport()
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._read_budget: GoldTierReadBudget = read_budget or UnlimitedGoldTierReadBudget()
+
+    @property
+    def read_budget(self) -> GoldTierReadBudget:
+        return self._read_budget
 
     @property
     def writes_enabled(self) -> bool:
-        return self._connection.allow_writes
+        """True while the D-137 write window is open for some operation and case."""
+        return self._connection.effective_write_policy.open_at(self._clock())
+
+    def writes_permitted(self, *, source_case_id: str, operation: str | None) -> bool:
+        """The pre-ledger check: this case, this operation (None: any), now."""
+        return self._connection.effective_write_policy.permits(
+            source_case_id=source_case_id, operation=operation, now=self._clock()
+        )
 
     def _request(
         self,
@@ -450,9 +509,23 @@ class GoldTierXpiSandboxConnector:
         metadata: GoldTierRequestMetadata,
         body: object | None = None,
         mutation: bool = False,
+        operation: Literal["SHELL", "POLICY", "AMEND"] | None = None,
     ) -> GoldTierXpiHttpResponse:
-        if mutation and not self._connection.allow_writes:
+        if mutation and (
+            operation is None
+            or not self._connection.effective_write_policy.permits_statically(
+                source_case_id=metadata.source_case_id, operation=operation
+            )
+        ):
             raise GoldTierXpiWritesDisabledError
+        if not mutation:
+            # ST-7: a read is counted before it leaves; an unavailable budget refuses it.
+            try:
+                claimed = self._read_budget.claim(self._clock())
+            except Exception:  # noqa: BLE001 - fail closed at the budget boundary
+                raise GoldTierXpiReadBudgetUnavailableError from None
+            if not claimed:
+                raise GoldTierXpiReadBudgetExhaustedError
         try:
             response = self._transport.request(
                 method,
@@ -580,6 +653,7 @@ class GoldTierXpiSandboxConnector:
             metadata=metadata,
             body=request.model_dump(by_alias=True, exclude_none=True),
             mutation=True,
+            operation="SHELL",
         )
         if response.status_code != 200:
             return GoldTierOperationResult(
@@ -625,6 +699,7 @@ class GoldTierXpiSandboxConnector:
             metadata=metadata,
             body=request.model_dump(by_alias=True, exclude_none=True),
             mutation=True,
+            operation="POLICY",
         )
         if response.status_code != 200:
             return GoldTierOperationResult(
@@ -670,6 +745,7 @@ class GoldTierXpiSandboxConnector:
             metadata=metadata,
             body=request.model_dump(by_alias=True, exclude_none=True),
             mutation=True,
+            operation="AMEND",
         )
         if response.status_code != 200:
             return GoldTierOperationResult(

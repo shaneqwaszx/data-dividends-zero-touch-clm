@@ -1,0 +1,8 @@
+# D4 (D-086a): synthetic ownership overlay for the ACRA API Marketplace Mock lane ONLY.
+# Applied by the operator after the Marketplace overlay; never in the Mock baseline file set:
+# the backend refuses hybrid_direct_overlay unless ACRA_CONNECTOR_MODE=api_marketplace_mock.
+services:
+  backend:
+    environment:
+      ACRA_MARKETPLACE_OWNERSHIP_OVERLAY: hybrid_direct_overlay
+      ACRA_MARKETPLACE_OPQ_SCENARIO: ${CLM_ACRA_OPQ_SCENARIO:-garden_sim_lim_chain}

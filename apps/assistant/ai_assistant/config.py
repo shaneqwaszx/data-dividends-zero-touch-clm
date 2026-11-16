@@ -48,6 +48,30 @@ HOSTED_CHAT_PATHS: frozenset[str] = frozenset({"general", "support", "try_change
 # service refusing every insights route. Set only in a reviewed change, after the D-129
 # privacy amendment, the notice, the QG, egress, qualification and the owner's activation.
 HOSTED_INSIGHTS_DECISION: str | None = None
+# D-134 (PROPOSED, not active): GPT-OSS 120B through OpenRouter as a second hosted model, on
+# the case chat only. DISABLED: None keeps the hosted service refusing the OpenRouter provider
+# mode at start-up and keeps remote_test refusing a hosted registration. Set only in a reviewed
+# change, after the owner approved the recipients, the egress restriction, the key handling and
+# the paid requalification (outputs/gptoss-registry-20261114).
+# D-134 ACCEPTED (owner, see OPENROUTER_OWNER_DECISION.md): the OpenRouter mode exists.
+HOSTED_OPENROUTER_DECISION: str | None = "D-134"
+# D-129 (ACCEPTED 2026-11-15, Anthropic only): what the hosted service may send to an external
+# model provider (the exact payloads, the OD-G8 identity rule, synthetic-only input and the
+# caps). DISABLED: None keeps every hosted provider mode (Anthropic and OpenRouter) refusing
+# the start (TRANSMISSION_DECISION_REQUIRED) and both hosted runtimes refusing a registration,
+# so no case content can leave the hosted service. Set only in a reviewed change that records
+# the owner's acceptance of D-129, never by a setting. A development machine is governed by
+# D-104 and D-095 instead (owner attestations plus the verified-synthetic eligibility check).
+# Anthropic: D-129. OpenRouter: its own amendment, D-129A, recorded below.
+HOSTED_TRANSMISSION_DECISION: str | None = "D-129"
+# D-138 A1 (PROPOSED): the transmission gate is provider-scoped. The owner accepted D-129 for
+# Anthropic only (2026-11-15); OpenRouter needs its own accepted transmission decision (a D-129
+# amendment for OpenRouter). DISABLED: None keeps the OpenRouter mode refusing the start
+# (OPENROUTER_TRANSMISSION_DECISION_REQUIRED) and its runtime refusing a hosted registration and
+# an egress proxy, whatever HOSTED_TRANSMISSION_DECISION says. Set only in a reviewed change.
+# D-129A ACCEPTED (owner): OpenRouter transmission and the A1-R3 residual. The mode still
+# starts only with its daily cap, proxy, settings and egress install in place.
+HOSTED_OPENROUTER_TRANSMISSION_DECISION: str | None = "D-129A"
 
 
 def conversational(settings: "AiAssistantSettings") -> bool:

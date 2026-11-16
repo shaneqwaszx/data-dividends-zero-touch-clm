@@ -26,8 +26,8 @@ Browser ──HTTPS──▶ Caddy ──▶ forward_auth ──▶ backend GET 
 | `HostedGuard` | Serves only `/assistant/*`, keeps `/internal/*` to loopback, needs a session cookie, needs one allowed Origin on unsafe methods, and refuses provider and paid console actions before reading the body |
 | Backend | The only authority on identity, role, team and case access. The assistant forwards the user's own session and only sends `GET` |
 | Docker | Non-root, read-only root filesystem, all capabilities dropped, one internal network, and CPU, memory, PID and log limits |
-| `refusals()` | The service will not start if any remote decision, provider key, proxy setting, `.env` file, loopback backend URL or local origin is present, or if the RD-1 case list or cutoff is missing or malformed |
-| RD-1 case gate (R2.1) | Serves only an exact owner-approved list of existing synthetic Mock ACRA cases, created before a fixed UTC cutoff. It runs after the backend has allowed the read, so 401 and 404 are unchanged. Any other case gets `403 ASSISTANT_CASE_NOT_ELIGIBLE` before anything is written. This is a bounded POC rule, not a general provenance check: the browser summary cannot tell Mock ACRA from ACRA Marketplace Mock |
+| `refusals()` | The service will not start if any remote decision, provider key, proxy setting, `.env` file, loopback backend URL or local origin is present, or if a retired D-132 case-list setting (`ASSISTANT_HOSTING_ELIGIBLE_CASE_REFS` or `..._CREATED_BEFORE`) is still present (`CASE_ALLOWLIST_RETIRED`) |
+| D-139 eligibility (supersedes the R2.1 RD-1 list) | Two separate decisions. **Guidance:** model-free answers serve every case the backend lets the user read; the backend's RBAC, team scope, 401 and safe 404 decide, and there is no case list and no 403. **External inference:** per answer and per provider, a case's content goes to an external model only when its exact messages pass the D-095 provenance check (an approved synthetic company from ACRA in MOCK mode, every document a tracked synthetic fixture by the backend's digest, grounded values, a seeded viewer, approved knowledge, a screened question). Otherwise the answer comes from the case data with a notice and a closed reason code, and nothing is sent or reserved. Mock ACRA and Marketplace Mock cases qualify once their data is eligible. Dashboard insights admit no case |
 
 No model means every question gets the deterministic case-data answer. The baseline points at
 the container's own discard port, so model calls fail at once and the existing fallback
@@ -172,9 +172,15 @@ Add to `/etc/clm/compose.env`:
 ASSISTANT_IMAGE=<registry>/clm-assistant@sha256:<digest>
 ASSISTANT_BROWSER_ORIGIN=https://<approved hostname>
 ASSISTANT_DATA_VOLUME=clm-staging-assistant-data
-ASSISTANT_ELIGIBLE_CASE_REFS=<comma list of approved 12-hex case references>
-ASSISTANT_ELIGIBLE_CREATED_BEFORE=<approved UTC cutoff, for example 2026-11-12T05:07:25Z>
 ```
+
+D-139: `compose.env` carries no case list. `ASSISTANT_ELIGIBLE_CASE_REFS` and
+`ASSISTANT_ELIGIBLE_CREATED_BEFORE` are retired. Remove both in the window that deploys a D-139
+image (the overlay no longer passes them, and the service refuses to start with
+`CASE_ALLOWLIST_RETIRED` if either reaches it). A rollback to the H5 image restores them
+from the `compose.env` backup.
+
+The rest of this paragraph describes the retired R2.1 values, for the rollback image only.
 
 A case reference is the first 12 hex characters of the SHA-256 of the server case id (lowercase,
 hyphenated UUID). The cutoff must end in `Z` or `+00:00`. Both values are required, with no
@@ -227,11 +233,11 @@ Expect one `BOOTSTRAP` line in the logs and `guidance_added: 9` on a new volume.
 
 | Code | Meaning | Action |
 |---|---|---|
-| 78 | `REFUSED <codes>`: configuration refused | Fix the named setting. Never add a key or decision to get past it. `CASE_ELIGIBILITY_REQUIRED` and `CASE_ELIGIBILITY_INVALID` name the RD-1 list and cutoff |
+| 78 | `REFUSED <codes>`: configuration refused | Fix the named setting. Never add a key or decision to get past it. `CASE_ALLOWLIST_RETIRED` means a retired D-132 case-list setting is still set: remove it (D-139). The R2.1 image's `CASE_ELIGIBILITY_REQUIRED` and `CASE_ELIGIBILITY_INVALID` (its list and cutoff) apply to the rollback image only. Spending-store codes (`LEDGER_*`, `LEGACY_STORE`) are in `LEDGER_RECOVERY.md` |
 | 75 | `REFUSED DATA_ROOT_IN_USE`: another writer holds the volume | Stop the other container |
 | 70 | `REFUSED STORE_DAMAGED <store>` | Restore from a backup. Nothing is repaired automatically |
 
-Dashboard AI insights (PR #178): On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden. After deployment, check that `POST /api/assistant/dashboard/insights` answers 503 `DASHBOARD_INSIGHTS_UNAVAILABLE`. c2 (D-130 amendment, DRAFT, disabled): a fifth hosted Claude path for insights is prepared but off (`config.HOSTED_INSIGHTS_DECISION = None`); while it is off every insights route stays refused. When a reviewed change enables it, only `GET .../insights/mode` and an explicit `POST .../insights/generate` (server-derived counts and labels from R2.1-eligible cases, 3 per user and 10 site-wide per Singapore day) are allowed; the merged route stays refused.
+Dashboard AI insights (PR #178): On the hosted AWS deployment the assistant refuses this route (503 `DASHBOARD_INSIGHTS_UNAVAILABLE`, at the hosting boundary and in the route), so no model writes insights there and the panel stays hidden. After deployment, check that `POST /api/assistant/dashboard/insights` answers 503 `DASHBOARD_INSIGHTS_UNAVAILABLE`. c2 (D-130 amendment, DRAFT, disabled): a fifth hosted Claude path for insights is prepared but off (`config.HOSTED_INSIGHTS_DECISION = None`); while it is off every insights route stays refused. When a reviewed change enables it, only `GET .../insights/mode` and an explicit `POST .../insights/generate` (server-derived counts and labels; under D-139 the hosted policy admits no case to this path until its own eligibility design is reviewed; 3 per user and 10 site-wide per Singapore day) are allowed; the merged route stays refused.
 
 ## Verify after deployment
 
@@ -365,7 +371,25 @@ Run the `chown` step and start the service only after the restore printed `RESTO
 `ASSISTANT_DATA_VOLUME` to the recovery volume, then run `dca up -d --no-build --no-deps --wait
 assistant`. Keep the original volume until the restore is accepted.
 
-## R2.1 assistant update (RD-1 case gate)
+## D-139 assistant update (supersedes the R2.1 RD-1 update below)
+
+1. Back up `/etc/clm/compose.env`. Remove `ASSISTANT_ELIGIBLE_CASE_REFS` and
+   `ASSISTANT_ELIGIBLE_CREATED_BEFORE`, and set `ASSISTANT_IMAGE` to the reviewed D-139 digest.
+2. Install the reviewed overlay, keeping the previous one for rollback. `dca config --quiet` must
+   pass. Confirm the frontend, backend and Mongo configuration is unchanged.
+3. `dca pull assistant`, then `dca up -d --no-build --no-deps --wait assistant` (same volume).
+4. Accept: no `REFUSED` line and readiness `ready`; frontend, backend and Mongo container IDs and
+   assistant store row counts unchanged. **AT-E1 under D-139:** a case the user can read but that
+   was never on the old list (for example the AT-A4 Garden case `02f37af76122`) now gets the
+   model-free brief and a case-data chat answer (HTTP 200, `answered_by` `case_data`), never 403
+   `ASSISTANT_CASE_NOT_ELIGIBLE`. Another team still gets a 404, and no session a 401. With a
+   provider active, the same case gets a provider answer only if it passes the D-095 check;
+   otherwise a case-data answer whose notice names the provider and a `SYNTHETIC_*` reason.
+
+Rollback: restore the `compose.env` backup (the previous `ASSISTANT_IMAGE` and the two R2.1
+values) and the previous overlay, then `dca up -d --no-build --no-deps --wait assistant`.
+
+## R2.1 assistant update (RD-1 case gate; superseded by D-139, kept for the rollback image)
 
 A separate owner approval, after approval B. It changes only the assistant image and the two
 RD-1 values; the frontend, backend, Mongo and Caddy stay as they are.

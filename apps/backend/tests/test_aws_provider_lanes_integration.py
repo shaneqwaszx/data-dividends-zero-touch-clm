@@ -37,7 +37,11 @@ from app.connectors.goldtier_xpi import GoldTierXpiHttpResponse
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.connectors.mock_acra import MockAcraConnector
 from app.main import create_app
-from app.persistence.composition import build_persistence_bundle, build_workflow_persistence
+from app.persistence.composition import (
+    build_goldtier_read_budget,
+    build_persistence_bundle,
+    build_workflow_persistence,
+)
 from app.services.admin_repository import InMemoryPolicyRepository
 from app.services.clm_errors import ClmRequestError
 from app.services.clm_repository import InMemoryClmOrchestrationRepository
@@ -207,6 +211,12 @@ def offline_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.main.build_persistence_bundle", lambda _: bundle)
     monkeypatch.setattr(
         "app.main.build_workflow_persistence", lambda _: build_workflow_persistence(plain)
+    )
+    monkeypatch.setattr(
+        "app.main.build_goldtier_read_budget",
+        lambda settings: build_goldtier_read_budget(
+            settings.model_copy(update={"clm_persistence_mode": "memory"})
+        ),
     )
 
 

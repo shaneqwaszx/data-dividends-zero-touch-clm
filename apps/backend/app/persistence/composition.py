@@ -7,6 +7,11 @@ from typing import Literal
 from pydantic import SecretStr
 
 from app.config import Settings
+from app.connectors.goldtier_read_budget import (
+    GoldTierReadBudget,
+    InMemoryGoldTierReadBudget,
+    UnlimitedGoldTierReadBudget,
+)
 from app.demo.zero_touch_control import (
     DemoScenarioRepository,
     InMemoryDemoScenarioRepository,
@@ -20,6 +25,7 @@ from app.persistence.mongo_admin_store import (
     MongoTeamRepository,
 )
 from app.persistence.mongo_case_store import MongoCaseStore
+from app.persistence.mongo_goldtier_read_budget import MongoGoldTierReadBudget
 from app.persistence.mongo_registry_cache_store import MongoRegistryCacheStore
 from app.persistence.mongo_workflow_store import (
     MongoWorkflowDefinitionRepository,
@@ -264,6 +270,40 @@ def build_workflow_persistence(settings: Settings) -> WorkflowPersistence:
         runs=MongoWorkflowRunRepository(store),
         close=store.close,
     )
+
+
+@dataclass(frozen=True)
+class GoldTierReadBudgetBinding:
+    budget: GoldTierReadBudget | None
+    close: Callable[[], None]
+
+
+def build_goldtier_read_budget(settings: Settings) -> GoldTierReadBudgetBinding:
+    """ST-7: the daily Sandbox read budget, shared across processes in Mongo mode.
+
+    Mock needs no budget. An unset Sandbox limit does not allocate a counter.
+    An explicitly limited Mongo budget owns its client.
+    """
+
+    limit = settings.goldtier_sandbox_effective_read_limit()
+    if settings.goldtier_connector_mode != "sandbox":
+        return GoldTierReadBudgetBinding(budget=None, close=lambda: None)
+    if limit is None:
+        return GoldTierReadBudgetBinding(budget=UnlimitedGoldTierReadBudget(), close=lambda: None)
+    if settings.clm_persistence_mode == "memory":
+        return GoldTierReadBudgetBinding(
+            budget=InMemoryGoldTierReadBudget(limit), close=lambda: None
+        )
+    if settings.mongo_uri is None:
+        raise PersistenceConfigurationError
+    store = MongoGoldTierReadBudget(
+        create_mongo_client(settings),
+        database=settings.mongo_database,
+        collection=settings.mongo_goldtier_read_budget_collection,
+        limit=limit,
+    )
+    store.initialize()
+    return GoldTierReadBudgetBinding(budget=store, close=store.close)
 
 
 def _bootstrap_hashes(settings: Settings) -> dict[str, SecretStr | str | None]:

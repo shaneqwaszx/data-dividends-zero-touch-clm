@@ -38,6 +38,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("POST", "/api/auth/login", RouteAccess.PUBLIC),
     RoutePolicy("GET", "/api/auth/me", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/auth/logout", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/admin/me/password", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/teams/options", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/admin/teams", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/teams", RouteAccess.ACTOR_ONLY),
@@ -45,6 +46,9 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/admin/profiles", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/profiles", RouteAccess.ACTOR_ONLY),
     RoutePolicy("PATCH", "/api/admin/profiles/{user_id}", RouteAccess.ACTOR_ONLY),
+    # D-140: HR password reset and SF-006 disable; IDENTITY_ADMIN is rechecked in the store lock.
+    RoutePolicy("POST", "/api/admin/profiles/{user_id}/password", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/admin/profiles/{user_id}/disable", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies/classifier-benchmark", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies/proposals/{proposal_id}/impact", RouteAccess.ACTOR_ONLY),
@@ -62,6 +66,8 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/workflows/startable", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/workflows/{workflow_id}", RouteAccess.ACTOR_ONLY),
+    # P1: read-only execution plan; HR or Director capability is checked in the handler.
+    RoutePolicy("GET", "/api/workflows/onboarding/execution-plan", RouteAccess.ACTOR_ONLY),
     RoutePolicy("PUT", "/api/workflows/{workflow_id}/draft", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/activate", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),

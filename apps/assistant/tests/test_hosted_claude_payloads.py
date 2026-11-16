@@ -306,6 +306,8 @@ def test_messages_changed_after_approval_are_refused(
         real(changed)
 
     monkeypatch.setattr("ai_assistant.main.synthetic_eligibility_approve", approve_something_else)
+    # D-139: on the case-bearing try path the ticket comes from the eligibility check itself.
+    monkeypatch.setattr(synthetic_eligibility, "approve", approve_something_else)
     posts = hosted.claude.posts
     question = "What documents does Zebulon Quartermaine Holdings need for onboarding?"
     if path == "general":
@@ -562,3 +564,8 @@ def test_dashboard_insights_never_call_hosted_claude(
     assert bare.post(PATH, headers=post_headers("rm-a"), json=FINDINGS).status_code == 503
     assert seen == [False, True]
     assert hosted.claude.posts == posts
+
+
+# D-139: these tests treat the fixture case as verified synthetic (the seam in conftest);
+# test_hosted_case_policy.py runs the real provenance check.
+pytestmark = pytest.mark.usefixtures("hosted_case_eligible")
