@@ -2929,6 +2929,10 @@ The OpenRouter mode still starts only with all of these in place:
 
 `config.py` is a qualification-basis file. Every GPT-OSS and Claude qualification must run on the resulting fingerprint.
 
+## SF-002 amendment - Worker memory cap platforms (security patch #188; needs owner acceptance)
+
+The worker memory cap applies on Linux, where the worker is deployed; it is skipped on Windows and macOS development machines.
+
 ## D-141 - An advisory ownership review is shown as "Review advised", not green "Complete" (PROPOSED 2026-11-15; amends D-121 display only)
 
 Status: proposed by Tasha on 2026-11-15; needs Shane's acceptance. Authority: `USER_AUTHORIZED_POC`.

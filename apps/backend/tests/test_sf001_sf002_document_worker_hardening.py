@@ -3,7 +3,7 @@
 - The worker and OCR children receive a minimal allowlisted environment, never the backend's.
 - Only the one expected Pillow decoder plugin may run on uploaded image bytes.
 - Malformed images and crafted PDFs fail closed as DOCUMENT_STRUCTURE_INVALID, within bounds.
-- On POSIX the worker caps its own address space.
+- On Linux (where the worker is deployed) it caps its own address space.
 """
 
 from __future__ import annotations
@@ -245,7 +245,9 @@ def test_an_undecodable_content_stream_is_contained_within_bounds() -> None:
     assert time.monotonic() - started < 25
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="RLIMIT_AS is POSIX-only")
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"), reason="RLIMIT_AS is enforced on Linux only"
+)
 def test_the_worker_caps_its_own_address_space() -> None:
     output = run_bounded_process(
         [
@@ -262,3 +264,44 @@ def test_the_worker_caps_its_own_address_space() -> None:
         failed_code="FAILED",
     )
     assert int(output) <= local_document_worker.MAX_WORKER_ADDRESS_SPACE
+
+
+@pytest.mark.skipif(
+    sys.platform not in ("win32", "darwin"),
+    reason="on Linux the cap is set; covered by test_the_worker_caps_its_own_address_space",
+)
+def test_development_platforms_skip_the_cap_and_leave_rlimit_as_unchanged() -> None:
+    # Safe in-process: on these platforms _limit_memory returns before touching any limit.
+    if sys.platform == "win32":
+        local_document_worker._limit_memory()  # noqa: SLF001 - must return without error
+        return
+    import resource
+
+    before = resource.getrlimit(resource.RLIMIT_AS)
+    local_document_worker._limit_memory()  # noqa: SLF001
+    assert resource.getrlimit(resource.RLIMIT_AS) == before
+
+
+def test_the_real_worker_validates_a_clean_fixture_pdf(tmp_path: Path) -> None:
+    # Regression: a failing memory cap made every upload exit 2 on macOS.
+    fixture = Path(__file__).parent / "fixtures" / "uat" / "zero-touch-database"
+    fixture = fixture / "demo-alpha-scanned.pdf"
+    output = run_bounded_process(
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "app.connectors.local_document_worker",
+            "validate",
+            "application/pdf",
+            str(fixture),
+            str(tmp_path),
+        ],
+        timeout_seconds=20,
+        output_limit=1024 * 1024,
+        unavailable_code="UNAVAILABLE",
+        timeout_code="TIMEOUT",
+        failed_code="FAILED",
+    )
+    # run_bounded_process raises on any non-zero exit, so reaching here means exit 0.
+    assert json.loads(output) == {"pages": []}
