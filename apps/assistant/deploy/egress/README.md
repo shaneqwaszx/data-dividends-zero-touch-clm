@@ -51,6 +51,11 @@ Hosted Claude Sonnet 5.5 (`compose.assistant-provider.yml`) needs exactly one ou
 5. Create the assistant with the overlay applied last, without starting it:
    `compose.yml`, `compose.mongo.yml`, `compose.assistant.yml`, `compose.assistant-provider.yml`,
    `up -d --no-start` for the assistant. Then `systemctl start clm-r22-assistant`.
+   That `start` is for the first install only. **Any later recreate** (an overlay or `compose.env`
+   change) while the gate is active is `dca up -d --no-start --no-deps assistant`, then
+   `systemctl restart clm-r22-assistant`. The gate is a oneshot unit with `RemainAfterExit`, so
+   `systemctl start` on an active gate does nothing and the assistant stays stopped (MW-1,
+   2026-11-16).
 6. Run `verify_assistant_egress.sh <compose.env>`; every line must be PASS.
 
 In the commands below, `dca` means `docker compose --env-file compose.env` with the four files
@@ -209,7 +214,9 @@ transmission decision), alongside the E1-style VM matrices for this lane.
 6. `compose.yml`, `compose.mongo.yml`, `compose.assistant.yml`, `compose.assistant-openrouter.yml`
    (for both models: `compose.assistant-provider.yml` before it and `compose.assistant-both.yml`
    after it); `up -d --no-start openrouter-dns openrouter-egress`, then
-   `systemctl start clm-r22o-egress`; recreate the assistant as its own lane requires.
+   `systemctl start clm-r22o-egress` (first install; on a later recreate while it is active,
+   `systemctl restart clm-r22o-egress`, as for `clm-r22-assistant`); recreate the assistant as its
+   own lane requires.
 7. `verify_openrouter_egress.sh`: every line PASS. Re-run R3's `verify_host_firewall.sh` and, for
    both models, `verify_assistant_egress.sh <compose.env>`.
 
