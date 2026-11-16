@@ -529,11 +529,12 @@ _COMPLETED = re.compile(
 )
 # D-141: ownership or the UBO check said to be finished. Only the backend's READY ownership
 # readiness supports it; an advisory (REVIEW_ADVISED), open, missing or failed one does not.
+# Verification and settlement are authority claims, left to the checks that own them.
 _OWNERSHIP_DONE = re.compile(
     r"\b(?:ownership|ubos?|ubo check|beneficial owners?|beneficial ownership)"
     r"(?: (?:and ubo|& ubo|check|step|stage|analysis|review|section))*\b[^.;]{0,25}"
     r"\b(?:is|are|has been|have been|was|were) (?:now |fully |already |all )*"
-    r"(?:complete|completed|done|finished|resolved|cleared|settled|verified|sorted)\b"
+    r"(?:complete|completed|done|finished|resolved|cleared|sorted)\b"
 )
 _STAGE = re.compile(
     r"\b(?:current(?:ly)? (?:at |in )?(?:the )?|now (?:at|in) the |is (?:at|in) the )"
@@ -707,7 +708,8 @@ def status_problem(sentence: str, facts: dict[str, Any] | None) -> str | None:
     if stated(_COMPLETED) and "completed" not in _state_text(overall.get("status")):
         return "unsupported_status"
     ownership = str((readiness.get("sections") or {}).get("ownership") or "").upper()
-    if stated(_OWNERSHIP_DONE) and ownership != "READY":
+    # Only when readiness reports ownership at all; without it the claim is left to the rest.
+    if ownership and ownership != "READY" and stated(_OWNERSHIP_DONE):
         return "unsupported_status"
     stage = claimed(_STAGE)
     if stage:
