@@ -19,7 +19,13 @@ from ai_assistant.guide import OWNERSHIP_REVIEW_ADVISED
 FIXTURES = Path(__file__).parent / "fixtures"
 BASE = json.loads((FIXTURES / "garden_address_conflict_summary.json").read_text())
 ME = json.loads((FIXTURES / "me_client_onboarder.json").read_text())
-CLAIMS = ("Ownership is complete.", "The ownership step is done.", "The UBO check is finished.")
+CLAIMS = (
+    "Ownership is complete.",
+    "The ownership step is done.",
+    "The UBO check is finished.",
+    "The UBO check has now been completed.",
+    "Ownership has already been completed.",
+)
 
 
 def _summary(advisory: bool | None) -> dict[str, Any]:

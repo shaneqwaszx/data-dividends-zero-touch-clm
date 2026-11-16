@@ -533,7 +533,8 @@ _COMPLETED = re.compile(
 _OWNERSHIP_DONE = re.compile(
     r"\b(?:ownership|ubos?|ubo check|beneficial owners?|beneficial ownership)"
     r"(?: (?:and ubo|& ubo|check|step|stage|analysis|review|section))*\b[^.;]{0,25}"
-    r"\b(?:is|are|has been|have been|was|were) (?:now |fully |already |all )*"
+    r"\b(?:is|are|was|were|(?:has|have) (?:now |already |fully |all )*been) "
+    r"(?:now |fully |already |all )*"
     r"(?:complete|completed|done|finished|resolved|cleared|sorted)\b"
 )
 _STAGE = re.compile(
