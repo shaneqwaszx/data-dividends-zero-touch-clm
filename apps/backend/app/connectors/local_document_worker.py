@@ -162,7 +162,10 @@ def _image(
 
 
 def _limit_memory() -> None:
-    if sys.platform == "win32":  # Windows development only; the deployed worker runs on Linux
+    # The deployed worker runs on Linux, where the cap is enforced (a failure there still
+    # fails closed). Windows has no RLIMIT_AS and macOS refuses to lower it, so both
+    # development platforms skip the cap.
+    if sys.platform in ("win32", "darwin"):
         return
     import resource
 

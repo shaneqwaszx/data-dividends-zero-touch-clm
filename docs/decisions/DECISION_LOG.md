@@ -2928,3 +2928,7 @@ The OpenRouter mode still starts only with all of these in place:
 - the host's `clm_r22o` install.
 
 `config.py` is a qualification-basis file. Every GPT-OSS and Claude qualification must run on the resulting fingerprint.
+
+## SF-002 amendment - Worker memory cap platforms (security patch #188; needs owner acceptance)
+
+The worker memory cap applies on Linux, where the worker is deployed; it is skipped on Windows and macOS development machines.
