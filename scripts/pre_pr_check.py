@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -730,6 +731,82 @@ def _run_governance_check(root: Path, report: Report, script_name: str) -> None:
         )
 
 
+VOCABULARY_SCRIPT = "check_boundary_vocabulary.py"
+
+
+def _run_vocabulary_check(root: Path, report: Report) -> None:
+    """Mandatory D-094 vocabulary consistency check (see the script's docstring)."""
+
+    script = root / "scripts" / VOCABULARY_SCRIPT
+    if not script.is_file():
+        # Deleting or renaming the checker must not turn the mandatory check off.
+        on_main = _git(root, "cat-file", "-e", f"origin/main:scripts/{VOCABULARY_SCRIPT}")
+        if on_main.returncode == 0:
+            report.fail(
+                f"{VOCABULARY_SCRIPT}: missing from this change but present on origin/main; "
+                "the mandatory vocabulary check cannot be removed in a PR"
+            )
+        return
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        [sys.executable, str(script), "--root", str(root), "--base", "origin/main"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        shell=False,
+    )
+    try:
+        outcome = json.loads((result.stdout or "").strip().splitlines()[-1])
+        status = str(outcome["status"])
+    except (IndexError, KeyError, TypeError, ValueError):
+        report.fail(
+            f"{VOCABULARY_SCRIPT}: FAIL (exit {result.returncode}, no verdict)\n"
+            + ((result.stderr or "").strip()[:2000] or "no checker diagnostics")
+        )
+        return
+    artifacts = outcome.get("artifacts") if isinstance(outcome.get("artifacts"), dict) else {}
+    summary = json.dumps(
+        {
+            path: {
+                key: item.get(key)
+                for key in ("status", "head_drift", "base_drift", "file_word_delta")
+                if item.get(key)
+            }
+            for path, item in artifacts.items()
+            if isinstance(item, dict) and item.get("status") != "CURRENT"
+        }
+        or {
+            key: outcome.get(key)
+            for key in ("head_drift", "base_drift", "file_word_delta")
+            if outcome.get(key)
+        },
+        sort_keys=True,
+    )
+    if status == "CURRENT":
+        report.detail(f"{VOCABULARY_SCRIPT}: PASS (boundary vocabulary current)")
+    elif status == "REVIEW_REQUIRED":
+        report.warn(
+            f"{VOCABULARY_SCRIPT}: a generated assistant vocabulary changed; an independent "
+            f"vocabulary review of the word delta is required (D-094) {summary}"
+        )
+    elif status == "PRE_EXISTING_DRIFT":
+        report.warn(
+            f"{VOCABULARY_SCRIPT}: boundary vocabulary already stale on origin/main; this "
+            f"change adds no drift (reconciled separately) {summary}"
+        )
+    else:
+        report.fail(
+            f"{VOCABULARY_SCRIPT}: {status}. If this branch is behind origin/main, merge it "
+            f"first. Otherwise regenerate the listed assistant vocabulary file(s), in order, "
+            f"and obtain an independent vocabulary review {summary}"
+        )
+
+
 def audit_repository(root: Path) -> Report:
     report = Report()
 
@@ -890,6 +967,7 @@ def audit_repository(root: Path) -> Report:
     _run_governance_check(root, report, "check_tooling_config.py")
     _run_governance_check(root, report, "check_policy_authority.py")
     _run_governance_check(root, report, "check_external_provider_readiness.py")
+    _run_vocabulary_check(root, report)
     return report
 
 
