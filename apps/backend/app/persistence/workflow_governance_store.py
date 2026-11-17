@@ -69,7 +69,11 @@ from app.domain.workflow_governance import (
     record_content_hash,
     version_logical_id,
 )
-from app.domain.workflows import WorkflowDefinition, WorkflowVersion
+from app.domain.workflows import (
+    ONBOARDING_WORKFLOW_ID,
+    WorkflowDefinition,
+    WorkflowVersion,
+)
 from app.persistence.errors import (
     PersistenceConflictError,
     PersistenceDataInvalidError,
@@ -1091,9 +1095,16 @@ def prepare_governance_write(
     *,
     active_version: int | None,
     latest_version: int | None,
+    deactivate: bool = False,
 ) -> tuple[WorkflowDefinition, WorkflowGovernanceState, int, int]:
     """Validate against the **stored** document, guard history, compact, and return what
     the CAS writes (the caller-supplied version fields are never trusted).
+
+    A deactivation (``deactivate=True``, ``active_version`` 0 or None, ``latest_version``
+    None; ADR-017 4, CC-5) publishes nothing: non-onboarding only, the stored
+    ``active_version`` must equal the stored ``latest_version`` > 0; it sets
+    ``active_version`` to 0 and keeps ``latest_version``, the versions and the baseline.
+    Reactivation is an ordinary publication from active 0 to ``latest_version + 1``.
 
     Without a publication, no payload version may pass the stored high-water mark and the
     stored ``active_version``/``latest_version`` are kept. A publication raises
@@ -1110,9 +1121,21 @@ def prepare_governance_write(
     if current_latest is None or current_active is None:
         raise PersistenceDataInvalidError
     highest = highest_version(definition)
-    if (active_version is None) != (latest_version is None):
+    if deactivate:
+        if latest_version is not None or active_version not in {None, 0}:
+            raise ValueError("a deactivation publishes nothing and sets active_version to 0")
+        if definition.workflow_id == ONBOARDING_WORKFLOW_ID:
+            raise ValueError("the onboarding workflow cannot be deactivated")
+        if not current_active or current_active != current_latest:
+            raise ValueError("only an active workflow (active == latest > 0) is deactivated")
+        if highest != current_latest:
+            raise ValueError("a deactivation adds no version")
+        if governance.required_baseline != stored.governance.required_baseline:
+            raise ValueError("a deactivation keeps the baseline")
+        active, latest = 0, current_latest
+    elif (active_version is None) != (latest_version is None):
         raise ValueError("a publication sets both active_version and latest_version")
-    if latest_version is None or active_version is None:
+    elif latest_version is None or active_version is None:
         if highest > current_latest:
             raise PersistenceConflictError
         active, latest = current_active, current_latest

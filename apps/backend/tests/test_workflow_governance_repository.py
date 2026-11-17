@@ -34,6 +34,7 @@ from app.domain.workflow_governance import (
     proposal_content_hash,
 )
 from app.domain.workflows import (
+    ONBOARDING_WORKFLOW_ID,
     WorkflowDefinition,
     WorkflowField,
     WorkflowFieldKind,
@@ -49,12 +50,14 @@ from app.persistence.workflow_governance_store import (
     ColdHistoryIntegrityError,
     GovernanceHistoryRewriteError,
     GovernedDefinition,
+    InMemoryColdHistoryStore,
     WorkflowGovernanceNotMigratedError,
     WorkflowHistoryUnavailableError,
     decided_entry,
     outbox_for_event,
     outbox_for_proposal,
     outbox_for_version,
+    prepare_governance_write,
 )
 from app.services.workflow_repository import InMemoryWorkflowDefinitionRepository
 
@@ -1000,3 +1003,168 @@ def test_a_decided_entry_for_a_proposal_that_stays_open_is_refused(harness: Harn
             latest_version=2,
         )
     assert harness.repository.get_governed(WID) == current
+
+
+# --- M2: deactivation (ADR-017 4, CC-5) ------------------------------------------------
+
+
+def _deactivation(current: GovernedDefinition) -> tuple[WorkflowDefinition, Any]:
+    """Submit-then-approve of a DEACTIVATE proposal, written as one decision CAS."""
+
+    opened = current.governance.open_proposal
+    assert opened is not None and opened.kind == ProposalKind.DEACTIVATE
+    record = opened.model_copy(
+        update={
+            "state": ProposalState.APPROVED,
+            "revision": opened.revision + 1,
+            "decided_at": NOW,
+            "decided_by": "director-one",
+            "decision_reason": "Deactivated for the test.",
+        }
+    )
+    state = current.governance
+    event = GovernanceEvent(
+        sequence=state.governance_sequence + 1,
+        occurred_at=NOW,
+        actor_id="director-one",
+        kind=GovernanceEventKind.DEACTIVATED,
+        proposal_id=record.proposal_id,
+        summary="Workflow deactivated",
+    )
+    governance = state.model_copy(
+        update={
+            "open_proposal": None,
+            "decided_proposals": (*state.decided_proposals, decided_entry(record, ended_at=NOW)),
+            "governance_events": (*state.governance_events, event),
+            "outbox": (*state.outbox, outbox_for_proposal(record), outbox_for_event(WID, event)),
+            "governance_sequence": event.sequence,
+        }
+    )
+    definition = current.definition.model_copy(update={"revision": current.definition.revision + 1})
+    return definition, governance
+
+
+def _submit_deactivation(harness: Harness, current: GovernedDefinition) -> GovernedDefinition:
+    proposal = WorkflowProposal(
+        proposal_id=str(uuid4()),
+        workflow_id=current.definition.workflow_id,
+        kind=ProposalKind.DEACTIVATE,
+        state=ProposalState.PENDING_APPROVAL,
+        base_version=current.definition.stored_active_version or 0,
+        author_id="hr-author",
+        created_at=NOW,
+        updated_at=NOW,
+        last_activity_at=NOW,
+        submitted_at=NOW,
+        content_hash=proposal_content_hash(ProposalKind.DEACTIVATE, ()),
+    )
+    return harness.repository.write_governance(
+        current.definition.model_copy(update={"revision": current.definition.revision + 1}),
+        current.governance.model_copy(update={"open_proposal": proposal}),
+        expected_revision=current.definition.revision,
+    )
+
+
+def _deactivate(harness: Harness, current: GovernedDefinition, **kwargs: Any) -> Any:
+    definition, governance = _deactivation(current)
+    governance = governance.model_copy(update=kwargs.pop("governance_update", {}))
+    return harness.repository.write_governance(
+        definition,
+        governance,
+        expected_revision=current.definition.revision,
+        deactivate=True,
+        **kwargs,
+    )
+
+
+def test_deactivation_sets_active_to_zero_and_keeps_everything_else(harness: Harness) -> None:
+    current = publish(harness, harness.repository.create_governed(payload(), born()), 1)
+    current = _submit_deactivation(harness, current)
+    written = _deactivate(harness, current, active_version=0)
+    logged = harness.definitions.log[-1] if harness.kind == "mongo" else None
+    assert written.definition.stored_active_version == 0
+    assert written.definition.latest_version == 1
+    assert written.definition.versions == current.definition.versions
+    assert written.governance.required_baseline == current.governance.required_baseline
+    assert written.governance.decided_proposals[-1].published_version is None
+    assert not harness.repository.authorise_dispatch(WID, 1)
+    assert harness.repository.verify_dispatch_state() == []
+    harness.repository.drain_outbox(WID, now=NOW)
+    assert harness.repository.verify_governance_state() == []
+    assert harness.repository.verify_dispatch_state() == []
+    if logged is not None:
+        query, update = logged[2]
+        assert (query["active_version"], query["latest_version"]) == (1, 1)
+        assert update["$set"]["active_version"] == 0
+        assert update["$set"]["latest_version"] == 1
+
+
+def test_reactivation_publishes_latest_plus_one_from_active_zero(harness: Harness) -> None:
+    current = publish(harness, harness.repository.create_governed(payload(), born()), 1)
+    current = _deactivate(harness, _submit_deactivation(harness, current))
+    reactivated = publish(harness, current, 2)
+    assert (
+        reactivated.definition.stored_active_version == 2 == reactivated.definition.latest_version
+    )
+    harness.repository.drain_outbox(WID, now=NOW)
+    assert harness.repository.verify_governance_state() == []
+    assert harness.repository.authorise_dispatch(WID, 2)
+
+
+def test_deactivation_is_refused_on_onboarding() -> None:
+    """Shared rule (both modes call ``prepare_governance_write`` first, before any write)."""
+
+    published = WorkflowVersion(
+        version=1, stages=stages("Onboarding"), activated_at=NOW, activated_by="director-one"
+    )
+    onboarding = payload(published).model_copy(
+        update={
+            "workflow_id": ONBOARDING_WORKFLOW_ID,
+            "stored_active_version": 1,
+            "latest_version": 1,
+        }
+    )
+    stored = GovernedDefinition(onboarding, born())
+    with pytest.raises(ValueError, match="onboarding"):
+        prepare_governance_write(
+            stored,
+            onboarding.model_copy(update={"revision": 2}),
+            born(),
+            InMemoryColdHistoryStore(),
+            active_version=0,
+            latest_version=None,
+            deactivate=True,
+        )
+
+
+def test_deactivation_is_refused_when_nothing_is_active(harness: Harness) -> None:
+    empty = _submit_deactivation(harness, harness.repository.create_governed(payload(), born()))
+    with pytest.raises(ValueError):
+        _deactivate(harness, empty)
+    assert harness.repository.get_governed(WID) == empty
+
+
+def test_deactivation_twice_and_with_a_publication_are_refused(harness: Harness) -> None:
+    current = publish(harness, harness.repository.create_governed(payload(), born()), 1)
+    current = _submit_deactivation(harness, current)
+    with pytest.raises(ValueError):
+        _deactivate(harness, current, latest_version=1)
+    current = _deactivate(harness, current)
+    again = _submit_deactivation(harness, current)
+    with pytest.raises(ValueError):
+        _deactivate(harness, again)
+
+
+def test_deactivation_keeps_the_baseline_byte_identical(harness: Harness) -> None:
+    current = harness.repository.create_governed(payload(), born())
+    current = _publish_with_baseline(harness, current, 1, _baseline(("a", "b", "c")))
+    current = _submit_deactivation(harness, current)
+    with pytest.raises((ValueError, GovernanceHistoryRewriteError)):
+        _deactivate(
+            harness, current, governance_update={"required_baseline": _baseline(("a", "b"))}
+        )
+    assert harness.repository.get_governed(WID) == current
+    written = _deactivate(harness, current)
+    assert written.governance.required_baseline.model_dump(mode="json") == (
+        current.governance.required_baseline.model_dump(mode="json")
+    )
