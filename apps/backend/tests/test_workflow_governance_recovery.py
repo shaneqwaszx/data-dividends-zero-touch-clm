@@ -394,7 +394,8 @@ def test_a_confirmation_counts_itself_and_waits_for_a_held_gate():
         assert not done.wait(0.2)  # cannot begin while the deactivation holds the gate
         assert gate.in_progress(workflow_id) == 0
     worker.join(5)
-    assert done.is_set() and seen == [1] and gate.in_progress(workflow_id) == 0
+    # Authorized outside the gate first, then reauthorized inside it (QG P3-1).
+    assert done.is_set() and seen == [0, 1] and gate.in_progress(workflow_id) == 0
 
 
 def test_a_deactivated_workflow_starts_no_run_but_existing_runs_complete_and_it_reactivates():
@@ -612,6 +613,8 @@ def test_release_needs_14_days_and_someone_other_than_the_author():
         release(world, draft, by=DIRECTOR)
     released = release(world, draft)
     assert released.state == ProposalState.WITHDRAWN and released.stages == (SIGNATORY,)
+    assert released.released_by == "hr-second"
+    assert released.release_reason == "The author left the team."
     entry = world.state().governance.decided_proposals[-1]
     assert entry.record.released_by == "hr-second"
     assert entry.record.release_reason == "The author left the team."
@@ -779,3 +782,98 @@ def test_every_new_route_is_capability_checked_for_each_role(user_id):
         else:
             assert response.status_code == 403, (method, path, response.json())
             assert response.json()["detail"]["code"] == "WORKFLOW_FORBIDDEN"
+
+
+# --- QG notes (P3-1 gate bounded, P3-2 fallback transparency, CC-6 fields) -------------------
+
+
+def test_junk_workflow_ids_never_grow_the_confirmation_gate():
+    world = World()
+    gate = world.workflows.confirmation_gate
+    for index in range(1000):
+        with pytest.raises(WorkflowNotFoundError):
+            world.workflows.confirm_workflow_case_stage(
+                lambda: RM,
+                workflow_id=f"junk-{index}",
+                run_id=uuid4(),
+                stage_id="details",
+                expected_revision=1,
+            )
+        with gate.confirming(f"direct-{index}"):
+            pass
+        with gate.holding(f"held-{index}"):
+            pass
+    assert gate.tracked() == 0
+
+
+def test_a_fallback_that_adds_permanent_obligations_says_so(caplog):
+    repository = InMemoryWorkflowDefinitionRepository()
+    moment = datetime(2026, 1, 1, tzinfo=UTC)
+    repository.create(
+        WorkflowDefinition(
+            workflow_id=ONBOARDING_WORKFLOW_ID,
+            name="Corporate onboarding",
+            use_case=ONBOARDING_USE_CASE,
+            country="Singapore",
+            versions=(
+                WorkflowVersion(
+                    version=1, stages=(CONTROLLER,), activated_at=moment, activated_by="olivia-koh"
+                ),
+                WorkflowVersion(
+                    version=2, stages=(SIGNATORY,), activated_at=moment, activated_by="olivia-koh"
+                ),
+            ),
+            created_at=moment,
+            updated_at=moment,
+        )
+    )
+    # The baseline is seeded from the active legacy version (v2) only.
+    repository.migrate_to_governance(seed_baseline, now=moment)
+    world = World(repository)
+    with caplog.at_level("WARNING", logger=workflow_governance.LOGGER.name):
+        result = world.fallback(target="VERSION", target_version=1)
+    assert result.published_version == 3
+    event = next(
+        item
+        for item in world.state().governance.governance_events
+        if item.kind == GovernanceEventKind.EMERGENCY_FALLBACK
+    )
+    assert event.summary == ("Emergency fallback to v1 (version 3); 2 new permanent obligations")
+    (record,) = [item for item in caplog.records if "permanent obligations" in item.message]
+    assert record.obligations == ["controller/-", "controller/controller-name"]
+
+
+def test_cc6_fields_appear_in_route_responses():
+    app = enabled_app()
+    director = login(app, "olivia-koh")
+    governed_publish(director, ONBOARDING_WORKFLOW_ID, [SIGNATORY.model_dump(mode="json")])
+    hr = login(app, "hr-admin")
+    url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
+    restore = hr.post(
+        f"{url}/proposals",
+        json={
+            "kind": "RESTORE_VERSION",
+            "restore_target_version": 1,
+            "expected_workflow_revision": hr.get(url).json()["revision"],
+        },
+    )
+    assert restore.status_code == 201, restore.json()
+    body = restore.json()
+    assert body["restore_target_version"] == 1
+    assert body["copied_from"] is None and body["released_by"] is None
+    assert "release_reason" in body
+    withdrawn = hr.post(
+        f"{url}/proposals/{body['proposal_id']}/withdraw",
+        json={
+            "expected_workflow_revision": hr.get(url).json()["revision"],
+            "expected_proposal_revision": body["revision"],
+        },
+    )
+    assert withdrawn.status_code == 200, withdrawn.json()
+    copied = hr.post(
+        f"{url}/proposals/{body['proposal_id']}/copy",
+        json={"expected_workflow_revision": hr.get(url).json()["revision"]},
+    )
+    assert copied.status_code == 201, copied.json()
+    assert copied.json()["copied_from"] == body["proposal_id"]
+    assert copied.json()["kind"] == "CHANGE"

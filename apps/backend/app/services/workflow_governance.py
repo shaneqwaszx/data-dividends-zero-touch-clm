@@ -776,6 +776,28 @@ class WorkflowGovernanceService:
             )
             director = actor.profile.user_id
             published = (definition.latest_version or 0) + 1
+            # Transparency only (QG P3-2; publication unchanged): obligations this
+            # fallback makes permanent without the section 1.3 acknowledgement.
+            added = permanent_obligations(stages, active=active, baseline=state.required_baseline)
+            if added:
+                LOGGER.warning(
+                    "emergency fallback adds permanent obligations",
+                    extra={
+                        "workflow_id": definition.workflow_id,
+                        "version": published,
+                        "obligations": [
+                            f"{item.key.stage_id}/{item.key.field_id or '-'}" for item in added
+                        ],
+                    },
+                )
+            target_label = (
+                f"v{request.target_version}" if request.target == "VERSION" else "the default"
+            )
+            plural = "" if len(added) == 1 else "s"
+            fallback_summary = (
+                f"Emergency fallback to {target_label} (version {published}); "
+                f"{len(added)} new permanent obligation{plural}"
+            )[:160]
             version = WorkflowVersion(
                 version=published, stages=stages, activated_at=now, activated_by=director
             )
@@ -829,6 +851,7 @@ class WorkflowGovernanceService:
                 version_provenance=(*state.version_provenance, provenance),
                 notices=(*state.notices, notice),
                 events=events,
+                summaries={GovernanceEventKind.EMERGENCY_FALLBACK: fallback_summary},
             )
 
         with self._lock:
@@ -899,7 +922,13 @@ class WorkflowGovernanceService:
         request: CopyProposalRequest,
     ) -> ProposalResponse:
         """A new DRAFT authored by the copier, with ``copied_from``; authorship is never
-        transferred. One open proposal per workflow still applies."""
+        transferred. One open proposal per workflow still applies.
+
+        Only a decided proposal whose full record is still hot can be copied. One whose
+        record exists only in cold storage (archived and compacted) returns
+        ``503 WORKFLOW_HISTORY_UNAVAILABLE``: the governance port reads cold versions,
+        not cold proposals (QG P3-5).
+        """
 
         def change(actor: AuthenticatedActor, governed: GovernedDefinition, now: datetime) -> Any:
             self._expect_workflow(governed, request.expected_workflow_revision)
@@ -1111,6 +1140,7 @@ class WorkflowGovernanceService:
         decided: WorkflowProposal | None = None,
         version: WorkflowVersion | None = None,
         deactivate: bool = False,
+        summaries: Mapping[GovernanceEventKind, str] | None = None,
         **changes: Any,
     ) -> _Write:
         definition, state = governed.definition, governed.governance
@@ -1135,7 +1165,7 @@ class WorkflowGovernanceService:
                 kind=kind,
                 proposal_id=None if proposal is None else proposal.proposal_id,
                 version=number,
-                summary=_event_summary(kind, number),
+                summary=(summaries or {}).get(kind) or _event_summary(kind, number),
             )
             new_events.append(event)
             outbox.append(outbox_for_event(workflow_id, event))

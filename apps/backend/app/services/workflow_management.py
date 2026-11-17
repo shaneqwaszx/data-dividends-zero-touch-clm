@@ -115,39 +115,69 @@ class ConfirmationGate:
 
     def __init__(self) -> None:
         self._registry = Lock()
-        self._locks: dict[str, Lock] = {}
-        self._counts: dict[str, int] = {}
+        # workflow id -> its gate entry; pruned once no caller uses it (QG P3-1).
+        self._entries: dict[str, _GateEntry] = {}
 
-    def _lock(self, workflow_id: str) -> Lock:
+    def _enter(self, workflow_id: str) -> _GateEntry:
         with self._registry:
-            return self._locks.setdefault(workflow_id, Lock())
+            entry = self._entries.get(workflow_id)
+            if entry is None:
+                entry = self._entries[workflow_id] = _GateEntry()
+            entry.users += 1
+            return entry
+
+    def _leave(self, workflow_id: str, entry: _GateEntry) -> None:
+        with self._registry:
+            entry.users -= 1
+            if entry.users == 0 and entry.confirming == 0:
+                self._entries.pop(workflow_id, None)
 
     @contextmanager
     def confirming(self, workflow_id: str) -> Iterator[None]:
-        gate = self._lock(workflow_id)
-        with gate:
-            self._counts[workflow_id] = self._counts.get(workflow_id, 0) + 1
+        entry = self._enter(workflow_id)
         try:
-            yield
+            with entry.lock:
+                entry.confirming += 1
+            try:
+                yield
+            finally:
+                with entry.lock:
+                    entry.confirming -= 1
         finally:
-            with gate:
-                remaining = self._counts.get(workflow_id, 0) - 1
-                if remaining > 0:
-                    self._counts[workflow_id] = remaining
-                else:
-                    self._counts.pop(workflow_id, None)
+            self._leave(workflow_id, entry)
 
     @contextmanager
     def holding(self, workflow_id: str) -> Iterator[None]:
         """Hold the workflow's gate (the deactivation decision, until its CAS completes)."""
 
-        with self._lock(workflow_id):
-            yield
+        entry = self._enter(workflow_id)
+        try:
+            with entry.lock:
+                yield
+        finally:
+            self._leave(workflow_id, entry)
 
     def in_progress(self, workflow_id: str) -> int:
         """The current count; meaningful to a caller inside ``holding(workflow_id)``."""
 
-        return self._counts.get(workflow_id, 0)
+        with self._registry:
+            entry = self._entries.get(workflow_id)
+            return 0 if entry is None else entry.confirming
+
+    def tracked(self) -> int:
+        """How many workflows have a live gate entry (bounded by callers in flight)."""
+
+        with self._registry:
+            return len(self._entries)
+
+
+class _GateEntry:
+    __slots__ = ("confirming", "lock", "users")
+
+    def __init__(self) -> None:
+        self.lock = Lock()
+        self.users = 0
+        self.confirming = 0
 
 
 _GATES: weakref.WeakKeyDictionary[object, ConfirmationGate] = weakref.WeakKeyDictionary()
@@ -382,6 +412,9 @@ class WorkflowManagementService:
         stage_id: str,
         expected_revision: int,
     ) -> WorkflowRun:
+        # Authorize and resolve the run first, so only a real, owned run's workflow id
+        # ever reaches the gate (QG P3-1); then re-check inside the run's lock.
+        self._owned_run(reauthorize(), workflow_id, run_id, None)
         with self._gate.confirming(workflow_id), self._cases.case_lock(run_id):
             actor = reauthorize()
             run = self._owned_run(actor, workflow_id, run_id, expected_revision)
