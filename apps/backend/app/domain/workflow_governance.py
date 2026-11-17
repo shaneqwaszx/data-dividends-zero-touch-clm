@@ -455,6 +455,10 @@ class VersionProvenance(_Frozen):
             self.approved_by is None or self.author_id is None or self.proposal_id is None
         ):
             raise ValueError("a governed version names its author, approver and proposal")
+        if self.origin == VersionOrigin.EMERGENCY_FALLBACK and (
+            self.approved_by is not None or self.author_id is not None or not self.activated_by
+        ):
+            raise ValueError("an emergency fallback has no author or approver, only its Director")
         if self.approved_by is not None and self.approved_by == self.author_id:
             raise ValueError("WORKFLOW_SELF_DECISION_REFUSED")
         return self

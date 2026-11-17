@@ -111,6 +111,10 @@ export interface ProposalResponse {
   decision_reason: string | null;
   published_version: number | null;
   stale_by_version: number | null;
+  restore_target_version?: number | null; // CC-6 (additive, optional)
+  copied_from?: string | null;
+  released_by?: string | null;
+  release_reason?: string | null;
   can_edit: boolean;
   can_submit: boolean;
   can_withdraw: boolean;
@@ -333,6 +337,7 @@ export const PROPOSAL_RESPONSE_KEYS = [
   "proposal_id", "workflow_id", "kind", "state", "origin", "revision", "base_version", "stages", "note",
   "author_id", "legacy_editor", "created_at", "updated_at", "last_activity_at", "submitted_at",
   "content_hash", "decided_at", "decided_by", "decision_reason", "published_version", "stale_by_version",
+  "restore_target_version", "copied_from", "released_by", "release_reason",
   "can_edit", "can_submit", "can_withdraw", "can_decide",
 ] as const satisfies readonly (keyof ProposalResponse)[];
 export const COMPARISON_RESPONSE_KEYS = [
