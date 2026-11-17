@@ -173,3 +173,39 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
   and `PUT …/draft` in PR-3/PR-4, while the frontend stops calling `PUT …/draft` in PR-5. The two
   are integrated together on `feat/workflow-governance-m1` and must never be merged or deployed
   apart, so the route and its UI still retire together (PR-3/PR-4 QG P2).
+- **CC-4 (2026-11-17, integrator). M2 addendum (additive).** Recovery and administration, per
+  ADR-017 §1.2, §4 and §5. New models: `EmergencyFallbackRequest`/`Response`,
+  `ReleaseDraftRequest`, `CopyProposalRequest`, `WorkflowVersionResponse`, `NoticeItem`,
+  `NoticeListResponse` and `AcknowledgeNoticeRequest`.
+  - **Restore and reset.** `RESTORE_VERSION` (with `restore_target_version`) and
+    `RESET_TO_DEFAULT` go through the existing create and decision routes. HR proposes and one
+    Director decides. The published content is always the **safe target**:
+    `base ∪ required_baseline`. The proposal's stages are computed by the backend, never by the
+    client.
+  - **Deactivate and reactivate.** `DEACTIVATE` (no stages) and `REACTIVATE` (full stages that must
+    satisfy the baseline) apply to non-onboarding workflows only.
+    - Deactivation writes `active_version = 0`, keeps `latest_version` and the baseline, never
+      modifies a run, and blocks new runs.
+    - It is refused with `409 WORKFLOW_RUN_CONFIRMATION_IN_PROGRESS` while any run of that workflow
+      is inside a required-stage confirmation. The confirmation-gate lock is shared by both paths.
+  - **Emergency fallback** (`POST /workflows/{wid}/emergency-fallback`).
+    - It is the Director's single-actor exception, and a mandatory reason is required.
+    - It publishes the safe target of a version or of the default, with origin
+      `EMERGENCY_FALLBACK` and `approved_by = null`.
+    - It marks any open proposal `STALE`, keeping it, and raises a persisted notice that stays until
+      an HR user acknowledges it.
+    - At 64 unacknowledged notices it is refused with `409 WORKFLOW_NOTICES_UNACKNOWLEDGED`.
+    - It can never bypass the ratchet, the mandatory stages, D-136, the fence or the ledgers.
+  - **Release** (`…/proposals/{pid}/release`). Any HR user except the author may release a draft
+    after 14 days without activity, or when its author's account is disabled or deleted. Otherwise
+    it is refused with `409 WORKFLOW_DRAFT_NOT_RELEASABLE`. The draft becomes `WITHDRAWN` with
+    `released_by`, and its content is kept. Directors cannot release.
+  - **Copy** (`…/proposals/{pid}/copy`). It creates a new `DRAFT` authored by the copier, with
+    `copied_from`. One open proposal per workflow still applies.
+  - **Notices.**
+    - `GET /workflows/notices` lists unacknowledged notices.
+    - `POST /workflows/notices/{id}/acknowledge` is HR only. It sets `acknowledged_by` and
+      `acknowledged_at`, which is the only permitted change, and records an event.
+  - **Versions.** `GET /workflows/{wid}/versions/{n}` reads hot, then cold. Legacy versions are
+    never shown as approved.
+  - **Simulation** stays synthetic only.

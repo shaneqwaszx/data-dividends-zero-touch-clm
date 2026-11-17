@@ -351,3 +351,41 @@ export const GOVERNANCE_VIEW_KEYS = [
   "migrated", "latest_version", "open_proposal", "decided_proposals", "version_provenance", "baseline",
   "recent_events", "unacknowledged_notices", "can_create_proposal",
 ] as const satisfies readonly (keyof WorkflowGovernanceView)[];
+
+// --- M2 contract addendum (CC-4): recovery and administration ---
+
+export interface EmergencyFallbackRequest {
+  reason: string; // 10-240 characters after trimming
+  expected_workflow_revision: number;
+  target: "VERSION" | "DEFAULT";
+  target_version?: number | null; // required when target === "VERSION"
+}
+
+export interface EmergencyFallbackResponse {
+  workflow_revision: number;
+  active_version: number;
+  published_version: number;
+  provenance: VersionProvenance;
+  notice: GovernanceNotice;
+  staled_proposal_ids: string[];
+  publication_report: PublicationReport | null;
+}
+
+export interface ReleaseDraftRequest { reason: string; expected_workflow_revision: number; expected_proposal_revision: number }
+
+export interface CopyProposalRequest { expected_workflow_revision: number; note?: string | null }
+
+export interface WorkflowVersionResponse {
+  workflow_id: string;
+  version: WorkflowVersionDetail;
+  provenance: VersionProvenance | null;
+  is_active: boolean;
+}
+
+export interface NoticeItem { workflow_id: string; workflow_name: string; workflow_revision: number; notice: GovernanceNotice }
+
+export interface NoticeListResponse { items: NoticeItem[] }
+
+export interface AcknowledgeNoticeRequest { workflow_id: string; expected_workflow_revision: number }
+
+export const DRAFT_RELEASE_AFTER_DAYS = 14;

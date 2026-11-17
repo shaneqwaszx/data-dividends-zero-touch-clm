@@ -357,3 +357,77 @@ class GovernanceErrorBody(_Contract):
     message: str = Field(max_length=240)
     rule: RatchetRule | None = None
     issues: tuple[ValidationIssue, ...] = ()
+
+
+# --- M2 contract addendum (CC-4): recovery and administration (ADR-017 §1.2, §4, §5) ---
+#
+# M2 routes (all ACTOR_ONLY; reauthorized inside the definition lock):
+#   POST /api/workflows/{wid}/proposals  kind RESTORE_VERSION (restore_target_version) or
+#        RESET_TO_DEFAULT (HR; the published content is the SAFE TARGET: base ∪ required_baseline),
+#        DEACTIVATE / REACTIVATE (HR; non-onboarding only; REACTIVATE carries full stages)
+#        — each is decided through the existing decision route by one Director.
+#   POST /api/workflows/{wid}/emergency-fallback        EmergencyFallbackRequest  (Director alone)
+#   POST /api/workflows/{wid}/proposals/{pid}/release   ReleaseDraftRequest       (HR, not author)
+#   POST /api/workflows/{wid}/proposals/{pid}/copy      CopyProposalRequest       (HR)
+#   GET  /api/workflows/{wid}/versions/{n}              WorkflowVersionResponse   (HR, Director)
+#   GET  /api/workflows/notices                         NoticeListResponse        (HR, Director)
+#   POST /api/workflows/notices/{notice_id}/acknowledge AcknowledgeNoticeRequest  (HR)
+
+
+class EmergencyFallbackRequest(_Contract):
+    """Director alone, mandatory reason. Publishes the safe target with origin EMERGENCY_FALLBACK."""
+
+    reason: DecisionReason
+    expected_workflow_revision: int = Field(ge=1)
+    target: Literal["VERSION", "DEFAULT"]
+    target_version: int | None = Field(default=None, ge=1)  # required when target == "VERSION"
+
+
+class EmergencyFallbackResponse(_Contract):
+    workflow_revision: int
+    active_version: int = Field(ge=1)
+    published_version: int = Field(ge=1)
+    provenance: VersionProvenance
+    notice: GovernanceNotice
+    staled_proposal_ids: tuple[str, ...] = ()
+    publication_report: PublicationReport | None = None
+
+
+class ReleaseDraftRequest(_Contract):
+    """Any HR user except the author, after 14 days without activity or when the author is gone."""
+
+    reason: ShortText
+    expected_workflow_revision: int = Field(ge=1)
+    expected_proposal_revision: int = Field(ge=1)
+
+
+class CopyProposalRequest(_Contract):
+    """A new DRAFT authored by the copier, with copied_from; authorship is never transferred."""
+
+    expected_workflow_revision: int = Field(ge=1)
+    note: ShortText | None = None
+
+
+class WorkflowVersionResponse(_Contract):
+    """One published version, hot or cold (``get_version``)."""
+
+    workflow_id: str
+    version: WorkflowVersion
+    provenance: VersionProvenance | None
+    is_active: bool
+
+
+class NoticeItem(_Contract):
+    workflow_id: str
+    workflow_name: str
+    workflow_revision: int
+    notice: GovernanceNotice
+
+
+class NoticeListResponse(_Contract):
+    items: tuple[NoticeItem, ...]
+
+
+class AcknowledgeNoticeRequest(_Contract):
+    workflow_id: str = Field(min_length=1, max_length=64)
+    expected_workflow_revision: int = Field(ge=1)
