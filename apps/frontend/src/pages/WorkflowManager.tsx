@@ -1,11 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { EntityApplicabilityPlaceholder, EntityConditionsPlaceholder } from "../components/workflow-governance/EntityApplicability";
+import {
+  GovernanceRefusalPanel,
+  ProposalStatus,
+  ValidationReportPanel,
+  VersionHistoryList,
+} from "../components/workflow-governance/GovernancePanels";
+import { SimulationPanel } from "../components/workflow-governance/SimulationPanel";
 import type { AuthenticatedProfile } from "../types";
 import {
   createWorkflow,
+  fetchWorkflow,
   fetchWorkflows,
-  saveWorkflowDraft,
   workflowErrorMessage,
   workflowQueryKeys,
   type WorkflowCaseSource,
@@ -14,6 +22,18 @@ import {
   type WorkflowFieldKind,
   type WorkflowStage,
 } from "../workflowApi";
+import {
+  createProposal,
+  governanceErrorMessage,
+  governanceRefusal,
+  RELOADABLE_CODES,
+  submitProposal,
+  updateProposal,
+  validateProposal,
+  withdrawProposal,
+  type GovernanceRefusal,
+} from "../workflowGovernanceApi";
+import type { CreateProposalRequest, ValidationReport } from "../workflowGovernanceTypes";
 import { ONBOARDING_STAGE_TEMPLATES } from "../workflowStageTemplates";
 
 const FIELD_KINDS: Array<{ kind: WorkflowFieldKind; label: string }> = [
@@ -93,12 +113,6 @@ export function reorderStages(stages: WorkflowStage[], movedId: string, targetId
   return next;
 }
 
-function activationProblem(stages: WorkflowStage[], onboarding: boolean): string | null {
-  if (!onboarding && stages.length === 0) return "Add at least one stage before this workflow can be published.";
-  const empty = stages.filter(stage => stage.fields.length === 0).map(stage => stage.name);
-  return empty.length ? `Add at least one field to: ${empty.join(", ")}.` : null;
-}
-
 function FieldEditor({ field, onChange, onRemove }: {
   field: WorkflowField; onChange: (next: WorkflowField) => void; onRemove: () => void;
 }) {
@@ -135,23 +149,56 @@ function FieldEditor({ field, onChange, onRemove }: {
   );
 }
 
-export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
-  workflow: WorkflowDetail; workflows: WorkflowDetail[]; onBack: () => void; onSaved: (next: WorkflowDetail) => void;
+/** The active version's stages, shown read-only when no proposal is open. */
+export function activeStages(workflow: Pick<WorkflowDetail, "active_version" | "versions">): WorkflowStage[] {
+  return workflow.versions?.find(item => item.version === workflow.active_version)?.stages ?? [];
+}
+
+/** Local hint only; the backend validates structure, budget and the ratchet. */
+function draftProblem(stages: WorkflowStage[], onboarding: boolean): string | null {
+  if (!onboarding && stages.length === 0) return "Add at least one stage before this proposal can be submitted.";
+  const empty = stages.filter(stage => stage.fields.length === 0).map(stage => stage.name);
+  return empty.length ? `Add at least one field to: ${empty.join(", ")}.` : null;
+}
+
+const snapshot = (stages: WorkflowStage[]) => JSON.stringify(stages);
+
+/**
+ * HR authoring through governed proposals (ADR-017, P2-2). The can_* flags only shape the UI; every
+ * route reauthorizes the actor. `onChanged` refetches the workflow so the next request carries the
+ * current workflow and proposal revisions.
+ */
+export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged, notice = null, onNotice = () => {}, refreshError = null }: {
+  workflow: WorkflowDetail; workflows: WorkflowDetail[]; userId: string; onBack: () => void;
+  onChanged: () => Promise<unknown>; notice?: string | null; onNotice?: (text: string | null) => void;
+  /** A background refetch failed; the cached workflow and any unsaved edits stay on screen. */
+  refreshError?: string | null;
 }) {
-  const [stages, setStages] = useState<WorkflowStage[]>(workflow.draft_stages);
-  const [selectedId, setSelectedId] = useState<string | null>(workflow.draft_stages[0]?.stage_id ?? null);
+  const governance = workflow.governance?.migrated ? workflow.governance : null;
+  const proposal = governance?.open_proposal ?? null;
+  const editable = proposal !== null && proposal.state === "DRAFT" && proposal.can_edit;
+  const [stages, setStages] = useState<WorkflowStage[]>(() => proposal?.stages ?? activeStages(workflow));
+  const [selectedId, setSelectedId] = useState<string | null>(stages[0]?.stage_id ?? null);
   const [dirty, setDirty] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<GovernanceRefusal | null>(null);
+  const [validation, setValidation] = useState<{ report: ValidationReport; snapshot: string } | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [simulating, setSimulating] = useState(false);
+  const [note, setNote] = useState("");
+  const validateController = useRef<AbortController | null>(null);
+  useEffect(() => () => validateController.current?.abort(), []);
   const anchors = workflow.locked_stages.slice(0, -1);
   const selected = stages.find(stage => stage.stage_id === selectedId) ?? null;
-  const problem = activationProblem(stages, workflow.is_onboarding);
-  const suggestions = reusableStages(workflow, workflows, stages);
+  const problem = editable ? draftProblem(stages, workflow.is_onboarding) : null;
+  const suggestions = editable ? reusableStages(workflow, workflows, stages) : [];
 
   function change(next: WorkflowStage[]) {
+    if (!editable) return;
     setStages(next);
     setDirty(true);
-    setNotice(null);
+    setRefusal(null);
+    onNotice(null);
   }
   function updateSelected(patch: Partial<WorkflowStage>) {
     change(stages.map(stage => stage.stage_id === selectedId ? { ...stage, ...patch } : stage));
@@ -175,20 +222,90 @@ export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
     change(next);
   }
 
-  // ADR-017 P2-0 freezes publication; governed publication returns with P2-1, P2-2 and P3-1.
-  // Only the draft is saved here, so no request reaches the frozen activation route.
-  const save = useMutation({
-    mutationFn: () => saveWorkflowDraft(workflow, stages),
-    onSuccess: next => {
-      setDirty(false);
-      setNotice("Draft saved. It is not published.");
-      onSaved(next);
+  const onError = (error: unknown) => setRefusal(governanceRefusal(error));
+  const create = useMutation({
+    mutationFn: async () => {
+      const body: CreateProposalRequest = { kind: "CHANGE", expected_workflow_revision: workflow.revision };
+      if (note.trim()) body.note = note.trim();
+      await createProposal(workflow.workflow_id, body);
+      await onChanged();
     },
-    onError: error => setNotice(workflowErrorMessage(error)),
+    onSuccess: () => onNotice("Proposal created from the active version. Edit it, validate it, then submit it for approval."),
+    onError,
   });
+  const save = useMutation({
+    mutationFn: async () => {
+      await updateProposal(workflow.workflow_id, proposal!.proposal_id, {
+        expected_workflow_revision: workflow.revision,
+        expected_proposal_revision: proposal!.revision,
+        stages,
+        note: proposal!.note,
+      });
+      await onChanged();
+    },
+    onSuccess: () => { setDirty(false); onNotice("Changes saved to your proposal. It is not submitted."); },
+    onError,
+  });
+  const submit = useMutation({
+    mutationFn: async () => {
+      await submitProposal(workflow.workflow_id, proposal!.proposal_id, {
+        expected_workflow_revision: workflow.revision,
+        expected_proposal_revision: proposal!.revision,
+        content_hash: validation!.report.content_hash,
+      });
+      await onChanged();
+    },
+    onSuccess: () => onNotice("Submitted for approval. A Director will decide it."),
+    onError,
+  });
+  const withdraw = useMutation({
+    mutationFn: async () => {
+      await withdrawProposal(workflow.workflow_id, proposal!.proposal_id, {
+        expected_workflow_revision: workflow.revision,
+        expected_proposal_revision: proposal!.revision,
+      });
+      await onChanged();
+    },
+    onSuccess: () => onNotice("Proposal withdrawn. Its content is kept in the history."),
+    onError,
+  });
+
+  async function validate() {
+    if (!proposal) return;
+    validateController.current?.abort();
+    const controller = new AbortController();
+    validateController.current = controller;
+    const sent = snapshot(stages);
+    setValidating(true);
+    setRefusal(null);
+    try {
+      const report = await validateProposal(workflow.workflow_id, proposal.proposal_id, { stages }, controller.signal);
+      if (!controller.signal.aborted) setValidation({ report, snapshot: sent });
+    } catch (error) {
+      if (!controller.signal.aborted) onError(error);
+    } finally {
+      if (validateController.current === controller) setValidating(false);
+    }
+  }
+
+  const busy = create.isPending || save.isPending || submit.isPending || withdraw.isPending || validating;
+  const validatedCurrent = validation !== null && validation.snapshot === snapshot(stages);
+  const canSubmit = editable && proposal!.can_submit && !dirty && !busy && problem === null
+    && validation !== null && validation.report.valid && validatedCurrent;
   const selectedIndex = stages.findIndex(stage => stage.stage_id === selectedId);
   function leave() {
     if (!dirty || window.confirm("Leave without saving your changes?")) onBack();
+  }
+  /** Refetch the workflow (new revisions) without discarding local edits; the old validation no longer applies. */
+  function reload() {
+    validateController.current?.abort();
+    setRefusal(null);
+    setValidation(null);
+    onNotice(null);
+    void onChanged();
+  }
+  function confirmWithdraw() {
+    if (window.confirm("Withdraw this proposal? It ends here and can't be submitted again.")) withdraw.mutate();
   }
 
   return (
@@ -200,32 +317,77 @@ export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
           <p className="text-muted">{workflow.country}{workflow.is_onboarding ? "" : ` · ${workflow.case_source === "NEW_CASE" ? "New case" : "Existing case"}`} · {workflowStatusLabel(workflow)}{dirty ? " · Unsaved changes" : ""}</p>
         </div>
         <div className="case-header-actions">
-          <button type="button" className="btn btn-secondary" disabled={save.isPending || !dirty} onClick={() => save.mutate()}>Save draft</button>
+          {editable && <>
+            <button type="button" className="btn btn-secondary" disabled={busy || !dirty} onClick={() => save.mutate()}>Save changes</button>
+            <button type="button" className="btn btn-secondary" disabled={busy || problem !== null} onClick={() => void validate()}>Validate</button>
+            <button type="button" className="btn btn-secondary" aria-expanded={simulating} aria-controls="workflow-simulation" onClick={() => setSimulating(value => !value)}>Simulate</button>
+            <button type="button" className="btn btn-primary" disabled={!canSubmit} aria-describedby="submit-hint" onClick={() => submit.mutate()}>Submit for approval</button>
+          </>}
+          {proposal && proposal.can_withdraw && (proposal.state === "DRAFT" || proposal.state === "PENDING_APPROVAL") && (
+            <button type="button" className="btn btn-danger" disabled={busy} onClick={confirmWithdraw}>Withdraw</button>
+          )}
         </div>
       </div>
-      <div className="ds-banner" role="note" data-testid="workflow-publication-paused" style={{ marginBottom: 16 }}>
-        <strong>Publishing is paused.</strong> Drafts are saved, but a new version can't be published while
-        approval governance is introduced. Publishing will return through HR proposals and Director approval.
-      </div>
+
+      {!governance && (
+        <div className="ds-banner" role="note" data-testid="governance-not-enabled" style={{ marginBottom: 16 }}>
+          <strong>Workflow governance is not yet enabled.</strong> Changes can't be proposed until it is. The active
+          version is shown read-only.
+        </div>
+      )}
+      {governance && !proposal && (
+        <section className="card" aria-labelledby="propose-change" data-testid="propose-change" style={{ marginBottom: 16 }}>
+          <h2 id="propose-change">Change this workflow</h2>
+          <p className="text-muted">
+            Changes are made through a proposal: you edit a draft, validate and submit it, and one Director approves or
+            rejects it. Cases keep following the active version until then.
+          </p>
+          {governance.can_create_proposal ? <>
+            <label>What does this change do? (optional)
+              <input className="input" value={note} maxLength={240} onChange={event => setNote(event.target.value)} />
+            </label>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => create.mutate()}>Propose a change</button>
+          </> : <p className="text-muted">You can view this workflow. Proposing changes is for HR authors.</p>}
+        </section>
+      )}
+      {proposal && <ProposalStatus proposal={proposal} />}
+      {editable && (
+        <p id="submit-hint" className="text-muted" style={{ marginTop: 0 }}>
+          {dirty ? "Save your changes, then validate before submitting."
+            : !validatedCurrent ? "Validate the current content before submitting."
+              : validation?.report.valid ? "Validated. You can submit this content for approval." : "Fix the validation issues before submitting."}
+        </p>
+      )}
       {notice && <div className="ds-banner" role="status" style={{ marginBottom: 16 }}>{notice}</div>}
+      {refreshError && (
+        <div className="ds-banner ds-banner-warn" role="alert" data-testid="workflow-refresh-error" style={{ marginBottom: 16 }}>
+          The latest version of this workflow could not be loaded: {refreshError} What you see, including unsaved changes, is kept.{" "}
+          <button type="button" className="btn btn-secondary" onClick={reload}>Reload</button>
+        </div>
+      )}
+      {refusal && <GovernanceRefusalPanel refusal={refusal} onReload={refusal.code && RELOADABLE_CODES.has(refusal.code) ? reload : undefined} />}
       {problem && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{problem}</div>}
+      {editable && validation && <ValidationReportPanel report={validation.report} current={validatedCurrent} />}
+      {editable && simulating && proposal && (
+        <SimulationPanel id="workflow-simulation" userId={userId} workflowId={workflow.workflow_id} proposalId={proposal.proposal_id} stages={stages} />
+      )}
 
       <div className="ds-two-col">
         <section className="card" aria-label="Pipeline stages" style={{ flex: 3, minWidth: 0 }}>
-          <p className="card-kicker">Stages</p>
+          <p className="card-kicker">{editable ? "Stages in your proposal" : proposal ? "Stages in the open proposal (read-only)" : "Active version stages (read-only)"}</p>
           {workflow.is_onboarding && <p className="text-muted">Existing stages run exactly as they do today and can't be changed here.</p>}
           {stages.length === 0 && !workflow.is_onboarding && <p className="text-muted">No stages yet.</p>}
-          {stages.length > 1 && !workflow.is_onboarding && <p className="text-muted">Drag a stage to reorder it.</p>}
+          {editable && stages.length > 1 && !workflow.is_onboarding && <p className="text-muted">Drag a stage to reorder it.</p>}
           <ol style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {editorRows(workflow, stages).map((row, index) => row.kind === "existing" ? (
               <li key={row.node_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 12px" }}>
                 <span>{index + 1}. {row.label}</span>
-                {anchors.some(item => item.node_id === row.node_id) && (
+                {editable && anchors.some(item => item.node_id === row.node_id) && (
                   <button type="button" className="btn btn-ghost" aria-label={`Add stage after ${row.label}`} onClick={() => addStage(row.node_id)}>Add after</button>
                 )}
               </li>
             ) : (
-              <li key={row.stage.stage_id} draggable={!workflow.is_onboarding}
+              <li key={row.stage.stage_id} draggable={editable && !workflow.is_onboarding}
                 onDragStart={() => setDraggedId(row.stage.stage_id)}
                 onDragEnd={() => setDraggedId(null)}
                 onDragOver={event => { if (draggedId) event.preventDefault(); }}
@@ -234,19 +396,19 @@ export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
                   if (draggedId && draggedId !== row.stage.stage_id) change(reorderStages(stages, draggedId, row.stage.stage_id));
                   setDraggedId(null);
                 }}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 12px", cursor: workflow.is_onboarding ? undefined : "grab", opacity: draggedId === row.stage.stage_id ? 0.5 : undefined }}>
-                {!workflow.is_onboarding && <span aria-hidden="true" className="text-muted">⠿</span>}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 12px", cursor: editable && !workflow.is_onboarding ? "grab" : undefined, opacity: draggedId === row.stage.stage_id ? 0.5 : undefined }}>
+                {editable && !workflow.is_onboarding && <span aria-hidden="true" className="text-muted">⠿</span>}
                 <button type="button"
                   style={{ all: "unset", cursor: "pointer", flex: 1, minWidth: 0, fontWeight: row.stage.stage_id === selectedId ? 600 : undefined }}
                   aria-pressed={row.stage.stage_id === selectedId}
                   onClick={() => setSelectedId(row.stage.stage_id)}>
                   {index + 1}. {row.stage.name}
                 </button>
-                {workflow.is_onboarding && <button type="button" className="btn btn-ghost" aria-label={`Add stage after ${row.stage.name}`} onClick={() => addStage(row.stage.after_node_id, row.stage.stage_id)}>Add after</button>}
+                {editable && workflow.is_onboarding && <button type="button" className="btn btn-ghost" aria-label={`Add stage after ${row.stage.name}`} onClick={() => addStage(row.stage.after_node_id, row.stage.stage_id)}>Add after</button>}
               </li>
             ))}
           </ol>
-          {!workflow.is_onboarding && <button type="button" className="btn btn-primary" style={{ marginTop: 10 }} onClick={() => addStage(null)}>Add stage</button>}
+          {editable && !workflow.is_onboarding && <button type="button" className="btn btn-primary" style={{ marginTop: 10 }} onClick={() => addStage(null)}>Add stage</button>}
           {suggestions.length > 0 && <>
             <p className="card-kicker" style={{ marginTop: 16 }}>Reuse from other workflows</p>
             {suggestions.some(item => item.mock) && <p className="text-muted">Onboarding stages come with mock fields for someone to fill in. They don't run the automated check.</p>}
@@ -266,8 +428,8 @@ export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
         </section>
 
         <section className="card" aria-label="Stage settings" style={{ flex: 2, minWidth: 0 }}>
-          {!selected && <p className="text-muted">Select a stage to edit it, or add a new one.</p>}
-          {selected && <>
+          {!selected && <p className="text-muted">{editable ? "Select a stage to edit it, or add a new one." : "Select a stage to see its fields."}</p>}
+          {selected && <fieldset disabled={!editable} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
             <label>Stage name<input className="input" value={selected.name} maxLength={80}
               onChange={event => updateSelected({ name: event.target.value })} /></label>
             {workflow.is_onboarding && (
@@ -284,7 +446,7 @@ export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
                 onChange={next => updateSelected({ fields: selected.fields.map(item => item.field_id === field.field_id ? next : item) })}
                 onRemove={() => updateSelected({ fields: selected.fields.filter(item => item.field_id !== field.field_id) })} />
             ))}
-            <div className="case-header-actions" style={{ justifyContent: "flex-start" }}>
+            {editable && <div className="case-header-actions" style={{ justifyContent: "flex-start" }}>
               <button type="button" className="btn btn-secondary" onClick={() => updateSelected({ fields: [...selected.fields, emptyField()] })}>Add field</button>
               {!workflow.is_onboarding && <>
                 <button type="button" className="btn btn-ghost" disabled={selectedIndex <= 0} onClick={() => move(-1)}>Move up</button>
@@ -294,11 +456,15 @@ export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
                 change(stages.filter(stage => stage.stage_id !== selectedId));
                 setSelectedId(null);
               }}>Remove stage</button>
-            </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: 12, width: "100%" }} onClick={() => setSelectedId(null)}>Confirm stage</button>
-          </>}
+            </div>}
+            <EntityConditionsPlaceholder stageName={selected.name} />
+          </fieldset>}
+          {selected && <button type="button" className="btn btn-primary" style={{ marginTop: 12, width: "100%" }} onClick={() => setSelectedId(null)}>{editable ? "Confirm stage" : "Close"}</button>}
         </section>
       </div>
+
+      <EntityApplicabilityPlaceholder />
+      {governance && <VersionHistoryList governance={governance} />}
 
       <section className="card" aria-labelledby="workflow-history" style={{ marginTop: 16 }}>
         <h2 id="workflow-history">History</h2>
@@ -309,6 +475,39 @@ export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
         ))}</ul>
       </section>
     </>
+  );
+}
+
+/** Loads the workflow with its governance view; remounts the editor when the open proposal changes. */
+function GovernedWorkflowEditor({ actor, workflowId, workflows, onBack }: {
+  actor: AuthenticatedProfile; workflowId: string; workflows: WorkflowDetail[]; onBack: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const detail = useQuery({
+    queryKey: workflowQueryKeys.detail(actor.user_id, workflowId),
+    queryFn: ({ signal }) => fetchWorkflow(workflowId, signal),
+    retry: false,
+  });
+  const [notice, setNotice] = useState<string | null>(null);
+  // The list key prefixes the detail key, so this refetches both before the next request.
+  const refresh = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: workflowQueryKeys.list(actor.user_id) }),
+    [queryClient, actor.user_id],
+  );
+  if (detail.isPending) return <p className="text-muted">Loading workflow…</p>;
+  // Only a failed first load replaces the editor; a failed background refetch keeps the cached data.
+  if (detail.isError && detail.data === undefined) {
+    return <>
+      <button type="button" className="btn btn-ghost" onClick={onBack}>← Back to Workflows</button>
+      <p className="ds-banner ds-banner-warn">{governanceErrorMessage(detail.error)}</p>
+    </>;
+  }
+  const workflow = detail.data;
+  const proposalId = workflow.governance?.open_proposal?.proposal_id ?? "none";
+  return (
+    <WorkflowEditor key={`${workflow.workflow_id}:${proposalId}`} workflow={workflow} workflows={workflows}
+      userId={actor.user_id} onBack={onBack} onChanged={refresh} notice={notice} onNotice={setNotice}
+      refreshError={detail.isError ? governanceErrorMessage(detail.error) : null} />
   );
 }
 
@@ -335,23 +534,25 @@ export default function WorkflowManager({ actor }: { actor: AuthenticatedProfile
   });
 
   if (query.isPending) return <section className="ds-root ds-page"><p className="text-muted">Loading workflows…</p></section>;
-  if (query.isError) return <section className="ds-root ds-page"><p className="ds-banner ds-banner-warn">{workflowErrorMessage(query.error)}</p></section>;
+  if (query.isError && query.data === undefined) return <section className="ds-root ds-page"><p className="ds-banner ds-banner-warn">{workflowErrorMessage(query.error)}</p></section>;
   if (query.data === null) {
     return <section className="ds-root ds-page"><h1>Workflows</h1><p className="text-muted">Workflow management is switched off on this server.</p></section>;
   }
   if (open) {
     return (
       <section className="ds-root ds-page">
-        <WorkflowEditor key={open.workflow_id} workflow={open} workflows={workflows} onBack={() => setOpenId(null)}
-          onSaved={next => queryClient.setQueryData<WorkflowDetail[] | null>(key, current => current?.map(item => item.workflow_id === next.workflow_id ? next : item) ?? current)} />
+        <GovernedWorkflowEditor key={open.workflow_id} actor={actor} workflowId={open.workflow_id} workflows={workflows} onBack={() => setOpenId(null)} />
       </section>
     );
   }
   return (
     <section className="ds-root ds-page">
       <div className="ds-page-header">
-        <div><p className="card-kicker">Director</p><h1>Workflows</h1><p className="text-muted">Each workflow is the pipeline for one use case.</p></div>
-        <div className="case-header-actions"><button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>New workflow</button></div>
+        <div><p className="card-kicker">Policy &amp; Workflow</p><h1>Workflows</h1><p className="text-muted">Each workflow is the pipeline for one use case.</p></div>
+        {/* D-7: HR (POLICY_MUTATE) creates workflows. UI shaping only; the backend decides. */}
+        {actor.capabilities.includes("POLICY_MUTATE") && (
+          <div className="case-header-actions"><button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>New workflow</button></div>
+        )}
       </div>
       {creating && (
         <section className="card" aria-labelledby="new-workflow" style={{ marginBottom: 16 }}>
