@@ -111,12 +111,13 @@ def test_the_proxy_setting_refuses_every_other_value(text: str) -> None:
     assert openrouter.parse_hosted_proxy(text) is None
 
 
-def test_the_shipped_code_has_no_proxy_and_no_openrouter_decision() -> None:
+def test_the_shipped_code_has_no_proxy_until_one_is_registered() -> None:
     assert openrouter.hosted_proxy() is None
     assert openrouter.live_transport() is None and openrouter.live_async_transport() is None
-    assert assistant_config.HOSTED_OPENROUTER_DECISION is None
-    # The value the code ships with (the suite runs as if it were set; see conftest).
-    assert conftest.SHIPPED_OPENROUTER_TRANSMISSION_DECISION is None
+    # D-134 and D-129A accepted (owner): the decisions ship recorded; a proxy is still only
+    # ever registered by the hosted OpenRouter mode with its reviewed egress in place.
+    assert assistant_config.HOSTED_OPENROUTER_DECISION == "D-134"
+    assert conftest.SHIPPED_OPENROUTER_TRANSMISSION_DECISION == "D-129A"
 
 
 @pytest.mark.parametrize(
@@ -832,3 +833,26 @@ def test_the_a1_networks_overlap_no_other_deployment_network() -> None:
     for mine in ours:
         for other in others:
             assert not mine.overlaps(other), f"{mine} overlaps {other}"
+
+
+# --- run 2eda4185 (2026-11-16): GPT-OSS gets a usable timeout only in its own overlay ----------
+
+
+def _environment(name: str) -> dict[str, str]:
+    data = yaml.safe_load((DEPLOY / name).read_text("utf-8"))
+    return {str(k): str(v) for k, v in data["services"]["assistant"]["environment"].items()}
+
+
+def test_the_openrouter_overlay_gives_gpt_oss_a_usable_timeout_and_the_baseline_keeps_2_s() -> None:
+    # The base overlay's 2 s is for the model-free baseline (the discard port fails at once).
+    assert _environment("compose.assistant.yml")["AI_ASSISTANT_LLM_TIMEOUT_SECONDS"] == "2"
+    # GPT-OSS needs about 17 s, so its overlay sets the config default it was qualified with.
+    assert (
+        _environment("compose.assistant-openrouter.yml")["AI_ASSISTANT_LLM_TIMEOUT_SECONDS"] == "90"
+    )
+    # Claude's overlay leaves it alone (Claude uses anthropic_profiles.TIMEOUT_SECONDS).
+    assert "AI_ASSISTANT_LLM_TIMEOUT_SECONDS" not in _environment("compose.assistant-provider.yml")
+    # The timeout is part of the GPT-OSS profile identity, so the hosted run must be requalified.
+    longer = assistant_config.AiAssistantSettings(_env_file=None, llm_timeout_seconds=90)  # type: ignore[call-arg]
+    shorter = assistant_config.AiAssistantSettings(_env_file=None, llm_timeout_seconds=2)  # type: ignore[call-arg]
+    assert remote_test.remote_fingerprint(longer) != remote_test.remote_fingerprint(shorter)

@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 
 import type { AuthenticatedProfile } from "../types";
 import {
-  activateWorkflow,
   createWorkflow,
   fetchWorkflows,
   saveWorkflowDraft,
@@ -95,7 +94,7 @@ export function reorderStages(stages: WorkflowStage[], movedId: string, targetId
 }
 
 function activationProblem(stages: WorkflowStage[], onboarding: boolean): string | null {
-  if (!onboarding && stages.length === 0) return "Add at least one stage before activating.";
+  if (!onboarding && stages.length === 0) return "Add at least one stage before this workflow can be published.";
   const empty = stages.filter(stage => stage.fields.length === 0).map(stage => stage.name);
   return empty.length ? `Add at least one field to: ${empty.join(", ")}.` : null;
 }
@@ -136,7 +135,7 @@ function FieldEditor({ field, onChange, onRemove }: {
   );
 }
 
-function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
+export function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
   workflow: WorkflowDetail; workflows: WorkflowDetail[]; onBack: () => void; onSaved: (next: WorkflowDetail) => void;
 }) {
   const [stages, setStages] = useState<WorkflowStage[]>(workflow.draft_stages);
@@ -176,14 +175,13 @@ function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
     change(next);
   }
 
+  // ADR-017 P2-0 freezes publication; governed publication returns with P2-1, P2-2 and P3-1.
+  // Only the draft is saved here, so no request reaches the frozen activation route.
   const save = useMutation({
-    mutationFn: async (activate: boolean) => {
-      const saved = dirty ? await saveWorkflowDraft(workflow, stages) : workflow;
-      return activate ? activateWorkflow(saved) : saved;
-    },
-    onSuccess: (next, activate) => {
+    mutationFn: () => saveWorkflowDraft(workflow, stages),
+    onSuccess: next => {
       setDirty(false);
-      setNotice(activate ? "Activated. Open cases now follow this version." : "Draft saved.");
+      setNotice("Draft saved. It is not published.");
       onSaved(next);
     },
     onError: error => setNotice(workflowErrorMessage(error)),
@@ -202,9 +200,12 @@ function WorkflowEditor({ workflow, workflows, onBack, onSaved }: {
           <p className="text-muted">{workflow.country}{workflow.is_onboarding ? "" : ` · ${workflow.case_source === "NEW_CASE" ? "New case" : "Existing case"}`} · {workflowStatusLabel(workflow)}{dirty ? " · Unsaved changes" : ""}</p>
         </div>
         <div className="case-header-actions">
-          <button type="button" className="btn btn-secondary" disabled={save.isPending || !dirty} onClick={() => save.mutate(false)}>Save draft</button>
-          <button type="button" className="btn btn-primary" disabled={save.isPending || problem !== null} onClick={() => save.mutate(true)}>Save and activate</button>
+          <button type="button" className="btn btn-secondary" disabled={save.isPending || !dirty} onClick={() => save.mutate()}>Save draft</button>
         </div>
+      </div>
+      <div className="ds-banner" role="note" data-testid="workflow-publication-paused" style={{ marginBottom: 16 }}>
+        <strong>Publishing is paused.</strong> Drafts are saved, but a new version can't be published while
+        approval governance is introduced. Publishing will return through HR proposals and Director approval.
       </div>
       {notice && <div className="ds-banner" role="status" style={{ marginBottom: 16 }}>{notice}</div>}
       {problem && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{problem}</div>}

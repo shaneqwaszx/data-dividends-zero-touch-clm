@@ -167,7 +167,8 @@ def audit_is_prefix(
 CREDENTIAL_OPERATION_KEY = "operation"
 PASSWORD_RESET_OPERATION: Final = "PASSWORD_RESET"
 SIGN_IN_DISABLED_OPERATION: Final = "SIGN_IN_DISABLED"
-CredentialOperation = Literal["PASSWORD_RESET", "SIGN_IN_DISABLED"]
+PASSWORD_CHANGED_SELF_OPERATION: Final = "PASSWORD_CHANGED_SELF"
+CredentialOperation = Literal["PASSWORD_RESET", "SIGN_IN_DISABLED", "PASSWORD_CHANGED_SELF"]
 
 
 def sign_in_disabled(record: UserAccountRecord) -> bool:

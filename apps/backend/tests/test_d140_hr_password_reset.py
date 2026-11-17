@@ -41,7 +41,9 @@ from app.services.authentication import (
     generate_scrypt_password_hash,
     parse_scrypt_password_hash,
 )
+from app.services.login_admission import SOURCE_BURST, LoginAdmission
 
+SELF_CHANGE_PATH = "/api/admin/me/password"
 RESET_PATH = "/api/admin/profiles/{user_id}/password"
 SEEDED = (
     "maya-lim",
@@ -83,6 +85,73 @@ def _repositories() -> tuple[InMemoryTeamRepository, InMemoryProfileRepository]:
     encoded = SecretStr(generate_scrypt_password_hash(TEST_PASSWORD))
     bootstrap_administration(teams, profiles, {user_id: encoded for user_id in SEEDED})
     return teams, profiles
+
+
+def test_hr_changes_own_password_and_must_sign_in_again(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = RawTestClient(create_app(ordinary_test_settings()))
+    csrf = _login(client, "hr-admin")
+    new_password = secrets.token_urlsafe(24)
+    body = {"current_password": TEST_PASSWORD, "new_password": new_password}
+    assert client.post(SELF_CHANGE_PATH, json=body).status_code == 403
+    response = client.post(SELF_CHANGE_PATH, headers={"X-CSRF-Token": csrf}, json=body)
+    assert response.status_code == 204
+    assert not response.content
+    assert client.get("/api/auth/me").status_code == 401
+    assert _login_status(client, "hr-admin", TEST_PASSWORD) == 401
+    assert _login_status(client, "hr-admin", new_password) == 200
+    assert new_password not in caplog.text
+
+
+def test_self_change_refuses_bad_proof_without_signing_out_or_echoing_input() -> None:
+    client = RawTestClient(create_app(ordinary_test_settings()))
+    csrf = _login(client, "hr-admin")
+    headers = {"X-CSRF-Token": csrf}
+    wrong = secrets.token_urlsafe(24)
+    replacement = secrets.token_urlsafe(24)
+    body = {"current_password": wrong, "new_password": replacement}
+    failure = client.post(SELF_CHANGE_PATH, headers=headers, json=body)
+    assert failure.status_code == 400
+    assert failure.json() == {"detail": {
+        "code": "CREDENTIAL_VERIFICATION_FAILED",
+        "message": "The password change could not be verified.",
+    }}
+    invalid = client.post(SELF_CHANGE_PATH, headers=headers, json={**body, "user_id": "other"})
+    assert invalid.status_code == 422
+    assert wrong not in invalid.text and replacement not in invalid.text
+    assert client.get("/api/auth/me").status_code == 200
+    assert _login_status(client, "hr-admin", TEST_PASSWORD) == 200
+
+
+def test_self_change_reuses_login_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.main.LoginAdmission", lambda: LoginAdmission(lambda: 0))
+    client = RawTestClient(create_app(ordinary_test_settings()))
+    csrf = _login(client, "hr-admin")
+    headers = {"X-CSRF-Token": csrf}
+    body = {
+        "current_password": secrets.token_urlsafe(24),
+        "new_password": secrets.token_urlsafe(24),
+    }
+    for _ in range(SOURCE_BURST):
+        assert client.post(SELF_CHANGE_PATH, headers=headers, json=body).status_code == 400
+    limited = client.post(SELF_CHANGE_PATH, headers=headers, json=body)
+    assert limited.status_code == 429
+    assert limited.json()["detail"]["code"] == "LOGIN_RATE_LIMITED"
+    assert int(limited.headers["Retry-After"]) > 0
+    assert client.get("/api/auth/me").status_code == 200
+
+
+@pytest.mark.parametrize("actor_id", ["maya-lim", "ethan-tan", "olivia-koh", "support-user"])
+def test_self_change_requires_hr(actor_id: str) -> None:
+    client = RawTestClient(create_app(ordinary_test_settings()))
+    csrf = _login(client, actor_id)
+    response = client.post(
+        SELF_CHANGE_PATH,
+        headers={"X-CSRF-Token": csrf},
+        json={"current_password": TEST_PASSWORD, "new_password": secrets.token_urlsafe(24)},
+    )
+    assert response.status_code == 403
 
 
 def test_hr_resets_password_revokes_old_session_and_new_password_logs_in(
@@ -439,6 +508,53 @@ class _FakeStore:
         self.lock = RLock()
 
 
+def test_self_change_memory_mongo_parity_and_secret_free_audit() -> None:
+    teams, memory = _repositories()
+    fake = _FakeProfiles(memory.list())
+    mongo = MongoProfileRepository(_FakeStore(fake))  # type: ignore[arg-type]
+    current = memory.get("hr-admin")
+    assert current is not None
+    new_password = secrets.token_urlsafe(24)
+    for repository in (memory, mongo):
+        service = AdministrationService(teams, repository)
+        service.change_own_password(
+            _hr_actor(),
+            session_security_version=current.security_version,
+            current_password=SecretStr(TEST_PASSWORD),
+            new_password=SecretStr(new_password),
+        )
+        persisted = repository.get("hr-admin")
+        assert persisted is not None
+        assert persisted.version == current.version + 1
+        assert persisted.security_version == current.security_version + 1
+        event = persisted.audit_events[-1]
+        assert event.action == "PROFILE_UPDATED"
+        assert event.actor_user_id == event.target_id == "hr-admin"
+        assert event.metadata == {
+            "operation": "PASSWORD_CHANGED_SELF",
+            "previous_version": current.version,
+            "resulting_access_epoch": current.security_version + 1,
+        }
+        assert new_password not in event.model_dump_json()
+        assert TEST_PASSWORD not in event.model_dump_json()
+        assert persisted.credential_hash.get_secret_value() not in event.model_dump_json()
+        with pytest.raises(AdministrationActorNotAuthorizedError):
+            repository.replace_credential(
+                actor_user_id="hr-admin",
+                user_id="hr-admin",
+                expected_version=persisted.version,
+                credential_hash=current.credential_hash,
+                operation="PASSWORD_CHANGED_SELF",
+                updated_at=datetime.now(UTC),
+                expected_actor_security_version=current.security_version,
+            )
+    assert fake.filters == [{
+        "_id": "hr-admin",
+        "version": current.version,
+        "security_version": current.security_version,
+    }]
+
+
 def test_mongo_store_parity_with_memory_store() -> None:
     _, memory = _repositories()
     fake = _FakeProfiles(memory.list())
@@ -545,6 +661,7 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
     )
     cleanup: MongoClient[dict[str, Any]] = MongoClient(uri)
     new_password = secrets.token_urlsafe(24)
+    new_hr_password = secrets.token_urlsafe(24)
     try:
         with RawTestClient(create_app(settings)) as first:
             target = RawTestClient(first.app)
@@ -613,12 +730,34 @@ def test_physical_mongo_reset_revokes_session_persists_across_restart_and_audits
 
         with RawTestClient(create_app(settings)) as restarted:
             assert _login_status(restarted, "maya-lim", new_password) == 401
-            _login(restarted, "hr-admin")
+            csrf = _login(restarted, "hr-admin")
             profiles = restarted.get("/api/admin/profiles").json()
             target_profile = next(
                 profile for profile in profiles if profile["user_id"] == "maya-lim"
             )
             assert target_profile["sign_in_disabled"] is True
+            changed = restarted.post(
+                SELF_CHANGE_PATH,
+                headers={"X-CSRF-Token": csrf},
+                json={"current_password": TEST_PASSWORD, "new_password": new_hr_password},
+            )
+            assert changed.status_code == 204
+            assert restarted.get("/api/auth/me").status_code == 401
+
+        with RawTestClient(create_app(settings)) as restarted:
+            assert _login_status(restarted, "hr-admin", TEST_PASSWORD) == 401
+            assert _login_status(restarted, "hr-admin", new_hr_password) == 200
+
+        hr = cleanup[database][settings.mongo_admin_profiles_collection].find_one(
+            {"_id": "hr-admin"}
+        )
+        assert hr is not None
+        assert hr["security_version"] == 2
+        event = hr["audit_events"][-1]
+        assert event["action"] == "PROFILE_UPDATED"
+        assert event["metadata"]["operation"] == "PASSWORD_CHANGED_SELF"
+        assert new_hr_password not in str(event)
+        assert hr["credential_hash"] not in str(event)
     finally:
         try:
             cleanup_ephemeral_mongo_database(cleanup, database)

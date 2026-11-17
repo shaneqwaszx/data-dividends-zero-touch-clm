@@ -11,6 +11,7 @@ from pydantic import SecretStr, ValidationError
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability, Role, TeamId
 from app.domain.administration import (
     MAX_AUDIT_EVENTS,
+    PASSWORD_CHANGED_SELF_OPERATION,
     PASSWORD_RESET_OPERATION,
     SIGN_IN_DISABLED_OPERATION,
     AdministrationAuditEvent,
@@ -31,7 +32,7 @@ from app.services.admin_repository import (
     generate_team_id,
     new_event_id,
 )
-from app.services.authentication import generate_scrypt_password_hash
+from app.services.authentication import generate_scrypt_password_hash, verify_scrypt_password
 
 
 class AdministrationForbiddenError(Exception):
@@ -43,6 +44,10 @@ class AdministrationValidationError(Exception):
 
 
 class AdministrationNotFoundError(Exception):
+    pass
+
+
+class AdministrationCredentialVerificationError(Exception):
     pass
 
 
@@ -328,6 +333,47 @@ class AdministrationService:
         except ValidationError:
             raise AdministrationValidationError from None
         return persisted
+
+    def change_own_password(
+        self,
+        actor: AuthenticatedActor,
+        *,
+        session_security_version: int,
+        current_password: SecretStr,
+        new_password: SecretStr,
+    ) -> None:
+        self.require_hr(actor)
+        user_id = actor.profile.user_id
+        current_value = current_password.get_secret_value()
+        new_value = new_password.get_secret_value()
+        if not (12 <= len(current_value) <= 128 and 12 <= len(new_value) <= 128):
+            raise AdministrationValidationError
+        account = self.profiles.get(user_id)
+        if (
+            account is None
+            or account.role != Role.HR
+            or account.security_version != session_security_version
+        ):
+            raise AdministrationForbiddenError
+        if not verify_scrypt_password(current_value, account.credential_hash.get_secret_value()):
+            raise AdministrationCredentialVerificationError
+        encoded = SecretStr(generate_scrypt_password_hash(new_value))
+        try:
+            self.profiles.replace_credential(
+                actor_user_id=user_id,
+                user_id=user_id,
+                expected_version=account.version,
+                credential_hash=encoded,
+                operation=PASSWORD_CHANGED_SELF_OPERATION,
+                updated_at=self._clock(),
+                expected_actor_security_version=session_security_version,
+            )
+        except (
+            AdministrationActorNotAuthorizedError,
+            AdministrationCredentialTargetRefusedError,
+        ):
+            raise AdministrationForbiddenError from None
+        self._revoke_sessions(user_id)
 
     def reset_password(
         self,

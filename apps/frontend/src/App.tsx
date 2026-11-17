@@ -23,7 +23,6 @@ import {
   replaceZeroTouchDocument,
   resumeZeroTouchCase,
   retryZeroTouchIntakeDocument,
-  submitClmCase,
   uploadDocument,
   createZeroTouchCase,
   deleteZeroTouchCase,
@@ -926,18 +925,12 @@ export function ClmJourney({
         >
           {isBusy ? "Checking authoritative evidence..." : "Evaluate current readiness"}
         </button>
-        <button
-          type="button"
-          disabled={isBusy || summary.status !== "READY_FOR_MOCK_SUBMISSION"}
-          onClick={() =>
-            void run(() => submitClmCase(summary.case.case_id), true)
-          }
-        >
-          {summary.status === "MOCK_GOLDTIER_SUBMITTED"
-            ? `${targetLabel} submitted`
-            : `Submit to ${targetLabel}`}
-        </button>
       </div>
+      {/* ADR-017 P2-0: the legacy submit route is recovery-only, so this panel never sends. */}
+      <p className="clm-legacy-send-note" role="note">
+        Sending to {targetLabel} happens only from the zero-touch case view. This panel shows
+        readiness and history.
+      </p>
 
       {clmError && <div className="request-error" role="alert">{clmError}</div>}
       {summary.submission && (
@@ -1797,6 +1790,7 @@ export interface AppProps {
   demoControlsEnabled?: boolean;
   actor: AuthenticatedProfile;
   onLogout: () => void;
+  onChangeOwnPassword?: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 interface LiveIntakeOperation {
@@ -1811,6 +1805,7 @@ export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
   actor,
   onLogout,
+  onChangeOwnPassword,
 }: AppProps) {
   const [caseQueuePresentation, setCaseQueuePresentation] =
     useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
@@ -2417,7 +2412,9 @@ export default function App({
           audit={(caseId) => <AuditTrail actor={actor} caseId={caseId} />}
           policy={<PolicyRules actor={actor} />}
           workflowDesigner={<WorkflowDesigner key={actor.user_id} actor={actor} />}
-          adminUsers={<AdminUsers />}
+          adminUsers={<AdminUsers
+            onChangeOwnPassword={actor.role === "HR" ? onChangeOwnPassword : undefined}
+          />}
           adminTeams={<AdminTeams />}
           goldtierSandbox={<GoldTierSandbox key={actor.user_id} actor={actor} />}
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}

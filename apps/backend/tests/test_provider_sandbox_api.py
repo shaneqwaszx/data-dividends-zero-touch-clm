@@ -32,9 +32,11 @@ class RecordingSandboxSearch:
     def target_provider_mode(self) -> GoldTierProviderMode:
         return GoldTierProviderMode.SANDBOX
 
-    def target_read_budget_usage(self, now: datetime) -> tuple[int, int]:
+    read_budget_usage: tuple[int | None, int | None] = (8, 3)
+
+    def target_read_budget_usage(self, now: datetime) -> tuple[int | None, int | None]:
         assert now.tzinfo is UTC
-        return 8, 3
+        return self.read_budget_usage
 
     def search_sandbox_target(
         self,
@@ -119,6 +121,23 @@ def _app(
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.mark.anyio
+async def test_hr_status_shows_no_application_read_limit() -> None:
+    service = RecordingSandboxSearch()
+    service.read_budget_usage = (None, None)
+    settings = _settings().model_copy(update={"goldtier_sandbox_allow_writes": False})
+    transport = httpx.ASGITransport(app=_app(service, Role.HR, settings))
+    async with RawAsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/admin/goldtier-sandbox/status")
+
+    assert response.status_code == 200
+    projection = response.json()
+    assert projection["configured"] is True
+    assert projection["daily_read_limit"] is None
+    assert projection["reads_used_today"] is None
+    assert projection["writes_enabled"] is False
 
 
 @pytest.mark.anyio

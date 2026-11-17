@@ -248,6 +248,15 @@ UBO_CHECK_NOT_RUN = "This case cannot name any UBOs yet because the UBO check ha
 # complete and no action that completes it is offered (guardrails.ubo_completion_not_offered);
 # topic-only: the model sees it only in the steering message for a request to complete it.
 UBO_COMPLETION_NOT_OFFERED = "Marking the UBO check as complete is not offered to you on this case."
+# D-141 (amends D-121 display only, PROPOSED): the backend marks OWNERSHIP_UBO
+# ``advisory_review`` when ownership is complete for readiness only because a current review is
+# advisory. The step is then "review advised", never "done", and this line is offered only
+# while readiness reports ownership as REVIEW_ADVISED (context._readiness).
+STEP_REVIEW_ADVISED = "review advised"
+OWNERSHIP_REVIEW_ADVISED = (
+    "The ownership review is advised but not blocking: the case can continue, but ownership is "
+    "not verified. Check it before Review & Send."
+)
 # Owner-approved wording (Phase B answer quality, D-092 P11 to P14 proposed), each allowed only
 # under its condition in guardrails.allowed_guidance and topic-only.
 # Directors (P12). The app reads only legal name, UEN, address and country from documents

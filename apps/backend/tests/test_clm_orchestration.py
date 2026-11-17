@@ -1875,11 +1875,14 @@ async def test_phase05_api_happy_path_and_safe_unified_summary() -> None:
     assert created.json()["status"] == "COLLECTING_EVIDENCE"
     assert evaluated.json()["status"] == "READY_FOR_MOCK_SUBMISSION"
     assert plan.json()["environment"] == "MOCK"
-    assert confirmed.status_code == 200
-    assert submitted.status_code == 200
-    assert submitted.json()["status"] == "MOCK_GOLDTIER_SUBMITTED"
-    assert submitted.json()["submission"]["document_reference_count"] == 1
-    assert fetched.json() == submitted.json()
+    # ADR-017 P2-0: the legacy confirmation is retired and legacy Submit only recovers.
+    assert confirmed.status_code == 404
+    assert submitted.status_code == 409
+    # Every existing check keeps its order: no confirmation exists, so that refusal comes
+    # first; the recovery-only refusal follows the checks (see the legacy send-hold tests).
+    assert submitted.json()["detail"]["code"] == "CLM_TARGET_CONFIRMATION_REQUIRED"
+    assert fetched.json()["status"] == "READY_FOR_MOCK_SUBMISSION"
+    assert fetched.json()["goldtier_result"] is None
     assert "registry_source_link" not in submitted.text
     assert "source_reference" not in submitted.text
     assert "execution_receipt" not in submitted.text
@@ -1911,18 +1914,19 @@ async def test_pre_receipt_failure_api_and_recovery_projection_are_sanitized(
         clm_orchestration_service=clm,
     )
     transport = httpx.ASGITransport(app=application)
+    # The first write starts through the fenced service path; legacy Submit recovers it.
+    with pytest.raises(ClmInfrastructureError) as first_error:
+        clm.submit(case_id=case_id, reauthorize=lambda: None)
+    assert first_error.value.code == "CLM_FINALIZATION_RETRY_REQUIRED"
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        first = await client.post(f"/api/clm/cases/{case_id}/submit")
         recovered = await client.post(f"/api/clm/cases/{case_id}/submit")
         current = await client.get(f"/api/clm/cases/{case_id}")
 
-    assert first.status_code == 503
-    assert first.json()["detail"]["code"] == "CLM_FINALIZATION_RETRY_REQUIRED"
     assert recovered.status_code == 200
     assert recovered.json()["status"] == "MOCK_GOLDTIER_SUBMITTED"
     assert current.json() == recovered.json()
     assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
-    combined = first.text + recovered.text + current.text
+    combined = str(first_error.value) + recovered.text + current.text
     assert "PRIVATE_API_RECEIPT_SENTINEL" not in combined
     assert "target_outcome" not in combined
     assert "execution_receipt" not in combined
@@ -1950,17 +1954,17 @@ async def test_malformed_target_response_api_projection_is_sanitized() -> None:
         clm_orchestration_service=clm,
     )
     transport = httpx.ASGITransport(app=application)
+    with pytest.raises(ClmInfrastructureError) as failed_error:
+        clm.submit(case_id=case_id, reauthorize=lambda: None)
+    assert failed_error.value.code == "GT_MALFORMED_TARGET_RESPONSE"
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        failed = await client.post(f"/api/clm/cases/{case_id}/submit")
         current = await client.get(f"/api/clm/cases/{case_id}")
         duplicate = await client.post(f"/api/clm/cases/{case_id}/submit")
 
-    assert failed.status_code == 503
-    assert failed.json()["detail"]["code"] == "GT_MALFORMED_TARGET_RESPONSE"
     assert current.status_code == 200 and current.json()["status"] == "FAILED"
     assert duplicate.status_code == 200 and duplicate.json() == current.json()
     assert target.calls == ["search", "search", "shell"]
-    combined = failed.text + current.text + duplicate.text
+    combined = str(failed_error.value) + current.text + duplicate.text
     assert "PRIVATE_API_TARGET_SENTINEL" not in combined
     assert "PRIVATE_API_MESSAGE_SENTINEL" not in combined
     assert "target_outcome" not in combined

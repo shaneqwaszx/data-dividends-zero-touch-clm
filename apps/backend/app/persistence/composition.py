@@ -7,7 +7,11 @@ from typing import Literal
 from pydantic import SecretStr
 
 from app.config import Settings
-from app.connectors.goldtier_read_budget import GoldTierReadBudget, InMemoryGoldTierReadBudget
+from app.connectors.goldtier_read_budget import (
+    GoldTierReadBudget,
+    InMemoryGoldTierReadBudget,
+    UnlimitedGoldTierReadBudget,
+)
 from app.demo.zero_touch_control import (
     DemoScenarioRepository,
     InMemoryDemoScenarioRepository,
@@ -277,13 +281,15 @@ class GoldTierReadBudgetBinding:
 def build_goldtier_read_budget(settings: Settings) -> GoldTierReadBudgetBinding:
     """ST-7: the daily Sandbox read budget, shared across processes in Mongo mode.
 
-    None when GoldTier is Mock or no limit applies (reads are not counted). Its own client,
-    like workflow persistence, so the case persistence bundle stays unchanged.
+    Mock needs no budget. An unset Sandbox limit does not allocate a counter.
+    An explicitly limited Mongo budget owns its client.
     """
 
     limit = settings.goldtier_sandbox_effective_read_limit()
-    if settings.goldtier_connector_mode != "sandbox" or limit is None:
+    if settings.goldtier_connector_mode != "sandbox":
         return GoldTierReadBudgetBinding(budget=None, close=lambda: None)
+    if limit is None:
+        return GoldTierReadBudgetBinding(budget=UnlimitedGoldTierReadBudget(), close=lambda: None)
     if settings.clm_persistence_mode == "memory":
         return GoldTierReadBudgetBinding(
             budget=InMemoryGoldTierReadBudget(limit), close=lambda: None

@@ -108,7 +108,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 20,
+  "case_envelope_schema_version": 21,
   "verified_date": "2026-10-08",
   "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
@@ -1681,3 +1681,100 @@ published; conditional branches are not drawn because the backend has none.
 - **Evidence.** Class: Local. Backend `test_onboarding_execution_plan.py`; frontend
   `WorkflowDesigner.test.tsx`, `WorkflowDesignerAuth.test.tsx` and `ExecutionPlanDiagram.test.tsx`;
   Playwright `workflow-designer.e2e.ts`.
+
+## Workflow authoring and approval (D-135, ADR-017 proposed) - design only, 2026-11-15
+
+The owner approved the P2/P3 design: R1, RD-1 to RD-6, the G0 conditions, the conditional-write
+dispatch fence and the G0 remediation rulings. It is recorded as D-135 and ADR-017 (Proposed).
+Nothing is implemented, and current workflow behaviour is the D-123 editor plus the D-136 send
+hold.
+
+- **Planned:** HR authoring, single-Director approval, the required-obligation ratchet, a leased
+  send dispatch fence with durably acknowledged writes (R1/R2), and insert-only governance
+  history.
+- **P2-0 (needs its own approval):**
+  - the fence
+  - same-snapshot ledger compare-and-set
+  - the legacy activation freeze
+  - the `active_version` backfill
+  - legacy route changes
+  - a fail-closed amendment to D-136 E2 for a missing onboarding definition document
+- **Deployment stays one backend process per store.** The design relies on a standalone MongoDB
+  with journaling (staging, to be confirmed in P2-0) or a replica-set primary. No read concern is
+  relied on for correctness.
+- **Unchanged until implemented:** D-123 W1 Director activation, the interim F2 / D-136 E5
+  restriction, the legacy CLM routes, and R1/R2 as recorded in D-136 E6.
+
+## ADR-017 P2-0 reader release - merged to main (PR #195), 2026-11-17
+
+The owner authorised P2-0 local implementation (2026-11-16). This is the **first of two schema
+releases** (ADR-017 section 3.2). It is **merged to `main`** (PR #195, squash `8e1f87aa`,
+2026-11-17), is **not deployed**, and no database was migrated. Reader deployment is its own
+owner gate.
+
+- **Case envelope schema 21.** Adds an optional document-level `write_nonce` and an optional
+  backend-only `workflow_dispatch` claim on each GoldTier ledger entry. Schema <= 20 documents
+  still read strictly (a historical document carrying either field is rejected).
+- **Every case and workflow definition writer** now compare-and-sets on the revision **and** the
+  nonce it read and sets a new nonce (R4-4). A document no P2-0 writer has written matches an
+  absent nonce. A repository-wide test fails if a writer omits either guard.
+- **Round-trip only.** The reader release never creates a dispatch claim, attempt-marker record,
+  `active_version` or `latest_version`. It preserves them on every write, refuses a ledger write
+  that would change a claim, and refuses a definition write whose versions exceed a stored
+  `latest_version`.
+- **Rollback.** A plain revert below this release is safe only before it has written; afterwards
+  the reviewed, dry-run-first reverse migration (`scripts/adr017_reverse_migration.py`) is needed.
+  It refuses unfinalised entries with a write marker, deactivated workflows and P2-1 content.
+- **Unchanged:** dispatch behaviour, the D-136 send hold, legacy routes, activation, provider
+  modes, connectors, RBAC and the AI Assistant. The dispatch fence ships in the writer release.
+- **Known issue (open, tracked separately).** The AI Assistant D-094 boundary file
+  (`apps/assistant/ai_assistant/synthetic_boundary.json`) is stale on `main` since #195: the
+  generator finds backend code-vocabulary words the file lacks, so the assistant test
+  `test_the_boundary_file_is_current` fails. The file is regenerated once, in a separately
+  reviewed vocabulary reconciliation after the writer release and D-141 are integrated.
+
+## ADR-017 P2-0 writer release - local candidate on main `8e1f87aa`, 2026-11-17
+
+The **second** of the two schema releases, on top of the reader release (now on `main`). It is
+committed only on a local branch: not pushed, not merged, not deployed, and no deployed database
+was migrated or backfilled.
+
+- **Dispatch fence (D1-D6).** The only path to a first Shell, Policy or Amend write is
+  `_mark_operation_attempted` -> `DispatchFence`. D2, D4 and D5 are durable
+  (`w: "majority", j: true`) update pipelines with server-time 60-second leases, authorised only by
+  a post-image showing own token and a fresh receipt. D3 is the conditional
+  `$inc dispatch_authorisation_seq` on the definition. There are no confirming writes, and an
+  ambiguous step stops before the provider call.
+- **Same-snapshot ledger correction.** Every ledger `replace` asserts the state and the attempted
+  operations the caller read, in the filter of the revision-and-nonce compare-and-set. No replace
+  can record a first write marker.
+- **Startup.** Insert-only provisioning of the onboarding definition, a `hello` topology and
+  version probe (journaled standalone or replica-set primary on the verified major 7), and
+  re-verification of `active_version` and `latest_version`. Any failure refuses every dispatch
+  (`WORKFLOW_STAGE_CHECK_UNAVAILABLE`). Claims without a write marker are cleared.
+- **Workflows.** `POST /api/workflows/{id}/activate` returns `409 WORKFLOW_PUBLICATION_FROZEN`.
+  Workflow reads never create a definition. A missing onboarding definition is refused (the
+  D-136 E2 amendment).
+- **Sent and re-confirmation.** "Sent" now means a write attempt marker, a retained outcome or
+  receipt, or automation COMPLETE. A newly applicable requirement supersedes an existing
+  confirmation (`DISPATCH_RECONFIRMATION_REQUIRED` event), and the send then returns
+  `409 WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED`.
+- **A fence refusal never fails the case.** It never ends zero-touch automation:
+  - an unavailable check pauses the send (`RECOVERY_PENDING`, continued by explicit resume)
+  - a hold or a superseded confirmation returns the case to the target confirmation step, to be
+    re-confirmed through the zero-touch route
+  - only a newly applicable requirement supersedes a confirmation
+  - the recovery-only legacy check writes nothing
+- **Legacy routes.** `POST /api/clm/cases/{id}/target-confirmation` is retired.
+  `POST /api/clm/cases/{id}/submit` is recovery-only (`409 CLM_SUBMIT_RECOVERY_ONLY`, after every
+  existing check).
+- **Frontend callers (open, tracked for explicit remediation).** "Save and activate" in the
+  Workflow Manager calls the frozen activation route, and the legacy case "Submit" calls the
+  recovery-only submit. Both now fail closed with a 409 and no write. The UI must explain or
+  replace these actions before the writer release is deployed.
+- **Tools.** `scripts/adr017_backfill.py` (one-time, dry-run first) and the reverse migration.
+- **Deployment prerequisites (not done):**
+  - a read-only `clm_staging` inventory of workflow definitions, and of in-flight ledger entries
+    (claims, unfinalised write markers)
+  - a caller inventory for the legacy routes
+  - the backfill dry run, then its apply, in an approved window before the writer release runs

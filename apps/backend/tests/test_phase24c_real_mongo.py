@@ -17,6 +17,7 @@ from scripts.mongo_test_safety import (
 )
 from test_phase24c_policy import DIRECTOR, draft, submit
 from test_phase24c_registry import setup
+from workflow_publication_seed import bind_test_fence
 
 from app.composition import build_onboarding_service
 from app.config import Settings
@@ -82,6 +83,7 @@ def test_policy_activation_restart_preserves_inflight_and_completed_case_freeze(
         registry_snapshot_repository=first.registry_snapshots,
         policy_snapshot_provider=policy.case_snapshot,
     )
+    bind_test_fence(cases)
     inflight = cases.create_staged_case("202400001A")
     completed = cases.create_staged_case("202400007G")
     cases.confirm_target_dispatch(
@@ -114,7 +116,7 @@ def test_policy_activation_restart_preserves_inflight_and_completed_case_freeze(
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(new.case_id)}
         )
-        assert raw["schema_version"] == 20
+        assert raw["schema_version"] == 21
     finally:
         second.close()
 
@@ -272,10 +274,12 @@ def test_schema7_case_read_is_legacy_without_rewrite_or_new_parameter_smuggling(
         registry_snapshot_repository=bundle.registry_snapshots,
         policy_snapshot_provider=policy.case_snapshot,
     )
+    bind_test_fence(cases)
     case = cases.create_staged_case("202400001A")
     collection = client[settings.mongo_database][settings.mongo_case_collection]
     raw = collection.find_one({"_id": str(case.case_id)})
     raw["schema_version"] = 7
+    raw.pop("write_nonce", None)
     omit_session2_fields(raw)
     parameters = deepcopy(raw["onboarding"]["policy_snapshot"])
     for key in ("registry", "evidence_classifier", "policy_identity", "ownership_discovery"):

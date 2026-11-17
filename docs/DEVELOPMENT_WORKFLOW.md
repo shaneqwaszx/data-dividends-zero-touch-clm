@@ -198,6 +198,39 @@ semantics, CAS/index/startup/read/write/restart behavior, or security boundaries
 must be proved against the real driver/server. Use a fresh generated allowlisted test
 database; never `clm_poc`.
 
+**Assistant boundary vocabulary (D-094), mandatory for every PR.** `scripts/pre_pr_check.py`
+runs `scripts/check_boundary_vocabulary.py`. For each generated assistant vocabulary present, it
+compares what the file's generator builds with the stored file, on the candidate and on
+`origin/main`. It never writes a vocabulary file. The vocabularies, in order:
+
+1. `apps/assistant/ai_assistant/synthetic_boundary.json` (D-094), built by
+   `apps/assistant/scripts/build_synthetic_boundary.py` from the backend and assistant sources.
+2. `apps/assistant/ai_assistant/privacy_vocabulary.json` (D-142, once present), built by
+   `apps/assistant/scripts/build_privacy_vocabulary.py` from the stored D-094 file and the
+   sources. Regenerate it **after** the D-094 file, and review both deltas together.
+
+The outcome is the worst outcome across the vocabularies:
+
+- **Fail:**
+  - a change alters a generated vocabulary without regenerating its file
+  - a change edits a vocabulary file but leaves it stale
+  - a generator cannot build, or a vocabulary file has no generator (fail closed)
+  - a generator, or the checker itself, that exists on `origin/main` is removed or renamed
+
+  A branch that is behind `origin/main` can fail only because of that: merge main first.
+- **Warn, review required:** a change regenerates a file. The PR lists the word delta per key.
+  Before publication, an **independent reviewer** checks every added and removed word against
+  D-094, under which everything sent externally stays inside the synthetic boundary. The review
+  criteria are proposed here and await owner confirmation:
+  - every word is synthetic-boundary content
+  - no real-person or real-company names
+  - no credential-, identifier- or PII-shaped strings
+  - a stated reason for every removed word
+
+  A later change to a reviewed regeneration needs a fresh vocabulary review.
+- **Warn, pre-existing:** the drift equals the drift already on `origin/main`. The change adds
+  none. That drift is reconciled once, in its own reviewed PR.
+
 ## Focused, broad and independent evidence
 
 - Focused evidence directly falsifies the changed behavior and its adverse paths; it is

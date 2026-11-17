@@ -221,7 +221,7 @@ class Settings(BaseSettings):
     goldtier_sandbox_write_case_references: str = ""
     goldtier_sandbox_writes_not_after: datetime | None = None
     # ST-7 standing read: Sandbox reads per UTC day (Search, exact-ID readback, recheck).
-    # Unset means 0 in staging (no read until set) and unlimited elsewhere.
+    # Unset means no application-imposed read limit in any environment.
     goldtier_sandbox_daily_read_limit: int | None = Field(default=None, ge=0, le=500)
     goldtier_sandbox_egress_proxy_url: str = ""
     goldtier_sandbox_egress_fqdn: str = ""
@@ -350,10 +350,8 @@ class Settings(BaseSettings):
         )
 
     def goldtier_sandbox_effective_read_limit(self) -> int | None:
-        """ST-7: the daily Sandbox read limit in force; None means reads are not counted."""
-        if self.goldtier_sandbox_daily_read_limit is not None:
-            return self.goldtier_sandbox_daily_read_limit
-        return 0 if self.app_env == "staging" else None
+        """ST-7: an explicitly configured daily read limit, if any."""
+        return self.goldtier_sandbox_daily_read_limit
 
     @field_validator("goldtier_sandbox_writes_not_after", mode="before")
     @classmethod

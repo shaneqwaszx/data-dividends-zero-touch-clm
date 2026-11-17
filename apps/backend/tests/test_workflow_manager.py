@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +19,12 @@ from test_zero_touch_database_happy_path import (
     RecordingTarget,
     prepare,
     sandbox_settings,
+)
+from workflow_publication_seed import (
+    capturing_workflow_store,
+    publish_draft,
+    register_app_store,
+    store_for,
 )
 
 from app.domain.access import SYNTHETIC_USER_PROFILES, AuthenticatedActor
@@ -75,8 +81,11 @@ def login(app, user_id):
     return client
 
 
-def enabled_app():
-    return create_app(ordinary_test_settings(workflow_manager_enabled=True))
+def enabled_app(workflow_store=None):
+    with capturing_workflow_store(workflow_store) as store:
+        app = create_app(ordinary_test_settings(workflow_manager_enabled=True))
+    register_app_store(app, store)
+    return app
 
 
 def activate_onboarding(director, stages=(STAGE,)):
@@ -86,10 +95,9 @@ def activate_onboarding(director, stages=(STAGE,)):
         json={"expected_revision": baseline["revision"], "stages": list(stages)},
     )
     assert saved.status_code == 200, saved.json()
-    active = director.post(
-        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/activate",
-        json={"expected_revision": saved.json()["revision"]},
-    )
+    # Activation is frozen (ADR-017); publish the draft as governed publication will.
+    publish_draft(store_for(director).definitions, ONBOARDING_WORKFLOW_ID, actor_id="olivia-koh")
+    active = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}")
     assert active.status_code == 200, active.json()
     return active.json()
 
@@ -183,6 +191,8 @@ def test_a_second_onboarding_workflow_cannot_be_created():
     ],
 )
 def test_incomplete_stages_save_as_a_draft_but_cannot_activate(stage, code):
+    """ADR-017 P2-0: activation is frozen for every draft; nothing is published."""
+    del code
     director = login(enabled_app(), "olivia-koh")
     baseline = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
     saved = director.put(
@@ -193,8 +203,10 @@ def test_incomplete_stages_save_as_a_draft_but_cannot_activate(stage, code):
         f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/activate",
         json={"expected_revision": saved["revision"]},
     )
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == code
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "WORKFLOW_PUBLICATION_FROZEN"
+    after = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
+    assert after["revision"] == saved["revision"] and after["versions"] == []
 
 
 @pytest.mark.parametrize("anchor", [None, "FINAL_REVIEW_SEND", "NOT_A_STAGE"])
@@ -354,10 +366,10 @@ def test_an_active_workflow_is_startable_by_rm_or_onboarder_and_stages_open_in_o
     assert maya.post(f"{url}/runs", json={"case_id": case_id}).status_code == 422
     assert maya.get("/api/workflows/startable").json() == []
 
-    saved = director.put(
+    director.put(
         f"{url}/draft", json={"expected_revision": created["revision"], "stages": REFRESH_STAGES}
     ).json()
-    director.post(f"{url}/activate", json={"expected_revision": saved["revision"]})
+    publish_draft(store_for(director).definitions, url.rsplit("/", 1)[1])
 
     assert maya.get("/api/workflows/startable").json() == [
         {
@@ -406,13 +418,13 @@ def test_an_existing_case_workflow_needs_a_case_that_finished_onboarding():
     created = service.create_workflow(
         lambda: actor, name="Refresh", use_case="Refresh", country="Singapore"
     )
-    saved = service.save_draft(
+    service.save_draft(
         lambda: actor,
         created.workflow_id,
         expected_revision=created.revision,
         stages=(WorkflowStage.model_validate(REFRESH_STAGES[0]),),
     )
-    service.activate(lambda: actor, created.workflow_id, expected_revision=saved.revision)
+    publish_draft(service._definitions, created.workflow_id, now=service._clock())  # noqa: SLF001
     filler = filler_actor()
     with pytest.raises(WorkflowValidationError) as refused:
         service.start_run(lambda: filler, created.workflow_id, case_id=case.case_id)
@@ -433,10 +445,10 @@ def new_case_workflow(director):
         {"field_id": "reference", "label": "Reference", "kind": "TEXT", "autofill": True,
          "document_label": "Reference"},
     ]}
-    saved = director.put(
+    director.put(
         f"{url}/draft", json={"expected_revision": created["revision"], "stages": [stage]}
     ).json()
-    director.post(f"{url}/activate", json={"expected_revision": saved["revision"]})
+    publish_draft(store_for(director).definitions, url.rsplit("/", 1)[1])
     return url
 
 
@@ -542,13 +554,13 @@ def start_with(service, case, stage):
     created = service.create_workflow(
         lambda: actor, name="Refresh", use_case="Refresh", country="Singapore"
     )
-    saved = service.save_draft(
+    service.save_draft(
         lambda: actor,
         created.workflow_id,
         expected_revision=created.revision,
         stages=(WorkflowStage.model_validate(stage),),
     )
-    service.activate(lambda: actor, created.workflow_id, expected_revision=saved.revision)
+    publish_draft(service._definitions, created.workflow_id, now=service._clock())  # noqa: SLF001
     return service.start_run(
         lambda: filler_actor(), created.workflow_id, case_id=case.case_id
     )
@@ -617,15 +629,21 @@ def test_a_sent_case_cannot_be_edited_or_confirmed():
 
 
 def test_a_failed_send_is_not_finished_onboarding():
+    """ADR-017 3.7: MOCK_GOLDTIER alone is never "sent"; a write attempt marker is."""
     from types import SimpleNamespace
 
     from app.domain.zero_touch import AutomationStage, AutomationStatus
-    from app.main import _automation_is_complete, _automation_is_sent
+    from app.main import _automation_is_complete, _case_is_sent
 
     failed = SimpleNamespace(
         status=AutomationStatus.TECHNICAL_FAILURE, current_stage=AutomationStage.MOCK_GOLDTIER
     )
-    assert _automation_is_sent(failed)
+    no_marker = SimpleNamespace(case_is_sent=lambda _case_id: False)
+    marker = SimpleNamespace(case_is_sent=lambda _case_id: True)
+    complete = SimpleNamespace(current_stage=AutomationStage.COMPLETE)
+    assert not _case_is_sent(no_marker, failed, uuid4())
+    assert _case_is_sent(marker, failed, uuid4())
+    assert _case_is_sent(no_marker, complete, uuid4())
     assert not _automation_is_complete(failed)
     assert _automation_is_complete(SimpleNamespace(status=AutomationStatus.COMPLETED))
 
@@ -644,11 +662,11 @@ def test_a_changed_stage_refuses_a_stale_screen_and_drops_a_now_invalid_answer()
         {"field_id": "full-name", "label": "Full name", "kind": "NUMBER", "required": True},
     ]
     baseline = service.get_workflow(director, ONBOARDING_WORKFLOW_ID)
-    draft = service.save_draft(
+    service.save_draft(
         lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=baseline.revision,
         stages=(WorkflowStage.model_validate(changed),),
     )
-    service.activate(lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=draft.revision)
+    publish_draft(service._definitions, ONBOARDING_WORKFLOW_ID, now=service._clock())  # noqa: SLF001
     case.created_at = datetime(2031, 1, 1, tzinfo=UTC)
 
     with pytest.raises(WorkflowConflictError):
@@ -736,11 +754,11 @@ def test_a_document_after_sending_leaves_the_onboarding_stage_alone():
 def activate_stage(service, stage):
     director = director_actor()
     baseline = service.get_workflow(director, ONBOARDING_WORKFLOW_ID)
-    draft = service.save_draft(
+    service.save_draft(
         lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=baseline.revision,
         stages=(WorkflowStage.model_validate(stage),),
     )
-    service.activate(lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=draft.revision)
+    publish_draft(service._definitions, ONBOARDING_WORKFLOW_ID, now=service._clock())  # noqa: SLF001
 
 
 def test_a_screen_two_versions_behind_is_still_refused():
@@ -952,14 +970,15 @@ def service_with_stage(case, runs=None):
         cases=Cases(case),
         clock=lambda: datetime(2029, 1, 1, tzinfo=UTC),
     )
+    service.provision_onboarding()
     baseline = service.get_workflow(actor, ONBOARDING_WORKFLOW_ID)
-    saved = service.save_draft(
+    service.save_draft(
         lambda: actor,
         ONBOARDING_WORKFLOW_ID,
         expected_revision=baseline.revision,
         stages=(WorkflowStage.model_validate(STAGE),),
     )
-    service.activate(lambda: actor, ONBOARDING_WORKFLOW_ID, expected_revision=saved.revision)
+    publish_draft(service._definitions, ONBOARDING_WORKFLOW_ID, now=service._clock())  # noqa: SLF001
     return service
 
 
@@ -1026,8 +1045,7 @@ def test_deleting_a_case_deletes_its_collected_answers():
         runs=InMemoryWorkflowRunRepository(),
         close=lambda: None,
     )
-    with patch("app.main.build_workflow_persistence", return_value=storage):
-        app = enabled_app()
+    app = enabled_app(storage)
     director, maya = login(app, "olivia-koh"), login(app, "maya-lim")
     activate_onboarding(director)
     case_id = new_case(maya)
@@ -1062,10 +1080,12 @@ def test_a_really_onboarded_company_loads_its_case_data_into_a_workflow():
     ]}
     with (
         patch("app.main.build_persistence_bundle", return_value=bundle),
+        capturing_workflow_store() as workflow_store,
         TestClient(
             create_app(settings, acra_connector=NoAcra(), goldtier_transport=target)
         ) as client,
     ):
+        register_app_store(client.app, workflow_store)
         director = login(client.app, "olivia-koh")
         current = prepare(client, company)
         assert confirm(client, current)["status"] == "COMPLETED"
@@ -1073,10 +1093,10 @@ def test_a_really_onboarded_company_loads_its_case_data_into_a_workflow():
             "/api/workflows", json={"name": "Refresh", "use_case": "R", "country": "SG"}
         ).json()
         url = f"/api/workflows/{created['workflow_id']}"
-        saved = director.put(
+        director.put(
             f"{url}/draft", json={"expected_revision": created["revision"], "stages": [stage]}
         ).json()
-        director.post(f"{url}/activate", json={"expected_revision": saved["revision"]})
+        publish_draft(store_for(director).definitions, url.rsplit("/", 1)[1])
         started = client.post(f"{url}/runs", json={"case_id": current["case"]["case_id"]})
         assert started.status_code == 201, started.json()
         fields = {item["label"]: item for item in started.json()["stages"][0]["fields"]}
@@ -1110,10 +1130,12 @@ def test_the_send_is_held_until_the_stage_is_confirmed_through_the_real_flow():
     }
     with (
         patch("app.main.build_persistence_bundle", return_value=bundle),
+        capturing_workflow_store() as workflow_store,
         TestClient(
             create_app(settings, acra_connector=NoAcra(), goldtier_transport=target)
         ) as client,
     ):
+        register_app_store(client.app, workflow_store)
         director = login(client.app, "olivia-koh")
         activate_onboarding(director, (stage,))
         current = prepare(client, company)

@@ -1,8 +1,9 @@
-"""C1/C2: the legacy CLM send routes and a switched-off manager keep the D-123 send check.
+"""C1/C2 and ADR-017 P2-0: the legacy CLM routes and a switched-off manager.
 
-Neither legacy route reaches a GoldTier step while a required added stage is open or the
-check cannot be read. Only Submit continues a send whose first write is already in the
-persisted ledger, so recovery never replays or strands it.
+P2-0 retires the legacy target confirmation (it no longer exists: 404) and makes legacy
+Submit recovery-only: it continues only a send the full D-136 E3 predicate covers, after
+every existing check in its order (otherwise 409 CLM_SUBMIT_RECOVERY_ONLY). A required
+added stage, or an unreadable check, still holds it first. Recovery never replays.
 """
 
 from __future__ import annotations
@@ -24,13 +25,14 @@ from test_clm_orchestration import make_ready_case
 from test_slice_b_registry_demo import confirm
 from test_workflow_manager import STAGE, case_url, director_actor, login, onboarding_run
 from test_zero_touch_database_happy_path import NoAcra, RecordingTarget, prepare, sandbox_settings
+from workflow_publication_seed import publish_draft
 
 from app.config import Settings
 from app.domain.workflows import ONBOARDING_WORKFLOW_ID, WorkflowStage
 from app.main import _refusing_unsendable_case, create_app
 from app.persistence.composition import WorkflowPersistence, build_persistence_bundle
 from app.persistence.errors import PersistenceDataInvalidError, PersistenceUnavailableError
-from app.services.clm_errors import ClmRequestError
+from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.workflow_management import (
     HOLD_INCOMPLETE,
     HOLD_UNAVAILABLE,
@@ -69,6 +71,7 @@ def activate(store: WorkflowPersistence, stage: dict[str, Any]) -> None:
         cases=SimpleNamespace(),  # type: ignore[arg-type]
         clock=lambda: datetime(2020, 1, 1, tzinfo=UTC),
     )
+    service.provision_onboarding()
     baseline = service.get_workflow(actor, ONBOARDING_WORKFLOW_ID)
     saved = service.save_draft(
         lambda: actor,
@@ -76,7 +79,9 @@ def activate(store: WorkflowPersistence, stage: dict[str, Any]) -> None:
         expected_revision=baseline.revision,
         stages=(WorkflowStage.model_validate(stage),),
     )
-    service.activate(lambda: actor, ONBOARDING_WORKFLOW_ID, expected_revision=saved.revision)
+    del saved
+    # Activation is frozen (ADR-017); publish as governed publication will.
+    publish_draft(store.definitions, ONBOARDING_WORKFLOW_ID)
 
 
 def storage(
@@ -134,6 +139,15 @@ def held(response: httpx.Response, code: str = HOLD_INCOMPLETE) -> bool:
     return response.status_code == 409 and response.json()["detail"]["code"] == code
 
 
+def retired(response: Any) -> bool:
+    """ADR-017 3.7: the legacy target confirmation route is retired."""
+
+    return response.status_code == 404
+
+
+RECOVERY_ONLY = "CLM_SUBMIT_RECOVERY_ONLY"
+
+
 # T1 - legacy confirmation, required stage open: refused before any target step.
 @pytest.mark.anyio
 @pytest.mark.parametrize(
@@ -145,6 +159,9 @@ def held(response: httpx.Response, code: str = HOLD_INCOMPLETE) -> bool:
     ],
 )
 async def test_legacy_confirmation_is_refused_before_any_target_step(store, code) -> None:
+    """Retired in P2-0: the route is gone whatever the workflow store holds."""
+
+    del code
     cases, documents, ownership, clm, target, case_id = make_ready_case(confirm=False)
     evaluated = clm.evaluate(case_id=case_id)
     events = len(cases.get_case(case_id).events)
@@ -154,7 +171,7 @@ async def test_legacy_confirmation_is_refused_before_any_target_step(store, code
         path, body = legacy_confirmation(case_id, evaluated.version, events)
         refused = await client.post(path, json=body)
 
-    assert held(refused, code), refused.text
+    assert retired(refused), refused.text
     after = clm.get(case_id=case_id)
     assert after.version == evaluated.version
     assert after.submission_snapshot is None
@@ -195,19 +212,18 @@ async def test_a_frozen_snapshot_without_a_write_cannot_use_the_in_flight_except
 @pytest.mark.anyio
 @pytest.mark.parametrize("stage", [None, OPTIONAL_STAGE])
 async def test_legacy_routes_send_as_before_when_nothing_required_is_open(stage) -> None:
-    cases, documents, ownership, clm, target, case_id = make_ready_case(confirm=False)
-    evaluated = clm.evaluate(case_id=case_id)
-    events = len(cases.get_case(case_id).events)
+    """Nothing required is open: legacy Submit still never starts a first write."""
+
+    cases, documents, ownership, clm, target, case_id = make_ready_case()
+    assert clm.get(case_id=case_id).submission_snapshot is not None
+    calls = list(target.calls)
     app = legacy_app((cases, documents, ownership, clm), storage(stage=stage))
     async with http(app) as client:
-        path, body = legacy_confirmation(case_id, evaluated.version, events)
-        confirmed = await client.post(path, json=body)
         submitted = await client.post(f"/api/clm/cases/{case_id}/submit")
 
-    assert confirmed.status_code == 200, confirmed.text
-    assert submitted.status_code == 200, submitted.text
-    assert submitted.json()["status"] == "MOCK_GOLDTIER_SUBMITTED"
-    assert target.calls.count("shell") == 1
+    assert held(submitted, RECOVERY_ONLY), submitted.text
+    assert target.calls == calls
+    assert not clm.target_write_started(case_id=case_id)
 
 
 # T5 - a send with a retained write keeps going, once, even if a stage appears mid-send.
@@ -227,11 +243,13 @@ async def test_a_send_with_a_retained_write_finishes_without_replay(monkeypatch)
     monkeypatch.setattr(cases, "_build_execution_receipt", fail_once)
     store = storage(stage=None)
     app = legacy_app((cases, documents, ownership, clm), store)
+    # The first write starts through the (fenced) service path; legacy Submit only recovers.
+    with pytest.raises(ClmInfrastructureError) as first_error:
+        clm.submit(case_id=case_id, reauthorize=lambda: None)
+    assert first_error.value.code == "CLM_FINALIZATION_RETRY_REQUIRED"
+    assert clm.target_write_started(case_id=case_id)
+    first_text = str(first_error.value)
     async with http(app) as client:
-        first = await client.post(f"/api/clm/cases/{case_id}/submit")
-        assert first.status_code == 503, first.text
-        assert first.json()["detail"]["code"] == "CLM_FINALIZATION_RETRY_REQUIRED"
-        assert clm.target_write_started(case_id=case_id)
 
         activate(store, STAGE)  # a required stage is published while the send is open
         checker = WorkflowManagementService(
@@ -239,16 +257,16 @@ async def test_a_send_with_a_retained_write_finishes_without_replay(monkeypatch)
         )
         assert checker.send_hold_code(case_id) == HOLD_INCOMPLETE
 
-        # Confirmation has no in-flight exception.
+        # The legacy confirmation is retired.
         path, body = legacy_confirmation(case_id, 0, 1)
-        assert held(await client.post(path, json=body))
+        assert retired(await client.post(path, json=body))
 
         recovered = await client.post(f"/api/clm/cases/{case_id}/submit")
 
     assert recovered.status_code == 200, recovered.text
     assert recovered.json()["status"] == "MOCK_GOLDTIER_SUBMITTED"
     assert target.calls == ["search", "search", "shell", "policy", "amend", "search"]
-    assert "PRIVATE_RECEIPT_SENTINEL" not in first.text + recovered.text
+    assert "PRIVATE_RECEIPT_SENTINEL" not in first_text + recovered.text
 
 
 # T6/T7 - guard order: reauthorization, then D-124, then the workflow check.
@@ -375,8 +393,8 @@ def test_neither_legacy_route_writes_to_goldtier_until_the_stage_is_confirmed() 
             f"/api/clm/cases/{case_id}/target-confirmation", json=legacy_body(client, case_id)
         )
         refused_submit = client.post(f"/api/clm/cases/{case_id}/submit")
-        assert held(refused_confirmation), refused_confirmation.text
-        assert held(refused_submit), refused_submit.text
+        assert retired(refused_confirmation), refused_confirmation.text
+        assert held(refused_submit), refused_submit.text  # the hold still comes first
         assert target.calls == before
 
         run = onboarding_run(client, case_id)
@@ -394,13 +412,14 @@ def test_neither_legacy_route_writes_to_goldtier_until_the_stage_is_confirmed() 
         )
         assert confirmed_stage.status_code == 200, confirmed_stage.text
 
-        confirmation = client.post(
-            f"/api/clm/cases/{case_id}/target-confirmation", json=legacy_body(client, case_id)
-        )
-        assert confirmation.status_code == 200, confirmation.text
         submitted = client.post(f"/api/clm/cases/{case_id}/submit")
-        assert submitted.status_code == 200, submitted.text
-        assert submitted.json()["status"] == "MOCK_GOLDTIER_SUBMITTED"
+        # Existing order: with no confirmation, that refusal precedes recovery-only.
+        assert held(submitted, "CLM_TARGET_CONFIRMATION_REQUIRED"), submitted.text
+        assert target.calls == before
+        # The send goes through the zero-touch route and its fence.
+        latest = client.get(f"/api/clm/zero-touch/cases/{case_id}")
+        assert latest.status_code == 200, latest.text
+        assert confirm(client, latest.json())["status"] == "COMPLETED"
         assert writes(target)
 
 
@@ -417,7 +436,8 @@ def test_callers_without_case_access_are_refused_as_before(user_id) -> None:
             other.post(f"/api/clm/cases/{case_id}/submit"),
         ):
             assert response.status_code in {403, 404}, response.text
-            assert response.json()["detail"]["code"] not in HOLD_CODES
+            detail = response.json()["detail"]
+            assert not isinstance(detail, dict) or detail["code"] not in HOLD_CODES
         assert target.calls == before
 
 
@@ -440,14 +460,14 @@ def test_a_switched_off_manager_still_holds_every_send_route(store, code) -> Non
             json=zero_touch_body(current),
         )
         assert zero_touch.status_code >= 400 and zero_touch.json()["detail"]["code"] == code
-        for response in (
+        assert retired(
             client.post(
                 f"/api/clm/cases/{case_id}/target-confirmation",
                 json=legacy_body(client, case_id),
-            ),
-            client.post(f"/api/clm/cases/{case_id}/submit"),
-        ):
-            assert held(response, code), response.text
+            )
+        )
+        submitted = client.post(f"/api/clm/cases/{case_id}/submit")
+        assert held(submitted, code), submitted.text
         assert target.calls == before
 
 

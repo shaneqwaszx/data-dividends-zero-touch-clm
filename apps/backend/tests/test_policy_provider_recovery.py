@@ -214,7 +214,9 @@ def test_invalid_recovery_prefix_or_terminal_ledger_is_rejected(shape):
                 state=GoldTierExecutionLedgerState.FINALIZED,
             )
     candidate = before.model_copy(update=changes)
-    service._target_executions.replace(candidate, expected_state="IN_PROGRESS")
+    service._target_executions.replace(
+        candidate, expected_state="IN_PROGRESS", expected_attempted=before.attempted_operations
+    )
     calls = deepcopy(transport.calls)
     with pytest.raises(ValueError):
         service.recover_uncertain_policy_from_provider(**evidence(case, submission))

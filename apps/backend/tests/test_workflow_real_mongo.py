@@ -81,8 +81,11 @@ def test_definition_create_is_insert_only_and_update_is_revision_guarded(store) 
     with pytest.raises(PersistenceConflictError):
         repository.create(definition())
     updated = created.model_copy(update={"revision": 2, "name": "Renamed"})
-    repository.update(updated, expected_revision=1)
-    assert repository.get("refresh") == updated
+    written = repository.update(updated, expected_revision=1)
+    # ADR-017 R4-4: every write rotates the backend-only nonce.
+    assert written.write_nonce not in {None, created.write_nonce}
+    assert repository.get("refresh") == written
+    assert written.model_dump() == updated.model_dump()
     with pytest.raises(PersistenceConflictError):
         repository.update(updated, expected_revision=1)
 

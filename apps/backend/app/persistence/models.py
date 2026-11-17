@@ -34,7 +34,9 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[20] = 20
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[21] = 21
+# ADR-017 section 3.2: a per-write random nonce guards every case snapshot writer.
+CASE_WRITE_NONCE_PATTERN = r"^[0-9a-f]{32}$"
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -972,8 +974,8 @@ class DurableCaseSnapshotV19(BaseModel):
         return self
 
 
-class DurableCaseSnapshot(BaseModel):
-    """Bounded authoritative structured state; never raw source/upload payloads."""
+class DurableCaseSnapshotV20(BaseModel):
+    """Exact schema-20 envelope: the D-125 case without ADR-017 dispatch fields."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -991,6 +993,55 @@ class DurableCaseSnapshot(BaseModel):
     intelligence: OnboardingIntelligenceRecord | None = None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_workflow_dispatch_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        # From the attributes, not model_dump: a dump would drop backend-only excluded
+        # evidence (for example D-095 document digests).
+        return DurableCaseSnapshot.model_validate(
+            {
+                **{name: getattr(self, name) for name in type(self).model_fields},
+                "schema_version": CASE_SNAPSHOT_SCHEMA_VERSION,
+            }
+        )
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV20":
+        _validate_case_bindings(self)
+        return self
+
+
+class DurableCaseSnapshot(BaseModel):
+    """Bounded authoritative structured state; never raw source/upload payloads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[21] = 21
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+    # Absent only on a document no P2-0 writer has written yet; the first writer treats it
+    # as a fresh nonce and every write sets a new one (ADR-017 section 3.2, R4-4).
+    write_nonce: str | None = Field(
+        default=None,
+        pattern=CASE_WRITE_NONCE_PATTERN,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def validate_case_bindings(self) -> "DurableCaseSnapshot":
@@ -1160,6 +1211,22 @@ def reject_scenario_poc_legacy_fields(value: Any) -> None:
 _GOVERNMENT_STATUTE_FIELDS = (
     "founding_statute", "statute_section", "government_body_type", "statute_match",
 )
+
+
+def reject_workflow_dispatch_legacy_fields(value: Any) -> None:
+    """Schema <= 20 envelopes cannot carry ADR-017 dispatch fields, even if null.
+
+    Only a schema-21 envelope may hold a write nonce or a ledger dispatch claim, so a
+    historical document can never masquerade as a fenced dispatch.
+    """
+    envelope = _explicit_fields(value)
+    if "write_nonce" in envelope:
+        raise ValueError("Historical schema cannot contain an ADR-017 write nonce.")
+    entries = envelope.get("target_executions")
+    if isinstance(entries, (list, tuple)):
+        for entry in entries:
+            if "workflow_dispatch" in _explicit_fields(entry):
+                raise ValueError("Historical schema cannot contain an ADR-017 dispatch claim.")
 
 
 def reject_government_statute_legacy_fields(value: Any) -> None:

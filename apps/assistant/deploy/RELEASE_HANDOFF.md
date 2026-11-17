@@ -1,5 +1,17 @@
 # AI Assistant Stage A: release owner handoff
 
+> **Pre-gate history.** The commands in this file were written for Stage A, before the R2.2
+> assistant gate, and are kept as the record of what was run. On the gated staging host they
+> are superseded by `apps/assistant/deploy/egress/README.md` and "Gated staging host" in
+> `deploy/LIGHTSAIL_RUNTIME.md`. There:
+>
+> - stop only with `systemctl stop clm-r22-assistant`
+> - start only with `systemctl restart clm-r22-assistant`
+> - recreate with `--no-start --force-recreate`, then that restart
+> - never a bare `dca stop`, `dca start` or `dca up --wait`
+>
+> Close any ACRA lease before recreating the assistant.
+
 Stage A hosts the existing assistant as a private service with no model and no paid
 dependency. It is a deployment candidate, not a deployment. Nothing here has run on AWS, and
 Stage B (remote models) is a separate decision, not approved and not part of this candidate.

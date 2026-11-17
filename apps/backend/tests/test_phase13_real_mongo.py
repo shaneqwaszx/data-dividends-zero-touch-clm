@@ -81,7 +81,7 @@ def test_real_mongo_restart_preserves_team_scope_priority_and_provider_free_read
             raw_documents = list(collection.find({}))
             assert len(raw_documents) == 3
             assert all(type(item["schema_version"]) is int for item in raw_documents)
-            assert all(item["schema_version"] == 20 for item in raw_documents)
+            assert all(item["schema_version"] == 21 for item in raw_documents)
 
             physical = build_persistence_bundle(settings)
             try:
@@ -105,7 +105,7 @@ def test_real_mongo_restart_preserves_team_scope_priority_and_provider_free_read
             assert raw_after_rejected_mutation["onboarding"]["team_id"] == "TEAM_A"
             assert raw_after_rejected_mutation["onboarding"]["priority"] == 10
             assert type(raw_after_rejected_mutation["schema_version"]) is int
-            assert raw_after_rejected_mutation["schema_version"] == 20
+            assert raw_after_rejected_mutation["schema_version"] == 21
 
             assert [
                 item["case_id"] for item in first_a.get("/api/clm/zero-touch/cases").json()
@@ -173,7 +173,7 @@ def test_real_mongo_restart_preserves_team_scope_priority_and_provider_free_read
             assert raw_after_restart["onboarding"]["team_id"] == "TEAM_A"
             assert raw_after_restart["onboarding"]["priority"] == 10
             assert type(raw_after_restart["schema_version"]) is int
-            assert raw_after_restart["schema_version"] == 20
+            assert raw_after_restart["schema_version"] == 21
 
             cleared = second_director.patch(
                 f"/api/clm/zero-touch/cases/{a_high}/priority",
@@ -264,6 +264,7 @@ def test_pr95_physical_creator_validation_and_legacy_unknown() -> None:
     try:
         raw = _mongo_portfolio_row()
         raw["schema_version"] = 10
+        raw.pop("write_nonce", None)
         raw["onboarding"]["created_by_actor_id"] = "maya-lim"
         raw["automation"]["events"] = [
             _event(UUID(raw["case_id"]), 1, "2026-09-21T12:00:00Z")
@@ -492,6 +493,7 @@ def test_pr95_r2_activity_validates_creator_before_filter_in_physical_mongo(sche
 
         raw = _mongo_portfolio_row(uuid4())
         raw["schema_version"] = version
+        raw.pop("write_nonce", None)
         raw["onboarding"]["team_id"] = team
         raw["onboarding"]["created_by_actor_id"] = creator
         raw["automation"]["events"] = [

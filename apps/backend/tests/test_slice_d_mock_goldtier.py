@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
+from workflow_publication_seed import bind_test_fence
 
 from app.connectors.errors import ConnectorError, MutationOutcomeUncertainError
 from app.connectors.goldtier_models import (
@@ -32,12 +33,13 @@ MAPPER = MockGoldTierRequestMapper()
 
 
 def service(connector=None, repository=None, ledger=None):
-    return OnboardingService(
+    service = OnboardingService(
         acra=MockAcraConnector(),
         goldtier=connector or MockGoldTierConnector(),
         repository=repository or InMemoryOnboardingCaseRepository(),
         target_execution_repository=ledger or InMemoryTargetExecutionRepository(),
     )
+    return bind_test_fence(service)
 
 
 def prepared(owner):
@@ -568,6 +570,7 @@ def inconsistent_prior_entry(entry, contradiction):
     from app.domain.target_submission import GoldTierExecutionLedgerEntry
 
     data = entry.model_dump(mode="python")
+    data["workflow_dispatch"] = entry.workflow_dispatch  # excluded from dumps (ADR-017)
     if contradiction == "ledger.resolved_party_id":
         data["resolved_party_id"] = "GT-MOCK-CONTRADICTORY"
         data["readback_party_id"] = "GT-MOCK-CONTRADICTORY"
@@ -605,7 +608,11 @@ def test_inconsistent_finalized_ledger_never_proves_customer_reuse(contradiction
     owner.execute_submission_input(first)
     entry = owner.get_target_execution_entry(first.submission_id)
     contradictory = inconsistent_prior_entry(entry, contradiction)
-    ledger.replace(contradictory, expected_state="FINALIZED")
+    ledger.replace(
+        contradictory,
+        expected_state="FINALIZED",
+        expected_attempted=entry.attempted_operations,
+    )
 
     created = owner.create_staged_case_with_identity(uuid4(), uuid4(), UEN, "SG", legal_name=NAME)
     assert created.initial_target_search.disposition == "REVIEW_REQUIRED"
@@ -656,6 +663,7 @@ def test_mock_reuse_rejects_coherently_invalid_required_amend_proof(proof_defect
     assert GoldTierOperationMarker.AMEND in entry.definitively_completed_operations
     assert entry.amend_status == "ENRICHED"
     data = entry.model_dump()
+    data["workflow_dispatch"] = entry.workflow_dispatch  # excluded from dumps (ADR-017)
 
     if proof_defect in {"marker", "both"}:
         for key in ("attempted_operations", "completed_operations", "resolved_operations"):
@@ -681,7 +689,11 @@ def test_mock_reuse_rejects_coherently_invalid_required_amend_proof(proof_defect
 
     # Shared historical/XPI schemas remain valid; the Mock proof consumer must reject.
     incomplete = GoldTierExecutionLedgerEntry.model_validate(data)
-    ledger.replace(incomplete, expected_state="FINALIZED")
+    ledger.replace(
+        incomplete,
+        expected_state="FINALIZED",
+        expected_attempted=entry.attempted_operations,
+    )
     created = owner.create_staged_case_with_identity(uuid4(), uuid4(), UEN, "SG", legal_name=NAME)
     assert created.initial_target_search.disposition == "REVIEW_REQUIRED"
     assert created.existing_target_state is None

@@ -2739,6 +2739,53 @@ Also disclosed by the gate and fail-closed: inside the R1 window, legacy Submit 
 persistence error while reading the in-flight state surfaces as a 500 (N4). In both
 cases nothing is written to GoldTier.
 
+## D-135 - Workflow authoring, single-Director approval and the required-obligation ratchet (OWNER-APPROVED DESIGN 2026-11-15; not implemented)
+
+**Status:**
+- `USER_AUTHORIZED_POC`. The owner approved this as the P2/P3 design on 2026-11-15: revision R1,
+  RD-1 to RD-6, the G0 conditions, the conditional-write dispatch fence as the revised D10
+  mechanism, the G0 remediation rulings, and the G0 R3 and R4 rulings of 2026-11-16 (including
+  RD-5 counts as maxima).
+- It is a design decision only. **Nothing here is implemented**, and current behaviour is
+  unchanged until the phases are separately approved and merged.
+- Not sponsor-confirmed. Design: [ADR-017](ADR-017_WORKFLOW_AUTHORING_AND_GOVERNANCE.md)
+  (Proposed).
+- Numbering: D-135 was held for this record by the earlier provisional draft.
+
+**Relationship to other decisions:**
+- When implemented, it supersedes D-123 W1 (roles) and, in part, W4 (versions), and the owner's
+  interim F2 publication restriction.
+- When P2-0 ships, it amends D-136 E2 (row G15). D-136 is otherwise preserved in full.
+- Until P2-1 enforces G7 technically, D-136 E5's interim rule stands: no publication may remove or
+  weaken an existing required stage.
+
+| # | Decision |
+|---|---|
+| G1 | **Authoring.** HR (`POLICY_MUTATE`) creates, edits, validates, simulates, submits and withdraws workflow proposals. Directors do not author ordinary workflow changes. |
+| G2 | **Approval.** Exactly one Director (`POLICY_APPROVE`) approves or rejects each pending proposal, with a reason. The author never decides their own proposal. A decision is final, immutable and published atomically as a new version. One open proposal per workflow. Abandoned drafts may be released by another HR user after 14 days of inactivity, or when the author's account is gone. Release never publishes. |
+| G3 | **Scope.** G1 and G2 apply to every workflow. |
+| G4 | **Unchanged.** Role capabilities, case access and team scope, policy authority, ACRA identity provenance and the staging identity policy, AI Assistant safeguards, the code-owned mandatory engine order, no-replay recovery, D-136 E1, E3 and E4, and the single-backend-process deployment. |
+| G5 | **Policy values** stay owned by the policy catalogue. The designer proposes policy changes only through the existing policy proposals, and workflow proposals hold references, not values. |
+| G6 | **Legacy provenance.** Versions activated under D-123 are recorded as pre-governance single-Director activations, not as approved. The required baseline is seeded from each workflow's currently active version only. Obligations a Director dropped under D-123 are not resurrected without a separate approved proposal. |
+| G7 | **Required-obligation ratchet** (RR-1 to RR-10, ADR-017 §2). Each required obligation keeps its strictest published signature in a stored baseline. Kind and wording are fixed beyond normalisation. CHOICE options are the intersection of every published set, so a removed option can never return. Case-data prefill stays absent. Applicability is never narrowed. Every publication kind is checked against both the active version and the baseline, for new and existing cases. Deactivation keeps the baseline, and reactivation must satisfy it. **No in-product path removes or weakens a required obligation** (RD-2). Restore, reset and emergency fallback publish the base plus the baseline. Before approving a new or tightened obligation, the Director must acknowledge that it is permanent. |
+| G8 | **Emergency fallback.** A Director alone, with a mandatory reason, may publish the safe target immediately. It writes an immutable record and raises a persisted HR notice that is kept until acknowledged. It cannot bypass G7, the mandatory stages or send enforcement. |
+| G9 | **Send dispatch fence** (ADR-017 §3). A first GoldTier write needs four things in order. First, a leased claim on the case document. Second, a durable modifying conditional write on the workflow definition document that succeeds only while the evaluated version is still active; this is the linearisation point, and its anonymous counter is not dispatch evidence. Third, a leased, token-bound authorisation on the case document. Fourth, a durably acknowledged write attempt marker. Every writer of the case snapshot and the workflow definition documents matches both the revision and the per-write nonce it read, and sets a new nonce. Ledger and fence writes also assert their predicate (own token, state, no marker for the operation) in the write filter. A reused revision number therefore never matches another history. Ambiguous outcomes never authorise a GoldTier call, and a modified-document count never does either. Only a durably acknowledged post-image of the same write, showing the worker's own write attempt marker and receipt, does. The lease condition governs the marker, nonce and revision atomically, and the fence fails closed if the database cannot guarantee that. Expired leases never authorise the replay of an attempted write. A newly published requirement holds every case not yet authorised; a confirmed one must then re-confirm the dispatch (RD-3). A case is **sent** when it has a SHELL, POLICY or AMEND write attempt marker, a retained target outcome or receipt, or automation COMPLETE. |
+| G10 | **Storage guarantees.** Supported MongoDB topologies are a standalone server with journaling (staging, to be confirmed in P2-0) or a replica-set primary. Safety-critical writes use `w: "majority", j: true` with a `wtimeout`, and count only when durably acknowledged. No read concern is relied on, and majority reads are not treated as linearizable. An unsupported topology or an unavailable guarantee refuses dispatches and governance writes. |
+| G11 | **History.** Governance history is never silently deleted. The archive's content is insert-only; the only permitted exceptions are one `archive_confirmations` marker field and attempt-suffixed re-inserts. It is fed by a crash-safe, idempotent outbox, and records leave the outbox only after a durably acknowledged archived copy exists. Byte limits are enforced, and RD-5 counts are maxima (owner-approved 2026-11-16) within them. Version numbers stay monotonic after archival. Unacknowledged notices are never discarded. Referenced versions stay readable. |
+| G12 | **Legacy send routes.** The legacy CLM target-confirmation route, which has no frontend caller, is retired. Legacy `/submit` becomes recovery-only, accepted under the full D-136 E3 predicate (a recorded write attempt, or a retained target outcome or receipt). Both are gated on a caller inventory and a read-only staging count. |
+| G13 | **Deactivation and reactivation** (non-onboarding only). Deactivation stops new runs and never modifies an existing run; existing runs stay completable. It is refused while any run is inside a required-stage confirmation (one shared gate lock). Reactivation must satisfy the kept baseline. |
+| G14 | **P2-0 transition.** P2-0 freezes legacy activation at the backend, backfills top-level `active_version` and `latest_version` in a one-time reviewed, idempotent, verified backfill (never reused after P2-1), provisions the onboarding definition document at startup, corrects the ledger repository's compare-and-set, and keeps every existing D-136 safeguard throughout. Conditional steps get their own phase and ADR: deterministic, add-only and fail closed. Added steps keep blocking only the final send. The staging inventory and migration are future, separately approved gates. |
+| G15 | **D-136 E2 amendment, effective with P2-0.** No active version still holds nothing. A **missing expected onboarding definition document** is refused, because a provisioning or backfill gap is treated as unavailability. This is a deliberate fail-closed narrowing. |
+
+**Out of scope:**
+- reordering mandatory stages
+- engine pauses
+- multi-instance runtime
+- any new registry or country
+- autonomous approval
+- AI-authored workflows
+- AWS changes
+
 ## D-137 - GoldTier Sandbox write qualification: one bounded write window, disabled by default (OWNER-APPROVED 2026-11-15, NOT ACTIVE)
 
 Status: owner-approved on 2026-11-15 as the controlled GoldTier Sandbox write capability for
@@ -2882,6 +2929,12 @@ Owner confirmation needed at adoption. D-129 term (b) said "eligible synthetic c
 
 Side effect: `main.py` and `synthetic_eligibility.py` are qualification-basis files. The qualification basis changes, so the hosted 5-call qualification runs on the integrated image.
 
+## ST-7 amendment - GoldTier Sandbox daily reads (owner-directed C9)
+
+| Decision | Owner scope |
+|---|---|
+| No application-imposed daily read quota by default. Provider limits apply. | All environments. An explicit limit from 0 to 500 still applies when configured. D-137 continues to govern writes. |
+
 ## D-140 - HR password management for non-HR accounts (owner-directed, awaiting review)
 
 The owner asked for HR password management on the deployed site using the smallest compatible change. HR could create users with a temporary password but could not reset one.
@@ -2899,7 +2952,49 @@ The owner asked for HR password management on the deployed site using the smalle
 
 Unchanged: password hashing, session validation, RBAC, the last-HR and self-demotion rules, the Mongo schema (no new fields), and every other admin route.
 
-## D-141 - Specific, plain reasons when an upload fails the local document checks (PROPOSED, 2026-11-16)
+### C9 amendment to D-140
+
+An authenticated HR actor may change their own password through `POST /api/admin/me/password`.
+The service verifies the current password. The store rechecks HR authority and the session's
+security version, then applies the existing credential CAS. The security version increments
+and requires a new sign-in. The existing `PROFILE_UPDATED` action records
+`PASSWORD_CHANGED_SELF` in operation metadata. Administrative reset and sign-in disabling
+continue to apply only to non-HR target accounts.
+
+## D-129A - Hosted GPT-OSS-120B (OpenRouter) data transmission and the A1-R3 residual (ACCEPTED 2026-11-16 by the owner)
+
+Status: `ACCEPTED` on 2026-11-16 by the owner (in chat: "Signing it now", after G-6 passed in run 272fc723). The signed text is in `outputs/real-inference-20261115/OPENROUTER_OWNER_DECISION.md`.
+It extends D-129 to OpenRouter for GPT-OSS-120B, under the same synthetic-only data categories and D-139 provider policy.
+It also accepts D-138 A1-R3: the CONNECT proxy admits only `openrouter.ai:443` but cannot inspect TLS.
+
+Recorded in code as `HOSTED_OPENROUTER_TRANSMISSION_DECISION = "D-129A"` and `HOSTED_OPENROUTER_DECISION = "D-134"`.
+The OpenRouter mode still starts only with all of these in place:
+- its daily cap (at most US$3.00 per Singapore day);
+- the registered egress proxy on 172.30.246.0/29;
+- the exact remote settings;
+- the host's `clm_r22o` install.
+
+`config.py` is a qualification-basis file. Every GPT-OSS and Claude qualification must run on the resulting fingerprint.
+
+## SF-002 amendment - Worker memory cap platforms (security patch #188; needs owner acceptance)
+
+The worker memory cap applies on Linux, where the worker is deployed; it is skipped on Windows and macOS development machines.
+
+## D-141 - An advisory ownership review is shown as "Review advised", not green "Complete" (PROPOSED 2026-11-15; amends D-121 display only)
+
+Status: proposed by Tasha on 2026-11-15; needs Shane's acceptance. Authority: `USER_AUTHORIZED_POC`.
+Evidence class: Mock. It amends the D-121 presentation only. No status, readiness rule, audit
+code or switch changes.
+
+| # | Decision |
+| --- | --- |
+| A1 | **Problem.** Under D-121 a current `REVIEW_REQUIRED` analysis that `review_is_advisory` clears makes ownership readiness `READY`, so the `OWNERSHIP_UBO` node is `COMPLETE` and showed a green "Complete" chip beside "Ownership: REVIEW REQUIRED". |
+| A2 | **Signal.** `BrowserProcessingNode.advisory_review` (optional, default `None`) is `true` only on `OWNERSHIP_UBO`, only when the case-detail endpoint finds the current record advisory (`review_is_advisory`) and not POC-accepted (`poc_basis_accepted`), and only when the node is `COMPLETE` with readiness referencing that same `analysis_id`. Blocking mode, an accepted basis, a failed, stale or superseded analysis and a lane that does not qualify all give `None`. |
+| A3 | **Display.** The frontend shows that node as amber "Review advised" (stage header chip, sidebar marker and progress tile, each with the words, not colour alone), with the subtitle "Not blocking. Review ownership before Review & Send." Green "Complete" appears only when there is no open review. Blocking mode keeps the red "Review required". The partnership "awaiting RM confirmation" banner and the Review & Send ownership warning are unchanged. |
+| A4 | **AI Assistant.** It reads the same pipeline, so it follows the same flag: the step is "review advised" (not "done", and not counted as done), readiness reports ownership as `REVIEW_ADVISED` (counted as incomplete in `_OWNERSHIP_INCOMPLETE`), and the briefing adds one catalog line, offered only in that state: "The ownership review is advised but not blocking: the case can continue, but ownership is not verified. Check it before Review & Send." A model sentence saying ownership or the UBO check is complete is dropped unless ownership readiness is `READY` (exact-line mode already drops it as off-catalog; copilot mode now leaves it out as `unsupported_status`). A confirmed case is unchanged. |
+| A5 | **Unchanged.** D-121 U1 to U5 and D-124 stand: node status, readiness, `poc_basis_accepted`, the `OWNERSHIP_REVIEW_ADVISORY` audit code and the `blocking` rollback. |
+
+## D-143 - Specific, plain reasons when an upload fails the local document checks (PROPOSED, 2026-11-16)
 
 Status: `PROPOSED`. Needs Shane's acceptance. Every limit and rule is unchanged; only the reason reaches the RM.
 

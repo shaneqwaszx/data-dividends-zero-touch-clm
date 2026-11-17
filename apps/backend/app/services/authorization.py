@@ -38,6 +38,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("POST", "/api/auth/login", RouteAccess.PUBLIC),
     RoutePolicy("GET", "/api/auth/me", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/auth/logout", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/admin/me/password", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/teams/options", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/admin/teams", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/teams", RouteAccess.ACTOR_ONLY),
@@ -125,11 +126,6 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy("GET", "/api/clm/cases/{case_id}/submission-plan", RouteAccess.CASE_SCOPED),
-    RoutePolicy(
-        "POST",
-        "/api/clm/cases/{case_id}/target-confirmation",
-        RouteAccess.CASE_SCOPED,
-    ),
     RoutePolicy("POST", "/api/clm/cases/{case_id}/submit", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",

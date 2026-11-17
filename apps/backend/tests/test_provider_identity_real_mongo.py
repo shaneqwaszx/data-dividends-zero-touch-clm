@@ -209,6 +209,7 @@ def test_phase24_identity_replacement_is_bound_to_current_parent_and_survives_re
         store.replace(
             current_snapshot.model_copy(update={"onboarding": rebound}, deep=True),
             expected_revision=current_snapshot.revision,
+            expected_nonce=current_snapshot.write_nonce,
         )
         with pytest.raises(OwnershipRepositoryConflictError):
             repository.save(saved, expected_version=saved.version)
@@ -263,7 +264,7 @@ def test_phase24_history_exhaustion_and_invalid_candidate_preserve_physical_read
             repository.save(invalid)
         with pytest.raises(PersistenceDataInvalidError):
             store.replace(before.model_copy(update={"onboarding": invalid}, deep=True),
-                          expected_revision=before.revision)
+                          expected_revision=before.revision, expected_nonce=before.write_nonce)
         assert store.get(case.case_id) == before
     finally:
         store.close()

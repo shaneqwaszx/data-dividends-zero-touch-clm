@@ -336,7 +336,7 @@ def test_review_required_source_replacement_retains_history_receipt_and_cas() ->
     )
     codec = object.__new__(MongoCaseStore)
     durable = codec._decode(codec._encode(snapshot))  # noqa: SLF001
-    assert durable.schema_version == 20
+    assert durable.schema_version == 21
     assert durable.ownership == replaced
     with pytest.raises(OwnershipRequestError) as repeated:
         service.replace_review_required_source(
