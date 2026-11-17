@@ -387,3 +387,229 @@ test("Governance 8: a new onboarding case is held by the approved required stage
   const completed = await summary();
   expect(completed.timeline.filter((event: any) => event.event_type === "TARGET_DISPATCH_CONFIRMED")).toHaveLength(1);
 });
+
+// ---- M2: history, recovery and administration (contract CC-4 to CC-6) ----
+
+const SECOND_STAGE = "E2E synthetic secondary check";
+const SECOND_FIELD = "Synthetic secondary reference";
+
+async function signOut(page: Page) {
+  await page.locator(".operator-account__button").click();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+}
+
+/** Opens the inbox row, ticks any obligation acknowledgement, gives a reason and approves. */
+async function directorApprove(page: Page, workflowName: string, reasonText: string) {
+  await decideFromInbox(page, workflowName);
+  const approve = page.getByRole("button", { name: "Approve and publish" });
+  await expect(approve).toBeDisabled();
+  const confirm = page.getByLabel(/permanent once approved/);
+  if (await confirm.count()) await confirm.check();
+  await page.getByLabel(/^Reason \(required/).fill(reasonText);
+  await expect(approve).toBeEnabled();
+  await approve.click();
+  const decided = page.getByRole("status").filter({ has: page.getByRole("heading", { name: /^Approved/ }) });
+  await expect(decided).toBeVisible();
+  return decided;
+}
+
+/** HR, inside an open workflow: a fixed-content recovery proposal is created, validated and submitted. */
+async function proposeRecovery(page: Page, button: string) {
+  const recovery = page.getByTestId("recovery-actions");
+  await recovery.getByRole("button", { name: button }).click();
+  const confirm = recovery.getByTestId("recovery-confirm");
+  await confirm.getByLabel("Why is this needed? (optional)").fill(`E2E synthetic: ${button.toLowerCase()}`);
+  await confirm.getByRole("button", { name: "Create proposal" }).click();
+  await expect(page.getByTestId("proposal-status")).toContainText("Open proposal · Draft");
+  await page.getByRole("button", { name: "Validate", exact: true }).click();
+  await expect(page.getByTestId("validation-report")).toContainText("Ready to submit");
+  await expect(submitButton(page)).toBeEnabled();
+  await submitButton(page).click();
+  await expect(page.getByTestId("proposal-status")).toContainText("Awaiting Director decision");
+}
+
+async function workflowIdByName(page: Page, name: string): Promise<string> {
+  const items = await page.evaluate(async () => (await fetch("/api/workflows", { credentials: "same-origin" })).json());
+  const found = (items as Array<{ workflow_id: string; name: string }>).find(item => item.name === name);
+  expect(found).toBeTruthy();
+  return found!.workflow_id;
+}
+
+test("Governance 9: reset to default after a second version keeps every required obligation", async ({ page }) => {
+  test.setTimeout(180_000);
+  await signIn(page, HR);
+  step = "second-version";
+  await openWorkflow(page, "Corporate onboarding");
+  await proposeChange(page, "E2E synthetic: second required step");
+  await stagesList(page).getByRole("button", { name: "Add stage after Registry verification", exact: true }).click();
+  await settings(page).getByLabel("Stage name").fill(SECOND_STAGE);
+  await settings(page).getByRole("button", { name: "Add field" }).click();
+  await settings(page).getByLabel("Field name").fill(SECOND_FIELD);
+  await expect(await saveAndValidate(page)).toContainText("Ready to submit");
+  await submitButton(page).click();
+  await expect(page.getByTestId("proposal-status")).toContainText("Awaiting Director decision");
+  await signOut(page);
+  await signIn(page, DIRECTOR);
+  await directorApprove(page, "Corporate onboarding", "E2E synthetic approval of the second step");
+  await signOut(page);
+
+  step = "reset";
+  await signIn(page, HR);
+  await openWorkflow(page, "Corporate onboarding");
+  await expect(page.getByTestId("approved-count")).toContainText("2 versions · 2 approved through governance");
+  await proposeRecovery(page, "Propose reset to default");
+  await signOut(page);
+  await signIn(page, DIRECTOR);
+  const decided = await directorApprove(page, "Corporate onboarding", "E2E synthetic reset to the default content");
+  await expect(decided.getByRole("heading", { name: "Approved · version 3 is now active" })).toBeVisible();
+  await expect(decided.getByText("Governed approval")).toBeVisible();
+
+  step = "safe-target";
+  await openWorkflow(page, "Corporate onboarding");
+  await page.getByTestId("version-history").getByRole("button", { name: "View v3" }).click();
+  const view = page.getByTestId("version-view");
+  await expect(view).toContainText("Active version");
+  await expect(view).toContainText(`${ADDED_FIELD}, required`);
+  await expect(view).toContainText(`${SECOND_FIELD}, required`);
+  await expect(view).toContainText(ADDED_STAGE);
+  await expect(view).toContainText(SECOND_STAGE);
+});
+
+test("Governance 10: Director emergency fallback is never approved; HR acknowledges the notice", async ({ page }) => {
+  test.setTimeout(120_000);
+  await signIn(page, DIRECTOR);
+  step = "fallback";
+  await openWorkflow(page, "Corporate onboarding");
+  // Counted, not assumed, so this test also stands when Governance 9 could not publish.
+  const before = await page.getByTestId("approved-count").innerText();
+  const [, versionsBefore, approvedBefore] = before.match(/^(\d+) versions? · (\d+) approved/)!.map(Number);
+  const next = versionsBefore + 1;
+  const panel = page.getByTestId("emergency-fallback");
+  await panel.getByRole("button", { name: "Start emergency fallback" }).click();
+  const publish = panel.getByRole("button", { name: "Publish emergency fallback" });
+  await expect(publish).toBeDisabled();
+  await panel.getByLabel("A published version").check();
+  await expect(publish).toBeDisabled();
+  await panel.getByRole("combobox").selectOption("1");
+  await panel.getByLabel(/^Reason \(required/).fill("short");
+  await panel.getByLabel("I understand this publishes without approval and HR will be notified.").check();
+  await expect(publish).toBeDisabled();
+  await panel.getByLabel(/^Reason \(required/).fill("E2E synthetic emergency fallback to version 1");
+  await expect(publish).toBeEnabled();
+  await publish.click();
+  await expect(page.getByRole("status").filter({ hasText: `Emergency fallback published: version ${next} is now active` })).toBeVisible();
+  const history = page.getByTestId("version-history");
+  const fallback = history.locator('li[data-origin="EMERGENCY_FALLBACK"]');
+  await expect(fallback).toHaveCount(1);
+  await expect(fallback).toContainText(`Version ${next}`);
+  await expect(fallback).toContainText(`Emergency fallback by ${DIRECTOR} — not approved`);
+  await expect(page.getByTestId("approved-count")).toContainText(`${next} versions · ${approvedBefore} approved through governance`);
+  // Safe target: version 1's content plus every obligation in force.
+  await history.getByRole("button", { name: `View v${next}` }).click();
+  await expect(page.getByTestId("version-view")).toContainText(`${ADDED_FIELD}, required`);
+  if (versionsBefore >= 2) await expect(page.getByTestId("version-view")).toContainText(`${SECOND_FIELD}, required`);
+  // Directors see the notice read-only.
+  await expect(page.getByTestId("workflow-notices")).toContainText("Read-only: an HR user must acknowledge these notices.");
+  await expect(page.getByTestId("workflow-notices").getByRole("button", { name: /^Acknowledge/ })).toHaveCount(0);
+  await signOut(page);
+
+  step = "acknowledge";
+  await signIn(page, HR);
+  await mainNav(page).getByRole("link", { name: "Workflows", exact: true }).click();
+  const notices = page.getByTestId("workflow-notices");
+  await expect(notices).toContainText("Workflow notices (1)");
+  await expect(notices).toContainText(`Emergency fallback on Corporate onboarding: version ${next} by ${DIRECTOR}`);
+  await expect(notices).toContainText("— not approved");
+  await expect(notices).toContainText("Reason: E2E synthetic emergency fallback to version 1");
+  await notices.getByRole("button", { name: `Acknowledge notice for Corporate onboarding version ${next}` }).click();
+  await expect(notices.getByRole("status")).toHaveText("Notice acknowledged.");
+  await expect(notices.getByRole("listitem")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Workflows", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("workflow-notices")).toHaveCount(0);
+});
+
+test("Governance 11: a non-onboarding workflow is deactivated and reactivated through approvals", async ({ page }) => {
+  test.setTimeout(240_000);
+  await signIn(page, HR);
+  step = "publish";
+  await openWorkflow(page, NEW_WORKFLOW);
+  await proposeChange(page, "E2E synthetic: publish the periodic review");
+  await page.getByRole("button", { name: "Add stage", exact: true }).click();
+  await settings(page).getByLabel("Stage name").fill("Synthetic review checklist");
+  await settings(page).getByRole("button", { name: "Add field" }).click();
+  await settings(page).getByLabel("Field name").fill("Synthetic reviewer note");
+  await expect(await saveAndValidate(page)).toContainText("Ready to submit");
+  await submitButton(page).click();
+  await signOut(page);
+  await signIn(page, DIRECTOR);
+  await directorApprove(page, NEW_WORKFLOW, "E2E synthetic first version of the review");
+  await signOut(page);
+  await signIn(page, "maya-lim");
+  await expect(mainNav(page).getByRole("link", { name: NEW_WORKFLOW, exact: true })).toBeVisible();
+  await signOut(page);
+
+  step = "deactivate";
+  await signIn(page, HR);
+  await openWorkflow(page, NEW_WORKFLOW);
+  await expect(page.getByText(/Existing case · Active/)).toBeVisible();
+  await proposeRecovery(page, "Propose deactivate");
+  await signOut(page);
+  await signIn(page, DIRECTOR);
+  await directorApprove(page, NEW_WORKFLOW, "E2E synthetic deactivation of the review");
+  await signOut(page);
+  await signIn(page, HR);
+  await openWorkflow(page, NEW_WORKFLOW);
+  await expect(page.getByTestId("workflow-deactivated")).toContainText("This workflow is deactivated: new runs are blocked.");
+  await expect(page.getByText(/Existing case · Active/)).toHaveCount(0);
+  await signOut(page);
+  await signIn(page, "maya-lim");
+  await expect(mainNav(page).getByRole("link", { name: "Cases", exact: true })).toBeVisible();
+  await expect(mainNav(page).getByRole("link", { name: NEW_WORKFLOW, exact: true })).toHaveCount(0);
+  await signOut(page);
+
+  step = "reactivate";
+  await signIn(page, HR);
+  await openWorkflow(page, NEW_WORKFLOW);
+  await page.getByTestId("recovery-actions").getByRole("button", { name: "Propose reactivate" }).click();
+  await page.getByTestId("recovery-confirm").getByRole("button", { name: "Create proposal" }).click();
+  await expect(page.getByTestId("proposal-status")).toContainText("Open proposal · Draft");
+  await page.getByRole("button", { name: "Validate", exact: true }).click();
+  await expect(page.getByTestId("validation-report")).toContainText("Ready to submit");
+  await submitButton(page).click();
+  await expect(page.getByTestId("proposal-status")).toContainText("Awaiting Director decision");
+  await signOut(page);
+  await signIn(page, DIRECTOR);
+  await directorApprove(page, NEW_WORKFLOW, "E2E synthetic reactivation of the review");
+  await signOut(page);
+  await signIn(page, HR);
+  await openWorkflow(page, NEW_WORKFLOW);
+  await expect(page.getByText(/Existing case · Active/)).toBeVisible();
+  await expect(page.getByTestId("workflow-deactivated")).toHaveCount(0);
+  await signOut(page);
+  await signIn(page, "maya-lim");
+  await expect(mainNav(page).getByRole("link", { name: NEW_WORKFLOW, exact: true })).toBeVisible();
+});
+
+test("Governance 12: a withdrawn proposal is copied into a new draft authored by the copier", async ({ page }) => {
+  test.setTimeout(120_000);
+  await signIn(page, HR);
+  step = "copy";
+  await openWorkflow(page, "Corporate onboarding");
+  const earlier = page.getByTestId("earlier-proposals");
+  const withdrawn = earlier.locator('li[data-state="WITHDRAWN"]');
+  await expect(withdrawn).toHaveCount(1);
+  await expect(withdrawn).toContainText(`by ${HR}`);
+  await withdrawn.getByRole("button", { name: "Copy into new draft" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Copied into a new draft authored by you." })).toBeVisible();
+  await expect(page.getByTestId("proposal-status")).toContainText(`Open proposal · Draft · by ${HR}`);
+  // The original keeps its record; the copy names it.
+  await expect(withdrawn).toHaveCount(1);
+  const id = await workflowIdByName(page, "Corporate onboarding");
+  const detail = await page.evaluate(async wid => (await fetch(`/api/workflows/${encodeURIComponent(wid)}`, { credentials: "same-origin" })).json(), id);
+  const original = detail.governance.decided_proposals.find((item: { state: string }) => item.state === "WITHDRAWN");
+  expect(detail.governance.open_proposal.author_id).toBe(HR);
+  expect(detail.governance.open_proposal.copied_from).toBe(original.proposal_id);
+  expect(detail.governance.open_proposal.proposal_id).not.toBe(original.proposal_id);
+});
