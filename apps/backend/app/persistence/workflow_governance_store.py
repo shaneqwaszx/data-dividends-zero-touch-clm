@@ -59,6 +59,7 @@ from app.domain.workflow_governance import (
     GovernanceEvent,
     OutboxCollection,
     OutboxEntry,
+    ProposalOrigin,
     ProposalState,
     RequiredBaseline,
     WorkflowGovernanceState,
@@ -890,6 +891,17 @@ def check_history_preserved(
             refuse("NEW_DECIDED_ENTRY_NOT_IN_OUTBOX")
         if item.proposal_id not in old_decided and not _summary_matches_record(item):
             refuse("DECIDED_SUMMARY_MISMATCH")
+        if item.proposal_id in old_decided:
+            continue
+        still_open = governance.open_proposal
+        if still_open is not None and still_open.proposal_id == item.proposal_id:
+            refuse("DECIDED_ENTRY_STILL_OPEN")
+        # A governed decided entry is only ever the end of the stored open proposal; only
+        # the migration's legacy PRE_GOVERNANCE_DRAFT entries are created otherwise.
+        if item.origin != ProposalOrigin.PRE_GOVERNANCE_DRAFT and (
+            before.open_proposal is None or before.open_proposal.proposal_id != item.proposal_id
+        ):
+            refuse("DECIDED_ENTRY_WITHOUT_OPEN_PROPOSAL")
     events = {item.sequence: item for item in governance.governance_events}
     old_events = {item.sequence for item in before.governance_events}
     if any(events.get(item.sequence) != item for item in before.governance_events):

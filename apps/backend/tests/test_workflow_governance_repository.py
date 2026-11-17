@@ -128,15 +128,13 @@ def stages(label: str) -> tuple[WorkflowStage, ...]:
     return (WorkflowStage(stage_id="review", name="Review", fields=(field,)),)
 
 
-def approve(current: GovernedDefinition, number: int) -> tuple[WorkflowDefinition, Any]:
-    """What WS-B's decision writes: one CAS with version, provenance, record, events, outbox."""
-
+def pending_proposal(current: GovernedDefinition, number: int) -> WorkflowProposal:
     at = NOW + timedelta(hours=number)
     content = stages(f"Reason {number}")
-    proposal = WorkflowProposal(
+    return WorkflowProposal(
         proposal_id=str(uuid4()),
         workflow_id=WID,
-        state=ProposalState.APPROVED,
+        state=ProposalState.PENDING_APPROVAL,
         base_version=current.definition.stored_active_version or 0,
         stages=content,
         author_id="hr-author",
@@ -145,11 +143,37 @@ def approve(current: GovernedDefinition, number: int) -> tuple[WorkflowDefinitio
         last_activity_at=at,
         submitted_at=at,
         content_hash=proposal_content_hash(ProposalKind.CHANGE, content),
-        decided_at=at,
-        decided_by="director-one",
-        decision_reason="Approved for the test.",
-        published_version=number,
     )
+
+
+def submit(harness: Harness, current: GovernedDefinition, number: int) -> GovernedDefinition:
+    """Put a PENDING_APPROVAL proposal in the open slot (what WS-B's submit stores)."""
+
+    return harness.repository.write_governance(
+        current.definition.model_copy(update={"revision": current.definition.revision + 1}),
+        current.governance.model_copy(update={"open_proposal": pending_proposal(current, number)}),
+        expected_revision=current.definition.revision,
+    )
+
+
+def approve(current: GovernedDefinition, number: int) -> tuple[WorkflowDefinition, Any]:
+    """What WS-B's decision writes: one CAS that ends the stored open proposal with the
+    version, provenance, record, events and outbox. Without a stored open proposal the
+    result is only useful for tests that expect a refusal."""
+
+    at = NOW + timedelta(hours=number)
+    opened = current.governance.open_proposal or pending_proposal(current, number)
+    proposal = opened.model_copy(
+        update={
+            "state": ProposalState.APPROVED,
+            "revision": opened.revision + 1,
+            "decided_at": at,
+            "decided_by": "director-one",
+            "decision_reason": "Approved for the test.",
+            "published_version": number,
+        }
+    )
+    content = proposal.stages
     published = WorkflowVersion(
         version=number, stages=content, activated_at=at, activated_by="director-one"
     )
@@ -173,6 +197,7 @@ def approve(current: GovernedDefinition, number: int) -> tuple[WorkflowDefinitio
     )
     governance = state.model_copy(
         update={
+            "open_proposal": None,
             "decided_proposals": (*state.decided_proposals, decided_entry(proposal, ended_at=at)),
             "governance_events": (*state.governance_events, approved, publication),
             "outbox": (
@@ -206,6 +231,8 @@ def approve(current: GovernedDefinition, number: int) -> tuple[WorkflowDefinitio
 
 
 def publish(harness: Harness, current: GovernedDefinition, number: int) -> GovernedDefinition:
+    if current.governance.open_proposal is None:
+        current = submit(harness, current, number)
     definition, governance = approve(current, number)
     return harness.repository.write_governance(
         definition,
@@ -253,7 +280,7 @@ def test_governance_write_is_a_cas_on_revision_and_nonce(harness: Harness) -> No
     first = publish(harness, created, 1)
     assert first.definition.write_nonce not in {None, created.definition.write_nonce}
     assert first.definition.stored_active_version == 1 == first.definition.latest_version
-    assert first.definition.revision == 2
+    assert first.definition.revision == 3  # submit, then decide
     # A writer holding the old snapshot never overwrites the publication.
     stale, governance = approve(created, 1)
     with pytest.raises(PersistenceConflictError):
@@ -263,7 +290,9 @@ def test_governance_write_is_a_cas_on_revision_and_nonce(harness: Harness) -> No
     # Same revision, different nonce (another history): refused.
     other = first.definition.model_copy(update={"write_nonce": "0" * 32})
     with pytest.raises(PersistenceConflictError):
-        harness.repository.write_governance(other, first.governance, expected_revision=2)
+        harness.repository.write_governance(
+            other, first.governance, expected_revision=first.definition.revision
+        )
     assert harness.repository.get_governed(WID) == first
 
 
@@ -272,10 +301,11 @@ def test_mongo_governance_write_is_durable_and_filters_the_marker() -> None:
     created = harness.repository.create_governed(payload(), born())
     insert = harness.definitions.log[-1]
     assert insert[:2] == ("insert_one", True)
-    publish(harness, created, 1)
+    submitted = submit(harness, created, 1)
+    publish(harness, submitted, 1)
     operation, durable, (query, update) = harness.definitions.log[-1]
     assert (operation, durable) == ("update_one", True)
-    assert query["revision"] == 1 and query["write_nonce"] == created.definition.write_nonce
+    assert query["revision"] == 2 and query["write_nonce"] == submitted.definition.write_nonce
     assert query["p2_1_migration_marker"] == {"$exists": True}
     written = update["$set"]
     assert list(written)[-1] == "p2_1_migration_marker"
@@ -289,14 +319,24 @@ def test_publication_fields_are_validated(harness: Harness) -> None:
     first = publish(harness, created, 1)
     definition, governance = approve(first, 2)
     with pytest.raises(PersistenceConflictError):  # no publication: cannot pass latest
-        harness.repository.write_governance(definition, governance, expected_revision=2)
-    with pytest.raises(ValueError):
         harness.repository.write_governance(
-            definition, governance, expected_revision=2, active_version=2, latest_version=0
+            definition, governance, expected_revision=first.definition.revision
         )
     with pytest.raises(ValueError):
         harness.repository.write_governance(
-            definition, governance, expected_revision=2, active_version=1, latest_version=2
+            definition,
+            governance,
+            expected_revision=first.definition.revision,
+            active_version=2,
+            latest_version=0,
+        )
+    with pytest.raises(ValueError):
+        harness.repository.write_governance(
+            definition,
+            governance,
+            expected_revision=first.definition.revision,
+            active_version=1,
+            latest_version=2,
         )
     assert harness.repository.get_governed(WID) == first
 
@@ -435,13 +475,17 @@ def test_housekeeping_keeps_the_client_revision_but_refuses_the_old_nonce(
 ) -> None:
     created = harness.repository.create_governed(payload(), born())
     first = publish(harness, created, 1)
-    held = first  # a writer's snapshot taken before the drain
+    held = submit(harness, first, 2)  # a writer's snapshot taken before the drain
     assert harness.repository.drain_outbox(WID, now=NOW) == 5
     # A writer still holding the pre-housekeeping nonce is refused...
     stale, governance = approve(held, 2)
     with pytest.raises(PersistenceConflictError):
         harness.repository.write_governance(
-            stale, governance, expected_revision=2, active_version=2, latest_version=2
+            stale,
+            governance,
+            expected_revision=held.definition.revision,
+            active_version=2,
+            latest_version=2,
         )
     # ...while a client request carrying the pre-housekeeping revision still succeeds,
     # because the service re-reads (fresh nonce) and the revision did not move.
@@ -602,7 +646,7 @@ def test_new_history_must_be_referenced_by_the_outbox(harness: Harness) -> None:
 
 def test_integrity_conflict_refuses_writes_even_without_a_drain(harness: Harness) -> None:
     current = harness.repository.create_governed(payload(), born())
-    current = publish(harness, current, 1)
+    current = submit(harness, publish(harness, current, 1), 2)
     entry = current.governance.outbox[0]
     harness.repository._cold.insert(  # noqa: SLF001 - plant a conflicting cold copy
         entry.collection,
@@ -804,6 +848,8 @@ def _baseline(options: tuple[str, ...], *, case_key: bool = False) -> RequiredBa
 def _publish_with_baseline(
     harness: Harness, current: GovernedDefinition, number: int, baseline: RequiredBaseline
 ) -> GovernedDefinition:
+    if current.governance.open_proposal is None:
+        current = submit(harness, current, number)
     definition, governance = approve(current, number)
     return harness.repository.write_governance(
         definition,
@@ -821,6 +867,7 @@ def test_baseline_only_tightens_and_only_on_a_publication(harness: Harness) -> N
     _refused(
         harness, current, current.governance.model_copy(update={"required_baseline": stricter})
     )
+    current = submit(harness, current, 2)
     for weaker in (
         _baseline(("a", "b", "c", "d")),
         _baseline(("a",), case_key=True),
@@ -919,3 +966,37 @@ def test_a_new_decided_summary_must_match_its_record(harness: Harness) -> None:
         }
     )
     _refused(harness, current, governance)
+
+
+# --- QG R4: a governed decided entry only ever ends the stored open proposal ----------
+
+
+def test_a_decided_entry_without_the_stored_open_proposal_is_refused(harness: Harness) -> None:
+    current = publish(harness, harness.repository.create_governed(payload(), born()), 1)
+    definition, governance = approve(current, 2)  # invents a proposal never stored
+    with pytest.raises(GovernanceHistoryRewriteError):
+        harness.repository.write_governance(
+            definition,
+            governance,
+            expected_revision=current.definition.revision,
+            active_version=2,
+            latest_version=2,
+        )
+    assert harness.repository.get_governed(WID) == current
+
+
+def test_a_decided_entry_for_a_proposal_that_stays_open_is_refused(harness: Harness) -> None:
+    current = submit(
+        harness, publish(harness, harness.repository.create_governed(payload(), born()), 1), 2
+    )
+    definition, governance = approve(current, 2)
+    still_open = governance.model_copy(update={"open_proposal": current.governance.open_proposal})
+    with pytest.raises(GovernanceHistoryRewriteError):
+        harness.repository.write_governance(
+            definition,
+            still_open,
+            expected_revision=current.definition.revision,
+            active_version=2,
+            latest_version=2,
+        )
+    assert harness.repository.get_governed(WID) == current
