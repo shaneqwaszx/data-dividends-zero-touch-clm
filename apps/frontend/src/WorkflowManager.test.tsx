@@ -303,9 +303,11 @@ describe("case workflow sections", () => {
 // P2-2 (ADR-017): "Save draft" (PUT …/draft) and its frozen-publication notice are retired; the editor
 // now authors governed proposals. Those flows are covered in WorkflowGovernanceEditor.test.tsx.
 describe("workflow error messages", () => {
-  it("explains a frozen-publication refusal in plain words and passes other messages through", () => {
-    expect(workflowErrorMessage(new ApiError("raw", 409, "WORKFLOW_PUBLICATION_FROZEN")))
-      .toBe("Publishing is paused while approval governance is introduced. Your draft is kept.");
+  it("explains a retired-route refusal in plain words and passes other messages through", () => {
+    expect(workflowErrorMessage(new ApiError("raw", 410, "WORKFLOW_ROUTE_RETIRED")))
+      .toBe("This action has been replaced by governed proposals.");
+    expect(workflowErrorMessage(new ApiError("Raw frozen text.", 409, "WORKFLOW_PUBLICATION_FROZEN")))
+      .toBe("Raw frozen text.");
     expect(workflowErrorMessage(new ApiError("This action is not permitted.", 403, "WORKFLOW_FORBIDDEN")))
       .toBe("This action is not permitted.");
     expect(workflowErrorMessage(new Error("x"))).toBe("That did not work. Please try again.");

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import registryLegalFormSource from "../../backend/app/domain/registry_legal_form.py?raw";
-import { ApiError } from "./api";
+import { ApiError, configureAuthenticatedTransport } from "./api";
 import { ENTITY_APPLICABILITY_OPTIONS } from "./components/workflow-governance/EntityApplicability";
 import { approvedVersionCount, LEGACY_PROVENANCE_NOTE } from "./components/workflow-governance/GovernancePanels";
 import WorkflowManager from "./pages/WorkflowManager";
@@ -79,6 +79,8 @@ function fakeServer(options: ServerOptions = {}) {
   const control = {
     /** HTTP status for the next detail reads (0 = succeed). */
     failDetail: 0, failList: 0, putConflict: options.putConflictOnce ?? false,
+    /** While set, proposal updates wait for it (a save in flight). */
+    holdPut: null as Promise<void> | null,
   };
   const failure = (status: number) => status >= 500
     ? json({ detail: fixture("error_history_unavailable.json") }, status)
@@ -115,6 +117,7 @@ function fakeServer(options: ServerOptions = {}) {
       return json(proposal, 201);
     }
     if (method === "PUT" && url === `${base}/proposals/${PID}`) {
+      if (control.holdPut) await control.holdPut;
       if (control.putConflict) {
         control.putConflict = false;
         // Someone else saved the same proposal (for example the author in another tab).
@@ -472,6 +475,8 @@ describe("editor resilience and role shaping (QG P3)", () => {
   });
 
   it.each([401, 403, 404])("drops the cached editor when a refetch returns %i", async status => {
+    const onUnauthorized = vi.fn();
+    configureAuthenticatedTransport({ csrfToken: null, onUnauthorized });
     const server = fakeServer({ proposal: DRAFT, putConflictOnce: true });
     const host = await openEditor();
     type(stageNameInput(host), "Unsaved edit");
@@ -482,6 +487,53 @@ describe("editor resilience and role shaping (QG P3)", () => {
     expect(host.textContent).not.toContain("Unsaved edit");
     const unavailable = host.querySelector('[data-testid="workflow-unavailable"]')!.textContent;
     if (status !== 401) expect(unavailable).toBe("This workflow is not available.");
+    // A 401 also goes through the existing session handling, which clears all user state.
+    expect(onUnauthorized).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+    configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
+  });
+
+  it("keeps the cache when access recovers before leaving", async () => {
+    const server = fakeServer({ proposal: DRAFT, putConflictOnce: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => root!.render(<QueryClientProvider client={client}><WorkflowManager actor={hr} /></QueryClientProvider>));
+    await settle();
+    await click(host, "Edit");
+    type(stageNameInput(host), "x");
+    await click(host, "Save changes");
+    server.control.failDetail = 404;
+    await click(host, "Reload");
+    expect(host.querySelector('[data-testid="workflow-unavailable"]')).not.toBeNull();
+    server.control.failDetail = 0;
+    const detailKey = ["auth", hr.user_id, "workflows", "detail", WID];
+    await act(async () => { await client.refetchQueries({ queryKey: detailKey, exact: true }); });
+    await settle();
+    expect(host.querySelector('[aria-label="Stage settings"]')).not.toBeNull();
+    expect(client.getQueryData(detailKey)).toBeDefined();
+    await click(host, "← Back to Workflows");
+    expect(client.getQueryData(detailKey)).toBeDefined();
+  });
+
+  it("keeps an edit made while a save is in flight marked unsaved", async () => {
+    const server = fakeServer({ proposal: DRAFT });
+    const host = await openEditor();
+    let release: () => void = () => undefined;
+    server.control.holdPut = new Promise<void>(resolveHold => { release = resolveHold; });
+    type(stageNameInput(host), "First");
+    await click(host, "Save changes");
+    type(stageNameInput(host), "Second");
+    server.control.holdPut = null;
+    await act(async () => { release(); });
+    await settle();
+    expect(server.mutations().filter(call => call.method === "PUT").map(call => (call.body as { stages: WorkflowStage[] }).stages[0].name)).toEqual(["First"]);
+    expect(stageNameInput(host).value).toBe("Second");
+    expect(host.textContent).toContain("Unsaved changes");
+    expect(button(host, "Save changes").disabled).toBe(false);
+    expect(host.querySelector('[data-testid="proposal-changed-elsewhere"]')).toBeNull();
+    await click(host, "Save changes");
+    expect(host.textContent).not.toContain("Unsaved changes");
   });
 
   it("removes the dropped workflow from the cache when leaving", async () => {

@@ -181,8 +181,8 @@ export async function confirmStage(caseId: string | null, run: WorkflowRun, stag
 }
 
 const WORKFLOW_ERROR_MESSAGES: Record<string, string> = {
-  WORKFLOW_PUBLICATION_FROZEN:
-    "Publishing is paused while approval governance is introduced. Your draft is kept.",
+  // PUT …/draft and POST …/activate now return 410 (ADR-017, retired with their UI).
+  WORKFLOW_ROUTE_RETIRED: "This action has been replaced by governed proposals.",
 };
 
 export function workflowErrorMessage(error: unknown): string {
