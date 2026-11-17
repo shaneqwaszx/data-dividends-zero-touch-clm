@@ -2979,3 +2979,17 @@ The OpenRouter mode still starts only with all of these in place:
 ## SF-002 amendment - Worker memory cap platforms (security patch #188; needs owner acceptance)
 
 The worker memory cap applies on Linux, where the worker is deployed; it is skipped on Windows and macOS development machines.
+
+## D-141 - An advisory ownership review is shown as "Review advised", not green "Complete" (PROPOSED 2026-11-15; amends D-121 display only)
+
+Status: proposed by Tasha on 2026-11-15; needs Shane's acceptance. Authority: `USER_AUTHORIZED_POC`.
+Evidence class: Mock. It amends the D-121 presentation only. No status, readiness rule, audit
+code or switch changes.
+
+| # | Decision |
+| --- | --- |
+| A1 | **Problem.** Under D-121 a current `REVIEW_REQUIRED` analysis that `review_is_advisory` clears makes ownership readiness `READY`, so the `OWNERSHIP_UBO` node is `COMPLETE` and showed a green "Complete" chip beside "Ownership: REVIEW REQUIRED". |
+| A2 | **Signal.** `BrowserProcessingNode.advisory_review` (optional, default `None`) is `true` only on `OWNERSHIP_UBO`, only when the case-detail endpoint finds the current record advisory (`review_is_advisory`) and not POC-accepted (`poc_basis_accepted`), and only when the node is `COMPLETE` with readiness referencing that same `analysis_id`. Blocking mode, an accepted basis, a failed, stale or superseded analysis and a lane that does not qualify all give `None`. |
+| A3 | **Display.** The frontend shows that node as amber "Review advised" (stage header chip, sidebar marker and progress tile, each with the words, not colour alone), with the subtitle "Not blocking. Review ownership before Review & Send." Green "Complete" appears only when there is no open review. Blocking mode keeps the red "Review required". The partnership "awaiting RM confirmation" banner and the Review & Send ownership warning are unchanged. |
+| A4 | **AI Assistant.** It reads the same pipeline, so it follows the same flag: the step is "review advised" (not "done", and not counted as done), readiness reports ownership as `REVIEW_ADVISED` (counted as incomplete in `_OWNERSHIP_INCOMPLETE`), and the briefing adds one catalog line, offered only in that state: "The ownership review is advised but not blocking: the case can continue, but ownership is not verified. Check it before Review & Send." A model sentence saying ownership or the UBO check is complete is dropped unless ownership readiness is `READY` (exact-line mode already drops it as off-catalog; copilot mode now leaves it out as `unsupported_status`). A confirmed case is unchanged. |
+| A5 | **Unchanged.** D-121 U1 to U5 and D-124 stand: node status, readiness, `poc_basis_accepted`, the `OWNERSHIP_REVIEW_ADVISORY` audit code and the `blocking` rollback. |
