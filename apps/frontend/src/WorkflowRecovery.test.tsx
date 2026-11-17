@@ -494,6 +494,14 @@ describe("Release draft (ADR-017 §1.2)", () => {
   });
 });
 
+async function chooseVersion(panel: HTMLElement, value: string) {
+  await act(async () => {
+    const select = panel.querySelector("select")!;
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 describe("Emergency fallback (Director)", () => {
   async function startFallback() {
     await openEditor(director);
@@ -522,12 +530,14 @@ describe("Emergency fallback (Director)", () => {
     setValue(panel.querySelector("textarea")!, "x".repeat(241));
     expect(publish().disabled).toBe(true);
     setValue(panel.querySelector("textarea")!, "Sanctions step blocked every case overnight");
+    // No target is preselected: the Director must choose one, and a version, explicitly.
+    expect([...panel.querySelectorAll<HTMLInputElement>('input[type="radio"]')].some(radio => radio.checked)).toBe(false);
+    expect(publish().disabled).toBe(true);
+    await act(async () => { panel.querySelectorAll<HTMLInputElement>('input[type="radio"]')[0].click(); });
+    expect(panel.querySelector("select")!.value).toBe("");
+    expect(publish().disabled).toBe(true);
+    await chooseVersion(panel, "1");
     expect(publish().disabled).toBe(false);
-    await act(async () => {
-      const select = panel.querySelector("select")!;
-      select.value = "1";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
     await click("Publish emergency fallback");
     expect(api.mutations()).toEqual([{
       method: "POST", url: `/api/workflows/${WID}/emergency-fallback`,
@@ -536,6 +546,34 @@ describe("Emergency fallback (Director)", () => {
     expect(host.textContent).toContain("Emergency fallback published: version 3 is now active (Emergency fallback by director-synthetic-1 — not approved)");
     expect(host.textContent).toContain("HR has been notified");
     expect(host.textContent).toContain("1 open proposal is now out of date");
+  });
+
+  it("clears the reason, target and confirmation on Cancel and on reopening", async () => {
+    server({ canCreate: false });
+    let panel = await startFallback();
+    await act(async () => { panel.querySelectorAll<HTMLInputElement>('input[type="radio"]')[0].click(); });
+    await chooseVersion(panel, "2");
+    setValue(panel.querySelector("textarea")!, "Sanctions step blocked every case overnight");
+    await act(async () => { (panel.querySelector('input[type="checkbox"]') as HTMLInputElement).click(); });
+    expect(button("Publish emergency fallback").disabled).toBe(false);
+    await click("Cancel", panel);
+    await click("Start emergency fallback");
+    panel = section("emergency-fallback")!;
+    expect(panel.querySelector("textarea")!.value).toBe("");
+    expect((panel.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
+    expect([...panel.querySelectorAll<HTMLInputElement>('input[type="radio"]')].some(radio => radio.checked)).toBe(false);
+    expect(panel.querySelector("select")).toBeNull();
+    expect(button("Publish emergency fallback").disabled).toBe(true);
+  });
+
+  it("names the form it opens with aria-controls", async () => {
+    server({ canCreate: false });
+    await openEditor(director);
+    const start = button("Start emergency fallback");
+    const controlled = document.getElementById(start.getAttribute("aria-controls")!);
+    expect(controlled).not.toBeNull();
+    await click("Start emergency fallback");
+    expect(controlled!.querySelector("textarea")).not.toBeNull();
   });
 
   it("publishes the default with target DEFAULT and no target_version", async () => {
@@ -555,6 +593,7 @@ describe("Emergency fallback (Director)", () => {
   it("shows 409 NOTICES_UNACKNOWLEDGED as a refusal", async () => {
     server({ canCreate: false, refuse: { "/emergency-fallback": { status: 409, code: "WORKFLOW_NOTICES_UNACKNOWLEDGED" } } });
     const panel = await startFallback();
+    await act(async () => { panel.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1].click(); });
     setValue(panel.querySelector("textarea")!, "Sanctions step blocked every case overnight");
     await act(async () => { (panel.querySelector('input[type="checkbox"]') as HTMLInputElement).click(); });
     await click("Publish emergency fallback");
@@ -591,6 +630,32 @@ describe("Notices (RD-6)", () => {
     expect(reads()).toBeGreaterThan(before);
     await click("Acknowledge");
     expect(api.mutations()[1]).toEqual({ method: "POST", url: "/api/workflows/notices/n-1/acknowledge", body: { workflow_id: WID, expected_workflow_revision: 8 } });
+  });
+
+  it("uses generic wording for notices that are not emergency fallbacks", async () => {
+    server({ notices: [item({ notice: notice({ kind: "DEACTIVATED" }) })] });
+    await render(<WorkflowManager actor={hr} />);
+    const panel = section("workflow-notices")!;
+    expect(panel.textContent).toContain("These workflow events need HR attention.");
+    expect(panel.textContent).not.toMatch(/emergency fallback|not approved/i);
+  });
+
+  it("tells HR when notices could not be loaded, without blocking the page, and retries", async () => {
+    let fail = true;
+    const api = server({ notices: [item()] });
+    const inner = (globalThis.fetch as ReturnType<typeof vi.fn>).getMockImplementation()!;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/workflows/notices" && fail) return json({ detail: { code: "WORKFLOW_UNAVAILABLE", message: "x" } }, 503);
+      return inner(input, init);
+    }));
+    await render(<WorkflowManager actor={hr} />);
+    expect(section("workflow-notices-error")!.textContent).toContain("Notices could not be loaded.");
+    expect(host.textContent).toContain("Corporate onboarding");
+    fail = false;
+    await click("Retry");
+    expect(section("workflow-notices-error")).toBeNull();
+    expect(section("workflow-notices")!.textContent).toContain("Workflow notices (1)");
+    expect(api.mutations()).toEqual([]);
   });
 
   it("shows Directors notices read-only", async () => {

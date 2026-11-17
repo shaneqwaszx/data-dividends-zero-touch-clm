@@ -58,6 +58,16 @@ export function WorkflowNoticesPanel({ actor, workflowId }: {
     },
   });
 
+  // A failed read (other than 404, which means notices are unavailable) never blocks the page.
+  if (query.isError && !query.data) {
+    if (!canAcknowledge) return null;
+    return (
+      <div className="ds-banner ds-banner-warn" role="status" data-testid="workflow-notices-error" style={{ marginBottom: 16 }}>
+        Notices could not be loaded.{" "}
+        <button type="button" className="btn btn-secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry</button>
+      </div>
+    );
+  }
   if (!query.data) return null;
   const items = query.data.items.filter(item => !workflowId || item.workflow_id === workflowId);
   if (items.length === 0 && !message) return null;
@@ -66,7 +76,9 @@ export function WorkflowNoticesPanel({ actor, workflowId }: {
       <h2 id="workflow-notices" style={{ marginTop: 0 }}>Workflow notices ({items.length})</h2>
       <p style={{ margin: 0 }}>
         {canAcknowledge
-          ? "A Director published an emergency fallback without approval. Review it and acknowledge each notice."
+          ? (items.every(item => item.notice.kind === "EMERGENCY_FALLBACK")
+            ? "A Director published an emergency fallback without approval. Review it and acknowledge each notice."
+            : "These workflow events need HR attention. Review each one and acknowledge it.")
           : "Read-only: an HR user must acknowledge these notices."}
       </p>
       {message && <p role="status" style={{ margin: "6px 0 0" }}>{message}</p>}

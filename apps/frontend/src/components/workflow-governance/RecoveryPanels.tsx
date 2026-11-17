@@ -313,10 +313,19 @@ export function EmergencyFallbackPanel({ workflow, actor, onChanged, onNotice }:
   const governance = workflow.governance!;
   const versions = [...governance.version_provenance].sort((a, b) => b.version - a.version);
   const [expanded, setExpanded] = useState(false);
-  const [target, setTarget] = useState<"VERSION" | "DEFAULT">(versions.length ? "VERSION" : "DEFAULT");
-  const [version, setVersion] = useState<number | null>(versions[0]?.version ?? null);
+  // No preselected target or version: the Director chooses explicitly (QG P3-4).
+  const [target, setTarget] = useState<"VERSION" | "DEFAULT" | null>(null);
+  const [version, setVersion] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  /** Opening and cancelling always start from a blank form, so Publish is never one click away (QG P3-1). */
+  function resetForm(open: boolean) {
+    setTarget(null);
+    setVersion(null);
+    setReason("");
+    setConfirmed(false);
+    setExpanded(open);
+  }
   const [refusal, setRefusal] = useState<GovernanceRefusal | null>(null);
   const publish = useMutation({
     mutationFn: () => emergencyFallback(workflow.workflow_id, emergencyFallbackRequest(
@@ -325,9 +334,7 @@ export function EmergencyFallbackPanel({ workflow, actor, onChanged, onNotice }:
     retry: false,
     onMutate: () => setRefusal(null),
     onSuccess: async result => {
-      setExpanded(false);
-      setReason("");
-      setConfirmed(false);
+      resetForm(false);
       onNotice(
         `Emergency fallback published: version ${result.published_version} is now active (${provenanceText(result.provenance)}). `
         + `HR has been notified and the notice stays until an HR user acknowledges it.`
@@ -339,14 +346,18 @@ export function EmergencyFallbackPanel({ workflow, actor, onChanged, onNotice }:
   });
   if (!isDirector(actor)) return null;
   const length = reason.trim().length;
-  const ready = fallbackReasonValid(reason) && confirmed && (target === "DEFAULT" || version !== null) && !publish.isPending;
+  const ready = fallbackReasonValid(reason) && confirmed
+    && (target === "DEFAULT" || (target === "VERSION" && version !== null)) && !publish.isPending;
+  const formId = `${id}-form`;
   return (
     <section className="card" aria-labelledby={`${id}-fallback`} data-testid="emergency-fallback" style={{ marginTop: 16 }}>
       <h2 id={`${id}-fallback`}>Emergency fallback</h2>
       <p className="text-muted">
         For emergencies only. A Director can publish a safe earlier version or the default alone, without a proposal or approval.
       </p>
-      {!expanded && <button type="button" className="btn btn-secondary" aria-expanded={false} onClick={() => setExpanded(true)}>Start emergency fallback</button>}
+      {!expanded && <button type="button" className="btn btn-secondary" aria-expanded={false} aria-controls={formId}
+        onClick={() => { setRefusal(null); resetForm(true); }}>Start emergency fallback</button>}
+      <div id={formId}>
       {expanded && <>
         <fieldset style={{ border: 0, margin: "8px 0", padding: 0 }}>
           <legend>Fall back to</legend>
@@ -355,7 +366,8 @@ export function EmergencyFallbackPanel({ workflow, actor, onChanged, onNotice }:
           <label><input type="radio" name={`${id}-target`} checked={target === "DEFAULT"} onChange={() => setTarget("DEFAULT")} /> The default</label>
           {target === "VERSION" && versions.length > 0 && (
             <label>Version
-              <select className="input" value={version ?? ""} onChange={event => setVersion(Number(event.target.value))}>
+              <select className="input" value={version ?? ""} onChange={event => setVersion(event.target.value ? Number(event.target.value) : null)}>
+                <option value="">Choose a version</option>
                 {versions.map(item => <option key={item.version} value={item.version}>v{item.version} · {provenanceText(item)}</option>)}
               </select>
             </label>
@@ -382,9 +394,10 @@ export function EmergencyFallbackPanel({ workflow, actor, onChanged, onNotice }:
         </div>
         <div className="case-header-actions" style={{ justifyContent: "flex-start", marginTop: 8 }}>
           <button type="button" className="btn btn-danger" disabled={!ready} onClick={() => publish.mutate()}>Publish emergency fallback</button>
-          <button type="button" className="btn btn-ghost" disabled={publish.isPending} onClick={() => setExpanded(false)}>Cancel</button>
+          <button type="button" className="btn btn-ghost" disabled={publish.isPending} onClick={() => resetForm(false)}>Cancel</button>
         </div>
       </>}
+      </div>
       {refusal && <GovernanceRefusalPanel refusal={refusal} onReload={() => { setRefusal(null); void onChanged(); }} />}
     </section>
   );
