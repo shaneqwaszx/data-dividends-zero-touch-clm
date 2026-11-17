@@ -28,11 +28,58 @@ def _git(gate: Gate, root: Path, *args: str, purpose: str) -> str:
     return result.stdout.strip()
 
 
+INTEGRATION_BASE = "origin/main"
+# T-1 (owner-approved 2026-11-17, N7-A finding P2 N-1): the only bases other than the
+# integration baseline, each an exact remote-tracking release branch with a stated reason. A
+# release from one of them is the branch tip exactly, with a mandatory approved tree, and its
+# parent must already be on the integration baseline, so only the reviewed delta is outside it.
+RELEASE_BASES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^origin/release/n7a-reader-[0-9]{8}$"), "N7A_READER_LINEAGE"),
+)
+INTEGRATION_REASON = "INTEGRATION_BASELINE"
+
+
 @dataclass(frozen=True)
 class SourceState:
     commit: str
     tree: str
     base_ref: str
+    base_reason: str = INTEGRATION_REASON
+
+
+def release_base_reason(base_ref: str) -> str:
+    """The recorded reason for an allowed base, or refuse any other base."""
+
+    if base_ref == INTEGRATION_BASE:
+        return INTEGRATION_REASON
+    for pattern, reason in RELEASE_BASES:
+        if pattern.fullmatch(base_ref):
+            return reason
+    raise StopCondition("BASE_REF_NOT_ALLOWED", "only origin/main or an allow-listed release branch")
+
+
+def remote_tracking_commit(gate: Gate, root: Path, base_ref: str, *, purpose: str) -> str:
+    """Read a direct commit ref from the exact remote-tracking name."""
+
+    refname = f"refs/remotes/{base_ref}"
+    fields = _git(
+        gate,
+        root,
+        "for-each-ref",
+        "--format=%(refname) %(objectname) %(objecttype) %(symref)",
+        "--",
+        refname,
+        purpose=purpose,
+    ).split(maxsplit=3)
+    # Git's pattern can also match descendants, so check the returned name.
+    if len(fields) < 3 or fields[0] != refname:
+        raise ReleaseError("GIT_FAILED", "the exact remote-tracking ref is missing")
+    if len(fields) == 4:
+        raise ReleaseError("GIT_FAILED", "the remote-tracking ref is symbolic")
+    _, commit, object_type = fields
+    if object_type != "commit":
+        raise ReleaseError("GIT_FAILED", "the remote-tracking ref does not point to a commit")
+    return commit
 
 
 def verify_source(
@@ -41,11 +88,17 @@ def verify_source(
     *,
     commit: str,
     tree: str | None = None,
-    base_ref: str = "origin/main",
+    base_ref: str = INTEGRATION_BASE,
     allow_untracked: tuple[str, ...] = (),
 ) -> SourceState:
-    """Refuse anything but the exact approved commit in a clean checkout."""
+    """Refuse anything but the exact approved commit in a clean checkout, on origin/main or,
+    for an allow-listed release branch, as that branch's exact tip with the approved tree and a
+    parent already on origin/main."""
 
+    reason = release_base_reason(base_ref)
+    release_branch = reason != INTEGRATION_REASON
+    if release_branch and tree is None:
+        raise StopCondition("TREE_REQUIRED", "a release-branch base needs the approved --tree")
     if not FULL_SHA.match(commit):
         raise StopCondition("COMMIT_NOT_EXACT", "give the full 40-character approved commit")
     head = _git(gate, root, "rev-parse", "HEAD", purpose="read HEAD")
@@ -74,7 +127,35 @@ def verify_source(
         raise StopCondition(
             "SOURCE_NOT_CLEAN", f"{len(dirty)} uncommitted or untracked path(s), first: {dirty[0]}"
         )
-    base = _git(gate, root, "rev-parse", "--verify", base_ref, purpose="read base ref")
+    if release_branch:
+        # Only the remote-tracking ref counts (a local branch of the same name is ignored), and
+        # the approved commit must be its tip: the shared, pushed history, nothing later.
+        tip = remote_tracking_commit(gate, root, base_ref, purpose="read the release branch tip")
+        if tip != commit:
+            raise StopCondition(
+                "COMMIT_NOT_BRANCH_TIP", f"the commit is not the tip of {base_ref} as last fetched"
+            )
+        parents = _git(gate, root, "rev-list", "--parents", "-n", "1", commit, purpose="read parents")
+        parent_ids = parents.split()[1:]
+        if len(parent_ids) != 1:
+            raise StopCondition("RELEASE_COMMIT_SHAPE", "a release-branch commit has one parent")
+        integration = remote_tracking_commit(gate, root, INTEGRATION_BASE, purpose="read base ref")
+        on_main = gate.run(
+            Command(
+                ("git", "merge-base", "--is-ancestor", parent_ids[0], integration),
+                Effect.LOCAL_READ,
+                "confirm the release commit's parent is on the integration baseline",
+                cwd=str(root),
+            )
+        )
+        if on_main.returncode != 0:
+            raise StopCondition(
+                "PARENT_NOT_ON_BASE", "the release commit's parent is not in origin/main"
+            )
+        return SourceState(
+            commit=commit, tree=actual_tree, base_ref=base_ref, base_reason=reason
+        )
+    base = remote_tracking_commit(gate, root, base_ref, purpose="read base ref")
     merged = gate.run(
         Command(
             ("git", "merge-base", "--is-ancestor", commit, base),

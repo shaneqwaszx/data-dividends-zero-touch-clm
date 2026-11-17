@@ -21,8 +21,6 @@ from typing import Any
 from . import catalog, images, render, source
 from .core import (
     Clock,
-    Command,
-    Effect,
     Gate,
     ReleaseError,
     StopCondition,
@@ -39,6 +37,7 @@ REQUEST_FIELDS = {
     "request_id",
     "commit",
     "tree",
+    "base_ref",
     "pull_request",
     "change_classes",
     "services_changed",
@@ -78,6 +77,10 @@ def load_request(path: Path) -> dict[str, Any]:
     ):
         if name not in request:
             raise ReleaseError("REQUEST_INVALID", f"missing {name}")
+    base_ref = request.get("base_ref", source.INTEGRATION_BASE)
+    if not isinstance(base_ref, str):
+        raise ReleaseError("REQUEST_INVALID", "base_ref must be a string")
+    source.release_base_reason(base_ref)
     return request
 
 
@@ -98,6 +101,7 @@ def assemble_manifest(
         root,
         commit=commit,
         tree=request.get("tree"),
+        base_ref=request.get("base_ref", source.INTEGRATION_BASE),
         allow_untracked=tuple(request.get("allow_untracked", ())),
     )
     changed: list[str] = request["services_changed"]
@@ -143,6 +147,7 @@ def assemble_manifest(
             "commit": state.commit,
             "tree": state.tree,
             "base_ref": state.base_ref,
+            "base_reason": state.base_reason,
             "clean": True,
             "pull_request": request.get("pull_request"),
         },
@@ -220,17 +225,15 @@ class Controller:
     def detect_new_commit(self) -> dict[str, Any] | None:
         """Record a new head of the integration baseline. A notice: it starts nothing."""
 
-        head = self.gate.run(
-            Command(
-                ("git", "rev-parse", "--verify", "origin/main"),
-                Effect.LOCAL_READ,
-                "read the last fetched integration baseline",
-                cwd=str(self.root),
+        try:
+            commit = source.remote_tracking_commit(
+                self.gate,
+                self.root,
+                source.INTEGRATION_BASE,
+                purpose="read the last fetched integration baseline",
             )
-        )
-        if head.returncode != 0:
+        except ReleaseError:
             return None
-        commit = head.stdout.strip()
         path = self.store.root / "seen-main.json"
         seen = read_json(path) if path.exists() else {"commit": None}
         if seen["commit"] == commit:

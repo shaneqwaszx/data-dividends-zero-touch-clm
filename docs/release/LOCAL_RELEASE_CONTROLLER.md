@@ -13,9 +13,9 @@
 .\tools\release.ps1 controller tick
 ```
 
-1. Reads `origin/main` as last fetched and records a notice when it has moved
-   (`seen-main.json`). The notice starts nothing: a new commit says nothing about which
-   services change or what the rollback is.
+1. Reads the direct remote-tracking `origin/main` commit as last fetched and records a notice
+   when it has moved (`seen-main.json`). The notice starts nothing. A new commit alone does
+   not identify which services change or what the rollback is.
 2. For each new request file in `<state-dir>\inbox\`:
    verify the exact commit and a clean checkout, run the selected checks, accept or build the
    images, prove their content, read the previous known-good release, validate the manifest
@@ -54,6 +54,13 @@ overwritten. `known-good.json` moves only on `ACCEPTED` and keeps its history.
 The checkout the controller works in must already be at the request's commit and clean. The
 controller does not switch branches or create worktrees: Git mutations stay with the
 coordinating session (`AGENTS.md`).
+
+The `manifest` command and the inbox accept the same optional `base_ref` field. It defaults to
+`origin/main`. A request for `origin/release/n7a-reader-YYYYMMDD` must include the approved
+`tree`. The commit must be the exact remote-tracking branch tip and have one parent reachable
+from the remote-tracking `origin/main`. Each remote-tracking ref must point directly to a commit.
+The manifest records the corresponding lineage reason.
+An older manifest for `origin/main` may omit `source.base_reason`.
 
 ## 4. Optional scheduling (not installed)
 

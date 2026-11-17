@@ -104,9 +104,18 @@ def cmd_verify_source(args: argparse.Namespace) -> int:
         Path(args.root),
         commit=args.commit,
         tree=args.tree,
+        base_ref=args.base_ref,
         allow_untracked=tuple(args.allow_untracked),
     )
-    _emit({"status": "PASS", "commit": state.commit, "tree": state.tree, "base": state.base_ref})
+    _emit(
+        {
+            "status": "PASS",
+            "commit": state.commit,
+            "tree": state.tree,
+            "base": state.base_ref,
+            "base_reason": state.base_reason,
+        }
+    )
     return 0
 
 
@@ -458,6 +467,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("verify-source", help="exact approved commit and a clean checkout")
     p.add_argument("--commit", required=True)
     p.add_argument("--tree")
+    p.add_argument(
+        "--base-ref",
+        default=source.INTEGRATION_BASE,
+        help="origin/main (default) or an allow-listed release branch; the latter needs --tree",
+    )
     p.add_argument("--allow-untracked", action="append", default=[])
     p.set_defaults(func=cmd_verify_source)
 
