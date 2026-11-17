@@ -71,7 +71,7 @@
 | A traceback or an unexpected exit code | The run was interrupted. Runbook section 7, "After an interrupted run" |
 | `ROLLBACK_IN_PROGRESS` (no command running) or `ROLLBACK_INTERRUPTED`, or `FAILED_HELD` with `rollback.status: FAILED` | A rollback has no verified outcome; the host state is unknown and the site may be down. **Do not run `accept`** (it is refused). Runbook section 7, "After an interrupted or failed rollback": `release.ps1 recover` first |
 | `FAILED_HELD` with an empty `applied` list and `ingress_stopped: false` after an interrupt | The interrupt may have landed during the service's `up`: the container may already run the release image although nothing is recorded as applied. `rollback` and `recover` both refuse this record. Check the container's image on the host and restore by hand (runbook section 7, "After an interrupted run") |
-| `FAILED_HELD` | **Run nothing else.** Tell the owner the `held_reason`. For an assistant: `dca stop assistant` is the safe action. For a frontend: the previous digest is in `pins_before` |
+| `FAILED_HELD` | **Run nothing else.** Tell the owner the `held_reason`. For an assistant: stopping it is the safe action. On the gated staging host that is only `systemctl stop clm-r22-assistant`, never a bare `dca stop`; it drops the in-memory provider session keys ("Gated staging host" in `deploy/LIGHTSAIL_RUNTIME.md`). For a frontend: the previous digest is in `pins_before` |
 
 ## G. Not for the first use
 
