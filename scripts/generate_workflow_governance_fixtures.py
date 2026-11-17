@@ -77,7 +77,9 @@ SANCTIONS = WorkflowStage(
     name="Sanctions attestation",
     after_node_id="OWNERSHIP_UBO",
     fields=(
-        WorkflowField(field_id="screened-by", label="Screened by", kind=WorkflowFieldKind.TEXT),
+        WorkflowField(
+            field_id="screened-by", label="Screened by", kind=WorkflowFieldKind.TEXT
+        ),
         WorkflowField(
             field_id="outcome",
             label="Screening outcome",
@@ -92,7 +94,9 @@ SANCTIONS = WorkflowStage(
         ),
     ),
 )
-ACTIVE = WorkflowVersion(version=1, stages=(), activated_at=T0, activated_by="director-legacy-1")
+ACTIVE = WorkflowVersion(
+    version=1, stages=(), activated_at=T0, activated_by="director-legacy-1"
+)
 HASH = proposal_content_hash(ProposalKind.CHANGE, (SANCTIONS,))
 
 
@@ -114,7 +118,12 @@ def _proposal(state: ProposalState, **extra: object) -> WorkflowProposal:
 
 
 def _response(item: WorkflowProposal, **flags: bool) -> ProposalResponse:
-    base = {"can_edit": False, "can_submit": False, "can_withdraw": False, "can_decide": False}
+    base = {
+        "can_edit": False,
+        "can_submit": False,
+        "can_withdraw": False,
+        "can_decide": False,
+    }
     return ProposalResponse.from_domain(item, **{**base, **flags})
 
 
@@ -171,7 +180,9 @@ VALID = ValidationReport(
 
 def fixtures() -> dict[str, object]:
     draft = _proposal(ProposalState.DRAFT)
-    pending = _proposal(ProposalState.PENDING_APPROVAL, submitted_at=T1, content_hash=HASH)
+    pending = _proposal(
+        ProposalState.PENDING_APPROVAL, submitted_at=T1, content_hash=HASH
+    )
     approved = _proposal(
         ProposalState.APPROVED,
         revision=4,
@@ -206,7 +217,9 @@ def fixtures() -> dict[str, object]:
         ),
     )
     return {
-        "proposal_draft.json": _response(draft, can_edit=True, can_submit=True, can_withdraw=True),
+        "proposal_draft.json": _response(
+            draft, can_edit=True, can_submit=True, can_withdraw=True
+        ),
         "proposal_pending_director_view.json": _response(pending, can_decide=True),
         "validation_report_valid.json": VALID,
         "validation_report_refused.json": refused,
@@ -219,7 +232,10 @@ def fixtures() -> dict[str, object]:
                     steps=(
                         *(
                             SimulatedStep(
-                                node_id=node_id, name=label, added=False, blocks_send=False
+                                node_id=node_id,
+                                name=label,
+                                added=False,
+                                blocks_send=False,
                             )
                             for node_id, label in ONBOARDING_LOCKED_STAGES[:8]
                         ),
@@ -277,7 +293,9 @@ def fixtures() -> dict[str, object]:
                     blocks_send_before=False,
                     blocks_send_after=True,
                     fields=tuple(
-                        FieldDiff(field_id=f.field_id, change="ADDED", before=None, after=f)
+                        FieldDiff(
+                            field_id=f.field_id, change="ADDED", before=None, after=f
+                        )
                         for f in SANCTIONS.fields
                     ),
                 ),
@@ -364,8 +382,16 @@ def render() -> dict[str, str]:
             data: object = [item.model_dump(mode="json") for item in value]
         else:
             data = value.model_dump(mode="json")  # type: ignore[attr-defined]
-        rendered[name] = json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        rendered[name] = (
+            json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        )
     return rendered
+
+
+def stored_text(path: Path) -> str:
+    """A committed fixture, EOL-insensitive (a ``core.autocrlf`` checkout writes CRLF)."""
+
+    return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -377,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         stale = [
             name
             for name, text in rendered.items()
-            if not (OUT / name).is_file() or (OUT / name).read_bytes().decode("utf-8") != text
+            if not (OUT / name).is_file() or stored_text(OUT / name) != text
         ]
         for name in stale:
             print(f"STALE {name}")

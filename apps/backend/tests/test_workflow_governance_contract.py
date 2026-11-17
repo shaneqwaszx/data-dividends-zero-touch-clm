@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from scripts.generate_workflow_governance_fixtures import OUT, render
+from scripts.generate_workflow_governance_fixtures import OUT, render, stored_text
 
 from app.api_workflow_governance_models import (
     ApprovalInboxResponse,
@@ -84,7 +84,7 @@ def test_committed_fixtures_equal_a_fresh_render() -> None:
     rendered = render()
     assert set(rendered) == {path.name for path in Path(OUT).glob("*.json")}
     for name, text in rendered.items():
-        assert (Path(OUT) / name).read_bytes().decode("utf-8") == text, name
+        assert stored_text(Path(OUT) / name) == text, name
 
 
 @pytest.mark.parametrize("name", sorted(MODELS))
