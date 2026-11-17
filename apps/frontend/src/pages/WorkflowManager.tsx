@@ -247,8 +247,12 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
     onSuccess: () => onNotice("Proposal created from the active version. Edit it, validate it, then submit it for approval."),
     onError,
   });
+  // Edits made while a save is in flight must stay dirty: only the content actually sent is marked saved.
+  const stagesRef = useRef(stages);
+  stagesRef.current = stages;
   const save = useMutation({
     mutationFn: async () => {
+      const sent = snapshot(stages);
       const saved = await updateProposal(workflow.workflow_id, proposal!.proposal_id, {
         expected_workflow_revision: workflow.revision,
         expected_proposal_revision: proposal!.revision,
@@ -257,8 +261,12 @@ export function WorkflowEditor({ workflow, workflows, userId, onBack, onChanged,
       });
       setBasedOn(saved.revision);
       await onChanged();
+      return sent;
     },
-    onSuccess: () => { setDirty(false); onNotice("Changes saved to your proposal. It is not submitted."); },
+    onSuccess: sent => {
+      if (snapshot(stagesRef.current) === sent) setDirty(false);
+      onNotice("Changes saved to your proposal. It is not submitted.");
+    },
     onError,
   });
   const submit = useMutation({
@@ -544,11 +552,16 @@ function GovernedWorkflowEditor({ actor, workflowId, workflows, onBack }: {
   );
   const detailKey = workflowQueryKeys.detail(actor.user_id, workflowId);
   const accessLost = detail.isError && isAccessLoss(detail.error);
-  // Lost access (401/403/404): the cached workflow is dropped when leaving, never shown again.
-  useEffect(() => {
-    if (!accessLost) return undefined;
-    return () => queryClient.removeQueries({ queryKey: detailKey, exact: true });
-  }, [accessLost, queryClient, detailKey]);
+  // Lost access (401/403/404): the cached workflow is dropped when leaving while access is lost, never
+  // on recovery (true -> false), so a recovered editor keeps its cache.
+  const accessLostRef = useRef(accessLost);
+  accessLostRef.current = accessLost;
+  const leaveCleanup = useRef({ queryClient, detailKey });
+  useEffect(() => () => {
+    if (accessLostRef.current) {
+      leaveCleanup.current.queryClient.removeQueries({ queryKey: leaveCleanup.current.detailKey, exact: true });
+    }
+  }, []);
   if (detail.isPending) return <p className="text-muted">Loading workflow…</p>;
   // A failed first load, or lost access, replaces the editor. A network or 5xx refetch failure keeps the cached data.
   if (detail.isError && (detail.data === undefined || accessLost)) {
