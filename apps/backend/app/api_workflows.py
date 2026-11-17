@@ -12,12 +12,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api_auth import SESSION_COOKIE_NAME
 from app.api_workflow_governance_models import (
+    AcknowledgeNoticeRequest,
     ApprovalInboxResponse,
     ComparisonResponse,
+    CopyProposalRequest,
     CreateProposalRequest,
     DecisionRequest,
     DecisionResponse,
+    EmergencyFallbackRequest,
+    EmergencyFallbackResponse,
+    NoticeItem,
+    NoticeListResponse,
     ProposalResponse,
+    ReleaseDraftRequest,
     SimulateProposalRequest,
     SimulationResult,
     SimulationScenario,
@@ -27,6 +34,7 @@ from app.api_workflow_governance_models import (
     ValidationReport,
     WithdrawProposalRequest,
     WorkflowGovernanceView,
+    WorkflowVersionResponse,
 )
 from app.domain.access import AuthenticatedActor
 from app.domain.models import OnboardingCase
@@ -67,6 +75,7 @@ from app.services.workflow_management import (
     WorkflowRouteRetiredError,
     WorkflowValidationError,
     stage_blocks_send,
+    stored_active_version,
 )
 
 
@@ -101,7 +110,8 @@ class WorkflowResponse(BaseModel):
     def from_domain(
         cls, item: WorkflowDefinition, governance: WorkflowGovernanceView | None = None
     ) -> WorkflowResponse:
-        active = item.active_version
+        # The stored active version: a deactivated workflow (0) shows as a draft.
+        active = stored_active_version(item)
         return cls(
             workflow_id=item.workflow_id,
             name=item.name,
@@ -391,6 +401,21 @@ def build_workflow_router(
     def approvals_inbox(request: Request) -> ApprovalInboxResponse:
         return _call(lambda: governed().approvals_inbox(_actor(request)))
 
+    # M2 (CC-4) notices: static paths, registered before ``/api/workflows/{workflow_id}``.
+    @router.get("/api/workflows/notices", response_model=NoticeListResponse)
+    def governance_notices(request: Request) -> NoticeListResponse:
+        return _call(lambda: governed().notices(_actor(request)))
+
+    @router.post(
+        "/api/workflows/notices/{notice_id}/acknowledge", response_model=NoticeItem
+    )
+    def acknowledge_notice(
+        notice_id: str, body: AcknowledgeNoticeRequest, request: Request
+    ) -> NoticeItem:
+        return _call(
+            lambda: governed().acknowledge_notice(fresh_actor(request), notice_id, body)
+        )
+
     @router.get("/api/workflows/{workflow_id}", response_model=WorkflowResponse)
     def get_workflow(workflow_id: str, request: Request) -> WorkflowResponse:
         def build() -> WorkflowResponse:
@@ -502,6 +527,52 @@ def build_workflow_router(
         return _call(
             lambda: governed().decide(fresh_actor(request), workflow_id, proposal_id, body)
         )
+
+    # M2 (CC-4): recovery and administration.
+    @router.post(
+        "/api/workflows/{workflow_id}/emergency-fallback",
+        response_model=EmergencyFallbackResponse,
+    )
+    def emergency_fallback(
+        workflow_id: str, body: EmergencyFallbackRequest, request: Request
+    ) -> EmergencyFallbackResponse:
+        return _call(
+            lambda: governed().emergency_fallback(fresh_actor(request), workflow_id, body)
+        )
+
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/release",
+        response_model=ProposalResponse,
+    )
+    def release_proposal(
+        workflow_id: str, proposal_id: str, body: ReleaseDraftRequest, request: Request
+    ) -> ProposalResponse:
+        return _call(
+            lambda: governed().release_proposal(
+                fresh_actor(request), workflow_id, proposal_id, body
+            )
+        )
+
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/copy",
+        response_model=ProposalResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def copy_proposal(
+        workflow_id: str, proposal_id: str, body: CopyProposalRequest, request: Request
+    ) -> ProposalResponse:
+        return _call(
+            lambda: governed().copy_proposal(fresh_actor(request), workflow_id, proposal_id, body)
+        )
+
+    @router.get(
+        "/api/workflows/{workflow_id}/versions/{version}",
+        response_model=WorkflowVersionResponse,
+    )
+    def workflow_version(
+        workflow_id: str, version: int, request: Request
+    ) -> WorkflowVersionResponse:
+        return _call(lambda: governed().get_version(_actor(request), workflow_id, version))
 
     @router.post(
         "/api/workflows/{workflow_id}/runs",

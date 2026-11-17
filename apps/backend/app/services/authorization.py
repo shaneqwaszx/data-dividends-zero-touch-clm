@@ -107,6 +107,27 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/workflows/{workflow_id}/proposals/{proposal_id}/comparison",
         RouteAccess.ACTOR_ONLY,
     ),
+    # M2 (contract CC-4): recovery and administration; checked inside the lock.
+    RoutePolicy(
+        "POST", "/api/workflows/{workflow_id}/emergency-fallback", RouteAccess.ACTOR_ONLY
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/release",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/copy",
+        RouteAccess.ACTOR_ONLY,
+    ),
+    RoutePolicy(
+        "GET", "/api/workflows/{workflow_id}/versions/{version}", RouteAccess.ACTOR_ONLY
+    ),
+    RoutePolicy("GET", "/api/workflows/notices", RouteAccess.ACTOR_ONLY),
+    RoutePolicy(
+        "POST", "/api/workflows/notices/{notice_id}/acknowledge", RouteAccess.ACTOR_ONLY
+    ),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/workflows/{workflow_id}/runs", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/workflows/{workflow_id}/new-cases", RouteAccess.ACTOR_ONLY),

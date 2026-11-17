@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from threading import RLock
 from typing import Any
 from uuid import UUID, uuid4
@@ -23,18 +23,25 @@ from uuid import UUID, uuid4
 from pydantic import ValidationError
 
 from app.api_workflow_governance_models import (
+    AcknowledgeNoticeRequest,
     AffectedCases,
     ApprovalInboxItem,
     ApprovalInboxResponse,
     BaselineSummary,
     ComparisonResponse,
+    CopyProposalRequest,
     CreateProposalRequest,
     DecidedProposalSummaryResponse,
     DecisionRequest,
     DecisionResponse,
+    EmergencyFallbackRequest,
+    EmergencyFallbackResponse,
     GovernanceErrorBody,
+    NoticeItem,
+    NoticeListResponse,
     ProposalResponse,
     PublicationReport,
+    ReleaseDraftRequest,
     SimulateProposalRequest,
     SimulationResult,
     SimulationScenario,
@@ -45,19 +52,25 @@ from app.api_workflow_governance_models import (
     ValidationReport,
     WithdrawProposalRequest,
     WorkflowGovernanceView,
+    WorkflowVersionResponse,
 )
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability
 from app.domain.target_submission import GoldTierExecutionLedgerEntry, WorkflowDispatchState
 from app.domain.workflow_governance import (
+    DRAFT_RELEASE_AFTER_DAYS,
     GOVERNANCE_ERROR_STATUS,
-    M1_PROPOSAL_KINDS,
+    MAX_ENCODED_VERSION_BYTES,
+    MAX_UNACKNOWLEDGED_NOTICES,
     NO_ACTIVE_VERSION,
     PERMANENT_OBLIGATION_WARNING,
     DecisionOutcome,
     GovernanceErrorCode,
     GovernanceEvent,
     GovernanceEventKind,
+    GovernanceNotice,
     OutboxEntry,
+    ProposalKind,
+    ProposalOrigin,
     ProposalState,
     RatchetRule,
     VersionOrigin,
@@ -84,14 +97,18 @@ from app.persistence.workflow_governance_store import (
 )
 from app.services.target_execution_repository import has_write_marker
 from app.services.workflow_management import (
+    ConfirmationGate,
     WorkflowConflictError,
     WorkflowForbiddenError,
     WorkflowNotFoundError,
+    confirmation_gate_for,
 )
 from app.services.workflow_ratchet import (
+    SafeTargetError,
     advance_baseline,
     change_counts,
     permanent_obligations,
+    safe_target,
     seed_baseline,
     stage_diff,
     validate_candidate,
@@ -107,6 +124,18 @@ STRUCTURE_ERROR_STATUS = 422
 Reauthorize = Callable[[], AuthenticatedActor]
 # Existing read-only case ledger access: (case id, that case's ledger entries) per case.
 LedgerReader = Callable[[], Iterable[tuple[UUID, Sequence[GoldTierExecutionLedgerEntry]]]]
+# An event to append: (kind, actor, proposal or None, version or None).
+EventSpec = tuple[GovernanceEventKind, AuthenticatedActor, "WorkflowProposal | None", int | None]
+
+# M2 (CC-4): the backend computes the content of these kinds; client stages are refused.
+COMPUTED_KINDS = frozenset(
+    {ProposalKind.RESTORE_VERSION, ProposalKind.RESET_TO_DEFAULT, ProposalKind.DEACTIVATE}
+)
+RECOVERY_KINDS = frozenset({ProposalKind.RESTORE_VERSION, ProposalKind.RESET_TO_DEFAULT})
+LIFECYCLE_KINDS = frozenset({ProposalKind.DEACTIVATE, ProposalKind.REACTIVATE})
+DEACTIVATION_APPROVAL_PENDING = (
+    "Approving a deactivation needs a reviewed contract and persistence change first."
+)
 
 _MESSAGES: dict[GovernanceErrorCode, str] = {
     GovernanceErrorCode.PROPOSAL_OPEN: "This workflow already has an open proposal.",
@@ -129,6 +158,15 @@ _MESSAGES: dict[GovernanceErrorCode, str] = {
         "Workflow approval governance is not available on this workflow yet."
     ),
     GovernanceErrorCode.ROUTE_RETIRED: "This action has been retired.",
+    GovernanceErrorCode.DRAFT_NOT_RELEASABLE: (
+        "This draft can be released only after 14 days without activity."
+    ),
+    GovernanceErrorCode.RUN_CONFIRMATION_IN_PROGRESS: (
+        "A stage confirmation is in progress on this workflow. Try again shortly."
+    ),
+    GovernanceErrorCode.NOTICES_UNACKNOWLEDGED: (
+        "Too many governance notices are unacknowledged. HR must acknowledge them first."
+    ),
 }
 
 
@@ -233,10 +271,13 @@ class WorkflowGovernanceService:
         startup: GovernanceStartup | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
+        confirmation_gate: ConfirmationGate | None = None,
     ) -> None:
         self._repository = repository
         self._runs = runs
         self._lock = lock
+        # Shared with ``WorkflowManagementService`` through the same definition lock.
+        self._gate = confirmation_gate or confirmation_gate_for(lock)
         self._ledger = ledger
         self._startup = startup or GovernanceStartup(available=True, blocked={})
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -276,6 +317,7 @@ class WorkflowGovernanceService:
         self._require(actor, Capability.POLICY_MUTATE)
         governed = self._migrated(workflow_id)
         proposal = self._open(governed, proposal_id)
+        _refuse_client_stages(proposal.kind, request.stages)
         stages = proposal.stages if request.stages is None else request.stages
         return self._report(governed, proposal, stages)
 
@@ -289,6 +331,7 @@ class WorkflowGovernanceService:
         self._require(actor, Capability.POLICY_MUTATE)
         governed = self._migrated(workflow_id)
         proposal = self._open(governed, proposal_id)
+        _refuse_client_stages(proposal.kind, request.stages)
         stages = proposal.stages if request.stages is None else request.stages
         try:
             return simulate(
@@ -386,16 +429,12 @@ class WorkflowGovernanceService:
         self, reauthorize: Reauthorize, workflow_id: str, request: CreateProposalRequest
     ) -> ProposalResponse:
         def change(actor: AuthenticatedActor, governed: GovernedDefinition, now: datetime) -> Any:
-            if request.kind not in M1_PROPOSAL_KINDS:
-                raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE)
             self._expect_workflow(governed, request.expected_workflow_revision)
             state = governed.governance
             if state.open_proposal is not None:
                 raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_OPEN)
-            number, active = self._active(governed)
-            stages = request.stages
-            if stages is None:
-                stages = active.stages if active is not None else ()
+            number, _active = self._active(governed)
+            stages = self._initial_stages(governed, request)
             proposal = _proposal(
                 {
                     "proposal_id": str(self._uuid_factory()),
@@ -437,6 +476,7 @@ class WorkflowGovernanceService:
                 request.expected_proposal_revision,
                 {ProposalState.DRAFT},
             )
+            _refuse_client_stages(current.kind, request.stages)
             proposal = _proposal(
                 {
                     **_fields(current),
@@ -588,6 +628,19 @@ class WorkflowGovernanceService:
                     GovernanceErrorCode.PROPOSAL_INVALID,
                     "A rejection acknowledges no permanent obligations.",
                 )
+            if approve and current.kind == ProposalKind.DEACTIVATE:
+                # Inside the held confirmation gate (ADR-017 4, R1-9 and R2-5).
+                if self._gate.in_progress(workflow_id):
+                    raise WorkflowGovernanceError(
+                        GovernanceErrorCode.RUN_CONFIRMATION_IN_PROGRESS
+                    )
+                # Blocked on the frozen contract: an APPROVED proposal must name a
+                # published version, and a governance write cannot set active_version 0
+                # without a publication. Refused before anything is written.
+                raise WorkflowGovernanceError(
+                    GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE,
+                    DEACTIVATION_APPROVAL_PENDING,
+                )
             definition = governed.definition
             published = (definition.latest_version or 0) + 1 if approve else None
             decided = _proposal(
@@ -628,23 +681,30 @@ class WorkflowGovernanceService:
                 published_at=now,
             )
             state = governed.governance
+            events: list[EventSpec] = [
+                (GovernanceEventKind.PROPOSAL_APPROVED, actor, decided, published),
+                (GovernanceEventKind.VERSION_PUBLISHED, actor, decided, published),
+            ]
+            if decided.kind == ProposalKind.REACTIVATE:
+                events.append((GovernanceEventKind.REACTIVATED, actor, decided, published))
             return (decided, version, provenance), self._write(
                 governed,
                 now,
                 open_proposal=None,
                 decided=decided,
                 version=version,
-                required_baseline=advance_baseline(state.required_baseline, version),
+                required_baseline=self._advanced(state.required_baseline, version),
                 version_provenance=(*state.version_provenance, provenance),
-                events=(
-                    (GovernanceEventKind.PROPOSAL_APPROVED, actor, decided, published),
-                    (GovernanceEventKind.VERSION_PUBLISHED, actor, decided, published),
-                ),
+                events=events,
             )
 
         with self._lock:
             actor, outcome, stored = self._mutate_locked(
-                reauthorize, workflow_id, Capability.POLICY_APPROVE, change
+                reauthorize,
+                workflow_id,
+                Capability.POLICY_APPROVE,
+                change,
+                gate=self._deactivation_gate(workflow_id, proposal_id),
             )
         decided, version, provenance = outcome
         report = None if version is None else self._publication_report(stored, version.version)
@@ -655,6 +715,304 @@ class WorkflowGovernanceService:
             published_version=None if version is None else version.version,
             provenance=provenance,
             publication_report=report,
+        )
+
+    # --- M2 recovery and administration (CC-4) -------------------------------------------
+
+    def emergency_fallback(
+        self, reauthorize: Reauthorize, workflow_id: str, request: EmergencyFallbackRequest
+    ) -> EmergencyFallbackResponse:
+        """The Director's single-actor exception (ADR-017 4, D6): publishes the safe target
+        with origin ``EMERGENCY_FALLBACK``, stales the open proposal (kept) and raises a
+        persisted notice, in one compare-and-set. It never bypasses the ratchet."""
+
+        def change(actor: AuthenticatedActor, governed: GovernedDefinition, now: datetime) -> Any:
+            self._expect_workflow(governed, request.expected_workflow_revision)
+            definition, state = governed.definition, governed.governance
+            if self._deactivated(governed):
+                # A single actor never reactivates a workflow (that needs two people).
+                raise WorkflowGovernanceError(
+                    GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE,
+                    "This workflow is deactivated. Propose a reactivation instead.",
+                )
+            unacknowledged = sum(1 for item in state.notices if item.acknowledged_at is None)
+            if unacknowledged >= MAX_UNACKNOWLEDGED_NOTICES:
+                raise WorkflowGovernanceError(GovernanceErrorCode.NOTICES_UNACKNOWLEDGED)
+            if request.target == "VERSION":
+                if request.target_version is None:
+                    raise WorkflowGovernanceError(
+                        GovernanceErrorCode.PROPOSAL_INVALID, "Choose the version to fall back to."
+                    )
+                target = self._version(governed, request.target_version)
+                if target is None:
+                    raise WorkflowGovernanceError(
+                        GovernanceErrorCode.PROPOSAL_INVALID, "That version does not exist."
+                    )
+                base = target.stages
+            else:
+                if request.target_version is not None:
+                    raise WorkflowGovernanceError(
+                        GovernanceErrorCode.PROPOSAL_INVALID,
+                        "A fallback to the default names no version.",
+                    )
+                base = ()
+            stages = _safe_target(base, governed)
+            number, active = self._active(governed)
+            _refuse_invalid(
+                validate_candidate(
+                    stages,
+                    active=active,
+                    baseline=state.required_baseline,
+                    is_onboarding=definition.is_onboarding,
+                    base_version=number,
+                    active_version=number,
+                )
+            )
+            director = actor.profile.user_id
+            published = (definition.latest_version or 0) + 1
+            version = WorkflowVersion(
+                version=published, stages=stages, activated_at=now, activated_by=director
+            )
+            provenance = VersionProvenance(
+                version=published,
+                origin=VersionOrigin.EMERGENCY_FALLBACK,
+                author_id=None,
+                approved_by=None,
+                proposal_id=None,
+                activated_by=director,
+                published_at=now,
+                note=request.reason,
+            )
+            notice = GovernanceNotice(
+                notice_id=str(self._uuid_factory()),
+                kind=GovernanceEventKind.EMERGENCY_FALLBACK,
+                raised_at=now,
+                raised_by=director,
+                version=published,
+                reason=request.reason,
+            )
+            open_proposal = state.open_proposal
+            staled = None
+            events: list[EventSpec] = []
+            if open_proposal is not None:
+                staled = _proposal(
+                    {
+                        **_fields(open_proposal),
+                        "state": ProposalState.STALE,
+                        "stale_by_version": published,
+                        "revision": open_proposal.revision + 1,
+                        "updated_at": now,
+                    }
+                )
+                events.append((GovernanceEventKind.PROPOSAL_STALE, actor, staled, published))
+            events.extend(
+                (
+                    (GovernanceEventKind.EMERGENCY_FALLBACK, actor, None, published),
+                    (GovernanceEventKind.VERSION_PUBLISHED, actor, None, published),
+                    (GovernanceEventKind.NOTICE_RAISED, actor, None, published),
+                )
+            )
+            outcome = (version, provenance, notice, () if staled is None else (staled.proposal_id,))
+            return outcome, self._write(
+                governed,
+                now,
+                open_proposal=None,
+                decided=staled,
+                version=version,
+                required_baseline=self._advanced(state.required_baseline, version),
+                version_provenance=(*state.version_provenance, provenance),
+                notices=(*state.notices, notice),
+                events=events,
+            )
+
+        with self._lock:
+            _actor, outcome, stored = self._mutate_locked(
+                reauthorize, workflow_id, Capability.POLICY_APPROVE, change
+            )
+        version, provenance, notice, staled_ids = outcome
+        return EmergencyFallbackResponse(
+            workflow_revision=stored.definition.revision,
+            active_version=stored.definition.stored_active_version or version.version,
+            published_version=version.version,
+            provenance=provenance,
+            notice=notice,
+            staled_proposal_ids=staled_ids,
+            publication_report=self._publication_report(stored, version.version),
+        )
+
+    def release_proposal(
+        self,
+        reauthorize: Reauthorize,
+        workflow_id: str,
+        proposal_id: str,
+        request: ReleaseDraftRequest,
+    ) -> ProposalResponse:
+        """ADR-017 1.2: any HR user except the author releases an abandoned draft. Only the
+        14-day inactivity rule applies: the backend has no reliable disabled or deleted
+        account signal to read (the synthetic identities are fixed)."""
+
+        def change(actor: AuthenticatedActor, governed: GovernedDefinition, now: datetime) -> Any:
+            self._expect_workflow(governed, request.expected_workflow_revision)
+            current = self._open(governed, proposal_id)
+            if current.author_id == actor.profile.user_id:
+                # The author withdraws instead; a release is always someone else's.
+                raise WorkflowForbiddenError
+            if current.revision != request.expected_proposal_revision:
+                raise WorkflowConflictError
+            if current.state != ProposalState.DRAFT:
+                raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_STATE_INVALID)
+            if now - current.last_activity_at < timedelta(days=DRAFT_RELEASE_AFTER_DAYS):
+                raise WorkflowGovernanceError(GovernanceErrorCode.DRAFT_NOT_RELEASABLE)
+            released = _proposal(
+                {
+                    **_fields(current),
+                    "state": ProposalState.WITHDRAWN,
+                    "withdrawn_at": now,
+                    "released_by": actor.profile.user_id,
+                    "release_reason": request.reason,
+                    "revision": current.revision + 1,
+                    "updated_at": now,
+                }
+            )
+            return released, self._write(
+                governed,
+                now,
+                open_proposal=None,
+                decided=released,
+                events=((GovernanceEventKind.DRAFT_RELEASED, actor, released, None),),
+            )
+
+        actor, proposal = self._mutate(reauthorize, workflow_id, Capability.POLICY_MUTATE, change)
+        return self._response(actor, proposal)
+
+    def copy_proposal(
+        self,
+        reauthorize: Reauthorize,
+        workflow_id: str,
+        proposal_id: str,
+        request: CopyProposalRequest,
+    ) -> ProposalResponse:
+        """A new DRAFT authored by the copier, with ``copied_from``; authorship is never
+        transferred. One open proposal per workflow still applies."""
+
+        def change(actor: AuthenticatedActor, governed: GovernedDefinition, now: datetime) -> Any:
+            self._expect_workflow(governed, request.expected_workflow_revision)
+            state = governed.governance
+            if state.open_proposal is not None:
+                raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_OPEN)
+            entry = next(
+                (item for item in state.decided_proposals if item.proposal_id == proposal_id),
+                None,
+            )
+            if entry is None:
+                raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_NOT_FOUND)
+            if entry.record is None:
+                # Archived to cold; the governance port reads only cold versions.
+                raise WorkflowGovernanceError(GovernanceErrorCode.HISTORY_UNAVAILABLE)
+            number, _active = self._active(governed)
+            kind = ProposalKind.REACTIVATE if self._deactivated(governed) else ProposalKind.CHANGE
+            copied = _proposal(
+                {
+                    "proposal_id": str(self._uuid_factory()),
+                    "workflow_id": governed.definition.workflow_id,
+                    "kind": kind,
+                    "origin": ProposalOrigin.GOVERNED,
+                    "base_version": number,
+                    "stages": entry.record.stages,
+                    "note": request.note,
+                    "author_id": actor.profile.user_id,
+                    "created_at": now,
+                    "updated_at": now,
+                    "last_activity_at": now,
+                    "copied_from": proposal_id,
+                }
+            )
+            return copied, self._write(
+                governed,
+                now,
+                open_proposal=copied,
+                events=((GovernanceEventKind.DRAFT_COPIED, actor, copied, None),),
+            )
+
+        actor, proposal = self._mutate(reauthorize, workflow_id, Capability.POLICY_MUTATE, change)
+        return self._response(actor, proposal)
+
+    def get_version(
+        self, actor: AuthenticatedActor, workflow_id: str, number: int
+    ) -> WorkflowVersionResponse:
+        """One published version, hot then cold; an unknown one is a safe 404."""
+
+        self._require_reader(actor)
+        governed = self._load(workflow_id)
+        version = self._version(governed, number) if number >= 1 else None
+        if version is None:
+            raise WorkflowNotFoundError
+        provenance = next(
+            (item for item in governed.governance.version_provenance if item.version == number),
+            None,
+        )
+        return WorkflowVersionResponse(
+            workflow_id=workflow_id,
+            version=version,
+            provenance=provenance,
+            is_active=(governed.definition.stored_active_version or NO_ACTIVE_VERSION) == number,
+        )
+
+    def notices(self, actor: AuthenticatedActor) -> NoticeListResponse:
+        """Every unacknowledged governance notice, across workflows (HR and Director)."""
+
+        self._require_reader(actor)
+        items = [
+            NoticeItem(
+                workflow_id=governed.definition.workflow_id,
+                workflow_name=governed.definition.name,
+                workflow_revision=governed.definition.revision,
+                notice=notice,
+            )
+            for governed in self._repository.list_governed()
+            for notice in governed.governance.notices
+            if notice.acknowledged_at is None
+        ]
+        return NoticeListResponse(items=tuple(items))
+
+    def acknowledge_notice(
+        self, reauthorize: Reauthorize, notice_id: str, request: AcknowledgeNoticeRequest
+    ) -> NoticeItem:
+        """HR only. Sets ``acknowledged_by`` and ``acknowledged_at`` (the only permitted
+        change) and records a ``NOTICE_ACKNOWLEDGED`` event."""
+
+        def change(actor: AuthenticatedActor, governed: GovernedDefinition, now: datetime) -> Any:
+            self._expect_workflow(governed, request.expected_workflow_revision)
+            state = governed.governance
+            current = next((item for item in state.notices if item.notice_id == notice_id), None)
+            if current is None:
+                raise WorkflowNotFoundError
+            if current.acknowledged_at is not None:
+                raise WorkflowConflictError
+            acknowledged = current.model_copy(
+                update={"acknowledged_by": actor.profile.user_id, "acknowledged_at": now}
+            )
+            return acknowledged, self._write(
+                governed,
+                now,
+                open_proposal=state.open_proposal,
+                notices=tuple(
+                    acknowledged if item.notice_id == notice_id else item for item in state.notices
+                ),
+                events=(
+                    (GovernanceEventKind.NOTICE_ACKNOWLEDGED, actor, None, current.version),
+                ),
+            )
+
+        with self._lock:
+            _actor, notice, stored = self._mutate_locked(
+                reauthorize, request.workflow_id, Capability.POLICY_MUTATE, change
+            )
+        return NoticeItem(
+            workflow_id=stored.definition.workflow_id,
+            workflow_name=stored.definition.name,
+            workflow_revision=stored.definition.revision,
+            notice=notice,
         )
 
     # --- Internals ---------------------------------------------------------------------
@@ -673,6 +1031,18 @@ class WorkflowGovernanceService:
         return actor, outcome
 
     def _mutate_locked(
+        self,
+        reauthorize: Reauthorize,
+        workflow_id: str,
+        capability: Capability,
+        change: Callable[[AuthenticatedActor, GovernedDefinition, datetime], Any],
+        *,
+        gate: AbstractContextManager[None] | None = None,
+    ) -> tuple[AuthenticatedActor, Any, GovernedDefinition]:
+        with gate or nullcontext():
+            return self._mutate_checked(reauthorize, workflow_id, capability, change)
+
+    def _mutate_checked(
         self,
         reauthorize: Reauthorize,
         workflow_id: str,
@@ -730,9 +1100,7 @@ class WorkflowGovernanceService:
         now: datetime,
         *,
         open_proposal: WorkflowProposal | None,
-        events: Sequence[
-            tuple[GovernanceEventKind, AuthenticatedActor, WorkflowProposal, int | None]
-        ],
+        events: Sequence[EventSpec],
         decided: WorkflowProposal | None = None,
         version: WorkflowVersion | None = None,
         **changes: Any,
@@ -757,7 +1125,7 @@ class WorkflowGovernanceService:
                 occurred_at=now,
                 actor_id=actor.profile.user_id,
                 kind=kind,
-                proposal_id=proposal.proposal_id,
+                proposal_id=None if proposal is None else proposal.proposal_id,
                 version=number,
                 summary=_event_summary(kind, number),
             )
@@ -826,15 +1194,178 @@ class WorkflowGovernanceService:
         stages: tuple[WorkflowStage, ...],
     ) -> ValidationReport:
         number, active = self._active(governed)
-        return validate_candidate(
+        kind = proposal.kind
+        if kind == ProposalKind.DEACTIVATE:
+            return self._deactivation_report(governed, proposal, stages, number)
+        report = validate_candidate(
             stages,
             active=active,
             baseline=governed.governance.required_baseline,
             is_onboarding=governed.definition.is_onboarding,
             base_version=proposal.base_version,
             active_version=number,
-            kind=proposal.kind,
+            kind=kind,
         )
+        issues = list(report.issues)
+        if kind in LIFECYCLE_KINDS and governed.definition.is_onboarding:
+            issues.insert(0, _kind_issue("Onboarding cannot be deactivated or reactivated."))
+        if kind == ProposalKind.REACTIVATE and not self._deactivated(governed):
+            issues.insert(0, _kind_issue("Only a deactivated workflow can be reactivated."))
+        if kind in RECOVERY_KINDS:
+            target = self._recovery_target(governed, kind, proposal.restore_target_version)
+            if stages != target:
+                issues.insert(
+                    0,
+                    ValidationIssue(
+                        code=GovernanceErrorCode.PROPOSAL_INVALID.value,
+                        message="The content no longer equals the safe target. Start again.",
+                    ),
+                )
+        return report.model_copy(
+            update={
+                "valid": not issues,
+                "issues": tuple(issues),
+                "content_hash": proposal_content_hash(
+                    kind, stages, proposal.restore_target_version
+                ),
+            }
+        )
+
+    def _deactivation_report(
+        self,
+        governed: GovernedDefinition,
+        proposal: WorkflowProposal,
+        stages: tuple[WorkflowStage, ...],
+        number: int,
+    ) -> ValidationReport:
+        issues: list[ValidationIssue] = []
+        if governed.definition.is_onboarding:
+            issues.append(_kind_issue("Onboarding cannot be deactivated."))
+        if number == NO_ACTIVE_VERSION:
+            issues.append(_kind_issue("This workflow has no active version to deactivate."))
+        if stages:
+            issues.append(
+                ValidationIssue(
+                    code=GovernanceErrorCode.PROPOSAL_INVALID.value,
+                    message="A deactivation carries no stages.",
+                )
+            )
+        return ValidationReport(
+            valid=not issues,
+            content_hash=proposal_content_hash(ProposalKind.DEACTIVATE, ()),
+            encoded_bytes=0,
+            max_encoded_bytes=MAX_ENCODED_VERSION_BYTES,
+            base_version=proposal.base_version,
+            active_version=number,
+            issues=tuple(issues),
+        )
+
+    # --- M2 helpers (CC-4) ---------------------------------------------------------------
+
+    @staticmethod
+    def _deactivated(governed: GovernedDefinition) -> bool:
+        definition = governed.definition
+        return (definition.stored_active_version or NO_ACTIVE_VERSION) == NO_ACTIVE_VERSION and (
+            definition.latest_version or 0
+        ) > 0
+
+    def _version(self, governed: GovernedDefinition, number: int) -> WorkflowVersion | None:
+        for item in governed.definition.versions:
+            if item.version == number:
+                return item
+        with _persistence_errors():
+            return self._repository.get_version(governed.definition.workflow_id, number)
+
+    def _recovery_target(
+        self,
+        governed: GovernedDefinition,
+        kind: ProposalKind,
+        restore_target_version: int | None,
+    ) -> tuple[WorkflowStage, ...]:
+        """The safe target ``base ∪ required_baseline`` (ADR-017 2, 4); base is the target
+        version's stages (hot, then cold) or the built-in default (no added stages)."""
+
+        base: tuple[WorkflowStage, ...] = ()
+        if kind == ProposalKind.RESTORE_VERSION:
+            if restore_target_version is None:
+                raise WorkflowGovernanceError(
+                    GovernanceErrorCode.PROPOSAL_INVALID, "Choose the version to restore."
+                )
+            version = self._version(governed, restore_target_version)
+            if version is None:
+                raise WorkflowGovernanceError(
+                    GovernanceErrorCode.PROPOSAL_INVALID, "That version does not exist."
+                )
+            base = version.stages
+        return _safe_target(base, governed)
+
+    def _initial_stages(
+        self, governed: GovernedDefinition, request: CreateProposalRequest
+    ) -> tuple[WorkflowStage, ...]:
+        kind = request.kind
+        definition = governed.definition
+        deactivated = self._deactivated(governed)
+        if kind in LIFECYCLE_KINDS and definition.is_onboarding:
+            raise WorkflowGovernanceError(
+                GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE,
+                "Onboarding cannot be deactivated or reactivated.",
+            )
+        _refuse_client_stages(kind, request.stages)
+        if kind == ProposalKind.DEACTIVATE:
+            if deactivated or (definition.stored_active_version or 0) == NO_ACTIVE_VERSION:
+                raise WorkflowGovernanceError(
+                    GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE,
+                    "This workflow has no active version to deactivate.",
+                )
+            return ()
+        if kind == ProposalKind.REACTIVATE:
+            if not deactivated:
+                raise WorkflowGovernanceError(
+                    GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE,
+                    "Only a deactivated workflow can be reactivated.",
+                )
+            if request.stages is not None:
+                return request.stages
+            latest = self._version(governed, definition.latest_version or 0)
+            if latest is None:
+                raise WorkflowGovernanceError(GovernanceErrorCode.HISTORY_UNAVAILABLE)
+            return latest.stages
+        if deactivated:
+            raise WorkflowGovernanceError(
+                GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE,
+                "This workflow is deactivated. Propose a reactivation instead.",
+            )
+        if kind in RECOVERY_KINDS:
+            return self._recovery_target(governed, kind, request.restore_target_version)
+        _number, active = self._active(governed)
+        if request.stages is not None:
+            return request.stages
+        return active.stages if active is not None else ()
+
+    @staticmethod
+    def _advanced(baseline: Any, version: WorkflowVersion) -> Any:
+        try:
+            return advance_baseline(baseline, version)
+        except ValueError:
+            # Defence in depth: a version that did not pass the ratchet never publishes.
+            raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_INVALID) from None
+
+    def _deactivation_gate(
+        self, workflow_id: str, proposal_id: str
+    ) -> AbstractContextManager[None] | None:
+        """Hold the confirmation gate for a deactivation decision (under the definition
+        lock, so the open proposal's kind cannot change before the decision runs)."""
+
+        with _persistence_errors():
+            governed = self._repository.get_governed(workflow_id)
+        proposal = None if governed is None else governed.governance.open_proposal
+        if (
+            proposal is not None
+            and proposal.proposal_id == proposal_id
+            and proposal.kind == ProposalKind.DEACTIVATE
+        ):
+            return self._gate.holding(workflow_id)
+        return None
 
     def _active(self, governed: GovernedDefinition) -> tuple[int, WorkflowVersion | None]:
         definition = governed.definition
@@ -950,7 +1481,7 @@ class WorkflowGovernanceService:
         pending = proposal.state == ProposalState.PENDING_APPROVAL
         return ProposalResponse.from_domain(
             proposal,
-            can_edit=hr and author and draft,
+            can_edit=hr and author and draft and proposal.kind not in COMPUTED_KINDS,
             can_submit=hr and author and draft,
             can_withdraw=hr and author and (draft or pending),
             can_decide=_has(actor, Capability.POLICY_APPROVE) and pending and not author,
@@ -1017,6 +1548,33 @@ def _provenance(
         raise WorkflowGovernanceError(GovernanceErrorCode.PROPOSAL_INVALID) from None
 
 
+def _refuse_client_stages(
+    kind: ProposalKind, stages: tuple[WorkflowStage, ...] | None
+) -> None:
+    if kind in COMPUTED_KINDS and stages is not None:
+        raise WorkflowGovernanceError(
+            GovernanceErrorCode.PROPOSAL_INVALID,
+            "The server computes this proposal's content; stages cannot be supplied.",
+        )
+
+
+def _kind_issue(message: str) -> ValidationIssue:
+    return ValidationIssue(
+        code=GovernanceErrorCode.PROPOSAL_KIND_NOT_AVAILABLE.value, message=message
+    )
+
+
+def _safe_target(
+    base: tuple[WorkflowStage, ...], governed: GovernedDefinition
+) -> tuple[WorkflowStage, ...]:
+    try:
+        return safe_target(base, governed.governance.required_baseline)
+    except SafeTargetError as error:
+        raise WorkflowGovernanceError(
+            GovernanceErrorCode.PROPOSAL_INVALID, error.public_message
+        ) from None
+
+
 def _refuse_invalid(report: ValidationReport) -> None:
     if report.valid:
         return
@@ -1032,6 +1590,13 @@ _EVENT_SUMMARIES: dict[GovernanceEventKind, str] = {
     GovernanceEventKind.PROPOSAL_APPROVED: "Proposal approved",
     GovernanceEventKind.PROPOSAL_REJECTED: "Proposal rejected",
     GovernanceEventKind.VERSION_PUBLISHED: "Version published",
+    GovernanceEventKind.PROPOSAL_STALE: "Proposal superseded by an emergency fallback",
+    GovernanceEventKind.DRAFT_RELEASED: "Abandoned draft released",
+    GovernanceEventKind.DRAFT_COPIED: "Proposal copied into a new draft",
+    GovernanceEventKind.EMERGENCY_FALLBACK: "Emergency fallback by a Director",
+    GovernanceEventKind.NOTICE_RAISED: "Governance notice raised",
+    GovernanceEventKind.NOTICE_ACKNOWLEDGED: "Governance notice acknowledged",
+    GovernanceEventKind.REACTIVATED: "Workflow reactivated",
 }
 
 

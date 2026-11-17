@@ -416,8 +416,9 @@ def test_one_open_proposal_and_change_only_in_m1():
         other.governance.create_proposal(
             lambda: HR,
             ONBOARDING_WORKFLOW_ID,
+            # M2 (CC-4): the recovery kinds exist; onboarding is never deactivated.
             CreateProposalRequest(
-                kind=ProposalKind.RESTORE_VERSION, expected_workflow_revision=other.revision()
+                kind=ProposalKind.DEACTIVATE, expected_workflow_revision=other.revision()
             ),
         )
     assert code(kind) == "WORKFLOW_PROPOSAL_KIND_NOT_AVAILABLE" and kind.value.status == 422

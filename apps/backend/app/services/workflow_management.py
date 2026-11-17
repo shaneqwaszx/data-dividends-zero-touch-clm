@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+import weakref
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
-from threading import RLock
+from threading import Lock, RLock
 from typing import Literal, Protocol, cast
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
@@ -101,6 +103,82 @@ class WorkflowValidationError(Exception):
         self.public_message = message
 
 
+class ConfirmationGate:
+    """ADR-017 section 4 (R1-9, R2-5): the per-workflow confirmation gate.
+
+    A stage confirmation takes the workflow's gate lock briefly to increment its in-progress
+    counter before it enters the run's lock, and again to decrement it afterwards. The
+    deactivation decision holds the same lock from checking the counter until its own
+    compare-and-set completes, so no confirmation can begin between the check and the
+    decision. Valid under the single-backend-process deployment (ADR-017 3.4).
+    """
+
+    def __init__(self) -> None:
+        self._registry = Lock()
+        self._locks: dict[str, Lock] = {}
+        self._counts: dict[str, int] = {}
+
+    def _lock(self, workflow_id: str) -> Lock:
+        with self._registry:
+            return self._locks.setdefault(workflow_id, Lock())
+
+    @contextmanager
+    def confirming(self, workflow_id: str) -> Iterator[None]:
+        gate = self._lock(workflow_id)
+        with gate:
+            self._counts[workflow_id] = self._counts.get(workflow_id, 0) + 1
+        try:
+            yield
+        finally:
+            with gate:
+                remaining = self._counts.get(workflow_id, 0) - 1
+                if remaining > 0:
+                    self._counts[workflow_id] = remaining
+                else:
+                    self._counts.pop(workflow_id, None)
+
+    @contextmanager
+    def holding(self, workflow_id: str) -> Iterator[None]:
+        """Hold the workflow's gate (the deactivation decision, until its CAS completes)."""
+
+        with self._lock(workflow_id):
+            yield
+
+    def in_progress(self, workflow_id: str) -> int:
+        """The current count; meaningful to a caller inside ``holding(workflow_id)``."""
+
+        return self._counts.get(workflow_id, 0)
+
+
+_GATES: weakref.WeakKeyDictionary[object, ConfirmationGate] = weakref.WeakKeyDictionary()
+_GATES_LOCK = Lock()
+
+
+def confirmation_gate_for(definition_lock: object) -> ConfirmationGate:
+    """The one gate shared by every service built on the same definition lock."""
+
+    with _GATES_LOCK:
+        gate = _GATES.get(definition_lock)
+        if gate is None:
+            gate = _GATES[definition_lock] = ConfirmationGate()
+        return gate
+
+
+def stored_active_version(definition: WorkflowDefinition) -> WorkflowVersion | None:
+    """The version new runs use: the stored top-level ``active_version`` (ADR-017 3.5).
+
+    0 means none (an empty or deactivated workflow). A definition that was never
+    backfilled keeps the P2-0 rule (the newest version).
+    """
+
+    number = definition.stored_active_version
+    if number is None:
+        return definition.active_version
+    if number == 0:
+        return None
+    return next((item for item in definition.versions if item.version == number), None)
+
+
 class WorkflowCaseReader(Protocol):
     def get_case(self, case_id: UUID) -> OnboardingCase | None: ...
 
@@ -184,12 +262,19 @@ class WorkflowManagementService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
         self._lock = RLock()
+        self._gate = confirmation_gate_for(self._lock)
 
     @property
     def definition_lock(self) -> RLock:
         """The one lock that orders every definition write (governance shares it)."""
 
         return self._lock
+
+    @property
+    def confirmation_gate(self) -> ConfirmationGate:
+        """The confirmation gate shared with the deactivation decision (ADR-017 4)."""
+
+        return self._gate
 
     # HR and Director: definitions (HR authors, a Director decides; both read).
 
@@ -207,7 +292,7 @@ class WorkflowManagementService:
         return [
             item
             for item in self._definitions.list()
-            if not item.is_onboarding and item.active_version is not None
+            if not item.is_onboarding and stored_active_version(item) is not None
         ]
 
     def runs_for_workflow(
@@ -241,7 +326,7 @@ class WorkflowManagementService:
             actor = reauthorize()
             self._require_filler(actor)
             definition = self._require_definition(workflow_id)
-            version = definition.active_version
+            version = stored_active_version(definition)
             team_id = actor.profile.team_id
             if (
                 version is None
@@ -297,7 +382,7 @@ class WorkflowManagementService:
         stage_id: str,
         expected_revision: int,
     ) -> WorkflowRun:
-        with self._cases.case_lock(run_id):
+        with self._gate.confirming(workflow_id), self._cases.case_lock(run_id):
             actor = reauthorize()
             run = self._owned_run(actor, workflow_id, run_id, expected_revision)
             return self._with_confirmation(run, stage_id, actor)
@@ -424,7 +509,8 @@ class WorkflowManagementService:
             actor = reauthorize()
             self._require_filler(actor)
             definition = self._require_definition(workflow_id)
-            version = definition.active_version
+            # The stored active version: a deactivated workflow (0) starts no run.
+            version = stored_active_version(definition)
             if definition.is_onboarding or version is None:
                 raise WorkflowValidationError(
                     "WORKFLOW_NOT_STARTABLE", "Only an active non-onboarding workflow can start."
@@ -491,7 +577,10 @@ class WorkflowManagementService:
         stage_id: str,
         expected_revision: int,
     ) -> WorkflowRun:
-        with self._cases.case_lock(case_id):
+        stored = self._runs.get(run_id)
+        # An unsaved onboarding run has no stored record; onboarding is never deactivated.
+        gated = stored.workflow_id if stored is not None else ONBOARDING_WORKFLOW_ID
+        with self._gate.confirming(gated), self._cases.case_lock(case_id):
             actor = reauthorize()
             self._require_filler(actor)
             run = self._open_run(case_id, run_id, expected_revision)
