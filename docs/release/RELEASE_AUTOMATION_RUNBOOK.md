@@ -127,6 +127,21 @@ Exit code 0: `DEPLOYED_AWAITING_ACCEPTANCE` (or `DRY_RUN_OK`). Exit code 2: stop
 before any host contact; for `rollback` it can follow read-only host checks. Any other exit
 code, or a Python traceback: the run was interrupted; go to section 7.
 
+**ACRA lease (staging host).** While an ACRA lease is open the lease controller owns the
+backend. Close the lease before any backend release or rollback, and reopen it afterwards only
+through its own procedure ("Gated staging host" in `deploy/LIGHTSAIL_RUNTIME.md`).
+
+**This toolchain and the gated staging host.** The toolchain is not aware of the assistant
+gate or the ACRA lease:
+- It applies the assistant with `up --wait`, and stops and starts it directly.
+- Its assistant file set leaves out the OpenRouter and combined overlays.
+- It refuses `systemctl`.
+
+So **on the gated staging host, do not release or roll back the assistant with this
+toolchain, and do not use it for the backend while an ACRA lease is open.** Until the
+toolchain is updated (a separate change), the host operator follows "Gated staging host" in `deploy/LIGHTSAIL_RUNTIME.md` for
+those services. Frontend releases are unaffected.
+
 **Backend from `main` `50fac7c7` or later (ADR-017 P2-0 writer).** Before such a backend first
 starts against a store, the one-time P2-0 backfill must have been run against that store. Each
 step needs its own owner approval: the read-only inventory, then the dry run, then the apply in an
@@ -151,7 +166,7 @@ and changes nothing on the host.
 | Service | Automatic rollback | Manual / owner-requested | Stop conditions |
 |---|---|---|---|
 | frontend | Yes, when approved: stateless. `compose.env` restored, `dc up ... frontend` on the previous image, verified | `release.ps1 rollback --manifest ... --approval <rollback approval> --operator-config ... --execute` | Roll the frontend back first, or together with the backend: a new frontend with an older backend breaks the Dashboard |
-| assistant | Only if the manifest declares the stores compatible, from evidence. Default: **held** | Fastest safe action is `dca stop assistant` (every assistant route then returns the fixed 503). Pointing an older image at the volume needs a store-compatibility check first | Never remove the assistant data volume |
+| assistant | Only if the manifest declares the stores compatible, from evidence. Default: **held** | Fastest safe action is stopping the assistant: on the gated staging host only `systemctl stop clm-r22-assistant` (never a bare `dca stop` there; it drops the in-memory provider session keys), elsewhere `dca stop assistant` (every assistant route then returns the fixed 503). Pointing an older image at the volume needs a store-compatibility check first | Never remove the assistant data volume |
 | backend | Only with both schema versions equal, the target confirmed on the host, and owner consent. Default: **held**, ingress stopped | Owner decision after reading the target ledger state. Never a schema-19 build after a schema-20 backend has written | Exactly one backend writer. Never roll back blindly |
 | mongo, goldtier-egress, goldtier-dns | Never touched by the toolchain | Their own runbooks | A release naming them is refused |
 
@@ -223,7 +238,14 @@ Then the owner decides one of:
   If `applied` is empty and `ingress_stopped` is false, the tool refuses
   (`ROLLBACK_NOT_APPLICABLE`) even when a container
   was being recreated at the moment of the interrupt: check each container's image on the
-  host. Restore by hand following `deploy/LIGHTSAIL_RUNTIME.md` (copy the backup named in
+  host. On the gated staging host:
+  1. Copy the backup named in `env_backup` over `compose.env`.
+  2. Close any ACRA lease.
+  3. Restore each service as "Gated staging host" in `deploy/LIGHTSAIL_RUNTIME.md`
+     says: the frontend with `dc`; the backend with `dcg` (lease closed), never `dc`; the
+     assistant only through its gate, never `dca up`.
+
+  Elsewhere, restore by hand following `deploy/LIGHTSAIL_RUNTIME.md` (copy the backup named in
   `env_backup` over `compose.env`, then the service's own wrapper, `dc` for the frontend or
   backend (`dcg` for the backend when the GoldTier overlay is active), `dca` for the assistant:
   `up -d --no-build --no-deps --wait <service>`). `recover` does not apply to this record; it
@@ -280,13 +302,17 @@ back. `accept` refuses until the state is verified.
      are repeated and verified. If the rollback stops with "the container is not running its
      previous image" for a service that was never applied, someone started that service by
      hand on the release image: the host operator recreates it by hand on the previous image
+     (on the gated staging host, as "Gated staging host" in `deploy/LIGHTSAIL_RUNTIME.md` says: the backend with `dcg` and
+     the lease closed, never `dc`; the assistant only through its gate, never `dca up`)
      (the service's own wrapper from `deploy/LIGHTSAIL_RUNTIME.md`: `dc` for the frontend or
      backend (`dcg` for the backend when the GoldTier overlay is active), `dca` for the
      assistant; `up -d --no-build --no-deps --wait <service>`, with the
      line already changed back),
      then runs `recover`.
-   - **Recover by hand** following `deploy/LIGHTSAIL_RUNTIME.md` (start order: Mongo, backend,
-     assistant, frontend; never `down`, never a volume removal), then run `recover` again so
+   - **Recover by hand** following `deploy/LIGHTSAIL_RUNTIME.md`. The start order is Mongo,
+     backend, assistant, frontend; on the gated staging host it is the longer order in
+     "Gated staging host" in `deploy/LIGHTSAIL_RUNTIME.md`, with the lease closed first and reopened last. Never use `down`,
+     never remove a volume. Then run `recover` again so
      the record reflects what was verified.
 5. For a backend: before ingress is started again, the owner decides from the target ledger
    whether the backend that is about to serve is the right one. The tool cannot judge that.

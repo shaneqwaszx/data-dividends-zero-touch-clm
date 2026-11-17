@@ -35,6 +35,8 @@ Run `dc up -d --no-build --wait` after user provisioning. Verify only the approv
 
 For a bounded synthetic-demo backup, stop ingress and the backend before exporting so the database and target ledger are at one point in time. Use a protected host backup directory and a timestamped archive. With the scoped database account and password prompt, run:
 
+On the gated staging host, close any ACRA lease first (see "Gated staging host" below).
+
 ```sh
 dc stop frontend backend
 dc exec mongo mongodump --host localhost --ssl --sslCAFile /run/clm/mongo-ca.pem \
@@ -80,7 +82,9 @@ Do this after the reviewed files are on the host and before any other `dca` comm
 
 ### Assistant startup (owner approval A)
 
-Confirm with `dc ps` that the backend is healthy. With the OP-4 frontend still serving, run:
+Confirm with `dc ps` that the backend is healthy. With the OP-4 frontend still serving, run the
+following. This is the first install, before the assistant gate; on the gated staging host see
+"Gated staging host" below.
 
 ```sh
 dca up -d --no-build --no-deps --wait assistant
@@ -100,24 +104,89 @@ This is the only user-visible change. Run the load and acceptance checks afterwa
 
 ### R2.1 assistant update (separate owner approval)
 
+On the gated staging host, every assistant stop, start and recreate below follows "Gated staging
+host" instead.
+
 The RD-1 case gate limits the assistant to an exact owner-approved list of existing synthetic Mock ACRA cases created before a fixed UTC cutoff; every other case gets a 403 before anything is written. It is an assistant-only change: back up `compose.env`, add the two RD-1 values, set `ASSISTANT_IMAGE` to the reviewed R2.1 digest, install the reviewed overlay (keep the previous one), run `dca config --quiet`, then `dca up -d --no-build --no-deps --wait assistant`. The steps, acceptance and rollback are in `apps/assistant/deploy/RELEASE_HANDOFF.md`. Do not run an ACRA window that can create cases before R2.1 is accepted; if one must run, stop the assistant for the whole window.
 
 ### Operating alongside the CLM stack
 
 - Once the assistant is running, `dc` reports it as an orphan container. That is expected. Never pass `--remove-orphans` to `dc`, and never run `dc down` or `dca down`. Use `stop`.
-- For a controlled shutdown run `dc stop frontend`, then `dca stop assistant`, then `dc stop backend`, then `dc stop mongo`. Start in the reverse order: Mongo, the backend, `dca start assistant` after the backend is healthy (only if the assistant was approved and running), then the frontend. Docker restarts a running assistant after a host reboot (`unless-stopped`). A stopped assistant stays stopped.
+- **On the gated staging host, the next two items are superseded by "Gated staging host" below.** There the assistant is stopped and started only through its gate, Docker never restarts it, and any ACRA lease is closed first.
+- For a controlled shutdown run `dc stop frontend`, then `dca stop assistant`, then `dc stop backend`, then `dc stop mongo`. Start in the reverse order: Mongo, the backend, `dca start assistant` after the backend is healthy (only if the assistant was approved and running), then the frontend. Without the gate's provider overlay the restart policy is `unless-stopped`: Docker restarts a running assistant after a host reboot, and a stopped assistant stays stopped.
 - For the Mongo export above, run `dca stop assistant` before stopping the backend. Start the assistant again only after the backend is healthy.
 - The assistant's own backup, restore and acceptance steps are in `apps/assistant/deploy/RELEASE_HANDOFF.md` and also use `dca`.
 
 ### Rollback
 
-Each step keeps the OP-4 baseline and the assistant volume.
+Each step keeps the OP-4 baseline and the assistant volume. On the gated staging host, stop
+and recreate the assistant only as "Gated staging host" below says: never a bare `dca stop`,
+and never `dca rm -s -f` followed by a plain `up`.
 
 1. Fastest: `dca stop assistant`. Every assistant route returns the fixed 503, and onboarding is unaffected.
 2. Remove the route: set `FRONTEND_IMAGE` back to the OP-4 digest and run `dc up -d --no-build --no-deps --wait frontend`.
 3. Remove the container: `dca rm -s -f assistant`. Compose never removes an external volume. Never run `docker volume rm` on it or `down -v`. A newer image may have upgraded a store, so check compatibility before pointing an older image at the volume.
 
 The `ASSISTANT_*` values may stay in `compose.env`, because `dc` ignores them. The `dc()` helper is never changed.
+
+## Gated staging host: restarts with the assistant gate and the ACRA lease
+
+On the staging host, two controls change how services may be stopped, started and recreated.
+**This section governs wherever it differs from any other command in this file (above or below) or in other runbooks**, including the `dca` assistant operations named after the G3b cutover below.
+- The exact host wrapper definitions and lease controller commands are held by the host operator
+  (AWS lane), not in this repository.
+- Every host change needs the owner's dated written authorisation, given directly to that operator.
+
+**The assistant gate (R2.2, `apps/assistant/deploy/egress/README.md`).**
+- **Restart policy.** The assistant's restart policy is `no`. It is set by
+  `compose.assistant-provider.yml`, which overrides `unless-stopped` in `compose.assistant.yml`.
+  - Any assistant wrapper on this host must include the provider overlay, plus the OpenRouter
+    and combined (`compose.assistant-both.yml`) overlays where they are installed.
+  - The plain `dca()` above includes neither.
+- **Stop** only with `systemctl stop clm-r22-assistant`.
+- **Start** only with `systemctl restart clm-r22-assistant`. A `start` on the active oneshot gate
+  does nothing.
+- **Never** `dca stop`, `dca start`, `docker start`, or any `up` that starts the assistant.
+- **Recreate** with the assistant's host wrapper: `up -d --no-build --no-deps --no-start
+  --force-recreate assistant`, then `systemctl restart clm-r22-assistant`. Never use `rm -s -f`
+  followed by a plain `up`.
+- **Every stop drops the in-memory provider session keys,** and HR enters them again. Do not stop
+  the assistant for a backend restart.
+- **After a host reboot** the enabled gate unit starts the assistant. Docker does not.
+
+**The ACRA lease.**
+- **While a lease is open, the lease controller owns the backend** and adds the ACRA overlay.
+  While it is open, never stop, recreate, release or roll back the backend, and never recreate the
+  assistant. Any of these trips the lease watcher, which closes the lease, and the close's
+  container check can then fail.
+- **Close the lease first**, through the lease controller, before any of these:
+  - a backend stop, recreate, release, rollback or by-hand restore
+  - an assistant recreate
+  - a D-137 write window
+
+  Reopen it afterwards only through its own procedure. The close and the reopen each recreate the
+  backend, so its container id changes.
+- **With the lease closed**, restore the backend with either the lease controller's own backend
+  command (the base, Mongo, assistant and GoldTier egress files) or `dcg`. The host operator
+  verified on 2026-11-17 that both render an identical backend service, and that `dcgw`
+  matches the controller's command plus the write-window file.
+  - **Never use `dc`.** It lacks the GoldTier egress overlay.
+  - **Never pass `--remove-orphans`.** A `dcg` `up` reports the assistant as an orphan.
+  - **Re-verify the equivalence** (render the backend service with each file set) after any
+    change to a host compose file.
+- **D-137 GoldTier write windows and ACRA leases are mutually exclusive.** This is the
+  owner-approved operating rule of 2026-11-17. Close the lease before opening a window, and
+  reopen it only after the window has closed. No wrapper combines the write overlay with the
+  ACRA overlay.
+
+**Recover-by-hand start order:**
+1. Close the lease.
+2. Start Mongo.
+3. Start the GoldTier DNS and egress sidecars, then run the R3 firewall verifier.
+4. Start the backend, with the lease controller's backend command or `dcg`. Never use `dc`.
+5. Start the assistant through its gate. Its firewall and watch units must be active.
+6. Start the frontend, with `dc`.
+7. Reopen the lease last.
 
 ## Cost and release gate
 
@@ -163,7 +232,10 @@ secret. The overlay changes only the backend's four write values. No other servi
 port, volume or image changes.
 
 Preconditions: GoldTier mode is Sandbox (`CLM_GOLDTIER_CONNECTOR_MODE`), `verify_host_firewall.sh`
-passes, and every item D-137 lists before a window is met.
+passes, every item D-137 lists before a window is met, and **no ACRA lease is open**. No wrapper
+combines the write overlay with the ACRA overlay, so close the lease first and reopen it only
+after the window has closed ("Gated staging host" above). Write windows and ACRA leases are
+mutually exclusive: this is the owner-approved operating rule of 2026-11-17.
 
 - Open: confirm `grep -c '^CLM_GOLDTIER_WRITE_' /etc/clm/compose.env` prints `0` and the shell
   exports no `CLM_GOLDTIER_WRITE_*` variable. Then run `dcgw config --quiet` and
