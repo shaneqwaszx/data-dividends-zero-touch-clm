@@ -84,6 +84,8 @@ export interface ApprovalErrorView {
   reload: boolean;
   /** The server refused this Director for this proposal; offer no decision. */
   refused: boolean;
+  /** Nothing changed and the same decision can simply be tried again later (409 RUN_CONFIRMATION_IN_PROGRESS). */
+  retryLater: boolean;
   issues: ValidationIssue[];
 }
 
@@ -112,7 +114,14 @@ const APPROVAL_ERROR_MESSAGES: Partial<Record<GovernanceErrorCode | "WORKFLOW_CO
     "Approval was refused: a required step or field would be weakened. Nothing was changed.",
   WORKFLOW_PROPOSAL_INVALID: "Approval was refused: the proposal is no longer valid. Nothing was changed.",
   WORKFLOW_PROPOSAL_TOO_LARGE: "Approval was refused: the proposal is too large. Nothing was changed.",
+  WORKFLOW_RUN_CONFIRMATION_IN_PROGRESS:
+    "A case is confirming a required step on this workflow right now, so it can't be deactivated yet. Nothing was changed. Try again in a moment.",
+  WORKFLOW_PROPOSAL_KIND_NOT_AVAILABLE:
+    "That kind of proposal is not available for this workflow (for example, onboarding can't be deactivated). Nothing was changed.",
 };
+
+/** 409 codes that change nothing and are fixed by waiting, not by reloading. */
+const RETRY_LATER_CODES = new Set<string>(["WORKFLOW_RUN_CONFIRMATION_IN_PROGRESS"]);
 
 const RELOAD_CODES = new Set<string>([
   "WORKFLOW_PERMANENT_OBLIGATION_ACKNOWLEDGEMENT_REQUIRED",
@@ -136,7 +145,7 @@ function errorIssues(error: ApiError): ValidationIssue[] {
 
 export function approvalErrorView(error: unknown): ApprovalErrorView {
   if (!(error instanceof ApiError)) {
-    return { message: "That did not work. Nothing was changed. Please try again.", reload: false, refused: false, issues: [] };
+    return { message: "That did not work. Nothing was changed. Please try again.", reload: false, refused: false, retryLater: false, issues: [] };
   }
   const code = error.code ?? "";
   const known = APPROVAL_ERROR_MESSAGES[code as keyof typeof APPROVAL_ERROR_MESSAGES];
@@ -147,10 +156,12 @@ export function approvalErrorView(error: unknown): ApprovalErrorView {
       : error.status === 404
         ? "This proposal is not available."
         : error.message;
+  const retryLater = RETRY_LATER_CODES.has(code);
   return {
     message: known ?? fallback,
-    reload: RELOAD_CODES.has(code) || error.status === 409,
+    reload: RELOAD_CODES.has(code) || (error.status === 409 && !retryLater),
     refused: code === "WORKFLOW_SELF_DECISION_REFUSED" || error.status === 403,
+    retryLater,
     issues: errorIssues(error),
   };
 }

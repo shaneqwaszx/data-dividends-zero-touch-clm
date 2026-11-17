@@ -29,6 +29,7 @@ import {
   type ValidationIssue,
   type VersionProvenance,
 } from "../workflowGovernanceTypes";
+import { PROPOSAL_KIND_EXPLANATION, PROPOSAL_KIND_LABEL } from "../workflowRecoveryApi";
 import { formatTimestamp, noDecisionReason, versionLabel } from "./WorkflowApprovals";
 
 /** ADR-017 §1.4: the fixed note for versions activated before approval governance. */
@@ -123,9 +124,10 @@ export function ProvenanceView({ provenance }: { provenance: VersionProvenance |
       </dl>
     );
   }
+  // A single-actor emergency publication: never approved (ADR-017 §4).
   return (
     <dl aria-label={`Provenance of version ${provenance.version}`}>
-      <dt>Version</dt><dd>v{provenance.version} · <span className="tag tag-warn">Emergency fallback</span></dd>
+      <dt>Version</dt><dd>v{provenance.version} · <span className="tag tag-warn">Emergency fallback — not approved</span></dd>
       <dt>Activated by</dt><dd>{provenance.activated_by ?? "—"}</dd>
       <dt>Activated</dt><dd>{formatTimestamp(provenance.published_at)}</dd>
       {provenance.note && <><dt>Note</dt><dd>{provenance.note}</dd></>}
@@ -164,7 +166,7 @@ function ComparisonView({ comparison }: { comparison: ComparisonResponse }) {
           <p className="card-kicker">Compare and decide</p>
           <h1>{comparison.workflow_name} {comparison.is_onboarding && <span className="tag tag-accent">Onboarding</span>}</h1>
           <p className="text-muted">
-            Change · by {proposal.author_id ?? "—"} · submitted {formatTimestamp(proposal.submitted_at)}
+            <span data-testid="compare-kind">{PROPOSAL_KIND_LABEL[proposal.kind]}</span> · by {proposal.author_id ?? "—"} · submitted {formatTimestamp(proposal.submitted_at)}
           </p>
           {proposal.note && <p>Proposal note: {proposal.note}</p>}
           <p className="text-muted">
@@ -172,6 +174,8 @@ function ComparisonView({ comparison }: { comparison: ComparisonResponse }) {
           </p>
         </div>
       </div>
+
+      {proposal.kind !== "CHANGE" && <KindExplanation comparison={comparison} />}
 
       <section className="card" aria-labelledby="compare-active-provenance" style={{ marginBottom: 16 }}>
         <h2 id="compare-active-provenance">Active version</h2>
@@ -216,6 +220,28 @@ function ComparisonView({ comparison }: { comparison: ComparisonResponse }) {
   );
 }
 
+/** Plain explanation of a recovery proposal (M2, CC-4). */
+function KindExplanation({ comparison }: { comparison: ComparisonResponse }) {
+  const { kind } = comparison.proposal;
+  return (
+    <section className="card" aria-labelledby="compare-kind-explanation" data-testid="compare-kind-explanation" style={{ marginBottom: 16 }}>
+      <h2 id="compare-kind-explanation">What this proposal does: {PROPOSAL_KIND_LABEL[kind]}</h2>
+      <p>{PROPOSAL_KIND_EXPLANATION[kind]}</p>
+      {(kind === "RESTORE_VERSION" || kind === "RESET_TO_DEFAULT") && (
+        <p className="text-muted">The server computed this content; the HR author did not edit it. The changes below show exactly what would be published.</p>
+      )}
+      {kind === "DEACTIVATE" && (
+        <ul data-testid="deactivate-effects">
+          <li>Existing runs keep their frozen stages and stay completable: they can still be answered, confirmed and viewed.</li>
+          <li>New runs of this workflow are blocked until it is reactivated.</li>
+          <li>No run is changed, and the required baseline is kept.</li>
+          <li>If a case is confirming a required step at that moment, approval is refused and nothing changes; try again shortly.</li>
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function PublicationReportView({ report }: { report: PublicationReport }) {
   return (
     <dl aria-label="Publication report">
@@ -229,11 +255,15 @@ function PublicationReportView({ report }: { report: PublicationReport }) {
 
 export function DecisionResult({ result, onBack }: { result: DecisionResponse; onBack: () => void }) {
   const approved = result.proposal.state === "APPROVED";
+  const deactivated = approved && result.proposal.kind === "DEACTIVATE";
+  const heading = deactivated
+    ? "Approved · the workflow is deactivated: new runs are blocked and existing runs stay completable"
+    : approved ? `Approved · version ${result.published_version ?? result.active_version} is now active` : "Rejected · nothing was published";
   return (
     <section className="card" aria-labelledby="decision-result" role="status">
-      <h2 id="decision-result">{approved ? `Approved · version ${result.published_version ?? result.active_version} is now active` : "Rejected · nothing was published"}</h2>
+      <h2 id="decision-result">{heading}</h2>
       <p>Decided by {result.proposal.decided_by ?? "—"} at {formatTimestamp(result.proposal.decided_at)}. Reason: {result.proposal.decision_reason ?? "—"}</p>
-      {approved && (
+      {approved && !deactivated && (
         <>
           <h3>Provenance</h3>
           <ProvenanceView provenance={result.provenance} />
@@ -339,6 +369,7 @@ function DecisionForm({ comparison, actor, onDecided, onReload }: {
           <p>{failure.message}</p>
           {failure.issues.length > 0 && <IssueList issues={failure.issues} label="Refusal issues" />}
           {failure.reload && <button type="button" className="btn btn-secondary" onClick={onReload}>Reload comparison</button>}
+          {failure.retryLater && <p className="text-muted" style={{ margin: "6px 0 0" }}>Your reason is kept. You can try the same decision again.</p>}
         </div>
       )}
       {offerDecision && (
@@ -367,7 +398,7 @@ function DecisionForm({ comparison, actor, onDecided, onReload }: {
               aria-describedby={approveHints.length ? hintsId : undefined}
               onClick={() => decide.mutate("APPROVE")}
             >
-              Approve and publish
+              {comparison.proposal.kind === "DEACTIVATE" ? "Approve and deactivate" : "Approve and publish"}
             </button>
             <button type="button" className="btn btn-secondary" disabled={rejectDisabled} onClick={() => decide.mutate("REJECT")}>
               Reject
