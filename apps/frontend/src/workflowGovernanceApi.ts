@@ -98,7 +98,7 @@ export const GOVERNANCE_ERROR_MESSAGES: Record<GovernanceErrorCode, string> = {
   WORKFLOW_PROPOSAL_NOT_FOUND: "This proposal is no longer available. Use Reload to load the latest version.",
   WORKFLOW_PROPOSAL_STATE_INVALID: "This proposal can't be changed in its current state. Use Reload to load the latest version.",
   WORKFLOW_PROPOSAL_CONTENT_CHANGED: "The proposal changed after it was validated. Validate it again before submitting.",
-  WORKFLOW_PROPOSAL_KIND_NOT_AVAILABLE: "That kind of proposal is not available yet.",
+  WORKFLOW_PROPOSAL_KIND_NOT_AVAILABLE: "That kind of proposal is not available for this workflow (for example, onboarding can't be deactivated). Nothing was changed.",
   WORKFLOW_PROPOSAL_INVALID: "The proposal has problems to fix before it can continue.",
   WORKFLOW_PROPOSAL_EMPTY: "Add at least one step, each with at least one field, before this can continue.",
   WORKFLOW_REQUIRED_OBLIGATION_REMOVED: "A required step or field cannot be removed or made optional.",
@@ -108,9 +108,9 @@ export const GOVERNANCE_ERROR_MESSAGES: Record<GovernanceErrorCode, string> = {
   WORKFLOW_PROPOSAL_TOO_LARGE: "The proposal is too large. Remove some steps or fields and try again.",
   WORKFLOW_HISTORY_UNAVAILABLE: "Workflow history is unavailable right now. Nothing was changed.",
   WORKFLOW_GOVERNANCE_NOT_MIGRATED: "Workflow governance is not yet enabled on this server. Nothing was changed.",
-  WORKFLOW_DRAFT_NOT_RELEASABLE: "This draft can't be released yet.",
-  WORKFLOW_RUN_CONFIRMATION_IN_PROGRESS: "A case is being confirmed against this workflow. Try again in a moment.",
-  WORKFLOW_NOTICES_UNACKNOWLEDGED: "There are workflow notices to acknowledge first.",
+  WORKFLOW_DRAFT_NOT_RELEASABLE: "This draft can't be released: it was active in the last 14 days and its author's account is still active, or you are its author. Nothing was changed.",
+  WORKFLOW_RUN_CONFIRMATION_IN_PROGRESS: "A case is confirming a required step on this workflow right now. Nothing was changed. Try again in a moment.",
+  WORKFLOW_NOTICES_UNACKNOWLEDGED: "Too many workflow notices are waiting for HR to acknowledge them, so no emergency fallback can be published. Nothing was changed.",
   WORKFLOW_ROUTE_RETIRED: "That action has been retired. Changes now go through proposals and Director approval.",
 };
 

@@ -1,4 +1,7 @@
+import type { ReactNode } from "react";
+
 import { RATCHET_RULE_EXPLANATIONS, issuesByRule, type GovernanceRefusal } from "../../workflowGovernanceApi";
+import { PROPOSAL_KIND_EXPLANATION, PROPOSAL_KIND_LABEL, provenanceText } from "../../workflowRecoveryApi";
 import {
   PERMANENT_OBLIGATION_WARNING,
   type ProposalResponse,
@@ -52,11 +55,14 @@ export function ProposalStatus({ proposal }: { proposal: ProposalResponse }) {
   const who = proposal.author_id ? `by ${proposal.author_id}` : "with no recorded author";
   return (
     <div className="ds-banner" role="status" data-testid="proposal-status" style={{ marginBottom: 16 }}>
-      <strong>Open proposal · {PROPOSAL_STATE_TEXT[proposal.state]}</strong> · {who} · based on version {proposal.base_version}.{" "}
+      <strong>Open proposal · {PROPOSAL_STATE_TEXT[proposal.state]}</strong>
+      {proposal.kind !== "CHANGE" && <> · <span className="tag tag-accent" data-testid="proposal-kind">{PROPOSAL_KIND_LABEL[proposal.kind]}</span></>}
+      {" "}· {who} · based on version {proposal.base_version}.{" "}
       {proposal.state === "DRAFT" && (proposal.can_edit
         ? "Not visible to cases or the Director until you submit. One open proposal per workflow."
         : "Only its author can edit it.")}
       {proposal.state === "PENDING_APPROVAL" && "Its content is frozen for one Director decision. It can't be edited."}
+      {proposal.kind !== "CHANGE" && <p style={{ margin: "6px 0 0" }}>{PROPOSAL_KIND_EXPLANATION[proposal.kind]}</p>}
       {proposal.note && <p className="text-muted" style={{ margin: "6px 0 0" }}>{proposal.note}</p>}
     </div>
   );
@@ -117,23 +123,19 @@ export function SimulationResultPanel({ result }: { result: SimulationResult }) 
   );
 }
 
-function provenanceLine(item: VersionProvenance): string {
-  switch (item.origin) {
-    case "GOVERNED_APPROVAL":
-      return `Proposed by ${item.author_id ?? "unknown"} · approved by ${item.approved_by ?? "unknown"}`;
-    case "PRE_GOVERNANCE_DIRECTOR_ACTIVATION":
-      return `Pre-governance · activated by ${item.activated_by ?? "unknown"}`;
-    case "EMERGENCY_FALLBACK":
-      return `Emergency fallback${item.activated_by ? ` · by ${item.activated_by}` : ""}`;
-  }
-}
+const provenanceLine = provenanceText;
 
 /** Only governed approvals count as approved; legacy activations never do (ADR-017 §1.4). */
 export function approvedVersionCount(items: VersionProvenance[]): number {
   return items.filter(item => item.origin === "GOVERNED_APPROVAL" && item.approved_by !== null).length;
 }
 
-export function VersionHistoryList({ governance }: { governance: WorkflowGovernanceView }) {
+export function VersionHistoryList({ governance, actions, children }: {
+  governance: WorkflowGovernanceView;
+  /** M2: per-version actions (View, Propose restore); UI shaping only. */
+  actions?: (item: VersionProvenance) => ReactNode;
+  children?: ReactNode;
+}) {
   const items = [...governance.version_provenance].sort((a, b) => b.version - a.version);
   const approved = approvedVersionCount(items);
   return (
@@ -149,8 +151,13 @@ export function VersionHistoryList({ governance }: { governance: WorkflowGoverna
           {item.origin === "PRE_GOVERNANCE_DIRECTOR_ACTIVATION" && (
             <p className="text-muted" style={{ margin: "2px 0 0" }}>{item.note ?? LEGACY_PROVENANCE_NOTE}</p>
           )}
+          {item.origin === "EMERGENCY_FALLBACK" && item.note && (
+            <p className="text-muted" style={{ margin: "2px 0 0" }}>Note: {item.note}</p>
+          )}
+          {actions && <div className="case-header-actions" style={{ justifyContent: "flex-start", marginTop: 4 }}>{actions(item)}</div>}
         </li>
       ))}</ul>
+      {children}
     </section>
   );
 }

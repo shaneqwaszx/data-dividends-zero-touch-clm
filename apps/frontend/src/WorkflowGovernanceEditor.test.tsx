@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import registryLegalFormSource from "../../backend/app/domain/registry_legal_form.py?raw";
 import { ApiError, configureAuthenticatedTransport } from "./api";
@@ -150,7 +150,11 @@ function fakeServer(options: ServerOptions = {}) {
 }
 
 let root: Root | null = null;
+// M2 shows Release on another author's idle draft (14 days). Pin the clock a day after the fixtures'
+// last activity so these M1 tests never start offering it as real time passes.
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-18T09:30:00Z") }); });
 afterEach(() => {
+  vi.useRealTimers();
   act(() => root?.unmount());
   root = null;
   document.body.innerHTML = "";
@@ -374,7 +378,8 @@ describe("HR proposal authoring (ADR-017 P2-2)", () => {
   });
 });
 
-// The enabled controls each role had in the P2-2 editor, outside the C-5 placeholder.
+// The enabled controls each role had in the P2-2 editor, outside the C-5 placeholder, plus the M2
+// additions: View per version (both roles) and the Director-only emergency fallback entry point.
 const HR_DRAFT_SURFACE = [
   "3. Sanctions attestation", "Add field", "Add stage after Document verification", "Add stage after Ownership & UBO",
   "Add stage after Sanctions attestation", "Confirm stage", "Remove field", "Remove field", "Remove field", "Remove stage",
@@ -383,6 +388,7 @@ const HR_DRAFT_SURFACE = [
   "input:Required", "input:Required", "input:Required", "input:Stage name",
   "input:Try to fill from uploaded documents", "input:Try to fill from uploaded documents", "input:Try to fill from uploaded documents",
   "select:Field type", "select:Field type", "select:Field type", "select:Show after", "← Back to Workflows",
+  "View v1", "View v2",
 ].sort();
 const DIRECTOR_READ_ONLY_SURFACE = [
   "3. Sanctions attestation", "Close", "Remove field (disabled)", "Remove field (disabled)", "Remove field (disabled)",
@@ -392,6 +398,7 @@ const DIRECTOR_READ_ONLY_SURFACE = [
   "input:Try to fill from uploaded documents (disabled)", "input:Try to fill from uploaded documents (disabled)",
   "select:Field type (disabled)", "select:Field type (disabled)", "select:Field type (disabled)",
   "select:Show after (disabled)", "← Back to Workflows",
+  "View v1", "View v2", "Start emergency fallback",
 ].sort();
 
 describe("editor resilience and role shaping (QG P3)", () => {

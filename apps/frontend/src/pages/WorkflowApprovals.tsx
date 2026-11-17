@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { AuthenticatedProfile } from "../types";
 import { approvalErrorView, fetchApprovalInbox, workflowApprovalQueryKeys } from "../workflowApprovalsApi";
 import type { ApprovalInboxItem, ChangeCounts } from "../workflowGovernanceTypes";
+import { PROPOSAL_KIND_LABEL } from "../workflowRecoveryApi";
 
 export function formatTimestamp(value: string | null): string {
   if (!value) return "—";
@@ -46,6 +47,7 @@ function InboxRow({ item, actor, onOpen }: { item: ApprovalInboxItem; actor: Aut
       <td>
         <strong>{item.workflow_name}</strong>{" "}
         {item.is_onboarding && <span className="tag tag-accent">Onboarding</span>}
+        {item.proposal.kind !== "CHANGE" && <> <span className="tag tag-warn" data-testid="inbox-kind">{PROPOSAL_KIND_LABEL[item.proposal.kind]}</span></>}
         {item.proposal.note && <div className="text-muted">{item.proposal.note}</div>}
       </td>
       <td>{item.proposal.author_id ?? "—"}</td>
