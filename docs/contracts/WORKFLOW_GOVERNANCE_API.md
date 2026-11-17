@@ -67,6 +67,10 @@ with the generator; the contract tests fail on any drift.
   mixed-version access (a P2-0 process against a migrated store fails closed with
   `P2_1_CONTENT_NOT_SUPPORTED_BY_P2_0` and makes 0 provider calls), an interrupted migration
   (re-running is idempotent and the marker is written last), and an accidental old-writer start.
+- **Old-writer exclusion is partly operational (CC-2).** The P2-1 code refuses every legacy write
+  to a migrated document, and P2-0 startup refuses migrated documents. The deployed P2-0 release
+  itself cannot be changed, so the backend must be stopped for the whole migration window and no
+  P2-0 process may be started against a migrated store.
 
 ### 2.3 Empty workflows (owner condition, D-7)
 
@@ -162,3 +166,6 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
   `SimulationScenario.legal_form` must always be a `RegistryLegalForm` value. The frontend reads
   the fixtures through `apps/frontend/src/test-fixtures/workflowGovernance.ts` (static JSON
   imports), so the browser tsconfig needs no Node types. No model or route changed.
+- **CC-2 (2026-11-17, integrator).** Wording only. `PermanentObligationChange.TIGHTENED` also
+  covers a dropped `case_data_key` (ADR-017 §1.3 with §2 "absent once absent"; PR-2 QG P2-1).
+  §2.2 now states that old-writer exclusion is partly operational (PR-1 QG P2-2).

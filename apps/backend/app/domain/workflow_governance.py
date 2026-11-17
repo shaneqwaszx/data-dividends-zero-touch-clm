@@ -198,7 +198,8 @@ class DecisionOutcome(StrEnum):
 class PermanentObligationChange(StrEnum):
     NEW_REQUIRED_STAGE = "NEW_REQUIRED_STAGE"
     NEW_REQUIRED_FIELD = "NEW_REQUIRED_FIELD"
-    TIGHTENED = "TIGHTENED"  # optional -> required, or CHOICE options narrowed
+    # optional -> required, CHOICE options narrowed, or a case_data_key dropped (CC-2)
+    TIGHTENED = "TIGHTENED"
 
 
 class GovernanceEventKind(StrEnum):
