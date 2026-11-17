@@ -23,6 +23,8 @@ function noticeHeadline(item: NoticeItem): string {
   return `${what} on ${item.workflow_name}: version ${notice.version} by ${notice.raised_by} at ${when(notice.raised_at)}${approval}`;
 }
 
+const ACKNOWLEDGED = "Notice acknowledged.";
+
 export function WorkflowNoticesPanel({ actor, workflowId }: {
   actor: Pick<AuthenticatedProfile, "user_id" | "capabilities">;
   /** Only this workflow's notices; all workflows when omitted. */
@@ -44,7 +46,7 @@ export function WorkflowNoticesPanel({ actor, workflowId }: {
     retry: false,
     onMutate: () => setMessage(null),
     onSuccess: async () => {
-      setMessage("Notice acknowledged.");
+      setMessage(ACKNOWLEDGED);
       // The workflow list key prefixes the notices key, so this refreshes both.
       await queryClient.invalidateQueries({ queryKey: workflowQueryKeys.list(actor.user_id) });
     },
@@ -71,6 +73,15 @@ export function WorkflowNoticesPanel({ actor, workflowId }: {
   if (!query.data) return null;
   const items = query.data.items.filter(item => !workflowId || item.workflow_id === workflowId);
   if (items.length === 0 && !message) return null;
+  if (items.length === 0) {
+    // Nothing left to acknowledge: no alert banner, only a polite, dismissible status.
+    return (
+      <div className="ds-banner" role="status" data-testid="workflow-notices-cleared" style={{ marginBottom: 16 }}>
+        {message === ACKNOWLEDGED ? "All notices acknowledged." : message}{" "}
+        <button type="button" className="btn btn-ghost" onClick={() => setMessage(null)}>Dismiss</button>
+      </div>
+    );
+  }
   return (
     <section className="ds-banner ds-banner-warn" role="region" aria-labelledby="workflow-notices" data-testid="workflow-notices" style={{ marginBottom: 16 }}>
       <h2 id="workflow-notices" style={{ marginTop: 0 }}>Workflow notices ({items.length})</h2>

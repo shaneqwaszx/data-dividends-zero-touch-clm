@@ -617,8 +617,39 @@ describe("Notices (RD-6)", () => {
     expect(panel.textContent).toContain("Reason: Sanctions step blocked every case overnight");
     await click("Acknowledge");
     expect(api.mutations()).toEqual([{ method: "POST", url: "/api/workflows/notices/n-1/acknowledge", body: { workflow_id: WID, expected_workflow_revision: 7 } }]);
-    expect(host.textContent).toContain("Notice acknowledged.");
+    // The last notice is gone: no alert banner, only a polite dismissible status.
+    expect(section("workflow-notices")).toBeNull();
+    expect(host.querySelector(".ds-banner-warn")).toBeNull();
+    const cleared = section("workflow-notices-cleared")!;
+    expect(cleared.getAttribute("role")).toBe("status");
+    expect(cleared.className).not.toMatch(/warn|danger|critical/);
+    expect(cleared.textContent).toContain("All notices acknowledged.");
+    expect(host.textContent).not.toMatch(/Workflow notices \(0\)|published an emergency fallback/);
     expect(host.textContent).not.toContain("Reason: Sanctions step blocked");
+    await click("Dismiss", cleared);
+    expect(section("workflow-notices-cleared")).toBeNull();
+  });
+
+  it("renders nothing on a fresh load with zero notices", async () => {
+    server({ notices: [] });
+    await render(<WorkflowManager actor={hr} />);
+    expect(section("workflow-notices")).toBeNull();
+    expect(section("workflow-notices-cleared")).toBeNull();
+    expect(section("workflow-notices-error")).toBeNull();
+  });
+
+  it("keeps the remaining notice in the banner when one of two is acknowledged", async () => {
+    server({ notices: [item(), item({ notice: notice({ notice_id: "n-2", version: 4, reason: "Second emergency reason text" }) })] });
+    await render(<WorkflowManager actor={hr} />);
+    expect(section("workflow-notices")!.textContent).toContain("Workflow notices (2)");
+    await act(async () => { (section("workflow-notices")!.querySelector('[data-notice-id="n-1"] button') as HTMLButtonElement).click(); });
+    await settle();
+    const panel = section("workflow-notices")!;
+    expect(panel.textContent).toContain("Workflow notices (1)");
+    expect(panel.textContent).toContain("Second emergency reason text");
+    expect(panel.textContent).toContain("Notice acknowledged.");
+    expect(panel.querySelector('[data-notice-id="n-1"]')).toBeNull();
+    expect(section("workflow-notices-cleared")).toBeNull();
   });
 
   it("reloads the notices on 409", async () => {
