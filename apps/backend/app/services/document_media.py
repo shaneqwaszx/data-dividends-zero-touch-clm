@@ -1,11 +1,14 @@
 """Bounded media validation and local text extraction for supported POC documents."""
 
 import re
+import zlib
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import PurePosixPath
+from typing import NoReturn
 from unicodedata import category
 from xml.etree import ElementTree
+from xml.parsers import expat
 from zipfile import BadZipFile, ZipFile
 
 from app.connectors.idp import LocalDocumentProcessingError
@@ -41,6 +44,59 @@ _PROHIBITED_DOCX_PARTS = (
     "word/activex/",
 )
 _WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+# R3a (CVE-2026-115506, CPython-bundled expat 2.9.0): OOXML parts are UTF-8 or UTF-16 and never
+# carry a DTD, so every XML part is pre-parsed by expat itself and any DOCTYPE, entity or notation
+# declaration, external entity, or other declared encoding is refused before expansion can start.
+_DOCX_XML_MEMBER_SUFFIXES = (".xml", ".rels")
+_DOCX_XML_ENCODINGS = frozenset({"utf-8", "utf-16", "utf-16le", "utf-16be"})
+_DOCX_XML_INVALID_MESSAGE = "The DOCX document XML could not be validated safely."
+_DOCX_MACRO_MARKERS = ("macroenabled", "vbaproject")
+
+
+class _UnsafeDocxXml(Exception):
+    """Internal: a DOCX XML part declared a DTD, an entity or an unsupported encoding."""
+
+
+def _refuse_declaration(*_arguments: object) -> NoReturn:
+    raise _UnsafeDocxXml
+
+
+def _check_xml_declaration(_version: str, encoding: str | None, _standalone: int) -> None:
+    if encoding is not None and encoding.lower() not in _DOCX_XML_ENCODINGS:
+        raise _UnsafeDocxXml
+
+
+def _require_declaration_free_xml(data: bytes) -> None:
+    """Fail closed unless expat accepts ``data`` as well-formed XML with no DTD at all.
+
+    Expat decodes the bytes itself (BOM, XML declaration, UTF-16), so the refusal cannot be
+    bypassed by re-encoding; bytes it cannot decode or parse are refused as malformed.
+    """
+
+    parser = expat.ParserCreate()
+    parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    parser.XmlDeclHandler = _check_xml_declaration
+    parser.StartDoctypeDeclHandler = _refuse_declaration
+    parser.EntityDeclHandler = _refuse_declaration
+    parser.UnparsedEntityDeclHandler = _refuse_declaration
+    parser.NotationDeclHandler = _refuse_declaration
+    parser.ExternalEntityRefHandler = _refuse_declaration
+    try:
+        parser.Parse(data, True)
+    except (_UnsafeDocxXml, expat.ExpatError):
+        raise DocumentRequestError(
+            code="DOCUMENT_STRUCTURE_INVALID", message=_DOCX_XML_INVALID_MESSAGE
+        ) from None
+
+
+def _parse_docx_xml(data: bytes) -> ElementTree.Element:
+    _require_declaration_free_xml(data)
+    try:
+        return ElementTree.fromstring(data)
+    except ElementTree.ParseError:
+        raise DocumentRequestError(
+            code="DOCUMENT_STRUCTURE_INVALID", message=_DOCX_XML_INVALID_MESSAGE
+        ) from None
 
 
 @dataclass(frozen=True)
@@ -150,6 +206,12 @@ class DocumentMediaRouter:
                             code="DOCUMENT_STRUCTURE_INVALID",
                             message="The DOCX container exceeds the extraction limit.",
                         )
+                    if name in normalized_names:
+                        # A repeated name would let the checked part differ from the read one.
+                        raise DocumentRequestError(
+                            code="DOCUMENT_STRUCTURE_INVALID",
+                            message="The DOCX container is malformed or exceeds POC limits.",
+                        )
                     normalized_names.add(name)
                 required = {"[Content_Types].xml", "word/document.xml"}
                 if not required.issubset(normalized_names):
@@ -157,27 +219,34 @@ class DocumentMediaRouter:
                         code="DOCUMENT_STRUCTURE_INVALID",
                         message="The DOCX container is missing required OOXML parts.",
                     )
-                content_types = archive.read("[Content_Types].xml").lower()
-                if b"macroenabled" in content_types or b"vbaproject" in content_types:
-                    raise DocumentRequestError(
-                        code="DOCUMENT_STRUCTURE_INVALID",
-                        message="Macro-enabled documents are not supported.",
-                    )
+                # Every XML part, not only the two this service reads, must be DTD-free.
+                for info in infos:
+                    if info.filename.lower().endswith(_DOCX_XML_MEMBER_SUFFIXES):
+                        _require_declaration_free_xml(archive.read(info))
+                content_types = archive.read("[Content_Types].xml")
                 document_xml = archive.read("word/document.xml")
         except DocumentRequestError:
             raise
-        except (BadZipFile, KeyError, OSError, RuntimeError):
+        except (BadZipFile, KeyError, OSError, RuntimeError, EOFError, zlib.error):
             raise DocumentRequestError(
                 code="DOCUMENT_STRUCTURE_INVALID",
                 message="The DOCX container could not be validated safely.",
             ) from None
-        try:
-            root = ElementTree.fromstring(document_xml)
-        except ElementTree.ParseError:
+        types_root = _parse_docx_xml(content_types)
+        declared_types = [
+            value.lower() for node in types_root.iter() for value in node.attrib.values()
+        ]
+        raw_types = content_types.lower()
+        if any(
+            marker.encode("ascii") in raw_types or any(marker in value for value in declared_types)
+            for marker in _DOCX_MACRO_MARKERS
+        ):
+            # The decoded attribute check also holds for a UTF-16 [Content_Types].xml.
             raise DocumentRequestError(
                 code="DOCUMENT_STRUCTURE_INVALID",
-                message="The DOCX document XML could not be validated safely.",
-            ) from None
+                message="Macro-enabled documents are not supported.",
+            )
+        root = _parse_docx_xml(document_xml)
         values = [node.text for node in root.iter() if node.tag.endswith("}t") and node.text]
         text = "\n".join(values)
         if len(text) > _MAX_EXTRACTED_TEXT_CHARACTERS:
