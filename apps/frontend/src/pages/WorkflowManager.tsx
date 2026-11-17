@@ -184,7 +184,9 @@ export function WorkflowEditor({ workflow, workflows, userId, actor, onBack, onC
   const viewer = actor ?? { user_id: userId, capabilities: [] };
   const governance = workflow.governance?.migrated ? workflow.governance : null;
   const proposal = governance?.open_proposal ?? null;
-  const ownDraft = proposal !== null && proposal.state === "DRAFT" && proposal.can_edit;
+  // The backend sets can_edit false for fixed-content kinds but can_submit true for their author,
+  // so either flag marks the viewer's own draft (UI shaping only; the backend decides).
+  const ownDraft = proposal !== null && proposal.state === "DRAFT" && (proposal.can_edit || proposal.can_submit);
   // Restore, reset and deactivate carry backend-computed content: validate and submit only, never edit.
   const fixedDraft = ownDraft && fixedContentKind(proposal!.kind);
   const editable = ownDraft && !fixedDraft;

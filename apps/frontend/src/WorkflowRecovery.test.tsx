@@ -163,7 +163,9 @@ function server(options: Options = {}) {
     if (method === "POST" && suffix === "/proposals") {
       const kind = body!.kind as ProposalKind;
       const stages = kind === "DEACTIVATE" ? [] : kind === "RESTORE_VERSION" ? V1_STAGES : kind === "REACTIVATE" ? body!.stages as WorkflowStage[] : V2_STAGES;
-      open = proposal({ kind, stages, author_id: hr.user_id });
+      // Mirrors the backend: fixed-content kinds are not editable but their author may submit.
+      const computed = kind === "RESTORE_VERSION" || kind === "RESET_TO_DEFAULT" || kind === "DEACTIVATE";
+      open = proposal({ kind, stages, author_id: hr.user_id, can_edit: !computed, can_submit: true });
       revision += 1;
       return json(open, 201);
     }
