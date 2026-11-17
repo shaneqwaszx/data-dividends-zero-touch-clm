@@ -66,10 +66,12 @@ import GoldTierSandbox from "./pages/GoldTierSandbox";
 import AcraDiagnostics from "./pages/AcraDiagnostics";
 import AiModelManagement from "./pages/AiModelManagement";
 import WorkflowManager from "./pages/WorkflowManager";
+import WorkflowApprovals from "./pages/WorkflowApprovals";
+import WorkflowCompare from "./pages/WorkflowCompare";
 import WorkflowDesigner from "./pages/WorkflowDesigner";
 import WorkflowTab, { WorkflowCasesPage, WorkflowRunPage } from "./pages/WorkflowTab";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
-import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
+import { hasCapability, paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
 import {
   formatTimestamp,
   goldTierJourneyLabel,
@@ -1825,7 +1827,7 @@ export default function App({
   const location = useLocation();
   const routeCapability = requiredCapabilityForPath(location.pathname);
   const routeCanLoadWorkspace = routeCapability !== null
-    && actor.capabilities.includes(routeCapability);
+    && hasCapability(actor.capabilities, routeCapability);
   const profileQuery = useQuery({
     ...executionProfileQueryOptions(actor.user_id),
     enabled: routeCanLoadWorkspace,
@@ -2405,6 +2407,8 @@ export default function App({
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}
           aiModels={<AiModelManagement key={actor.user_id} actor={actor} />}
           workflows={<WorkflowManager key={actor.user_id} actor={actor} />}
+          workflowApprovals={<WorkflowApprovals key={actor.user_id} actor={actor} onOpen={(workflowId, proposalId) => navigate(paths.workflowCompare(workflowId, proposalId))} />}
+          workflowCompare={(workflowId, proposalId) => <WorkflowCompare key={`${actor.user_id}:${workflowId}:${proposalId}`} actor={actor} workflowId={workflowId} proposalId={proposalId} onBack={() => navigate(paths.workflowApprovals)} />}
           workflowTab={(workflowId) => <WorkflowTab key={workflowId} actor={actor} workflowId={workflowId} onOpenRun={(runId) => navigate(paths.workflowRun(workflowId, runId))} />}
           workflowCases={(workflowId) => <WorkflowCasesPage key={workflowId} actor={actor} workflowId={workflowId} onOpenRun={(runId) => navigate(paths.workflowRun(workflowId, runId))} />}
           workflowRun={(workflowId, runId) => <WorkflowRunPage key={runId} actor={actor} workflowId={workflowId} runId={runId} onBack={() => navigate(paths.workflowCases(workflowId))} />}
