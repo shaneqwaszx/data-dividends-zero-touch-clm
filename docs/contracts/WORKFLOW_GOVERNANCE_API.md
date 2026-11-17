@@ -169,3 +169,7 @@ codes) keep their meaning. Inaccessible items stay a safe `404`.
 - **CC-2 (2026-11-17, integrator).** Wording only. `PermanentObligationChange.TIGHTENED` also
   covers a dropped `case_data_key` (ADR-017 §1.3 with §2 "absent once absent"; PR-2 QG P2-1).
   §2.2 now states that old-writer exclusion is partly operational (PR-1 QG P2-2).
+- **CC-3 (2026-11-17, integrator).** Sequencing only. The backend retires both `POST …/activate`
+  and `PUT …/draft` in PR-3/PR-4, while the frontend stops calling `PUT …/draft` in PR-5. The two
+  are integrated together on `feat/workflow-governance-m1` and must never be merged or deployed
+  apart, so the route and its UI still retire together (PR-3/PR-4 QG P2).
