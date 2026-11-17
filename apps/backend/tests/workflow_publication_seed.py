@@ -1,12 +1,14 @@
-"""Test-only stand-in for governed publication while legacy activation is frozen (ADR-017).
+"""Test-only workflow publication helpers (ADR-017; no production caller).
 
-P2-0 freezes ``POST /api/workflows/{id}/activate`` (409 WORKFLOW_PUBLICATION_FROZEN) and
-governed publication arrives only in P2-1. Tests that need an active version publish it
-the way governed publication will: one write that appends version ``latest_version + 1``
-and sets ``active_version`` and ``latest_version`` to it. ``publish_draft`` writes only
-process-local (memory) repositories. ``publish_stored_draft_mongo`` writes only a freshly
-generated, allowlisted disposable test database (``scripts.mongo_test_safety``). Neither has
-a production caller.
+``publish_governed`` publishes through the real P2-1 path (HR proposes and submits, a
+Director approves) and is the helper for any test that later starts an application.
+
+``publish_draft`` is a raw test seed kept ONLY for service-level rebase tests that build a
+``WorkflowManagementService`` directly: it writes a memory repository's payload without
+provenance, baseline or history, so the P2-1 startup verification would refuse the result.
+It must never be used before ``create_app`` or any other startup verification.
+``publish_stored_draft_mongo`` writes only a freshly generated, allowlisted disposable test
+database (``scripts.mongo_test_safety``) and is kept for its safety-guard test.
 """
 
 from __future__ import annotations
@@ -64,7 +66,8 @@ def publish_draft(
     stages: tuple[WorkflowStage, ...] | None = None,
     now: datetime | None = None,
 ) -> Any:
-    """Publish the stored draft (or ``stages``) as the next governed version."""
+    """Raw test seed: append ``stages`` as version ``latest_version + 1``, bypassing
+    governance. Service-level rebase tests only; never before startup verification."""
 
     if not isinstance(definitions, InMemoryWorkflowDefinitionRepository):
         raise TypeError("test publication writes memory repositories only")
