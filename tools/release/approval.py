@@ -130,10 +130,19 @@ def create_approval(
         raise StopCondition(
             "APPROVAL_SERVICE_MISMATCH", "approve exactly the services the manifest changes"
         )
+    # T-1: a release whose source is an allow-listed release branch says so before approval.
+    source_info = manifest.get("source", {})
+    reason = source_info.get("base_reason", "INTEGRATION_BASELINE")
+    lineage = (
+        ""
+        if reason == "INTEGRATION_BASELINE"
+        else f"SOURCE IS NOT origin/main: release branch {source_info.get('base_ref')} ({reason}).\n"
+    )
     typed = confirm(
         f"Release {manifest['release_id']} ({manifest['risk_class']}) changes "
         f"{', '.join(sorted(services))}; actions: {', '.join(sorted(actions))}; "
         f"automatic rollback: {'yes' if auto_rollback else 'no'}.\n"
+        f"{lineage}"
         f"Window {format_utc(start)} to {format_utc(end)}.\n"
         f"Type the first 12 characters of the manifest hash to approve: "
     )
