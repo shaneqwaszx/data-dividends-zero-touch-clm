@@ -433,6 +433,25 @@ In the reverse migration:
   - `active_version: 0` (deactivation) cannot be expressed in the legacy shape, so a deactivated
     workflow blocks the reverse migration until the owner decides.
 
+**Roll-forward after a reverse migration (R4-3, P2-0 part).** Rolling forward again
+(re-deploying the reader, then the writer release) re-runs the P2-0 backfill only for documents
+that never held P2-1 content. Once P2-1 exists, every post-P2-0 correction and every roll-forward
+after a reverse migration must restore `required_baseline` from the cold archive, or refuse; the
+P2-0 tools refuse any document carrying P2-1 content (`P2_1_CONTENT_PRESENT`), so they can never
+empty a baseline.
+
+**P2-0 implementation notes (writer release, local candidate 2026-11-16).**
+- A dispatch with no active version records `version: 0` (D-136 E2: holds nothing), and D3
+  still guards it (`active_version: 0, latest_version: 0`, no version 1).
+- Fallback mode is used: **no confirming write** anywhere (CT-16's ordering inference is not
+  claimed), so an ambiguous D2, D4 or D5 stops before D6.
+- The lease condition is in the filter (`$expr` with `$$NOW`), demonstrated on the pinned image
+  (7.0.40, the staging digest), where an expired lease changes nothing. The pinned major version
+  is checked by the startup probe; another major refuses dispatch until re-verified.
+- Definition writers that do not change the payload (D3, the backfill) keep `revision`, because
+  legacy code compares the top-level revision with the payload revision. The backfill rotates
+  the nonce; D3 changes only `dispatch_authorisation_seq`.
+
 Both steps are reviewed under the persistence-schema change class. In both, a missing
 `write_nonce` is treated as a fresh nonce by the first writer, and a missing `workflow_dispatch`
 means no claim.
@@ -451,8 +470,13 @@ The case ledger entry gains `workflow_dispatch`:
 | State | Meaning |
 |---|---|
 | none | No claim |
-| `TENTATIVE {token, version, lease_until}` | A claim. **Not** permission to write |
-| `AUTHORISED {token, version, d3_at, lease_until}` | Permission **for the holder of `token`, until `lease_until`,** to record the first write attempt marker. It is the case-level dispatch evidence |
+| `TENTATIVE {token, version, lease_until, receipt}` | A claim. **Not** permission to write |
+| `AUTHORISED {token, version, d3_at, lease_until, receipt}` | Permission **for the holder of `token`, until `lease_until`,** to record the first write attempt marker. It is the case-level dispatch evidence |
+
+**Version 0 (P2-0, QG R1 N-1).** A claim may carry `version: 0` when the onboarding workflow
+has no active version. That still holds nothing (D-136 E2), and it is fenced exactly like any
+other version: D3 asserts `active_version: 0`, `latest_version: 0` and no stored version 1, so a
+first publication between D1 and D3 makes D3 match nothing and the dispatch is re-evaluated.
 
 **Leases (N-3):**
 - `lease_until` is at most **60 seconds** from the step that set it, measured in server time.
@@ -595,6 +619,16 @@ This is a deliberate fail-closed narrowing of D-136 E2, recorded in D-135.
   `DISPATCH_RECONFIRMATION_REQUIRED`.
 - After the new stage is confirmed, the operator re-confirms through the existing zero-touch
   confirmation route. Until then dispatch returns `409 WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED`.
+
+**Refusals on the zero-touch send (P2-0 implementation).** A fence refusal never ends
+automation:
+- `WORKFLOW_STAGE_CHECK_UNAVAILABLE` pauses the send (`RECOVERY_PENDING`), and the same
+  submission continues on explicit resume.
+- `WORKFLOW_STAGE_INCOMPLETE` and `WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED` return the case to
+  the target confirmation step at readiness, where it is re-confirmed through the zero-touch
+  route once the stage is confirmed.
+- Only `WORKFLOW_STAGE_INCOMPLETE` (a newly applicable requirement) supersedes a confirmation.
+  An unreadable check never does.
 
 **"Sent":**
 - A case is sent when it has a SHELL, POLICY or AMEND write attempt marker, a retained target

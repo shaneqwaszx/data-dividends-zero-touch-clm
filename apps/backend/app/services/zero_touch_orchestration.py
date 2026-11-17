@@ -156,6 +156,13 @@ class _CaseDocumentReader:
         return self._documents.get_document(case_id=self._case_id, document_id=document_id)
 
 
+# ADR-017 fence refusals: none of these attempted a GoldTier write.
+_FENCE_UNAVAILABLE_CODE = "WORKFLOW_STAGE_CHECK_UNAVAILABLE"
+_FENCE_RECONFIRMATION_CODES = frozenset(
+    {"WORKFLOW_STAGE_INCOMPLETE", "WORKFLOW_DISPATCH_RECONFIRMATION_REQUIRED"}
+)
+
+
 class ZeroTouchOrchestrator:
     """Advance deterministic stages and stop only at a safe explicit boundary."""
 
@@ -3948,9 +3955,41 @@ class ZeroTouchOrchestrator:
                         and record.status == AutomationStatus.RECOVERY_PENDING
                     ):
                         return record
-                    if exc.code == "CLM_TARGET_WRITES_DISABLED":
-                        # Refused before any attempt: pause, so the same submission can
-                        # continue once writes return. Never a failure of the case.
+                    if exc.code in _FENCE_RECONFIRMATION_CODES:
+                        # ADR-017 3.7 (QG R0 P2-1): the fence refused before any write
+                        # because a required stage is open or the confirmation was
+                        # superseded. Nothing was sent: return the case to the target
+                        # confirmation step, so the operator re-confirms through the
+                        # zero-touch route once the stage is confirmed.
+                        clm_current = self._clm.get(case_id=record.case_id)
+                        if clm_current is not None:
+                            reopened = record.model_copy(deep=True)
+                            # Readiness reopens: its confirmation is the next human step.
+                            completed: list[AutomationStage] = []
+                            for stage in reopened.completed_stages:
+                                if stage == AutomationStage.READINESS:
+                                    break
+                                completed.append(stage)
+                            reopened.completed_stages = tuple(completed)
+                            reopened.metrics.automated_stages_completed = len(completed)
+                            candidate = self._append_event(
+                                reopened,
+                                event_type=AutomationEventType.TARGET_OPERATION_RECOVERY_PENDING,
+                                outcome=EventOutcome.PARTIAL,
+                                code=exc.code,
+                                message=exc.public_message,
+                            )
+                            # One durable transition: the exception, the reopened stage
+                            # and the event are saved together by _add_exception.
+                            return self._raise_target_confirmation_exception(
+                                candidate, clm_current
+                            )
+                    if exc.code in {
+                        "CLM_TARGET_WRITES_DISABLED", _FENCE_UNAVAILABLE_CODE,
+                    }:
+                        # Refused before any attempt (writes disabled, or the ADR-017
+                        # fence's guarantees unavailable): pause, so the same submission
+                        # can continue on explicit resume. Never a failure of the case.
                         if record.status == AutomationStatus.RECOVERY_PENDING:
                             return record
                         candidate = record.model_copy(deep=True)

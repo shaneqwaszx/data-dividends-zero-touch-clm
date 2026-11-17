@@ -131,7 +131,14 @@ def _prove_stale_delete_conflict(
     stale_revision: int,
 ) -> None:
     with pytest.raises(PersistenceConflictError):
-        store.delete(case_id, expected_revision=stale_revision, expected_nonce=None)
+        # The current nonce with a stale revision: only the revision guard can refuse
+        # (QG R1 N-2), so this proves the revision half of the compare-and-set.
+        current = store.get(case_id)
+        store.delete(
+            case_id,
+            expected_revision=stale_revision,
+            expected_nonce=None if current is None else current.write_nonce,
+        )
 
 
 def test_real_mongo_projected_reads_and_completed_case_deletion_survive_restart(

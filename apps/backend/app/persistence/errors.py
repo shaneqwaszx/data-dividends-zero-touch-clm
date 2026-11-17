@@ -24,3 +24,8 @@ class PersistenceDataInvalidError(PersistenceError):
 class PersistenceSchemaUnsupportedError(PersistenceError):
     code = "PERSISTENCE_SCHEMA_UNSUPPORTED"
 
+
+class PersistenceOutcomeAmbiguousError(PersistenceError):
+    """ADR-017 section 3.1: a durable write's outcome is unknown; it is never "done"."""
+
+    code = "PERSISTENCE_OUTCOME_AMBIGUOUS"

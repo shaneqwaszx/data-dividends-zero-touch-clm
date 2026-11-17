@@ -18,7 +18,6 @@ from app.domain.models import OnboardingCase
 from app.domain.workflows import (
     MAX_ANSWER_LENGTH,
     MAX_WORKFLOW_AUDIT_EVENTS,
-    MAX_WORKFLOW_VERSIONS,
     ONBOARDING_ANCHOR_STAGES,
     ONBOARDING_USE_CASE,
     ONBOARDING_WORKFLOW_ID,
@@ -57,6 +56,10 @@ Reauthorize = Callable[[], AuthenticatedActor]
 
 class WorkflowForbiddenError(Exception):
     pass
+
+
+class WorkflowPublicationFrozenError(Exception):
+    """ADR-017 section 3.5: legacy activation is frozen; governed publication is P2-1."""
 
 
 class WorkflowNotFoundError(Exception):
@@ -127,7 +130,7 @@ class WorkflowManagementService:
     def list_workflows(self, actor: AuthenticatedActor) -> list[WorkflowDefinition]:
         self._require_director(actor)
         with self._lock:
-            self._baseline()
+            # A read never creates a definition (ADR-017 R1-2); provisioning is at startup.
             return self._definitions.list()
 
     def startable_workflows(self, actor: AuthenticatedActor) -> list[WorkflowDefinition]:
@@ -270,8 +273,6 @@ class WorkflowManagementService:
     def get_workflow(self, actor: AuthenticatedActor, workflow_id: str) -> WorkflowDefinition:
         self._require_director(actor)
         with self._lock:
-            if workflow_id == ONBOARDING_WORKFLOW_ID:
-                return self._baseline()
             return self._require_definition(workflow_id)
 
     def create_workflow(
@@ -331,32 +332,17 @@ class WorkflowManagementService:
     def activate(
         self, reauthorize: Reauthorize, workflow_id: str, *, expected_revision: int
     ) -> WorkflowDefinition:
+        """Frozen (ADR-017 P2-0 transition step 1); governed publication returns in P2-1.
+
+        The actor is still reauthorized so an unauthorized caller keeps its 403. Nothing is
+        read for writing and nothing is written.
+        """
+
+        del workflow_id, expected_revision
         with self._lock:
             actor = reauthorize()
             self._require_director(actor)
-            current = self._current_for_write(workflow_id, expected_revision)
-            self._validate_structure(current, current.draft_stages)
-            self._validate_activation(current)
-            if len(current.versions) >= MAX_WORKFLOW_VERSIONS:
-                raise WorkflowValidationError(
-                    "WORKFLOW_VERSION_LIMIT", "This workflow has reached its version limit."
-                )
-            now = self._clock()
-            number = len(current.versions) + 1
-            version = WorkflowVersion(
-                version=number,
-                stages=current.draft_stages,
-                activated_at=now,
-                activated_by=actor.profile.user_id,
-            )
-            return self._update(
-                current,
-                actor,
-                now,
-                "ACTIVATED",
-                f"Activated v{number} with {len(version.stages)} stages",
-                versions=(*current.versions, version),
-            )
+            raise WorkflowPublicationFrozenError
 
     def start_run(
         self, reauthorize: Reauthorize, workflow_id: str, *, case_id: UUID
@@ -464,10 +450,10 @@ class WorkflowManagementService:
     def active_onboarding_stages(self) -> ActiveOnboardingStages:
         """Read the active onboarding version for display, never creating anything.
 
-        It reads the definition directly instead of `_baseline()`, which inserts the
-        onboarding definition on first use. An empty store, or a definition with no
-        active version, is "no active workflow"; any read or decode failure is
-        "unavailable", which the send check treats as a refusal (D-136 E2).
+        It reads the stored definition and never creates one (ADR-017 R1-2; provisioning is
+        at startup). A definition with no active version is "no active workflow". A missing
+        onboarding definition document is "unavailable" (ADR-017 3.6, the D-136 E2
+        amendment), as is any read or decode failure; the send check refuses on both.
         """
 
         try:
@@ -475,7 +461,9 @@ class WorkflowManagementService:
         except Exception:
             LOGGER.warning("workflow store unavailable for the execution plan")
             return ActiveOnboardingStages(state="UNAVAILABLE", version=None, stages=())
-        version = definition.active_version if definition is not None else None
+        if definition is None:
+            return ActiveOnboardingStages(state="UNAVAILABLE", version=None, stages=())
+        version = definition.active_version
         if version is None:
             return ActiveOnboardingStages(state="NO_ACTIVE_WORKFLOW", version=None, stages=())
         return ActiveOnboardingStages(
@@ -765,27 +753,34 @@ class WorkflowManagementService:
             updated_at=case.created_at,
         )
 
-    def _baseline(self) -> WorkflowDefinition:
-        current = self._definitions.get(ONBOARDING_WORKFLOW_ID)
-        if current is not None:
-            return current
-        now = self._clock()
-        try:
-            return self._definitions.create(
-                WorkflowDefinition(
-                    workflow_id=ONBOARDING_WORKFLOW_ID,
-                    name="Corporate onboarding",
-                    use_case=ONBOARDING_USE_CASE,
-                    country="Singapore",
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-        except PersistenceConflictError:
+    def provision_onboarding(self) -> WorkflowDefinition:
+        """Startup provisioning (ADR-017 3.5): idempotent, insert-only, never on a read.
+
+        A new document carries ``active_version: 0`` (no active version) under the
+        durable write rule; an existing document is returned unchanged.
+        """
+
+        with self._lock:
             current = self._definitions.get(ONBOARDING_WORKFLOW_ID)
-            if current is None:
-                raise WorkflowConflictError from None
-            return current
+            if current is not None:
+                return current
+            now = self._clock()
+            try:
+                return self._definitions.create(
+                    WorkflowDefinition(
+                        workflow_id=ONBOARDING_WORKFLOW_ID,
+                        name="Corporate onboarding",
+                        use_case=ONBOARDING_USE_CASE,
+                        country="Singapore",
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            except PersistenceConflictError:
+                current = self._definitions.get(ONBOARDING_WORKFLOW_ID)
+                if current is None:
+                    raise WorkflowConflictError from None
+                return current
 
     def _require_definition(self, workflow_id: str) -> WorkflowDefinition:
         definition = self._definitions.get(workflow_id)
@@ -794,11 +789,7 @@ class WorkflowManagementService:
         return definition
 
     def _current_for_write(self, workflow_id: str, expected_revision: int) -> WorkflowDefinition:
-        current = (
-            self._baseline()
-            if workflow_id == ONBOARDING_WORKFLOW_ID
-            else self._require_definition(workflow_id)
-        )
+        current = self._require_definition(workflow_id)
         if current.revision != expected_revision:
             raise WorkflowConflictError
         return current

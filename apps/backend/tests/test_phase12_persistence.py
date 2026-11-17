@@ -71,6 +71,7 @@ from app.main import create_app
 from app.persistence.composition import build_persistence_bundle
 from app.persistence.errors import (
     PersistenceConfigurationError,
+    PersistenceConflictError,
     PersistenceDataInvalidError,
     PersistenceSchemaUnsupportedError,
 )
@@ -94,6 +95,7 @@ from app.services.onboarding_intelligence_repository import (
     InMemoryOnboardingIntelligenceRepository,
     OnboardingIntelligenceRepositoryConflictError,
 )
+from app.services.target_execution_repository import InMemoryTargetExecutionRepository
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
 
@@ -201,6 +203,7 @@ class MemoryEnvelopeStore:
         *,
         expected_revision: int,
         expected_nonce: str | None,
+        predicate: dict | None = None,
     ) -> DurableCaseSnapshot:
         current = self.records.get(snapshot.case_id)
         if (
@@ -209,11 +212,33 @@ class MemoryEnvelopeStore:
             or current.write_nonce != expected_nonce
         ):
             raise AssertionError("stale envelope")
+        if predicate is not None:
+            match = predicate["target_executions"]["$elemMatch"]
+            if not any(
+                str(entry.submission_input.submission_id)
+                == match["submission_input.submission_id"]
+                and entry.state.value == match["state"]
+                and [item.value for item in entry.attempted_operations]
+                == match["attempted_operations"]
+                for entry in current.target_executions
+            ):
+                raise PersistenceConflictError
         persisted = snapshot.model_copy(
             update={"revision": expected_revision + 1, "write_nonce": uuid4().hex}, deep=True
         )
         self.records[snapshot.case_id] = persisted
         return persisted.model_copy(deep=True)
+
+    # ADR-017 writer release: the fence ledger, emulated over the same records with the
+    # production predicates and the production codec (post-images are encoded documents).
+    def probe_durability(self) -> tuple[bool, str | None]:
+        return True, None
+
+    def fence_ledger(self) -> "_EnvelopeFenceLedger":
+        return _EnvelopeFenceLedger(self)
+
+    def decode_raw(self, raw: dict) -> DurableCaseSnapshot:
+        return object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
     def find_by_submission(self, submission_id: object) -> DurableCaseSnapshot | None:
         for snapshot in self.records.values():
@@ -229,6 +254,52 @@ class MemoryEnvelopeStore:
             if any(item.document_id == document_id for item in snapshot.documents):
                 return snapshot.model_copy(deep=True)
         return None
+
+
+class _EnvelopeFenceLedger:
+    """Applies a fence step only when the planned revision and nonce still match."""
+
+    def __init__(self, store: "MemoryEnvelopeStore") -> None:
+        self._store = store
+
+    def _apply(self, case_id, revision, nonce, submission_id, step):
+        current = self._store.records.get(case_id)
+        if current is None or current.revision != revision or current.write_nonce != nonce:
+            return None
+        memory = InMemoryTargetExecutionRepository()
+        for entry in current.target_executions:
+            memory._entries[entry.submission_input.submission_id] = entry  # noqa: SLF001
+        if step(memory) is None:
+            return None
+        updated = current.model_copy(
+            update={
+                "target_executions": tuple(
+                    memory._entries[entry.submission_input.submission_id]  # noqa: SLF001
+                    for entry in current.target_executions
+                ),
+                "revision": revision + 1,
+                "write_nonce": uuid4().hex,
+            },
+            deep=True,
+        )
+        self._store.records[case_id] = updated
+        return object.__new__(MongoCaseStore)._encode(updated)  # noqa: SLF001
+
+    def claim(self, *, case_id, revision, nonce, submission_id, token, version):
+        return self._apply(case_id, revision, nonce, submission_id,
+                           lambda m: m.fence_claim(submission_id, token=token, version=version))
+
+    def authorise(self, *, case_id, revision, nonce, submission_id, token, version):
+        return self._apply(
+            case_id, revision, nonce, submission_id,
+            lambda m: m.fence_authorise(submission_id, token=token, version=version),
+        )
+
+    def first_write(self, *, case_id, revision, nonce, submission_id, token, operation):
+        return self._apply(
+            case_id, revision, nonce, submission_id,
+            lambda m: m.fence_first_write(submission_id, token=token, operation=operation),
+        )
 
 
 def _pending_automation_record(

@@ -308,6 +308,15 @@ def _filter_keys(node: ast.AST) -> tuple[set[str], set[str]]:
     return keys, unpacked
 
 
+def _d3_exemption(method: ast.FunctionDef, call: ast.Call) -> bool:
+    """ADR-017 3.2: D3 is the one writer without revision/nonce. It may modify only
+    ``dispatch_authorisation_seq`` (never the payload, revision or nonce)."""
+
+    if method.name != "authorise_dispatch" or len(call.args) < 2:
+        return False
+    return ast.unparse(call.args[1]) == "{'$inc': {'dispatch_authorisation_seq': 1}}"
+
+
 def test_every_case_and_definition_writer_filters_revision_and_nonce() -> None:
     offences: list[str] = []
     for module in _GUARDED_MODULES:
@@ -315,6 +324,15 @@ def test_every_case_and_definition_writer_filters_revision_and_nonce() -> None:
         for cls in (item for item in tree.body if isinstance(item, ast.ClassDef)):
             if cls.name in _UNGUARDED_CLASSES:
                 continue
+            for method in (node for node in cls.body if isinstance(node, ast.FunctionDef)):
+                for call in (node for node in ast.walk(method) if isinstance(node, ast.Call)):
+                    func = call.func
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr in _COLLECTION_WRITES
+                        and _d3_exemption(method, call)
+                    ):
+                        call.func = ast.Name(id="_exempt_d3")  # checked, then skipped
             for call in (node for node in ast.walk(cls) if isinstance(node, ast.Call)):
                 func = call.func
                 if not isinstance(func, ast.Attribute) or func.attr not in _COLLECTION_WRITES:
@@ -327,6 +345,49 @@ def test_every_case_and_definition_writer_filters_revision_and_nonce() -> None:
                 if func.attr in {"update_many", "delete_many", "replace_many"}:
                     offences.append(f"{module.name}:{call.lineno} multi-document write")
     assert offences == []
+
+
+def test_every_fence_write_filters_revision_and_nonce() -> None:
+    """Writer release: every fence query starts from ``_base_filter`` (revision + nonce),
+    and ``_step`` is the only collection write in the fence ledger."""
+
+    from app.persistence.fence_store import _base_filter
+
+    assert _base_filter(uuid4_value(), 4, None) == {
+        "_id": str(uuid4_value()), "revision": 4, "write_nonce": {"$exists": False}
+    }
+    tree = ast.parse((BACKEND / "app/persistence/fence_store.py").read_text(encoding="utf-8"))
+    ledger = next(
+        item for item in tree.body
+        if isinstance(item, ast.ClassDef) and item.name == "MongoFenceLedger"
+    )
+    writers = [
+        method.name for method in ledger.body if isinstance(method, ast.FunctionDef)
+        for call in ast.walk(method)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+        and call.func.attr in _COLLECTION_WRITES
+    ]
+    assert writers == ["_step"]
+    for method in (item for item in ledger.body if isinstance(item, ast.FunctionDef)):
+        queries = [
+            node.value for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "query" for t in node.targets)
+        ]
+        for query in queries:
+            _, unpacked = _filter_keys(query)
+            assert "_base_filter" in unpacked, method.name
+        if method.name in {"claim", "authorise", "first_write", "clear_unattempted_claim"}:
+            assert queries, method.name
+
+
+_FIXED_UUID = "00000000-0000-4000-8000-000000000001"
+
+
+def uuid4_value() -> Any:
+    from uuid import UUID
+
+    return UUID(_FIXED_UUID)
 
 
 def test_every_store_write_call_passes_the_nonce_it_read() -> None:
@@ -394,9 +455,17 @@ def test_memory_ledger_refuses_to_rewrite_a_claim() -> None:
     repository.create(entry)
     stripped = entry.model_copy(update={"workflow_dispatch": None})
     with pytest.raises(TargetExecutionRepositoryConflictError):
-        repository.replace(stripped, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value)
+        repository.replace(
+            stripped,
+            expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+            expected_attempted=entry.attempted_operations,
+        )
     kept = entry.model_copy(update={"shell_status": "REQUESTED"})
-    repository.replace(kept, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value)
+    repository.replace(
+            kept,
+            expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+            expected_attempted=entry.attempted_operations,
+        )
     stored = repository.get(entry.submission_input.submission_id)
     assert stored is not None and stored.workflow_dispatch == entry.workflow_dispatch
 
