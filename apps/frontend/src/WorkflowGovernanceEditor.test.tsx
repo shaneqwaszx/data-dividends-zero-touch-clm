@@ -56,6 +56,7 @@ const director: AuthenticatedProfile = {
 };
 
 const ACTIVE_STAGES: WorkflowStage[] = DRAFT.stages;
+const CONFLICT_TEXT = "Someone else changed this workflow. Nothing was changed. Use Reload";
 
 interface Call { method: string; url: string; body: unknown }
 interface ServerOptions {
@@ -64,6 +65,8 @@ interface ServerOptions {
   canCreate?: boolean;
   validation?: ValidationReport;
   submitError?: { status: number; name: string };
+  /** The next proposal update is refused with 409 WORKFLOW_CONFLICT because someone else moved the revision. */
+  putConflictOnce?: boolean;
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -73,6 +76,7 @@ function fakeServer(options: ServerOptions = {}) {
   let revision = 4;
   let proposal: ProposalResponse | null = options.proposal ?? null;
   const calls: Call[] = [];
+  const control = { failDetail: false, putConflict: options.putConflictOnce ?? false };
   const workflow = (): WorkflowDetail => ({
     workflow_id: WID, name: "Corporate onboarding", use_case: "Onboarding", country: "Singapore",
     case_source: "EXISTING_CASE", revision, is_onboarding: true, status: "ACTIVE", active_version: 2,
@@ -95,13 +99,21 @@ function fakeServer(options: ServerOptions = {}) {
     const base = `/api/workflows/${WID}`;
     if (method === "GET" && url === "/api/workflows") return json([workflow()]);
     if (method === "GET" && url === "/api/workflows/simulation-scenarios") return json(fixture("simulation_scenarios.json"));
-    if (method === "GET" && url === base) return json(workflow());
+    if (method === "GET" && url === base) {
+      if (control.failDetail) return json({ detail: fixture("error_history_unavailable.json") }, 503);
+      return json(workflow());
+    }
     if (method === "POST" && url === `${base}/proposals`) {
       proposal = { ...DRAFT, revision: 1, stages: ACTIVE_STAGES, note: (body?.note as string | undefined) ?? null };
       revision += 1;
       return json(proposal, 201);
     }
     if (method === "PUT" && url === `${base}/proposals/${PID}`) {
+      if (control.putConflict) {
+        control.putConflict = false;
+        revision += 1;
+        return json({ detail: { code: "WORKFLOW_CONFLICT", message: "Conflict." } }, 409);
+      }
       proposal = { ...proposal!, stages: body!.stages as WorkflowStage[], revision: proposal!.revision + 1 };
       revision += 1;
       return json(proposal);
@@ -123,7 +135,7 @@ function fakeServer(options: ServerOptions = {}) {
     return json({ detail: { code: "WORKFLOW_NOT_FOUND", message: "Not found." } }, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { calls, mutations: () => calls.filter(call => call.method !== "GET") };
+  return { calls, control, mutations: () => calls.filter(call => call.method !== "GET") };
 }
 
 let root: Root | null = null;
@@ -351,6 +363,86 @@ describe("HR proposal authoring (ADR-017 P2-2)", () => {
   });
 });
 
+// The enabled controls each role had in the P2-2 editor, outside the C-5 placeholder.
+const HR_DRAFT_SURFACE = [
+  "3. Sanctions attestation", "Add field", "Add stage after Document verification", "Add stage after Ownership & UBO",
+  "Add stage after Sanctions attestation", "Confirm stage", "Remove field", "Remove field", "Remove field", "Remove stage",
+  "Save changes (disabled)", "Simulate", "Submit for approval (disabled)", "Validate", "Withdraw",
+  "input:Field name", "input:Field name", "input:Field name", "input:Options, separated by commas",
+  "input:Required", "input:Required", "input:Required", "input:Stage name",
+  "input:Try to fill from uploaded documents", "input:Try to fill from uploaded documents", "input:Try to fill from uploaded documents",
+  "select:Field type", "select:Field type", "select:Field type", "select:Show after", "← Back to Workflows",
+].sort();
+const DIRECTOR_READ_ONLY_SURFACE = [
+  "3. Sanctions attestation", "Close", "Remove field (disabled)", "Remove field (disabled)", "Remove field (disabled)",
+  "input:Field name (disabled)", "input:Field name (disabled)", "input:Field name (disabled)",
+  "input:Options, separated by commas (disabled)", "input:Required (disabled)", "input:Required (disabled)",
+  "input:Required (disabled)", "input:Stage name (disabled)", "input:Try to fill from uploaded documents (disabled)",
+  "input:Try to fill from uploaded documents (disabled)", "input:Try to fill from uploaded documents (disabled)",
+  "select:Field type (disabled)", "select:Field type (disabled)", "select:Field type (disabled)",
+  "select:Show after (disabled)", "← Back to Workflows",
+].sort();
+
+describe("editor resilience and role shaping (QG P3)", () => {
+  it("keeps the editor and unsaved edits when a background refetch fails", async () => {
+    const server = fakeServer({ proposal: DRAFT, putConflictOnce: true });
+    const host = await openEditor();
+    type(stageNameInput(host), "Unsaved edit");
+    await click(host, "Save changes");
+    expect(host.querySelector('[data-testid="governance-refusal"]')?.textContent).toContain(CONFLICT_TEXT);
+    server.control.failDetail = true;
+    await click(host, "Reload");
+    expect(host.querySelector('[data-testid="workflow-refresh-error"]')?.textContent).toContain("unsaved changes, is kept");
+    expect(stageNameInput(host).value).toBe("Unsaved edit");
+    expect(host.textContent).toContain("Unsaved changes");
+    expect(buttonTexts(host)).toContain("Save changes");
+  });
+
+  it("offers Reload after a conflict, refetches the workflow and clears the stale validation", async () => {
+    const server = fakeServer({ proposal: DRAFT, putConflictOnce: true });
+    const host = await openEditor();
+    await click(host, "Validate");
+    expect(host.querySelector('[data-testid="validation-report"]')).not.toBeNull();
+    type(stageNameInput(host), "Edited");
+    await click(host, "Save changes");
+    expect(host.querySelector('[data-testid="governance-refusal"]')?.textContent).toContain(CONFLICT_TEXT);
+    const detailReads = () => server.calls.filter(call => call.method === "GET" && call.url === `/api/workflows/${WID}`).length;
+    const before = detailReads();
+    await click(host, "Reload");
+    expect(detailReads()).toBe(before + 1);
+    expect(host.querySelector('[data-testid="governance-refusal"]')).toBeNull();
+    expect(host.querySelector('[data-testid="validation-report"]')).toBeNull();
+    expect(stageNameInput(host).value).toBe("Edited");
+    await click(host, "Save changes");
+    expect(server.mutations().at(-1)?.body).toMatchObject({ expected_workflow_revision: 5, expected_proposal_revision: 3 });
+    expect(button(host, "Submit for approval").disabled).toBe(true);
+  });
+
+  it("shows New workflow only to holders of POLICY_MUTATE", async () => {
+    fakeServer();
+    for (const [actor, visible] of [[hr, true], [director, false]] as const) {
+      const host = document.createElement("div");
+      document.body.append(host);
+      root = createRoot(host);
+      act(() => root!.render(<QueryClientProvider client={new QueryClient()}><WorkflowManager actor={actor} /></QueryClientProvider>));
+      await settle();
+      expect(buttonTexts(host).includes("New workflow")).toBe(visible);
+      act(() => root?.unmount());
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("links the Simulate toggle to the panel it controls", async () => {
+    fakeServer({ proposal: DRAFT });
+    const host = await openEditor();
+    const toggle = button(host, "Simulate");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await click(host, "Simulate");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)?.getAttribute("data-testid")).toBe("simulation-panel");
+  });
+});
+
 describe("governance error messages", () => {
   it("maps every frozen governance code to an HR-facing message", () => {
     for (const code of GOVERNANCE_ERROR_CODES) {
@@ -438,19 +530,33 @@ describe("C-5 entity applicability placeholder (frontend-only, not functional)",
   });
 
   // (5) Role behaviour is unchanged: HR authors and Directors see the same disabled placeholder.
-  it("shows HR and Directors the same disabled placeholder without changing their actions", async () => {
+  it("shows HR and Directors the same disabled placeholder and leaves each role's authoring controls as they were", async () => {
+    // Every visible control outside the placeholder, with its enabled state: what each role can do on the page.
+    const surface = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>("button, input, select")]
+      .filter(item => !item.closest('[data-testid^="entity-"]'))
+      .map(item => {
+        const name = item.getAttribute("aria-label")
+          ?? (item.tagName === "BUTTON" ? item.textContent?.trim() : `${item.tagName.toLowerCase()}:${[...(item.closest("label")?.childNodes ?? [])].find(child => child.nodeType === Node.TEXT_NODE && child.textContent?.trim())?.textContent?.trim() ?? ""}`);
+        return `${name}${item.matches(":disabled") ? " (disabled)" : ""}`;
+      })
+      .sort();
+    const placeholder = (host: HTMLElement) => [...host.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+      '[data-testid^="entity-"] input, [data-testid^="entity-"] select, [data-testid^="entity-"] button',
+    )].map(item => [item.disabled, item.getAttribute("aria-disabled")]);
+
     fakeServer({ proposal: DRAFT });
     const hrHost = await openEditor(hr);
-    const hrRadios = [...hrHost.querySelectorAll<HTMLInputElement>('[data-testid="entity-applicability-placeholder"] input')].map(item => item.disabled);
-    expect(buttonTexts(hrHost)).toEqual(expect.arrayContaining(["Save changes", "Validate", "Submit for approval"]));
+    expect(surface(hrHost)).toEqual(HR_DRAFT_SURFACE);
+    const hrPlaceholder = placeholder(hrHost);
     act(() => root?.unmount());
     document.body.innerHTML = "";
 
     fakeServer({ proposal: { ...DRAFT, can_edit: false, can_submit: false, can_withdraw: false }, canCreate: false });
     const directorHost = await openEditor(director);
-    const directorRadios = [...directorHost.querySelectorAll<HTMLInputElement>('[data-testid="entity-applicability-placeholder"] input')].map(item => item.disabled);
-    expect(directorRadios).toEqual(hrRadios);
-    for (const label of ["Save changes", "Validate", "Submit for approval", "Withdraw"]) expect(buttonTexts(directorHost)).not.toContain(label);
+    expect(surface(directorHost)).toEqual(DIRECTOR_READ_ONLY_SURFACE);
+    expect(placeholder(directorHost)).toEqual(hrPlaceholder);
+    // The placeholder's only enabled control is the "All entities" radio, for both roles.
+    expect(hrPlaceholder.filter(([disabled]) => !disabled)).toHaveLength(1);
   });
 
   // (6) Accessibility: named sections, a legend, described disabled controls, nothing focus-trapping.

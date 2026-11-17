@@ -87,7 +87,7 @@ export const RATCHET_RULE_EXPLANATIONS: Record<RatchetRule, string> = {
 const EXISTING_WORKFLOW_MESSAGES: Record<string, string> = {
   WORKFLOW_FORBIDDEN: "You don't have permission to do that.",
   WORKFLOW_NOT_FOUND: "This workflow is not available.",
-  WORKFLOW_CONFLICT: "Someone else changed this workflow. Reload it and try again; nothing was changed.",
+  WORKFLOW_CONFLICT: "Someone else changed this workflow. Nothing was changed. Use Reload to load the latest version, then try again.",
   WORKFLOW_UNAVAILABLE: "Workflows are unavailable right now. Nothing was changed.",
 };
 
@@ -95,8 +95,8 @@ const EXISTING_WORKFLOW_MESSAGES: Record<string, string> = {
 export const GOVERNANCE_ERROR_MESSAGES: Record<GovernanceErrorCode, string> = {
   WORKFLOW_PROPOSAL_OPEN: "This workflow already has an open proposal. Only one proposal can be open at a time.",
   WORKFLOW_PROPOSAL_STALE: "Another change was published first, so this proposal is out of date. Withdraw it and propose the change again.",
-  WORKFLOW_PROPOSAL_NOT_FOUND: "This proposal is no longer available. Reload the workflow.",
-  WORKFLOW_PROPOSAL_STATE_INVALID: "This proposal can't be changed in its current state. Reload the workflow.",
+  WORKFLOW_PROPOSAL_NOT_FOUND: "This proposal is no longer available. Use Reload to load the latest version.",
+  WORKFLOW_PROPOSAL_STATE_INVALID: "This proposal can't be changed in its current state. Use Reload to load the latest version.",
   WORKFLOW_PROPOSAL_CONTENT_CHANGED: "The proposal changed after it was validated. Validate it again before submitting.",
   WORKFLOW_PROPOSAL_KIND_NOT_AVAILABLE: "That kind of proposal is not available yet.",
   WORKFLOW_PROPOSAL_INVALID: "The proposal has problems to fix before it can continue.",
@@ -138,6 +138,11 @@ export function governanceRefusal(error: unknown): GovernanceRefusal {
     issues: Array.isArray(body.issues) ? body.issues : [],
   };
 }
+
+/** Refusals caused by out-of-date local state; the editor offers a Reload for these. */
+export const RELOADABLE_CODES: ReadonlySet<string> = new Set([
+  "WORKFLOW_CONFLICT", "WORKFLOW_PROPOSAL_NOT_FOUND", "WORKFLOW_PROPOSAL_STATE_INVALID", "WORKFLOW_PROPOSAL_STALE",
+]);
 
 export function governanceErrorMessage(error: unknown): string {
   return governanceRefusal(error).message;

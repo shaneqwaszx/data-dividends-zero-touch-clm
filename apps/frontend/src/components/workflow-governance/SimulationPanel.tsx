@@ -13,8 +13,8 @@ import type { SimulationResult } from "../../workflowGovernanceTypes";
 import { GovernanceRefusalPanel, SimulationResultPanel } from "./GovernancePanels";
 
 /** Synthetic only: a fixed server-side scenario catalogue; no case, provider or GoldTier call. */
-export function SimulationPanel({ userId, workflowId, proposalId, stages }: {
-  userId: string; workflowId: string; proposalId: string; stages: WorkflowStage[];
+export function SimulationPanel({ id, userId, workflowId, proposalId, stages }: {
+  id?: string; userId: string; workflowId: string; proposalId: string; stages: WorkflowStage[];
 }) {
   const scenarios = useQuery({
     queryKey: workflowGovernanceQueryKeys.scenarios(userId),
@@ -45,7 +45,7 @@ export function SimulationPanel({ userId, workflowId, proposalId, stages }: {
   }
 
   return (
-    <section className="card" aria-labelledby="simulation-title" data-testid="simulation-panel" style={{ marginBottom: 16 }}>
+    <section id={id} className="card" aria-labelledby="simulation-title" data-testid="simulation-panel" style={{ marginBottom: 16 }}>
       <h2 id="simulation-title">Simulation <span className="tag tag-neutral">Synthetic</span></h2>
       <p className="text-muted">
         Synthetic simulation: fictional companies from a fixed catalogue. No case, document, provider or GoldTier call is read or made, and nothing is saved.
