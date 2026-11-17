@@ -11,8 +11,26 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api_auth import SESSION_COOKIE_NAME
+from app.api_workflow_governance_models import (
+    ApprovalInboxResponse,
+    ComparisonResponse,
+    CreateProposalRequest,
+    DecisionRequest,
+    DecisionResponse,
+    ProposalResponse,
+    SimulateProposalRequest,
+    SimulationResult,
+    SimulationScenario,
+    SubmitProposalRequest,
+    UpdateProposalRequest,
+    ValidateProposalRequest,
+    ValidationReport,
+    WithdrawProposalRequest,
+    WorkflowGovernanceView,
+)
 from app.domain.access import AuthenticatedActor
 from app.domain.models import OnboardingCase
+from app.domain.workflow_governance import GovernanceErrorCode
 from app.domain.workflows import (
     ONBOARDING_LOCKED_STAGES,
     WorkflowAnswerSource,
@@ -26,18 +44,27 @@ from app.domain.workflows import (
     WorkflowTag,
     WorkflowVersion,
 )
-from app.persistence.errors import PersistenceUnavailableError
+from app.persistence.errors import (
+    PersistenceDataInvalidError,
+    PersistenceOutcomeAmbiguousError,
+    PersistenceUnavailableError,
+)
+from app.persistence.workflow_governance_store import (
+    WorkflowGovernanceNotMigratedError,
+    WorkflowHistoryUnavailableError,
+)
 from app.services.authentication import AuthenticationError, AuthenticationService
 from app.services.authorization import CaseAccessPolicy, CaseNotAvailableError
 from app.services.document_errors import DocumentRequestError
 from app.services.document_media import DocumentMediaRouter
 from app.services.onboarding import OnboardingService
+from app.services.workflow_governance import WorkflowGovernanceError, WorkflowGovernanceService
 from app.services.workflow_management import (
     WorkflowConflictError,
     WorkflowForbiddenError,
     WorkflowManagementService,
     WorkflowNotFoundError,
-    WorkflowPublicationFrozenError,
+    WorkflowRouteRetiredError,
     WorkflowValidationError,
     stage_blocks_send,
 )
@@ -67,9 +94,13 @@ class WorkflowResponse(BaseModel):
     audit: tuple[WorkflowAuditEvent, ...]
     locked_stages: tuple[LockedStageResponse, ...]
     updated_at: datetime
+    # P2-1: null until the definition carries its migration marker (contract section 3.1).
+    governance: WorkflowGovernanceView | None = None
 
     @classmethod
-    def from_domain(cls, item: WorkflowDefinition) -> WorkflowResponse:
+    def from_domain(
+        cls, item: WorkflowDefinition, governance: WorkflowGovernanceView | None = None
+    ) -> WorkflowResponse:
         active = item.active_version
         return cls(
             workflow_id=item.workflow_id,
@@ -89,6 +120,7 @@ class WorkflowResponse(BaseModel):
                 for node_id, label in (ONBOARDING_LOCKED_STAGES if item.is_onboarding else ())
             ),
             updated_at=item.updated_at,
+            governance=governance,
         )
 
 
@@ -221,19 +253,6 @@ class CreateWorkflowRequest(BaseModel):
     case_source: WorkflowCaseSource = WorkflowCaseSource.EXISTING_CASE
 
 
-class SaveDraftRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_revision: int = Field(ge=1)
-    stages: tuple[WorkflowStage, ...] = Field(max_length=32)
-
-
-class ActivateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_revision: int = Field(ge=1)
-
-
 class CreateWorkflowCaseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -269,6 +288,7 @@ def build_workflow_router(
     cases: OnboardingService,
     max_upload_bytes: int,
     read_bounded_body: Callable[[Request, int], Awaitable[bytes]],
+    governance: WorkflowGovernanceService | None = None,
 ) -> APIRouter:
     def require_enabled() -> None:
         if service is None:
@@ -303,6 +323,11 @@ def build_workflow_router(
 
         return reauthorize
 
+    def governed() -> WorkflowGovernanceService:
+        if governance is None:
+            raise WorkflowGovernanceError(GovernanceErrorCode.GOVERNANCE_NOT_MIGRATED)
+        return governance
+
     def fresh_case_actor(request: Request, case_id: UUID) -> Callable[[], AuthenticatedActor]:
         session_actor = fresh_actor(request)
 
@@ -315,12 +340,18 @@ def build_workflow_router(
 
     @router.get("/api/workflows", response_model=tuple[WorkflowResponse, ...])
     def list_workflows(request: Request) -> tuple[WorkflowResponse, ...]:
-        return _call(
-            lambda: tuple(
-                WorkflowResponse.from_domain(item)
-                for item in active().list_workflows(_actor(request))
+        def build() -> tuple[WorkflowResponse, ...]:
+            actor = _actor(request)
+            if governance is None:
+                return tuple(
+                    WorkflowResponse.from_domain(item) for item in active().list_workflows(actor)
+                )
+            return tuple(
+                WorkflowResponse.from_domain(item, view)
+                for item, view in governance.list_workflows(actor)
             )
-        )
+
+        return _call(build)
 
     @router.get("/api/workflows/startable", response_model=tuple[StartableWorkflowResponse, ...])
     def startable_workflows(request: Request) -> tuple[StartableWorkflowResponse, ...]:
@@ -349,37 +380,127 @@ def build_workflow_router(
             )
         )
 
+    # Registered before ``/api/workflows/{workflow_id}`` so it is never shadowed.
+    @router.get(
+        "/api/workflows/simulation-scenarios", response_model=tuple[SimulationScenario, ...]
+    )
+    def simulation_scenarios(request: Request) -> tuple[SimulationScenario, ...]:
+        return _call(lambda: governed().simulation_scenarios(_actor(request)))
+
+    @router.get("/api/workflow-approvals", response_model=ApprovalInboxResponse)
+    def approvals_inbox(request: Request) -> ApprovalInboxResponse:
+        return _call(lambda: governed().approvals_inbox(_actor(request)))
+
     @router.get("/api/workflows/{workflow_id}", response_model=WorkflowResponse)
     def get_workflow(workflow_id: str, request: Request) -> WorkflowResponse:
-        return _call(
-            lambda: WorkflowResponse.from_domain(
-                active().get_workflow(_actor(request), workflow_id)
-            )
-        )
+        def build() -> WorkflowResponse:
+            actor = _actor(request)
+            if governance is None:
+                return WorkflowResponse.from_domain(active().get_workflow(actor, workflow_id))
+            return WorkflowResponse.from_domain(*governance.get_workflow(actor, workflow_id))
 
+        return _call(build)
+
+    # Retired legacy routes (contract section 3): still mounted, only to answer 410.
     @router.put("/api/workflows/{workflow_id}/draft", response_model=WorkflowResponse)
-    def save_draft(
-        workflow_id: str, body: SaveDraftRequest, request: Request
-    ) -> WorkflowResponse:
+    def save_draft(workflow_id: str, request: Request) -> WorkflowResponse:
         return _call(
             lambda: WorkflowResponse.from_domain(
                 active().save_draft(
-                    fresh_actor(request),
-                    workflow_id,
-                    expected_revision=body.expected_revision,
-                    stages=body.stages,
+                    fresh_actor(request), workflow_id, expected_revision=1, stages=()
                 )
             )
         )
 
     @router.post("/api/workflows/{workflow_id}/activate", response_model=WorkflowResponse)
-    def activate(workflow_id: str, body: ActivateRequest, request: Request) -> WorkflowResponse:
+    def activate(workflow_id: str, request: Request) -> WorkflowResponse:
         return _call(
             lambda: WorkflowResponse.from_domain(
-                active().activate(
-                    fresh_actor(request), workflow_id, expected_revision=body.expected_revision
-                )
+                active().activate(fresh_actor(request), workflow_id, expected_revision=1)
             )
+        )
+
+    # Governance (ADR-017 section 6, contract section 3): HR authors, a Director decides.
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals",
+        response_model=ProposalResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_proposal(
+        workflow_id: str, body: CreateProposalRequest, request: Request
+    ) -> ProposalResponse:
+        return _call(lambda: governed().create_proposal(fresh_actor(request), workflow_id, body))
+
+    @router.put(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}", response_model=ProposalResponse
+    )
+    def update_proposal(
+        workflow_id: str, proposal_id: str, body: UpdateProposalRequest, request: Request
+    ) -> ProposalResponse:
+        return _call(
+            lambda: governed().update_proposal(fresh_actor(request), workflow_id, proposal_id, body)
+        )
+
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/validate",
+        response_model=ValidationReport,
+    )
+    def validate_proposal(
+        workflow_id: str, proposal_id: str, body: ValidateProposalRequest, request: Request
+    ) -> ValidationReport:
+        return _call(lambda: governed().validate(_actor(request), workflow_id, proposal_id, body))
+
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/simulate",
+        response_model=SimulationResult,
+    )
+    def simulate_proposal(
+        workflow_id: str, proposal_id: str, body: SimulateProposalRequest, request: Request
+    ) -> SimulationResult:
+        return _call(lambda: governed().simulate(_actor(request), workflow_id, proposal_id, body))
+
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/submit",
+        response_model=ProposalResponse,
+    )
+    def submit_proposal(
+        workflow_id: str, proposal_id: str, body: SubmitProposalRequest, request: Request
+    ) -> ProposalResponse:
+        return _call(
+            lambda: governed().submit_proposal(fresh_actor(request), workflow_id, proposal_id, body)
+        )
+
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/withdraw",
+        response_model=ProposalResponse,
+    )
+    def withdraw_proposal(
+        workflow_id: str, proposal_id: str, body: WithdrawProposalRequest, request: Request
+    ) -> ProposalResponse:
+        return _call(
+            lambda: governed().withdraw_proposal(
+                fresh_actor(request), workflow_id, proposal_id, body
+            )
+        )
+
+    @router.get(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/comparison",
+        response_model=ComparisonResponse,
+    )
+    def proposal_comparison(
+        workflow_id: str, proposal_id: str, request: Request
+    ) -> ComparisonResponse:
+        return _call(lambda: governed().comparison(_actor(request), workflow_id, proposal_id))
+
+    @router.post(
+        "/api/workflows/{workflow_id}/proposals/{proposal_id}/decision",
+        response_model=DecisionResponse,
+    )
+    def decide_proposal(
+        workflow_id: str, proposal_id: str, body: DecisionRequest, request: Request
+    ) -> DecisionResponse:
+        return _call(
+            lambda: governed().decide(fresh_actor(request), workflow_id, proposal_id, body)
         )
 
     @router.post(
@@ -614,15 +735,24 @@ def _call[ResponseT](call: Callable[[], ResponseT]) -> ResponseT:
             "WORKFLOW_CONFLICT",
             "This changed elsewhere. Reload and try again.",
         ) from None
-    except WorkflowPublicationFrozenError:
-        raise _error(
-            status.HTTP_409_CONFLICT,
-            "WORKFLOW_PUBLICATION_FROZEN",
-            "Publishing a workflow version is frozen until governed approval is available.",
+    except WorkflowGovernanceError as error:
+        raise HTTPException(
+            status_code=error.status, detail=error.body().model_dump(mode="json")
         ) from None
+    except WorkflowRouteRetiredError:
+        raise _governance_error(GovernanceErrorCode.ROUTE_RETIRED) from None
+    except WorkflowGovernanceNotMigratedError:
+        raise _governance_error(GovernanceErrorCode.GOVERNANCE_NOT_MIGRATED) from None
+    except WorkflowHistoryUnavailableError:
+        raise _governance_error(GovernanceErrorCode.HISTORY_UNAVAILABLE) from None
     except WorkflowValidationError as error:
         raise _error(422, error.code, error.public_message) from None
-    except PersistenceUnavailableError:
+    except (
+        PersistenceUnavailableError,
+        PersistenceOutcomeAmbiguousError,
+        PersistenceDataInvalidError,
+    ):
+        # An ambiguous outcome is never retried automatically: reload, then decide.
         raise _error(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "WORKFLOW_UNAVAILABLE",
@@ -632,3 +762,8 @@ def _call[ResponseT](call: Callable[[], ResponseT]) -> ResponseT:
 
 def _error(code: int, error_code: str, message: str) -> HTTPException:
     return HTTPException(status_code=code, detail={"code": error_code, "message": message})
+
+
+def _governance_error(code: GovernanceErrorCode) -> HTTPException:
+    error = WorkflowGovernanceError(code)
+    return HTTPException(status_code=error.status, detail=error.body().model_dump(mode="json"))

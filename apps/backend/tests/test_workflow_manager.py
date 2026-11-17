@@ -24,10 +24,9 @@ from workflow_publication_seed import (
     capturing_workflow_store,
     publish_draft,
     register_app_store,
-    store_for,
 )
 
-from app.domain.access import SYNTHETIC_USER_PROFILES, AuthenticatedActor
+from app.domain.access import SYNTHETIC_USER_PROFILES, AuthenticatedActor, Role, UserProfile
 from app.domain.workflows import ONBOARDING_WORKFLOW_ID, WorkflowAnswer, WorkflowStage
 from app.main import create_app
 from app.persistence.composition import WorkflowPersistence, build_persistence_bundle
@@ -88,18 +87,54 @@ def enabled_app(workflow_store=None):
     return app
 
 
-def activate_onboarding(director, stages=(STAGE,)):
-    baseline = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
-    saved = director.put(
-        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/draft",
-        json={"expected_revision": baseline["revision"], "stages": list(stages)},
+def governed_publish(client, workflow_id, stages):
+    """Publish ``stages`` the governed way (ADR-017): HR proposes, validates and submits;
+    a Director approves with the exact permanent-obligation acknowledgement."""
+
+    # ``client`` is the Director's session (a second login would end it).
+    hr, director = login(client.app, "hr-admin"), client
+    url = f"/api/workflows/{workflow_id}"
+    current = hr.get(url).json()
+    created = hr.post(
+        f"{url}/proposals",
+        json={"expected_workflow_revision": current["revision"], "stages": list(stages)},
     )
-    assert saved.status_code == 200, saved.json()
-    # Activation is frozen (ADR-017); publish the draft as governed publication will.
-    publish_draft(store_for(director).definitions, ONBOARDING_WORKFLOW_ID, actor_id="olivia-koh")
-    active = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}")
+    assert created.status_code == 201, created.json()
+    proposal = created.json()
+    purl = f"{url}/proposals/{proposal['proposal_id']}"
+    report = hr.post(f"{purl}/validate", json={}).json()
+    assert report["valid"], report
+    submitted = hr.post(
+        f"{purl}/submit",
+        json={
+            "expected_workflow_revision": hr.get(url).json()["revision"],
+            "expected_proposal_revision": proposal["revision"],
+            "content_hash": report["content_hash"],
+        },
+    )
+    assert submitted.status_code == 200, submitted.json()
+    comparison = director.get(f"{purl}/comparison").json()
+    decided = director.post(
+        f"{purl}/decision",
+        json={
+            "outcome": "APPROVE",
+            "reason": "Approved for this test run.",
+            "expected_workflow_revision": director.get(url).json()["revision"],
+            "expected_proposal_revision": submitted.json()["revision"],
+            "content_hash": report["content_hash"],
+            "acknowledged_permanent_obligations": [
+                item["key"] for item in comparison["permanent_obligations"]
+            ],
+        },
+    )
+    assert decided.status_code == 200, decided.json()
+    active = director.get(url)
     assert active.status_code == 200, active.json()
     return active.json()
+
+
+def activate_onboarding(director, stages=(STAGE,)):
+    return governed_publish(director, ONBOARDING_WORKFLOW_ID, stages)
 
 
 def new_case(client, uen="202400001A"):
@@ -138,17 +173,58 @@ def test_it_can_still_be_switched_off():
     ).status_code == 404
 
 
-@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "hr-admin", "support-user"])
-def test_only_the_director_reaches_workflow_definitions(user_id):
+@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "support-user"])
+def test_only_hr_and_the_director_reach_workflow_definitions(user_id):
+    """P2-1 (contract section 3): HR and the Director read; everyone else is refused."""
+
     client = login(enabled_app(), user_id)
     assert client.get("/api/workflows").status_code == 403
+    assert client.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").status_code == 403
     assert client.post(
         "/api/workflows", json={"name": "X", "use_case": "Case refresh", "country": "Singapore"}
     ).status_code == 403
-    assert client.put(
-        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/draft",
-        json={"expected_revision": 1, "stages": []},
-    ).status_code == 403
+
+
+@pytest.mark.parametrize("user_id", ["hr-admin", "olivia-koh"])
+def test_hr_and_the_director_read_workflow_definitions(user_id):
+    client = login(enabled_app(), user_id)
+    listed = client.get("/api/workflows")
+    assert listed.status_code == 200
+    assert [item["workflow_id"] for item in listed.json()] == [ONBOARDING_WORKFLOW_ID]
+    assert listed.json()[0]["governance"]["migrated"] is True
+    single = client.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}")
+    assert single.status_code == 200
+    assert single.json()["governance"]["can_create_proposal"] is (user_id == "hr-admin")
+
+
+def test_only_hr_creates_a_workflow():
+    app = enabled_app()
+    refused = login(app, "olivia-koh").post(
+        "/api/workflows", json={"name": "X", "use_case": "Case refresh", "country": "Singapore"}
+    )
+    assert refused.status_code == 403
+    created = login(app, "hr-admin").post(
+        "/api/workflows", json={"name": "X", "use_case": "Case refresh", "country": "Singapore"}
+    )
+    assert created.status_code == 201, created.json()
+    body = created.json()
+    # D-7: an empty workflow is born governed, unpublished and inactive.
+    assert body["status"] == "DRAFT" and body["active_version"] is None
+    assert body["versions"] == []
+
+
+@pytest.mark.parametrize("user_id", ["maya-lim", "hr-admin", "olivia-koh"])
+def test_the_retired_draft_and_activate_routes_answer_410(user_id):
+    client = login(enabled_app(), user_id)
+    for method, suffix, body in (
+        ("PUT", "draft", {"expected_revision": 1, "stages": []}),
+        ("POST", "activate", {"expected_revision": 1}),
+    ):
+        response = client.request(
+            method, f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/{suffix}", json=body
+        )
+        assert response.status_code == 410
+        assert response.json()["detail"]["code"] == "WORKFLOW_ROUTE_RETIRED"
 
 
 def test_onboarding_workflow_lists_the_locked_stages_and_its_use_case_tag():
@@ -166,8 +242,8 @@ def test_onboarding_workflow_lists_the_locked_stages_and_its_use_case_tag():
 
 
 def test_a_second_onboarding_workflow_cannot_be_created():
-    director = login(enabled_app(), "olivia-koh")
-    response = director.post(
+    hr = login(enabled_app(), "hr-admin")
+    response = hr.post(
         "/api/workflows", json={"name": "X", "use_case": "onboarding", "country": "Singapore"}
     )
     assert response.status_code == 422
@@ -188,50 +264,54 @@ def test_a_second_onboarding_workflow_cannot_be_created():
             ]},
             "WORKFLOW_AUTOFILL_INVALID",
         ),
+        ({**STAGE, "after_node_id": None}, "WORKFLOW_STAGE_POSITION_INVALID"),
+        ({**STAGE, "after_node_id": "FINAL_REVIEW_SEND"}, "WORKFLOW_STAGE_POSITION_INVALID"),
+        ({**STAGE, "after_node_id": "NOT_A_STAGE"}, "WORKFLOW_STAGE_POSITION_INVALID"),
     ],
 )
-def test_incomplete_stages_save_as_a_draft_but_cannot_activate(stage, code):
-    """ADR-017 P2-0: activation is frozen for every draft; nothing is published."""
-    del code
-    director = login(enabled_app(), "olivia-koh")
-    baseline = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
-    saved = director.put(
-        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/draft",
-        json={"expected_revision": baseline["revision"], "stages": [stage]},
+def test_incomplete_stages_save_in_a_proposal_but_cannot_be_submitted(stage, code):
+    """P2-1: structure is checked at validate and submit; nothing is published."""
+
+    app = enabled_app()
+    hr = login(app, "hr-admin")
+    url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
+    baseline = hr.get(url).json()
+    proposal = hr.post(
+        f"{url}/proposals",
+        json={"expected_workflow_revision": baseline["revision"], "stages": [stage]},
     ).json()
-    response = director.post(
-        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/activate",
-        json={"expected_revision": saved["revision"]},
-    )
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "WORKFLOW_PUBLICATION_FROZEN"
-    after = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
-    assert after["revision"] == saved["revision"] and after["versions"] == []
-
-
-@pytest.mark.parametrize("anchor", [None, "FINAL_REVIEW_SEND", "NOT_A_STAGE"])
-def test_an_onboarding_stage_must_follow_a_stage_before_final_review(anchor):
-    director = login(enabled_app(), "olivia-koh")
-    baseline = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
-    response = director.put(
-        f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/draft",
+    purl = f"{url}/proposals/{proposal['proposal_id']}"
+    report = hr.post(f"{purl}/validate", json={}).json()
+    assert not report["valid"] and code in {item["code"] for item in report["issues"]}
+    refused = hr.post(
+        f"{purl}/submit",
         json={
-            "expected_revision": baseline["revision"],
-            "stages": [{**STAGE, "after_node_id": anchor}],
+            "expected_workflow_revision": hr.get(url).json()["revision"],
+            "expected_proposal_revision": proposal["revision"],
+            "content_hash": report["content_hash"],
         },
     )
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "WORKFLOW_STAGE_POSITION_INVALID"
+    assert refused.status_code == 422
+    assert refused.json()["detail"]["code"] == report["issues"][0]["code"]
+    after = hr.get(url).json()
+    assert after["versions"] == [] and after["governance"]["open_proposal"]["state"] == "DRAFT"
 
 
-def test_a_stale_director_edit_is_refused():
-    director = login(enabled_app(), "olivia-koh")
-    baseline = director.get(f"/api/workflows/{ONBOARDING_WORKFLOW_ID}").json()
-    body = {"expected_revision": baseline["revision"], "stages": [STAGE]}
-    url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}/draft"
-    assert director.put(url, json=body).status_code == 200
-    stale = director.put(url, json=body)
-    assert stale.status_code == 409
+def test_a_stale_proposal_edit_is_refused():
+    hr = login(enabled_app(), "hr-admin")
+    url = f"/api/workflows/{ONBOARDING_WORKFLOW_ID}"
+    proposal = hr.post(
+        f"{url}/proposals",
+        json={"expected_workflow_revision": hr.get(url).json()["revision"], "stages": [STAGE]},
+    ).json()
+    body = {
+        "expected_workflow_revision": hr.get(url).json()["revision"],
+        "expected_proposal_revision": proposal["revision"],
+        "stages": [STAGE],
+    }
+    purl = f"{url}/proposals/{proposal['proposal_id']}"
+    assert hr.put(purl, json=body).status_code == 200
+    assert hr.put(purl, json=body).status_code == 409
 
 
 def test_a_stage_reaches_open_cases_and_keeps_unchanged_answers():
@@ -266,10 +346,13 @@ def test_a_stage_reaches_open_cases_and_keeps_unchanged_answers():
     assert [item["status"] for item in moved["stages"]] == ["COMPLETE", "OPEN"]
     assert moved["stages"][0]["fields"][0]["value"] == "Sample"
 
-    changed = {**STAGE, "name": "Renamed stage"}
-    activate_onboarding(director, (changed,))
+    # The ratchet (ADR-017 section 2) forbids removing or renaming a required stage, so the
+    # changed stage only gains an optional field; a changed stage needs confirming again.
+    optional = {"field_id": "alias", "label": "Alias", "kind": "TEXT", "required": False}
+    changed = {**STAGE, "fields": [*STAGE["fields"], optional]}
+    activate_onboarding(director, (changed, second))
     again = onboarding_run(maya, newer)
-    assert [item["status"] for item in again["stages"]] == ["OPEN"]
+    assert [item["status"] for item in again["stages"]] == ["OPEN", "OPEN"]
     assert again["stages"][0]["fields"][0]["value"] == "Sample"
     refilled = maya.post(
         case_url(newer, again, "signatory", "confirm"),
@@ -354,7 +437,7 @@ def test_an_active_workflow_is_startable_by_rm_or_onboarder_and_stages_open_in_o
     app = enabled_app()
     director, maya = login(app, "olivia-koh"), login(app, "maya-lim")
     case_id = new_case(maya)
-    created = director.post(
+    created = login(director.app, "hr-admin").post(
         "/api/workflows",
         json={
             "name": "Corporate refresh",
@@ -366,10 +449,7 @@ def test_an_active_workflow_is_startable_by_rm_or_onboarder_and_stages_open_in_o
     assert maya.post(f"{url}/runs", json={"case_id": case_id}).status_code == 422
     assert maya.get("/api/workflows/startable").json() == []
 
-    director.put(
-        f"{url}/draft", json={"expected_revision": created["revision"], "stages": REFRESH_STAGES}
-    ).json()
-    publish_draft(store_for(director).definitions, url.rsplit("/", 1)[1])
+    governed_publish(director, created["workflow_id"], REFRESH_STAGES)
 
     assert maya.get("/api/workflows/startable").json() == [
         {
@@ -414,17 +494,15 @@ def test_an_active_workflow_is_startable_by_rm_or_onboarder_and_stages_open_in_o
 def test_an_existing_case_workflow_needs_a_case_that_finished_onboarding():
     case = FakeCase()
     service = service_with_stage(case)
-    actor = director_actor()
     created = service.create_workflow(
-        lambda: actor, name="Refresh", use_case="Refresh", country="Singapore"
+        lambda: hr_actor(), name="Refresh", use_case="Refresh", country="Singapore"
     )
-    service.save_draft(
-        lambda: actor,
+    publish_draft(
+        service._definitions,  # noqa: SLF001
         created.workflow_id,
-        expected_revision=created.revision,
         stages=(WorkflowStage.model_validate(REFRESH_STAGES[0]),),
+        now=service._clock(),  # noqa: SLF001
     )
-    publish_draft(service._definitions, created.workflow_id, now=service._clock())  # noqa: SLF001
     filler = filler_actor()
     with pytest.raises(WorkflowValidationError) as refused:
         service.start_run(lambda: filler, created.workflow_id, case_id=case.case_id)
@@ -436,7 +514,7 @@ def test_an_existing_case_workflow_needs_a_case_that_finished_onboarding():
 
 
 def new_case_workflow(director):
-    created = director.post(
+    created = login(director.app, "hr-admin").post(
         "/api/workflows",
         json={"name": "R", "use_case": "R", "country": "SG", "case_source": "NEW_CASE"},
     ).json()
@@ -445,10 +523,7 @@ def new_case_workflow(director):
         {"field_id": "reference", "label": "Reference", "kind": "TEXT", "autofill": True,
          "document_label": "Reference"},
     ]}
-    director.put(
-        f"{url}/draft", json={"expected_revision": created["revision"], "stages": [stage]}
-    ).json()
-    publish_draft(store_for(director).definitions, url.rsplit("/", 1)[1])
+    governed_publish(director, created["workflow_id"], [stage])
     return url
 
 
@@ -535,7 +610,7 @@ def test_each_workflow_type_only_starts_its_own_way():
     url = new_case_workflow(director)
     refused = maya.post(f"{url}/runs", json={"case_id": new_case(maya)})
     assert refused.json()["detail"]["code"] == "WORKFLOW_NOT_STARTABLE"
-    created = director.post(
+    created = login(director.app, "hr-admin").post(
         "/api/workflows", json={"name": "E", "use_case": "E", "country": "SG"}
     ).json()
     response = maya.post(f"/api/workflows/{created['workflow_id']}/new-cases", json=COMPANY)
@@ -550,17 +625,15 @@ def existing_workflow_service(case, values, runs=None):
 
 
 def start_with(service, case, stage):
-    actor = director_actor()
     created = service.create_workflow(
-        lambda: actor, name="Refresh", use_case="Refresh", country="Singapore"
+        lambda: hr_actor(), name="Refresh", use_case="Refresh", country="Singapore"
     )
-    service.save_draft(
-        lambda: actor,
+    publish_draft(
+        service._definitions,  # noqa: SLF001
         created.workflow_id,
-        expected_revision=created.revision,
         stages=(WorkflowStage.model_validate(stage),),
+        now=service._clock(),  # noqa: SLF001
     )
-    publish_draft(service._definitions, created.workflow_id, now=service._clock())  # noqa: SLF001
     return service.start_run(
         lambda: filler_actor(), created.workflow_id, case_id=case.case_id
     )
@@ -651,7 +724,7 @@ def test_a_failed_send_is_not_finished_onboarding():
 def test_a_changed_stage_refuses_a_stale_screen_and_drops_a_now_invalid_answer():
     case = FakeCase()
     service = service_with_stage(case)
-    filler, director = filler_actor(), director_actor()
+    filler = filler_actor()
     run = service.case_view(case).onboarding
     saved = service.save_answers(
         lambda: filler, case_id=case.case_id, run_id=run.run_id, stage_id="signatory",
@@ -661,12 +734,12 @@ def test_a_changed_stage_refuses_a_stale_screen_and_drops_a_now_invalid_answer()
     changed["fields"] = [
         {"field_id": "full-name", "label": "Full name", "kind": "NUMBER", "required": True},
     ]
-    baseline = service.get_workflow(director, ONBOARDING_WORKFLOW_ID)
-    service.save_draft(
-        lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=baseline.revision,
+    publish_draft(
+        service._definitions,  # noqa: SLF001
+        ONBOARDING_WORKFLOW_ID,
         stages=(WorkflowStage.model_validate(changed),),
+        now=service._clock(),  # noqa: SLF001
     )
-    publish_draft(service._definitions, ONBOARDING_WORKFLOW_ID, now=service._clock())  # noqa: SLF001
     case.created_at = datetime(2031, 1, 1, tzinfo=UTC)
 
     with pytest.raises(WorkflowConflictError):
@@ -752,13 +825,12 @@ def test_a_document_after_sending_leaves_the_onboarding_stage_alone():
 
 
 def activate_stage(service, stage):
-    director = director_actor()
-    baseline = service.get_workflow(director, ONBOARDING_WORKFLOW_ID)
-    service.save_draft(
-        lambda: director, ONBOARDING_WORKFLOW_ID, expected_revision=baseline.revision,
+    publish_draft(
+        service._definitions,  # noqa: SLF001
+        ONBOARDING_WORKFLOW_ID,
         stages=(WorkflowStage.model_validate(stage),),
+        now=service._clock(),  # noqa: SLF001
     )
-    publish_draft(service._definitions, ONBOARDING_WORKFLOW_ID, now=service._clock())  # noqa: SLF001
 
 
 def test_a_screen_two_versions_behind_is_still_refused():
@@ -796,7 +868,11 @@ def test_a_screen_on_an_old_version_of_an_unsaved_stage_is_refused():
     stale = onboarding_run(maya, case_id)
     assert stale["revision"] == 0
 
-    relabelled = {**STAGE, "fields": [{**STAGE["fields"][0], "label": "Sanctions declaration"}]}
+    # Only an optional field may be relabelled (the ratchet keeps required labels, RR-5).
+    relabelled = {
+        **STAGE,
+        "fields": [*STAGE["fields"][:2], {**STAGE["fields"][2], "label": "Sanctions declaration"}],
+    }
     activate_onboarding(director, (relabelled,))
     refused = maya.put(
         case_url(case_id, stale, "signatory", "answers"),
@@ -805,7 +881,7 @@ def test_a_screen_on_an_old_version_of_an_unsaved_stage_is_refused():
     assert refused.status_code == 409
 
     current = onboarding_run(maya, case_id)
-    assert current["stages"][0]["fields"][0]["label"] == "Sanctions declaration"
+    assert current["stages"][0]["fields"][2]["label"] == "Sanctions declaration"
     saved = maya.put(
         case_url(case_id, current, "signatory", "answers"),
         json={"expected_revision": current["revision"], "values": {"full-name": "New answer"}},
@@ -863,7 +939,7 @@ def test_onboarding_cannot_be_started_as_a_run():
 def test_a_run_cannot_start_on_an_absent_or_other_team_case():
     app = enabled_app()
     director, maya, sophia = (login(app, item) for item in ("olivia-koh", "maya-lim", "sophia-ng"))
-    created = director.post(
+    created = login(director.app, "hr-admin").post(
         "/api/workflows", json={"name": "R", "use_case": "Case refresh", "country": "Singapore"}
     ).json()
     assert sophia.post(
@@ -958,12 +1034,16 @@ def director_actor():
     return actor_for("olivia-koh")
 
 
+def hr_actor():
+    profile = UserProfile(user_id="hr-admin", display_name="HR", role=Role.HR, team_id=None)
+    return AuthenticatedActor.model_construct(profile=profile)
+
+
 def filler_actor():
     return actor_for("maya-lim")
 
 
 def service_with_stage(case, runs=None):
-    actor = director_actor()
     service = WorkflowManagementService(
         definitions=InMemoryWorkflowDefinitionRepository(),
         runs=runs or InMemoryWorkflowRunRepository(),
@@ -971,14 +1051,12 @@ def service_with_stage(case, runs=None):
         clock=lambda: datetime(2029, 1, 1, tzinfo=UTC),
     )
     service.provision_onboarding()
-    baseline = service.get_workflow(actor, ONBOARDING_WORKFLOW_ID)
-    service.save_draft(
-        lambda: actor,
+    publish_draft(
+        service._definitions,  # noqa: SLF001
         ONBOARDING_WORKFLOW_ID,
-        expected_revision=baseline.revision,
         stages=(WorkflowStage.model_validate(STAGE),),
+        now=service._clock(),  # noqa: SLF001
     )
-    publish_draft(service._definitions, ONBOARDING_WORKFLOW_ID, now=service._clock())  # noqa: SLF001
     return service
 
 
@@ -1089,14 +1167,11 @@ def test_a_really_onboarded_company_loads_its_case_data_into_a_workflow():
         director = login(client.app, "olivia-koh")
         current = prepare(client, company)
         assert confirm(client, current)["status"] == "COMPLETED"
-        created = director.post(
+        created = login(director.app, "hr-admin").post(
             "/api/workflows", json={"name": "Refresh", "use_case": "R", "country": "SG"}
         ).json()
         url = f"/api/workflows/{created['workflow_id']}"
-        director.put(
-            f"{url}/draft", json={"expected_revision": created["revision"], "stages": [stage]}
-        ).json()
-        publish_draft(store_for(director).definitions, url.rsplit("/", 1)[1])
+        governed_publish(director, created["workflow_id"], [stage])
         started = client.post(f"{url}/runs", json={"case_id": current["case"]["case_id"]})
         assert started.status_code == 201, started.json()
         fields = {item["label"]: item for item in started.json()["stages"][0]["fields"]}

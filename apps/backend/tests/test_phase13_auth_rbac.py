@@ -1219,11 +1219,12 @@ def test_every_current_application_route_is_deliberately_classified(
 
     assert actual == expected
     # ADR-017 P2-0 retires the legacy CLM target confirmation route.
-    assert len(expected) == len(ROUTE_POLICIES) == 106
+    # P2-1 (ADR-017 section 6) adds the ten governance routes.
+    assert len(expected) == len(ROUTE_POLICIES) == 116
     assert counts == {
         RouteAccess.PUBLIC: 2,
         # Includes the C9 HR self-service password change.
-        RouteAccess.ACTOR_ONLY: 46,
+        RouteAccess.ACTOR_ONLY: 56,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
         # D-095 adds the case-scoped document-digests read.
