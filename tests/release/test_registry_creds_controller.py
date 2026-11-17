@@ -414,7 +414,15 @@ def prepared(
         render, "validate_release_config", lambda gate, root, manifest: ["assistant"]
     )
     world = FakeWorld(sample)
-    world._local = lambda command: Result(0, sample["source"]["commit"] + "\n")  # type: ignore[method-assign]
+
+    def local(command: Command) -> Result:
+        commit = sample["source"]["commit"]
+        if command.argv[:2] == ("git", "for-each-ref"):
+            assert command.argv[-1] == "refs/remotes/origin/main"
+            return Result(0, f"refs/remotes/origin/main {commit} commit \n")
+        return Result(0, commit + "\n")
+
+    world._local = local  # type: ignore[method-assign]
     store = StateStore(tmp_path / "state", Clock())
     gate = Gate(world, Mode.LOCAL, AuditLog(path=tmp_path / "audit.jsonl"))
     instance = controller.Controller(gate, REPO, store, Clock())
@@ -455,6 +463,63 @@ def test_controller_prepares_a_promotion_ready_record_and_stops_there(
         json.loads((tmp_path / "state" / "seen-main.json").read_text())["commit"]
         == manifest["source"]["commit"]
     )
+
+
+@pytest.mark.parametrize("entry", ["manifest", "inbox"])
+@pytest.mark.parametrize(
+    ("base_ref", "error_code"),
+    [
+        ("origin/release/n7a-reader-20261117", None),
+        (None, "REQUEST_INVALID"),
+        (42, "REQUEST_INVALID"),
+        ("refs/remotes/origin/main", "BASE_REF_NOT_ALLOWED"),
+    ],
+)
+def test_release_request_validates_base_ref_at_both_entry_points(
+    prepared: tuple[controller.Controller, FakeWorld, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    entry: str,
+    base_ref: object,
+    error_code: str | None,
+) -> None:
+    instance, _, tmp_path = prepared
+    path = instance.inbox / "one.json"
+    request = json.loads(path.read_text(encoding="utf-8"))
+    request.update(base_ref=base_ref, tree="1" * 40)
+    path.write_text(json.dumps(request), encoding="utf-8")
+
+    def verified(gate: Gate, root: Path, **kwargs: Any) -> source.SourceState:
+        assert error_code is None
+        assert kwargs["base_ref"] == base_ref and kwargs["tree"] == request["tree"]
+        return source.SourceState(
+            kwargs["commit"], kwargs["tree"], kwargs["base_ref"], "N7A_READER_LINEAGE"
+        )
+
+    monkeypatch.setattr(source, "verify_source", verified)
+    if entry == "manifest":
+        target = tmp_path / "manifest.json"
+        result = cli.main(
+            [
+                "--state-dir", str(instance.store.root),
+                "manifest", "--request", str(path), "--out", str(target), "--skip-checks",
+            ]
+        )
+        if error_code is not None:
+            assert result != 0 and error_code in capsys.readouterr().err
+            assert not target.exists()
+            return
+        assert result == 0
+    else:
+        status, = instance.tick(run_checks=False)
+        if error_code is not None:
+            assert (status["state"], status["code"]) == (controller.FAILED, error_code)
+            return
+        assert status["state"] == controller.PROMOTION_READY
+        target = Path(status["manifest"])
+    manifest_source = json.loads(target.read_text(encoding="utf-8"))["source"]
+    assert manifest_source["base_ref"] == base_ref
+    assert manifest_source["base_reason"] == "N7A_READER_LINEAGE"
 
 
 def test_controller_mode_cannot_publish_or_deploy_even_if_asked(

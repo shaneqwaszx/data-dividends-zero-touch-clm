@@ -556,3 +556,80 @@ def test_only_the_owner_at_a_terminal_can_create_an_approval(tmp_path: Path) -> 
     check(manifest, record, Clock(NOW + timedelta(minutes=1)))
     with pytest.raises(StopCondition):
         approvals.save_approval(path, record)
+
+
+# -- T-1: a release-branch source is recorded and shown at approval ------------------------
+
+
+def _approval_arguments() -> dict[str, object]:
+    return {
+        "services": ["frontend"],
+        "actions": ["deploy"],
+        "auto_rollback": True,
+        "not_before": "2026-11-14T10:00:00Z",
+        "expires_at": "2026-11-14T12:00:00Z",
+        "approved_by": "owner",
+        "clock": Clock(),
+    }
+
+
+def test_the_manifest_records_only_known_base_reasons() -> None:
+    manifest = make_manifest(["frontend"])
+    manifests.validate_manifest(manifest)  # no base_reason: an older manifest stays valid
+    manifest["source"]["base_reason"] = "N7A_READER_LINEAGE"
+    manifest["source"]["base_ref"] = "origin/release/n7a-reader-20261117"
+    manifests.validate_manifest(manifest)
+    manifest["source"]["base_reason"] = "ANY_REASON"
+    with pytest.raises(ReleaseError) as refused:
+        manifests.validate_manifest(manifest)
+    assert refused.value.code == "MANIFEST_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("base_ref", "base_reason"),
+    [
+        ("origin/release/n7a-reader-20261117", None),
+        ("origin/release/n7a-reader-20261117", "INTEGRATION_BASELINE"),
+        ("origin/main", "N7A_READER_LINEAGE"),
+        ("origin/release/n7a-reader-2026111", "N7A_READER_LINEAGE"),
+        ("origin/other", None),
+    ],
+)
+def test_manifest_refuses_inconsistent_or_unsupported_source_lineage(
+    base_ref: str, base_reason: str | None
+) -> None:
+    manifest = make_manifest(["frontend"])
+    manifest["source"]["base_ref"] = base_ref
+    if base_reason is not None:
+        manifest["source"]["base_reason"] = base_reason
+    with pytest.raises(ReleaseError) as refused:
+        manifests.validate_manifest(manifest)
+    assert refused.value.code == "MANIFEST_INVALID"
+
+
+def test_manifest_accepts_explicit_integration_base_reason() -> None:
+    manifest = make_manifest(["frontend"])
+    manifest["source"]["base_reason"] = "INTEGRATION_BASELINE"
+    manifests.validate_manifest(manifest)
+
+
+def test_the_approval_prompt_says_when_the_source_is_not_main() -> None:
+    prompts: list[str] = []
+
+    def confirm(text: str) -> str:
+        prompts.append(text)
+        return "wrong"
+
+    plain = make_manifest(["frontend"])
+    with pytest.raises(StopCondition):
+        approvals.create_approval(plain, confirm=confirm, interactive=True, **_approval_arguments())  # type: ignore[arg-type]
+    assert "NOT origin/main" not in prompts[-1]
+    reader = make_manifest(["frontend"])
+    reader["source"]["base_ref"] = "origin/release/n7a-reader-20261117"
+    reader["source"]["base_reason"] = "N7A_READER_LINEAGE"
+    with pytest.raises(StopCondition):
+        approvals.create_approval(reader, confirm=confirm, interactive=True, **_approval_arguments())  # type: ignore[arg-type]
+    assert (
+        "SOURCE IS NOT origin/main: release branch origin/release/n7a-reader-20261117 "
+        "(N7A_READER_LINEAGE)."
+    ) in prompts[-1]

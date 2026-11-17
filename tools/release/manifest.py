@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from . import catalog
+from . import catalog, source
 from .core import ReleaseError, StopCondition, canonical_hash, read_json
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schema"
@@ -155,6 +155,14 @@ def validate_manifest(manifest: Any) -> None:
     errors = schema_errors(manifest, schema, schema)
     if errors:
         raise ReleaseError("MANIFEST_INVALID", "; ".join(errors[:8]))
+    provenance = manifest["source"]
+    try:
+        reason = source.release_base_reason(provenance["base_ref"])
+    except StopCondition as error:
+        raise ReleaseError("MANIFEST_INVALID", "source.base_ref is not allowed") from error
+    recorded_reason = provenance.get("base_reason", source.INTEGRATION_REASON)
+    if recorded_reason != reason:
+        raise ReleaseError("MANIFEST_INVALID", "source.base_reason must match source.base_ref")
     changed: list[str] = manifest["services_changed"]
     unchanged: list[str] = manifest["services_unchanged"]
     if set(changed) & set(unchanged):

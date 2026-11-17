@@ -40,6 +40,7 @@
         "commit": {"$ref": "#/$defs/git40"},
         "tree": {"$ref": "#/$defs/git40"},
         "base_ref": {"type": "string"},
+        "base_reason": {"enum": ["INTEGRATION_BASELINE", "N7A_READER_LINEAGE"]},
         "clean": {"const": true},
         "pull_request": {"type": ["integer", "null"]}
       }

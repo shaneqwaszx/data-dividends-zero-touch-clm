@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from tools.release import catalog, images, render, source
+from tools.release import catalog, controller, images, render, source
 from tools.release.core import (
     AuditLog,
     Command,
@@ -31,6 +31,7 @@ from tools.release.core import (
     sha256_bytes,
 )
 from tools.release.effective_summary import summarise
+from tools.release.records import StateStore
 
 from .fakes import REPO, make_manifest
 
@@ -117,6 +118,244 @@ def test_commit_that_is_not_on_the_integration_baseline_is_refused(repo: Path) -
     with pytest.raises(StopCondition) as refused:
         source.verify_source(local_gate(), repo, commit=git(repo, "rev-parse", "HEAD"))
     assert refused.value.code == "COMMIT_NOT_ON_BASE"
+
+
+# -- T-1: an allow-listed release branch as the source base ----------------------------------
+
+READER_BRANCH = "origin/release/n7a-reader-20261117"
+
+
+def release_commit(repo: Path, *, push: bool = True) -> tuple[str, str]:
+    """A one-commit release branch on top of origin/main, optionally 'pushed' (the
+    remote-tracking ref exists); returns (commit, tree) and leaves it checked out."""
+
+    (repo / "reader.txt").write_text("reader\n", encoding="utf-8")
+    git(repo, "add", "reader.txt")
+    git(repo, "commit", "-q", "-m", "reader release")
+    head, tree = git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "HEAD^{tree}")
+    if push:
+        git(repo, "update-ref", f"refs/remotes/{READER_BRANCH}", head)
+    return head, tree
+
+
+def test_the_default_base_is_unchanged(repo: Path) -> None:
+    head, tree = git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "HEAD^{tree}")
+    state = source.verify_source(local_gate(), repo, commit=head, tree=tree)
+    assert state.tree == tree
+    assert (state.base_ref, state.base_reason) == ("origin/main", "INTEGRATION_BASELINE")
+    explicit = source.verify_source(local_gate(), repo, commit=head, base_ref="origin/main")
+    assert explicit == source.verify_source(local_gate(), repo, commit=head)
+
+
+def test_an_allow_listed_release_branch_tip_with_its_tree_is_accepted(repo: Path) -> None:
+    head, tree = release_commit(repo)
+    state = source.verify_source(
+        local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH
+    )
+    assert state.base_ref == READER_BRANCH and state.base_reason == "N7A_READER_LINEAGE"
+    assert (state.commit, state.tree) == (head, tree)
+    # The same commit is still refused against the integration baseline.
+    with pytest.raises(StopCondition) as main:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree)
+    assert main.value.code == "COMMIT_NOT_ON_BASE"
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "origin/release/c9-20261116",
+        "release/n7a-reader-20261117",
+        "refs/remotes/origin/release/n7a-reader-20261117",
+        "origin/release/n7a-reader-2026111",
+        "origin/release/n7a-reader-20261117-x",
+        "origin/release/n7a-reader-20261117/../main",
+        "origin/feature/anything",
+        "upstream/main",
+        "",
+    ],
+)
+def test_any_other_base_is_refused_before_anything_is_read(repo: Path, base: str) -> None:
+    head, tree = release_commit(repo)
+    gate = local_gate()
+    with pytest.raises(StopCondition) as refused:
+        source.verify_source(gate, repo, commit=head, tree=tree, base_ref=base)
+    assert refused.value.code == "BASE_REF_NOT_ALLOWED"
+    assert gate.issued == []
+
+
+def test_a_release_branch_base_requires_the_approved_tree(repo: Path) -> None:
+    head, tree = release_commit(repo)
+    with pytest.raises(StopCondition) as missing:
+        source.verify_source(local_gate(), repo, commit=head, base_ref=READER_BRANCH)
+    assert missing.value.code == "TREE_REQUIRED"
+    with pytest.raises(StopCondition) as wrong:
+        source.verify_source(
+            local_gate(), repo, commit=head, tree="1" * 40, base_ref=READER_BRANCH
+        )
+    assert wrong.value.code == "WRONG_TREE"
+    exact = source.verify_source(
+        local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH
+    )
+    assert exact.tree == tree
+
+
+def test_a_local_branch_of_the_same_name_is_not_enough(repo: Path) -> None:
+    head, tree = release_commit(repo, push=False)
+    git(repo, "branch", "origin/release/n7a-reader-20261117", head)  # a local look-alike
+    with pytest.raises(ReleaseError) as refused:
+        source.verify_source(
+            local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH
+        )
+    assert refused.value.code == "GIT_FAILED"
+
+
+@pytest.mark.parametrize("namespace", [None, "tags", "heads"])
+def test_reader_release_requires_the_exact_remote_ref(repo: Path, namespace: str | None) -> None:
+    head, tree = release_commit(repo, push=False)
+    if namespace is not None:
+        git(repo, "update-ref", f"refs/{namespace}/refs/remotes/{READER_BRANCH}", head)
+    with pytest.raises(ReleaseError) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH)
+    assert refused.value.code == "GIT_FAILED"
+
+
+@pytest.mark.parametrize("namespace", [None, "tags", "heads"])
+@pytest.mark.parametrize("reader", [False, True])
+def test_main_requires_the_exact_remote_ref(
+    repo: Path, namespace: str | None, reader: bool
+) -> None:
+    git(repo, "update-ref", "-d", "refs/remotes/origin/main")
+    if namespace is not None:
+        git(repo, "update-ref", f"refs/{namespace}/origin/main", "HEAD")
+        git(repo, "update-ref", f"refs/{namespace}/refs/remotes/origin/main", "HEAD")
+    base_ref = READER_BRANCH if reader else "origin/main"
+    head, tree = release_commit(repo) if reader else (
+        git(repo, "rev-parse", "HEAD"),
+        git(repo, "rev-parse", "HEAD^{tree}"),
+    )
+    with pytest.raises(ReleaseError) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=base_ref)
+    assert refused.value.code == "GIT_FAILED"
+
+
+@pytest.mark.parametrize("base_ref", ["origin/main", READER_BRANCH])
+def test_remote_tracking_ref_must_point_to_a_commit(repo: Path, base_ref: str) -> None:
+    head, tree = release_commit(repo) if base_ref == READER_BRANCH else (
+        git(repo, "rev-parse", "HEAD"),
+        git(repo, "rev-parse", "HEAD^{tree}"),
+    )
+    git(repo, "tag", "-a", "annotated", "-m", "tag object", head)
+    git(repo, "update-ref", f"refs/remotes/{base_ref}", "refs/tags/annotated")
+    with pytest.raises(ReleaseError) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=base_ref)
+    assert refused.value.code == "GIT_FAILED"
+
+
+@pytest.mark.parametrize("chained", [False, True], ids=["symbolic", "chained"])
+@pytest.mark.parametrize("entry", ["reader-tip", "reader-parent", "default", "notice"])
+def test_symbolic_remote_tracking_refs_are_refused(
+    repo: Path, tmp_path: Path, chained: bool, entry: str
+) -> None:
+    if entry == "reader-tip":
+        head, tree = release_commit(repo, push=False)
+        git(repo, "branch", "local-lineage", head)
+        ref = READER_BRANCH
+    else:
+        git(repo, "commit", "-q", "--allow-empty", "-m", "local-only commit")
+        git(repo, "branch", "local-lineage", "HEAD")
+        if entry == "reader-parent":
+            head, tree = release_commit(repo)
+        else:
+            head = git(repo, "rev-parse", "HEAD")
+            tree = git(repo, "rev-parse", "HEAD^{tree}")
+        ref = "origin/main"
+
+    target = "refs/heads/local-lineage"
+    if chained:
+        intermediate = "refs/remotes/origin/intermediate"
+        git(repo, "symbolic-ref", intermediate, target)
+        target = intermediate
+    git(repo, "symbolic-ref", f"refs/remotes/{ref}", target)
+
+    gate = local_gate()
+    if entry == "notice":
+        state_dir = tmp_path / "controller-state"
+        watcher = controller.Controller(gate, repo, StateStore(state_dir))
+        assert watcher.detect_new_commit() is None
+        assert not (state_dir / "seen-main.json").exists()
+        return
+
+    kwargs = {"base_ref": READER_BRANCH} if entry.startswith("reader-") else {}
+    with pytest.raises(ReleaseError, match="symbolic") as refused:
+        source.verify_source(gate, repo, commit=head, tree=tree, **kwargs)
+    assert refused.value.code == "GIT_FAILED"
+
+
+def test_a_ref_below_the_exact_reader_name_is_not_a_substitute(repo: Path) -> None:
+    head, tree = release_commit(repo, push=False)
+    git(repo, "update-ref", f"refs/remotes/{READER_BRANCH}/descendant", head)
+    with pytest.raises(ReleaseError) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH)
+    assert refused.value.code == "GIT_FAILED"
+
+
+def test_a_main_tag_cannot_override_the_exact_parent_check(repo: Path) -> None:
+    git(repo, "commit", "-q", "--allow-empty", "-m", "unmerged parent")
+    git(repo, "tag", "origin/main", "HEAD")
+    head, tree = release_commit(repo)
+    with pytest.raises(StopCondition) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH)
+    assert refused.value.code == "PARENT_NOT_ON_BASE"
+
+
+def test_the_commit_must_be_the_release_branch_tip(repo: Path) -> None:
+    head, tree = release_commit(repo)
+    (repo / "later.txt").write_text("later\n", encoding="utf-8")
+    git(repo, "add", "later.txt")
+    git(repo, "commit", "-q", "-m", "later")
+    later = git(repo, "rev-parse", "HEAD")
+    git(repo, "update-ref", f"refs/remotes/{READER_BRANCH}", later)
+    git(repo, "checkout", "-q", head)
+    with pytest.raises(StopCondition) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH)
+    assert refused.value.code == "COMMIT_NOT_BRANCH_TIP"
+
+
+def test_the_release_commit_parent_must_be_on_the_integration_baseline(repo: Path) -> None:
+    (repo / "unmerged.txt").write_text("not on main\n", encoding="utf-8")
+    git(repo, "add", "unmerged.txt")
+    git(repo, "commit", "-q", "-m", "unmerged parent")
+    head, tree = release_commit(repo)
+    with pytest.raises(StopCondition) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH)
+    assert refused.value.code == "PARENT_NOT_ON_BASE"
+
+
+def test_a_merge_commit_is_not_a_release_branch_commit(repo: Path) -> None:
+    main = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", "side")
+    (repo / "side.txt").write_text("side\n", encoding="utf-8")
+    git(repo, "add", "side.txt")
+    git(repo, "commit", "-q", "-m", "side")
+    git(repo, "checkout", "-q", "-b", "rel", main)
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge", "side")
+    head, tree = git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "HEAD^{tree}")
+    git(repo, "update-ref", f"refs/remotes/{READER_BRANCH}", head)
+    with pytest.raises(StopCondition) as refused:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH)
+    assert refused.value.code == "RELEASE_COMMIT_SHAPE"
+
+
+def test_the_release_checks_stay_clean_and_exact_on_a_release_branch(repo: Path) -> None:
+    head, tree = release_commit(repo)
+    (repo / "stray.txt").write_text("x\n", encoding="utf-8")
+    with pytest.raises(StopCondition) as dirty:
+        source.verify_source(local_gate(), repo, commit=head, tree=tree, base_ref=READER_BRANCH)
+    assert dirty.value.code == "SOURCE_NOT_CLEAN"
+    (repo / "stray.txt").unlink()
+    with pytest.raises(StopCondition) as short:
+        source.verify_source(local_gate(), repo, commit=head[:12], tree=tree, base_ref=READER_BRANCH)
+    assert short.value.code == "COMMIT_NOT_EXACT"
 
 
 def test_compose_hashes_come_from_the_commit_not_the_work_tree(repo: Path) -> None:
